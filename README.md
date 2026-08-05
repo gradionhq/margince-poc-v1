@@ -137,7 +137,7 @@ Connect an agent (Surface A2): the api serves the governed tool surface
 at `/mcp`, on the same origin as `/oauth/*` and the discovery documents.
 A client needs only the URL:
 
-```
+```bash
 claude mcp add --transport http margince <base>/mcp
 ```
 
@@ -254,7 +254,7 @@ per-client throttling at the proxy.
   permission-policy documents, and the governing rule
   recorded in `audit_log.authorization_rule`.
 - **MCP/agent surface (EP06 WP4, Surface A2)**: Agent Seat Passports
-  (`POST /passports` mints a scoped, expiring, revocable `mgp_` bearer
+  (`POST /v1/passports` mints a scoped, expiring, revocable `mgp_` bearer
   token bound to its issuer — "agent ≤ human" structurally, and live:
   the granting human's seat + RBAC are re-derived at every admission
   through the `shared/ports/authz` seam), the `platform/auth` gate

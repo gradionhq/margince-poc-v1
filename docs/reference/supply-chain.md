@@ -24,7 +24,9 @@ input is the committed content of `HEAD`.
 that export, and deletes it again on the way out (a shell `trap`). Scanning an
 export rather than the working tree is the reason host state — `node_modules`,
 `.env`, editor files, an uncommitted experiment — can never leak into an SBOM,
-and it keeps `.gitignore` the single authority on what is committed.
+and it makes the committed content of `HEAD` the single authority on what is
+scanned. (`.gitignore` is not that authority: it does not remove a file already
+tracked in `HEAD`, and `git add -f` can commit an ignored one.)
 
 One scan, three documents:
 
@@ -62,7 +64,7 @@ Scan policy lives in [`.syft.yaml`](../../.syft.yaml); the Makefile owns the
 each document rather than only in a filename — which is what puts it under
 cosign's signature.
 
-```
+```make
 SBOM_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse HEAD 2>/dev/null || echo unknown)")
 ```
 
@@ -113,7 +115,7 @@ parity itself, and CI runs `make sbom`, so every CI run is guarded.
 
 `make sbom-check` runs **grant** against the CycloneDX document only:
 
-```
+```bash
 grant check sboms/margince.cdx.json -c .grant.yaml
 ```
 

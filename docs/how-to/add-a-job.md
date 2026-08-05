@@ -43,14 +43,14 @@ workspace kind that does one tenant's work. Declare both.
    honest.
 
 2. **Regenerate** — `make gen`. `backend/tools/gen-jobs` validates the whole contract and rewrites
-   two files (never hand-edit either): `internal/platform/jobs/specs_gen.go`, the Spec table every
-   reader walks, and `internal/compose/jobkinds_gen.go`, the closed `declaredJobArgs` union plus one
+   two files (never hand-edit either): `backend/internal/platform/jobs/specs_gen.go`, the Spec table every
+   reader walks, and `backend/internal/compose/jobkinds_gen.go`, the closed `declaredJobArgs` union plus one
    compile-time role assertion per kind. This step fails loudly on a contract that cannot hold — a
    missing timeout, a fan-out to a kind nobody declares, a cadence on a workspace kind.
 
    The build does **not** compile yet: the generated assertions name args types you have not written.
 
-3. **Write the args type** — in the matching `internal/compose/jobs_<concern>.go` (create one for a
+3. **Write the args type** — in the matching `backend/internal/compose/jobs_<concern>.go` (create one for a
    new concern). A workspace kind carries its tenant in a field named `Workspace`, because Go forbids
    a method and a field of the same name, and the wire key is fixed:
 
@@ -113,7 +113,7 @@ workspace kind that does one tenant's work. Declare both.
    }
    ```
 
-5. **Register in `internal/compose/jobs.go`** — through `addDeclaredWorker`, from the wiring helper
+5. **Register in `backend/internal/compose/jobs.go`** — through `addDeclaredWorker`, from the wiring helper
    that matches the kind's gating (`addModelLaneJobs`, `addDatabaseOnlySweepJobs`,
    `addCapturePipelineJobs`, `addGmailCaptureJobs`, `addOverlayJobs`, or a self-registering helper of
    your own that also returns its periodic entries):
@@ -129,7 +129,7 @@ workspace kind that does one tenant's work. Declare both.
 
    If the kind's registration is gated on a new `JobRunnerConfig` field, add the field, name it in
    the entry's `registration.when`, and answer it in `configDependencies`
-   (`internal/compose/jobcensusconfig.go`) — `periodicFor` panics at boot on a path that file does
+   (`backend/internal/compose/jobcensusconfig.go`) — `periodicFor` panics at boot on a path that file does
    not answer.
 
 6. **Place the schedule, or the fan-out.**

@@ -5,15 +5,17 @@ flags; where a flag has an environment fallback it is listed. An empty
 required value is a boot error, as is an invalid `--log-level` /
 `--log-format`.
 
-## Common log flags (api, worker, migrate)
+## Common log flags (api, worker)
 
 | Flag | Env | Default | Values |
 |---|---|---|---|
 | `--log-level` | `MARGINCE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--log-format` | `MARGINCE_LOG_FORMAT` | `text` | `text` (slog text), `json` |
 
-All three roles log to stdout. Log lines carry the per-request
-`correlation_id` via the correlation slog wrapper.
+Both roles log to stdout, and their log lines carry the per-request
+`correlation_id` via the correlation slog wrapper. `cmd/migrate` takes neither
+flag: it writes confirmations to stdout and failures to stderr, with no
+configurable logger.
 
 ## cmd/api — the HTTP process role
 

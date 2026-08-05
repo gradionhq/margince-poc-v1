@@ -124,8 +124,9 @@ Three process roles, all assembled through `internal/compose`. Flags/env are tab
 [reference/configuration.md](../reference/configuration.md); the shapes to understand:
 
 - **`cmd/api`** — the HTTP surface on `:8080`. By default (`--inline-relay=true`) it *also* ships the
-  outbox to Redis in-process, so **one `cmd/api` is a complete install** for dev and small self-hosted
-  deployments.
+  outbox to Redis in-process, so **one `cmd/api` is a complete HTTP install** for dev and small
+  self-hosted deployments — but only the HTTP half: it runs no River jobs, so complete background
+  behaviour needs a worker alongside it (next bullet).
 - **`cmd/worker`** — background consumer (the standalone relay, the River periodic jobs, retention,
   the automation trigger runtime — event dispatch off `cg:workflows` plus the clock time-scan — the
   Surface-B runner). **Not optional.** `cmd/api` runs no River runner at all, so without a worker

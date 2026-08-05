@@ -164,7 +164,9 @@ worker happens to carry is unreachable. Narrowing the interface is what makes th
 than merely discouraged — an embedded `WorkerDefaults` override is shadowed by the outer type, which
 both a marker interface and a linter rule would have missed.
 
-**The incident this removes.** Of 53 kinds, **43 ran on River's silent one-minute default**: a worker
+**The incident this removes.** Before the timeout contract existed, **most kinds ran on River's silent
+one-minute default** (at the time, 43 of the 53 that existed — a count from that change's own
+analysis, not something today's tree can prove): a worker
 that declares no `Timeout` embeds `river.WorkerDefaults`, whose `Timeout` returns zero, and River
 reads zero as one minute. The GDPR retention pass shipped that way through five reviews — under a
 one-minute cap it would have been cancelled mid-pass nightly and left a permanently failing row for

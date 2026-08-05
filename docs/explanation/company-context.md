@@ -63,10 +63,16 @@ round-trip reconstructs the same scene.
 The creator's rail reads **Read · Confirm · Voice · Ready · Connect**.
 
 **An invited member gets three stops.** Their company is already confirmed, so
-the server refuses a member checkpoint at `read` or `confirm` (identity's
-onboarding validator — "members begin at Voice") and their rail shows
-Read · Confirm · Connect with the first two already done: a greyed step that will
-never happen is a promise the flow does not keep.
+their rail shows Read · Confirm · Connect with the first two already **done**,
+and the restore plan routes them straight to Connect — Voice and Ready are not
+theirs to walk, and a greyed step that will never happen is a promise the flow
+does not keep.
+
+The server half is stricter than that description sounds: it refuses a member
+checkpoint at `read` or `confirm` outright. Its error text reads "members begin
+at Voice", which is the *checkpoint* vocabulary and now outlives the flow it
+described — the client sends members to Connect, not to Voice. Read the refusal
+as "a member may not claim the creator's steps", not as a route.
 
 The `step` enum on the wire (`read, confirm, voice, results, connect, complete`)
 is the checkpoint vocabulary, not the rail's — the rail's fifth stop is a

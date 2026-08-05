@@ -74,11 +74,15 @@ one the caller may not see.
 
 Two further rules keep the read from lying by construction:
 
-- **Nested collections are summaries, not paging surfaces.** Each carries at
-  most 25 rows with `page.has_more`; `page.next_cursor` is always null. Page two
-  comes from the endpoint that owns that collection (`GET /activities`,
-  `GET /deals`, `GET /relationships`, `GET /approvals`), each with its own cursor
-  vocabulary.
+- **Nested collections are summaries, not paging surfaces** — and they are not
+  all the same shape. The *paged* summaries (people, deals, activities, pending
+  approvals, next steps) carry at most 25 rows with `page.has_more`, and
+  `page.next_cursor` is always null: page two comes from the endpoint that owns
+  that collection (`GET /activities`, `GET /deals`, `GET /relationships`,
+  `GET /approvals`), each with its own cursor vocabulary. Tags and list
+  memberships are **plain arrays** with no page metadata at all, and suggestions
+  report what they left out through `suggestions_dropped` rather than a page
+  object.
 - **Every section prunes to the caller's row scope** with the same
   `platform/auth` predicates the module lists use, so a section can never
   out-see the dedicated endpoint it summarizes. Where a section reports linked
@@ -135,8 +139,8 @@ falls back to a deterministic structured summary over the same inputs
 (`orgbrief/deterministic.go`) — identity, pipeline, each stalled deal on its own
 line, the last touch, open tasks, then what the company *is* from its curated
 profile fields. Every deterministic sentence cites the record it came from
-exactly as the model path's do, so the card renders and behaves identically
-whichever wrote it. `generated_by` names which one it was, because a reader
+exactly as the model path does, so the card renders and behaves identically
+regardless of which path wrote it. `generated_by` names which one it was, because a reader
 deciding how much to trust a sentence needs to know.
 
 The prompt treats every activity subject and body as **untrusted quoted data**

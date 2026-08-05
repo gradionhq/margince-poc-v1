@@ -18,10 +18,15 @@ know these people, and how well?** A cold account and a warm one look identical 
 same fields, same logo, same empty pipeline — and the difference between them is entirely a matter of
 who on the team has a real exchange on file.
 
-Two surfaces answer it, and they are the same fold read two ways:
+Two surfaces answer it, and they are **complementary reads over the same participant facts** — not the
+same query twice:
 
-- `GET /people/{id}/network` — *who on our team knows this contact*, warmest first.
-- `GET /deals/{id}/coverage` — *who covers this deal, and what is wrong with how it is covered*.
+- `GET /people/{id}/network` — *who on our team knows this contact*, warmest first. This one reads the
+  `graph_interaction_edge` projection (`EdgesForPerson`).
+- `GET /deals/{id}/coverage` — *who covers this deal, and what is wrong with how it is covered*. This
+  one does **not** touch the projection: `CoverageFor` walks the deal's stakeholders and their linked
+  activities directly, because coverage is a question about one deal's own participants rather than a
+  ranking across a contact's whole history.
 
 The agent surface asks the same questions through the same seams: `who_knows`, `account_coverage`,
 `intro_path_to` and `at_risk_relationships` are all 🟢 read tools bound to `ScopeRead`, and they reach
@@ -49,8 +54,11 @@ captured mail / calendar          hand-logged call or meeting
         ▼
    read-time score = recency × frequency × reciprocity  (never stored)
         │
-        ├── GET /people/{id}/network    who on our team knows this contact
-        └── GET /deals/{id}/coverage    who covers this deal, and what's wrong
+        └── GET /people/{id}/network    who on our team knows this contact
+
+   GET /deals/{id}/coverage  ── reads the deal's stakeholders + their linked
+        activities DIRECTLY, not the projection: a coverage question is about
+        one deal's own participants, not a ranking over a contact's history
 ```
 
 ## Participants — the fact the schema could not previously state

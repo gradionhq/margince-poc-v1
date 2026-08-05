@@ -179,9 +179,12 @@ check monitoring. Read-only working-tree inspection (`git status`, `git diff`,
    (installed once via `make hooks` — the **root** target, which sets
    `core.hooksPath`) runs `craft static --strict` diff-scoped on top — a
    BLOCKER or MAJOR finding stops the push; fix it, never bypass the hook.
-   The hook also runs the two sub-second whole-tree greps
-   (`check-rls-store-path`, `check-no-jurisdiction`), so an RLS-bypassing store
-   statement or a jurisdiction string in core fails locally rather than in CI.
+   When a push does change hand-written backend Go, the hook then also runs the
+   two sub-second whole-tree greps (`check-rls-store-path`,
+   `check-no-jurisdiction`), so an RLS-bypassing store statement or a
+   jurisdiction string in core fails locally rather than in CI. A push with no
+   qualifying backend Go changes exits before all three — a docs-only push runs
+   none of them.
 4. **Push the branch and open a PR** (`gh pr create`).
 5. **Watch the GitHub gates and fix red**: CI, DCO, CodeRabbit, and
    SonarCloud must all pass (`gh pr checks <n> --watch`). Fix failures

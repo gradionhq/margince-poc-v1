@@ -201,7 +201,7 @@ They count different things, on purpose:
 So a connection is "unresolved" in three distinct situations, and the view deliberately cannot tell them
 apart: the employer matched no account on file, the employer string was unusable, or the employer
 resolved to an account **outside your row scope**. That last collapse is load-bearing rather than lazy.
-The two numbers are differenceable, so a connection appearing in neither the visible accounts nor the
+The two numbers can be subtracted, so a connection appearing in neither the visible accounts nor the
 unresolved total would itself announce *"this employer resolved to something you are not allowed to
 see"* — an account-enumeration oracle you could drive by uploading one row per guessed company name.
 Counting it as unresolved makes it indistinguishable from a company nobody here has on file, which is

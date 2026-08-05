@@ -50,7 +50,9 @@ into consent's handlers.
 **write tables they do not own**: `person`, `person_email`/`_phone`/`_social`,
 `person_channel_identity`, `lead`, `activity`, `activity_participant`, `graph_interaction_edge`,
 `linkedin_connection`, `comms_outbound`, `deal`, `attachment`, `embedding`, `raw_capture`,
-`field_provenance`.
+`field_provenance`, `preference_token`, `capture_pending_counterparty`, `voice_learning_signal`,
+`ai_call` and `ai_call_payload`. The ratified list is the cross-writer map in
+`backend/tableownership_test.go`, which gates it — that file, not this page, is the authority.
 
 Four of those are worth naming for *why* nothing else can reach them. A **channel identity** is the key
 an inbound message would re-bind the subject by, so it must die in the same commit that hashes it onto

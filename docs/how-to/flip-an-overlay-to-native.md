@@ -7,9 +7,12 @@ flip → verify → retire, and why the seal exists), read the explanation page'
 section](../explanation/overlay-augmentation.md#the-overlaynative-cutover-lifecycle-adr-0071--ova-ac-6)
 first. This page is the recipe that section is not.
 
-> **This is one-way, estate-wide, and there is no rollback.** `POST /overlay/flip` imports the whole
-> frozen mirror into the native tables and sets `workspace.x_sor_mode = 'native'` in one audited
-> transaction; a second call answers `409` (`the workspace is not in overlay mode, nothing to flip`).
+> **This is one-way, estate-wide, and there is no rollback.** `POST /overlay/flip` runs a
+> **checkpointed, resumable** import of the frozen mirror through ordinary per-record store
+> transactions — a checkpoint advances in its own transaction after each row, which is what makes a
+> crashed flip resumable rather than all-or-nothing. Only when the import completes does a final
+> audited transaction set `workspace.x_sor_mode = 'native'` and clear the incumbent connection. A
+> second call answers `409` (`the workspace is not in overlay mode, nothing to flip`).
 > No native→overlay path exists. Recovery means *rebuilding* from the pre-flip export bundle — see
 > [7. If it goes wrong](#7-if-it-goes-wrong) — so do not start step 2 until step 1's bundle is on
 > disk.

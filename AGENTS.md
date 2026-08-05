@@ -123,7 +123,7 @@ delete it to reset.
 Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
 probes; 503 names the unready dependency), and `/metrics` (Prometheus
 text: outbox backlog, relay throughput, pool state) sit next to `/v1`.
-api, worker, and migrate take `--log-level` (debug|info|warn|error) and
+api and worker take `--log-level` (debug|info|warn|error) and
 `--log-format` (text|json), env-backed as `MARGINCE_LOG_LEVEL` /
 `MARGINCE_LOG_FORMAT`; an invalid value is a boot error, never a silent
 default. The full flag/env table:

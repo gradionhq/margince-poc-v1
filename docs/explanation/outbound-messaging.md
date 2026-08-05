@@ -232,7 +232,7 @@ limit.
 ## The channel twin — the reply that can only reach the human who wrote
 
 `POST /activities/{id}/send-message` is `send_email`'s sibling, and `resolveSeam` is the **one** branch
-on provider class in the whole path. Past it, the gates, the pacing chain, the ladder and the four
+on provider class in the whole path. Past it, the gates, the pacing chain, the ladder and the five
 dispositions are one code path for both transports — a second branch downstream would be two send paths
 wearing one name, and the one exercised less (the channel, by a wide margin) is the one that would
 quietly stop matching the rules the mail path keeps.

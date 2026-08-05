@@ -122,10 +122,17 @@ token** on the connection's row in **Settings → Integrations**, paste the new 
 modal serves both; the connection's current status stays visible while you do it, so a binding ingress
 has parked reads that way rather than silently as "connected".
 
-```sh
-curl -X PATCH http://localhost:8080/v1/channel-connections/<id> \
-  --cookie 'crm_session=<session>' -H 'Content-Type: application/json' \
-  -d '{"botToken":"<new-token>"}' | jq '{channelLabel, status, version}'
+The replacement token is a live credential, so read it the same way you read the first one — on stdin,
+never on a command line where the shell history and `ps` would both keep it:
+
+```bash
+read -rsp 'New BotFather token: ' BOT_TOKEN; echo   # silent — never echoed, never in history
+printf '%s' "$BOT_TOKEN" \
+| jq -Rs '{botToken:.}' \
+| curl -X PATCH http://localhost:8080/v1/channel-connections/<id> \
+    --cookie 'crm_session=<session>' -H 'Content-Type: application/json' --data @- \
+| jq '{channelLabel, status, version}'
+unset BOT_TOKEN
 ```
 
 What survives and what resets:

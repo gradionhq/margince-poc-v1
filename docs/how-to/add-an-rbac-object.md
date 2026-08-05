@@ -121,7 +121,7 @@ step 6 rather than by reading it twice.
 [reference/rbac-matrix.md](../reference/rbac-matrix.md) is generated from the
 seeded documents. From `backend/`:
 
-```
+```bash
 go test ./internal/modules/identity/ -run RBAC -update
 ```
 

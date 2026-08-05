@@ -19,11 +19,14 @@ is no privileged path, no backdoor, no frontend-only endpoint (ADR-0013, the
 same rule that makes the agent surface a client rather than an insider). Three
 consequences are load-bearing:
 
-- **One API seam.** `src/api/client.ts` is the only place a request is
+- **One API seam.** `src/api/client.ts` is where a typed JSON request is
   constructed: same-origin `location.origin + "/v1"`, `credentials: "include"`
   for the session cookie, and the global `fetch` resolved per call so test stubs
-  and the service worker can intercept. Nothing else calls `fetch` against the
-  API.
+  and the service worker can intercept. There is exactly one declared exception —
+  the LinkedIn `Connections.csv` upload calls `fetch` directly because the
+  generated JSON client cannot serialize a multipart body
+  (`screens/linkedin-import.tsx`, which says so in place). Adding a second
+  exception should need the same kind of note.
 - **No tenant selector on the wire.** One installation serves one organization
   (A107/ADR-0061) and the server resolves it itself. The client sends the
   session cookie and nothing else — `auth.test.tsx` and `preferences.test.tsx`
@@ -287,7 +290,7 @@ discipline even if the test tree regresses.
 
 | Gate | Where it lives | What fails it |
 |---|---|---|
-| Token purity | `frontend/scripts/check-ds-purity.sh` | a hex/`rgb()`/`hsl()`/`oklch()` literal outside `tokens.css` (fails closed if it scans zero files) |
+| Token purity | `frontend/scripts/check-ds-purity.sh` | a hex/`rgb()`/`hsl()`/`oklch()` literal outside `tokens.css` and the two named exceptions above (`index.html`, `design-system/provider-mark.tsx`); fails closed if it scans zero files |
 | Font lock | `frontend/scripts/check-font-lock.sh` | a `font-family` outside Outfit / DM Sans / JetBrains Mono + the named generic fallbacks |
 | Icon glyphs | `frontend/scripts/check-icon-glyph.sh` | an emoji in rendered code (comments are stripped — the 🟢/🟡 tier notation is house style and renders through `AutonomyDot`) |
 | Spacing | `frontend/scripts/check-ds-spacing.sh` | a **newly added** inline `margin`/`padding`/`gap` px literal; diff-scoped vs `origin/main`, waived in-line with `// ds:ignore <reason>` |

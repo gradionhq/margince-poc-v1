@@ -167,9 +167,13 @@ two of them can also transmit. The differences that matter:
 | Send | ✔ (`EmailSender`) | — | — | — | ✔ (`MessageSender`) |
 | Connect UI | onboarding + Settings | onboarding + Settings | onboarding + Settings | Settings only | Settings only (its own card) |
 
-### Gmail — standing OAuth, push-capable
+### Gmail — standing OAuth, push-capable, send-capable
 
-OAuth2 to Google with a single read-only scope (`gmail.readonly` — no send, no modify). Incremental sync
+OAuth2 to Google with **two scopes on one consent**: `gmail.readonly` for capture and `gmail.send` for
+the governed outbound path (no `gmail.modify`, no settings, no delete). They ride one consent because
+Google will not add a scope to an existing refresh token — asking later would mean a second connection
+for the same mailbox. A mailbox connected before the send scope landed captures normally and refuses
+every send by name until it is reconnected. Incremental sync
 walks the **history API** from a `historyId` watermark; a stale watermark (`ErrHistoryGone`, Gmail
 expires it ~weekly) degrades to a bounded re-list, not a full re-scan. It implements **both** optional
 seams: a `Watcher` (the Pub/Sub 7-day push watch, renewed by the worker every `6h`, `48h` ahead of
