@@ -36,7 +36,9 @@ func TestApprovedOfferSendRefusesAfterTheAgentRewritesTheTerms(t *testing.T) {
 		Token string `json:"token"`
 	}
 	if status := e.call(t, "POST", "/v1/passports", anyMap{
-		"label": "pin agent", "scopes": []string{"read", "write"},
+		// The version-pin race this test proves happens inside the send verb's
+		// approval, so the passport must be able to spend `send` to get there.
+		"label": "pin agent", "scopes": []string{"read", "write", "send"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
 	}
