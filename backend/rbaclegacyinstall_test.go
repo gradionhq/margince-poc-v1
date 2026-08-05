@@ -133,6 +133,14 @@ func TestMidlifeInstallFixtureSitsBetweenTheInitialCohortAndHead(t *testing.T) {
 		t.Fatalf("%s carries no 'midlife' installation; a conditionally-written backfill would have "+
 			"nowhere to fail", legacyInstallsFixture)
 	}
+	// A present-but-empty install would satisfy the lookup and then assert
+	// nothing at all in the loop below — the mid-life case would be gone while
+	// this gate reported success.
+	if len(midlife) != len(fixture.Installs["initial_commit"]) {
+		t.Fatalf("the midlife fixture carries %d roles and the initial_commit fixture %d; the replay "+
+			"seeds both and compares every system role, so they must describe the same role set",
+			len(midlife), len(fixture.Installs["initial_commit"]))
+	}
 
 	for role, document := range midlife {
 		held := slices.Sorted(maps.Keys(document.Objects))

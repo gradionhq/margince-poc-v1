@@ -285,6 +285,18 @@ func TestRequireDecisionGrants(t *testing.T) {
 			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Create: true}}),
 			wantErr: true, denied: true,
 		},
+		{
+			name:    "ai_model_rate_proposal refuses an update-only approver",
+			a:       row{Kind: "ai_model_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Update: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "ai_model_rate_proposal refuses an approver holding only read",
+			a:       row{Kind: "ai_model_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true}}),
+			wantErr: true, denied: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

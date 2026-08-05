@@ -228,8 +228,13 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetF
 	// The audit verb is the SAME word the gate above demanded, so
 	// authorization_rule attributes the grant that actually admitted the write
 	// rather than a plausible-looking one.
+	// Both images read PERSISTED values: `before` is the displaced row as the
+	// column stores it, so the after image has to be the stored row too. Echoing
+	// the caller's raw string instead would diff a scale-10 numeric against
+	// whatever the request happened to spell — 0.9000000000 against 0.9 — and
+	// report a rate change where only the spelling moved.
 	if _, err := storekit.Audit(ctx, tx, string(action), "fx_rate", fxID, before,
-		fxRateImage(from, base, rate, effDate)); err != nil {
+		fxRateImage(out.FromCurrency, out.ToCurrency, out.Rate, out.RateDate)); err != nil {
 		return FxRateRow{}, fmt.Errorf("audit fx_rate %s: %w", action, err)
 	}
 	return out, nil

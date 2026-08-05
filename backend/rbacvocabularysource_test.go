@@ -66,9 +66,15 @@ func stringLiterals(t *testing.T, values []ast.Expr) []string {
 			continue
 		}
 		for _, element := range lit.Elts {
+			// Fail rather than skip: an element spelled as a constant instead of
+			// a literal would drop that object out of the derived vocabulary
+			// with no signal, and every gate built on this would then run
+			// against a smaller cohort — the exact silent shrinking the doc
+			// comment promises cannot happen.
 			basic, ok := element.(*ast.BasicLit)
 			if !ok || basic.Kind != token.STRING {
-				continue
+				t.Fatalf("coreObjects holds a %T element rather than a string literal; this parser "+
+					"derives the vocabulary and must not silently drop what it cannot read", element)
 			}
 			unquoted, err := strconv.Unquote(basic.Value)
 			if err != nil {
