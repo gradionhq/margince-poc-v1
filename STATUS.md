@@ -316,7 +316,7 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
-## Session pickup — 2026-08-05 (the RBAC matrix doc and the migration replay gate, branch `feat/rbac-matrix-gate`)
+## Session pickup — 2026-08-05 (the RBAC matrix doc and the migration replay gate, PR #474, merged)
 
 **The migration gate now replays the upgrade instead of scanning the SQL.** The
 obligation is that an installation predating every backfill, upgraded to head,
