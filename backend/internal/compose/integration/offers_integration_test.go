@@ -429,7 +429,10 @@ func TestOfferAgentSendRequiresApproval(t *testing.T) {
 		Token string `json:"token"`
 	}
 	if status := e.call(t, "POST", "/v1/passports", anyMap{
-		"label": "offer agent", "scopes": []string{"read", "write"},
+		// `send` is what reaching the send verb costs at all; without it the
+		// call is refused for the missing cap and never reaches the 🟡 gate
+		// this test is about.
+		"label": "offer agent", "scopes": []string{"read", "write", "send"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
 	}

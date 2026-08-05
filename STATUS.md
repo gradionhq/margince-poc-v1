@@ -316,6 +316,50 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-05 (the passport cap comes from the contract, PR #479)
+
+**`x-mcp-tool` now declares the passport scope an operation consumes**, not just
+its tier. The gate had been admitting any verb with no registered MCP tool under
+a hardcoded `principal.ScopeWrite` — eleven verbs, three of which egress — so a
+passport whose granting human withheld `enrich` or `send` spent `write` instead.
+`agentpolicysynthesis_test.go` recorded that in prose maps nothing read.
+
+The tier and the cap answer different questions and neither substitutes for the
+other: a tier says whether a human confirms the act, a scope says whether the act
+was ever delegable. Both are now declared once and enforced below the transport.
+
+- `AgentAdmissionPolicy` gains a `scope` vocabulary; all 104 annotations declare
+  one. **No default and no empty state** — generation fails on a missing value,
+  because a default is exactly what made every verb look internal.
+- `scopeCoherence` holds one verb to one cap. Tier stays per-operation (A34
+  tighten-only); scope is a property of the act, not the route reaching it.
+- Two fitness functions replace the prose: the contract's scope must equal a
+  registered tool's `RequiredScope`, and a spec's `Egress` must agree with
+  whether its cap leaves the workspace (`principal.Scope.Egresses()`).
+  `outboundHoles` is deleted.
+
+**The cap follows the act's PURPOSE** — `send` delivers, `enrich` pulls in, and a
+durable state change is `write` even where it makes network calls. That is why
+`connect_incumbent` is `write` despite calling the incumbent: it seals a
+credential and flips `x_sor_mode`, and `ScopeSet.Has` is exact membership, so
+`enrich` would admit an enrich-only passport to both. Revisit that call before
+adding a verb near it — it is the one non-obvious row in the table.
+
+Behaviour change: a passport holding `write` but not `enrich`/`send` is now
+refused `enrich`, `deep-read`, `coldstart`, `send_offer` and `reconcile_overlay`.
+
+Left open, as issues: **#480** register a real `enrich` MCP tool — the verb still
+has no tool, so it is still absent from `tools/list` and MCP clients cannot
+enrich at all, which is what started this work; **#481** reconcile the annotation
+vocabulary upstream (P3 — the implementation is ahead of the spec on this field);
+**#484** `connect_incumbent` is 🟡 with no approval-kind mapping, so no agent can
+ever connect an overlay (pre-existing, fail-closed, found in UAT); **#482** the
+integration lane's intermittent `SQLSTATE 53200` under 29-way parallelism.
+
+A fitness test asserting every `confirmation_required` policy row has a
+resolvable approval mapping would turn #484's class of gap into a build failure
+instead of a runtime 403. Worth doing when #484 is picked up.
+
 ## Session pickup — 2026-08-05 (the RBAC matrix doc and the migration replay gate, PR #474, merged)
 
 **The migration gate now replays the upgrade instead of scanning the SQL.** The
@@ -378,6 +422,7 @@ row-scope half now lives in `platform/auth/rowscope.go`.
 - **[#471](https://github.com/gradionhq/margince-poc-v1/issues/471)** — the RBAC
   contract surface (vocabulary enums, the `/me` authorization shape, the
   deprecated `passport` claim) needs reconciling upstream against AAD-ROLE-1..5.
+
 
 ## Session pickup — 2026-08-04 (a job kind is declared before it is written, branch `feat/job-contract`)
 
@@ -466,12 +511,16 @@ timeout any more, and the sweep tag is stamped at a chokepoint the declaration
 drives. Item 3 is partly closed — every worker return is gated syntactically
 and the four ratified exceptions are declared, though the vetted-vocabulary
 substitution at the endpoint is still what makes the surface safe. Items 4, 5
-and 6 are unchanged and are now filed as issues: #430 (`cmd/worker` serves no
-`/metrics`), #431 (the per-connection sweep masking, a product decision), and
-#432 (`enqueueDigest` fanning the fleet out for one tenant). Two unrelated
-findings were filed alongside them: #428 (`//nolint:forbidigo` is unusable
-tree-wide, so the only available waiver is a path exclusion) and #429 (a
-`STATUS.md` pointer left in a source comment).
+and 6 are **CLOSED by PR #457**: `--observe-addr` gives `cmd/worker` its own
+`/healthz`, `/readyz` and `/metrics` (#430); `margince_sweep_units_total` /
+`_failed` report the per-connection and per-build dispatchers at their declared
+grain, so a dead connection beside a healthy one is no longer masked (#431); and
+`enqueueDigest` now names the child kind for the workspace it already knows
+instead of enqueueing the fleet dispatcher, held as a class by
+`TestNoScheduledDispatcherIsEnqueuedByHand` (#432). The two findings filed
+alongside them — #428 (`//nolint:forbidigo` unusable tree-wide) and #429 (a
+`STATUS.md` pointer left in a source comment) — closed with them. Nothing from
+Phase 1 C remains open.
 
 **What is deliberately NOT enforced at pre-push.** `.githooks/pre-push` runs
 `craft static` only, so the forbidigo bans on direct River registration and on

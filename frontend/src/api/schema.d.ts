@@ -9452,6 +9452,11 @@ export interface components {
              * @enum {string}
              */
             tier?: "auto_execute" | "confirmation_required" | "dynamic";
+            /**
+             * @description The passport scope this operation consumes — the cap the granting human set, which the tier cannot substitute for: a tier says whether a human confirms the act, a scope says whether the act was ever delegable. Every `x-mcp-tool` declares one; unlike `tier` and `record_type`, absent is NOT a meaningful state, so generation fails on a missing value rather than emitting a zero. It is what an operation with no registered MCP tool is admitted under, and for one that has a tool the generator holds the two equal — so a verb cannot mean `enrich` on MCP and `write` on REST.
+             * @enum {string}
+             */
+            scope?: "read" | "draft" | "write" | "send" | "enrich";
         };
         /**
          * @description EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the

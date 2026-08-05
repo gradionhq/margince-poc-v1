@@ -51,12 +51,33 @@ capabilities, administrative), and a deterministic fingerprint. Consumers get
 bounded views of this model; nothing assembles its own company prompt from
 tables.
 
-## The five-step onboarding wizard
+## The cold start — five scenes, one narrating rail
 
-First login lands in a resumable wizard — **Read · Confirm · Voice · Results ·
-Connect** — whose state persists server-side (`/onboarding/state`,
+First login lands in a full-viewport work surface: one scene owns the board at a
+time and a derived step rail narrates beside it
+(`onboarding-conversation/`, whose pure reducer IS the conversation — the rail
+cannot disagree with it). State persists server-side (`/onboarding/state`,
 `onboarding_wizard_state` in the identity module), so a reload or an OAuth
-round-trip reconstructs the same step.
+round-trip reconstructs the same scene.
+
+The creator's rail reads **Read · Confirm · Voice · Ready · Connect**.
+
+**An invited member gets three stops.** Their company is already confirmed, so
+their rail shows Read · Confirm · Connect with the first two already **done**,
+and the restore plan routes them straight to Connect — Voice and Ready are not
+theirs to walk, and a greyed step that will never happen is a promise the flow
+does not keep.
+
+The server half is stricter than that description sounds: it refuses a member
+checkpoint at `read` or `confirm` outright. Its error text reads "members begin
+at Voice", which is the *checkpoint* vocabulary and now outlives the flow it
+described — the client sends members to Connect, not to Voice. Read the refusal
+as "a member may not claim the creator's steps", not as a route.
+
+The `step` enum on the wire (`read, confirm, voice, results, connect, complete`)
+is the checkpoint vocabulary, not the rail's — the rail's fifth stop is a
+detour-aware view over it, so a clarify question can take the whole screen
+without claiming a numbered slot.
 
 - **Website ingestion is an optional accelerator, never a gate.** "Enter it
   myself" needs exactly three fields — company name, *what do you sell?*
@@ -115,7 +136,7 @@ The safety frame:
 | Provider + prompt block | `internal/compose/companycontextprompt.go` |
 | Rollout switch | `company_context.rollout` (`margince.yaml`, `platform/deployconfig`, migration `0105`) |
 | Trace provenance | `ai_call` context columns (migration `0102`) — see [ai-runtime.md](ai-runtime.md) |
-| The UI | `frontend/src/screens/onboarding.tsx`, `onboarding-read.tsx`, `company-context.tsx` |
+| The UI | `frontend/src/screens/onboarding-conversation/` (the machine + acts), the scene modules `onboarding-gate.tsx` / `onboarding-backread.tsx` / `onboarding-payoff.tsx`, and `company-context.tsx` (the settings screen). `onboarding.tsx` is the entry point and the journey's shared vocabulary, not a screen |
 | Deep read (existing orgs) | `POST /organizations/{id}/deep-read` — same engine, approval-staged |
 
 **Related:** [ai-runtime.md](ai-runtime.md) (the Router, tracing, budget) ·

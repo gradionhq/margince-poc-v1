@@ -109,9 +109,9 @@ The run is a row with a state machine, paged by the worker:
 
 The worker calls one step at a time; each step pulls **one provider page of 100 messages**, pushes
 every message through the same Sink that standing sync uses, and commits the page's outcome together
-with the cursor that resumes it. Because the counters and the cursor land in one statement, a page
-that fails to commit has counted nothing — there is no state in which the progress numbers describe
-work the resume point will redo.
+with the cursor that resumes it. Because the **message** counters and the cursor land in one statement,
+a page that fails to commit has scanned nothing the resume point will redo. The **counterparty** counts
+are deliberately outside that statement — see below.
 
 Two conditions make that commit conditional, and both mean *this page no longer belongs to the run
 being written*: the run reached a terminal state concurrently (a cancel), or the underlying connection
@@ -128,10 +128,30 @@ through a flaky morning must not be ended by faults it already recovered from.
 
 While it pages, the run measures its own yield — and this is what makes the *next* preview accurate.
 
-The counterparty resolver reports whether an ensure **minted** a new person/organization or merely
-resolved onto rows that already existed. Only mints are counted, which is exactly right: an email from
-someone already in the CRM triggers no enrich call either. Those counts commit in the same statement as
-`scanned` and `captured`, so a ratio can never drift from its own denominator.
+The counterparty resolver reports what each ensure actually did. `people_created` counts persons
+**minted**, not resolved onto — an email from someone already in the CRM triggers no enrich call
+either. `organizations_created` counts something subtly different: **domains this run queued for a
+company verdict**, because capture creates no companies at all. A run that met twelve new domains did
+that work whether or not the crawls have answered yet, and reporting zero would hide it.
+
+A counterparty is counted **the moment it is created**, in its own write, not folded into the page's
+commit. That is the third shape of this counter and the only one that survives its edge cases: a
+page's total is a batch, and every batch shape lost or doubled it somewhere — a mid-page cancel fenced
+the credit away, the retry ceiling ran two writes that both credited, and a single unfenced write lost
+a whole page when it failed. Capture is idempotent, so a replayed message never reaches the resolver
+again and no retry re-offers those rows to anybody; there is nothing to rebuild a lost batch from.
+
+What that buys, exactly, and what it does not:
+
+- It never **double-counts**. A row is created once, the write runs on that one outcome, and nothing
+  retries it.
+- It is not **exactly-once**. Creation and counting are different transactions, so a failed counter
+  write loses that creation's count permanently (logged at ERROR).
+- The loss is **per failure and uncapped** — a database fault spanning a page loses one count for
+  every creation inside it.
+
+So read the committed columns as a **floor** on what the run created, never an overcount. Closing the
+gap needs a ledger keyed on the created row's id, which is a design decision rather than a cleanup.
 
 The yields are an honest **under-count**, by design. A sender the tier gate defers is resolved by the
 verdict engine long after the page that saw it, and the person it may eventually mint is nobody's page

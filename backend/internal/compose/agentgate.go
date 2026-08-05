@@ -310,8 +310,8 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 // A34/ADR-0026 tighten-only rule): an op annotated 🟡 stays 🟡 even where
 // the verb's base tier is 🟢 (archive-by-DELETE over update_record). A
 // verb with no registered tool is admitted at the annotation's static
-// tier under the write scope; a dynamic annotation without a registered
-// dynamic tool is unresolvable → fail closed.
+// tier under the cap the contract declares for it; a dynamic annotation
+// without a registered dynamic tool is unresolvable → fail closed.
 func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
 	spec, registered := reg.Spec(pol.Tool)
 	if !registered {
@@ -322,7 +322,13 @@ func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
 		if pol.Tier == tierConfirmationRequired {
 			tier = mcp.TierConfirmationRequired
 		}
-		return mcp.ToolSpec{Name: pol.Tool, RequiredScope: principal.ScopeWrite, Tier: tier}, true
+		// The scope is the contract's, not this function's. A default here
+		// is how a verb that fetches the web came to spend the write cap:
+		// every verb looked internal because nothing said otherwise.
+		scope := principal.Scope(pol.Scope)
+		return mcp.ToolSpec{
+			Name: pol.Tool, RequiredScope: scope, Tier: tier, Egress: scope.Egresses(),
+		}, true
 	}
 	if pol.Tier == tierDynamic && spec.Tier != mcp.TierDynamic {
 		return mcp.ToolSpec{}, false

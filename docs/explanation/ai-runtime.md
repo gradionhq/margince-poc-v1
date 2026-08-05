@@ -49,15 +49,15 @@ the model runtime itself.
 ## The task contract
 
 A **task** is a named AI workload — `cold_start`, `site_extract`,
-`capture_classify`, `agent_loop`, and 13 more (17 in all, including the
+`capture_classify`, `agent_loop`, and 15 more (19 in all, including the
 deep-read `site_fact_extract`, the Voice-DNA `voice_build`, and the
 certification `cert_judge`). Code never picks a model; it names a task, and the
 Router resolves the rest.
 
 **A task is not one prompt.** The contract also names each task's **invocation
 sites** — the places this build actually calls the model — and whether the task
-ships at all: 13 shipped tasks carry **19 sites**
-(`cold_start` alone has four), and 4 tasks are declared `planned`, with no site,
+ships at all: 16 shipped tasks carry **23 sites**
+(`cold_start` alone has four), and 3 tasks are declared `planned`, with no site,
 no scenario and no certification record. The site is the unit everything
 downstream counts in, because a task-level number lets one certified prompt stand
 for another that was never measured.

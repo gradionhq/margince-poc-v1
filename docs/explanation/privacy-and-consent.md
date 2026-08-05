@@ -47,8 +47,23 @@ into consent's handlers.
 ## The single-transaction cross-store exception
 
 `privacy` owns exactly one table (`erasure_suppression`) — yet erasure and retention deliberately
-**write tables they do not own**: `person`, `person_email`/`_phone`/`_social`, `lead`, `activity`,
-`deal`, `attachment`, `embedding`, `raw_capture`, `field_provenance`. That is by design: a data-subject
+**write tables they do not own**: `person`, `person_email`/`_phone`/`_social`,
+`person_channel_identity`, `lead`, `activity`, `activity_participant`, `graph_interaction_edge`,
+`linkedin_connection`, `comms_outbound`, `deal`, `attachment`, `embedding`, `raw_capture`,
+`field_provenance`, `preference_token`, `capture_pending_counterparty`, `voice_learning_signal`,
+`ai_call` and `ai_call_payload`. The ratified list is the cross-writer map in
+`backend/tableownership_test.go`, which gates it — that file, not this page, is the authority.
+
+Four of those are worth naming for *why* nothing else can reach them. A **channel identity** is the key
+an inbound message would re-bind the subject by, so it must die in the same commit that hashes it onto
+the suppression list. A **LinkedIn ghost** holds the subject's name, employer and address, imported
+from a colleague's export without the subject ever being asked, and is invisible to every person-keyed
+clause because a ghost is not a person row. The **interaction edge** would otherwise be left to a bus
+consumer, and an Art. 17 obligation discharged by an event is one that fails silently when the bus is
+behind. And a participant's **address arm** exists precisely for a party who never became a record, so
+it survives the `person_email` purge and would keep the erased address re-matchable.
+
+That is by design: a data-subject
 obligation must reach **every** store that holds the subject, in **one transaction per record** —
 routing each purge through the owning module would trade away the atomicity that is the guarantee.
 
@@ -78,4 +93,4 @@ same-age note is erased).
 | Art. 15 SAR | `internal/modules/privacy/sar.go` (`AssembleSAR`) |
 | Retention evaluator | `internal/modules/privacy/retention.go` (`EvaluateWorkspace`), fanned out per workspace by `internal/compose/jobs_privacyretention.go` in `cmd/worker` |
 | Cross-store ratification | `backend/tableownership_test.go` |
-| Jurisdiction packs | `internal/shared/ports/jurisdiction/`, `internal/modules/de/` |
+| Jurisdiction packs | `internal/shared/ports/jurisdiction/`, `extensions/de/` |
