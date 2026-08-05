@@ -307,7 +307,25 @@ func TestPersonGraphGivesAColleagueOneNodeAcrossBothArms(t *testing.T) {
 		}
 	}
 	if len(graph.Edges) != 2 {
-		t.Errorf("edges = %d, want 2 — one per relationship, both hanging off the one node", len(graph.Edges))
+		t.Fatalf("edges = %d, want 2 — one per relationship, both hanging off the one node", len(graph.Edges))
+	}
+	// The point of the case is that ONE human with two relationships is drawn
+	// once. Counting nodes and rejecting duplicate ids cannot show that: a
+	// graph that drew the colleague twice under two different ids, or hung the
+	// two edges off unrelated nodes, satisfies both checks. So name the shared
+	// end and require both edges to meet there.
+	shared := ""
+	for _, end := range []string{graph.Edges[0].From, graph.Edges[0].To} {
+		if end == graph.Edges[1].From || end == graph.Edges[1].To {
+			shared = end
+		}
+	}
+	if shared == "" {
+		t.Errorf("the two edges share no node (%s→%s and %s→%s); the one colleague is drawn as two people",
+			graph.Edges[0].From, graph.Edges[0].To, graph.Edges[1].From, graph.Edges[1].To)
+	}
+	if len(graph.Nodes) != 3 {
+		t.Errorf("nodes = %d, want 3 — the anchor, the shared colleague, and the second contact", len(graph.Nodes))
 	}
 }
 

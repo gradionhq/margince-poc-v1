@@ -15,8 +15,11 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -50,13 +53,20 @@ func seedReplayableMail(t *testing.T, e *integration.Env, sourceID, raw string) 
 }
 
 // replayOutcome reads back what the pass recorded about one activity.
+//
+// "the pass recorded nothing" is an answer this suite asserts on; a failed
+// query is not, and folding the two together would let a broken read look
+// exactly like a pass that correctly skipped the activity.
 func replayOutcome(t *testing.T, activity ids.UUID) (string, bool) {
 	t.Helper()
 	var outcome string
 	err := integration.OwnerConn(t).QueryRow(context.Background(),
 		`SELECT outcome FROM activity_participant_replay WHERE activity_id = $1`, activity).Scan(&outcome)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false
+	}
+	if err != nil {
+		t.Fatalf("reading the replay outcome: %v", err)
 	}
 	return outcome, true
 }

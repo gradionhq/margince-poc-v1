@@ -91,6 +91,11 @@ func (s *Store) ApplyDiscoveredFields(ctx context.Context, personID ids.PersonID
 func fillDiscoveredFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID, by string, fields []DiscoveredField) ([]string, error) {
 	wsID := workspaceID(ctx)
 	var applied []string
+	// Keyed by FIELD and carrying the value actually written: this becomes the
+	// audit after-image, and field history projects per field from it. A list
+	// of field NAMES here would show the contact's history as a change to a
+	// field called "fields" and never show what was filled in.
+	values := map[string]any{}
 	for _, f := range fields {
 		value := strings.TrimSpace(f.Value)
 		snippet := strings.TrimSpace(f.EvidenceSnippet)
@@ -116,6 +121,7 @@ func fillDiscoveredFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 			return nil, err
 		}
 		applied = append(applied, f.Field)
+		values[f.Field] = value
 	}
 	if len(applied) == 0 {
 		return nil, nil
@@ -125,8 +131,14 @@ func fillDiscoveredFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	// person.updated — invisible to the field-history projection, and to every
 	// consumer that reacts to a contact changing. A fill nobody can see the
 	// provenance of is the opposite of what this seam is for.
-	auditID, err := storekit.Audit(ctx, tx, actionUpdate, entityPerson, personID.UUID,
-		nil, map[string]any{auditKeyFields: applied, auditKeySource: searchFieldSource})
+	//
+	// The images carry the fields; WHERE they came from is context about the
+	// mutation and rides the evidence column, because a source folded into the
+	// after-image projects as a field change that never happened. The before
+	// image is empty by construction: the insert is ON CONFLICT DO NOTHING, so
+	// every field named here had no value until this write.
+	auditID, err := storekit.AuditWithEvidence(ctx, tx, actionUpdate, entityPerson, personID.UUID,
+		nil, values, map[string]any{auditKeySource: searchFieldSource})
 	if err != nil {
 		return nil, fmt.Errorf("people: auditing the search-discovered fill: %w", err)
 	}

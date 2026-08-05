@@ -540,6 +540,12 @@ func TestMergeCarriesTheEnrichmentSidecarToTheSurvivor(t *testing.T) {
 		}
 		rows[field] = value
 	}
+	// A terminal iteration error leaves a PARTIAL map, and every assertion
+	// below would then report a missing field rather than the database failure
+	// that caused it.
+	if err := got.Err(); err != nil {
+		t.Fatalf("iterating the survivor's fields: %v", err)
+	}
 	if rows["title"] != "Head of Procurement" {
 		t.Errorf("the survivor did not inherit the title; got %q", rows["title"])
 	}

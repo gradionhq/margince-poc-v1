@@ -50,6 +50,30 @@ func TestDiscoverProfileURLRefusesAStrangerAtTheSameCompany(t *testing.T) {
 	}
 }
 
+// Punctuation inside a name is ordinary, and the guard cuts the name and the
+// result text by the same rule so it stays ordinary. Splitting the name on
+// whitespace alone kept "Jean-Luc" whole while the page naming him was cut at
+// the hyphen, so every contact with a hyphen or an apostrophe was undiscoverable
+// no matter how plainly the result named them.
+func TestDiscoverProfileURLAcceptsANameWithInternalPunctuation(t *testing.T) {
+	for name, res := range map[string]websearch.Result{
+		"Jean-Luc Picard": result("Jean-Luc Picard — Head of Ops at ScaleCommerce",
+			"https://www.linkedin.com/in/jeanlucpicard"),
+		"Siobhan O'Connor": result("Siobhan O'Connor — Head of Ops at ScaleCommerce",
+			"https://www.linkedin.com/in/siobhanoconnor"),
+	} {
+		g := &PersonAutoEnrich{search: &fakeSearch{results: []websearch.Result{res}}}
+		_, found, err := g.discoverProfileURL(context.Background(), name, "ScaleCommerce")
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if !found {
+			t.Errorf("%s: the result names this person and was refused", name)
+		}
+	}
+}
+
 // A company page and a job posting live on the same hosts as a profile and are
 // not people. Filing one onto a contact would be a claim about something that
 // is not a human at all.

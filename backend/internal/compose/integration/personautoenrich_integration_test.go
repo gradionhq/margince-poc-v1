@@ -5,8 +5,6 @@
 
 package integration
 
-// The person auto-enrich consumer against a real database.
-//
 // The consumer's whole reason to exist is ordering: a company's team page is
 // read once, and the people it published are staged as proposals. A contact who
 // arrives AFTERWARDS was never matched against what that page already said.
@@ -189,18 +187,20 @@ func TestPersonAutoEnrichFillsAContactFromTheirEmployersStagedPage(t *testing.T)
 	// The proposal asked a human to create a lead for someone who is already a
 	// contact. The world answered the question, so it must leave the queue.
 	//
-	// Withdrawal expires the row rather than moving its status — a withdrawn
-	// proposal is one no live read returns, and asserting on `status` would
-	// pass against a row still sitting in a rep's inbox.
-	var live bool
+	// Withdrawal expires the row rather than moving its status, so asserting on
+	// `status` would pass against a proposal still sitting in a rep's inbox.
+	// The comparison is against the row's own creation time rather than the
+	// clock: an expiry that moved BEHIND the moment the row was staged is
+	// withdrawal, and reading that off `now()` would make the assertion depend
+	// on how long the test took.
+	var withdrawn bool
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT status = 'pending' AND expires_at > now() FROM approval WHERE id = $1`,
-			approvalID).Scan(&live)
+			`SELECT expires_at < created_at FROM approval WHERE id = $1`, approvalID).Scan(&withdrawn)
 	}); err != nil {
 		t.Fatalf("reading the proposal back: %v", err)
 	}
-	if live {
+	if !withdrawn {
 		t.Error("the site-lead proposal is still live, so a rep is asked to create a lead for a contact that exists")
 	}
 }
@@ -229,8 +229,20 @@ func TestPersonAutoEnrichLeavesAContactAloneWhenThePageNamesSomebodyElse(t *test
 // No employer means no site may describe this contact, and the pass must stop
 // before it reads anything. A contact with a staged page at a company they do
 // not work for is the case that would silently cross records.
+//
+// Another company's page names this same person, so the employer gate is what
+// the assertion rests on. Without that page the test would pass on an empty
+// database and prove nothing.
 func TestPersonAutoEnrichStopsAtAContactWithNoEmployer(t *testing.T) {
 	e := Setup(t)
+	_, foreignOrg := seedEmployedPerson(t, e, "Somebody Else")
+	stageSiteLead(t, e, foreignOrg, sitePage{
+		Name:            "Anna Muster",
+		Role:            "Head of Delivery",
+		EvidenceSnippet: "Anna Muster — Head of Delivery",
+		SourceURL:       "https://elsewhere.test/team",
+	})
+
 	personID := ids.From[ids.PersonKind](ids.NewV7())
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `

@@ -215,28 +215,32 @@ func isProfileURL(raw string) bool {
 // an initial ("J. Weber") contribute nothing, so the guard reduced to a
 // surname, which matches too many people at one employer to be evidence of
 // identity.
+//
+// Both sides are cut by the SAME rule. Splitting the name on whitespace alone
+// left "Jean-Luc" and "O'Connor" whole while the result text they appear in was
+// cut at the punctuation, so a page that named the person plainly could never
+// match and every such contact went undiscovered.
 func mentionsName(r websearch.Result, name string) bool {
 	words := map[string]bool{}
-	for _, w := range strings.FieldsFunc(
-		strings.ToLower(r.Title+" "+r.Snippet+" "+r.URL),
-		func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) },
-	) {
+	for _, w := range nameWords(r.Title + " " + r.Snippet + " " + r.URL) {
 		words[w] = true
 	}
-	parts := strings.Fields(strings.ToLower(name))
+	parts := nameWords(name)
 	if len(parts) == 0 {
 		return false
 	}
 	for _, part := range parts {
-		part = strings.Trim(part, ".,")
-		if part == "" {
-			continue
-		}
 		if !words[part] {
 			return false
 		}
 	}
 	return true
+}
+
+// nameWords cuts text into the lowercase word units the name guard compares.
+func nameWords(text string) []string {
+	return strings.FieldsFunc(strings.ToLower(text),
+		func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
 }
 
 // discoverFromSearch is the consumer's fallback when the employer's staged
