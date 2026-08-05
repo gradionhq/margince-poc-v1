@@ -3839,7 +3839,7 @@ export interface paths {
         get: operations["listRecordGrants"];
         put?: never;
         /**
-         * Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+         * Share one record with a user or team (human-only).
          * @description Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
          *     scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
          *     policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
@@ -3868,7 +3868,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+         * Revoke a manual record grant (human-only).
          * @description Deletes the grant; the subject loses the widened access immediately (the next query no longer
          *     matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
          */
@@ -4586,9 +4586,9 @@ export interface paths {
          * Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
          * @description draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
          *     daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
-         *     emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
-         *     `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
-         *     redeems with the X-Approval-Token header (ADR-0036).
+         *     emits `offer.sent`. HUMAN-ONLY: an agent principal is refused outright (403
+         *     `permission_denied`), with no staging path — releasing an offer to a counterparty is a
+         *     decision a person makes, not one an agent stages for them.
          */
         post: operations["sendOffer"];
         delete?: never;
@@ -20030,16 +20030,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
             };
             path?: never;
             cookie?: never;
@@ -20075,16 +20065,6 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is
@@ -21892,16 +21872,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is
