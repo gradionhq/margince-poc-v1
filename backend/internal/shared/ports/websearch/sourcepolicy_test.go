@@ -34,9 +34,9 @@ func TestMayFetchRefusesTheAuthWalledPlatforms(t *testing.T) {
 // has no account with, so it is refused before the host is even considered.
 func TestMayFetchRefusesAnAddressCarryingCredentials(t *testing.T) {
 	for _, raw := range []string{
-		"https://user:secret@scalecommerce.example/team",
-		"https://user@scalecommerce.example/team",
-		"http://admin:hunter2@example.de/impressum",
+		"https://placeholder-user:placeholder-pass@scalecommerce.example/team",
+		"https://placeholder-user@scalecommerce.example/team",
+		"http://placeholder-user:placeholder-pass@example.de/impressum",
 	} {
 		if d := MayFetch(raw); d.Allowed {
 			t.Errorf("MayFetch(%q) allowed a credentialed fetch", raw)

@@ -14,7 +14,7 @@ import (
 // it may write into a person's record is asserted rather than assumed.
 func TestCanonicalProfileURLRefusesWhatMustNotBeStored(t *testing.T) {
 	refused := map[string]string{
-		"credentials in the URL would be stored verbatim": "https://user:secret@linkedin.com/in/anna",
+		"credentials in the URL would be stored verbatim": "https://placeholder-user:placeholder-pass@linkedin.com/in/anna",
 		"plaintext is not an address worth recording":     "http://linkedin.com/in/anna",
 		"an unparseable address has no host":              "://nonsense",
 		"too long to be a profile address":                "https://linkedin.com/in/" + strings.Repeat("a", 400),
