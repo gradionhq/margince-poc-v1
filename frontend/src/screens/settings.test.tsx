@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
+import { companyContextCapabilitiesQueryKey } from "./company-context";
 import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 
 // The Organization tab group is composed from its MEMBERS: each tab opens on
@@ -86,15 +87,21 @@ function settingsBackend() {
   });
 }
 
+// The client comes back with the render so a test can read a query's settled
+// state, not just the DOM: "the answer is in the cache" is the fact a nav
+// assertion about an absent tab has to stand on.
 const render = (ui: ReactNode) => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return rtlRender(
-    <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">{ui}</LocaleProvider>
-    </QueryClientProvider>,
-  );
+  return {
+    ...rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">{ui}</LocaleProvider>
+      </QueryClientProvider>,
+    ),
+    client,
+  };
 };
 
 describe("SettingsScreen RBAC surfaces", () => {
@@ -590,6 +597,28 @@ function orgNavBackend(opts: {
   });
 }
 
+// The same backend with the rollout answer on a valve the test opens. The nav
+// can then be read at two named moments — flag unanswered, flag answered "off"
+// — instead of whichever of the two the event loop happens to serve first.
+function orgNavBackendHoldingCapabilities(opts: {
+  roles: string[];
+  allow?: GrantSpec;
+}) {
+  const answer = orgNavBackend({ ...opts, companyReadEnabled: false });
+  let release: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/company/context/capabilities")) {
+      await held;
+    }
+    return answer(input);
+  });
+  return { fetchMock, answerCapabilities: () => release?.() };
+}
+
 // The settings tabs currently in the nav, in render order — personal group
 // first, then the organization group. Asserting the WHOLE list rather than one
 // membership is the point: a predicate wired to the wrong object shows up as
@@ -807,36 +836,42 @@ describe("SettingsScreen Organization group", () => {
     ).toBeTruthy();
   });
 
-  it("withholds Company from the same admin while the rollout flag is off", async () => {
+  it("withholds Company from the same admin while the rollout flag is off — before the flag answers and after", async () => {
     // The flag is a deployment posture, not a permission, so it ANDs with the
-    // grant: the surface may simply not exist on this installation.
-    const fetchMock = orgNavBackend({
+    // grant: the surface may simply not exist on this installation. An unknown
+    // flag therefore reads as "off" — a tab that appears while the answer is in
+    // flight and then vanishes has already offered a surface this installation
+    // may not have.
+    const { fetchMock, answerCapabilities } = orgNavBackendHoldingCapabilities({
       roles: ["admin"],
       allow: { organization: ["create", "update"] },
-      companyReadEnabled: false,
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SettingsScreen />);
-    // Wait for the capabilities answer itself, or "absent" would just mean
-    // "not answered yet" — which is true even where the flag is on.
+    const { client } = render(<SettingsScreen />);
+    const ADMIN_ORG_TABS = [
+      ...PERSONAL_TABS,
+      "Users & roles",
+      "Privacy & consent",
+      "Audit log",
+      "Overlay",
+    ];
+
+    // Moment one: the nav is fully composed from /me — its three role-gated
+    // tabs are on screen — while the flag is still unanswered, because this
+    // test holds the answer.
+    await screen.findByRole("link", { name: "Audit log" });
+    expect(navTabs()).toEqual(ADMIN_ORG_TABS);
+
+    // Moment two: the answer is in the cache, which is the fact the emptiness
+    // claim needs — the request having been SENT proves nothing about what the
+    // nav has rendered.
+    answerCapabilities();
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.some(([input]) =>
-          String(input instanceof Request ? input.url : input).includes(
-            "/company/context/capabilities",
-          ),
-        ),
-      ).toBe(true),
+        client.getQueryState(companyContextCapabilitiesQueryKey)?.status,
+      ).toBe("success"),
     );
-    await waitFor(() =>
-      expect(navTabs()).toEqual([
-        ...PERSONAL_TABS,
-        "Users & roles",
-        "Privacy & consent",
-        "Audit log",
-        "Overlay",
-      ]),
-    );
+    expect(navTabs()).toEqual(ADMIN_ORG_TABS);
   });
 });
 

@@ -359,9 +359,11 @@ an unauthorized caller before a pool connection is taken, and the specific actio
 the transaction once insert-vs-overwrite is known. The rate sheet stays append-forward (a past
 effective date is 422 `fx_rate_past`, no role holds `delete`), so closed business cannot be restated
 — a won deal's rate is frozen onto its own row and roll-ups read a GENERATED column, never the sheet.
-#450 replaces the Settings Organization group's role-name gate with per-tab predicates composed from
-the members; **manager and rep gain Catalog and Company**, knowingly, because the nav should describe
-the seat rather than the role name. #449 stays a documented limit; #451 is raised upstream.
+[#450](https://github.com/gradionhq/margince-poc-v1/issues/450) replaces the Settings Organization
+group's role-name gate with per-tab predicates composed from the members; **manager and rep gain
+Catalog and Company**, knowingly, because the nav should describe the seat rather than the role name.
+[#449](https://github.com/gradionhq/margince-poc-v1/issues/449) stays a documented limit;
+[#451](https://github.com/gradionhq/margince-poc-v1/issues/451) is raised upstream.
 
 `platform/auth/rbac.go` crossed the 500-line ceiling once the new helpers landed and was split — the
 row-scope half now lives in `platform/auth/rowscope.go`.
