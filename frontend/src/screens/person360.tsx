@@ -52,9 +52,21 @@ export function thinRecord(view: Person360 | undefined): boolean {
   if (!view) {
     return false;
   }
-  const noInteractions = (view.activities?.data.length ?? 0) === 0;
-  const noColleagues = (view.network?.colleagues.length ?? 0) === 0;
-  return noInteractions && noColleagues;
+  // A WITHHELD section is not an empty one. A caller who cannot read
+  // activities or the network would otherwise be told this relationship is
+  // thin — and the thin state suppresses the ordinary modules, so they would
+  // lose the rest of the page over data that may well exist. Absent for want
+  // of a grant and absent for want of data are different facts (the same
+  // distinction sections_omitted exists to carry).
+  if (omitted(view, "activities") || omitted(view, "network")) {
+    return false;
+  }
+  if (!view.activities || !view.network) {
+    return false;
+  }
+  return (
+    view.activities.data.length === 0 && view.network.colleagues.length === 0
+  );
 }
 
 /**

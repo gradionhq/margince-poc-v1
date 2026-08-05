@@ -174,6 +174,13 @@ func (h Reads) addDirectGroup(
 		return 0, err
 	}
 	search.SortByStrength(edges, now)
+	// The remainder counts from the FETCH, and the fetch is itself bounded —
+	// so on a contact with more than graphDirectFetch colleagues the number
+	// understates. That bound is stated rather than hidden: a workspace where
+	// a hundred people have corresponded with one contact is far outside the
+	// shape this card is for, and over-fetching the whole set to make the
+	// remainder exact would cost every ordinary read to make one pathological
+	// read honest.
 	dropped := 0
 	if len(edges) > graphDirectCap {
 		dropped = len(edges) - graphDirectCap

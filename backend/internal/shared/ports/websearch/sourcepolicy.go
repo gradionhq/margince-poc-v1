@@ -67,6 +67,14 @@ func MayFetch(raw string) FetchDecision {
 	default:
 		return FetchDecision{Reason: "only http and https are fetched"}
 	}
+	// Credentials in the address are refused before the deny-list is even
+	// consulted. ADR-0081 forbids a credentialed fetch outright — a URL
+	// carrying userinfo would have the fetcher present somebody's password to
+	// a site this product has no account with, and no host allowlist makes
+	// that acceptable.
+	if u.User != nil {
+		return FetchDecision{Reason: "the address carries credentials, and this product never fetches with them"}
+	}
 	host := normalizeHost(u.Hostname())
 	for _, denied := range deniedHosts {
 		if host == denied || strings.HasSuffix(host, "."+denied) {

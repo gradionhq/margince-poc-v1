@@ -23,6 +23,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -115,6 +116,24 @@ func fillDiscoveredFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 			return nil, err
 		}
 		applied = append(applied, f.Field)
+	}
+	if len(applied) == 0 {
+		return nil, nil
+	}
+	// The same audit + outbox pair the site and signature writers use. Without
+	// it a search-discovered field lands in the record with no audit row and no
+	// person.updated — invisible to the field-history projection, and to every
+	// consumer that reacts to a contact changing. A fill nobody can see the
+	// provenance of is the opposite of what this seam is for.
+	auditID, err := storekit.Audit(ctx, tx, actionUpdate, entityPerson, personID.UUID,
+		nil, map[string]any{auditKeyFields: applied, auditKeySource: searchFieldSource})
+	if err != nil {
+		return nil, fmt.Errorf("people: auditing the search-discovered fill: %w", err)
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, personID.UUID, crmcontracts.PublicEventPersonUpdated{
+		ChangedFields: map[string]any{auditKeyFields: applied, auditKeySource: searchFieldSource},
+	}); err != nil {
+		return nil, fmt.Errorf("people: emitting person.updated for the search fill: %w", err)
 	}
 	return applied, nil
 }

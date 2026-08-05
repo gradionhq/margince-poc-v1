@@ -29,6 +29,21 @@ func TestMayFetchRefusesTheAuthWalledPlatforms(t *testing.T) {
 	}
 }
 
+// ADR-0081 forbids a credentialed fetch outright. A URL carrying userinfo
+// would have the fetcher present somebody's password to a site this product
+// has no account with, so it is refused before the host is even considered.
+func TestMayFetchRefusesAnAddressCarryingCredentials(t *testing.T) {
+	for _, raw := range []string{
+		"https://user:secret@scalecommerce.example/team",
+		"https://user@scalecommerce.example/team",
+		"http://admin:hunter2@example.de/impressum",
+	} {
+		if d := MayFetch(raw); d.Allowed {
+			t.Errorf("MayFetch(%q) allowed a credentialed fetch", raw)
+		}
+	}
+}
+
 func TestMayFetchAllowsAnOrdinaryPublicPage(t *testing.T) {
 	allowed := []string{
 		"https://scalecommerce.example/team",

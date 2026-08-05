@@ -10,6 +10,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { components } from "../api/schema";
+import { thinRecord } from "./person360";
 import { PersonMoments } from "./personmoments";
 
 type Person360 = components["schemas"]["Person360"];
@@ -124,5 +125,45 @@ describe("PersonMoments", () => {
   it("renders nothing rather than an empty card", () => {
     const { container } = renderMoments(pageWith([]));
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("thinRecord", () => {
+  // A withheld section is not an empty one. The thin state SUPPRESSES the
+  // ordinary modules, so misreading "you may not see this" as "there is
+  // nothing here" costs the reader the rest of the page over data that may
+  // well exist.
+  it("does not call a record thin when the sections were withheld", () => {
+    expect(
+      thinRecord({
+        as_of: "2026-08-04T09:00:00Z",
+        person,
+        sections_omitted: ["activities", "network"],
+      } as Person360),
+    ).toBe(false);
+  });
+
+  // Genuinely empty, both sections returned: that IS thin.
+  it("calls a record thin when both sections came back empty", () => {
+    expect(
+      thinRecord({
+        as_of: "2026-08-04T09:00:00Z",
+        person,
+        sections_omitted: [],
+        activities: { data: [], page: { has_more: false } },
+        network: { colleagues: [] },
+      } as unknown as Person360),
+    ).toBe(true);
+  });
+
+  // A section absent for any other reason is not evidence either way.
+  it("does not guess when a section is missing entirely", () => {
+    expect(
+      thinRecord({
+        as_of: "2026-08-04T09:00:00Z",
+        person,
+        sections_omitted: [],
+      } as Person360),
+    ).toBe(false);
   });
 });

@@ -13187,7 +13187,7 @@ type PersonEmailEmailType string
 
 // PersonGraph The local graph around one contact — nodes, the edges between them, and the route worth taking.
 type PersonGraph struct {
-	// DroppedCount How many nodes each group lost to its cap. Stated rather than silently truncated.
+	// DroppedCount How many nodes each group lost to its cap, stated rather than silently truncated. `account` is the true remainder. `direct` counts from a bounded fetch (100), so on a contact more than a hundred colleagues have corresponded with it understates — a shape far outside what this card is for, and making it exact would cost every ordinary read.
 	DroppedCount *struct {
 		Account *int `json:"account,omitempty"`
 		Direct  *int `json:"direct,omitempty"`

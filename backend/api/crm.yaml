@@ -11536,7 +11536,12 @@ components:
             enum: [direct, account]
         dropped_count:
           type: object
-          description: How many nodes each group lost to its cap. Stated rather than silently truncated.
+          description: >-
+            How many nodes each group lost to its cap, stated rather than silently truncated.
+            `account` is the true remainder. `direct` counts from a bounded fetch (100), so on a
+            contact more than a hundred colleagues have corresponded with it understates — a
+            shape far outside what this card is for, and making it exact would cost every
+            ordinary read.
           properties:
             direct: { type: integer }
             account: { type: integer }

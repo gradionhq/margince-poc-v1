@@ -40,6 +40,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -84,15 +85,45 @@ func (g *PersonAutoEnrich) HandleEvent(ctx context.Context, env events.Envelope)
 	if env.Entity.ID == ids.Nil || env.Entity.Type != string(recordTypePerson) {
 		return nil
 	}
+	subject := env.Entity.ID
 	switch env.Type {
 	// Every event that can make a person newly matchable. An archive needs no
 	// reaction: the match requires a live row, so an archived contact stops
 	// being a candidate without anything being recomputed.
-	case "person.created", "person.updated", "person.merged", "person.restored":
+	case "person.created", "person.updated", "person.restored":
+	case "person.merged":
+		// A merge names the merged-AWAY person as its entity — the row it just
+		// archived. Enriching that would fill a record no read returns, and the
+		// survivor, which is the one that actually became newly matchable
+		// (it inherits the source's emails and employer), would be missed. The
+		// survivorship patch is a bare UPDATE and emits nothing of its own, so
+		// this event is the only notice this consumer gets.
+		survivor, ok := survivorOf(env)
+		if !ok {
+			return nil
+		}
+		subject = survivor
 	default:
 		return nil
 	}
-	return g.enrich(g.systemContext(ctx, env), ids.From[ids.PersonKind](env.Entity.ID))
+	return g.enrich(g.systemContext(ctx, env), ids.From[ids.PersonKind](subject))
+}
+
+// survivorOf reads the surviving person out of a person.merged payload.
+//
+// An unreadable payload yields no subject rather than a guess: enriching the
+// wrong record is worse than not enriching, and the merge itself has already
+// committed either way.
+func survivorOf(env events.Envelope) (ids.UUID, bool) {
+	var merged crmcontracts.PublicEventPersonMerged
+	if err := json.Unmarshal(env.Payload, &merged); err != nil {
+		return ids.Nil, false
+	}
+	survivor := ids.UUID(merged.MergedIntoId)
+	if survivor == ids.Nil {
+		return ids.Nil, false
+	}
+	return survivor, true
 }
 
 // systemContext binds the workspace and the system principal this pass writes

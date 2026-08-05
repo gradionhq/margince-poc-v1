@@ -703,10 +703,11 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   )
                 : []
             }
-            timelineNotice={
-              overlay ? (
-                <OverlayUnavailable />
-              ) : (
+            // The filter sits ABOVE the timeline; the notice REPLACES it
+            // (composed.tsx renders `timelineNotice ?? the list`). Putting the
+            // filter in the notice slot hid every activity row behind it.
+            timelineHeader={
+              overlay ? undefined : (
                 <SegmentedControl
                   options={TIMELINE_FILTERS}
                   value={timelineFilter}
@@ -720,6 +721,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 />
               )
             }
+            timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
             rail={view ? <IdentityRail view={view} /> : undefined}
             aside={<PersonAside view={view} overlay={overlay} />}
           >

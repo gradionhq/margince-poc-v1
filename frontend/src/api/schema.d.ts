@@ -7555,7 +7555,7 @@ export interface components {
             route?: components["schemas"]["PersonGraphRoute"];
             /** @description Groups withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
             groups_omitted: ("direct" | "account")[];
-            /** @description How many nodes each group lost to its cap. Stated rather than silently truncated. */
+            /** @description How many nodes each group lost to its cap, stated rather than silently truncated. `account` is the true remainder. `direct` counts from a bounded fetch (100), so on a contact more than a hundred colleagues have corresponded with it understates — a shape far outside what this card is for, and making it exact would cost every ordinary read. */
             dropped_count?: {
                 direct?: number;
                 account?: number;
