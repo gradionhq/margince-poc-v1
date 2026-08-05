@@ -156,39 +156,71 @@ func legalEntityDetail(entity corpusLegalEntity) int {
 	return filled
 }
 
-// legalWarningMultipleEntities is the abstention's user-facing warning —
-// one spelling for the worker log, the debug report, and the E2E floor
-// that greps it.
-const legalWarningMultipleEntities = "disagreeing legal pages: the domain hosts more than one entity — the legal-field override was dropped"
+// The abstention's two user-facing spellings, one per cause. They are
+// different facts: the first describes the COMPANY (its domain publishes
+// several registrations), the second describes THIS RUN (a legal page's
+// extraction never came back, so the count cannot be trusted). Printing the
+// first when the second fired invents a corporate structure nobody read.
+// legalWarningMultipleEntities has one spelling for the worker log, the
+// debug report, and the E2E floor that greps it.
+const (
+	legalWarningMultipleEntities = "disagreeing legal pages: the domain hosts more than one entity — the legal-field override was dropped"
+	legalWarningCensusIncomplete = "incomplete legal read: a legal page could not be extracted, so the entity census is unsettled — the legal-field override was dropped"
+)
 
-// applyLegalGate turns the gated legal-entity census into the abstention
-// verdict: more than one normalized-distinct entity → the whole legal
-// trio is stripped (missing beats another company's); at most one → each
-// trio field survives only when quoted from a shallow legal page.
-func applyLegalGate(fields []evidencedField, entities []corpusLegalEntity, pageKind map[string]crmcontracts.SiteReadPageKind, censusIncomplete bool) ([]evidencedField, bool, []droppedFinding) {
+// legalAbstention is WHY the gate withheld the legal trio, spelled as the
+// reason each withheld finding carries — so the drop record and the warning
+// a human reads can never name different causes.
+type legalAbstention string
+
+const (
+	legalAbstentionNone             legalAbstention = ""
+	legalAbstentionMultipleEntities legalAbstention = dropLegalConflict
+	legalAbstentionCensusIncomplete legalAbstention = dropLegalCensusIncomplete
+)
+
+// legalAbstentionOf reads the census verdict. A domain that states several
+// distinct entities is answered first: that holds whether or not another
+// legal page also failed, while an incomplete census says only that this
+// run cannot trust its count.
+func legalAbstentionOf(entities []corpusLegalEntity, censusIncomplete bool) legalAbstention {
 	distinct := map[string]bool{}
 	for _, e := range entities {
 		distinct[legalEntityNameKey(e.Name)] = true
 	}
-	var dropped []droppedFinding
-	if censusIncomplete || len(distinct) > 1 {
-		reason := dropLegalConflict
-		if censusIncomplete && len(distinct) <= 1 {
-			reason = dropLegalCensusIncomplete
-		}
-		kept := make([]evidencedField, 0, len(fields))
-		for _, f := range fields {
-			if legalPageFields[f.Field] {
-				dropped = append(dropped, droppedFinding{
-					Lane: laneLegal, Field: f.Field, Value: f.Value,
-					EvidenceSnippet: f.EvidenceSnippet, Reason: reason,
-				})
-				continue
-			}
-			kept = append(kept, f)
-		}
+	switch {
+	case len(distinct) > 1:
+		return legalAbstentionMultipleEntities
+	case censusIncomplete:
+		return legalAbstentionCensusIncomplete
+	default:
+		return legalAbstentionNone
+	}
+}
+
+// warning is what a human is told about the abstention: the cause that
+// actually fired, never a stand-in for it. A settled census warns nothing.
+func (a legalAbstention) warning() string {
+	switch a {
+	case legalAbstentionMultipleEntities:
+		return legalWarningMultipleEntities
+	case legalAbstentionCensusIncomplete:
+		return legalWarningCensusIncomplete
+	default:
+		return ""
+	}
+}
+
+// applyLegalGate turns the gated legal-entity census into the abstention
+// verdict: any abstention cause → the whole legal trio is stripped (missing
+// beats another company's); a settled census → each trio field survives only
+// when quoted from a shallow legal page.
+func applyLegalGate(fields []evidencedField, entities []corpusLegalEntity, pageKind map[string]crmcontracts.SiteReadPageKind, censusIncomplete bool) ([]evidencedField, bool, []droppedFinding) {
+	if abstention := legalAbstentionOf(entities, censusIncomplete); abstention != legalAbstentionNone {
+		kept, dropped := withholdLegalTrio(fields, string(abstention))
 		return kept, true, dropped
 	}
+	var dropped []droppedFinding
 	kept := make([]evidencedField, 0, len(fields))
 	for _, f := range fields {
 		if legalPageFields[f.Field] &&
@@ -202,6 +234,24 @@ func applyLegalGate(fields []evidencedField, entities []corpusLegalEntity, pageK
 		kept = append(kept, f)
 	}
 	return kept, false, dropped
+}
+
+// withholdLegalTrio strips every legal-trio field and records the abstention
+// cause on each one, so the drop log states which of the two fired.
+func withholdLegalTrio(fields []evidencedField, reason string) ([]evidencedField, []droppedFinding) {
+	var dropped []droppedFinding
+	kept := make([]evidencedField, 0, len(fields))
+	for _, f := range fields {
+		if legalPageFields[f.Field] {
+			dropped = append(dropped, droppedFinding{
+				Lane: laneLegal, Field: f.Field, Value: f.Value,
+				EvidenceSnippet: f.EvidenceSnippet, Reason: reason,
+			})
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept, dropped
 }
 
 // legalAuthorityPage limits legal-identity authority to legal pages the
