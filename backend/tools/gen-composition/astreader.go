@@ -189,7 +189,7 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 	if !ok || (lit.Type != nil && !isSelector(lit.Type, ext, "Tool")) {
 		return riskTierRequest{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
 	}
-	var name, version, tier, scope string
+	var name, title, version, tier, scope string
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
 		if !ok {
@@ -203,6 +203,12 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 		switch key.Name {
 		case "Name":
 			name, err = r.stringLit(kv.Value, "Tool.Name")
+		case "Title":
+			// Read to be VALIDATED, not to be recorded: a display string
+			// grants nothing, so it stays out of the descriptor and its
+			// digest — but the core registry refuses a blank one at boot, and
+			// this is where a unit author is told so at the declaration.
+			title, err = r.stringLit(kv.Value, "Tool.Title")
 		case "Version":
 			version, err = r.stringLit(kv.Value, "Tool.Version")
 		case "Tier":
@@ -220,25 +226,33 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			return riskTierRequest{}, err
 		}
 	}
-	return r.toolRequest(lit, name, version, tier, scope)
+	return r.toolRequest(lit, declaredTool{name: name, title: title, version: version, tier: tier, scope: scope})
 }
+
+// declaredTool is one Tools entry as the source states it, before the
+// published grammar has passed judgement on it.
+type declaredTool struct{ name, title, version, tier, scope string }
 
 // toolRequest validates the declared tool through its published grammar
 // (the same Validate the boot preflight runs, raised here at the
 // declaration's position) and assembles its descriptor. A tool requires
 // one scope; the descriptor carries it as its (single-element) scope set,
-// the general shape shared across governed kinds. Version is not part
-// of the descriptor: resolutions bind to the digest, never a version.
-func (r *unitReader) toolRequest(at ast.Node, name, version, tier, scope string) (riskTierRequest, error) {
-	declared := extension.Tool{Name: name, Version: version, Tier: extension.Tier(tier), RequestedScope: extension.Scope(scope)}
+// the general shape shared across governed kinds. Version and Title are not
+// part of the descriptor: resolutions bind to the digest, never to a version
+// string, and never to a label.
+func (r *unitReader) toolRequest(at ast.Node, d declaredTool) (riskTierRequest, error) {
+	declared := extension.Tool{
+		Name: d.name, Title: d.title, Version: d.version,
+		Tier: extension.Tier(d.tier), RequestedScope: extension.Scope(d.scope),
+	}
 	if err := declared.Validate(); err != nil {
 		return riskTierRequest{}, r.errPos(at, "%v", err)
 	}
 	c := riskTierRequest{
-		ID:        "tool/" + name,
+		ID:        "tool/" + d.name,
 		Operation: opAgentToolInvoke,
-		Scopes:    []string{scope},
-		Tier:      tier,
+		Scopes:    []string{d.scope},
+		Tier:      d.tier,
 	}
 	digest, err := descriptorDigest(c)
 	if err != nil {

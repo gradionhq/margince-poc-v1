@@ -107,27 +107,81 @@ func TestBuildExtensionToolsRejectsCrossUnitServedNameCollision(t *testing.T) {
 	}
 }
 
-// TestBuildExtensionToolsDerivesEgressAndDefaultsSchema: a send-scoped tool
-// is marked egress, and a tool that omits an input schema still advertises
-// an object one (MCP requires it).
-func TestBuildExtensionToolsDerivesEgressAndDefaultsSchema(t *testing.T) {
+// TestBuildExtensionToolsRejectsAServedEgressTool: every core tool that
+// leaves the workspace is 🟡, and a served extension tool cannot be — so an
+// outbound one would auto-execute with no human in the loop and no operation
+// declaring that this surface may reach outside at all. Both outbound caps,
+// because `send` delivering and `enrich` fetching leave by the same door.
+func TestBuildExtensionToolsRejectsAServedEgressTool(t *testing.T) {
+	// A verb per cap, so each subtest reads as the act it refuses rather than
+	// naming a delivery for the fetch case.
+	outboundVerbs := map[extension.Scope]string{
+		extension.ScopeSend:   "push_webhook",
+		extension.ScopeEnrich: "fetch_profile",
+	}
+	for _, scope := range []extension.Scope{extension.ScopeSend, extension.ScopeEnrich} {
+		t.Run(string(scope), func(t *testing.T) {
+			_, err := buildExtensionTools([]extension.Extension{{
+				Name: "demo", Version: "1.0.0",
+				Tools: []extension.Tool{{
+					Name: outboundVerbs[scope], Version: "1.0.0",
+					Tier: extension.TierAutoExecute, RequestedScope: scope,
+					Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+				}},
+			}})
+			if err == nil || !strings.Contains(err.Error(), "outbound") {
+				t.Fatalf("err = %v, want the served-egress rejection", err)
+			}
+		})
+	}
+}
+
+// TestBuildExtensionToolsDefaultsTheInputSchema: a tool that omits an input
+// schema still advertises an object one (MCP requires it of every tool).
+func TestBuildExtensionToolsDefaultsTheInputSchema(t *testing.T) {
 	tools, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name: "push_webhook", Version: "1.0.0",
-			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeSend,
+			Name: "count_things", Version: "1.0.0",
+			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
 			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 		}},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := tools[0].Spec()
-	if !spec.Egress {
-		t.Error("a send-scoped tool must be marked egress")
+	if got := string(tools[0].Spec().InputSchema); got != `{"type":"object"}` {
+		t.Errorf("a tool without a declared input schema must advertise an object one, got %s", got)
 	}
-	if string(spec.InputSchema) != `{"type":"object"}` {
-		t.Errorf("a tool without a declared input schema must advertise an object one, got %s", spec.InputSchema)
+}
+
+// TestBuildExtensionToolsCarriesTheTitleAndFallsBackToTheVerb: a declared
+// title reaches tools/list, and a unit that declares none is listed under its
+// verb rather than registering a title-less spec (which the core registry
+// refuses outright).
+func TestBuildExtensionToolsCarriesTheTitleAndFallsBackToTheVerb(t *testing.T) {
+	handle := func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil }
+	tools, err := buildExtensionTools([]extension.Extension{{
+		Name: "demo", Version: "1.0.0",
+		Tools: []extension.Tool{
+			{
+				Name: "give_quote", Title: "Quote of the day", Version: "1.0.0",
+				Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead, Handle: handle,
+			},
+			{
+				Name: "count_things", Version: "1.0.0",
+				Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead, Handle: handle,
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tools[0].Spec().Title; got != "Quote of the day" {
+		t.Errorf("declared title = %q, want it carried to the served spec", got)
+	}
+	if got := tools[1].Spec().Title; got != "count_things" {
+		t.Errorf("title-less tool = %q, want the verb as its display name", got)
 	}
 }
 

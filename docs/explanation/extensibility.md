@@ -213,10 +213,22 @@ the same `agents.Registry`, admission gate, and tool listing the core tools ride
 the reference unit that exercises that path end to end). Two limits hold there: a handler-less
 declaration stays a manifest request and serves nothing, and a *served* 🟡 confirm-first tool is
 refused at boot rather than registered, because this data-only adapter cannot implement the registry's
-staging seam — its approvals could never be staged, so the capability would be dead on every call. And
+staging seam — its approvals could never be staged, so the capability would be dead on every call. A
+served tool spending an outbound `send`/`enrich` cap is refused for the same reason read from the other
+end: it could only ever run 🟢, and every core verb that leaves the workspace is confirm-first, so
+serving one would be outbound authority with nobody to ask. That binds the DECLARATION — a handler is
+ordinary Go and could reach the network whatever cap it asks for; what the refusal buys is that a unit
+cannot ASK for outbound authority and be granted it silently. And
 until per-capability operator resolution lands, **the composed set is itself the trust boundary**: a
 handler-bearing tool is served at its declared tier because someone added the unit to the tree
-deliberately. The core stays country-neutral — a fitness gate
+deliberately.
+
+`Title` is the one field on the declaration that grants nothing: it is what `tools/list` DISPLAYS in
+place of the verb. Optional, and kept out of the manifest's governance descriptor and its digest — but
+validated at gen time all the same, because the core registry refuses a blank display name and would
+otherwise do it by panicking the boot that composed the unit.
+
+The core stays country-neutral — a fitness gate
 (`check-no-jurisdiction.sh`) scans hand-written core source for jurisdiction-specific identifiers and
 fails the build on a match. Germany does not live in the core; it lives in `extensions/de`, which
 declares the GoBD/AO statutory **retention floors** — commercial correspondence 6 years, and

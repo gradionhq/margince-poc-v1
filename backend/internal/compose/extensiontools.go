@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -59,53 +60,81 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 				return nil, fmt.Errorf("compose: extensions %q and %q both serve a tool named %q", owner, e.Name, tool.Name)
 			}
 			served[tool.Name] = e.Name
-			tier, err := mcpTier(tool.Tier)
+			adapted, err := adaptExtensionTool(tool)
 			if err != nil {
 				return nil, fmt.Errorf("compose: extension %q, tool %q: %w", e.Name, tool.Name, err)
 			}
-			// A served 🟡 tool would be refused on every call: the admission
-			// gate stages a confirm-first approval only for tools that
-			// implement the registry's staging seam, which this data-only
-			// adapter cannot. Serving one is a dead capability, so reject it
-			// until the staging seam is wired. A handler-LESS 🟡 tool is fine
-			// — it is a manifest request, not served.
-			if tier == mcp.TierConfirmationRequired {
-				return nil, fmt.Errorf("compose: extension %q, tool %q: a served confirmation-required tool is not yet supported (its approvals could never be staged)", e.Name, tool.Name)
-			}
-			scope, err := mcpScope(tool.RequestedScope)
-			if err != nil {
-				return nil, fmt.Errorf("compose: extension %q, tool %q: %w", e.Name, tool.Name, err)
-			}
-			input := tool.InputSchema
-			if input == nil {
-				// MCP requires every tool to advertise an object input schema;
-				// a tool that takes no arguments still needs one.
-				input = json.RawMessage(`{"type":"object"}`)
-			}
-			tools = append(tools, extensionTool{
-				spec: mcp.ToolSpec{
-					Name: tool.Name,
-					// A unit that declares a title gets it; one that does not
-					// is listed under its verb, which is what a client falls
-					// back to anyway. Optional rather than required on
-					// purpose: making a display string mandatory would refuse
-					// to boot an otherwise valid third-party unit over a label.
-					Title:         cmp.Or(tool.Title, tool.Name),
-					Version:       tool.Version,
-					RequiredScope: scope,
-					Tier:          tier,
-					InputSchema:   input,
-					OutputSchema:  tool.OutputSchema,
-					// A tool whose cap leaves the workspace — delivering under
-					// `send`, fetching under `enrich` — is surfaced as such in
-					// the operator inventory.
-					Egress: scope.Egresses(),
-				},
-				handle: tool.Handle,
-			})
+			tools = append(tools, adapted)
 		}
 	}
 	return tools, nil
+}
+
+// adaptExtensionTool maps ONE handler-bearing declaration onto the core
+// seam, refusing the two shapes this surface cannot honestly serve.
+func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
+	tier, err := mcpTier(tool.Tier)
+	if err != nil {
+		return extensionTool{}, err
+	}
+	// A served 🟡 tool would be refused on every call: the admission gate
+	// stages a confirm-first approval only for tools that implement the
+	// registry's staging seam, which this data-only adapter cannot. Serving
+	// one is a dead capability, so reject it until the staging seam is wired.
+	// A handler-LESS 🟡 tool is fine — it is a manifest request, not served.
+	if tier == mcp.TierConfirmationRequired {
+		return extensionTool{}, errors.New("a served confirmation-required tool is not yet supported (its approvals could never be staged)")
+	}
+	scope, err := mcpScope(tool.RequestedScope)
+	if err != nil {
+		return extensionTool{}, err
+	}
+	// Every core tool that leaves the workspace — send_email, send_message,
+	// book_meeting, the enrich pair — is 🟡, because the only control over a
+	// destination the product did not choose is a human deciding the call. A
+	// served extension tool cannot be 🟡 (see just above), so serving an
+	// outbound one would put this surface on the wrong side of that rule:
+	// outbound authority nothing declares, on a call nobody can be asked
+	// about. A handler-LESS outbound tool is fine — it is a manifest request,
+	// not a capability.
+	//
+	// This binds the DECLARATION. A handler is ordinary Go and could reach the
+	// network whatever cap it asks for — that is bounded by the composed set
+	// being the trust boundary (see buildExtensionTools), not by this check.
+	// What the check buys is that a unit cannot ASK for outbound authority and
+	// be granted it silently on the auto-execute tier.
+	if scope.Egresses() {
+		return extensionTool{}, fmt.Errorf(
+			"a served tool spending the outbound %q cap is not yet supported "+
+				"(leaving the workspace requires the confirm-first tier, which this surface cannot stage)", scope)
+	}
+	input := tool.InputSchema
+	if input == nil {
+		// MCP requires every tool to advertise an object input schema; a tool
+		// that takes no arguments still needs one.
+		input = json.RawMessage(`{"type":"object"}`)
+	}
+	return extensionTool{
+		spec: mcp.ToolSpec{
+			Name: tool.Name,
+			// A unit that declares a title gets it; one that does not is
+			// listed under its verb, which is what a client falls back to
+			// anyway. Optional rather than required on purpose: making a
+			// display string mandatory would refuse to boot an otherwise valid
+			// third-party unit over a label.
+			Title:         cmp.Or(tool.Title, tool.Name),
+			Version:       tool.Version,
+			RequiredScope: scope,
+			Tier:          tier,
+			InputSchema:   input,
+			OutputSchema:  tool.OutputSchema,
+			// Derived, never declared: egress is a property of the cap spent,
+			// not something a unit asserts. The refusal above means it is
+			// false for everything this surface serves today.
+			Egress: scope.Egresses(),
+		},
+		handle: tool.Handle,
+	}, nil
 }
 
 // setComposedTools records the boot's tool set. Called once by
