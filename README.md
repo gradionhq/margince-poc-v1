@@ -163,7 +163,8 @@ per-client throttling at the proxy.
   time. The same annotation declares the passport **scope** the act
   spends (`read|draft|write|send|enrich`), so a cap the granting human
   withheld cannot be reached by picking a different transport, or by
-  reaching a verb that happens to have no registered tool. Governance actions (approving, consent, DSR, pipeline/stage
+  reaching a verb that happens to have no registered tool.
+  Governance actions (approving, consent, DSR, pipeline/stage
   config) are human-only at the contract, the gate, and the service.
   Admission re-derives the granting human's seat + RBAC live per call,
   so revocation binds mid-session.
