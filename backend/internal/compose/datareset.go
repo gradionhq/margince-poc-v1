@@ -183,14 +183,9 @@ type dataResetHandlers struct {
 }
 
 // run performs the full reset for the bound workspace: refuse a mismatched
-// confirmation, quiet the job fleet, purge the queue and the bus, sweep +
-// re-seed Postgres in one transaction, clear the surfaces no transaction can
-// reach, and announce the reset so every process drops its caches.
+// confirmation, then hand the rest to runQuiesced, which does the work with the
+// job fleet held down.
 func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetCounts, error) {
-	logger := h.log
-	if logger == nil {
-		logger = slog.Default()
-	}
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return resetCounts{}, database.ErrNoWorkspace
@@ -204,14 +199,36 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetC
 	}); err != nil {
 		return resetCounts{}, err
 	}
+	return h.runQuiesced(ctx, wsID, func(counts *resetCounts) error {
+		return h.sweepAndReseed(ctx, wsID, confirmation, counts)
+	})
+}
 
+// runQuiesced performs the reset with the job fleet held down: purge the queue,
+// the bus and the budget counters, sweep + re-seed Postgres in one transaction,
+// clear the surfaces no transaction can reach, and announce the reset so every
+// process drops its caches. sweep is the Postgres half, taken as a parameter so
+// this ordering can be exercised without a database.
+//
+// The fleet pause's lifetime is exactly this function's, and that is why the
+// resume is deferred HERE rather than inside the phase that takes the pause.
+// Two properties follow, both of which a resume registered further in loses:
+// a Quiesce that fails with the pause ALREADY applied — it pauses first, then
+// polls the drain — is still lifted; and the fleet stays down until the last
+// post-commit purge is done, so no job resumes into a window where it reads
+// caches for data being deleted or writes objects the prefix sweep then removes.
+func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, sweep func(*resetCounts) error) (resetCounts, error) {
+	logger := h.log
+	if logger == nil {
+		logger = slog.Default()
+	}
 	rt := ResetRuntime{}
 	if h.runtime != nil {
 		rt = *h.runtime
 	}
-	counts, err := runResetRuntimePhase(ctx, rt, wsID, func(counts *resetCounts) error {
-		return h.sweepAndReseed(ctx, wsID, confirmation, counts)
-	})
+	defer resumeResetQueues(ctx, logger, rt)
+
+	counts, err := h.runRuntimePhase(ctx, rt, wsID, sweep)
 	if err != nil {
 		return counts, err
 	}
@@ -225,6 +242,13 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetC
 		h.flush(wsID)
 	}
 	if rt.SignalReset != nil {
+		// A failed announcement fails the request, and that is the chosen
+		// posture rather than an oversight: the sweep is committed, so every
+		// OTHER process is still serving cached answers for data that no longer
+		// exists, and an operator has to know the installation is in that state.
+		// The deferred resume above answers the mirror-image question the other
+		// way for the mirror-image reason — that pause is this process's own
+		// doing, and lifting it is not part of the outcome the caller asked for.
 		if err := rt.SignalReset(ctx, wsID); err != nil {
 			return counts, err
 		}
@@ -293,6 +317,12 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 // transaction, so the bytes are purged after this row is already committed and
 // the tally does not exist yet. It reaches the response and the completion log
 // line instead.
+//
+// cache_keys_deleted, by contrast, is COMPLETE here, and must stay that way:
+// every Redis purge that feeds it runs before this transaction opens
+// (runRuntimePhase), so the number the permanent record carries is the same
+// number the response and the log line report. A purge moved after the commit
+// would silently make one key name mean two different totals.
 func resetEvidence(counts resetCounts) map[string]any {
 	return map[string]any{
 		"tables_cleared":     counts.TablesCleared,
@@ -304,12 +334,15 @@ func resetEvidence(counts resetCounts) map[string]any {
 }
 
 // purgeUnjoinableSurfaces clears what the sweep's transaction cannot reach and
-// so runs after it commits: the schema's cf_* columns, this workspace's Redis
-// budget counters, and the stored object bytes whose only references the sweep
-// just deleted. Both purges fail the request when they fail — an install
-// reported as reset while a surface still holds the old one's state is the
-// outcome this whole path exists to prevent. The cf_* drop is the one
-// exception, for the reason its own comment gives.
+// so runs after it commits: the schema's cf_* columns and the stored object
+// bytes whose only references the sweep just deleted. The object purge fails the
+// request when it fails — an install reported as reset while a surface still
+// holds the old one's state is the outcome this whole path exists to prevent.
+// The cf_* drop is the one exception, for the reason its own comment gives.
+//
+// The Redis surfaces are NOT here: they are purged before the sweep's
+// transaction so the audit row it writes can name what they cleared
+// (runRuntimePhase).
 func (h dataResetHandlers) purgeUnjoinableSurfaces(ctx context.Context, logger *slog.Logger, wsID ids.UUID, counts *resetCounts) error {
 	// Drop custom-field columns so the schema matches a fresh bootstrap.
 	// Best-effort — the definitions are already gone with the sweep, and
@@ -319,13 +352,6 @@ func (h dataResetHandlers) purgeUnjoinableSurfaces(ctx context.Context, logger *
 		if err := dropResetCustomFieldColumns(ctx, h.schemaPool); err != nil {
 			logger.Error("data reset: cf_ column drop failed", "err", err)
 		}
-	}
-	if h.budget != nil {
-		n, err := h.budget.PurgeWorkspace(ctx, wsID)
-		if err != nil {
-			return err
-		}
-		counts.CacheKeys += n
 	}
 	if h.blob != nil {
 		// The prefix must end at the key separator or the store refuses it:

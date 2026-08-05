@@ -27,8 +27,8 @@ import (
 func TestPurgeWorkspaceKeepsAnotherWorkspacesRows(t *testing.T) {
 	ctx, pool := quiesceTestPool(t)
 	mine, theirs := ids.NewV7(), ids.NewV7()
-	insertJobRow(t, ctx, pool, "reset.probe", mine)
-	insertJobRow(t, ctx, pool, "reset.probe", theirs)
+	insertJobRow(ctx, t, pool, "reset.probe", mine)
+	insertJobRow(ctx, t, pool, "reset.probe", theirs)
 
 	deleted, err := jobs.PurgeWorkspace(ctx, pool, mine)
 	if err != nil {
@@ -37,7 +37,7 @@ func TestPurgeWorkspaceKeepsAnotherWorkspacesRows(t *testing.T) {
 	if deleted != 1 {
 		t.Errorf("deleted = %d, want 1", deleted)
 	}
-	if got := countJobRows(t, ctx, pool, theirs); got != 1 {
+	if got := countJobRows(ctx, t, pool, theirs); got != 1 {
 		t.Errorf("another workspace lost %d rows; a reset must never cross the tenant boundary", 1-got)
 	}
 }
@@ -45,7 +45,7 @@ func TestPurgeWorkspaceKeepsAnotherWorkspacesRows(t *testing.T) {
 func TestPurgeWorkspaceRemovesFleetDispatchers(t *testing.T) {
 	ctx, pool := quiesceTestPool(t)
 	ws := ids.NewV7()
-	insertDispatcherRow(t, ctx, pool, "reset.dispatcher") // args with no workspace_id key
+	insertDispatcherRow(ctx, t, pool, "reset.dispatcher") // args with no workspace_id key
 
 	deleted, err := jobs.PurgeWorkspace(ctx, pool, ws)
 	if err != nil {
@@ -58,7 +58,7 @@ func TestPurgeWorkspaceRemovesFleetDispatchers(t *testing.T) {
 
 func TestQuiesceReportsNotDrainedWhileAJobRuns(t *testing.T) {
 	ctx, pool := quiesceTestPool(t)
-	insertRunningJobRow(t, ctx, pool, "reset.stuck")
+	insertRunningJobRow(ctx, t, pool, "reset.stuck")
 
 	q := jobs.Quiescer{
 		Runner:   quiesceTestRunner(t, pool),
@@ -155,7 +155,7 @@ func quiesceTestRunner(t *testing.T, pool *pgxpool.Pool) *jobs.Runner {
 
 // insertJobRow seeds one available, tenant-scoped row: exactly what a
 // workspace's own queued work looks like on the wire.
-func insertJobRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, kind string, ws ids.UUID) {
+func insertJobRow(ctx context.Context, t *testing.T, pool *pgxpool.Pool, kind string, ws ids.UUID) {
 	t.Helper()
 	args, err := json.Marshal(map[string]string{"workspace_id": ws.String()})
 	if err != nil {
@@ -171,7 +171,7 @@ func insertJobRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, kind st
 
 // insertDispatcherRow seeds one available row with no workspace_id key at
 // all — a fleet dispatcher's args, not a malformed tenant row.
-func insertDispatcherRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, kind string) {
+func insertDispatcherRow(ctx context.Context, t *testing.T, pool *pgxpool.Pool, kind string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO river_job (state, kind, queue, args, tags, errors, max_attempts, attempt, created_at, scheduled_at)
@@ -184,7 +184,7 @@ func insertDispatcherRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 // insertRunningJobRow seeds a row already claimed by a worker, written
 // directly rather than through a real worker loop: the drain has to see a
 // running row without one ever actually executing.
-func insertRunningJobRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, kind string) {
+func insertRunningJobRow(ctx context.Context, t *testing.T, pool *pgxpool.Pool, kind string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO river_job (state, kind, queue, args, tags, errors, max_attempts, attempt, created_at, scheduled_at, attempted_at)
@@ -196,7 +196,7 @@ func insertRunningJobRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 
 // countJobRows reports how many river_job rows carry the given workspace —
 // the read PurgeWorkspace's tenant-boundary assertion checks.
-func countJobRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ws ids.UUID) int {
+func countJobRows(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) int {
 	t.Helper()
 	var n int
 	if err := pool.QueryRow(ctx,

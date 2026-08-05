@@ -17,7 +17,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
@@ -186,6 +188,52 @@ func TestResetRunRestoresBootstrapState(t *testing.T) {
 	}
 	if got := e.WsCount(t, "SELECT count(*) FROM audit_log WHERE action='reset_data'"); got != 1 {
 		t.Errorf("audit_log reset_data rows = %d, want 1", got)
+	}
+}
+
+// resetBudgetIncumbent is an arbitrary configured incumbent: its identity does
+// not matter to the purge, only that a metered call leaves counters under the
+// workspace's ovb:<ws>:… prefix for the reset to find.
+const resetBudgetIncumbent = "acme"
+
+// TestResetDataAuditEvidenceCarriesTheSameCacheKeyTallyAsTheResponse:
+// cache_keys_deleted is one number with one meaning. Every Redis surface a reset
+// purges — the bus's dedupe marks and the overlay budget's counters — is cleared
+// before the sweep's transaction opens, so the audit row written inside it, the
+// 200 body and the completion log line all report the same total. A purge that
+// drifted after the commit would leave the PERMANENT record under-reporting
+// while the response over-reported, under one key name.
+func TestResetDataAuditEvidenceCarriesTheSameCacheKeyTallyAsTheResponse(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	meter := budgettest.Meter(t, budgettest.SmallConfig(resetBudgetIncumbent))
+	// Spend through the meter's own public API rather than hand-writing a key,
+	// so the counters the reset purges are exactly what real traffic leaves.
+	if err := meter.ConsumeSearch(principal.WithWorkspaceID(context.Background(), e.WS), resetBudgetIncumbent, 1); err != nil {
+		t.Fatalf("seeding a budget counter: %v", err)
+	}
+
+	h := dataResetHandlers{
+		pool:   e.Pool,
+		seeds:  deployconfig.Seeds{},
+		env:    runtimeenv.Development,
+		budget: meter,
+		log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	counts, err := h.run(ctx, "Authz")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if counts.CacheKeys == 0 {
+		t.Fatal("cache_keys_deleted = 0 although a budget counter was spent; the assertion below would hold vacuously")
+	}
+	recorded := e.WsCount(t,
+		`SELECT (evidence->>'cache_keys_deleted')::int FROM audit_log WHERE action = 'reset_data'`)
+	if recorded != counts.CacheKeys {
+		t.Errorf("audit evidence cache_keys_deleted = %d, response reports %d — the durable record and the reply disagree about what the same key name counts",
+			recorded, counts.CacheKeys)
 	}
 }
 

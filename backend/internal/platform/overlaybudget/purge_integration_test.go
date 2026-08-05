@@ -47,7 +47,7 @@ func budgetTestRedis(t *testing.T) (context.Context, *redis.Client) {
 // per-second search window has no per-source breakdown) rather than
 // hand-building a key, so the counter it creates is exactly what production
 // traffic would leave behind.
-func seedCounter(t *testing.T, ctx context.Context, rdb *redis.Client, ws ids.UUID) {
+func seedCounter(ctx context.Context, t *testing.T, rdb *redis.Client, ws ids.UUID) {
 	t.Helper()
 	m := overlaybudget.New(rdb, purgeTestCfg())
 	wsCtx := principal.WithWorkspaceID(ctx, ws)
@@ -59,7 +59,7 @@ func seedCounter(t *testing.T, ctx context.Context, rdb *redis.Client, ws ids.UU
 // countCounters counts the keys under ws's prefix directly with KEYS,
 // independent of PurgeWorkspace's own SCAN — so the assertion doesn't just
 // re-check the method against itself.
-func countCounters(t *testing.T, ctx context.Context, rdb *redis.Client, ws ids.UUID) int {
+func countCounters(ctx context.Context, t *testing.T, rdb *redis.Client, ws ids.UUID) int {
 	t.Helper()
 	keys, err := rdb.Keys(ctx, "ovb:"+ws.String()+":*").Result()
 	if err != nil {
@@ -71,8 +71,8 @@ func countCounters(t *testing.T, ctx context.Context, rdb *redis.Client, ws ids.
 func TestPurgeWorkspaceLeavesAnotherWorkspacesCounters(t *testing.T) {
 	ctx, rdb := budgetTestRedis(t) // the package's existing budgettest harness
 	mine, theirs := ids.NewV7(), ids.NewV7()
-	seedCounter(t, ctx, rdb, mine)
-	seedCounter(t, ctx, rdb, theirs)
+	seedCounter(ctx, t, rdb, mine)
+	seedCounter(ctx, t, rdb, theirs)
 
 	meter := overlaybudget.New(rdb, overlaybudget.Config{})
 	deleted, err := meter.PurgeWorkspace(ctx, mine)
@@ -82,7 +82,7 @@ func TestPurgeWorkspaceLeavesAnotherWorkspacesCounters(t *testing.T) {
 	if deleted != 1 {
 		t.Errorf("deleted = %d, want 1", deleted)
 	}
-	if n := countCounters(t, ctx, rdb, theirs); n != 1 {
+	if n := countCounters(ctx, t, rdb, theirs); n != 1 {
 		t.Errorf("another workspace's counters were purged (%d remain, want 1)", n)
 	}
 }

@@ -23,3 +23,15 @@ func TestResetRateLimitsReopensASpentBucket(t *testing.T) {
 		t.Error("resetPerEmail still refuses after ResetRateLimits; the bucket was not cleared")
 	}
 }
+
+// TestResetRateLimitsOnAHandlerSetWithoutBucketsIsANoOp: the caller is the
+// non-production data reset, and a nil-limiter panic there would surface to the
+// operator as an opaque 500 on a wipe that had already finished. A handler set
+// with no buckets has nothing to clear and must say so by returning quietly.
+func TestResetRateLimitsOnAHandlerSetWithoutBucketsIsANoOp(t *testing.T) {
+	var h Handlers
+	h.ResetRateLimits()
+	if h.loginFailures != nil || h.resetPerEmail != nil {
+		t.Fatal("a zero-value handler set grew limiters; this case exists precisely because it has none")
+	}
+}

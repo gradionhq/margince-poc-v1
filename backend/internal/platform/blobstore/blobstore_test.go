@@ -129,7 +129,7 @@ func TestMemoryStoreHealthIsAlwaysHealthy(t *testing.T) {
 
 // put writes body at key, failing the test on error — the common setup step
 // every DeletePrefix case needs before it can assert on what survived.
-func put(t *testing.T, ctx context.Context, store blobstore.Store, key, body string) {
+func put(ctx context.Context, t *testing.T, store blobstore.Store, key, body string) {
 	t.Helper()
 	if err := store.Put(ctx, key, bytes.NewReader([]byte(body)), int64(len(body)), ""); err != nil {
 		t.Fatalf("Put %q: %v", key, err)
@@ -142,8 +142,8 @@ func TestDeletePrefixRemovesOnlyThatPrefix(t *testing.T) {
 	// Keys are opaque to the store (WorkspaceKey only builds them), so literals
 	// keep this test independent of how a workspace id renders.
 	const mine = "ws-a/attachment/a1"
-	put(t, ctx, store, mine, "mine")
-	put(t, ctx, store, "ws-b/attachment/a2", "theirs")
+	put(ctx, t, store, mine, "mine")
+	put(ctx, t, store, "ws-b/attachment/a2", "theirs")
 
 	deleted, err := store.DeletePrefix(ctx, "ws-a/")
 	if err != nil {
@@ -174,7 +174,7 @@ func TestDeletePrefixRejectsEmptyPrefix(t *testing.T) {
 	ctx := context.Background()
 	store := blobstore.NewMemory()
 	const key = "ws-a/attachment/a1"
-	put(t, ctx, store, key, "mine")
+	put(ctx, t, store, key, "mine")
 
 	deleted, err := store.DeletePrefix(ctx, "")
 	if !errors.Is(err, blobstore.ErrInvalidPrefix) {
@@ -193,8 +193,8 @@ func TestDeletePrefixRejectsPrefixNotEndingInSeparator(t *testing.T) {
 	store := blobstore.NewMemory()
 	const keyA = "ws-a/attachment/a1"
 	const keyAbc = "ws-abc/attachment/a2"
-	put(t, ctx, store, keyA, "mine")
-	put(t, ctx, store, keyAbc, "a sibling tenant whose id extends mine")
+	put(ctx, t, store, keyA, "mine")
+	put(ctx, t, store, keyAbc, "a sibling tenant whose id extends mine")
 
 	deleted, err := store.DeletePrefix(ctx, "ws-a")
 	if !errors.Is(err, blobstore.ErrInvalidPrefix) {

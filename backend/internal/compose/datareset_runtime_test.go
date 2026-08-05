@@ -3,9 +3,10 @@
 
 package compose
 
-// The reset's orchestration contract: purges run before the sweep, the fleet
-// always comes back up, and a drain that did not finish is reported rather
-// than hidden.
+// The reset's orchestration contract: purges run before the sweep, a drain that
+// did not finish is reported rather than hidden, and the fleet always comes back
+// up — from every failure, no earlier than the last purge, and even when the
+// operator's client has already given up on the request.
 
 import (
 	"context"
@@ -20,6 +21,18 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
+// runPhase drives the runtime phase over a handler set with no injected
+// surfaces: these cases assert the ResetRuntime ordering, nothing else.
+func runPhase(rt ResetRuntime, sweep func(*resetCounts) error) (resetCounts, error) {
+	return dataResetHandlers{}.runRuntimePhase(context.Background(), rt, ids.NewV7(), sweep)
+}
+
+// resetHandlers is a handler set whose only wiring is rt — the pause's lifetime
+// belongs to runQuiesced, so every assertion about it goes through that.
+func resetHandlers(rt ResetRuntime) dataResetHandlers {
+	return dataResetHandlers{runtime: &rt, log: quietTestLogger()}
+}
+
 func TestPurgeFailureAbortsBeforeAnyDataIsSweptAndStillResumesTheFleet(t *testing.T) {
 	resumed := false
 	swept := false
@@ -31,7 +44,7 @@ func TestPurgeFailureAbortsBeforeAnyDataIsSweptAndStillResumesTheFleet(t *testin
 		SignalReset:   func(context.Context, ids.UUID) error { return nil },
 	}
 
-	_, err := runResetRuntimePhase(context.Background(), rt, ids.NewV7(), func(*resetCounts) error {
+	_, err := resetHandlers(rt).runQuiesced(context.Background(), ids.NewV7(), func(*resetCounts) error {
 		swept = true
 		return nil
 	})
@@ -47,6 +60,132 @@ func TestPurgeFailureAbortsBeforeAnyDataIsSweptAndStillResumesTheFleet(t *testin
 	}
 }
 
+// TestAFailedQuiesceStillLiftsTheResetsOwnFleetPause: Quiesce pauses every
+// queue and only THEN polls the drain, so it can fail — a cancelled request, a
+// failed running-count read — with the pause live. Nothing else in the process
+// is going to lift that pause, so this reset must, on the way out of a failure
+// it is reporting rather than recovering from.
+func TestAFailedQuiesceStillLiftsTheResetsOwnFleetPause(t *testing.T) {
+	paused, resumed, swept := false, false, false
+	rt := ResetRuntime{
+		QuiesceQueues: func(context.Context) (bool, error) {
+			paused = true
+			return false, errors.New("counting running jobs failed after the pause landed")
+		},
+		ResumeQueues: func(context.Context) error { resumed, paused = true, false; return nil },
+		PurgeQueue:   func(context.Context, ids.UUID) (int, error) { return 0, nil },
+	}
+
+	_, err := resetHandlers(rt).runQuiesced(context.Background(), ids.NewV7(), func(*resetCounts) error {
+		swept = true
+		return nil
+	})
+
+	if err == nil {
+		t.Fatal("a failed quiesce must fail the reset; sweeping while a worker may be mid-transaction is what the pause prevents")
+	}
+	if swept {
+		t.Error("data was swept although the fleet was never confirmed quiet")
+	}
+	if !resumed {
+		t.Fatal("no resume was attempted after Quiesce failed — every queue in the installation stays paused with nobody left to lift it")
+	}
+	if paused {
+		t.Error("the fleet is still paused after the reset returned")
+	}
+}
+
+// TestTheFleetStaysPausedUntilEveryPostCommitPurgeHasRun: the surfaces no
+// transaction can reach are cleared after the sweep commits, and a job that is
+// working again in that window reads caches for data that is being deleted and
+// can write objects the prefix sweep then removes. The pause therefore outlives
+// the object sweep, the local cache flush and the fleet-wide announcement —
+// asserted through what each of them OBSERVES, not through a call log.
+func TestTheFleetStaysPausedUntilEveryPostCommitPurgeHasRun(t *testing.T) {
+	paused := false
+	pausedAtFlush, pausedAtAnnounce := false, false
+	rt := ResetRuntime{
+		QuiesceQueues: func(context.Context) (bool, error) { paused = true; return true, nil },
+		ResumeQueues:  func(context.Context) error { paused = false; return nil },
+		SignalReset:   func(context.Context, ids.UUID) error { pausedAtAnnounce = paused; return nil },
+	}
+	blob := &pauseWatchingStore{Store: blobstore.NewMemory(), fleetPaused: &paused}
+	h := resetHandlers(rt)
+	h.blob = blob
+	h.flush = func(ids.UUID) { pausedAtFlush = paused }
+
+	if _, err := h.runQuiesced(context.Background(), ids.NewV7(), func(*resetCounts) error { return nil }); err != nil {
+		t.Fatalf("runQuiesced: %v", err)
+	}
+
+	if !blob.sweptPrefix {
+		t.Fatal("the object sweep never ran, so the ordering assertions below would prove nothing")
+	}
+	if !blob.pausedAtSweep {
+		t.Error("the fleet was working again when the object bytes were swept; a job started in that window can write objects the sweep then deletes")
+	}
+	if !pausedAtFlush {
+		t.Error("the fleet was working again before this process dropped its caches; a job would re-cache what was still being purged")
+	}
+	if !pausedAtAnnounce {
+		t.Error("the fleet was working again before the reset was announced; a job would serve caches for data that no longer exists")
+	}
+	if paused {
+		t.Error("the fleet is still paused after a clean reset returned")
+	}
+}
+
+// pauseWatchingStore records what the reset's object sweep could observe about
+// the job fleet at the moment it ran. Everything but the sweep is the real
+// in-memory store's behaviour.
+type pauseWatchingStore struct {
+	blobstore.Store
+	fleetPaused   *bool
+	sweptPrefix   bool
+	pausedAtSweep bool
+}
+
+func (s *pauseWatchingStore) DeletePrefix(ctx context.Context, prefix string) (int, error) {
+	s.sweptPrefix, s.pausedAtSweep = true, *s.fleetPaused
+	return s.Store.DeletePrefix(ctx, prefix)
+}
+
+// TestTheResumeOutlivesTheAbandonedResetRequest: a reset is a bounded drain plus
+// a full sweep and reseed, so an operator's client is exactly the sort to
+// disconnect or time out partway. A resume riding that request context would be
+// cancelled along with it and leave the fleet paused for the very reason it most
+// needs lifting.
+func TestTheResumeOutlivesTheAbandonedResetRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	resumed := false
+	rt := ResetRuntime{
+		QuiesceQueues: func(context.Context) (bool, error) { return true, nil },
+		ResumeQueues: func(resumeCtx context.Context) error {
+			resumed = true
+			if err := resumeCtx.Err(); err != nil {
+				t.Errorf("the resume rode the request context (%v); the fleet would stay paused whenever the operator's client gives up", err)
+			}
+			if _, ok := resumeCtx.Deadline(); !ok {
+				t.Error("the resume carries no deadline of its own; detaching it from the request must not make it unbounded")
+			}
+			return nil
+		},
+	}
+
+	// The client gives up mid-sweep — the longest step, and the one it waits on.
+	_, err := resetHandlers(rt).runQuiesced(ctx, ids.NewV7(), func(*resetCounts) error {
+		cancel()
+		return ctx.Err()
+	})
+
+	if err == nil {
+		t.Fatal("an abandoned sweep must fail the reset rather than report a wipe it did not finish")
+	}
+	if !resumed {
+		t.Fatal("no resume was attempted")
+	}
+}
+
 func TestDrainTimeoutIsReportedAndDoesNotFailTheReset(t *testing.T) {
 	rt := ResetRuntime{
 		QuiesceQueues: func(context.Context) (bool, error) { return false, nil },
@@ -56,8 +195,7 @@ func TestDrainTimeoutIsReportedAndDoesNotFailTheReset(t *testing.T) {
 		SignalReset:   func(context.Context, ids.UUID) error { return nil },
 	}
 
-	counts, err := runResetRuntimePhase(context.Background(), rt, ids.NewV7(), func(*resetCounts) error { return nil })
-
+	counts, err := runPhase(rt, func(*resetCounts) error { return nil })
 	if err != nil {
 		t.Fatalf("a drain timeout must not fail the reset: %v", err)
 	}
@@ -73,7 +211,7 @@ func TestAResetWithoutARuntimeStillSweepsPostgres(t *testing.T) {
 	// A role that wired no runtime (no Redis, no River) resets what it can
 	// reach rather than refusing to reset at all.
 	swept := false
-	counts, err := runResetRuntimePhase(context.Background(), ResetRuntime{}, ids.NewV7(), func(*resetCounts) error {
+	counts, err := runPhase(ResetRuntime{}, func(*resetCounts) error {
 		swept = true
 		return nil
 	})
@@ -98,7 +236,7 @@ func TestResetSweepSeesThePurgeTalliesAndReportsItsOwn(t *testing.T) {
 		PurgeBus:   func(context.Context) (int, int, error) { return 1, 2, nil },
 	}
 
-	counts, err := runResetRuntimePhase(context.Background(), rt, ids.NewV7(), func(c *resetCounts) error {
+	counts, err := runPhase(rt, func(c *resetCounts) error {
 		if c.JobsCancelled != 7 || c.StreamsPurged != 1 || c.CacheKeys != 2 {
 			t.Errorf("sweep saw counts = %+v; the audit evidence it writes must name what the purges cleared", *c)
 		}
@@ -137,7 +275,7 @@ func TestResetRuntimeReachesTheHandlerInEitherOptionOrder(t *testing.T) {
 			for _, opt := range order.opts {
 				opt(&s, pool)
 			}
-			rt := s.dataResetHandlers.runtime
+			rt := s.runtime
 			if rt == nil || rt.PurgeQueue == nil {
 				t.Fatal("the handler cannot reach the wired runtime — the reset would sweep tables and leave the queue full")
 			}
@@ -188,7 +326,8 @@ func TestAFailedResumeDoesNotFailAnOtherwiseCleanReset(t *testing.T) {
 		ResumeQueues:  func(context.Context) error { return errors.New("river is unreachable") },
 	}
 
-	if _, err := runResetRuntimePhase(context.Background(), rt, ids.NewV7(), func(*resetCounts) error { return nil }); err != nil {
+	h := resetHandlers(rt)
+	if _, err := h.runQuiesced(context.Background(), ids.NewV7(), func(*resetCounts) error { return nil }); err != nil {
 		t.Fatalf("resume failure must not fail the reset: %v", err)
 	}
 }

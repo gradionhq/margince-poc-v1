@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -50,17 +51,21 @@ type resetCounts struct {
 	DrainTimedOut  bool
 }
 
-// runResetRuntimePhase quiets the fleet, purges the queue and the bus, and
-// then runs sweep — the Postgres half — with the fleet still paused. sweep
-// receives the tally so far so the audit row it writes can name what the
-// purges cleared, and writes its own back into it.
+// runRuntimePhase quiets the fleet, purges the queue, the bus and this
+// workspace's budget counters, and then runs sweep — the Postgres half — with
+// the fleet still paused. sweep receives the tally so far so the audit row it
+// writes can name what the purges cleared, and writes its own back into it.
 //
 // The order is load-bearing. Purges run BEFORE the sweep so that a failure
 // mid-purge leaves a safe partial state: the queue and bus are clear and the
 // data is intact, which a re-run recovers. The reverse order would leave live
-// events and queued jobs pointing at rows that no longer exist. Resume is
-// deferred so no failure path can leave the installation wedged.
-func runResetRuntimePhase(ctx context.Context, rt ResetRuntime, ws ids.UUID, sweep func(*resetCounts) error) (resetCounts, error) {
+// events and queued jobs pointing at rows that no longer exist.
+//
+// Nothing here resumes the fleet. The caller owns the pause's whole lifetime
+// (dataResetHandlers.runQuiesced) because a resume registered in this function
+// would both miss a Quiesce that failed with the pause already applied and fire
+// before the purges that run after the sweep commits.
+func (h dataResetHandlers) runRuntimePhase(ctx context.Context, rt ResetRuntime, ws ids.UUID, sweep func(*resetCounts) error) (resetCounts, error) {
 	var counts resetCounts
 	if rt.QuiesceQueues != nil {
 		drained, err := rt.QuiesceQueues(ctx)
@@ -68,16 +73,6 @@ func runResetRuntimePhase(ctx context.Context, rt ResetRuntime, ws ids.UUID, swe
 			return counts, err
 		}
 		counts.DrainTimedOut = !drained
-	}
-	if rt.ResumeQueues != nil {
-		defer func() {
-			// A pause this process took must not outlive it: logged rather than
-			// returned, since a reset that already succeeded must not report as
-			// failed and send an admin to wipe the installation twice.
-			if err := rt.ResumeQueues(ctx); err != nil {
-				slog.Default().Error("data reset: resuming the queues", "err", err)
-			}
-		}()
 	}
 	if rt.PurgeQueue != nil {
 		n, err := rt.PurgeQueue(ctx, ws)
@@ -93,10 +88,50 @@ func runResetRuntimePhase(ctx context.Context, rt ResetRuntime, ws ids.UUID, swe
 		}
 		counts.StreamsPurged, counts.CacheKeys = streams, keys
 	}
+	// The overlay budget's counters are Redis keys exactly like the bus's dedupe
+	// marks, they need nothing from the sweep's transaction, and purging them
+	// here is what makes cache_keys_deleted one number: the audit row written
+	// inside that transaction reports the same total as the response and the log
+	// line. A meter with no Redis client purges nothing and reports zero.
+	if h.budget != nil {
+		n, err := h.budget.PurgeWorkspace(ctx, ws)
+		if err != nil {
+			return counts, err
+		}
+		counts.CacheKeys += n
+	}
 	if err := sweep(&counts); err != nil {
 		return counts, err
 	}
 	return counts, nil
+}
+
+// resetResumeTimeout bounds the resume that lifts a reset's fleet pause. Modest
+// on purpose: this is one queue-resume round trip, not a drain.
+const resetResumeTimeout = 15 * time.Second
+
+// resumeResetQueues lifts the fleet pause a reset took. It is called from a
+// deferred path on EVERY exit — including a panic, and including a Quiesce that
+// failed after its pause already landed — because a pause with nobody left to
+// lift it wedges every queue in the installation.
+//
+// It deliberately does not run on the request context. A reset is a bounded
+// drain plus a full sweep and reseed, which is precisely the request an
+// operator's client abandons or times out on; a resume cancelled along with it
+// would leave the fleet paused for the very reason it most needs lifting. So it
+// runs detached, under its own deadline.
+//
+// A failure is logged rather than returned: a reset that already succeeded must
+// not report as failed and send an admin to wipe the installation twice.
+func resumeResetQueues(ctx context.Context, logger *slog.Logger, rt ResetRuntime) {
+	if rt.ResumeQueues == nil {
+		return
+	}
+	resumeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), resetResumeTimeout)
+	defer cancel()
+	if err := rt.ResumeQueues(resumeCtx); err != nil {
+		logger.Error("data reset: resuming the queues", "err", err)
+	}
 }
 
 // FlushResetCaches drops this process's cached answers for ws after a reset.
@@ -109,5 +144,5 @@ func (s *Server) FlushResetCaches(ws ids.UUID) {
 	if s.sorDispatch != nil {
 		s.sorDispatch.Invalidate(ws)
 	}
-	s.authHandlers.ResetRateLimits()
+	s.ResetRateLimits()
 }

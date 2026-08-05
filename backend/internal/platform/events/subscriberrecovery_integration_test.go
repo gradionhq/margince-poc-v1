@@ -47,7 +47,7 @@ func TestSubscriberSurvivesItsGroupBeingPurged(t *testing.T) {
 	// that call has already happened: purging any earlier would let the
 	// startup call recreate the group fresh on its own, and the test would
 	// pass without ever exercising the mid-loop recovery it targets.
-	publishProbe(t, ctx, rdb, group.Streams[0])
+	publishProbe(ctx, t, rdb, group.Streams[0])
 	select {
 	case <-delivered:
 	case <-time.After(10 * time.Second):
@@ -58,7 +58,7 @@ func TestSubscriberSurvivesItsGroupBeingPurged(t *testing.T) {
 	if _, err := PurgeStreams(ctx, rdb, nil); err != nil {
 		t.Fatalf("PurgeStreams: %v", err)
 	}
-	publishProbe(t, ctx, rdb, group.Streams[0])
+	publishProbe(ctx, t, rdb, group.Streams[0])
 
 	select {
 	case <-delivered:
@@ -70,7 +70,7 @@ func TestSubscriberSurvivesItsGroupBeingPurged(t *testing.T) {
 // publishProbe XAdds one valid, decodable envelope straight onto a stream —
 // bypassing the outbox and relay so the probe exercises only the
 // subscriber's own read loop, not everything upstream of it.
-func publishProbe(t *testing.T, ctx context.Context, rdb *redis.Client, stream string) {
+func publishProbe(ctx context.Context, t *testing.T, rdb *redis.Client, stream string) {
 	t.Helper()
 	const probeType = "activity.captured"
 	env := kevents.Envelope{
