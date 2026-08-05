@@ -434,23 +434,22 @@ sbom-parity:
 ## three agree with each other; this proves each is a valid document of its format.
 ## CycloneDX goes through the first-party cyclonedx-cli (bundles the spec schema);
 ## --fail-on-errors is load-bearing — without it the CLI prints "BOM is not valid" but
-## still exits 0. SPDX 2.x goes through pyspdxtools, which validates structure AND SPDX
-## semantics (e.g. dataLicense must be CC0-1.0, at least one creator); it also exits 0
-## on an invalid document, so the recipe fails the build on any diagnostic it prints.
-## SPDX 3.0 has no usable semantic validator yet ($(SBOM_SCHEMA_DIR)/README.md records
-## the finding) and validates structurally against the pinned schema. `make sbom` runs
-## this after parity; CI runs `make sbom`, so every SBOM CI run is gated, and sbom-sign
-## re-runs it so only valid bytes are signed.
+## still exits 0. SPDX 2.2.1 goes through pyspdxtools, which validates structure AND SPDX
+## semantics (e.g. dataLicense must be CC0-1.0, at least one creator) and exits non-zero
+## on an invalid document, so the recipe gates on its exit status and prints its report
+## for context on failure. SPDX 3.0 has no usable semantic validator yet
+## ($(SBOM_SCHEMA_DIR)/README.md records the finding) and validates structurally against
+## the pinned schema. `make sbom` runs this after parity; CI runs `make sbom`, so every
+## SBOM CI run is gated, and sbom-sign re-runs it so only valid bytes are signed.
 sbom-validate:
 	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
 	@echo "validating $(SBOM_DIR)/margince.cdx.json (CycloneDX)"
 	@$(CYCLONEDX) validate --input-file $(SBOM_DIR)/margince.cdx.json --fail-on-errors
-	@echo "validating $(SBOM_DIR)/margince.spdx221.json (SPDX 2.x, pyspdxtools)"
+	@echo "validating $(SBOM_DIR)/margince.spdx221.json (SPDX 2.2.1, pyspdxtools)"
 	@$(PYSPDX) bash -c '\
 	  pip install --require-hashes --quiet --no-cache-dir --disable-pip-version-check -r $(SBOM_SCHEMA_DIR)/spdx-tools-requirements.txt \
 	    || { echo "FAIL: could not install the pinned SPDX validator"; exit 1; }; \
-	  out=$$(pyspdxtools -i $(SBOM_DIR)/margince.spdx221.json 2>&1); rc=$$?; \
-	  if [ -n "$$out" ] || [ $$rc -ne 0 ]; then printf "%s\n" "$$out"; echo "FAIL: $(SBOM_DIR)/margince.spdx221.json is not a valid SPDX 2.x document"; exit 1; fi'
+	  if ! pyspdxtools -i $(SBOM_DIR)/margince.spdx221.json; then echo "FAIL: $(SBOM_DIR)/margince.spdx221.json is not a valid SPDX 2.2.1 document"; exit 1; fi'
 	@echo "validating $(SBOM_DIR)/margince.spdx300.json (SPDX 3.0.1 schema)"
 	@$(JSONSCHEMA) validate $(SBOM_SCHEMA_DIR)/spdx-3.0.1.schema.json $(SBOM_DIR)/margince.spdx300.json
 	@echo "OK: three SBOMs valid against their formats"

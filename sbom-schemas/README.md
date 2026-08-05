@@ -6,14 +6,14 @@ validators and the assets in this directory:
 | Format | Validator | Asset here |
 | --- | --- | --- |
 | CycloneDX | first-party `cyclonedx-cli` (bundles its spec schema) | — |
-| SPDX 2.2 / 2.3 | `pyspdxtools` (spdx/tools-python), structural **and** semantic | `spdx-tools-requirements.txt` |
+| SPDX 2.2.1 | `pyspdxtools` (spdx/tools-python), structural **and** semantic | `spdx-tools-requirements.txt` |
 | SPDX 3.0.1 | generic JSON-schema validation | `spdx-3.0.1.schema.json` |
 
 `pyspdxtools` is the canonical SPDX 2.x validator; it runs in a digest-pinned
 Python image with the hash-pinned dependency set in `spdx-tools-requirements.txt`,
 so it is as reproducible as the digest-pinned SBOM images (regeneration steps are
-in that file's header). It exits 0 even on an invalid document, so the Makefile
-recipe fails the build on any diagnostic it prints.
+in that file's header). It exits non-zero on an invalid document, so the Makefile
+recipe gates on its exit status and surfaces its report for context on failure.
 
 ## Why SPDX 3.0 is JSON-schema only (spike finding)
 
