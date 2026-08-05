@@ -38,14 +38,17 @@ type StageResolver interface {
 }
 
 // RegisterCoreTools wires the §2.1 CRUD set over one provider: the 🟢
-// tools, `advance_deal` (🟢→🟡 dynamic), and the first two 🟡
-// confirm-first tools now that the approval loop can carry them —
-// `archive_record` and `promote_lead`. run_report joins when the compiled
-// report engine lands; merge/disqualify/enrich/send join with their
-// underlying verbs. The two write-shaped §2.2 intents that compose over
-// the SAME provider + stage seams — `qualify_lead` and `progress_deal` —
-// register here too; the read/draft intents have their own seams
-// (RegisterIntentTools, RegisterSlippingTools).
+// tools, `advance_deal` (🟢→🟡 dynamic), and the 🟡 confirm-first tools the
+// approval loop carries — `archive_record`, `promote_lead` and
+// `merge_records`. The two write-shaped §2.2 intents that compose over the
+// SAME provider + stage seams — `qualify_lead` and `progress_deal` —
+// register here too; the read/draft intents and the lifecycle transitions
+// have their own seams (RegisterIntentTools, RegisterSlippingTools,
+// RegisterLifecycleTools).
+//
+// Every verb the contract declares with `x-mcp-tool` is registered by one of
+// those functions. A declared verb with no tool is not a gap to describe here:
+// TestEveryDeclaredToolVerbIsRegistered fails the build for it.
 func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages StageResolver, promoter LeadPromoter, ownership FieldOwnership) {
 	r.Register(searchRecords{p: p})
 	r.Register(readRecord{p: p})

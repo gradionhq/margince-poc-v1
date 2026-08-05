@@ -71,6 +71,11 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// cached mode. See overlayModeChecker for why that distinction is typed.
 	sorMode := overlayModeChecker(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
+	// The three lifecycle transitions reach their owning modules directly
+	// rather than through the Dispatcher: each one's behaviour IS that
+	// module's entry point, which is what the REST route calls too.
+	relinker, disqualifier, advancer := lifecycleSeams(pool)
+	agents.RegisterLifecycleTools(registry, provider, relinker, disqualifier, advancer)
 	// Pipeline config, and it registers next to the core CRUD set because it is
 	// what makes two of those verbs reachable: create_record for a deal and
 	// advance_deal both name ids no other tool yields. Config is not a record,

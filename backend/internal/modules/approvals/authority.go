@@ -50,6 +50,14 @@ var decisionGrants = map[string][]grantRequirement{
 	// is the deal move, so deciding it needs the same grant.
 	"progress_deal": {{tableDeal, principal.ActionUpdate}},
 	"promote_lead":  {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
+	// Disqualifying retires the lead in place — status + archived_at, the row
+	// still fetchable by id (people/lead.go DisqualifyLead) — so it is a lead
+	// update, not a delete, and deciding it needs the grant the update needs.
+	"disqualify_lead": {{tableLead, principal.ActionUpdate}},
+	// A phase transition writes the project row and one phase-history row in
+	// one transaction (deals/project_advance.go); the gated effect is the
+	// project move, so the approver needs the project's update grant.
+	"advance_project_phase": {{tableProject, principal.ActionUpdate}},
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
