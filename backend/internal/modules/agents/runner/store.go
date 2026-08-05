@@ -122,33 +122,47 @@ func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason string) e
 	})
 }
 
-// FailStuckRuns closes the runs that were claimed and then abandoned: a row
-// left in 'running' with nothing alive to finish it.
+// FailStuckRuns closes the runs that were claimed and then abandoned — a row
+// left in 'running' with nothing alive to finish it — and returns the ids it
+// closed so the caller can name them.
 //
-// ClaimSuspendedByApproval is deliberately one-way, so a resume that dies —
-// a process killed mid-loop, or a terminal write that failed after the claim —
-// leaves the row 'running' forever. Nothing redelivers it: a second delivery
-// finds no awaiting_approval row and correctly declines to start a second loop.
-// This sweep is the only thing that ends those rows, which is why it exists
-// rather than a retry: the run cannot be finished, only accounted for.
+// Such a run is not recoverable, only accountable, which is why this is a sweep
+// and not a retry. ClaimSuspendedByApproval is deliberately one-way, so a resume
+// that dies — a process killed mid-loop, or a terminal write that failed after
+// the claim — leaves the row 'running' and nothing redelivers it: a second
+// delivery finds no awaiting_approval row and correctly declines to start a
+// second loop of a mutation a human approved once.
 //
-// before is the cutoff a caller derives from the run wall clock, so a run still
-// legitimately executing is never touched. Only 'running' is swept —
-// 'awaiting_approval' waits on a human and may wait indefinitely.
-func (s *Store) FailStuckRuns(ctx context.Context, before time.Time, reason string) (int64, error) {
-	var swept int64
+// grace is measured against the DATABASE clock, and deliberately not against the
+// caller's. Every writer of updated_at stamps now() inside the transaction, so a
+// cutoff computed on a worker host whose time had run ahead would compare two
+// unrelated clocks and fail runs that were still executing. Only 'running' is
+// swept: 'awaiting_approval' waits on a human and may wait indefinitely.
+func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason string) ([]ids.UUID, error) {
+	// A non-positive grace means "fail every running run", which is one
+	// character away from a plausible edit to the caller's constant.
+	if grace <= 0 {
+		return nil, errors.New("runner: stuck-run grace must be positive")
+	}
+	var swept []ids.UUID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
+		rows, err := tx.Query(ctx, `
 			UPDATE agent_run
 			   SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
-			 WHERE status = 'running' AND updated_at < $1`, before, reason)
+			 WHERE status = 'running'
+			   AND updated_at < now() - ($1 * interval '1 microsecond')
+			RETURNING id`, grace.Microseconds(), reason)
 		if err != nil {
 			return err
 		}
-		swept = tag.RowsAffected()
-		return nil
+		defer rows.Close()
+		swept, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+		return err
 	})
-	return swept, err
+	if err != nil {
+		return nil, fmt.Errorf("runner: fail stuck runs: %w", err)
+	}
+	return swept, nil
 }
 
 // SuspendedRun is a parked run keyed by its approval — what the
