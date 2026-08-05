@@ -26,21 +26,28 @@ import (
 )
 
 // schemaNode is the slice of a component schema this generator reads: property
-// names to their declared enum.
+// names to their declared enum, or — for an array property — its items' enum.
 type schemaNode struct {
 	Properties map[string]struct {
-		Enum []string `yaml:"enum"`
+		Enum  []string `yaml:"enum"`
+		Items struct {
+			Enum []string `yaml:"enum"`
+		} `yaml:"items"`
 	} `yaml:"properties"`
 }
 
-// vocabularySchema names the schema whose properties declare the vocabularies,
-// and toolSchema the one whose `tier` must agree with it — the same tier
-// vocabulary is declared twice (once for the wire type the tools listing
-// returns, once here), so the generator holds them equal rather than trusting
-// two hand-written lists to stay in step.
+// vocabularySchema names the schema whose properties declare the vocabularies;
+// toolSchema the one whose `tier` must agree with it, and passportSchema the one
+// whose grantable `scopes` must. Each of those vocabularies is declared twice in
+// the contract — once for a wire type, once for the annotations — so the
+// generator holds them equal rather than trusting hand-written lists to stay in
+// step. The scope pairing is the load-bearing one: a cap an operation demands
+// that no passport can be granted would refuse every call to it, fail-closed
+// and silently, which reads exactly like the endpoint being broken.
 const (
 	vocabularySchema = "AgentAdmissionPolicy"
 	toolSchema       = "AgentTool"
+	passportSchema   = "IssuePassportRequest"
 )
 
 // vocabulary is one closed set per annotation field, in declaration order.
@@ -78,6 +85,18 @@ func readVocabulary(schemas map[string]schemaNode) (vocabulary, error) {
 			return vocabulary{}, fmt.Errorf(
 				"%s.tier declares %v but %s.tier declares %v — one tier vocabulary, two spellings",
 				toolSchema, wire, vocabularySchema, v.tier)
+		}
+	}
+	// The caps an operation may DEMAND and the caps a passport may be GRANTED
+	// have to be the same set. A scope in one and not the other is not a typo
+	// the gate can survive: an operation demanding an ungrantable cap refuses
+	// every caller, and a grantable cap no operation names is authority nobody
+	// can spend.
+	if pass, ok := schemas[passportSchema]; ok {
+		if grantable := pass.Properties["scopes"].Items.Enum; len(grantable) > 0 && !sameSet(grantable, v.scope) {
+			return vocabulary{}, fmt.Errorf(
+				"%s.scopes grants %v but %s.scope demands %v — a cap an operation requires must be one a passport can hold",
+				passportSchema, grantable, vocabularySchema, v.scope)
 		}
 	}
 	return v, nil
