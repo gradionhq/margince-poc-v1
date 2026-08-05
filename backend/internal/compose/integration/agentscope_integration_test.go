@@ -103,16 +103,26 @@ func TestEnrichRefusesAPassportWithoutTheEnrichCap(t *testing.T) {
 	}
 }
 
-func TestOfferSendRefusesAPassportWithoutTheSendCap(t *testing.T) {
+// TestOfferSendRefusesAnyAgentAsHumanOnly proves that sendOffer carries no
+// registered agent tool: the contract declares it `x-agent-access:
+// human-only`, so ANY agent principal is refused outright at the gate,
+// whatever caps its passport holds — no cap, however broad, reaches the
+// send verb. The refusal is distinguished from a cap refusal
+// (scope_exceeds_grantor) by its own code, permission_denied, so a caller
+// can tell "you may never do this" from "mint a passport with the right
+// cap and retry."
+func TestOfferSendRefusesAnyAgentAsHumanOnly(t *testing.T) {
 	e := setup(t)
 	e.slug = "send-scope"
 	bootstrapWorkspaceSession(t, e, "Send Scope", "send@fable.test", "Admin")
 	dealID := offerFixture(t, e)
 
-	bearer := passportBearer(t, e, "drafting agent", "read", "write")
+	// The broadest passport short of a human session: even every cap the
+	// contract knows does not reach a human-only verb.
+	bearer := passportBearer(t, e, "drafting agent", "read", "write", "send", "enrich")
 
-	// Drafting is 🟢 under `write` and still is: the cap the send verb needs
-	// is not a blanket tightening of the offer surface.
+	// Drafting is 🟢 under `write` and still is: send being human-only is
+	// not a blanket tightening of the offer surface.
 	var offer offerBody
 	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
 		"currency": "EUR", "source": "mcp",
@@ -123,15 +133,22 @@ func TestOfferSendRefusesAPassportWithoutTheSendCap(t *testing.T) {
 
 	var refusal capRefusal
 	status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, bearer, &refusal)
-	if status != http.StatusForbidden || refusal.Code != scopeRefusalCode || refusal.Type != scopeRefusalType {
-		t.Fatalf("send on read+write → %d %q %q, want 403 %s / %s",
-			status, refusal.Code, refusal.Type, scopeRefusalCode, scopeRefusalType)
+	if status != http.StatusForbidden || refusal.Code != "permission_denied" {
+		t.Fatalf("agent send → %d %q, want 403 permission_denied (human-only)", status, refusal.Code)
+	}
+	// The distinguishing assertion: this is the human-only refusal, not the
+	// cap refusal or the 🟡 admission wearing the same status.
+	if refusal.Code == scopeRefusalCode {
+		t.Fatalf("send refused as a cap miss (%s) rather than human-only", scopeRefusalCode)
 	}
 	if refusal.Code == "approval_required" || strings.Contains(refusal.Detail, "staged as approval") {
-		t.Fatalf("a passport without the send cap reached the 🟡 gate: %q", refusal.Detail)
+		t.Fatalf("an agent reached the 🟡 gate on a human-only verb: %q", refusal.Detail)
+	}
+	if !strings.Contains(refusal.Detail, "human-only") {
+		t.Fatalf("refusal %q does not say the verb is human-only", refusal.Detail)
 	}
 	assertNothingStaged(t, e, "refused send")
-	assertRefusalLeaksNothing(t, refusal.Detail, "send")
+	assertRefusalLeaksNothing(t, refusal.Detail, "human-only")
 
 	// Nothing left the workspace, and nothing is waiting in an inbox to say
 	// it might.
