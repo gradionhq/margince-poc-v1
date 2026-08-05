@@ -14,9 +14,13 @@
  *
  * Applying it at boot fixes both at once, and keeping the resolution here rather
  * than duplicating it means the boot path and the toggle cannot drift on what
- * "dark" means. The toggle still owns CHANGING the theme (see `useTheme`); this
- * module owns deciding and applying it.
+ * "dark" means. Changing it lives here too (`useTheme`), because three surfaces
+ * now offer the control — the top bar, the sign-in page and the onboarding rail
+ * — and component-local state would let two of them disagree about the theme the
+ * document is already showing.
  */
+
+import { useSyncExternalStore } from "react";
 
 export type Theme = "light" | "dark";
 
@@ -59,4 +63,36 @@ export function resolveTheme(): Theme {
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
+}
+
+/** The theme the document is currently showing. Resolved on first read so the
+ *  store cannot answer before `resolveTheme` may safely touch the window. */
+let liveTheme: Theme | null = null;
+const listeners = new Set<() => void>();
+
+function readTheme(): Theme {
+  liveTheme ??= resolveTheme();
+  return liveTheme;
+}
+
+function subscribeToTheme(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** Flip the theme, persist the choice, and repaint every mounted toggle. */
+export function toggleTheme(): void {
+  liveTheme = readTheme() === "light" ? "dark" : "light";
+  persistTheme(liveTheme);
+  applyTheme(liveTheme);
+  for (const listener of listeners) {
+    listener();
+  }
+}
+
+export function useTheme(): readonly [Theme, () => void] {
+  const theme = useSyncExternalStore(subscribeToTheme, readTheme, readTheme);
+  return [theme, toggleTheme] as const;
 }

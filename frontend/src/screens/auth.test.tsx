@@ -338,6 +338,32 @@ describe("AuthScreen login", () => {
       "/legal/privacy",
     );
   });
+
+  // The theme is readable before anyone signs in, so it has to be changeable
+  // there too — the toggle used to exist only in the authenticated top bar.
+  it("changes the document theme from the legal row", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    const toggle = await screen.findByRole("button", {
+      name: /Dark theme|Light theme/,
+    });
+    // Relative to whatever the surface resolved to: the store keeps its
+    // decision for the lifetime of the module, so a case that pinned an
+    // absolute start value would depend on the order the file ran in.
+    const before = document.documentElement.dataset.theme;
+    const labelBefore = toggle.getAttribute("aria-label");
+    await userEvent.click(toggle);
+
+    expect(document.documentElement.dataset.theme).not.toBe(before);
+    expect(document.documentElement.dataset.theme).toMatch(/^(light|dark)$/);
+    // The label names the theme the press would move TO, so it has to flip with
+    // the press — a stale label sends a reader the wrong way.
+    expect(toggle.getAttribute("aria-label")).not.toBe(labelBefore);
+    expect(window.localStorage.getItem("margince.theme")).toBe(
+      document.documentElement.dataset.theme,
+    );
+  });
 });
 
 // §19/§11, and now the markup exists — so the gate has to be the CAPABILITY

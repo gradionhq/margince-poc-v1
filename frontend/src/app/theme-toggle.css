@@ -1,0 +1,36 @@
+/* The portable light/dark control. Self-contained on purpose: it is mounted on
+   surfaces that share no stylesheet (the sign-in legal row, the onboarding rail
+   foot), so it must not depend on any ancestor's class.
+
+   24px rather than the top bar's 32px because both of its homes are rows of
+   11–12px text; a 32px square there sets the row height on its own and pushes
+   the line it belongs to out of rhythm. It still clears the 24px minimum with
+   the 4px of padding its neighbours already carry around it. */
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--textMeta);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.theme-toggle svg {
+  width: 14px;
+  height: 14px;
+}

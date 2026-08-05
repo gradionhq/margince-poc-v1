@@ -180,3 +180,57 @@ describe("the step rail", () => {
     expect(rail.querySelector("b")).toHaveAttribute("aria-hidden");
   });
 });
+
+// The rail is the variant with no top bar, so its foot row is the only place a
+// surface-level control can live. The row therefore has to hold that control
+// even while the signed-in identity beside it is still loading — a control that
+// appears one request late reads as a control that is not there.
+describe("the rail's person row", () => {
+  function renderRail(person?: Readonly<{ name: string; detail: string }>) {
+    return render(
+      <MarginceWorkbench
+        state="working"
+        eyebrow="Margince"
+        title="Your company research AI"
+        status="Reading"
+        configured="ollama/gemma3"
+        locale="en"
+        runtimeLabels={LABELS}
+        variant="rail"
+        person={person}
+        personAction={<button type="button">Theme</button>}
+        artifact={<p>Work</p>}
+      >
+        <p>Thread</p>
+      </MarginceWorkbench>,
+    );
+  }
+
+  it("puts the caller's control after the identity it belongs beside", () => {
+    const { container } = renderRail({
+      name: "Ada Lovelace",
+      detail: "ada@example.com",
+    });
+
+    const row = container.querySelector(".mw-person");
+    expect(row).not.toBeNull();
+    expect(row?.textContent).toContain("Ada Lovelace");
+    // Last child, so the identity keeps the reading order and the control
+    // stays at the row's right-hand end.
+    expect(row?.lastElementChild).toHaveClass("mw-person-action");
+    expect(row?.lastElementChild?.textContent).toBe("Theme");
+  });
+
+  it("still renders the control while the identity is unresolved", () => {
+    const { container } = renderRail(undefined);
+
+    expect(container.querySelector(".mw-person-avatar")).toBeNull();
+    expect(screen.getByRole("button", { name: "Theme" })).toBeInTheDocument();
+  });
+
+  it("renders no person row at all in the split variant", () => {
+    const { container } = renderWorkbench();
+
+    expect(container.querySelector(".mw-person")).toBeNull();
+  });
+});
