@@ -3,6 +3,7 @@ import {
   Check,
   ChevronRight,
   Circle,
+  FileQuestion,
   Sparkles,
 } from "lucide-react";
 import type { ChangeEvent } from "react";
@@ -35,7 +36,11 @@ import {
 } from "../onboarding-facts";
 import { CoverageCard } from "../onboarding-live-panel";
 import type { ClarifyAnswer } from "./company-proposal";
-import { evidencedFields, isCompanyField } from "./company-proposal";
+import {
+  evidencedFields,
+  isCompanyField,
+  legalFieldGap,
+} from "./company-proposal";
 import {
   isWork,
   type ReviewRow,
@@ -200,6 +205,80 @@ function prosePreview(value: string): string {
 }
 
 /**
+ * What the board owes a reader for a field the read came back without.
+ *
+ * The backend drops a field that fails the evidence assertion rather than
+ * shipping it with a reason attached (ai-operational-spec: omission is the
+ * safe failure), so the wire carries silence and the honesty is this
+ * surface's to discharge — a named omission, never a blank box the reader
+ * has to tell apart from "not found" and "never looked".
+ *
+ * `reasonKey` is the row's own hint, already derived from what the crawl
+ * actually saw; `gateWarning` is the read's verbatim sentence, present only
+ * when there is one AND the field is one the legal gate governs. Attaching
+ * a crawl-wide warning to a field the gate never touched would assert a
+ * cause the read never gave.
+ */
+type Omission = Readonly<{
+  reasonKey: MessageKey;
+  gateWarning: string | null;
+}>;
+
+function omissionFor(
+  row: ReviewRow,
+  read: CompanySiteRead | null,
+): Omission | null {
+  // No read, no omission to state: an empty field on the manual path was
+  // never looked for, and saying it was not found would be the fabrication
+  // this notice exists to prevent.
+  if (read === null || row.value.trim() !== "") {
+    return null;
+  }
+  const gated =
+    legalFieldGap(row.field, read.pages) !== null && read.warnings.length > 0;
+  return {
+    reasonKey: row.emptyHintKey,
+    gateWarning: gated ? read.warnings.join(" ") : null,
+  };
+}
+
+// The omission itself, in the dashed weight the tree already uses for
+// anything not yet real: the field named, the reason beside it, and the
+// read's own words kept in a line of their own so they read as the read's
+// account rather than ours.
+function OmissionNotice({
+  label,
+  omission,
+  t,
+}: Readonly<{
+  label: string;
+  omission: Omission;
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <div className="ob-triage-omitted">
+      <FileQuestion aria-hidden />
+      <div className="ob-triage-omitted-body">
+        <p className="ob-triage-omitted-label">
+          {t("ob.conv.triage.omittedLabel")}
+        </p>
+        <p>
+          {t("ob.conv.triage.omittedField", {
+            field: label,
+            reason: t(omission.reasonKey),
+          })}
+        </p>
+        {omission.gateWarning !== null && (
+          <p className="ob-triage-omitted-gate">
+            {t("ob.conv.triage.omittedGate", { detail: omission.gateWarning })}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * One reviewable field, in one of two weights — the slicing that keeps 16
  * fields readable at once:
  * - Collapsed: a 1-line summary (label, value preview, band) that is itself
@@ -213,10 +292,13 @@ function prosePreview(value: string): string {
  */
 function FieldRow({
   row,
+  omission,
   setField,
   defaultExpanded,
 }: Readonly<{
   row: ReviewRow;
+  /** Null when the field carries a value, or when no read ever ran. */
+  omission: Omission | null;
   setField: (field: CompanyFieldName, value: string) => void;
   defaultExpanded: boolean;
 }>) {
@@ -318,6 +400,11 @@ function FieldRow({
           {t("ob.conv.review.showLess")}
         </button>
       </div>
+      {/* Above the control, not below it: the reader learns the box is empty
+          because nothing grounded it BEFORE deciding what to type in it. */}
+      {omission !== null && (
+        <OmissionNotice label={row.label} omission={omission} t={t} />
+      )}
       {row.multiline ? (
         <textarea id={controlId} value={row.value} onChange={onChange} />
       ) : (
@@ -736,8 +823,12 @@ function CompanyIdentityCard({
   return (
     <div className="ob-company-card">
       {/* The contract carries no logo/favicon field for a company; the
-          monogram is the floor, not a fallback for a missing fetch. */}
-      <Avatar name={name} size="lg" />
+          monogram is the floor, not a fallback for a missing fetch. Tinted,
+          because the floor is a DETERMINISTIC mark: the same company draws
+          the same colour here, in the organizations list and on the
+          connections graph, and a neutral chip would make the one company
+          this whole surface is about the only anonymous one. */}
+      <Avatar name={name} tinted size="lg" />
       <div className="ob-company-card-body">
         <h3>{name}</h3>
         {facts.length > 0 && (
@@ -1007,11 +1098,15 @@ function FactsGroupSection({
 function FieldGroupSection({
   group,
   rowByField,
+  read,
   setField,
   t,
 }: Readonly<{
   group: FrozenGroup;
   rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
+  /** The read behind the board, or null when none ran — the one thing that
+   * decides whether an empty row is an omission or simply unfilled. */
+  read: CompanySiteRead | null;
   setField: (field: CompanyFieldName, value: string) => void;
   t: ReturnType<typeof useT>;
 }>) {
@@ -1044,6 +1139,7 @@ function FieldGroupSection({
               )}
             <FieldRow
               row={row}
+              omission={omissionFor(row, read)}
               setField={setField}
               defaultExpanded={group.openByDefault.has(row.field)}
             />
@@ -1062,7 +1158,7 @@ function GroupBody({
   group,
   rowByField,
   setField,
-  people,
+  read,
   facts,
   factSelection,
   locale,
@@ -1071,15 +1167,17 @@ function GroupBody({
   group: FrozenGroup;
   rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
   setField: (field: CompanyFieldName, value: string) => void;
-  people: readonly SitePerson[] | null;
+  /** Null on a proposal-only render: no people section, and no field on the
+   * board can be called omitted, because nothing went looking. */
+  read: CompanySiteRead | null;
   facts: readonly SiteFact[];
   factSelection: FactSelection;
   locale: string;
   t: ReturnType<typeof useT>;
 }>) {
   if (group.key === PEOPLE_KEY) {
-    return people === null ? null : (
-      <PeopleGroupSection people={people} t={t} />
+    return read === null ? null : (
+      <PeopleGroupSection people={read.people} t={t} />
     );
   }
   if (group.key === FACTS_KEY) {
@@ -1096,6 +1194,7 @@ function GroupBody({
     <FieldGroupSection
       group={group}
       rowByField={rowByField}
+      read={read}
       setField={setField}
       t={t}
     />
@@ -1311,7 +1410,7 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
               group={group}
               rowByField={rowByField}
               setField={props.setField}
-              people={props.read?.people ?? null}
+              read={props.read ?? null}
               facts={facts}
               factSelection={factSelection}
               locale={locale}
