@@ -32,11 +32,14 @@ func isGenerated(path, text string) bool {
 	if strings.HasSuffix(path, "_gen.go") {
 		return true
 	}
-	// The whole contracts package is owned by the contract pipeline and
+	// The backend's contracts package is owned by the contract pipeline and
 	// frozen by the drift gate (`git diff --exit-code -- internal/contracts/`);
 	// even its hand-written doc.go/gen.go must stay byte-identical, so no
-	// notice is stamped there.
-	if strings.Contains(filepath.ToSlash(path), "internal/contracts/") {
+	// notice is stamped there. Anchored at the backend tree's own root, not
+	// matched anywhere in the path: the sweep also walks sibling modules, and
+	// a unit of its own naming a directory `internal/contracts/` would
+	// otherwise inherit an exemption that belongs to one frozen package.
+	if strings.HasPrefix(filepath.ToSlash(path), "internal/contracts/") {
 		return true
 	}
 	head := text
@@ -44,6 +47,20 @@ func isGenerated(path, text string) bool {
 		head = text[:i]
 	}
 	return generatedMarker.MatchString(head)
+}
+
+// TestTheContractsExemptionIsAnchoredToTheBackendTree: the exemption belongs
+// to ONE frozen package, so it must not travel to a sibling module that
+// happens to name a directory the same way — an inherited exemption is a file
+// shipping with no notice and a gate reporting it clean.
+func TestTheContractsExemptionIsAnchoredToTheBackendTree(t *testing.T) {
+	const unlicensed = "package contracts\n"
+	if !isGenerated("internal/contracts/doc.go", unlicensed) {
+		t.Error("the backend's frozen contracts package lost its exemption")
+	}
+	if isGenerated("../extensions/u/internal/contracts/tool.go", unlicensed) {
+		t.Error("a unit's own internal/contracts/ inherited the backend contract pipeline's exemption")
+	}
 }
 
 // licensedTree is one hand-written Go tree the notice rule covers, and
