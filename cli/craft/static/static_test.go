@@ -230,6 +230,56 @@ func TestLongFunc_blockCommentLinesAreNotCode(t *testing.T) {
 	}
 }
 
+// A block comment's boundaries are judged one at a time. Code sharing the
+// opening or closing line keeps THAT line as code without costing the prose
+// between them — bailing out of the whole block would count its interior as
+// code, which is the false positive this check exists to avoid.
+func TestLongFunc_blockCommentBoundariesAreJudgedIndependently(t *testing.T) {
+	// 100 prose lines whose closing line carries code, plus 20 plain code lines:
+	// 21 code lines in total, well under the ceiling.
+	var closeLine strings.Builder
+	closeLine.WriteString("package p\n\nvar x int\n\nfunc run() {\n\t/*\n")
+	for range 100 {
+		closeLine.WriteString("\t   prose\n")
+	}
+	closeLine.WriteString("\t*/ x++\n")
+	for range 20 {
+		closeLine.WriteString("\tx++\n")
+	}
+	closeLine.WriteString("}\n")
+	if got := counts(lintSource(t, "p.go", closeLine.String()), "long-func"); got != 0 {
+		t.Errorf("code on the CLOSING line: long-func = %d, want 0 — the prose above it is not code", got)
+	}
+
+	// The same shape with code on the OPENING line instead.
+	var openLine strings.Builder
+	openLine.WriteString("package p\n\nvar x int\n\nfunc run() {\n\tx++ /*\n")
+	for range 100 {
+		openLine.WriteString("\t   prose\n")
+	}
+	openLine.WriteString("\t*/\n")
+	for range 20 {
+		openLine.WriteString("\tx++\n")
+	}
+	openLine.WriteString("}\n")
+	if got := counts(lintSource(t, "p.go", openLine.String()), "long-func"); got != 0 {
+		t.Errorf("code on the OPENING line: long-func = %d, want 0 — the prose below it is not code", got)
+	}
+}
+
+// A one-line block comment with code after it is a code line, not prose.
+func TestLongFunc_aClosedBlockFollowedByCodeIsACodeLine(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package p\n\nvar x int\n\nfunc run() {\n")
+	for range 90 {
+		b.WriteString("\t/* why */ x++\n")
+	}
+	b.WriteString("}\n")
+	if got := counts(lintSource(t, "p.go", b.String()), "long-func"); got != 1 {
+		t.Fatalf("90 code lines each prefixed by a closed block comment: long-func = %d, want 1", got)
+	}
+}
+
 func TestLargeFile_testFilesGetTheRelaxedCeiling(t *testing.T) {
 	src := "package p\n" + strings.Repeat("// filler\n", 600)
 	if got := counts(lintSource(t, "p.go", src), "large-file"); got != 1 {

@@ -209,16 +209,28 @@ func (fc *fileContext) markCommentOnlyLines(src []byte) {
 	}
 	for _, group := range fc.file.Comments {
 		for _, c := range group.List {
-			start := fc.fset.Position(c.Slash)
-			if strings.TrimSpace(lineText(start.Line)[:start.Column-1]) != "" {
-				continue // code precedes it: the line is code that happens to be annotated
-			}
-			end := fc.fset.Position(c.End())
-			if strings.TrimSpace(lineText(end.Line)[end.Column-1:]) != "" {
-				continue // code resumes after a block comment closes
-			}
-			for n := start.Line; n <= end.Line; n++ {
+			start, end := fc.fset.Position(c.Slash), fc.fset.Position(c.End())
+			// The interior of a multi-line block holds nothing but the comment, so
+			// it is discounted whatever sits on the boundaries. Each boundary is
+			// then judged on its own: `x := f( /* open` and `*/ x++` each keep
+			// their own line as code without costing the prose between them.
+			for n := start.Line + 1; n < end.Line; n++ {
 				fc.commentOnly[n] = true
+			}
+			if strings.TrimSpace(lineText(start.Line)[:start.Column-1]) != "" {
+				continue // code precedes it: a code line that happens to be annotated
+			}
+			if start.Line == end.Line {
+				// One line, so the same line must also end clean — `/* x */ y := 1`
+				// is code.
+				if strings.TrimSpace(lineText(end.Line)[end.Column-1:]) == "" {
+					fc.commentOnly[start.Line] = true
+				}
+				continue
+			}
+			fc.commentOnly[start.Line] = true
+			if strings.TrimSpace(lineText(end.Line)[end.Column-1:]) == "" {
+				fc.commentOnly[end.Line] = true
 			}
 		}
 	}

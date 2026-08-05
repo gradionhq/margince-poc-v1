@@ -62,8 +62,9 @@ loop your PR will run:
    new or touched backend code must be free of `BLOCKER` **and**
    `MAJOR` findings — a swallowed error, a sleep in a test, a bare
    `any` in a signature, a two-bool signature, an assertion-free test,
-   or a function over 80 code lines (160 in `*_test.go` — comments are
-   not counted) all stop the
+   or a function over 80 code lines (160 in `*_test.go`; a comment-only
+   line is not counted, but a trailing comment does not make its code
+   line free) all stop the
    push. `MINOR` is advisory. There is no grandfathered backlog: the
    tree was cleared to zero findings before this bar was armed, so
    `make craft-static` is green and CI runs the same bar as a required
