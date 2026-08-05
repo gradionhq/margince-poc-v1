@@ -209,6 +209,16 @@ func TestBandCrossesWarnAndShed(t *testing.T) {
 	}
 }
 
+// TestFailClosed is tagged because the healthy Redis is the control, not the
+// subject. What is asserted are the RESULTS — shed bands, declined reservations,
+// and a metered call that does not error — for an unbound workspace, an
+// unconfigured incumbent and a nil client. Against no Redis at all those same
+// results would arrive for the wrong reason, so a live backend is what makes them
+// mean the meter decided rather than that the backend was missing.
+//
+// It claims nothing about command ordering or about what was written: no command
+// is counted here, and the paths under test return before a key exists, so there
+// is nothing to read back.
 func TestFailClosed(t *testing.T) {
 	rdb := budgettest.Client(t)
 	cfg := testCfg()
@@ -222,8 +232,14 @@ func TestFailClosed(t *testing.T) {
 	if ok, _ := m.ReserveREST(bare, testIncumbent, overlaybudget.SourceForceFresh, 1); ok {
 		t.Fatal("ReserveREST with no workspace was allowed, want declined")
 	}
-	// ConsumeSearch/ConsumeREST no-op (record nothing) with no workspace —
-	// they never error, and the read side stays fail-closed shed above.
+	// ConsumeSearch with no workspace must not error — a metered call the caller
+	// cannot attribute is dropped, not failed.
+	//
+	// That it also writes nothing is true but NOT asserted here, and deliberately
+	// so: resolve() returns before a key is computed, so there is no key to read
+	// back, and Snapshot on an unbound context fails closed to zero without
+	// touching Redis. Any counter probe would therefore pass whatever the code
+	// did, which is a worse guard than none.
 	if err := m.ConsumeSearch(bare, testIncumbent, 1); err != nil {
 		t.Fatalf("ConsumeSearch with no workspace should be a silent no-op, got %v", err)
 	}

@@ -67,11 +67,31 @@ var decisionGrants = map[string][]grantRequirement{
 	// transport gate by an agent caller.
 	"coldstart": {{tableOrganization, principal.ActionUpdate}},
 	"enrich":    {{tableOrganization, principal.ActionUpdate}},
-	// A rate refresh proposes an effective-dated row on a workspace-shared
-	// price sheet; deciding it needs the same admin/ops Create grant the
-	// editor's write path requires.
-	"fx_rate_proposal":       {{targetFxRate, principal.ActionCreate}},
-	"ai_model_rate_proposal": {{targetAIModelRate, principal.ActionCreate}},
+	// A rate refresh proposes an effective-dated row on a workspace-shared price
+	// sheet, and deciding it requires BOTH write verbs on that sheet.
+	//
+	// The release is an upsert: it inserts a new (currency, day) or replaces an
+	// existing rate, and which one it will be is not knowable when the decision
+	// is made — the sheet can change between the decision and the apply. The
+	// apply also runs as the system principal, so the store's in-transaction
+	// check on the specific verb never fires here; this is the only grant
+	// standing between an approver and the row the release replaces.
+	//
+	// Either verb alone would authorize the operation it does not name: a
+	// create-only approver could release an overwrite, precisely the
+	// substitution the store's second check exists to refuse. Requiring both is
+	// the conservative reading — approve an upsert only if you could have
+	// performed either half yourself. Every seeded role holding one holds the
+	// other (writeNoDelete for admin and ops, the zero grant for everyone
+	// else), so this constrains edited roles only, and constrains them right.
+	"fx_rate_proposal": {
+		{targetFxRate, principal.ActionCreate},
+		{targetFxRate, principal.ActionUpdate},
+	},
+	"ai_model_rate_proposal": {
+		{targetAIModelRate, principal.ActionCreate},
+		{targetAIModelRate, principal.ActionUpdate},
+	},
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
 	"deepread": {{tableOrganization, principal.ActionUpdate}},

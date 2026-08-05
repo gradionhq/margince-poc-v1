@@ -27,10 +27,9 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/migrations"
 )
 
 type forecastEnv struct {
@@ -64,18 +63,13 @@ func setupForecast(t *testing.T) *forecastEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
+	// Migrated once per test process; every later test resets the data only, as
+	// the rest of this package's suites do through integration.Setup — the
+	// discipline backend/integrationmigrateonce_test.go enforces module-wide.
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatal(err)
-	}
-	custom, err := migrations.Custom()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
+	if err := testdb.Reset(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
 
