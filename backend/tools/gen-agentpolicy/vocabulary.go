@@ -48,6 +48,7 @@ type vocabulary struct {
 	access     []string
 	recordType []string
 	tier       []string
+	scope      []string
 }
 
 func readVocabulary(schemas map[string]schemaNode) (vocabulary, error) {
@@ -59,7 +60,7 @@ func readVocabulary(schemas map[string]schemaNode) (vocabulary, error) {
 	}
 	var v vocabulary
 	for field, target := range map[string]*[]string{
-		"access": &v.access, "record_type": &v.recordType, "tier": &v.tier,
+		"access": &v.access, "record_type": &v.recordType, "tier": &v.tier, "scope": &v.scope,
 	} {
 		prop, ok := declared.Properties[field]
 		if !ok || len(prop.Enum) == 0 {
@@ -96,6 +97,7 @@ func (v vocabulary) violations(policies []policy) []string {
 			{"x-agent-access", p.Access, v.access},
 			{"x-mcp-tool.record_type", p.RecordType, v.recordType},
 			{"x-mcp-tool.tier", p.Tier, v.tier},
+			{"x-mcp-tool.scope", p.Scope, v.scope},
 		} {
 			if check.value == "" || contains(check.allowed, check.value) {
 				continue
@@ -123,6 +125,8 @@ func renderVocabulary(v vocabulary) string {
 			"agentTier is the autonomy tier the gate admits against, identical on REST and MCP.", v.tier},
 		{"agentRecordType", "recordType",
 			"agentRecordType is the record an operation targets; the zero value means it declares none.", v.recordType},
+		{"agentScope", "scope",
+			"agentScope is the passport cap an operation consumes. Unlike the others it has no zero\n// value in practice: every tool operation declares one, so the gate never has to invent it.", v.scope},
 	} {
 		fmt.Fprintf(&b, "\n// %s\n//\n// Values are the closed set declared by components.schemas.%s in\n"+
 			"// api/crm.yaml; a value outside it fails generation.\ntype %s string\n\nconst (\n",

@@ -10,12 +10,23 @@ the store mechanics step 3 relies on, see
 
 1. **Edit the contract** — `backend/api/crm.yaml`. Add the path + operation + request/response schemas.
    A **mutating** operation (POST/PUT/PATCH/DELETE) MUST carry one of:
-   - `x-mcp-tool: { verb, record_type, tier: auto_execute|confirmation_required|dynamic }` — exposes it as a governed agent
-     tool at that autonomy tier; or
+   - `x-mcp-tool: { verb, record_type, tier: auto_execute|confirmation_required|dynamic,
+     scope: read|draft|write|send|enrich }` — exposes it as a governed agent tool at that
+     autonomy tier, consuming that passport cap; or
    - `x-agent-access: human-only` (rejects agent principals — e.g. approvals, consent) or
      `auth-bootstrap` (login/session machinery).
 
    The generator **fails** on a mutating op with neither, so an un-tiered endpoint cannot ship.
+
+   `tier` and `scope` answer different questions, and one cannot stand in for the other: the tier
+   says whether a human confirms the act, the scope says whether the act was ever delegable. Pick
+   the scope by what the act's PURPOSE spends — `send` delivers to a counterparty, `enrich` pulls
+   from a third-party site or system, and an act whose purpose is a durable state change is `write`
+   even where it makes network calls to do it. `scope` has no default and no empty state: a missing
+   one fails generation. One verb spends one cap, so a second operation backing an existing verb
+   must declare the same scope — `scopeCoherence` fails the build otherwise. If the verb has a
+   registered MCP tool, the declared scope must equal that tool's `RequiredScope`
+   (`agentscopeparity_test.go`).
 
 2. **Regenerate** — `make gen`. This rewrites the generated files (never hand-edit them):
    `internal/contracts/api_gen.go` (types + `ServerInterface`), `internal/compose/stubs_gen.go` (a new
