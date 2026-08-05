@@ -42,5 +42,5 @@ replacing the file from its source and noting the change in the commit.
 | --- | --- |
 | `spdx-3.0.1.schema.json` | https://spdx.org/schema/3.0.1/spdx-json-schema.json |
 
-These are validation inputs, not shipped product, so `.syft.yaml` excludes this
-directory from the scan.
+These are validation inputs, not shipped product, but `.syft.yaml` includes this
+committed directory so the SBOM covers the complete committed tree.
