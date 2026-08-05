@@ -1,0 +1,338 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package migrations
+
+// The obligation, stated once: an installation that predates every backfill,
+// upgraded to head, ends up holding exactly the matrix the server would seed
+// today. This test executes it.
+//
+// It replaced a static scan of the migration SQL for '{objects,<name>}'. That
+// scan was correct and still deleted, because it proves a migration MENTIONS a
+// JSON path — not that the upgrade worked. A migration whose WHERE clause
+// targets the wrong roles, drops is_system, or writes the wrong verbs passes a
+// scan and leaves real users at 403. Replaying the upgrade and comparing the
+// end state has nowhere for that to hide, and it covers every object rather
+// than the six a hand-written list happened to name.
+//
+// Three mechanics carry it:
+//
+//   - dbmigrate.Namespace is a plain struct, so core.Migrations[:cut] is a
+//     legitimate partial apply. Keeping Name means both calls share the same
+//     schema_migrations_core tracking table.
+//   - Up reads the applied versions and skips them, so the second call applies
+//     exactly the remainder. No down migrations, nothing to unwind.
+//   - Roles are seeded by APP code (identity.seedSystemRoles), not by a
+//     migration, so a freshly migrated database holds no role rows at all. The
+//     legacy documents must be planted before the upgrade — "migrate everything
+//     and inspect" would assert nothing.
+//
+// What it does NOT subsume: the parity cases next door, which prove a backfill
+// does not clobber an ALTERED grant, that the is_system predicate holds, and
+// that a '{}' document is never silently created. A pristine-legacy comparison
+// cannot reach any of those. Those are the correctness half; this is the
+// coverage half.
+
+import (
+	"context"
+	"encoding/json"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+)
+
+// Both fixtures are committed rather than computed here, and the reason is the
+// same in each case: this package cannot import identity/internal/policy. Go's
+// own import fence restricts that package to internal/modules/identity/**, and
+// .go-arch-lint.yml independently allows `migrations` to depend on `platform`
+// alone. Widening either to serve a test would grant a production edge.
+//
+// Neither fixture can drift unnoticed. rbac_seeded_defaults.json is compared
+// against policy.MustDefaultJSON on every unit run by a gate that lives inside
+// the fence; rbac_legacy_installs.json has its cohort derived from the initial
+// commit by a gate at the backend root.
+const (
+	legacyInstallsFixture = "testdata/rbac_legacy_installs.json"
+	seededDefaultsFixture = "testdata/rbac_seeded_defaults.json"
+)
+
+type replayInstalls struct {
+	LegacyCoreVersion string                       `json:"legacy_core_version"`
+	Installs          map[string]map[string]anyDoc `json:"installs"`
+}
+
+// anyDoc is the permissions document as stored: decoded structurally so the
+// comparison is semantic. Comparing raw bytes would fail on jsonb's key
+// reordering and prove nothing about the grants.
+type anyDoc map[string]any
+
+func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
+	ctx := context.Background()
+	ownerDSN, _ := dsns(t)
+	conn := connect(t, ownerDSN)
+	resetSchema(t, conn)
+
+	core, custom := loadNamespaces(t)
+	installs := readReplayInstalls(t)
+	want := readSeededDefaults(t)
+
+	// An old installation: core applied only as far as it had been released.
+	legacy := dbmigrate.Namespace{
+		Name:       core.Name,
+		Migrations: core.Migrations[:prefixThrough(t, core, installs.LegacyCoreVersion)],
+	}
+	if _, err := dbmigrate.Up(ctx, conn, legacy); err != nil {
+		t.Fatalf("applying core through %s: %v", installs.LegacyCoreVersion, err)
+	}
+
+	workspaces := seedInstallations(t, conn, installs)
+
+	// Upgrade it to head — core AND custom, because two backfills live in the
+	// fork-owned namespace and an assertion that modelled the split would be
+	// modelling the wrong thing.
+	if _, err := dbmigrate.Up(ctx, conn, core, custom); err != nil {
+		t.Fatalf("upgrading to head: %v", err)
+	}
+
+	for _, install := range slices.Sorted(maps.Keys(workspaces)) {
+		t.Run(install, func(t *testing.T) {
+			assertMatrix(ctx, t, conn, workspaces[install], want)
+		})
+	}
+}
+
+// assertMatrix compares every system role's document against what the server
+// seeds today. Errorf, not Fatalf: one role's missing object must not hide the
+// other four, and a reader triaging a failed upgrade wants the whole picture.
+func assertMatrix(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID string, want map[string]anyDoc) {
+	t.Helper()
+	for _, role := range slices.Sorted(maps.Keys(want)) {
+		got := readPermissions(ctx, t, conn, workspaceID, role)
+		for _, line := range diffDocuments(got, want[role]) {
+			t.Errorf("role %q: %s", role, line)
+		}
+	}
+}
+
+// diffDocuments reports the cells that differ, one line each — a whole-document
+// dump of 29 objects buries the one that moved.
+//
+// The comparison is on EFFECTIVE grant, not on JSON shape, and the difference
+// is load-bearing. A freshly seeded installation stores every object in the
+// vocabulary, including the ones a role holds nothing on, as an explicit
+// {create,read,update,delete} all false. A backfill migration writes a key only
+// for the roles it actually grants something to, so an upgraded installation
+// omits those objects entirely. Both mean "this role may do nothing here" —
+// platform/auth reads an absent key and an all-false grant identically — so
+// asserting raw equality would fail on twelve cells (manager, rep and read_only
+// across embedding_reindex, fx_rate, ai_model_rate and import_run) that are
+// correct. Normalizing here keeps every case that matters red: absent-vs-granted
+// still fails, wrong verbs still fail, and an object granted outside the
+// vocabulary still fails, because none of those normalize to the zero grant.
+func diffDocuments(got, want anyDoc) []string {
+	gotObjects, wantObjects := objectsOf(got), objectsOf(want)
+	var lines []string
+	for _, object := range slices.Sorted(maps.Keys(union(gotObjects, wantObjects))) {
+		held, seeded := effectiveGrant(gotObjects, object), effectiveGrant(wantObjects, object)
+		if held == seeded {
+			continue
+		}
+		switch {
+		case held == (verbs{}):
+			lines = append(lines, "holds no grant on "+object+" after the upgrade, but the server "+
+				"seeds "+render(seeded)+"; an existing installation would 403 on every "+object+
+				" route. Its backfill migration is missing or matched no rows")
+		case seeded == (verbs{}):
+			lines = append(lines, "holds "+render(held)+" on "+object+", which the seeded matrix "+
+				"grants nothing on; a migration grants more than the vocabulary allows")
+		default:
+			lines = append(lines, "grant on "+object+" is "+render(held)+", the server seeds "+
+				render(seeded)+"; the backfill writes the wrong verbs")
+		}
+	}
+	if heldScope, seededScope := rowScope(got), rowScope(want); heldScope != seededScope {
+		lines = append(lines, "row_scope is "+heldScope+", the server seeds "+seededScope)
+	}
+	return lines
+}
+
+// verbs is one grant, compared by value. The tags are for the failure message
+// only — a diff quoting {"delete":false} reads against the stored document, one
+// quoting {"Delete":false} reads against this struct.
+type verbs struct {
+	Create bool `json:"create"`
+	Read   bool `json:"read"`
+	Update bool `json:"update"`
+	Delete bool `json:"delete"`
+}
+
+// effectiveGrant reads one object's grant out of a permissions document,
+// treating an absent or malformed one as the zero grant — which is what
+// platform/auth does with it.
+func effectiveGrant(objects map[string]any, object string) verbs {
+	grant, isObject := objects[object].(map[string]any)
+	if !isObject {
+		return verbs{}
+	}
+	return verbs{
+		Create: flag(grant, "create"),
+		Read:   flag(grant, "read"),
+		Update: flag(grant, "update"),
+		Delete: flag(grant, "delete"),
+	}
+}
+
+func flag(grant map[string]any, verb string) bool {
+	set, isBool := grant[verb].(bool)
+	return isBool && set
+}
+
+func union(a, b map[string]any) map[string]struct{} {
+	keys := make(map[string]struct{}, len(a)+len(b))
+	for key := range a {
+		keys[key] = struct{}{}
+	}
+	for key := range b {
+		keys[key] = struct{}{}
+	}
+	return keys
+}
+
+func objectsOf(doc anyDoc) map[string]any {
+	objects, isObject := doc["objects"].(map[string]any)
+	if !isObject {
+		return map[string]any{}
+	}
+	return objects
+}
+
+// rowScope reads the document's scope token. A missing or non-string scope
+// renders as the literal it stored, so a malformed document reports what it
+// actually holds rather than an empty string.
+func rowScope(doc anyDoc) string {
+	scope, isString := doc["row_scope"].(string)
+	if !isString {
+		return "<absent or not a scope token>"
+	}
+	return scope
+}
+
+func render(grant verbs) string {
+	raw, err := json.Marshal(grant)
+	if err != nil {
+		return "<unrenderable>"
+	}
+	return string(raw)
+}
+
+// seedInstallations plants each fixture installation in its own workspace and
+// returns the workspace ids by installation name.
+func seedInstallations(t *testing.T, conn *pgx.Conn, installs replayInstalls) map[string]string {
+	t.Helper()
+	workspaces := map[string]string{}
+	for _, install := range slices.Sorted(maps.Keys(installs.Installs)) {
+		workspaceID := seedWorkspace(t, conn, "rbac-replay-"+install)
+		workspaces[install] = workspaceID
+		for _, role := range slices.Sorted(maps.Keys(installs.Installs[install])) {
+			document, err := json.Marshal(installs.Installs[install][role])
+			if err != nil {
+				t.Fatalf("rendering the %s document for role %q: %v", install, role, err)
+			}
+			seedRole(t, conn, workspaceID, role, true, document)
+		}
+	}
+	return workspaces
+}
+
+// prefixThrough returns the number of migrations up to AND INCLUDING version —
+// the length of the prefix an installation at that release had applied.
+func prefixThrough(t *testing.T, core dbmigrate.Namespace, version string) int {
+	t.Helper()
+	for i, migration := range core.Migrations {
+		if migration.Version == version {
+			return i + 1
+		}
+	}
+	t.Fatalf("core contains no migration %s, which %s pins as the initial commit's head. "+
+		"A shipped core migration cannot be renumbered or removed, so this means the fixture is wrong.",
+		version, legacyInstallsFixture)
+	return 0
+}
+
+func loadNamespaces(t *testing.T) (core, custom dbmigrate.Namespace) {
+	t.Helper()
+	core, err := Core()
+	if err != nil {
+		t.Fatalf("loading core: %v", err)
+	}
+	custom, err = Custom()
+	if err != nil {
+		t.Fatalf("loading custom: %v", err)
+	}
+	return core, custom
+}
+
+func readReplayInstalls(t *testing.T) replayInstalls {
+	t.Helper()
+	var installs replayInstalls
+	if err := json.Unmarshal(readFixture(t, legacyInstallsFixture), &installs); err != nil {
+		t.Fatalf("decoding %s: %v", legacyInstallsFixture, err)
+	}
+	if len(installs.Installs) == 0 {
+		t.Fatalf("%s declares no installations to replay", legacyInstallsFixture)
+	}
+	return installs
+}
+
+func readSeededDefaults(t *testing.T) map[string]anyDoc {
+	t.Helper()
+	want := map[string]anyDoc{}
+	if err := json.Unmarshal(readFixture(t, seededDefaultsFixture), &want); err != nil {
+		t.Fatalf("decoding %s: %v", seededDefaultsFixture, err)
+	}
+	if len(want) == 0 {
+		t.Fatalf("%s declares no seeded role documents to compare against", seededDefaultsFixture)
+	}
+	return want
+}
+
+func readFixture(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		absolute, resolveErr := filepath.Abs(path)
+		if resolveErr != nil {
+			absolute = path
+		}
+		t.Fatalf("reading %s (resolved to %s): %v", path, absolute, err)
+	}
+	return raw
+}
+
+// readPermissions returns the role's whole permissions document. A missing row
+// is fatal rather than an empty document: the replay seeds every system role
+// before the upgrade, so a vanished role means a migration deleted it, which no
+// diff of grants would explain.
+func readPermissions(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID, key string) anyDoc {
+	t.Helper()
+	var raw []byte
+	err := conn.QueryRow(ctx,
+		`SELECT permissions FROM role WHERE workspace_id = $1 AND key = $2`,
+		workspaceID, key).Scan(&raw)
+	if err != nil {
+		t.Fatalf("reading the permissions document for role %q: %v", key, err)
+	}
+	var document anyDoc
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("decoding the stored permissions document for role %q: %v", key, err)
+	}
+	return document
+}
