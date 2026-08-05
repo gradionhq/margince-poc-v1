@@ -5,6 +5,7 @@ package events
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -34,13 +35,19 @@ func PublishReset(ctx context.Context, rdb *redis.Client, ws ids.UUID) error {
 }
 
 // SubscribeReset runs until ctx is canceled, invoking fn for every reset
-// announcement. A malformed payload is logged by the caller's fn only if it
-// parses; an unparseable one is skipped rather than killing the loop, because
-// a control channel that dies on one bad message stops flushing caches for
-// the life of the process.
+// announcement. An unparseable payload is logged and skipped rather than
+// killing the loop, because a control channel that dies on one bad message
+// stops flushing caches for the life of the process — but the skip is never
+// silent, so an encoding drift between publishers is observable.
 func SubscribeReset(ctx context.Context, rdb *redis.Client, log *slog.Logger, fn func(ids.UUID)) error {
 	return subscribeResetWithReady(ctx, rdb, log, fn, nil)
 }
+
+// errSubscriptionClosed distinguishes "the Redis subscription channel closed
+// out from under us" from a clean ctx.Done() shutdown: both once returned a
+// bare nil, which left a caller with no way to tell "no more resets will ever
+// arrive until restart" from "we were asked to stop."
+var errSubscriptionClosed = errors.New("bus: reset control subscription channel closed")
 
 func subscribeResetWithReady(ctx context.Context, rdb *redis.Client, log *slog.Logger, fn func(ids.UUID), ready chan<- struct{}) error {
 	sub := rdb.Subscribe(ctx, ResetChannel)
@@ -61,10 +68,11 @@ func subscribeResetWithReady(ctx context.Context, rdb *redis.Client, log *slog.L
 			return ctx.Err()
 		case msg, ok := <-sub.Channel():
 			if !ok {
-				return nil
+				return errSubscriptionClosed
 			}
 			ws, err := ids.Parse(msg.Payload)
 			if err != nil {
+				log.Warn("bus: skipping unparseable reset payload", "error", err)
 				continue
 			}
 			fn(ws)
