@@ -28,8 +28,12 @@ Two surfaces answer it, and both read the same `graph_interaction_edge` projecti
 
 One test inside coverage deliberately does **not** use the projection: whether a stakeholder counts as
 *engaged* is `deals.EngagedStakeholders`, which walks `activity_link` directly. Engagement is a
-question about a deal's own conversations, and it is the same helper the deal-health composite reads —
-so coverage and health can never disagree about who is engaged.
+question about a deal's own conversations rather than a ranking over a contact's history.
+
+Worth knowing before you change that window: the deal-health composite asks the same question with its
+own **inline copy** of the query (`deals/health.go`) instead of calling the helper. The two agree today
+because the window and the two-way test match, not because they share a definition — so a change to one
+has to be made to the other by hand.
 
 The agent surface asks the same questions through the same seams: `who_knows`, `account_coverage`,
 `intro_path_to` and `at_risk_relationships` are all 🟢 read tools bound to `ScopeRead`, and they reach
@@ -62,7 +66,8 @@ captured mail / calendar          hand-logged call or meeting
         └── GET /deals/{id}/coverage    who covers this deal, and what's wrong
                EdgesForPeople — every stakeholder at once
                + deals.EngagedStakeholders, which walks activity_link DIRECTLY:
-                 "engaged" is a question about this deal's own conversations
+                 "engaged" is about this deal's own conversations
+                 (deal health asks the same question with its own inline copy)
 ```
 
 ## Participants — the fact the schema could not previously state

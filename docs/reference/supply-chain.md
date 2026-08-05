@@ -6,8 +6,10 @@ Three tools run this lane, all as digest-pinned Docker images: **syft**
 generates the SBOMs, **grant** gates their licenses, and **cosign** signs them.
 
 ```text
-git archive HEAD ─▶ syft ─▶ 3 SBOM docs ─▶ normalize ─▶ parity ─▶ grant (license gate)
-                                                            └─▶ cosign (main only)
+git archive HEAD ─▶ syft ─▶ 3 SBOM docs ─▶ normalize ─▶ parity ──┬─▶ grant (license gate)
+                                                                 ├─▶ validate (per-format)
+                                                                 └─▶ cosign (main only,
+                                                                     needs parity + validate)
 ```
 
 The SBOM lane covers the whole repo (backend + frontend + extensions), so its
@@ -143,6 +145,25 @@ Two categories never reach the allowlist check:
   them. They are build infrastructure, not shipped product.
 
 Everything else must still resolve to a known, allowed license.
+
+## Schema validation
+
+Parity proves the three documents describe the same tree. It does **not** prove
+any of them is a valid document of its own format — so `make sbom-validate`
+checks each against its format, with the validator that format actually has:
+
+| Document | Validator |
+|---|---|
+| `margince.cdx.json` | `cyclonedx validate --fail-on-errors` |
+| `margince.spdx221.json` | `pyspdxtools`, from a hash-pinned requirements file |
+| `margince.spdx300.json` | `jsonschema` against the vendored `sbom-schemas/spdx-3.0.1.schema.json` |
+
+`make sbom-sign` depends on `sbom-parity` **and** `sbom-validate`, so a document
+that is internally inconsistent or malformed cannot be signed — a signature over
+a broken SBOM is worse than no signature, because it makes the broken thing look
+vouched for. The SPDX 3.0.1 schema is vendored rather than fetched so the check
+is reproducible and cannot change under a release; `sbom-schemas/README.md`
+records its provenance.
 
 ## Signing
 

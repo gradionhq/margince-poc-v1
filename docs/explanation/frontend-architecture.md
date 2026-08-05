@@ -293,7 +293,7 @@ discipline even if the test tree regresses.
 
 | Gate | Where it lives | What fails it |
 |---|---|---|
-| Token purity | `frontend/scripts/check-ds-purity.sh` | a hex/`rgb()`/`hsl()`/`oklch()` literal in any `.ts`/`.tsx`/`.css` under `frontend/src` outside `tokens.css`. Its one in-scope exclusion is `design-system/provider-mark.tsx`; `index.html` is exempt from the *discipline* but simply outside the scan, since the script never leaves `src/`. Fails closed if it scans zero files |
+| Token purity | `frontend/scripts/check-ds-purity.sh` | a hex/`rgb()`/`hsl()`/`oklch()` literal in hand-written shipped `.ts`/`.tsx`/`.css` under `frontend/src`. It skips four names: `tokens.css` (the literals are its job), `provider-mark.tsx` (third-party brand marks), `*.test.*` (fixtures) and the generated `schema.d.ts`. `index.html` is exempt from the *discipline* too, but for a different reason — the script never leaves `src/`, so it is not scanned at all. Fails closed if it scans zero files |
 | Font lock | `frontend/scripts/check-font-lock.sh` | a `font-family` outside Outfit / DM Sans / JetBrains Mono + the named generic fallbacks |
 | Icon glyphs | `frontend/scripts/check-icon-glyph.sh` | an emoji in rendered code (comments are stripped — the 🟢/🟡 tier notation is house style and renders through `AutonomyDot`) |
 | Spacing | `frontend/scripts/check-ds-spacing.sh` | a **newly added** inline `margin`/`padding`/`gap` px literal; diff-scoped vs `origin/main`, waived in-line with `// ds:ignore <reason>` |

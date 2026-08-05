@@ -136,6 +136,7 @@ exception to it.
 | `sbom` | Generate the three source-tree SBOMs (CycloneDX + SPDX 2.2.1 + SPDX 3.0) from a clean `git archive HEAD` export, license-enriched, then normalize and parity-check them. syft/grant/cosign run as digest-pinned Docker images; `jq`, `git` and `tar` run on the host. License enrichment queries the Go module proxy and npm registry, so the run needs network |
 | `sbom-normalize` / `sbom-parity` | Reconcile syft's three writers to one repo-relative file set / assert all three enumerate it identically. `sbom` runs both; parity fails the build on any diff |
 | `sbom-check` | The license gate — grant against `.grant.yaml` (16 allowed licenses, `require-license` and `require-known-license` both on). Reads the CycloneDX document only |
+| `sbom-validate` | Validate each document against its own format — CycloneDX via `cyclonedx validate`, SPDX 2.2.1 via a hash-pinned `pyspdxtools`, SPDX 3.0.1 via the vendored schema in `sbom-schemas/`. Parity proves the three agree; this proves each is well-formed |
 | `sbom-sign` | Keyless cosign signature per SBOM (`*.cosign.bundle`); needs an OIDC token, so in practice CI's isolated `sign` job. Depends on `sbom-parity`, never on `sbom` — a signature must cover normalized bytes that already agree |
 
 Full detail: [supply-chain.md](supply-chain.md). This lane is **not** part of `make check`.
