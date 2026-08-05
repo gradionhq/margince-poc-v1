@@ -17,10 +17,12 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -138,14 +140,19 @@ func isForeignKeyViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }
 
-// resetSummary is what the handler reports back after a reset.
-type resetSummary struct{ TablesCleared int }
-
 // resetDataResponse is the 200 body. The contract declares the shape inline
-// (no generated type), so it is spelled here.
+// (no generated type), so it is spelled here — and
+// TestResetDataResponseMatchesTheContract (backend/resetwireshape_test.go)
+// derives the two field sets from the contract and this struct so they cannot
+// drift.
 type resetDataResponse struct {
-	Status        string `json:"status"`
-	TablesCleared int    `json:"tables_cleared"`
+	Status         string `json:"status"`
+	TablesCleared  int    `json:"tables_cleared"`
+	JobsCancelled  int    `json:"jobs_cancelled"`
+	StreamsPurged  int    `json:"streams_purged"`
+	CacheKeys      int    `json:"cache_keys_deleted"`
+	ObjectsDeleted int    `json:"objects_deleted"`
+	DrainTimedOut  bool   `json:"drain_timed_out"`
 }
 
 // dataResetHandlers is the callable the non-production "reset data" HTTP
@@ -159,30 +166,96 @@ type dataResetHandlers struct {
 	seeds      deployconfig.Seeds
 	env        runtimeenv.Environment
 	log        *slog.Logger
+
+	// runtime POINTS AT the Server's own field rather than copying it, so
+	// WithResetRuntime and WithDataReset may be applied in either order — see
+	// Server.resetRuntime for what a copy would silently cost. nil is the
+	// Postgres-only reset a role that wired no runtime performs.
+	runtime *ResetRuntime
+	// budget is the overlay budget meter whose per-workspace Redis counters
+	// must not survive the install they were spent by.
+	budget *overlaybudget.Meter
+	// blob is the object store holding the bytes the swept rows referenced.
+	blob blobstore.Store
+	// flush drops this process's own caches (Server.FlushResetCaches); the
+	// bus announcement reaches the rest of the fleet.
+	flush func(ids.UUID)
 }
 
-// run performs the full reset for the bound workspace: validate the typed
-// confirmation, sweep domain + config data, clear the outbox, re-seed module
-// defaults (as bootstrap does), and record the reset in audit_log — all in
-// one transaction. cf_* column drops run after commit (separate owner
-// connection) since DDL cannot share the app-role transaction.
-func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetSummary, error) {
+// run performs the full reset for the bound workspace: refuse a mismatched
+// confirmation, quiet the job fleet, purge the queue and the bus, sweep +
+// re-seed Postgres in one transaction, clear the surfaces no transaction can
+// reach, and announce the reset so every process drops its caches.
+func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetCounts, error) {
 	logger := h.log
 	if logger == nil {
 		logger = slog.Default()
 	}
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		return resetSummary{}, database.ErrNoWorkspace
+		return resetCounts{}, database.ErrNoWorkspace
 	}
-	var cleared int
-	err := database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
-		var orgName string
-		if err := tx.QueryRow(ctx, `SELECT name FROM workspace WHERE id = $1`, wsID).Scan(&orgName); err != nil {
-			return err
+	// Read BEFORE anything is paused or purged: a typo must cost the
+	// installation nothing, and quiescing the job fleet is not nothing. The
+	// sweep re-checks inside its own transaction — one row read that closes
+	// the window where the organization is renamed in between.
+	if err := database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
+		return confirmResetOrgName(ctx, tx, wsID, confirmation)
+	}); err != nil {
+		return resetCounts{}, err
+	}
+
+	rt := ResetRuntime{}
+	if h.runtime != nil {
+		rt = *h.runtime
+	}
+	counts, err := runResetRuntimePhase(ctx, rt, wsID, func(counts *resetCounts) error {
+		return h.sweepAndReseed(ctx, wsID, confirmation, counts)
+	})
+	if err != nil {
+		return counts, err
+	}
+	if err := h.purgeUnjoinableSurfaces(ctx, logger, wsID, &counts); err != nil {
+		return counts, err
+	}
+	// Caches go last, once every surface really is clear: anything that dropped
+	// its cached answers earlier could have re-cached what was still being
+	// purged. This process first, then the rest of the fleet over the bus.
+	if h.flush != nil {
+		h.flush(wsID)
+	}
+	if rt.SignalReset != nil {
+		if err := rt.SignalReset(ctx, wsID); err != nil {
+			return counts, err
 		}
-		if confirmation != orgName {
-			return errResetConfirmationMismatch
+	}
+	logger.Info("data reset complete", "workspace_id", wsID,
+		"tables_cleared", counts.TablesCleared, "jobs_cancelled", counts.JobsCancelled,
+		"streams_purged", counts.StreamsPurged, "cache_keys_deleted", counts.CacheKeys,
+		"objects_deleted", counts.ObjectsDeleted, "drain_timed_out", counts.DrainTimedOut)
+	return counts, nil
+}
+
+// confirmResetOrgName refuses the reset unless confirmation is exactly the
+// organization's name.
+func confirmResetOrgName(ctx context.Context, tx pgx.Tx, wsID ids.UUID, confirmation string) error {
+	var orgName string
+	if err := tx.QueryRow(ctx, `SELECT name FROM workspace WHERE id = $1`, wsID).Scan(&orgName); err != nil {
+		return err
+	}
+	if confirmation != orgName {
+		return errResetConfirmationMismatch
+	}
+	return nil
+}
+
+// sweepAndReseed is the Postgres half, in ONE transaction: sweep domain +
+// config data, clear the outbox, re-seed module defaults (as bootstrap does),
+// and record the reset in audit_log.
+func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, confirmation string, counts *resetCounts) error {
+	return database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
+		if err := confirmResetOrgName(ctx, tx, wsID, confirmation); err != nil {
+			return err
 		}
 		tables, err := resetTargetTables(ctx, tx)
 		if err != nil {
@@ -194,7 +267,7 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetS
 		if err := clearWorkspaceOutbox(ctx, tx); err != nil {
 			return err
 		}
-		cleared = len(tables)
+		counts.TablesCleared = len(tables)
 
 		// Re-seed under a system principal + a fresh correlation id, exactly as
 		// bootstrap does (identity/installation.go), so the seeders' own
@@ -209,23 +282,61 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetS
 
 		// Record the reset under the invoking admin principal.
 		_, err = storekit.AuditWithEvidence(ctx, tx, "reset_data", "workspace", wsID, nil, nil,
-			map[string]any{"tables_cleared": cleared})
+			resetEvidence(*counts))
 		return err
 	})
-	if err != nil {
-		return resetSummary{}, err
-	}
+}
 
-	// Finalize: drop custom-field columns so the schema matches a fresh
-	// bootstrap. Best-effort — the definitions are already gone with the
-	// sweep, and leaving an empty column behind is harmless if this can't
-	// run (no schema pool configured); logged, not swallowed.
+// resetEvidence is the audit row's evidence map.
+//
+// objects_deleted is deliberately absent: a blob store cannot join a Postgres
+// transaction, so the bytes are purged after this row is already committed and
+// the tally does not exist yet. It reaches the response and the completion log
+// line instead.
+func resetEvidence(counts resetCounts) map[string]any {
+	return map[string]any{
+		"tables_cleared":     counts.TablesCleared,
+		"jobs_cancelled":     counts.JobsCancelled,
+		"streams_purged":     counts.StreamsPurged,
+		"cache_keys_deleted": counts.CacheKeys,
+		"drain_timed_out":    counts.DrainTimedOut,
+	}
+}
+
+// purgeUnjoinableSurfaces clears what the sweep's transaction cannot reach and
+// so runs after it commits: the schema's cf_* columns, this workspace's Redis
+// budget counters, and the stored object bytes whose only references the sweep
+// just deleted. Both purges fail the request when they fail — an install
+// reported as reset while a surface still holds the old one's state is the
+// outcome this whole path exists to prevent. The cf_* drop is the one
+// exception, for the reason its own comment gives.
+func (h dataResetHandlers) purgeUnjoinableSurfaces(ctx context.Context, logger *slog.Logger, wsID ids.UUID, counts *resetCounts) error {
+	// Drop custom-field columns so the schema matches a fresh bootstrap.
+	// Best-effort — the definitions are already gone with the sweep, and
+	// leaving an empty column behind is harmless if this can't run (no schema
+	// pool configured); logged, not swallowed.
 	if h.schemaPool != nil {
 		if err := dropResetCustomFieldColumns(ctx, h.schemaPool); err != nil {
 			logger.Error("data reset: cf_ column drop failed", "err", err)
 		}
 	}
-	return resetSummary{TablesCleared: cleared}, nil
+	if h.budget != nil {
+		n, err := h.budget.PurgeWorkspace(ctx, wsID)
+		if err != nil {
+			return err
+		}
+		counts.CacheKeys += n
+	}
+	if h.blob != nil {
+		// The prefix must end at the key separator or the store refuses it:
+		// "<ws>" alone would reach into a sibling tenant whose id extends it.
+		n, err := h.blob.DeletePrefix(ctx, wsID.String()+"/")
+		if err != nil {
+			return err
+		}
+		counts.ObjectsDeleted = n
+	}
+	return nil
 }
 
 // dropResetCustomFieldColumns drops every runtime cf_* column via the owner
@@ -284,21 +395,26 @@ func (h dataResetHandlers) ResetData(w http.ResponseWriter, r *http.Request) {
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	summary, err := h.run(ctx, req.Confirmation)
+	counts, err := h.run(ctx, req.Confirmation)
 	if errors.Is(err, errResetConfirmationMismatch) {
 		httperr.Write(w, r, httperr.Validation("confirmation", "confirmation_mismatch",
 			"The typed confirmation does not match the organization name."))
 		return
 	}
 	if err != nil {
-		// The cause (e.g. an unresolved FK cycle naming tables) never reaches
-		// the client — httperr.Write maps an unmapped error to an opaque 500
-		// and logs the cause server-side.
+		// The cause (e.g. an unresolved FK cycle naming tables, or a purge that
+		// failed) never reaches the client — httperr.Write maps an unmapped
+		// error to an opaque 500 and logs the cause server-side.
 		httperr.Write(w, r, err)
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, resetDataResponse{
-		Status:        "reset",
-		TablesCleared: summary.TablesCleared,
+		Status:         "reset",
+		TablesCleared:  counts.TablesCleared,
+		JobsCancelled:  counts.JobsCancelled,
+		StreamsPurged:  counts.StreamsPurged,
+		CacheKeys:      counts.CacheKeys,
+		ObjectsDeleted: counts.ObjectsDeleted,
+		DrainTimedOut:  counts.DrainTimedOut,
 	})
 }

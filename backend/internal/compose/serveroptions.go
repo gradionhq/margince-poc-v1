@@ -111,6 +111,10 @@ func WithBlobstore(store blobstore.Store) Option {
 		// Erasure must reach the attachment bytes, not only the rows, so the
 		// DSR erase path gets a blob-aware eraser (Art. 17).
 		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
+		// The data reset sweeps the same bytes for a whole workspace. Set here
+		// as well as read in WithDataReset so neither option order leaves the
+		// reset silently unable to reach the object store.
+		s.dataResetHandlers.blob = store
 	}
 }
 
@@ -250,8 +254,30 @@ func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runti
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.dataResetHandlers = dataResetHandlers{
 			pool: pool, schemaPool: schemaPool, seeds: seeds, env: env, log: s.log,
+			// A pointer into the Server, so WithResetRuntime may be applied
+			// before or after this option (see Server.resetRuntime). The meter
+			// is likewise the ONE shared instance WithOverlayMeter rebinds; the
+			// object store is backfilled by WithBlobstore when it runs later,
+			// and FlushResetCaches is a method value that reads the Server's
+			// caches at reset time, not now.
+			runtime: &s.resetRuntime,
+			budget:  s.overlayMeter,
+			blob:    s.blob,
+			flush:   s.FlushResetCaches,
 		}
 	}
+}
+
+// WithResetRuntime wires the non-Postgres purges POST /admin/reset-data
+// performs: the job queue, the event bus, and the reset announcement every
+// process drops its caches on. The api role passes it under a non-production
+// posture; a role without it resets Postgres only and reports zeros for the
+// other surfaces.
+//
+// It takes funcs, not clients: cmd owns the Redis and River handles and
+// compose names neither (see ResetRuntime).
+func WithResetRuntime(rt ResetRuntime) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.resetRuntime = rt }
 }
 
 // WithNonProduction surfaces the SAME deployment posture WithDataReset
