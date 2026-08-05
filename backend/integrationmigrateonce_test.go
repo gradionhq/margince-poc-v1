@@ -13,15 +13,15 @@ package backendarch
 // subtree is where the obligated code lives, and that second claim is the one
 // nothing checks.
 //
-// What is caught: a file that imports .../dbmigrate and applies .Up. What is
-// not: a caller inside package dbmigrate itself, and one reaching Up through a
-// function value. Resolving those would mean loading the module through
-// go/types for a case no suite has ever written — the boundary is stated here
-// rather than papered over with a claim of totality.
+// Any test file that REFERENCES the migrate entry point is caught, not only one
+// that applies it: `up := dm.Up; up(...)` migrates just as much as `dm.Up(...)`,
+// and a file has no reason to hold the migrator except to run it. That closes the
+// function-value route without type-aware analysis, and the qualifier is resolved
+// through imports so a rename or dot-import cannot walk past it either.
 //
-// Detection is by call site, not by text: the string "dbmigrate.Up(" appears in
-// this file's own report, and a text scan over a tree that includes this file
-// would flag the gate as its own offender.
+// Detection is over the syntax tree, not the text: the string "dbmigrate.Up"
+// appears in this file's own doc and failure message, and a text scan over a tree
+// that includes this file would flag the gate as its own offender.
 
 import (
 	"go/ast"
@@ -71,7 +71,7 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if !callsInlineMigrate(file) {
+		if !referencesInlineMigrate(file) {
 			return nil
 		}
 		if strings.HasPrefix(path, migrationsPackage+"/") {
@@ -112,18 +112,29 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 // rather than by the identifier a file happens to bind it to.
 const dbmigratePath = "github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 
-// callsInlineMigrate reports whether the file calls dbmigrate.Up — the migrate
-// entry point. A call, not a mention: the selector has to be applied, so the
-// function named in a comment or a report string is not a migration.
+// referencesInlineMigrate reports whether the file reaches the migrate entry
+// point at all — as a call, or as a value it could call later.
+//
+// Naming it is enough, deliberately. A gate that matched only `dm.Up(...)` would
+// be walked past by `up := dm.Up; up(...)`, and following a function value needs
+// type-aware analysis of the whole module. Treating any reference as a migration
+// closes that without it: a test file has no reason to hold the migrator except
+// to run it, and a suite that genuinely needs one says so through a waiver rather
+// than through a spelling the gate cannot see.
 //
 // The qualifier is resolved through the file's own imports, because the name is
-// the caller's choice: `import dm ".../dbmigrate"` then `dm.Up(...)`, or a
-// dot-import then a bare `Up(...)`, migrate exactly as much as the canonical
-// spelling does. Comparing the identifier alone would let a rename walk past the
-// one gate this whole lane's cost model rests on.
-func callsInlineMigrate(file *ast.File) bool {
+// the caller's choice — `import dm ".../dbmigrate"`, or a dot-import leaving `Up`
+// bare, migrate exactly as much as the canonical spelling does. A test inside
+// package dbmigrate itself reaches `Up` with no import at all, so that case is
+// keyed on the package clause.
+//
+// Prose is not a reference: the strings "dbmigrate.Up" in this file's own doc and
+// failure message are comments and literals, which carry no selector for the AST
+// to match.
+func referencesInlineMigrate(file *ast.File) bool {
 	qualifier, dotImported := dbmigrateName(file)
-	if qualifier == "" && !dotImported {
+	inPackage := file.Name != nil && file.Name.Name == "dbmigrate"
+	if qualifier == "" && !dotImported && !inPackage {
 		return false
 	}
 	found := false
@@ -131,22 +142,20 @@ func callsInlineMigrate(file *ast.File) bool {
 		if found {
 			return false
 		}
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		switch fun := call.Fun.(type) {
+		switch node := n.(type) {
 		case *ast.SelectorExpr:
-			if fun.Sel == nil || fun.Sel.Name != "Up" || qualifier == "" {
+			// qualifier.Up, whether or not it is being applied here.
+			if qualifier == "" || node.Sel == nil || node.Sel.Name != "Up" {
 				return true
 			}
-			if pkg, ok := fun.X.(*ast.Ident); ok && pkg.Name == qualifier {
+			if pkg, ok := node.X.(*ast.Ident); ok && pkg.Name == qualifier {
 				found = true
 				return false
 			}
 		case *ast.Ident:
-			// Only reachable under a dot-import, where Up is unqualified.
-			if dotImported && fun.Name == "Up" {
+			// A bare Up: reachable under a dot-import, or from inside the
+			// migrator's own package.
+			if (dotImported || inPackage) && node.Name == "Up" {
 				found = true
 				return false
 			}
