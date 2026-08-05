@@ -136,11 +136,14 @@ func (s *RunnerService) reapAbandonedRuns(wsCtx context.Context) {
 		s.log.Error("runner: sweeping abandoned runs", "err", err)
 		return
 	}
-	for _, runID := range swept {
-		// One line per row, not a count: every one of these may be a run a human
-		// approved and never saw the end of, and an operator who cannot name the
-		// run cannot go read its audit trail.
-		s.log.Warn("runner: closed an abandoned run", "run", runID, "stale_for", stuckRunGrace)
+	if len(swept) > 0 {
+		// The ids, not just a count: each of these may be a run a human approved
+		// and never saw the end of, and an operator who cannot name one cannot go
+		// read its audit trail to find out whether its writes landed. One line
+		// carrying them all rather than a line each, because the occasion for this
+		// log is a crash that stranded everything at once.
+		s.log.Warn("runner: closed abandoned runs",
+			"count", len(swept), "runs", swept, "stale_for", stuckRunGrace)
 	}
 }
 

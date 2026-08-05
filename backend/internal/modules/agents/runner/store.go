@@ -139,10 +139,15 @@ func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason string) e
 // unrelated clocks and fail runs that were still executing. Only 'running' is
 // swept: 'awaiting_approval' waits on a human and may wait indefinitely.
 func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason string) ([]ids.UUID, error) {
-	// A non-positive grace means "fail every running run", which is one
-	// character away from a plausible edit to the caller's constant.
-	if grace <= 0 {
-		return nil, errors.New("runner: stuck-run grace must be positive")
+	// A grace of zero means "fail every running run", which is one character away
+	// from a plausible edit to the caller's constant. The check is on the
+	// MICROSECONDS the statement will actually use, not on the duration: an
+	// interval is the finest thing Postgres can compare, so a sub-microsecond
+	// grace truncates to zero and lands on that same everything-is-abandoned
+	// cutoff while reading as a positive duration in Go.
+	graceMicros := grace.Microseconds()
+	if graceMicros <= 0 {
+		return nil, fmt.Errorf("runner: stuck-run grace must be at least a microsecond, got %s", grace)
 	}
 	var swept []ids.UUID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -151,7 +156,7 @@ func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason s
 			   SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
 			 WHERE status = 'running'
 			   AND updated_at < now() - ($1 * interval '1 microsecond')
-			RETURNING id`, grace.Microseconds(), reason)
+			RETURNING id`, graceMicros, reason)
 		if err != nil {
 			return err
 		}
