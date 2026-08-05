@@ -224,6 +224,19 @@ while IFS='|' read -r d rel; do
       continue
     fi
     (( skip_file )) && continue
+    # An anchored -run union filters Fuzz and Example functions too, and both are
+    # things `go test` would otherwise run and report. Discovery enumerates only
+    # `func Test…`, so one of those in a tagged file would sit in neither ASSIGNED
+    # nor RAN — and because the teeth compare two sets derived from THIS grep, the
+    # omission would read as green. Before the union covered unsharded runs,
+    # `go test` was the independent authority that caught it; nothing is now, so
+    # the case fails loudly instead of being silently dropped.
+    if grep -qE '^func (Fuzz|Example)[A-Za-z0-9_]*\(' "$f"; then
+      echo "FAIL: $f declares a Fuzz or Example function in the integration lane" >&2
+      echo "  the anchored -run union would filter it out and the ran==assigned teeth cannot see it;" >&2
+      echo "  teach discovery to enumerate it, or move it to the unit lane" >&2
+      exit 1
+    fi
     # `|| true`: a helper-only test file with no Test functions is fine.
     { grep -hE '^func Test[A-Za-z0-9_]*\(' "$f" || true; } \
       | sed -E 's/^func (Test[A-Za-z0-9_]*)\(.*/\1/' \
