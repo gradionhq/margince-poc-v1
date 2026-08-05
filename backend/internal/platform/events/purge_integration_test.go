@@ -10,6 +10,7 @@ package events
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -102,8 +103,44 @@ func TestPurgeDedupeDeletesOnlyDedupeKeys(t *testing.T) {
 	if deleted != 1 {
 		t.Errorf("deleted = %d, want 1", deleted)
 	}
+	if n, err := rdb.Exists(ctx, DedupeKeyPrefix+"cg:probe:abc").Result(); err != nil || n != 0 {
+		t.Errorf("the dedupe key survived the purge (exists=%d, err=%v); PurgeDedupe must actually UNLINK it, not just count it", n, err)
+	}
 	if n, err := rdb.Exists(ctx, "unrelated:key").Result(); err != nil || n != 1 {
 		t.Errorf("an unrelated key was collateral damage (exists=%d, err=%v); the purge works from a declared inventory, never FLUSHDB", n, err)
+	}
+}
+
+// TestPurgeDedupeFlushesMidScan seeds one full scanBatch plus a partial tail,
+// forcing PurgeDedupe through its mid-scan flush (len(batch) == scanBatch) as
+// well as the final flush after the loop — a count that survives both is the
+// only way to know the batching itself drops no keys.
+func TestPurgeDedupeFlushesMidScan(t *testing.T) {
+	ctx, rdb := purgeTestRedis(t)
+	const seeded = scanBatch + 1
+
+	pipe := rdb.Pipeline()
+	for i := 0; i < seeded; i++ {
+		pipe.Set(ctx, fmt.Sprintf("%scg:probe:%d", DedupeKeyPrefix, i), "1", time.Minute)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		t.Fatalf("seeding %d dedupe keys: %v", seeded, err)
+	}
+
+	deleted, err := PurgeDedupe(ctx, rdb)
+	if err != nil {
+		t.Fatalf("PurgeDedupe: %v", err)
+	}
+	if deleted != seeded {
+		t.Errorf("deleted = %d, want %d", deleted, seeded)
+	}
+
+	remaining, err := rdb.Keys(ctx, DedupeKeyPrefix+"*").Result()
+	if err != nil {
+		t.Fatalf("KEYS %s*: %v", DedupeKeyPrefix, err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("%d dedupe keys survived the purge, want 0", len(remaining))
 	}
 }
 
