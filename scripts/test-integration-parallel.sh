@@ -131,8 +131,9 @@ done > "$CANDIDATES"
 
 WORK="$(mktemp)"
 DISCOVERY="$(mktemp)" ASSIGNED="$(mktemp)" RAN="$(mktemp)" UNTAGGED="$(mktemp)"
+TIMING="$(mktemp)"
 OUTDIR="$(mktemp -d)"
-trap 'rm -f "$CANDIDATES" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED"; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
+trap 'rm -f "$CANDIDATES" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING"; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
 
 # Static discovery: every top-level Test function of every integration-TAGGED
 # file, as "module_dir|rel|TestName". TestMain is a fixture, not a test;
@@ -324,7 +325,38 @@ for base in $(cd "$OUTDIR" && ls -1 -- *.log 2>/dev/null | sort -n); do
   d="${line%%|*}" rest="${line#*|}"
   rel="${rest%%|*}"
   grep -E '^--- (PASS|FAIL): ' "$log" | awk -v p="$d|$rel|" '{print p $3}' >> "$RAN" || true
+  # Cost, taken from `go test`'s own trailing "ok <pkg> <n>s" — millisecond
+  # precision already in the log, and it excludes the clone provisioning around
+  # it, so what it prices is the tests themselves.
+  awk -v rel="$rel" '
+    /^(ok|FAIL)[ \t]+[^ \t]+[ \t]+[0-9.]+s$/ { secs = $3; sub(/s$/, "", secs) }
+    /^--- (PASS|FAIL): / { n++ }
+    END { if (secs != "") printf "%s|%s|%d\n", rel, secs, n + 0 }
+  ' "$log" >> "$TIMING" || true
 done
+
+# Per-package cost. ADVISORY — printed, never enforced. A raw wall-time ceiling
+# is the wrong shape: this package count grows, and a ceiling that healthy growth
+# re-crosses gets bumped until nobody reads it. Amortized ms/test is
+# scale-invariant, which is what makes it a signal — the defect it exists to
+# catch (PR #298: ~500ms of per-test reset, priced per table rather than per row)
+# trips it at any test count, while 300 clean new tests do not. Enforcing a
+# number measured on one machine is the same unverified claim this lane keeps
+# learning about, so the ceiling waits for a CI baseline.
+if [[ -s "$TIMING" ]]; then
+  # Ordered by ms/test, not by total, so an anomaly surfaces instead of merely
+  # the biggest package: a small suite paying a per-test schema migration reads
+  # as ~3000 ms/test against a lane norm near 250, and that is the shape worth
+  # seeing first.
+  echo "test-integration-parallel: per-package cost (advisory)"
+  awk -F'|' '{ printf "%s|%s|%s|%.4f\n", $1, $2, $3, ($3 ? $2 * 1000 / $3 : 0) }' "$TIMING" \
+    | LC_ALL=C sort -t'|' -k4 -rn \
+    | awk -F'|' '
+        { total += $2; tests += $3
+          printf "  %-44s %8.2fs  %5d tests  %7.1f ms/test\n", $1, $2, $3, $4 }
+        END { if (tests) printf "  %-44s %8.2fs  %5d tests  %7.1f ms/test\n", "TOTAL (sum of packages)", total, tests, total * 1000 / tests }
+      '
+fi
 
 # Reconcile against discovery: a green run must have executed every package we
 # found. NPKGS=0 (a constraint-scan regression that admits no file) or a missing
@@ -371,6 +403,9 @@ if [[ -n "$SHARD_OUT" ]]; then
   cp "$DISCOVERY" "$SHARD_OUT/discovery.txt"
   cp "$ASSIGNED" "$SHARD_OUT/assigned.txt"
   cp "$RAN" "$SHARD_OUT/ran.txt"
+  # "rel|seconds|tests" per package, so cost can be tracked across runs rather
+  # than re-derived by eye from a scrolled log.
+  cp "$TIMING" "$SHARD_OUT/timing.txt"
   printf 'shard=%s\ntotal=%s\n' "$SHARD_IDX" "$SHARD_TOTAL" > "$SHARD_OUT/meta.txt"
 fi
 
