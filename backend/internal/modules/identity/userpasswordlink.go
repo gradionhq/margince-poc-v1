@@ -31,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // auditVerbPasswordLinkIssued is the ledger verb for this operation. It is its
@@ -39,11 +40,11 @@ import (
 // mutation that never happened.
 const auditVerbPasswordLinkIssued = "password_link_issued"
 
-// ErrMemberNotActive refuses a link for a member who is not active. Redemption
+// errMemberNotActive refuses a link for a member who is not active. Redemption
 // updates only an active, non-archived account (see ResetPassword), so issuing
 // here would hand the admin a link that is dead on arrival — recreating exactly
 // the silent-failure this whole feature exists to remove.
-var ErrMemberNotActive = errors.New("identity: the member is not active")
+var errMemberNotActive = errors.New("identity: the member is not active")
 
 // IssuePasswordLink mints a single-use set-password token for a member and
 // returns the raw token with its expiry, for the caller to render as a link.
@@ -60,6 +61,14 @@ var ErrMemberNotActive = errors.New("identity: the member is not active")
 func (s *Service) IssuePasswordLink(ctx context.Context, actor Identity, userID ids.UserID) (string, time.Time, error) {
 	if !actor.hasRole(roleAdmin) {
 		return "", time.Time{}, apperrors.ErrPermissionDenied
+	}
+	// The seat ceiling sits ABOVE RBAC (A62/ADR-0047) and the HTTP middleware
+	// already refuses a read seat every mutating method. It is re-checked here
+	// because THIS is the gate the arch fitness waiver names as the authority:
+	// a future non-HTTP caller must not be able to mint an account-takeover
+	// credential on the strength of a role alone.
+	if !principal.SeatType(actor.SeatType).CanMutate() {
+		return "", time.Time{}, apperrors.ErrSeatTierInsufficient
 	}
 	wsID, ok := workspaceFrom(ctx)
 	if !ok {
@@ -112,8 +121,14 @@ func (s *Service) IssuePasswordLink(ctx context.Context, actor Identity, userID 
 // advisory lock still serializes issuers against each other, which a row lock
 // on a token that may not exist yet could never do.
 func lockMemberForTokenIssue(ctx context.Context, tx pgx.Tx, userID ids.UserID) error {
+	// The key is NAMESPACED, as every other advisory lock in the tree is
+	// (`offer_number:`, `lead_routing:`, `customfields:`). pg_advisory_xact_lock
+	// shares one 64-bit space across the whole database, so hashing a bare UUID
+	// would rely on no other domain ever hashing one too — isolation by
+	// coincidence rather than by design.
 	_, err := tx.Exec(ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, userID.String())
+		`SELECT pg_advisory_xact_lock(hashtextextended('set_password_token:' || $1::text, 0))`,
+		userID.String())
 	return err
 }
 
@@ -140,7 +155,7 @@ func supersedeSetPasswordTokens(ctx context.Context, tx pgx.Tx, userID ids.UserI
 		return 0, err
 	}
 	if status != userStatusActive {
-		return 0, ErrMemberNotActive
+		return 0, errMemberNotActive
 	}
 	tag, err := tx.Exec(ctx,
 		`UPDATE auth_token SET used_at = now()

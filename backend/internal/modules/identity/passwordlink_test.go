@@ -45,7 +45,7 @@ func TestPasswordLinkKeepsTheTokenOutOfTheServerVisibleURL(t *testing.T) {
 }
 
 // readsBaseURL matches a READ of the field, so the assignment in
-// `WithPublicBaseURL` is not mistaken for a link being built.
+// `Handlers.WithPasswordLinkBase` is not mistaken for a link being built.
 // A single `=` after the field is an ASSIGNMENT and not a read; `==` is a
 // comparison and IS one, so the lookahead-free spelling has to admit the second
 // while excluding the first. Getting this wrong silently narrows the guard:
@@ -62,7 +62,7 @@ var readsBaseURL = regexp.MustCompile(`h\.passwordLinkBaseURL\s*(==|[^=\s]|$)`)
 // concatenating the value is what must stay inside passwordLink.
 var testsWhetherBaseIsConfigured = regexp.MustCompile(`h\.passwordLinkBaseURL\s*[!=]=\s*""`)
 
-func TestEveryEmailedLinkIsBuiltByPasswordLink(t *testing.T) {
+func TestEveryDeliveredLinkIsBuiltByPasswordLink(t *testing.T) {
 	// Keyed on the BASE URL rather than on a path string, and that choice is the
 	// whole strength of this test: any hand-rolled builder must read
 	// `h.passwordLinkBaseURL` to have something to build from, whatever it does with the

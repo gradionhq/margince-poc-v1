@@ -13,12 +13,14 @@ package identity
 // database, and a panic on a nil pool is how this file would say otherwise.
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -156,5 +158,37 @@ func TestMeAdvertisesTheLinkActionOnlyToAnAdminWhoCanUseIt(t *testing.T) {
 	mailed := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}).WithPasswordLinkBase("https://crm.example.test")
 	if mailed.canIssuePasswordLink(admin) {
 		t.Error("admin where email is configured: want the action hidden, since the invite mails the link")
+	}
+}
+
+func TestAConfigurationRefusalDoesNotSpendTheTargetsBudget(t *testing.T) {
+	// The handler decides the configuration gates before the limiter precisely
+	// so a request this installation can never serve cannot exhaust the budget
+	// protecting one it can. Without that order, an admin on a mailed-link
+	// installation could lock a member out of issuance by retrying an operation
+	// that was never going to work.
+	mailed := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}).WithPasswordLinkBase("https://crm.example.test")
+	target := ids.UserID{UUID: ids.NewV7()}
+	for range 8 { // past the 5/hour per-target ceiling
+		if rec := linkRequest(mailed, target, "admin"); rec.Code != http.StatusConflict {
+			t.Fatalf("configuration refusal = %d, want 409", rec.Code)
+		}
+	}
+	if !mailed.passwordLinkPerTarget.Allow(target.String()) {
+		t.Error("the target's issuance budget was spent by refusals the installation could never serve")
+	}
+}
+
+func TestTheServiceRefusesAReadSeatAdminOnItsOwn(t *testing.T) {
+	// The HTTP middleware already refuses a read seat every mutating method, so
+	// this can only be reached by a future non-HTTP caller — which is exactly
+	// why it matters: the service is the gate the arch fitness waiver names as
+	// the authority, and a role alone must not mint a takeover credential.
+	readSeatAdmin := Identity{
+		UserID: ids.UserID{UUID: ids.NewV7()}, Roles: []string{"admin"}, SeatType: "read",
+	}
+	_, _, err := (&Service{}).IssuePasswordLink(t.Context(), readSeatAdmin, ids.UserID{UUID: ids.NewV7()})
+	if !errors.Is(err, apperrors.ErrSeatTierInsufficient) {
+		t.Fatalf("read-seat admin = %v, want ErrSeatTierInsufficient", err)
 	}
 }

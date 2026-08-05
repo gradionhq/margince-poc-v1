@@ -12,6 +12,29 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open — an install with no mailer AND no public base URL still onboards nobody
+
+ADR-0061 Amendment 1 closed the email-less case: an admin mints a single-use
+set-password link from Settings → Users & roles and delivers it out of band.
+One posture is still uncovered. With **no mailer and no `--public-base-url`**,
+no link can be built, so `POST /users` goes on creating an ACTIVE member,
+minting a seven-day token and dropping it — the original silent failure intact.
+The surface is honest once the admin looks (the action is hidden, and the
+endpoint refuses with `public_base_url_unset`); the invite itself is not.
+
+Left open because the fix is a product call rather than an implementation one:
+refuse the invite, warn on the roster row, or make a missing base URL a boot
+error whenever no mailer is configured. The third fits the ADR's own
+honest-surface rule best and is the cheapest to reason about — an installation
+that can onboard nobody is misconfigured at boot, not at invite time.
+
+Tracked as **#497**. Related follow-ups from the same review: **#493** (the
+`password_reset` capability claims "configured *and healthy*" but only checks a
+mailer is wired, so a broken relay silently delivers nothing *and* blocks the
+fallback), **#495** (auth rate limits are process-local, so N replicas multiply
+every ceiling by N), **#496** (audit-verb down migrations cannot see the rows
+their refusal probe checks for, under production RLS).
+
 ## Open — the brief's omitted sections are prompt-enforced, not code-enforced
 
 `Input.SectionsOmitted` names what a reader could not see, and the writer is

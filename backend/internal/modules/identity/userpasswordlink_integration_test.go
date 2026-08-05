@@ -160,8 +160,8 @@ func TestIssuePasswordLinkRefusesANonAdminAndANonActiveMember(t *testing.T) {
 	before := liveTokenCount(t, e, member)
 	// A deactivated member cannot redeem, so issuing would hand the admin a
 	// link that is dead on arrival — the silent failure this feature removes.
-	if _, _, err := e.svc.IssuePasswordLink(e.wsCtx(e.admin), e.admin, member); !errors.Is(err, ErrMemberNotActive) {
-		t.Errorf("issue for a deactivated member = %v, want ErrMemberNotActive", err)
+	if _, _, err := e.svc.IssuePasswordLink(e.wsCtx(e.admin), e.admin, member); !errors.Is(err, errMemberNotActive) {
+		t.Errorf("issue for a deactivated member = %v, want errMemberNotActive", err)
 	}
 	// The refusal rolls back whole: it neither mints a token nor consumes the
 	// ones already there, so a later reactivation finds the member exactly as
@@ -185,9 +185,9 @@ func TestConcurrentIssuesLeaveExactlyOneLiveToken(t *testing.T) {
 		t.Fatalf("invite: %v", err)
 	}
 
-	// Without the FOR UPDATE lock on the target, two transactions at READ
-	// COMMITTED can each miss the other's uncommitted insert and both leave a
-	// live token — two redeemable credentials for one member.
+	// Without lockMemberForTokenIssue, two transactions at READ COMMITTED can
+	// each miss the other's uncommitted insert and both leave a live token — two
+	// redeemable credentials for one member.
 	const racers = 4
 	var wg sync.WaitGroup
 	errs := make([]error, racers)

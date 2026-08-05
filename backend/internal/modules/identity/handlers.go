@@ -430,7 +430,7 @@ func (h Handlers) meResponse(
 			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
 		}{Mode: sorMode},
 		NonProduction:     h.nonProduction,
-		AdminPasswordLink: &adminPasswordLink,
+		AdminPasswordLink: adminPasswordLink,
 		Authorization: &crmcontracts.Authorization{
 			SeatType: contractSeatType(id.SeatType),
 			Objects:  contractObjectGrants(id.Permissions.Objects),

@@ -142,20 +142,20 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	target := ids.UserID{UUID: ids.UUID(id)}
-	if !h.passwordLinkPerActor.Allow(actor.UserID.String()) || !h.passwordLinkPerTarget.Allow(target.String()) {
-		// The generic budget sentinel renders as "budget exceeded", which tells
-		// an admin neither what happened nor what to do. Say both: the ceiling
-		// exists because each issue invalidates the last link, and the link they
-		// were already given still works.
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusTooManyRequests, Code: "rate_limited",
-			Detail: "too many set-password links issued recently; the last link issued for this member is still valid, and more can be issued within the hour",
-		})
+	// The two budgets count different things, so they are spent differently.
+	// The ACTOR's counts every attempt, so probing costs an attacker the same
+	// as succeeding. The TARGET's counts only links actually minted, because
+	// what it bounds is supersession: a refused attempt invalidates nothing, so
+	// charging a mistyped id or an inactive member against the person named
+	// would let five typos lock a member out of a link they never had.
+	if !h.passwordLinkPerActor.Allow(actor.UserID.String()) ||
+		h.passwordLinkPerTarget.Blocked(target.String()) {
+		httperr.Write(w, r, tooManyPasswordLinks())
 		return
 	}
 	rawToken, expiresAt, err := h.svc.IssuePasswordLink(r.Context(), actor, target)
 	if err != nil {
-		if errors.Is(err, ErrMemberNotActive) {
+		if errors.Is(err, errMemberNotActive) {
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusConflict, Code: "member_not_active",
 				Detail: "this member is not active; reactivate them before issuing a set-password link",
@@ -165,10 +165,26 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 		httperr.Write(w, r, err)
 		return
 	}
+	// Charged only now: this is the mint that superseded the member's previous
+	// link, and supersession is what the per-target ceiling exists to bound.
+	h.passwordLinkPerTarget.Record(target.String())
 	httperr.WriteJSON(w, http.StatusCreated, crmcontracts.IssuePasswordLinkResponse{
 		SetPasswordUrl: passwordLink(h.passwordLinkBaseURL, rawToken),
 		ExpiresAt:      expiresAt,
 	})
+}
+
+// tooManyPasswordLinks is the issuance ceiling's refusal. The generic budget
+// sentinel renders as "budget exceeded", which tells an admin neither what
+// happened nor what to do. It deliberately does NOT claim an earlier link is
+// still valid: the actor's ceiling can be reached without any link having been
+// minted for this member.
+func tooManyPasswordLinks() error {
+	return &httperr.DetailedError{
+		Status: http.StatusTooManyRequests, Code: "rate_limited",
+		Detail: "too many set-password links issued recently; wait and try again, " +
+			"or ask another administrator to issue this one",
+	}
 }
 
 // passwordLinkRefusal reports why this installation cannot issue set-password
@@ -216,7 +232,7 @@ func (h Handlers) writeUserByID(w http.ResponseWriter, r *http.Request, userID i
 // Delivery is best-effort — the member and token already committed, so a mail
 // failure is an operator incident (logged), never a failed invite.
 func (h Handlers) sendInvite(r *http.Request, email, rawToken string) {
-	if h.resetMailer == nil || rawToken == "" {
+	if !h.canSendPasswordLink() || rawToken == "" {
 		return
 	}
 	link := passwordLink(h.passwordLinkBaseURL, rawToken)

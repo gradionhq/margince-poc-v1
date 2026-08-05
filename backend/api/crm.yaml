@@ -12827,7 +12827,7 @@ components:
 
     MeResponse:
       type: object
-      required: [user, roles, teams, workspace_name, non_production]
+      required: [user, roles, teams, workspace_name, non_production, admin_password_link]
       properties:
         user: { $ref: '#/components/schemas/User' }
         workspace_name:
@@ -12843,7 +12843,6 @@ components:
             (MARGINCE_ENV). Gates the client-side "Reset data" action.
         admin_password_link:
           type: boolean
-          default: false
           description: >
             Whether THIS CALLER may issue member set-password links
             (`issueUserPasswordLink`) — true only when the caller holds `admin`

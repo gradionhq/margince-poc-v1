@@ -150,6 +150,14 @@ Point liveness at `/healthz` and readiness at `/readyz`.
 - **Outbound mail needs the worker** — the api only stages sends; `cmd/worker`
   transmits them.
 - **Admin lockout break-glass:** `margince-migrate reset-password --dsn <owner>
-  --email <admin-email>` (reads the new password from stdin).
+  --email <admin-email>` (reads the new password from stdin). This is for
+  **lockout**, not for onboarding.
+- **Onboarding without outbound mail:** an invited member is created active with
+  no password, so on an installation with no mail channel the invite alone
+  leaves an account nobody can sign in as. Settings → Users & roles then offers a
+  per-member **"Get set-password link"** — a single-use link the admin delivers
+  out of band, redeemed through the normal set-password screen (ADR-0061
+  Amendment 1). It needs `--public-base-url` set, since a credential-bearing
+  link is never derived from a request `Host`.
 - **AI keys fail closed:** a missing/invalid provider key disables the bound AI
   lanes but leaves core CRUD + auth working.

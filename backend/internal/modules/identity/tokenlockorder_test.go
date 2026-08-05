@@ -5,20 +5,26 @@ package identity
 
 // Lock ORDER between the set-password token paths, pinned at the source.
 //
-// Redemption locks the `auth_token` row and then writes `app_user`. An issuer
-// that took an `app_user` row lock and then wrote `auth_token` would take the
-// same two locks in the opposite order, so a redeem racing an issue could each
-// hold what the other waits for: Postgres aborts one with `deadlock detected`,
-// and in the forgot-password case it does so silently, because that mint runs
-// detached from the request.
+// Two rows are contended: the member (`app_user`) and their token
+// (`auth_token`). Redemption takes the token row first and then writes the
+// member. Anything that took them the other way round would let a redeem racing
+// an issue each hold what the other waits for — Postgres aborts one with
+// `deadlock detected`, and for the forgot-password mint it would do so
+// silently, because that runs detached from the request.
 //
-// This is a SOURCE check rather than a concurrency test, and deliberately. A
+// So the invariant is an ORDER, not the absence of a lock: whoever touches both
+// must reach the token row first. That is what this file checks, by reading the
+// SQL each function actually issues and comparing positions.
+//
+// It is a source check rather than a concurrency test, deliberately. A
 // two-goroutine race test for this passed just as happily against the
-// deadlocking lock order — the window is too narrow to hit reliably — so it
-// asserted nothing while reading as though it did. The invariant is structural,
-// so it is checked structurally: the issuers take no app_user row lock at all,
-// and serialize on the advisory lock instead, which also covers the case a row
-// lock never could — a member with no outstanding token to lock.
+// deadlocking order — the window is too narrow to hit reliably — so it asserted
+// nothing while reading as though it did.
+//
+// The population is DERIVED from the package rather than listed. An earlier cut
+// named two functions by hand and missed `IssuePasswordLink`, which owns the
+// transaction and is the likeliest place a future edit would add a member lock:
+// the guard stayed green exactly where it mattered most.
 
 import (
 	"os"
@@ -28,73 +34,126 @@ import (
 	"testing"
 )
 
-// tokenIssuers are the functions that mint a set-password token. Both write
-// auth_token, so both would close the cycle if they held an app_user row lock.
-// gatekit:fixture the functions under test, mapped to the file each lives in — not waived costs
-var tokenIssuers = map[string]string{
-	"supersedeSetPasswordTokens": "userpasswordlink.go", // the admin-issued link
-	"CreatePasswordReset":        "reset.go",            // the emailed reset
-}
+var (
+	// A top-level func, and the SQL literals inside it. Statements are
+	// backtick-quoted throughout this package.
+	funcStart = regexp.MustCompile(`(?m)^func (?:\([^)]*\) )?(\w+)\(`)
+	sqlText   = regexp.MustCompile("(?s)`[^`]*`")
 
-// memberRowLocks are the ways a statement takes a row lock on the member.
-// Naming only FOR UPDATE would leave the guard green against the very shape
-// redemption uses to acquire that lock — a bare `UPDATE app_user`, which locks
-// the row just as surely as an explicit clause does. A guard that misses the
-// most likely spelling of the defect is worse than none, because it reads as
-// though the invariant were covered.
-var memberRowLocks = []string{
-	"FOR UPDATE",
-	"FOR NO KEY UPDATE",
-	"FOR SHARE",
-	"FOR KEY SHARE",
-	"UPDATE app_user",
-	"DELETE FROM app_user",
-}
-
-var funcStart = regexp.MustCompile(`(?m)^func (?:\([^)]*\) )?(\w+)\(`)
-
-// funcBody returns the source of one top-level function, from its signature to
-// the closing brace in column zero.
-func issuerBody(t *testing.T, file, name string) string {
-	t.Helper()
-	source, err := os.ReadFile(filepath.Clean(file))
-	if err != nil {
-		t.Fatalf("read %s: %v", file, err)
+	// The clauses that take a row lock on an EXISTING row. An INSERT is absent
+	// on purpose: it creates a row rather than contending for one, so a mint
+	// for a brand-new member is not part of the cycle.
+	rowLockClauses   = regexp.MustCompile(`FOR UPDATE|FOR NO KEY UPDATE|FOR SHARE|FOR KEY SHARE`)
+	updatesOrDeletes = func(sql, table string) bool {
+		return strings.Contains(sql, "UPDATE "+table) || strings.Contains(sql, "DELETE FROM "+table)
 	}
-	for _, loc := range funcStart.FindAllSubmatchIndex(source, -1) {
-		if string(source[loc[2]:loc[3]]) != name {
+)
+
+// locksRow reports whether one statement takes a row lock on the named table,
+// either by an explicit clause or by being an UPDATE/DELETE against it.
+func locksRow(sql, table string) bool {
+	if !strings.Contains(sql, table) {
+		return false
+	}
+	return rowLockClauses.MatchString(sql) || updatesOrDeletes(sql, table)
+}
+
+type identityFunc struct {
+	name string
+	file string
+	body string
+}
+
+// packageFuncs returns every top-level function in the package's non-test
+// sources. Deriving the set is the point: a function added tomorrow is checked
+// without anyone remembering to add it here.
+func packageFuncs(t *testing.T) []identityFunc {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+	var out []identityFunc
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		rest := string(source[loc[0]:])
-		end := strings.Index(rest, "\n}\n")
-		if end < 0 {
-			t.Fatalf("%s: %s has no closing brace in column zero", file, name)
+		source, err := os.ReadFile(filepath.Clean(name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
 		}
-		return rest[:end]
+		text := string(source)
+		locs := funcStart.FindAllSubmatchIndex(source, -1)
+		for i, loc := range locs {
+			end := len(text)
+			if i+1 < len(locs) {
+				end = locs[i+1][0]
+			}
+			out = append(out, identityFunc{
+				name: text[loc[2]:loc[3]], file: name, body: text[loc[0]:end],
+			})
+		}
 	}
-	t.Fatalf("%s: no function named %s — this guard no longer matches the code", file, name)
-	return ""
+	if len(out) == 0 {
+		t.Fatal("found no package functions — the guard is vacuous")
+	}
+	return out
 }
 
-func TestSetPasswordTokenIssuersTakeNoRowLockOnTheMember(t *testing.T) {
-	for name, file := range tokenIssuers {
-		body := issuerBody(t, file, name)
-
-		for _, lock := range memberRowLocks {
-			if strings.Contains(body, lock) {
-				t.Errorf(
-					"%s uses %q, which takes a row lock on the member while it writes "+
-						"auth_token — redemption locks auth_token FIRST and then writes "+
-						"app_user, so this inverts the order and a redeem racing an issue can "+
-						"deadlock. Serialize with lockMemberForTokenIssue instead.", name, lock)
+func TestTokenPathsReachTheTokenRowBeforeTheMemberRow(t *testing.T) {
+	checked := 0
+	for _, fn := range packageFuncs(t) {
+		firstMember, firstToken := -1, -1
+		for i, sql := range sqlText.FindAllString(fn.body, -1) {
+			if firstMember < 0 && locksRow(sql, "app_user") {
+				firstMember = i
+			}
+			// An INSERT counts here: it is the write the member lock would be
+			// held across, which is what closes the cycle.
+			if firstToken < 0 && (locksRow(sql, "auth_token") || strings.Contains(sql, "INSERT INTO auth_token")) {
+				firstToken = i
 			}
 		}
-		if !strings.Contains(body, "lockMemberForTokenIssue") {
-			t.Errorf(
-				"%s mints a set-password token without lockMemberForTokenIssue — two issuers "+
-					"racing would each miss the other's uncommitted insert and both leave a live "+
-					"token, so the one-outstanding-token rule would hold only when nobody raced.",
-				name)
+		if firstMember < 0 || firstToken < 0 {
+			continue // touches at most one of the two rows: not part of the cycle
 		}
+		checked++
+		if firstMember < firstToken {
+			t.Errorf(
+				"%s:%s locks the member row before it reaches auth_token — redemption takes "+
+					"the token row FIRST, so this inverts the order and a redeem racing this can "+
+					"deadlock. Hold no app_user row lock and serialize with "+
+					"lockMemberForTokenIssue instead.", fn.file, fn.name)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no function was found touching both rows — the guard no longer matches the code")
+	}
+}
+
+func TestTokenSupersedersSerializeOnTheMember(t *testing.T) {
+	checked := 0
+	for _, fn := range packageFuncs(t) {
+		// Superseding-then-inserting is the shape that needs serializing: two
+		// racers at READ COMMITTED each miss the other's uncommitted insert and
+		// both leave a live token. A mint that supersedes nothing (a brand-new
+		// member) has no such race and is excluded by this condition, not by a
+		// hand-maintained exemption.
+		if !strings.Contains(fn.body, "UPDATE auth_token SET used_at") ||
+			!strings.Contains(fn.body, "INSERT INTO auth_token") {
+			continue
+		}
+		checked++
+		if !strings.Contains(fn.body, "lockMemberForTokenIssue") {
+			t.Errorf(
+				"%s:%s supersedes and re-mints a member's token without "+
+					"lockMemberForTokenIssue — two issuers racing would both leave a live "+
+					"token, so the one-outstanding-token rule would hold only when nobody "+
+					"raced.", fn.file, fn.name)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no supersede-then-mint function found — the guard no longer matches the code")
 	}
 }
