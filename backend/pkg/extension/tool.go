@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode"
 )
 
 // ToolHandler runs a governed tool after admission. It is the extension's
@@ -102,8 +104,9 @@ type Tool struct {
 	// Title is the human-readable label tools/list shows in place of Name
 	// (the protocol's display precedence is title > name). Optional: a unit
 	// that declares none is listed under its verb, which is what a client
-	// falls back to anyway. It carries no authority and the manifest
-	// generator does not read it — a display string is not a declaration.
+	// falls back to anyway. It carries no authority, so it is no part of the
+	// manifest's governance descriptor — but it is still validated, at gen
+	// time and at boot, because the core registry refuses a blank one.
 	Title string
 	// Version is the tool's own version, recorded for the registry; it
 	// carries no authority (decisions bind to digests, not versions).
@@ -146,6 +149,9 @@ func (t Tool) Validate() error {
 	if t.Version == "" {
 		return fmt.Errorf("tool %q declares no version", t.Name)
 	}
+	if err := validateTitle(t.Title); err != nil {
+		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
 	if err := t.Tier.Validate(); err != nil {
 		return fmt.Errorf("tool %q: %w", t.Name, err)
 	}
@@ -157,6 +163,33 @@ func (t Tool) Validate() error {
 	}
 	if err := validateSchemaObject("OutputSchema", t.OutputSchema); err != nil {
 		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
+	return nil
+}
+
+// validateTitle checks a declared display title. Absent is allowed — the
+// served spec falls back to the verb. Present-but-blank is not: the core
+// registry refuses a whitespace-only title (a client takes it over the name
+// and renders an empty heading), and that refusal is a boot PANIC, so a
+// title a unit author can see and fix has to fail here — at gen time, at the
+// declaration's own position — rather than crashing the process that
+// composes it. The framing and printability rules are Version's, for the
+// same reason: the string is rendered verbatim by a client that did not
+// write it.
+func validateTitle(title string) error {
+	if title == "" {
+		return nil
+	}
+	// One check for two faults, because TrimSpace collapses them: a
+	// whitespace-only title trims to empty, a framed one trims to something
+	// shorter. Both are the same instruction to the author.
+	if strings.TrimSpace(title) != title {
+		return fmt.Errorf("title %q is blank or carries surrounding whitespace — a client renders it verbatim in place of the verb; omit Title to fall back to the verb", title)
+	}
+	for _, r := range title {
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("title %q carries a non-printable character", title)
+		}
 	}
 	return nil
 }

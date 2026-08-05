@@ -343,14 +343,16 @@ legibility is the product, not polish.
 
 **The gate runs before every push (diff-scoped), and it is STRICT.**
 `.githooks/pre-push` runs the deterministic arm — `craft static --strict` (the repo's
-`cli/craft` tool, ADR-0045) — over the backend Go files **this push changes vs
-`origin/main`**. New/touched
+`cli/craft` tool, ADR-0045) — over the Go files **this push changes vs
+`origin/main`** in `backend/`, `extensions/` and `fixtures/` alike (a first-party
+extension unit ships the same product). New/touched
 code must be clean. There is no pre-existing backlog to exempt: the whole tree was
 cleared to zero findings before this bar was armed. So write it right the first time
 — a swallowed error, a sleep in a test, a bare `any` in a signature, or an 81-line
 function you add will block your push.
 - Install the hook once after cloning: **`make hooks`** (sets `core.hooksPath=.githooks`).
-- Full manual sweep of the whole backend: **`make craft-static`** — green, and the CI
+- Full manual sweep of every hand-written Go tree (`backend/`, `extensions/`,
+  `fixtures/`): **`make craft-static`** — green, and the CI
   `craftsmanship` job runs the same bar as a required check.
 - `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings are
   80 body lines / 500 file lines for product code and 160 / 1000 for `*_test.go`.
@@ -372,7 +374,8 @@ Exempt: generated files (`*_gen.go`) and the drift-frozen
 `internal/contracts/` package — do NOT stamp those. The rule is enforced by
 `TestEveryHandWrittenGoFileCarriesTheLicenseHeader` in
 `backend/license_test.go` (part of `make check`), which derives the file
-list from the tree, so a new file that skips the header fails the gate.
+list from the tree — `backend/`, `extensions/` and `fixtures/`, since each
+unit is its own module — so a new file that skips the header fails the gate.
 Keep the copyright line as-is (`2026 Gradion`); it names the release year,
 not the current year. This is the license model's "honest labeling / don't
 strip notices" obligation (spec `business/12-license.md` §5, §8).

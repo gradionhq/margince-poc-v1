@@ -25,10 +25,13 @@ live surface differ from the table below:
   re-derived per call and can still refuse a tool the listing showed.
 - **Extensions register onto the same registry.** `registerComposedTools` runs
   last in `internal/compose/registry.go`, after the core registrars, so an
-  extension pack can add verbs (and a name that collides with a core verb fails
-  loudly at boot). The vanilla tree's one first-party pack, `extensions/de`,
-  registers no tools, so on a vanilla install the catalog below is the whole
-  surface.
+  extension unit can add verbs (and a name that collides with a core verb fails
+  loudly at boot). A served extension tool is 🟢 and inbound-only — the boot
+  refuses a handler-bearing confirm-first or `send`/`enrich` tool, because
+  neither could be staged for the human this surface has no way to ask. The
+  vanilla tree ships two first-party units: `extensions/de` registers no tools,
+  and `extensions/yogi` adds `yogi_quote` (🟢/read), so on a vanilla install the
+  catalog below plus that one verb is the whole surface.
 
 **Where it is served:** `cmd/api` mounts the tool surface at `/mcp` over
 Streamable HTTP, on the same origin as `/oauth/*` and the discovery documents.

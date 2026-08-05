@@ -46,30 +46,48 @@ func isGenerated(path, text string) bool {
 	return generatedMarker.MatchString(head)
 }
 
+// licensedTrees are the hand-written Go trees the notice rule covers. The
+// backend module is one of them, not all of them: extensions/ and fixtures/
+// are separate modules a `./...` from here never reaches, and a first-party
+// unit ships under the same license as the code it composes into.
+var licensedTrees = []string{".", "../extensions", "../fixtures"}
+
 func TestEveryHandWrittenGoFileCarriesTheLicenseHeader(t *testing.T) {
 	var missing []string
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+	var checked int
+	walk := func(root string) error {
+		return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			b, err := os.ReadFile(path) // #nosec G304 G122 -- path is a *.go file from walking the trusted source tree
+			if err != nil {
+				return err
+			}
+			text := string(b)
+			if isGenerated(path, text) {
+				return nil
+			}
+			checked++
+			if !strings.HasPrefix(text, spdxHeader) {
+				missing = append(missing, filepath.ToSlash(path))
+			}
 			return nil
+		})
+	}
+	for _, root := range licensedTrees {
+		if err := walk(root); err != nil {
+			t.Fatalf("walking %s: %v", root, err)
 		}
-		b, err := os.ReadFile(path) // #nosec G304 G122 -- path is a *.go file from walking the trusted source tree
-		if err != nil {
-			return err
-		}
-		text := string(b)
-		if isGenerated(path, text) {
-			return nil
-		}
-		if !strings.HasPrefix(text, spdxHeader) {
-			missing = append(missing, filepath.ToSlash(path))
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walking tree: %v", err)
+	}
+	// A tree that yields no hand-written file passes silently, and silence
+	// here reads exactly like a clean tree — the failure mode a fitness
+	// function must never have.
+	if checked == 0 {
+		t.Fatal("no hand-written Go files found — the notice rule checked nothing")
 	}
 	if len(missing) > 0 {
 		t.Errorf("%d Go file(s) missing the BUSL-1.1 SPDX header (add it above the package clause, then a blank line):\n\t%s",

@@ -237,12 +237,17 @@ fe-uat:
 		pnpm exec playwright install chromium >/dev/null 2>&1 && \
 		node scripts/fe-uat.mjs $(ARGS)
 
-## craft-static — the deterministic code-craftsmanship gate (ADR-0045) over the
-## whole backend, strict: BLOCKER and MAJOR findings both fail it. The pre-push
-## hook (.githooks/pre-push) runs the same bar diff-scoped; this target is the
-## full manual sweep, and it is green — the backlog was cleared to arm it.
+## craft-static — the deterministic code-craftsmanship gate (ADR-0045) over
+## every hand-written Go tree, strict: BLOCKER and MAJOR findings both fail it.
+## The pre-push hook (.githooks/pre-push) runs the same bar diff-scoped; this
+## target is the full manual sweep, and it is green — the backlog was cleared
+## to arm it. extensions/ and fixtures/ are their own Go modules, so `./...`
+## never reaches them and the bar has to name them: a first-party unit ships
+## the same product, and the fixture is the worked example a unit author copies.
 craft-static:
 	go run -C cli/craft . static --strict --root ../../backend
+	go run -C cli/craft . static --strict --root ../../extensions
+	go run -C cli/craft . static --strict --root ../../fixtures
 
 ## craft-residue — fail if any unresolved CRAFT-FIX/CRAFT-DISPUTE marker was
 ## left in the backend tree (the review-loop residue check, ADR-0045). The CI
