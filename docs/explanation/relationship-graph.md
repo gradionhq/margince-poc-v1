@@ -18,15 +18,18 @@ know these people, and how well?** A cold account and a warm one look identical 
 same fields, same logo, same empty pipeline — and the difference between them is entirely a matter of
 who on the team has a real exchange on file.
 
-Two surfaces answer it, and they are **complementary reads over the same participant facts** — not the
-same query twice:
+Two surfaces answer it, and both read the same `graph_interaction_edge` projection:
 
-- `GET /people/{id}/network` — *who on our team knows this contact*, warmest first. This one reads the
-  `graph_interaction_edge` projection (`EdgesForPerson`).
-- `GET /deals/{id}/coverage` — *who covers this deal, and what is wrong with how it is covered*. This
-  one does **not** touch the projection: `CoverageFor` walks the deal's stakeholders and their linked
-  activities directly, because coverage is a question about one deal's own participants rather than a
-  ranking across a contact's whole history.
+- `GET /people/{id}/network` — *who on our team knows this contact*, warmest first
+  (`EdgesForPerson`, one contact).
+- `GET /deals/{id}/coverage` — *who covers this deal, and what is wrong with how it is covered*
+  (`CoverageFor` → `EdgesForPeople`, every stakeholder at once, which is what ranks the colleague on
+  our side of each relationship).
+
+One test inside coverage deliberately does **not** use the projection: whether a stakeholder counts as
+*engaged* is `deals.EngagedStakeholders`, which walks `activity_link` directly. Engagement is a
+question about a deal's own conversations, and it is the same helper the deal-health composite reads —
+so coverage and health can never disagree about who is engaged.
 
 The agent surface asks the same questions through the same seams: `who_knows`, `account_coverage`,
 `intro_path_to` and `at_risk_relationships` are all 🟢 read tools bound to `ScopeRead`, and they reach
@@ -54,11 +57,12 @@ captured mail / calendar          hand-logged call or meeting
         ▼
    read-time score = recency × frequency × reciprocity  (never stored)
         │
-        └── GET /people/{id}/network    who on our team knows this contact
-
-   GET /deals/{id}/coverage  ── reads the deal's stakeholders + their linked
-        activities DIRECTLY, not the projection: a coverage question is about
-        one deal's own participants, not a ranking over a contact's history
+        ├── GET /people/{id}/network    who on our team knows this contact
+        │      EdgesForPerson — one contact
+        └── GET /deals/{id}/coverage    who covers this deal, and what's wrong
+               EdgesForPeople — every stakeholder at once
+               + deals.EngagedStakeholders, which walks activity_link DIRECTLY:
+                 "engaged" is a question about this deal's own conversations
 ```
 
 ## Participants — the fact the schema could not previously state

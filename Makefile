@@ -336,7 +336,9 @@ GRANT        ?= $(DOCKER_SBOM) $(GRANT_IMAGE)
 COSIGN_HOME  := .tmp/cosign-home
 COSIGN       ?= $(DOCKER_SBOM) -u $(shell id -u):$(shell id -g) -e HOME=/src/$(COSIGN_HOME) -e SIGSTORE_ID_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN $(COSIGN_IMAGE)
 # Scan a clean export of committed HEAD, so host state (node_modules, .env, IDE
-# files) never leaks into the SBOM and .gitignore stays the single authority.
+# files) never leaks into the SBOM and the committed content of HEAD is the
+# single authority on what is scanned. Not .gitignore: it does not remove a file
+# already tracked in HEAD, and `git add -f` can commit an ignored one.
 SBOM_SRC     := .tmp/sbom-src
 # A release build (HEAD exactly on a tag) reads as the tag alone — the tag maps
 # to one commit, so the revision is implicit. An unreleased build pins the full

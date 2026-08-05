@@ -64,7 +64,7 @@ If the capability needs infra a given process role may not have:
 - **A scheduled/background job** → declare the kind in `backend/api/jobs.yaml` first (a kind not
   declared there does not compile — the generated type set is closed, and a kind with no chosen
   timeout fails generation rather than running on River's silent default), `make gen`, then register
-  the worker in `backend/internal/compose/jobs.go` and run it in `cmd/worker`. A pass that touches every
+  the worker in `backend/internal/compose/jobs.go` and run it in `backend/cmd/worker`. A pass that touches every
   tenant is a *dispatcher* plus a *workspace worker*, never a fleet loop inside one job row. See
   [add-a-job.md](add-a-job.md).
 

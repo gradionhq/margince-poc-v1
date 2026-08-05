@@ -121,9 +121,11 @@ default.
   IANA-only zones, FX lineage display (consumes the IR base_value
   verbatim, never multiplies).
 - `src/api/` — `schema.d.ts` is GENERATED (never hand-edit); `client.ts`
-  is the seam every typed JSON call goes through — the LinkedIn CSV upload is the
-  one declared direct-`fetch` exception, because the generated client cannot
-  serialize multipart (the session cookie and the `/v1` mount — no tenant header:
+  is the seam every typed `/v1` call goes through — the LinkedIn CSV upload is the
+  one `/v1` route that bypasses it, because the generated client cannot serialize
+  multipart (the OAuth discovery read in `connected-agents.tsx` is a raw `fetch`
+  too, but it is not a `/v1` route at all). Also the session cookie and the `/v1`
+  mount — no tenant header:
   one installation serves one organization, and the server binds that singleton
   itself, so two tests assert the absence of any workspace header).
 - `e2e/` — the Playwright harness: AC-named acceptance tests, the 390px
