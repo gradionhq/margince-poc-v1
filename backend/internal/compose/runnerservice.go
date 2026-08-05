@@ -96,10 +96,17 @@ func (s *RunnerService) TickWorkspace(wsCtx context.Context, now time.Time) erro
 }
 
 // stuckRunGrace is how far past its wall clock a 'running' row must be before
-// the sweep calls it abandoned. RunWallClock bounds a resume, and the pass that
-// started it may itself have been queued behind others, so the grace has to
-// cover the gap between "still working" and "nothing is coming back".
-const stuckRunGrace = RunWallClock
+// the sweep calls it abandoned.
+//
+// TWICE RunWallClock, not once, because updated_at is stamped when the run
+// starts and nothing bumps it while the loop runs: a live run's row therefore
+// ages at wall-clock speed, and a run that uses its whole budget is already
+// RunWallClock old before it writes its outcome at all. One wall clock of grace
+// would put that write inside the window and let the sweep call a run abandoned
+// while it was finishing. SaveOutcome would then correct the status — it guards
+// on id, not on status — but the run would have been reported abandoned to an
+// operator, which is a lie about a run a human may have approved.
+const stuckRunGrace = 2 * RunWallClock
 
 // reapAbandonedRuns closes the runs nothing will ever finish.
 //

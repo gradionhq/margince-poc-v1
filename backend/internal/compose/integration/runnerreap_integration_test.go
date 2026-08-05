@@ -23,8 +23,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
@@ -35,6 +37,10 @@ func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
 	// well past the run wall clock; the fresh one is inside it.
 	abandoned := e.seedRun(t, "abandoned", "running", now.Add(-2*time.Hour), nil)
 	stillWorking := e.seedRun(t, "still-working", "running", now.Add(-time.Minute), nil)
+	// updated_at is stamped at start and never bumped, so a run that uses its
+	// whole budget is already a full wall clock old when it writes its outcome.
+	// That write must land before the sweep can call the run abandoned.
+	finishingUpBudget := e.seedRun(t, "finishing-up", "running", now.Add(-compose.RunWallClock-time.Minute), nil)
 	pendingApproval := e.seedApproval(t)
 	awaitingHuman := e.seedRun(t, "awaiting-human", "awaiting_approval", now.Add(-30*24*time.Hour), &pendingApproval)
 
@@ -50,11 +56,87 @@ func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
 	if status, _ := e.runState(t, stillWorking); status != "running" {
 		t.Errorf("a run inside its wall clock is %q, want running — the sweep took a live run", status)
 	}
+	if status, _ := e.runState(t, finishingUpBudget); status != "running" {
+		t.Errorf("a run just past its wall clock is %q, want running — it is still writing its outcome, "+
+			"and reporting it abandoned would be a lie about a run a human may have approved", status)
+	}
 	// The one that would hurt: a human decision still pending.
 	if status, _ := e.runState(t, awaitingHuman); status != "awaiting_approval" {
 		t.Errorf("a run awaiting a human is %q, want awaiting_approval — a person may take weeks, and "+
 			"closing it discards a decision nobody has made", status)
 	}
+}
+
+// The sweep is an UPDATE with no id predicate — its only filters are status and
+// age — so every row in the table is a candidate and nothing in the SQL names a
+// tenant. What keeps it inside one workspace is FORCE RLS plus the GUC
+// WithWorkspaceTx binds. That is the property the whole shape rests on, so it is
+// asserted here rather than inferred from the policy.
+func TestTheSweepCannotReachAnotherTenantsRuns(t *testing.T) {
+	e := setupRunner(t)
+	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
+
+	mine := e.seedRun(t, "mine-abandoned", "running", now.Add(-2*time.Hour), nil)
+	otherWS := e.otherWorkspace(t)
+	theirs := e.seedRunIn(t, otherWS, "theirs-abandoned", now.Add(-2*time.Hour))
+
+	if err := e.svc.TickWorkspace(e.wsCtx, now); err != nil {
+		t.Fatalf("tenant pass: %v", err)
+	}
+
+	if status, _ := e.runState(t, mine); status != "failed" {
+		t.Errorf("this tenant's abandoned run is %q, want failed", status)
+	}
+	// Read as the OWNER: the point is whether the row changed at all, and the
+	// app role cannot see another workspace's rows to tell us.
+	var status string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT status FROM agent_run WHERE id = $1`, theirs).Scan(&status); err != nil {
+		t.Fatalf("reading the other tenant's run: %v", err)
+	}
+	if status != "running" {
+		t.Errorf("another tenant's run is %q after this workspace's pass, want running — one tenant's "+
+			"sweep must not reach another's rows", status)
+	}
+
+	// Positive control: that row surviving means nothing unless it was sweepable
+	// in the first place. Bound to ITS workspace, the same sweep closes it — so
+	// what protected it above was the tenant binding, not some property of the row.
+	otherCtx := principal.WithWorkspaceID(context.Background(), otherWS)
+	swept, err := e.store.FailStuckRuns(otherCtx, now.Add(-2*compose.RunWallClock), "positive control")
+	if err != nil {
+		t.Fatalf("sweeping the other tenant under its own binding: %v", err)
+	}
+	if swept != 1 {
+		t.Errorf("the other tenant's own sweep closed %d runs, want 1 — the row above was never sweepable, "+
+			"so its survival proved nothing about isolation", swept)
+	}
+}
+
+// otherWorkspace mints a second tenant to sweep against.
+func (e *runnerEnv) otherWorkspace(t *testing.T) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := e.owner.Exec(context.Background(),
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other Tenant', $2, 'EUR')`,
+		id, "reap-other-"+id.String()); err != nil {
+		t.Fatalf("seeding the second workspace: %v", err)
+	}
+	return id
+}
+
+// seedRunIn writes an abandoned run into an arbitrary workspace, which seedRun
+// cannot do because it stamps this test's own tenant.
+func (e *runnerEnv) seedRunIn(t *testing.T, wsID ids.UUID, triggerRef string, updatedAt time.Time) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := e.owner.Exec(context.Background(), `
+		INSERT INTO agent_run (id, workspace_id, agent_spec, goal, trigger_ref, status, updated_at)
+		VALUES ($1, $2, 'morning_brief', 'another tenant''s run', $3, 'running', $4)`,
+		id, wsID, triggerRef, updatedAt); err != nil {
+		t.Fatalf("seeding a run in workspace %s: %v", wsID, err)
+	}
+	return id
 }
 
 // seedRun writes one agent_run row with an exact updated_at, which is the whole
