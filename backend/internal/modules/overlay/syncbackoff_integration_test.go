@@ -140,6 +140,7 @@ func TestRequestSweepIsRefusedAfterDisconnect(t *testing.T) {
 // unbounded on-demand sweep request. Mirrors
 // TestConnectionLifecycleObjectRBACDeniesMemberAllowsAdmin's shape
 // (connection_integration_test.go).
+//
 // The deny and allow arms are one claim, not two: a deny-only test passes in a
 // world where everything is denied, so the admin arm — a sweep that actually
 // becomes due — is what makes the refusal mean something. Splitting the pure

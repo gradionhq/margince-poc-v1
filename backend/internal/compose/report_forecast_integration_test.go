@@ -64,9 +64,8 @@ func setupForecast(t *testing.T) *forecastEnv {
 		}
 	})
 	// Migrated once per test process; every later test resets the data only, as
-	// the rest of this package's suites already do through integration.Setup.
-	// This one hand-rolled its own DROP SCHEMA + full migration per test, which
-	// is the per-test migrate backend/integrationmigrateonce_test.go forbids.
+	// the rest of this package's suites do through integration.Setup — the
+	// discipline backend/integrationmigrateonce_test.go enforces module-wide.
 	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatal(err)
 	}

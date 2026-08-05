@@ -11,12 +11,17 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// Every RunStore entry point admits on the import_run object BEFORE it
-// opens a transaction, so an ungranted actor is refused without a
-// database: the nil pool proves no connection is ever consulted.
+// Every exported RunStore entry point admits on the import_run object BEFORE it
+// opens a transaction, so an ungranted actor is refused without a database. The
+// nil pool is what proves it: a guard that ever slipped behind the query would
+// reach the pool and panic here instead of quietly passing.
+//
+// All seven are covered rather than sampled, because "every entry point" is the
+// claim — a new method that forgets the gate is only caught if the list is whole.
 func TestRunStoreRefusesUngrantedRole(t *testing.T) {
 	ctx := principal.WithActor(context.Background(), principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:ungranted",
@@ -27,12 +32,36 @@ func TestRunStoreRefusesUngrantedRole(t *testing.T) {
 		},
 	})
 	s := NewRunStore(nil)
+	runID := RunID(ids.NewV7())
 
-	if _, err := s.Create(ctx, CreateRunInput{Connector: ConnectorMirror, SourceRef: "x", Source: "t"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Fatalf("ungranted Create err = %v, want ErrPermissionDenied", err)
-	}
-	if _, err := s.Latest(ctx, ConnectorMirror); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Fatalf("ungranted Latest err = %v, want ErrPermissionDenied", err)
+	for _, entry := range []struct {
+		name string
+		call func() error
+	}{
+		{"Create", func() error {
+			_, err := s.Create(ctx, CreateRunInput{Connector: ConnectorMirror, SourceRef: "x", Source: "t"})
+			return err
+		}},
+		{"Get", func() error { _, err := s.Get(ctx, runID); return err }},
+		{"Latest", func() error { _, err := s.Latest(ctx, ConnectorMirror); return err }},
+		{"LookupIdentity", func() error {
+			_, _, err := s.LookupIdentity(ctx, "hubspot", "contact", "1")
+			return err
+		}},
+		{"RecordIdentity", func() error {
+			return s.RecordIdentity(ctx, runID, "hubspot", "contact", "1", ids.NewV7())
+		}},
+		{"RecordIdentities", func() error {
+			return s.RecordIdentities(ctx, runID, "hubspot", "contact",
+				[]IdentityPair{{ExternalID: "1", NativeID: ids.NewV7()}})
+		}},
+		{"Resume", func() error { return s.Resume(ctx, runID) }},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			if err := entry.call(); !errors.Is(err, apperrors.ErrPermissionDenied) {
+				t.Fatalf("ungranted %s err = %v, want ErrPermissionDenied", entry.name, err)
+			}
+		})
 	}
 }
 

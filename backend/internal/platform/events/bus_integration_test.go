@@ -79,11 +79,10 @@ func setup(t *testing.T) *busEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	// Migrated once per test process; every later test resets the data only. The
-	// DROP SCHEMA + full migration this used to run on each of the package's
-	// tests is the per-test migrate backend/integrationmigrateonce_test.go
-	// forbids, and the same GRANT USAGE TO margince_app happens inside
-	// EnsureSchema, so the app role reaches the schema exactly as before.
+	// Migrated once per test process; every later test resets the data only — the
+	// discipline backend/integrationmigrateonce_test.go enforces module-wide.
+	// EnsureSchema performs the GRANT USAGE ON SCHEMA public TO margince_app that
+	// the app pool below depends on.
 	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatalf("migrating the test schema: %v", err)
 	}

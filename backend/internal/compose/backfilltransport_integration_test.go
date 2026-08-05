@@ -240,11 +240,10 @@ func (f faultyEstimator) EstimateBackfill(context.Context, string, ids.UserID, i
 // absent — never a fabricated 0 or a stale label — and the fault is logged, not
 // swallowed (T2).
 // Tagged because the claim is about the REAL read path: the preview still
-// answers 200 when only the estimator faults. setupBackfillWire's migrated
-// Postgres and River wire are the subject of that sentence, not scaffolding
-// around it — the message count comes back through the DB-backed registry, so a
-// faked read path would prove the degradation in a system where nothing else
-// worked either.
+// answers 200 when only the estimator faults. It cannot reach the connector at
+// all without first resolving the connection row setupBackfillWire wrote to the
+// migrated Postgres, so the fault path genuinely traverses that path. The count
+// itself comes from the fake connector, not the database.
 func TestBackfillPreviewDegradesOnEstimatorFault(t *testing.T) {
 	b := setupBackfillWire(t)
 	var logbuf bytes.Buffer

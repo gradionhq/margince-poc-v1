@@ -62,8 +62,9 @@ invariant a change touches (rule 1: fix the invariant, not the one call site).
   halves of one. If the pure arm is already owned downstairs (`connector/recipient_test.go`
   owns the recipient shape table), the tagged copy keeps only what its own layer adds, or goes.
   Never fake a boundary to win the move: a nil pool that would panic instead of failing is a
-  fixture that lies. A tagged file is named `*_integration_test.go`; a tagged file that is not
-  is why misplacement goes unnoticed.
+  fixture that lies. A tagged file that declares Test functions is named
+  `*_integration_test.go` — fixtures holding none keep their descriptive names — and a suite that
+  is not so named is why misplacement goes unnoticed.
 - **Smallest diff that does the job** — no dead/speculative code, no abstraction without
   a second concrete caller today, no `TODO` without an issue ref.
 

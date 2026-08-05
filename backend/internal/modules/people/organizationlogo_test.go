@@ -14,8 +14,10 @@ package people
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -32,10 +34,16 @@ func TestSetOrganizationLogoRefusesAHalfResolvedWrite(t *testing.T) {
 	})
 	orgID := ids.New[ids.OrganizationKind]()
 
-	if _, _, err := store.SetOrganizationLogo(ctx, orgID, "", "https://halbmond.test/f.png"); err == nil {
-		t.Fatal("a logo with no storage key must be refused")
+	// Naming the sentinel the refusal must NOT be keeps the comment above honest:
+	// were a seat or admission check ever to land ahead of the shape guard, this
+	// would start passing on ErrPermissionDenied while proving nothing about
+	// provenance.
+	if _, _, err := store.SetOrganizationLogo(ctx, orgID, "", "https://halbmond.test/f.png"); err == nil ||
+		errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("a logo with no storage key must be refused by the shape guard, got %v", err)
 	}
-	if _, _, err := store.SetOrganizationLogo(ctx, orgID, "k", ""); err == nil {
-		t.Fatal("a logo with no source URL must be refused — its provenance would be blank")
+	if _, _, err := store.SetOrganizationLogo(ctx, orgID, "k", ""); err == nil ||
+		errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("a logo with no source URL must be refused by the shape guard — its provenance would be blank, got %v", err)
 	}
 }

@@ -129,27 +129,34 @@ for d in "${GO_DIRS[@]}"; do
       done
 done > "$CANDIDATES"
 
-LANEPKGS="$(mktemp)" WORK="$(mktemp)"
+CONSTRAINT_SCOPE="$(mktemp)" LANE_PKGS="$(mktemp)" WORK="$(mktemp)"
 DISCOVERY="$(mktemp)" ASSIGNED="$(mktemp)" RAN="$(mktemp)" UNTAGGED="$(mktemp)"
 TIMING="$(mktemp)"
 OUTDIR="$(mktemp -d)"
-trap 'rm -f "$CANDIDATES" "$LANEPKGS" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING"; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
+trap 'rm -f "$CANDIDATES" "$CONSTRAINT_SCOPE" "$LANE_PKGS" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING" ${GROUPED:+"$GROUPED"}; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
 
 # The ONE spelling of "which build constraints does this file declare": the
 # region above the `package` clause, one expression per line. Both passes below
 # read it and judge it differently — the ownership pass asks only whether
 # `integration` appears, discovery holds the expression to a strict allowlist —
 # and a lane that extracted it twice could drift into admitting packages whose
-# files it then refuses to tag. scripts/check-test-lanes.sh performs the same
-# scan for the opposite direction.
+# files it then refuses to tag.
+#
+# scripts/check-test-lanes.sh answers the opposite direction (no unit test opens
+# real infra) and still matches the constraint line with a substring test rather
+# than tokenizing it. That is latent, not live: only bare `integration` exists in
+# the tree. Unifying all three call sites needs a shared shell library neither
+# script has today.
 constraint_exprs() {
   sed -n '/^package /q;p' "$1" | sed -nE 's|^//go:build ||p; s|^// \+build ||p'
 }
 
-# Which candidate packages does this lane own? A package is one when at least
-# one of its test files names `integration` in its build-constraint region.
+# Which packages does the strict constraint check below apply to? A package
+# qualifies when at least one of its test files names `integration` in its
+# build-constraint region. This is NOT where lane membership is decided — that is
+# derived from discovery further down, from the tests actually found.
 #
-# This pass exists to bound the strict constraint check below. That check fails
+# The pass exists to bound the strict constraint check. That check fails
 # the whole lane on a constraint it cannot decide, because in a package this lane
 # RUNS, a satisfied built-in tag (linux, amd64, cgo, …) would compile under
 # `go test` yet land in no slice — a silently thinner lane. In a package the lane
@@ -164,7 +171,7 @@ while IFS='|' read -r d rel; do
       break
     fi
   done
-done < "$CANDIDATES" | LC_ALL=C sort -u > "$LANEPKGS"
+done < "$CANDIDATES" | LC_ALL=C sort -u > "$CONSTRAINT_SCOPE"
 
 # Static discovery: every top-level Test function of every integration-TAGGED
 # file, as "module_dir|rel|TestName". TestMain is a fixture, not a test;
@@ -174,9 +181,10 @@ done < "$CANDIDATES" | LC_ALL=C sort -u > "$LANEPKGS"
 #
 # Untagged files are excluded here, and that exclusion is the whole point:
 # `-tags=integration` is ADDITIVE, so `go test -tags=integration <pkg>` compiles
-# a package's untagged test files too. Without this, the lane re-runs the entire
-# unit suite against real infrastructure — 1862 of 3588 scheduled tests, more
-# than half the lane, proving nothing `make check` had not already proved.
+# a package's untagged test files too. Without this the lane re-runs the whole
+# unit suite against real infrastructure, proving nothing `make check` had not
+# already proved — and the counts it reports below say how much that is on the
+# tree in front of it, rather than a number frozen into a comment.
 while IFS='|' read -r d rel; do
   pkgdir="$d/${rel#./}"; [[ "$rel" = "." ]] && pkgdir="$d"
   for f in "$pkgdir"/*_test.go; do
@@ -225,15 +233,15 @@ while IFS='|' read -r d rel; do
           echo "$d|$rel|$name"
         done
   done
-done < "$LANEPKGS" | LC_ALL=C sort > "$DISCOVERY"
+done < "$CONSTRAINT_SCOPE" | LC_ALL=C sort > "$DISCOVERY"
 
 NTESTS=$(wc -l < "$DISCOVERY" | tr -d ' ')
 
 # The lane's packages are exactly those that produced a tagged test. Deriving
 # the list rather than maintaining it is what stops a package with no tagged
 # test being handed a clone, and it cannot drift from what discovery found.
-cut -d'|' -f1,2 "$DISCOVERY" | LC_ALL=C sort -u > "$WORK"
-NPKGS_DISCOVERED=$(wc -l < "$WORK" | tr -d ' ')
+cut -d'|' -f1,2 "$DISCOVERY" | LC_ALL=C sort -u > "$LANE_PKGS"
+NPKGS_DISCOVERED=$(wc -l < "$LANE_PKGS" | tr -d ' ')
 
 # Untagged tests this lane no longer schedules — counted only inside packages it
 # actually visits, since a package with no tagged test was never its business.
@@ -241,7 +249,7 @@ NUNTAGGED=$(awk -F'|' '
   NR == FNR { lane[$1 "|" $2] = 1; next }
   ($1 "|" $2) in lane { n += $3 }
   END { print n + 0 }
-' "$WORK" "$UNTAGGED")
+' "$LANE_PKGS" "$UNTAGGED")
 
 if (( SHARD_TOTAL > 0 )); then
   if (( NTESTS < SHARD_TOTAL )); then
@@ -377,16 +385,16 @@ done
 # Per-package cost. ADVISORY — printed, never enforced. A raw wall-time ceiling
 # is the wrong shape: this package count grows, and a ceiling that healthy growth
 # re-crosses gets bumped until nobody reads it. Amortized ms/test is
-# scale-invariant, which is what makes it a signal — the defect it exists to
-# catch (PR #298: ~500ms of per-test reset, priced per table rather than per row)
-# trips it at any test count, while 300 clean new tests do not. Enforcing a
-# number measured on one machine is the same unverified claim this lane keeps
-# learning about, so the ceiling waits for a CI baseline.
+# scale-invariant, which is what makes it a signal — a per-test cost that is
+# priced per table rather than per row trips it at any test count, while 300 clean
+# new tests do not. Enforcing a number measured on one machine is the same
+# unverified claim this lane keeps learning about, so the ceiling waits for a CI
+# baseline.
 if [[ -s "$TIMING" ]]; then
   # Ordered by ms/test, not by total, so an anomaly surfaces instead of merely
-  # the biggest package: a small suite paying a per-test schema migration reads
-  # as ~3000 ms/test against a lane norm near 250, and that is the shape worth
-  # seeing first.
+  # the biggest package: a small suite paying a per-test schema migration reads an
+  # order of magnitude above the lane norm, and that is the shape worth seeing
+  # first.
   echo "test-integration-parallel: per-package cost (advisory)"
   awk -F'|' '{ printf "%s|%s|%s|%.4f\n", $1, $2, $3, ($3 ? $2 * 1000 / $3 : 0) }' "$TIMING" \
     | LC_ALL=C sort -t'|' -k4 -rn \

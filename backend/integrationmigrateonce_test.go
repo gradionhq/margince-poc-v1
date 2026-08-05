@@ -7,18 +7,17 @@ package backendarch
 // fitness function. A suite migrates the schema once per test process
 // (internal/platform/testdb.EnsureSchema) and resets between tests with a fast
 // data-only reset (testdb.Reset); one that instead runs its own DROP SCHEMA +
-// dbmigrate.Up on every setup reintroduces the per-test migrate that once
-// dominated the lane. The obligation is derived from the tree — any *_test.go
-// that calls dbmigrate.Up is caught — so the pattern cannot creep back one
-// copy-pasted setup at a time.
+// dbmigrate.Up on every setup reintroduces a per-test migrate that costs orders
+// of magnitude more than the reset it replaces. The obligation is module-wide,
+// so the walk is: a gate that judges one subtree also claims, silently, that the
+// subtree is where the obligated code lives, and that second claim is the one
+// nothing checks.
 //
-// This gate used to walk internal/compose/integration alone. Inside that
-// directory it held; outside it, three suites migrated per test unpoliced, and
-// the cost it was written to prevent had grown from the ~0.8s/test it names to
-// ~3s. A gate that judges one subtree also claims, silently, that the subtree is
-// where the obligated code lives, and only the first claim was ever checked. The
-// obligation is module-wide, so the walk is now module-wide and there is no root
-// left to be wrong about.
+// What is caught: a file that imports .../dbmigrate and applies .Up. What is
+// not: a caller inside package dbmigrate itself, and one reaching Up through a
+// function value. Resolving those would mean loading the module through
+// go/types for a case no suite has ever written — the boundary is stated here
+// rather than papered over with a claim of totality.
 //
 // Detection is by call site, not by text: the string "dbmigrate.Up(" appears in
 // this file's own report, and a text scan over a tree that includes this file
@@ -37,12 +36,18 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
-// migrationsPackage owns the migrations themselves. Its suites apply, reverse
-// and reapply them, so migrating is the act under test rather than setup, and no
-// shared pre-migrated schema can stand in for it. That is a different kind of
-// thing from an exception, so it is excluded by rule rather than waived — and
-// the exclusion is proven live below, so it cannot outlast the suites it exists
-// for.
+// migrationsPackage owns the migrations themselves. Its suites drive them —
+// applying, reversing, or upgrading from a pinned prefix — so migrating is the
+// act under test rather than setup, and no shared pre-migrated schema can stand
+// in for it. That is a different kind of thing from an exception, so it is
+// excluded by rule rather than waived.
+//
+// The liveness check below is a floor, not a fence: it fires only if NO suite
+// under migrations/ migrates any more, so the carve-out cannot outlive the
+// directory. It would not notice one new suite there migrating per test for no
+// reason. Real teeth would be per-file — every migrations/ test that calls Up
+// must also call Down or load a pinned prefix — which is a bigger obligation
+// than this gate owns today.
 const migrationsPackage = "migrations"
 
 // inlineMigrators are the suites outside migrationsPackage ratified to migrate
@@ -69,7 +74,7 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 		if !callsInlineMigrate(file) {
 			return nil
 		}
-		if path == migrationsPackage || strings.HasPrefix(path, migrationsPackage+"/") {
+		if strings.HasPrefix(path, migrationsPackage+"/") {
 			inMigrations = append(inMigrations, path)
 			return nil
 		}

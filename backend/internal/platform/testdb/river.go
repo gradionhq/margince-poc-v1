@@ -34,11 +34,12 @@ import (
 // finished before any worker starts — the runner builds it, then fans out — so a
 // worker never observes a half-prepared one.
 //
-// migrate arrives as a parameter rather than an import: the River migrator lives
-// in platform/jobs, and a testdb that reached for it would make the lane's schema
-// helper depend on the job runtime it is only ever asked to prepare a database
-// for. Passing it keeps this the one spelling of the probe for every caller —
-// the integration harness and the jobs suite alike.
+// migrate arrives as a parameter rather than an import. The layering permits the
+// import — platform may depend on platform — but taking it would link River's
+// runtime into every integration binary that wants nothing from it beyond a
+// migrated schema. Passing the migrator keeps this the one spelling of the probe
+// for every caller, the integration harness and the jobs suite alike, and leaves
+// the dependency where it is actually used.
 func EnsureRiverSchema(ctx context.Context, ownerPool *pgxpool.Pool, migrate func(context.Context, *pgxpool.Pool) (int, error)) error {
 	var present bool
 	if err := ownerPool.QueryRow(ctx,

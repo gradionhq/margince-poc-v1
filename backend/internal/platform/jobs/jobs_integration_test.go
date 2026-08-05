@@ -53,13 +53,10 @@ func (noopWorker) Work(context.Context, *river.Job[noopArgs]) error { return nil
 // own transactions (e.g. to exercise EnqueueTx*).
 //
 // The schema is migrated once per test process (testdb.EnsureSchema) and only the
-// data is reset between tests (testdb.Reset). It used to DROP SCHEMA and re-run
-// every embedded migration on each of this package's 16 tests, which cost ~3s a
-// test — the per-test migrate the module-wide gate in backend/
-// integrationmigrateonce_test.go exists to forbid, and which that gate could not
-// see while it walked internal/compose/integration alone. EnsureSchema opens with
-// the same DROP SCHEMA + GRANT USAGE TO margince_app, so the app-role reach this
-// suite asserts is established exactly as before.
+// data is reset between tests (testdb.Reset) — the discipline
+// backend/integrationmigrateonce_test.go enforces module-wide. EnsureSchema opens
+// with the same DROP SCHEMA + GRANT USAGE ON SCHEMA public TO margince_app, which
+// is what makes the app-role reach this suite asserts reachable at all.
 func migratedAppPool(t *testing.T) (*jobs.Runner, *pgxpool.Pool) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")

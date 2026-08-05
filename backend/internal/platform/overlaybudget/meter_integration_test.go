@@ -210,12 +210,12 @@ func TestBandCrossesWarnAndShed(t *testing.T) {
 }
 
 // TestFailClosed is tagged because the healthy Redis is the control, not the
-// subject. What is asserted are the RESULTS — shed, declined, nothing recorded —
-// for an unbound workspace, an unconfigured incumbent and a nil client. Against
-// no Redis at all those same results would arrive for the wrong reason, so a
-// live backend is what makes them mean the meter decided rather than that the
-// backend was missing. It says nothing about command ordering: no command is
-// counted here, only the answer.
+// subject. What is asserted are the RESULTS — shed, declined, and a window that
+// took no unattributable spend — for an unbound workspace, an unconfigured
+// incumbent and a nil client. Against no Redis at all those same results would
+// arrive for the wrong reason, so a live backend is what makes them mean the
+// meter decided rather than that the backend was missing. It says nothing about
+// command ordering: no command is counted here, only its effect.
 func TestFailClosed(t *testing.T) {
 	rdb := budgettest.Client(t)
 	cfg := testCfg()
@@ -229,10 +229,14 @@ func TestFailClosed(t *testing.T) {
 	if ok, _ := m.ReserveREST(bare, testIncumbent, overlaybudget.SourceForceFresh, 1); ok {
 		t.Fatal("ReserveREST with no workspace was allowed, want declined")
 	}
-	// ConsumeSearch/ConsumeREST no-op (record nothing) with no workspace —
-	// they never error, and the read side stays fail-closed shed above.
+	// ConsumeSearch with no workspace is a silent no-op: it must not error, and it
+	// must not spend quota it cannot attribute to a tenant. The counter read is
+	// what makes the second half checkable rather than asserted.
 	if err := m.ConsumeSearch(bare, testIncumbent, 1); err != nil {
 		t.Fatalf("ConsumeSearch with no workspace should be a silent no-op, got %v", err)
+	}
+	if got := m.Snapshot(wsCtx(), testIncumbent).SearchConsumed; got != 0 {
+		t.Fatalf("ConsumeSearch with no workspace recorded %d — unattributable spend must not land on a tenant's window", got)
 	}
 
 	// Unconfigured incumbent → shed / declined.
