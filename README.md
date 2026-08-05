@@ -296,7 +296,6 @@ per-client throttling at the proxy.
   typed deferral, secret stripping, per-attempt `ai_call` tracing), and a
   certification lane (`make e2e-ai`) that scores a candidate model against a
   task's scenario corpus before you trust it. Bounded company context —
-  confirmed in the five-step onboarding wizard — is injected per declared
   confirmed in the cold start — is injected per declared
   task policy, behind the `company_context.rollout` kill switch. See
   [docs/explanation/ai-runtime.md](docs/explanation/ai-runtime.md) and

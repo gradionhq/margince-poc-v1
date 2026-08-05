@@ -149,6 +149,8 @@ Wiring details:
   [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
 - **`patch.yml`** — on every push to `main`, runs the release-management CLI over
   the push's range and uploads the incremental patch as a short-retention
-  artifact for the distribution pipeline. A branch creation or force-push has no
-  ancestor to diff from, so the step falls back to the parent commit; a manual
-  dispatch carries no range and no-ops. Not a gate — it never blocks a merge.
+  artifact for the distribution pipeline. The two degenerate cases go opposite
+  ways: a branch creation or force-push has an all-zeros `before` — no ancestor
+  to diff from — so the job **no-ops**, while a **manual dispatch** carries no
+  push range at all and falls back to the parent commit (`HEAD~1..HEAD`). Not a
+  gate — it never blocks a merge.

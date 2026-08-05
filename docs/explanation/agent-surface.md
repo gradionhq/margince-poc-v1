@@ -79,8 +79,10 @@ not architecture**. `internal/modules/ai/` owns it:
   itself is covered in [write-backbone.md → who consumes the events](write-backbone.md#5-the-consumer-side--groups--dedupe).)
 - **MCP** serves the tool surface at `/mcp` on the api — one registry, one admission gate, one audit
   stream, one transport (the A1 stdio server and its `cmd/mcp` binary are retired, SCR-9).
-  `tools/list` is scope-filtered per caller, so the list a client sees is the list its passport can
-  invoke. The catalog itself: [reference/agent-tools.md](../reference/agent-tools.md).
+  `tools/list` is filtered on the **scope axis** per caller, so the list reflects the passport's
+  scopes — not a promise that every listed tool will run. The seat ceiling and object RBAC are
+  re-derived at each invoke, so a listed tool can still be refused by those.
+  The catalog itself: [reference/agent-tools.md](../reference/agent-tools.md).
   Connecting: [how-to/connect-an-mcp-client.md](../how-to/connect-an-mcp-client.md);
   minting the passport: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 

@@ -339,7 +339,9 @@ curl -X POST http://localhost:8080/v1/connectors/gcal/connect \
 
 The connect UI is now live for all five connectors. Gmail, Google Calendar, Graph, and IMAP each have a
 first-connect affordance from **Settings → Integrations**, and Gmail, Microsoft, and IMAP have one from
-**onboarding** too (Google Calendar is Settings-only — there's no onboarding chip for it). The roster and
+**onboarding** too (Google Calendar is Settings-only — there's no onboarding chip for it). The fifth is
+**Telegram**, which sits in its own Settings card rather than the *Add a connection* footer — a bot is a
+workspace-wide binding, not one human's grant ([connect-telegram.md](connect-telegram.md)). The roster and
 backfill panel, though, don't apply everywhere: IMAP and Google Calendar have no backfill, so both sync
 forward from connect time only (see the [Calendar section](#d2-connect-from-the-ui) above). See
 [explanation/capture-connectors.md → Honest limitations](../explanation/capture-connectors.md#honest-limitations)

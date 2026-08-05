@@ -106,9 +106,9 @@ connector surface answers `501` rather than fall back to storing a credential an
 is the mirror — it destroys the sealed secret, so withdrawing a connection removes the credential, not
 just the row. The worker migrates any legacy `auth`-bytea rows onto the vault at boot (idempotent).
 
-## How records arrive — three ingestion modes
+## How records arrive — four ingestion modes
 
-A connector's records reach the CRM through one of three paths, all converging on the same Sink:
+A connector's records reach the CRM through one of four paths, all converging on the same Sink:
 
 1. **Bounded backfill — preview before spend.** On connect, a `Backfiller` fills the
    CRM *backward* over a chosen window. The connector's `EstimateBackfill` returns only the provider-side
@@ -126,6 +126,17 @@ A connector's records reach the CRM through one of three paths, all converging o
    /webhooks/gmail` (a shared-secret token + Google OIDC when set); the handler zeroes the mailbox's
    `next_sync_at` and enqueues an immediate sync. Push is a *latency* optimization over the poll, not a
    separate write path.
+
+4. **Channel long poll — Telegram only.** A messaging channel is not one human's mailbox: an admin
+   binds one bot for the whole workspace, and the installation *pulls*. Telegram's two ingress modes
+   are mutually exclusive per bot — it answers `409` to `getUpdates` while a webhook is registered,
+   and only one `getUpdates` consumer may hold a bot at a time — so unlike Gmail there is no poll for
+   a push to layer over. A dispatcher (`telegram_poll_sweep`, every `30s`) due-scans live bindings and
+   enqueues one `telegram_poll` per connection, declared unique on its args so a second poll for the
+   same bot cannot be in flight; each holds a long poll and hands its batch to `telegram_ingest`. The
+   honest latency bound is one dispatcher tick. Because it pulls, **the installation needs no public
+   address and no inbound endpoint**. There is no backfill: the Bot API has no history endpoint.
+   Connecting one: [how-to/connect-telegram.md](../how-to/connect-telegram.md).
 
 Incremental sync moves *forward* from the connect-time watermark; backfill pages *backward* on its own
 token; they never fight, and the capture key makes any overlap a no-op.
