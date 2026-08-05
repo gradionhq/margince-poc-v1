@@ -390,7 +390,8 @@ policy, reached only through `database.WithWorkspaceTx` — see
 | The score (recency × frequency × reciprocity, bands, the 90-day window) | `internal/shared/kernel/relstrength/` |
 | Coverage gather (deal facts, departures) and the pure risk fold | `internal/compose/network/coveragefacts.go`, `risk.go` |
 | The network/coverage HTTP surface | `internal/compose/network/handlers.go` |
-| The one definition of an engaged stakeholder | `internal/modules/deals/engagement.go` |
+| Engaged stakeholders — coverage's definition | `internal/modules/deals/engagement.go` |
+| The same question, health's own inline copy | `internal/modules/deals/health.go` (`healthActivityEvidence`) |
 | Agent-tool seams (`who_knows`, `account_coverage`, `intro_path_to`, `at_risk_relationships`) | `internal/compose/networkseams.go`, `introseams.go`; `internal/modules/agents/tools_network.go` |
 | Erasure of participants, ghosts and edges (one transaction) | `internal/modules/privacy/erasure_graph.go`, `retention_graph.go` |
 | Deactivation deleting a departing member's network | `internal/modules/identity/users.go` |
