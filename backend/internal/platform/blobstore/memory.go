@@ -65,6 +65,9 @@ func (m *memoryStore) Delete(_ context.Context, key string) error {
 }
 
 func (m *memoryStore) DeletePrefix(_ context.Context, prefix string) (int, error) {
+	if prefix == "" || !strings.HasSuffix(prefix, "/") {
+		return 0, ErrInvalidPrefix
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	deleted := 0

@@ -205,6 +205,32 @@ func TestS3StoreDeletePrefixOnAnEmptyPrefixReportsZero(t *testing.T) {
 	}
 }
 
+func TestS3StoreDeletePrefixRejectsEmptyPrefix(t *testing.T) {
+	store := newS3Store(t)
+	ctx := t.Context()
+	key := blobstore.WorkspaceKey(ids.New[ids.WorkspaceKind](), "attachment", "guarded")
+
+	if err := store.Put(ctx, key, bytes.NewReader([]byte("mine")), 4, ""); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Delete(context.Background(), key); err != nil {
+			t.Errorf("cleanup Delete: %v", err)
+		}
+	})
+
+	deleted, err := store.DeletePrefix(ctx, "")
+	if !errors.Is(err, blobstore.ErrInvalidPrefix) {
+		t.Fatalf("DeletePrefix(\"\"): err = %v, want ErrInvalidPrefix", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+	if _, _, err := store.Get(ctx, key); err != nil {
+		t.Errorf("an object survived an empty prefix but Get failed: %v", err)
+	}
+}
+
 func TestS3StoreWorkspaceKeyIsolation(t *testing.T) {
 	store := newS3Store(t)
 	ctx := t.Context()
