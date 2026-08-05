@@ -59,9 +59,11 @@ bootstrap screen or endpoint: no request creates a workspace.
 Open <http://localhost:8080> — the web UI, and the only URL you need (it
 proxies `/v1` through to the api behind it) — and log in with the seeded admin (`admin@demo.test` /
 `demo-password-123`, from the example config). First login lands in the
-**five-step onboarding wizard** (Read · Confirm · Voice · Results ·
-Connect): let Margince read a company website or enter the three required
-fields by hand — it is resumable and skippable, and explained in
+**cold start**: a full-screen gate asks for your website (or "Enter the details
+yourself"), a read theatre shows the crawl as it happens, and a dossier lets you
+review every field and fact before anything is written. A rail beside it narrates
+where you are — Read · Confirm · Voice · Ready · Connect. It is resumable and
+skippable, and explained in
 [explanation/company-context.md](../explanation/company-context.md). After
 that you have people, leads, the deal board, and the activity timeline —
 empty, because `make dev` boots a cold installation on purpose: what you see

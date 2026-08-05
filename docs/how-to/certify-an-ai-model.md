@@ -79,9 +79,9 @@ The **task** names come from the contract (`backend/api/ai-tasks.yaml`), and onl
 a task the contract marks `status: shipped` can be certified: `agent_loop`,
 `brief_ranking`, `capture_classify`, `capture_counterparty_verdict`,
 `cert_judge` (the rubric judge is itself certified like any task), `cold_start`,
-`draft_reply`, `enrich`, `offer_draft`, `rate_extract`, `site_extract`,
-`site_fact_extract`, `summarize`, `voice_build`. Omit `TASK=` to run the whole
-corpus.
+`draft_reply`, `enrich`, `offer_draft`, `rate_extract`, `signal_extract`,
+`site_extract`, `site_fact_extract`, `site_triage`, `summarize`, `voice_build`.
+Omit `TASK=` to run the whole corpus.
 
 A `planned` task — one the contract declares but nothing implements
 (`nl_search`, `transcript`, `deal_health`) — owns no scenarios, and
@@ -137,7 +137,7 @@ ever certified, which is the whole reason it enumerates the census rather than
 the records:
 
 ```text
-AI certification readiness: 1 of 19 shipped sites carry a current record.
+AI certification readiness: 1 of 23 shipped sites carry a current record.
 
 SITE                  SCOPE            STATUS  BAND       PROVIDER  MODEL             ENV   RUNS  PASSED  RELIABILITY  ACCEPTED  WRONG_ANSWER  INVALID  ABSTAINED
 agent_loop/loop       single_turn      absent  -          -         -                 -     -     -       -            -         -             -        -

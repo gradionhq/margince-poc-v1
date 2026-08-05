@@ -34,7 +34,15 @@ Two invariants ride on top of that write:
 
 - **connector ≤ human.** A connector's declared scopes must be a subset of the granting human's *live*
   scopes, enforced at connect time (`ErrScopeExceeded`) — exactly the discipline agents follow. Every
-  mail connector declares read-only (`ScopeRead`, tier `TierAutoExecute`); none can write outbound.
+  connector declares `ScopeRead` / `TierAutoExecute` for **capture**: what it pulls in is never more
+  than its granting human may see.
+- **Capture is read-only; transmission is a separate seam.** Two connectors additionally implement an
+  *optional* send seam — Gmail (`connector.EmailSender`, requesting `gmail.send` alongside
+  `gmail.readonly` on one consent, because Google will not add a scope to an existing refresh token)
+  and Telegram (`connector.MessageSender`). Neither is reachable from the capture path: the outbound
+  side is owned by the `comms` module, staged as a durable row, re-checked against the staging human's
+  live seat at transmit time, and gated by consent. See
+  [outbound-messaging.md](outbound-messaging.md).
 - **Connecting is human-only.** Every connector op is `x-agent-access: human-only` (bar the session-less
   OAuth callback). An agent self-granting read of a human's personal mail is precisely what we never
   allow.
@@ -98,9 +106,9 @@ connector surface answers `501` rather than fall back to storing a credential an
 is the mirror — it destroys the sealed secret, so withdrawing a connection removes the credential, not
 just the row. The worker migrates any legacy `auth`-bytea rows onto the vault at boot (idempotent).
 
-## How records arrive — three ingestion modes
+## How records arrive — four ingestion modes
 
-A connector's records reach the CRM through one of three paths, all converging on the same Sink:
+A connector's records reach the CRM through one of four paths, all converging on the same Sink:
 
 1. **Bounded backfill — preview before spend.** On connect, a `Backfiller` fills the
    CRM *backward* over a chosen window. The connector's `EstimateBackfill` returns only the provider-side
@@ -118,6 +126,17 @@ A connector's records reach the CRM through one of three paths, all converging o
    /webhooks/gmail` (a shared-secret token + Google OIDC when set); the handler zeroes the mailbox's
    `next_sync_at` and enqueues an immediate sync. Push is a *latency* optimization over the poll, not a
    separate write path.
+
+4. **Channel long poll — Telegram only.** A messaging channel is not one human's mailbox: an admin
+   binds one bot for the whole workspace, and the installation *pulls*. Telegram's two ingress modes
+   are mutually exclusive per bot — it answers `409` to `getUpdates` while a webhook is registered,
+   and only one `getUpdates` consumer may hold a bot at a time — so unlike Gmail there is no poll for
+   a push to layer over. A dispatcher (`telegram_poll_sweep`, every `30s`) due-scans live bindings and
+   enqueues one `telegram_poll` per connection, declared unique on its args so a second poll for the
+   same bot cannot be in flight; each holds a long poll and hands its batch to `telegram_ingest`. The
+   honest latency bound is one dispatcher tick. Because it pulls, **the installation needs no public
+   address and no inbound endpoint**. There is no backfill: the Bot API has no history endpoint.
+   Connecting one: [how-to/connect-telegram.md](../how-to/connect-telegram.md).
 
 Incremental sync moves *forward* from the connect-time watermark; backfill pages *backward* on its own
 token; they never fight, and the capture key makes any overlap a no-op.
@@ -146,21 +165,26 @@ refresh token (see below).
 
 ## The connectors
 
-All four register in `internal/compose/capture.go`; all are read-only and produce `activity`. The
-differences that matter:
+All five register in `internal/compose/capture.go`; every one produces `activity` on the way in, and
+two of them can also transmit. The differences that matter:
 
-| | **Gmail** | **IMAP** | **Graph** (Outlook) | **Calendar** (gcal) |
-|---|---|---|---|---|
-| Auth | OAuth `gmail.readonly` | IMAPS app-password | OAuth `Mail.Read` | OAuth `calendar.readonly` |
-| Connection | standing | standing | standing | standing |
-| Cursor | `historyId` | UID watermark | `deltaLink` | `syncToken` |
-| Push | Pub/Sub 7-day | — (poll) | — (poll) | — (poll) |
-| Backfill | ✔ | — | ✔ | — |
-| Connect UI | onboarding + Settings | onboarding + Settings | onboarding + Settings | Settings only |
+| | **Gmail** | **IMAP** | **Graph** (Outlook) | **Calendar** (gcal) | **Telegram** |
+|---|---|---|---|---|---|
+| Auth | OAuth `gmail.readonly` + `gmail.send` | IMAPS app-password | OAuth `Mail.Read` | OAuth `calendar.readonly` | BotFather bot token |
+| Connection | standing, per human | standing, per human | standing, per human | standing, per human | standing, **per workspace** (an admin binds one bot) |
+| Cursor | `historyId` | UID watermark | `deltaLink` | `syncToken` | `getUpdates` offset |
+| Push | Pub/Sub 7-day | — (poll) | — (poll) | — (poll) | — (long poll, exclusive per bot) |
+| Backfill | ✔ | — | ✔ | — | — (the Bot API has no history endpoint) |
+| Send | ✔ (`EmailSender`) | — | — | — | ✔ (`MessageSender`) |
+| Connect UI | onboarding + Settings | onboarding + Settings | onboarding + Settings | Settings only | Settings only (its own card) |
 
-### Gmail — standing OAuth, push-capable
+### Gmail — standing OAuth, push-capable, send-capable
 
-OAuth2 to Google with a single read-only scope (`gmail.readonly` — no send, no modify). Incremental sync
+OAuth2 to Google with **two scopes on one consent**: `gmail.readonly` for capture and `gmail.send` for
+the governed outbound path (no `gmail.modify`, no settings, no delete). They ride one consent because
+Google will not add a scope to an existing refresh token — asking later would mean a second connection
+for the same mailbox. A mailbox connected before the send scope landed captures normally and refuses
+every send by name until it is reconnected. Incremental sync
 walks the **history API** from a `historyId` watermark; a stale watermark (`ErrHistoryGone`, Gmail
 expires it ~weekly) degrades to a bounded re-list, not a full re-scan. It implements **both** optional
 seams: a `Watcher` (the Pub/Sub 7-day push watch, renewed by the worker every `6h`, `48h` ahead of

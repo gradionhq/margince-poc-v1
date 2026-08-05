@@ -43,44 +43,43 @@ inventory. (The generated stubs live in `stubs_gen.go`; see [contract-first.md](
 
 ```go
 func New(pool, log, opts...) http.Handler {
-    dealsH := deals.NewHandlers(pool)
+    dealsH := deals.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil))
     identitySvc := identity.NewService(pool)
-    authH := identity.NewHandlers(identitySvc, workspaceSeed(dealsH)) // ← bootstrap hook (below)
+    authH := identity.NewHandlers(identitySvc)
 
     srv := newServer(pool, log, authH, dealsH)  // 1. assemble handler sets + cross-module edges
     for _, opt := range opts { opt(&srv, pool) } // 2. per-role customization
+    srv.applySendPath(pool)                      // 3. bind the send lane the options settled
 
-    api := contractAPI(srv, pool, identitySvc)   // 3. mount /v1 (generated router + admission)
-    mux := operationalMux(srv, pool, log, authH, api) // 4. health/ready/metrics/public/oauth
-    return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux))) // 5.
+    api := contractAPI(srv, pool, identitySvc)   // 4. mount /v1 (generated router + admission)
+    mux := operationalMux(srv, pool, log, identitySvc, api) // 5. health/ready/metrics/public/oauth
+    return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux))) // 6.
 }
 ```
 
 1. **`newServer`** builds every module's handler set and injects the cross-module edges (see the map
    below).
 2. **Options** apply per-role customization (blobstore, keyvault, bus probe, …).
-3. **`contractAPI`** mounts the generated chi router at `BaseURL: "/v1"` with two middlewares:
+3. **`applySendPath`** binds the outbound send lane once the options have settled which providers exist.
+4. **`contractAPI`** mounts the generated chi router at `BaseURL: "/v1"` with two middlewares:
    `agentGate` (the transport-agnostic admission layer — same tier table as the MCP surface) then
    `idempotency`. Idempotency sits **outermost** so a staged-approval refusal is never recorded as
    "the" response for an idempotency key (the approved retry is the same request under the same key).
-4. **`operationalMux`** mounts the contract surface next to `/healthz`, `/readyz` (role-specific
+5. **`operationalMux`** mounts the contract surface next to `/healthz`, `/readyz` (role-specific
    dependency probes), `/metrics`, the anonymous `/v1/public/*` edges, the `/oauth` A2 authorization
-   server.
-5. The whole thing is wrapped `RecoverPanics → LimitBodies → SecureHeaders`.
+   server. It takes the same `identitySvc` instance `contractAPI` got: ONE `identity.Service` per
+   process, so the admission gate and the connector's authenticate closure share its singleton cache
+   and its clock.
+6. The whole thing is wrapped `RecoverPanics → LimitBodies → SecureHeaders`.
 
-## The workspace-bootstrap seed (one transaction)
+## The installation bootstrap (one transaction, at boot)
 
-`workspaceSeed` is the hook `identity` runs when the installation bootstraps its singleton
-organization from `margince.yaml` on first boot (no request creates a workspace). It
-seeds **every module's per-workspace defaults in ONE transaction** — they stand or fall together — yet
-identity imports none of those modules, because the hook is injected here:
-
-```go
-func workspaceSeed(dealsH) func(ctx, tx) error {
-    // deals default pipeline → consent purposes → consent retention →
-    // automation's starter automations → activities booking page — all in the caller's tx
-}
-```
+The singleton organization is **not created by a request**. `compose.EnsureInstallation`
+(`installation.go`) runs the boot state machine from `margince.yaml` (A107/ADR-0061), seeding every
+module's per-workspace defaults — deals' default pipeline, consent's purposes and retention,
+automation's starter automations, activities' booking page — in ONE transaction, so they stand or fall
+together. identity imports none of those modules: compose owns the seed, as it owns every other
+cross-module edge. The HTTP surface only ever serves the already-bound organization.
 
 ## The cross-module edges (the map)
 
@@ -90,7 +89,8 @@ backed by the provider module's store — so neither module names the other. The
 
 | Consumer | ← needs | Wired as |
 |---|---|---|
-| identity (bootstrap) | deals + consent + automation + activities defaults | `workspaceSeed(dealsH)` (one tx) |
+| the installation bootstrap | deals + consent + automation + activities defaults | `compose.EnsureInstallation` (one tx, at boot — `installation.go`) |
+| migration (the importer engine) | overlay's frozen mirror estate as its `Source`; people + deals + activities stores as its `Writers` | `mirrorFlipSource` (`flipsource.go`) + `flipWriters` (`flipwriters.go`, `flipdeals.go`, `flipowners.go`) |
 | activities | consent's outbound suppression gate; people (public booking); consent (unsubscribe link) | `.WithConsent(...)`, `.WithPublicBooking(...)`, `.WithUnsubscribe(...)` |
 | consent (DSR erase) | privacy's `Eraser` (blob-aware under `WithBlobstore`) | `consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool))` |
 | agents (MCP surface) | approvals' staging + redemption (the 🟡 confirm-first effects) | `approvalsHandlersWithEffects(pool)` (`.WithEffects(...)`) |
@@ -141,11 +141,16 @@ Each binary composes only what its role needs, all through this one layer:
 
 | | |
 |---|---|
-| `Server`, `New`, `newServer`, Options, `contractAPI`, `operationalMux` | `internal/compose/server.go` |
+| `Server`, `New`, `newServer`, the handler-set inventory | `internal/compose/server.go` |
+| The per-surface assembly steps `newServer` calls | `internal/compose/serverassembly.go` |
+| The per-role `Option`s | `internal/compose/serveroptions.go` |
+| Route mounting: `contractAPI`, `operationalMux` | `internal/compose/routes.go` |
+| The installation bootstrap | `internal/compose/installation.go` |
+| The overlay→native cutover | `internal/compose/flip*.go`, `export.go`, `exportbundle.go` |
 | The datasource provider | `internal/compose/provider.go` |
 | The MCP registry | `internal/compose/registry.go` |
 | The REST admission middleware | `internal/compose/agentgate.go`, `idempotency.go` |
-| Background wiring | `internal/compose/{jobs,runnerservice,workflows,capture}.go` |
+| Background wiring | `internal/compose/{jobs,jobs_*,dispatch,jobregistry,jobschedule,runnerservice,workflows,capture}.go` — see [job-fleet.md](job-fleet.md) |
 | The AI orchestration group | `internal/compose/{brain,companycontextprompt,companycontextrollout,replydraft,deepreadtransport,deepreadbudget,onboardingstate}.go` |
 | The AI certification lane | `internal/compose/aicert/` (corpus, runner, records; report tool in `aicert/reportcmd`) |
 | The AI cost pre-flight estimator | `internal/compose/costestimate/` (backfill preview cost; reads `ai` + `activities` + `capture`, prices with `ai.PriceCall`) |

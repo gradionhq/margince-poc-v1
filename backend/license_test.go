@@ -32,11 +32,14 @@ func isGenerated(path, text string) bool {
 	if strings.HasSuffix(path, "_gen.go") {
 		return true
 	}
-	// The whole contracts package is owned by the contract pipeline and
+	// The backend's contracts package is owned by the contract pipeline and
 	// frozen by the drift gate (`git diff --exit-code -- internal/contracts/`);
 	// even its hand-written doc.go/gen.go must stay byte-identical, so no
-	// notice is stamped there.
-	if strings.Contains(filepath.ToSlash(path), "internal/contracts/") {
+	// notice is stamped there. Anchored at the backend tree's own root, not
+	// matched anywhere in the path: the sweep also walks sibling modules, and
+	// a unit of its own naming a directory `internal/contracts/` would
+	// otherwise inherit an exemption that belongs to one frozen package.
+	if strings.HasPrefix(filepath.ToSlash(path), "internal/contracts/") {
 		return true
 	}
 	head := text
@@ -46,30 +49,78 @@ func isGenerated(path, text string) bool {
 	return generatedMarker.MatchString(head)
 }
 
+// TestTheContractsExemptionIsAnchoredToTheBackendTree: the exemption belongs
+// to ONE frozen package, so it must not travel to a sibling module that
+// happens to name a directory the same way — an inherited exemption is a file
+// shipping with no notice and a gate reporting it clean.
+func TestTheContractsExemptionIsAnchoredToTheBackendTree(t *testing.T) {
+	const unlicensed = "package contracts\n"
+	if !isGenerated("internal/contracts/doc.go", unlicensed) {
+		t.Error("the backend's frozen contracts package lost its exemption")
+	}
+	if isGenerated("../extensions/u/internal/contracts/tool.go", unlicensed) {
+		t.Error("a unit's own internal/contracts/ inherited the backend contract pipeline's exemption")
+	}
+}
+
+// licensedTree is one hand-written Go tree the notice rule covers, and
+// whether that tree is guaranteed to contain a file. The backend module is one
+// tree, not all of them: extensions/ and fixtures/ are separate modules a
+// `./...` from here never reaches, and a first-party unit ships under the same
+// license as the code it composes into.
+//
+// mustHaveFiles is what stops a root from passing by scanning nothing — an
+// aggregate count cannot, because backend/ alone would carry it forever while
+// a unit tree silently escaped the rule. extensions/ is the one root that may
+// legitimately be empty: presence under it IS enablement, so the vanilla lane
+// composes an empty tree on purpose. A root that does not exist at all is
+// still caught, by the walk error below.
+type licensedTree struct {
+	root          string
+	mustHaveFiles bool
+}
+
+var licensedTrees = []licensedTree{
+	{root: ".", mustHaveFiles: true},
+	{root: "../extensions"},
+	{root: "../fixtures", mustHaveFiles: true},
+}
+
 func TestEveryHandWrittenGoFileCarriesTheLicenseHeader(t *testing.T) {
 	var missing []string
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+	walk := func(root string) (int, error) {
+		checked := 0
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			b, err := os.ReadFile(path) // #nosec G304 G122 -- path is a *.go file from walking the trusted source tree
+			if err != nil {
+				return err
+			}
+			text := string(b)
+			if isGenerated(path, text) {
+				return nil
+			}
+			checked++
+			if !strings.HasPrefix(text, spdxHeader) {
+				missing = append(missing, filepath.ToSlash(path))
+			}
 			return nil
-		}
-		b, err := os.ReadFile(path) // #nosec G304 G122 -- path is a *.go file from walking the trusted source tree
+		})
+		return checked, err
+	}
+	for _, tree := range licensedTrees {
+		checked, err := walk(tree.root)
 		if err != nil {
-			return err
+			t.Fatalf("walking %s: %v", tree.root, err)
 		}
-		text := string(b)
-		if isGenerated(path, text) {
-			return nil
+		if tree.mustHaveFiles && checked == 0 {
+			t.Fatalf("%s yielded no hand-written Go file — a root that scans nothing passes exactly like a clean one", tree.root)
 		}
-		if !strings.HasPrefix(text, spdxHeader) {
-			missing = append(missing, filepath.ToSlash(path))
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walking tree: %v", err)
 	}
 	if len(missing) > 0 {
 		t.Errorf("%d Go file(s) missing the BUSL-1.1 SPDX header (add it above the package clause, then a blank line):\n\t%s",
