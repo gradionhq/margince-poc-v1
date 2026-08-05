@@ -4,8 +4,12 @@
 package deals
 
 import (
+	"context"
 	"errors"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // The clock-free shape gates only — currency and rate. The effective-day guard
@@ -37,6 +41,54 @@ func TestNormalizeFxCurrencyRate(t *testing.T) {
 			var v *FxRateValidationError
 			if !errors.As(err, &v) {
 				t.Fatalf("expected FxRateValidationError, got %v", err)
+			}
+		})
+	}
+}
+
+// fxRateCtx binds a human holding exactly one fx_rate grant row.
+func fxRateCtx(g principal.ObjectGrant) context.Context {
+	return principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:test",
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"fixture"},
+			Objects:  map[string]principal.ObjectGrant{"fx_rate": g},
+		},
+	})
+}
+
+// The upfront half of the sheet's admission pair: it cannot know yet whether
+// the write inserts or replaces, so EITHER write grant gets past it and a
+// principal holding neither is refused here — before a pool connection is
+// taken. The grant-specific half runs inside the transaction and is proven end
+// to end in the integration lane (TestFxRateCreateAndUpdateGrantsGateSeparately).
+func TestPrepareFxRateAdmitsEitherWriteGrant(t *testing.T) {
+	in := SetFxRateInput{FromCurrency: "USD", Rate: "0.92"}
+	admitted := map[string]principal.ObjectGrant{
+		"create only":       {Create: true},
+		"update only":       {Update: true},
+		"create and update": {Create: true, Update: true},
+	}
+	for name, g := range admitted {
+		t.Run("admits "+name, func(t *testing.T) {
+			if _, err := NewStore(nil).prepareFxRate(fxRateCtx(g), in); err != nil {
+				t.Fatalf("prepareFxRate = %v, want admitted", err)
+			}
+		})
+	}
+
+	refused := map[string]principal.ObjectGrant{
+		"read only": {Read: true},
+		"no grant":  {},
+		// delete is the one verb the sheet never grants (a past-dated row
+		// prices historical rollups), so it must not open the write either.
+		"delete only": {Delete: true},
+	}
+	for name, g := range refused {
+		t.Run("refuses "+name, func(t *testing.T) {
+			_, err := NewStore(nil).prepareFxRate(fxRateCtx(g), in)
+			if !errors.Is(err, apperrors.ErrPermissionDenied) {
+				t.Fatalf("prepareFxRate = %v, want ErrPermissionDenied", err)
 			}
 		})
 	}

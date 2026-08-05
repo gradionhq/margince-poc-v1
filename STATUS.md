@@ -316,6 +316,69 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-05 (the RBAC matrix doc and the migration replay gate, branch `feat/rbac-matrix-gate`)
+
+**The migration gate now replays the upgrade instead of scanning the SQL.** The
+obligation is that an installation predating every backfill, upgraded to head,
+ends up holding exactly the matrix the server seeds today. That was approximated
+by three hand-maintained lists — a frozen legacy cohort, a 23-entry object →
+migration map, and a parity test whose expectations were a hand-written six of
+those twenty-three. All three are gone. `backend/migrations/rbac_upgrade_replay_integration_test.go`
+applies core through `0019` (the initial commit's head), plants the role
+documents an old installation held, applies core + custom to head, and compares
+every system role's document against the seeded matrix. 29 objects, **1.68s**.
+
+A scan proved a migration *mentioned* a JSON path; the replay proves the upgrade
+*worked*. A scan that drifts fails green; the replay fails red. The six existing
+parity cases stay — they reach non-clobbering, the `is_system` predicate and the
+`{}` guard, which a pristine-legacy comparison cannot.
+
+**The matrix is published.** `docs/reference/rbac-matrix.md` is rendered from
+`policy.MustDefaultJSON` by a golden-file test inside the identity module. A
+positional transposition in the 29-argument `defaults` declaration used to be
+invisible in review; it is now a changed cell in a committed table. No
+enforcement column and no provenance column — both were considered and rejected
+as approximations that would be quietly wrong in an audit artifact, and the page
+carries a "what this does not cover" section saying so.
+
+Two design corrections found while building, both recorded in the PR:
+
+- **`package migrations` cannot import `identity/internal/policy`** — Go's
+  `internal/` fence and `.go-arch-lint.yml` (`migrations: mayDependOn: [platform]`)
+  each forbid it independently. Both fixtures are therefore committed and held to
+  their live sources by gates that *can* see them: one inside the fence, one at
+  the backend root deriving the legacy cohort from `2cb50021`.
+- **A fresh install and an upgraded one differ on the zero-grant cells.** A fresh
+  seed writes an object a role holds nothing on as an explicit all-false grant; a
+  backfill writes a key only for roles it grants something to. `platform/auth`
+  reads both identically, so the comparison normalizes on effective grant.
+
+**The four issues absorbed from PR 1 are closed out.** #448's dead `update` grant on `fx_rate` /
+`ai_model_rate` is now wired rather than removed: a cheap `RequireAny(create, update)` still refuses
+an unauthorized caller before a pool connection is taken, and the specific action is demanded inside
+the transaction once insert-vs-overwrite is known. The rate sheet stays append-forward (a past
+effective date is 422 `fx_rate_past`, no role holds `delete`), so closed business cannot be restated
+— a won deal's rate is frozen onto its own row and roll-ups read a GENERATED column, never the sheet.
+[#450](https://github.com/gradionhq/margince-poc-v1/issues/450) replaces the Settings Organization
+group's role-name gate with per-tab predicates composed from the members; **manager and rep gain
+Catalog and Company**, knowingly, because the nav should describe the seat rather than the role name.
+[#449](https://github.com/gradionhq/margince-poc-v1/issues/449) stays a documented limit;
+[#451](https://github.com/gradionhq/margince-poc-v1/issues/451) is raised upstream.
+
+`platform/auth/rbac.go` crossed the 500-line ceiling once the new helpers landed and was split — the
+row-scope half now lives in `platform/auth/rowscope.go`.
+
+### Open, carried out of this branch
+
+- **[#470](https://github.com/gradionhq/margince-poc-v1/issues/470)** — `PUT /v1/company`
+  is gated on `organization`, an object that governs customer company records
+  rather than the installation's own profile. A rep can already edit it through
+  the API; the client nav gate has been the only obstacle. Filed rather than
+  fixed — it is a permissions change with its own blast radius.
+- **[#471](https://github.com/gradionhq/margince-poc-v1/issues/471)** — the RBAC
+  contract surface (vocabulary enums, the `/me` authorization shape, the
+  deprecated `passport` claim) needs reconciling upstream against AAD-ROLE-1..5.
+
 ## Session pickup — 2026-08-04 (a job kind is declared before it is written, branch `feat/job-contract`)
 
 **`backend/api/jobs.yaml` is now the declaration every River job kind is built
