@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-parity sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -324,9 +324,18 @@ SBOM_DIR     := sboms
 SYFT_IMAGE   ?= anchore/syft@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026 # v1.50.0
 GRANT_IMAGE  ?= anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237 # v0.6.8
 COSIGN_IMAGE ?= gcr.io/projectsigstore/cosign@sha256:c77247c92f4dfea851c70555738226498393e34e2f9ca83cb959e51c230e4ad7 # v2.4.3
+# Schema-conformance validators (sbom-validate). cyclonedx-cli is the first-party
+# CycloneDX validator and bundles its own spec schemas (1.7 support landed in
+# v0.30.0, so the pin must stay >= that). The SPDX formats have no maintained
+# validator image, so they validate against the pinned schemas in $(SBOM_SCHEMA_DIR)
+# with a generic JSON-schema CLI. Bump tag and digest together, same as above.
+CYCLONEDX_IMAGE  ?= cyclonedx/cyclonedx-cli@sha256:252c2e26f468c25fea1e63ecde1bc3198ad6e9dbb57f5ed3236bddcb2281b3a7 # v0.33.1
+JSONSCHEMA_IMAGE ?= ghcr.io/sourcemeta/jsonschema@sha256:a8931de12c23cb07a40318a9549beecf9ace73ac1af219ab61123ab46d3f1284 # v16.5.0
 DOCKER_SBOM  := docker run --rm -v "$(CURDIR)":/src -w /src
 SYFT         ?= $(DOCKER_SBOM) $(SYFT_IMAGE)
 GRANT        ?= $(DOCKER_SBOM) $(GRANT_IMAGE)
+CYCLONEDX    ?= $(DOCKER_SBOM) $(CYCLONEDX_IMAGE)
+JSONSCHEMA   ?= $(DOCKER_SBOM) $(JSONSCHEMA_IMAGE)
 # cosign's image defaults to uid 65532, which owns neither the bind-mounted
 # sboms/ dir nor a writable HOME — run it as the invoking user so the *.cosign.bundle
 # files it writes (mode 0600) are owned by that user and stay readable to whatever
@@ -346,6 +355,10 @@ SBOM_SRC     := .tmp/sbom-src
 # revision travels inside each SBOM, so cosign's signature covers it.
 SBOM_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse HEAD 2>/dev/null || echo unknown)")
 SBOM_FILES   := $(SBOM_DIR)/margince.cdx.json $(SBOM_DIR)/margince.spdx221.json $(SBOM_DIR)/margince.spdx300.json
+# Pinned upstream SPDX JSON schemas the SPDX validators check against (see the
+# directory README for provenance). Committed, so validation is offline and the
+# checked-against bytes cannot move under the gate.
+SBOM_SCHEMA_DIR := sbom-schemas
 
 ## sbom — generate the source-tree SBOMs (CycloneDX + SPDX 2.2.1 + SPDX 3.0)
 ## from a clean export of HEAD, license-enriched. Signing is separate: make sbom-sign (CI).
@@ -361,6 +374,7 @@ sbom:
 	    -o spdx-json@3.0=$(SBOM_DIR)/margince.spdx300.json
 	@$(MAKE) sbom-normalize
 	@$(MAKE) sbom-parity
+	@$(MAKE) sbom-validate
 	@echo "wrote $(SBOM_FILES)"
 
 ## sbom-normalize — reconcile syft's three writers so all three SBOMs describe one
@@ -402,14 +416,35 @@ sbom-parity:
 	    echo "FAIL: SBOM file sets differ — see the diff above"; exit 1; \
 	  fi
 
+## sbom-validate — schema-conformance gate: each SBOM must validate against its own
+## format schema, so a syft bump, a config change, or a normalization filter that
+## emitted a structurally malformed document fails here rather than being signed and
+## shipped. sbom-parity proves the three agree with each other; this proves each is a
+## valid document of its format. CycloneDX goes through the first-party cyclonedx-cli,
+## which bundles the spec schema; --fail-on-errors is load-bearing — without it the CLI
+## prints "BOM is not valid" but still exits 0. The two SPDX formats have no maintained
+## validator image, so they validate against the pinned upstream schemas in
+## $(SBOM_SCHEMA_DIR) with a generic JSON-schema CLI (the SPDX project's own guidance for
+## SPDX 3.0). `make sbom` runs it after parity; CI runs `make sbom`, so every SBOM CI run
+## is gated, and sbom-sign re-runs it so only schema-valid bytes are signed.
+sbom-validate:
+	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
+	@echo "validating $(SBOM_DIR)/margince.cdx.json against CycloneDX schema"
+	@$(CYCLONEDX) validate --input-file $(SBOM_DIR)/margince.cdx.json --fail-on-errors
+	@echo "validating $(SBOM_DIR)/margince.spdx221.json against SPDX 2.2.1 schema"
+	@$(JSONSCHEMA) validate $(SBOM_SCHEMA_DIR)/spdx-2.2.1.schema.json $(SBOM_DIR)/margince.spdx221.json
+	@echo "validating $(SBOM_DIR)/margince.spdx300.json against SPDX 3.0.1 schema"
+	@$(JSONSCHEMA) validate $(SBOM_SCHEMA_DIR)/spdx-3.0.1.schema.json $(SBOM_DIR)/margince.spdx300.json
+	@echo "OK: three SBOMs valid against their format schemas"
+
 ## sbom-sign — keyless-sign each generated SBOM with cosign (writes *.cosign.bundle; needs an OIDC token).
-## Depends on sbom-parity, not sbom: the signature must cover normalized, mutually
-## agreeing bytes, but re-running generation here is wrong — in CI signing is a
-## separate job (holding id-token: write) that consumes the generation job's
-## artifact, and running the syft scan under that token is the isolation the SBOM
-## workflow forbids. Parity re-checks the existing files cheaply and refuses to sign
-## a stale or un-normalized set.
-sbom-sign: sbom-parity
+## Depends on parity + validate, not sbom: the signature must cover normalized,
+## mutually agreeing, schema-valid bytes, but re-running generation here is wrong — in
+## CI signing is a separate job (holding id-token: write) that consumes the generation
+## job's artifact, and running the syft scan under that token is the isolation the SBOM
+## workflow forbids. Both gates re-check the existing files cheaply and refuse to sign a
+## stale, un-normalized, or malformed set.
+sbom-sign: sbom-parity sbom-validate
 	@mkdir -p $(COSIGN_HOME)
 	@for f in $(SBOM_FILES); do \
 	  echo "signing $$f"; \
