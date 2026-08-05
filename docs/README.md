@@ -33,6 +33,7 @@ maps the codebase and links everything below.
 
 ### Reference — look it up
 - [modules.md](reference/modules.md) — the modules: what each owns, its tables, its HTTP surface.
+- [rbac-matrix.md](reference/rbac-matrix.md) — what each seeded role may do to each kind of record. Generated from the seeded policy, never hand-edited.
 - [platform-toolkit.md](reference/platform-toolkit.md) — the reusable `platform/*` + `shared/*` utilities.
 - [configuration.md](reference/configuration.md) — every binary flag and environment variable.
 - [make-targets.md](reference/make-targets.md) — every `make` target.

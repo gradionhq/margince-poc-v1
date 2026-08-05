@@ -389,6 +389,11 @@ func TestOwnersCapsTheDirectoryAndReportsTheTruncation(t *testing.T) {
 
 // A non-admin holding only the read grant every role carries must be refused
 // by the real policy shape too, not just by the hand-built unit fixture.
+//
+// That is what earns the tag, and why this is not a duplicate to delete: the
+// real workspace's role grants are what validate the hand-built fixture in
+// handlers_usermap_test.go. Removing this leaves that unit test unfalsifiable —
+// it would keep passing against a fixture that had drifted from the policy.
 func TestUserMapRefusesAMemberAgainstTheRealWorkspace(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{})

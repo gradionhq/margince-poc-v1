@@ -210,6 +210,11 @@ func TestOnboardingSiteReadPollKeepsTheDossierWhenOptionalRuntimeTelemetryFails(
 	}
 }
 
+// One coherent refusal table, which is why it stays whole and stays tagged.
+// Most arms are pure 422 validation, but the missing-record 404s resolve through
+// a real store miss and the broken-queue 500 needs the real wire; splitting the
+// pure arms into the unit lane would scatter one specification across two files
+// to save milliseconds.
 func TestOnboardingSiteReadTransportRejectsInvalidManualInputs(t *testing.T) {
 	e := integration.Setup(t)
 	human := e.As(e.Rep1, nil, integration.AdminPerms)
@@ -275,27 +280,6 @@ func TestOnboardingSiteReadTransportRejectsInvalidManualInputs(t *testing.T) {
 	engine.startCompanySiteRead(malformedRec, malformed.WithContext(human))
 	if malformedRec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("malformed start → %d, want 422", malformedRec.Code)
-	}
-}
-
-func TestOnboardingSiteReadHandlersStayExplicitWithoutAConfiguredEngine(t *testing.T) {
-	handlers := siteReadHandlers{}
-	readID := openapi_types.UUID(ids.NewV7())
-	tests := []func(http.ResponseWriter, *http.Request){
-		func(w http.ResponseWriter, r *http.Request) {
-			handlers.StartCompanySiteRead(w, r, crmcontracts.StartCompanySiteReadParams{})
-		},
-		func(w http.ResponseWriter, r *http.Request) { handlers.GetCompanySiteRead(w, r, readID) },
-		func(w http.ResponseWriter, r *http.Request) {
-			handlers.ConfirmCompanySiteRead(w, r, readID, crmcontracts.ConfirmCompanySiteReadParams{})
-		},
-	}
-	for i, invoke := range tests {
-		rec := httptest.NewRecorder()
-		invoke(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-		if rec.Code != http.StatusNotImplemented {
-			t.Fatalf("unconfigured handler %d → %d, want 501", i, rec.Code)
-		}
 	}
 }
 

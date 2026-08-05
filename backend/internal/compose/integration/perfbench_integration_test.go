@@ -56,16 +56,12 @@ var benchTiers = map[search.BenchTier]benchTierSpec{
 	},
 }
 
-// benchDatabase connects as owner, resets the schema, and migrates. This is
-// the ONE compose/integration suite that migrates inline rather than riding the
-// migrate-once harness every other suite uses (testdb.EnsureSchema + Reset) —
-// it seeds a
-// large volume and asserts query-latency SLOs, so it wants pristine physical
-// tables (fresh relfilenodes, no bloat or stale planner stats a prior reset
-// cycle would leave) and pays a genuine fresh migrate. It runs once per tier, so
-// the cost is negligible. The migrate-once guard
-// (TestComposeIntegrationSuitesMigrateOncePerProcess) allowlists this file for
-// exactly that reason; no other suite may follow suit.
+// benchDatabase connects as owner, resets the schema, and migrates. This suite
+// migrates inline rather than riding the migrate-once harness every other suite
+// uses (testdb.EnsureSchema + Reset); the module-wide guard in
+// backend/integrationmigrateonce_test.go ratifies that as a waiver, and its
+// `inlineMigrators` entry is the one place the exception and what it costs are
+// stated.
 func benchDatabase(t *testing.T) *pgx.Conn {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")

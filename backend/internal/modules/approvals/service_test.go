@@ -246,6 +246,57 @@ func TestRequireDecisionGrants(t *testing.T) {
 			perms:   grants(map[string]principal.ObjectGrant{"deal": {Update: true}}),
 			wantErr: true,
 		},
+		// The release is an upsert whose verb is unknowable at decision time,
+		// and it applies as the system principal, so the store's specific check
+		// never fires. Either verb alone would authorize the operation it does
+		// not name — hence both, and each half is asserted separately so a
+		// requirement silently dropped from the pair fails here.
+		{
+			name:  "fx_rate_proposal admits an approver holding both write verbs",
+			a:     row{Kind: "fx_rate_proposal"},
+			perms: grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Create: true, Update: true}}),
+		},
+		{
+			name:    "fx_rate_proposal refuses a create-only approver, who could not overwrite directly",
+			a:       row{Kind: "fx_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Create: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "fx_rate_proposal refuses an update-only approver, who could not insert directly",
+			a:       row{Kind: "fx_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Update: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "fx_rate_proposal refuses an approver holding only read",
+			a:       row{Kind: "fx_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:  "ai_model_rate_proposal admits an approver holding both write verbs",
+			a:     row{Kind: "ai_model_rate_proposal"},
+			perms: grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Create: true, Update: true}}),
+		},
+		{
+			name:    "ai_model_rate_proposal refuses a create-only approver",
+			a:       row{Kind: "ai_model_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Create: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "ai_model_rate_proposal refuses an update-only approver",
+			a:       row{Kind: "ai_model_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Update: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "ai_model_rate_proposal refuses an approver holding only read",
+			a:       row{Kind: "ai_model_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true}}),
+			wantErr: true, denied: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
