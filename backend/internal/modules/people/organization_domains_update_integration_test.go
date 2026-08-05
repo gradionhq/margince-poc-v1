@@ -240,3 +240,72 @@ func TestUpdateOrganizationKeepingOwnDomainIsNoFalseConflict(t *testing.T) {
 		t.Fatalf("live domains = %+v, want {keep.test:true}", live)
 	}
 }
+
+// Both replace-sets in ONE request. Each branch legitimately bumps updated_at,
+// and before storekit.Patch de-duplicated by column that rendered
+// `SET updated_at = $n, updated_at = $m` — Postgres 42601, a 500 on a request
+// the contract allows. Nothing covered the pair, which is why it stayed
+// invisible: each field on its own worked.
+func TestUpdateOrganizationAcceptsDomainsAndRelationshipTypesTogether(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Kerrix Industrial", Source: "manual",
+		Domains: []OrgDomainInput{{Domain: "kerrix.test", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+	v0 := orgVersion(ctx, t, e, orgID)
+
+	if _, err := e.store.UpdateOrganization(ctx, orgID, UpdateOrganizationInput{
+		Domains:           &[]OrgDomainInput{{Domain: "kerrix-industrial.test", IsPrimary: true}},
+		RelationshipTypes: &[]string{"customer"},
+	}); err != nil {
+		t.Fatalf("domains and relationship_types in one patch: %v", err)
+	}
+
+	// Both replace-sets actually landed — the request must not merely stop
+	// erroring while silently applying one half.
+	live := liveDomainsOf(ctx, t, e, orgID)
+	if len(live) != 1 || !live["kerrix-industrial.test"] {
+		t.Errorf("live domains = %+v, want only kerrix-industrial.test as primary", live)
+	}
+	if types := liveRelationshipTypesOf(ctx, t, e, orgID); len(types) != 1 || !types["customer"] {
+		t.Errorf("live relationship types = %+v, want only customer", types)
+	}
+	// One request is one write: the version bumps once, not once per replace-set.
+	if v1 := orgVersion(ctx, t, e, orgID); v1 != v0+1 {
+		t.Errorf("version %d -> %d, want a single bump for a single request", v0, v1)
+	}
+	if n := countOrgUpdatedEvents(ctx, t, e, orgID); n != 1 {
+		t.Errorf("got %d organization.updated events, want exactly 1", n)
+	}
+}
+
+// liveRelationshipTypesOf reads the org's unarchived relationship types.
+func liveRelationshipTypesOf(ctx context.Context, t *testing.T, e *dedupeEnv, orgID ids.OrganizationID) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT relationship_type FROM organization_relationship_type
+			  WHERE organization_id = $1 AND archived_at IS NULL`, orgID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var rt string
+			if err := rows.Scan(&rt); err != nil {
+				return err
+			}
+			out[rt] = true
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("reading relationship types: %v", err)
+	}
+	return out
+}

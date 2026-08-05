@@ -32,25 +32,29 @@ const (
 // Patch accumulates a partial UPDATE: only fields the client sent, plus
 // the before/after diff the audit row records.
 type Patch struct {
-	sets   []string
-	args   []any
+	sets []string
+	args []any
+	// slot maps a column to the position it already holds in sets/args. An
+	// assignment list is a SET of columns: two branches of one request can each
+	// want `updated_at` bumped, and appending a second assignment renders
+	// `SET updated_at = $1, updated_at = $2`, which Postgres rejects (42601) —
+	// turning a legal request into a 500. So a repeat lands on the first slot.
+	slot   map[string]int
 	before map[string]any
 	after  map[string]any
 }
 
 func NewPatch() *Patch {
-	return &Patch{before: map[string]any{}, after: map[string]any{}}
+	return &Patch{slot: map[string]int{}, before: map[string]any{}, after: map[string]any{}}
 }
 
 // Set records one changed column. oldVal comes from the row read inside
-// the same transaction, so the audit diff is exact.
+// the same transaction, so the audit diff is exact. Setting the same column
+// twice is safe: the last value wins, in one assignment.
 //
 //craft:ignore naked-any column values span every SQL type a module owns; they flow to bind parameters and the schemaless audit diff
 func (p *Patch) Set(column string, oldVal, newVal any) {
-	p.args = append(p.args, newVal)
-	p.sets = append(p.sets, fmt.Sprintf("%s = $%d", column, len(p.args)))
-	p.before[column] = oldVal
-	p.after[column] = newVal
+	p.recordAssignment(column, column, oldVal, newVal)
 }
 
 // setQuoted records one changed column whose SQL identifier is quoted in
@@ -62,8 +66,31 @@ func (p *Patch) Set(column string, oldVal, newVal any) {
 //
 //craft:ignore naked-any same column-value contract as Set
 func (p *Patch) setQuoted(column string, oldVal, newVal any) {
+	p.recordAssignment(column, quoteColumnIdentifier(column), oldVal, newVal)
+}
+
+// recordAssignment is the one place an assignment is recorded, so the
+// de-duplication holds
+// for a quoted cf_ column exactly as it does for a core one — both key on the
+// wire name, which is also the audit-diff key.
+//
+// A repeat overwrites the bound value and leaves `before` alone: the first Set
+// captured what the row actually held when this transaction read it, while a
+// second call's oldVal is at best the same and at worst a re-read of a value
+// this transaction already changed. Keeping the first is what makes the audit
+// diff describe the whole change rather than its last leg.
+//
+//craft:ignore naked-any same column-value contract as Set
+func (p *Patch) recordAssignment(column, sqlName string, oldVal, newVal any) {
+	if i, seen := p.slot[column]; seen {
+		p.args[i] = newVal
+		p.sets[i] = fmt.Sprintf("%s = $%d", sqlName, i+1)
+		p.after[column] = newVal
+		return
+	}
 	p.args = append(p.args, newVal)
-	p.sets = append(p.sets, fmt.Sprintf("%s = $%d", quoteColumnIdentifier(column), len(p.args)))
+	p.slot[column] = len(p.args) - 1
+	p.sets = append(p.sets, fmt.Sprintf("%s = $%d", sqlName, len(p.args)))
 	p.before[column] = oldVal
 	p.after[column] = newVal
 }
