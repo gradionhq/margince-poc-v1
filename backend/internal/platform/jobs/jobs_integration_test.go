@@ -25,9 +25,8 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
-	"github.com/gradionhq/margince/backend/migrations"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
 
 func quietLogger() *slog.Logger {
@@ -47,11 +46,20 @@ type noopWorker struct {
 
 func (noopWorker) Work(context.Context, *river.Job[noopArgs]) error { return nil }
 
-// migratedAppPool resets the schema as owner, applies core+custom and the
-// River schema, and returns a runner plus the underlying pool on the
-// runtime app role — proving the grants in jobs.Migrate actually let the
-// app role reach River's tables. The pool is returned alongside the runner
-// so callers can open their own transactions (e.g. to exercise EnqueueTx*).
+// migratedAppPool gives the test a migrated, empty database carrying the River
+// schema, and returns a runner plus the underlying pool on the runtime app role
+// — proving the grants in jobs.Migrate actually let the app role reach River's
+// tables. The pool is returned alongside the runner so callers can open their
+// own transactions (e.g. to exercise EnqueueTx*).
+//
+// The schema is migrated once per test process (testdb.EnsureSchema) and only the
+// data is reset between tests (testdb.Reset). It used to DROP SCHEMA and re-run
+// every embedded migration on each of this package's 16 tests, which cost ~3s a
+// test — the per-test migrate the module-wide gate in backend/
+// integrationmigrateonce_test.go exists to forbid, and which that gate could not
+// see while it walked internal/compose/integration alone. EnsureSchema opens with
+// the same DROP SCHEMA + GRANT USAGE TO margince_app, so the app-role reach this
+// suite asserts is established exactly as before.
 func migratedAppPool(t *testing.T) (*jobs.Runner, *pgxpool.Pool) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -70,19 +78,11 @@ func migratedAppPool(t *testing.T) (*jobs.Runner, *pgxpool.Pool) {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
-		t.Fatalf("resetting schema: %v", err)
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatalf("migrating the test schema: %v", err)
 	}
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatalf("loading core migrations: %v", err)
-	}
-	custom, err := migrations.Custom()
-	if err != nil {
-		t.Fatalf("loading custom migrations: %v", err)
-	}
-	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
-		t.Fatalf("migrating core+custom: %v", err)
+	if err := testdb.Reset(ctx, owner); err != nil {
+		t.Fatalf("resetting test data: %v", err)
 	}
 
 	// River schema is applied on the owner pool, exactly as cmd/migrate does.
@@ -91,8 +91,8 @@ func migratedAppPool(t *testing.T) (*jobs.Runner, *pgxpool.Pool) {
 		t.Fatalf("opening owner pool: %v", err)
 	}
 	defer ownerPool.Close()
-	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
-		t.Fatalf("applying river schema: %v", err)
+	if err := testdb.EnsureRiverSchema(ctx, ownerPool, jobs.Migrate); err != nil {
+		t.Fatal(err)
 	}
 
 	// The runner runs on the app role — the same role the worker uses.
