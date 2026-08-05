@@ -445,26 +445,47 @@ func TestASecondLeadCannotClaimALinkedInProfile(t *testing.T) {
 // the verdict argument load-bearing rather than decorative. No production
 // caller reaches it — each returns on the exact tier first — so it is asserted
 // directly: a future path that forgets is refused by the chokepoint itself.
+//
+// The row count is taken INSIDE the same transaction as the refused call, not
+// after it: a chokepoint that inserted first and refused second would leave
+// nothing behind once the transaction rolled back, so a count from outside
+// would read zero either way and prove nothing. Read from within, zero means
+// the refusal genuinely preceded the INSERT.
 func TestTheChokepointRefusesToMintOverAnExactCollision(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
-	err := e.store.tx(ctx, func(tx pgx.Tx) error {
-		_, err := createPerson(ctx, tx, PersonResolution{
+
+	var personRefusal error
+	var people int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, personRefusal = createPerson(ctx, tx, PersonResolution{
 			Decision: DecisionExactCollision, MatchedLane: laneEmail, PersonID: ids.New[ids.PersonKind](),
 		}, PersonSpec{FullName: "Ghost", Source: "manual", CapturedBy: "human:test"})
-		return err
-	})
-	if err == nil {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM person`).Scan(&people)
+	}); err != nil {
+		t.Fatalf("probe the person chokepoint: %v", err)
+	}
+	if personRefusal == nil {
 		t.Fatal("createPerson minted a person while the ladder held an exact email collision")
 	}
+	if people != 0 {
+		t.Fatalf("the refused create left %d person rows behind", people)
+	}
 
-	err = e.store.tx(ctx, func(tx pgx.Tx) error {
-		_, err := createOrganization(ctx, tx, OrganizationMatch{
+	var orgRefusal error
+	var orgs int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, orgRefusal = createOrganization(ctx, tx, OrganizationMatch{
 			Decision: DecisionExactCollision, OrganizationID: ids.New[ids.OrganizationKind](),
 		}, OrgSpec{DisplayName: "Ghost Co", Source: "manual", CapturedBy: "human:test"})
-		return err
-	})
-	if err == nil {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM organization`).Scan(&orgs)
+	}); err != nil {
+		t.Fatalf("probe the organization chokepoint: %v", err)
+	}
+	if orgRefusal == nil {
 		t.Fatal("createOrganization minted an organization while the ladder held an exact domain collision")
+	}
+	if orgs != 0 {
+		t.Fatalf("the refused create left %d organization rows behind", orgs)
 	}
 }

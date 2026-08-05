@@ -37,6 +37,9 @@ const unknownToken = "8109999999:AAH-a-token-telegram-does-not-know"
 // A refused token must leave the system exactly as it found it: no row for an
 // operator to wonder about, and — the half that is easy to miss — nothing sealed
 // in the vault. getMe runs first precisely so that both stay true.
+//
+// Counting what was NOT written is what earns the tag: the assertion is a real
+// query returning zero, which no fake can be wrong about.
 func TestConnectValidatesTokenBeforePersistingAnything(t *testing.T) {
 	f := newChannelFixture(t, nil)
 
@@ -61,6 +64,11 @@ func TestConnectValidatesTokenBeforePersistingAnything(t *testing.T) {
 // The transport turns a rejected token into a 400 naming the token, and carries
 // none of the provider's own text: the client learns what to fix, not what
 // Telegram said.
+//
+// Tagged because it shares newChannelFixture with the sibling arms that count
+// real rows and vault puts. Rebuilding it on a nil pool to win the unit lane
+// would turn a future "it persisted something" regression into a panic instead
+// of a failure, which is the fixture lying rather than the test passing.
 func TestConnectRejectsAnInvalidTokenWith400(t *testing.T) {
 	f := newChannelFixture(t, nil)
 

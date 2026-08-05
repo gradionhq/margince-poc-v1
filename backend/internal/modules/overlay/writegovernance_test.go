@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -182,6 +183,18 @@ func TestWritePathErrorCollapsesTheFenceSignal(t *testing.T) {
 	}
 	if writePathError(nil) != nil {
 		t.Error("writePathError(nil) must stay nil")
+	}
+}
+
+// TestWriteLedgerPruneExpiredRequiresWorkspace: the prune runs under
+// WithWorkspaceTx, so a context with no workspace bound fails closed with a
+// surfaced error rather than a cross-tenant or unscoped delete. The fence is
+// checked before the pool is dialled, which a nil pool proves rather than
+// assumes.
+func TestWriteLedgerPruneExpiredRequiresWorkspace(t *testing.T) {
+	l := NewWriteLedger(nil)
+	if _, err := l.PruneExpired(context.Background()); !errors.Is(err, database.ErrNoWorkspace) {
+		t.Errorf("PruneExpired without a workspace-bound context = %v, want ErrNoWorkspace — anything else risks an unscoped delete", err)
 	}
 }
 
