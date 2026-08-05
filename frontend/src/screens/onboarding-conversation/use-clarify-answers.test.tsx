@@ -4,8 +4,10 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
-import { EMPTY_DRAFT } from "../onboarding";
-import { draftWithLegalEntity } from "./company-proposal";
+import type { CompanyDraft } from "../onboarding";
+import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
+import type { SuggestedCompanyChange } from "../onboarding-read";
+import { draftWithDecidedLegalEntity } from "./company-proposal";
 import { useClarifyAnswers } from "./use-clarify-answers";
 
 // The legal-entity clarify authorizes exactly legal_name (the contract's own
@@ -90,20 +92,37 @@ function stubAuthorizedReply() {
   );
 }
 
+// Both collaborators are the REAL ones the company act wires in: the
+// ordinary change path is a changeDraftField loop over the authorized
+// changes, and an entity pick goes through draftWithDecidedLegalEntity.
+// Stubbing either would leave the one thing these tests are about — which
+// path a decision takes, and what provenance it leaves behind — unexercised.
 function setupHook(
   legalEntities: readonly LegalEntity[],
   clarify: Clarify = entityClarify,
   applyLegalEntityOverride?: (entity: LegalEntity) => void,
+  startingDraft: CompanyDraft = EMPTY_DRAFT,
 ) {
   const proposalRef: { current: Proposal } = {
     current: { ready: true, open_questions: [clarify] },
   };
-  const draftRef = { current: EMPTY_DRAFT };
-  const applyChanges = vi.fn();
+  const draftRef = { current: startingDraft };
+  const applyChanges = vi.fn((changes: readonly SuggestedCompanyChange[]) => {
+    for (const change of changes) {
+      draftRef.current = changeDraftField(
+        draftRef.current,
+        change.field,
+        change.value,
+      );
+    }
+  });
   const applyLegalEntity = vi.fn(
     applyLegalEntityOverride ??
       ((entity: LegalEntity) => {
-        draftRef.current = draftWithLegalEntity(draftRef.current, entity);
+        draftRef.current = draftWithDecidedLegalEntity(
+          draftRef.current,
+          entity,
+        );
       }),
   );
   const legalEntitiesRef = { current: legalEntities };
@@ -165,12 +184,78 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
     });
   });
 
+  // One decision, one provenance. The pick settles three fields at once and
+  // the server authorizes only the name; sending that name down the ordinary
+  // change path is what used to stamp it as something the human typed, so a
+  // single click left the address and registration number reading as the
+  // site's evidence and the name beside them reading as hand-entered.
+  it("leaves every field the one pick settled with the same provenance, the authorized name included", async () => {
+    stubAuthorizedReply();
+    const { result, draftRef } = setupHook([gradionEntity]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() =>
+      expect(draftRef.current.values.legal_name).toBe(gradionEntity.name),
+    );
+    for (const field of [
+      "legal_name",
+      "registered_address",
+      "register_vat",
+    ] as const) {
+      expect(draftRef.current.grounded[field]).toMatchObject({
+        source_kind: "url",
+        source_url: gradionEntity.source_url,
+      });
+      // The human chose among the read's own candidates rather than writing
+      // a value, so nothing here is theirs to have asserted.
+      expect(draftRef.current.edited.has(field)).toBe(false);
+    }
+  });
+
+  // Answering the question is the decision ABOUT the legal name, so it wins
+  // over a name typed earlier — otherwise the click reads as ignored, and
+  // the details it does fill would describe a different company than the
+  // name left standing above them.
+  it("settles the name the human just chose over one they typed earlier, and stops calling it their own", async () => {
+    stubAuthorizedReply();
+    const typed = changeDraftField(
+      EMPTY_DRAFT,
+      "legal_name",
+      "Gradion, roughly",
+    );
+    const { result, draftRef } = setupHook(
+      [gradionEntity],
+      entityClarify,
+      undefined,
+      typed,
+    );
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() =>
+      expect(draftRef.current.values.legal_name).toBe(gradionEntity.name),
+    );
+    expect(draftRef.current.edited.has("legal_name")).toBe(false);
+    expect(draftRef.current.values.registered_address).toBe(
+      gradionEntity.registered_address,
+    );
+  });
+
   it("still records the answer, with no leaked exception message, if the entity fill itself throws", async () => {
     stubAuthorizedReply();
     const throwing = () => {
       throw new TypeError("Cannot read properties of undefined (reading 'x')");
     };
-    const { result } = setupHook([gradionEntity], entityClarify, throwing);
+    const { result, draftRef } = setupHook(
+      [gradionEntity],
+      entityClarify,
+      throwing,
+    );
 
     act(() => {
       result.current.answerClarify(entityClarify.id, gradionEntity.name);
@@ -184,6 +269,10 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
     expect(result.current.answers).toContainEqual(
       expect.objectContaining({ clarifyId: entityClarify.id }),
     );
+    // The choice is on record server-side either way, so it still has to
+    // reach the draft: the ordinary change path carries it when the
+    // grounded one cannot.
+    expect(draftRef.current.values.legal_name).toBe(gradionEntity.name);
   });
 
   it("never fills anything when no candidate on the read matches the authorized value", async () => {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../../api/schema";
 import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
-import { draftWithLegalEntity, legalFieldGap } from "./company-proposal";
+import {
+  draftWithDecidedLegalEntity,
+  draftWithLegalEntity,
+  legalFieldGap,
+} from "./company-proposal";
 
 type LegalEntity = components["schemas"]["CompanySiteReadLegalEntity"];
 type SiteReadPage = components["schemas"]["CompanySiteReadPage"];
@@ -84,6 +88,55 @@ describe("draftWithLegalEntity", () => {
   });
 });
 
+// Answering the legal-entity question is a decision about the legal name
+// itself, so that field follows the answer where a pick made beside the
+// fields would have left it alone — and it follows as the site's evidence,
+// never as something the human asserted.
+describe("draftWithDecidedLegalEntity", () => {
+  it("replaces a name the human typed earlier, and stops counting it as theirs", () => {
+    const typed = changeDraftField(
+      EMPTY_DRAFT,
+      "legal_name",
+      "Gradion, roughly",
+    );
+    const next = draftWithDecidedLegalEntity(typed, gradionEntity);
+    expect(next.values.legal_name).toBe("Gradion Co., Ltd.");
+    expect(next.edited.has("legal_name")).toBe(false);
+    expect(next.grounded.legal_name).toMatchObject({
+      source_kind: "url",
+      source_url: gradionEntity.source_url,
+    });
+  });
+
+  it("still leaves the details the question never asked about to the human", () => {
+    const typed = changeDraftField(
+      EMPTY_DRAFT,
+      "registered_address",
+      "My own address, typed by hand",
+    );
+    const next = draftWithDecidedLegalEntity(typed, gradionEntity);
+    expect(next.values.registered_address).toBe(
+      "My own address, typed by hand",
+    );
+    expect(next.edited.has("registered_address")).toBe(true);
+    expect(next.grounded.registered_address).toBeUndefined();
+  });
+
+  it("leaves a typed name and its mark exactly as they were when the candidate carries no name to settle it with", () => {
+    const typed = changeDraftField(EMPTY_DRAFT, "legal_name", "Gradion GmbH");
+    const nameless: LegalEntity = {
+      name: "",
+      source_url: "https://gradion.com/legal-notice",
+    };
+    const next = draftWithDecidedLegalEntity(typed, nameless);
+    expect(next.values.legal_name).toBe("Gradion GmbH");
+    // Unmarking a value nothing replaced would show the human's own text as
+    // if the site had grounded it.
+    expect(next.edited.has("legal_name")).toBe(true);
+    expect(next.grounded.legal_name).toBeUndefined();
+  });
+});
+
 // Why a legal-trio field is blank must be exactly what the read's own crawl
 // saw: a genuine "the imprint said nothing" only follows a legal page that
 // actually loaded; anything short of that is an honest "I never had a page
@@ -111,7 +164,11 @@ describe("legalFieldGap", () => {
       "not-checked",
     );
     expect(legalFieldGap("registered_address", [])).toBe("not-checked");
-    expect(legalFieldGap("registered_address", undefined)).toBe("not-checked");
+  });
+
+  it("names no gap at all on the manual path, where nothing ever went looking", () => {
+    expect(legalFieldGap("registered_address", undefined)).toBeNull();
+    expect(legalFieldGap("legal_name", undefined)).toBeNull();
   });
 
   it("reads as not checked when the legal page was found but never actually fetched", () => {

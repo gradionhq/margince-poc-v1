@@ -200,6 +200,30 @@ export function draftWithLegalEntity(
   return { values, grounded, edited: draft.edited };
 }
 
+// The same block, applied as the ANSWER to the legal-entity question rather
+// than as a pick made beside the fields. Answering it is a decision about
+// legal_name itself, so that one field follows the pick even over a name the
+// human typed earlier: their old text standing beside the chosen candidate's
+// address and registration number would describe two companies at once. The
+// human mark goes with the value — they selected what the read had already
+// grounded instead of authoring anything, so the whole block reads as the
+// site's evidence. The details that ride along were never what was asked, so
+// an edit there still wins, exactly as above.
+export function draftWithDecidedLegalEntity(
+  draft: CompanyDraft,
+  entity: LegalEntity,
+): CompanyDraft {
+  if (entity.name.trim() === "") {
+    // No name to settle legal_name with: dropping the mark from a value this
+    // pick cannot replace would strip the human's authorship from their own
+    // text and leave it looking site-sourced.
+    return draftWithLegalEntity(draft, entity);
+  }
+  const edited = new Set(draft.edited);
+  edited.delete("legal_name");
+  return draftWithLegalEntity({ ...draft, edited }, entity);
+}
+
 // The three fields only a legal/imprint page can ground — the same trio
 // draftWithLegalEntity fills and the server's own legal gate governs. A
 // blank display_name or offer_summary carries no such page to have checked,
@@ -220,14 +244,16 @@ export type LegalFieldGap = "not-published" | "not-checked";
 // "not-checked" — the honest admission that nothing was there TO read, as
 // opposed to a claim that the site was searched and came up empty. A field
 // outside the trio, or one that already carries a value, has no gap to name.
+// Neither does a field on the manual path: with no crawl behind it there is
+// no "did not find" to report, only a blank the person has not filled yet.
 export function legalFieldGap(
   field: CompanyFieldName,
   pages: readonly SiteReadPage[] | undefined,
 ): LegalFieldGap | null {
-  if (!LEGAL_TRIO_FIELDS.has(field)) {
+  if (!LEGAL_TRIO_FIELDS.has(field) || pages === undefined) {
     return null;
   }
-  const sawLegalPage = (pages ?? []).some(
+  const sawLegalPage = pages.some(
     (page) => page.kind === "impressum" && page.status === "fetched",
   );
   return sawLegalPage ? "not-published" : "not-checked";

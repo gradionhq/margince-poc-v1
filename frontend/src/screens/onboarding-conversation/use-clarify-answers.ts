@@ -22,10 +22,16 @@ import { isCompanyField } from "./company-proposal";
 // selected_option verifies a single field+value tuple and nothing else), so
 // address and registration number are never in the server's reply. They
 // were already on screen, in the SAME candidate the human just picked
-// (CompanySiteRead.legal_entities, matched by name) — draftWithLegalEntity
-// pulls them from there once legal_name itself is authorized, with the same
+// (CompanySiteRead.legal_entities, matched by name) — the entity fill pulls
+// them from there once legal_name itself is authorized, with the same
 // grounded provenance as any other site-read value, never as if it were a
 // manual edit.
+//
+// One decision leaves one provenance, so the authorized legal_name travels
+// with them rather than down the ordinary change path: that path is for a
+// value the human TYPED and stamps it as their own assertion, which would
+// leave the two fields the same pick filled reading as the site's evidence
+// and the name they were picked by reading as hand-entered.
 
 type MessageReply = components["schemas"]["OnboardingCompanyMessageReply"];
 type Proposal = components["schemas"]["OnboardingCompanyProposal"];
@@ -55,27 +61,42 @@ class ClarifyRequestError extends Error {}
 const LEGAL_ENTITY_FIELD = "legal_name";
 
 // The candidate the human just picked, matched by the exact name the server
-// authorized — never a different entity, never a guess. The choice is
-// already recorded server-side by the time this runs; a bug here is a
-// lesser, separate failure and must never be reported as if the choice
-// itself had failed, so it is caught and logged rather than left to bubble
-// into onError's (unrelated) authorization-failure handling.
-function fillLegalEntity(
-  field: string,
-  value: string,
+// authorized — never a different entity, never a guess.
+function pickedLegalEntity(
+  selection: OptionSelection,
   legalEntities: readonly LegalEntity[],
+): LegalEntity | undefined {
+  return selection.field === LEGAL_ENTITY_FIELD
+    ? legalEntities.find((candidate) => candidate.name === selection.value)
+    : undefined;
+}
+
+// Where an authorized change lands: through the entity fill when the human
+// chose one of the read's own candidates, so the whole legal block keeps the
+// site's evidence, and down the ordinary change path otherwise.
+//
+// The fallback covers the two cases where no candidate can carry the value:
+// the read has none matching it, and a fill that throws. The choice is
+// already recorded server-side by the time this runs, so it has to reach the
+// draft either way — and a bug in the fill is a lesser, separate failure
+// that must never be reported as if the choice itself had failed, so it is
+// caught and logged rather than left to bubble into onError's (unrelated)
+// authorization-failure handling.
+function applyAuthorizedChoice(
+  authorized: readonly SuggestedCompanyChange[],
+  entity: LegalEntity | undefined,
+  applyChanges: (changes: readonly SuggestedCompanyChange[]) => void,
   applyLegalEntity: (entity: LegalEntity) => void,
 ): void {
-  if (field !== LEGAL_ENTITY_FIELD) {
+  if (entity === undefined) {
+    applyChanges(authorized);
     return;
   }
   try {
-    const entity = legalEntities.find((candidate) => candidate.name === value);
-    if (entity) {
-      applyLegalEntity(entity);
-    }
+    applyLegalEntity(entity);
   } catch (fillError) {
     console.error("legal-entity fill failed", fillError);
+    applyChanges(authorized);
   }
 }
 
@@ -90,10 +111,11 @@ type UseClarifyAnswersArgs = Readonly<{
   legalEntitiesRef: Readonly<{ current: readonly LegalEntity[] }>;
   history: () => components["schemas"]["CompanySiteReadConversationTurn"][];
   applyChanges: (changes: readonly SuggestedCompanyChange[]) => void;
-  /** Merges the chosen entity's grounded fields into the draft. Kept apart
-   * from applyChanges: a whole-entity pick carries its own provenance and
-   * its own never-overwrite-an-edit guard, both already decided inside
-   * draftWithLegalEntity rather than at this call site. */
+  /** Merges the chosen entity's whole grounded block — the authorized name
+   * included — into the draft. Kept apart from applyChanges: an entity pick
+   * carries its own provenance and its own never-overwrite-an-edit guard,
+   * both decided by the draft helper it calls rather than at this call
+   * site. */
   applyLegalEntity: (entity: LegalEntity) => void;
 }>;
 
@@ -149,11 +171,10 @@ export function useClarifyAnswers({
         isCompanyField(selection.field, values) &&
         values[selection.field] !== selection.value;
       if (authorized.length > 0) {
-        applyChanges(authorized);
-        fillLegalEntity(
-          selection.field,
-          selection.value,
-          legalEntitiesRef.current,
+        applyAuthorizedChoice(
+          authorized,
+          pickedLegalEntity(selection, legalEntitiesRef.current),
+          applyChanges,
           applyLegalEntity,
         );
       } else if (changeNeeded) {

@@ -20,6 +20,7 @@ import type { SuggestedCompanyChange } from "../onboarding-read";
 import type { ArtifactMode, FindingHighlight } from "./artifact";
 import { CompanyActArtifact } from "./artifact";
 import {
+  draftWithDecidedLegalEntity,
   draftWithLegalEntity,
   evidencedFields,
   isCompanyField,
@@ -88,6 +89,27 @@ const LEGAL_BLOCK: ReadonlySet<string> = new Set([
   "register_vat",
 ]);
 
+// Which server state a confirm 409 turned out to name — see the state
+// declaration in the driver for what each one means to the reader.
+type ConfirmNotice = "skew" | "notReady" | "checkFailed";
+
+// The sentence a notice reads as. A "skew" has two, because the reader's
+// next step changes once its refresh has run and the block is still there.
+function confirmNoticeKey(
+  notice: ConfirmNotice,
+  skewStuck: boolean,
+): MessageKey {
+  if (notice === "notReady") {
+    return "ob.conv.review.confirmNotReady";
+  }
+  if (notice === "checkFailed") {
+    return "ob.conv.review.confirmCheckFailed";
+  }
+  return skewStuck
+    ? "ob.conv.review.confirmVersionSkewStuck"
+    : "ob.conv.review.confirmVersionSkew";
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the act driver is one machine-shaped surface; splitting it further would scatter the event wiring
 export function CompanyAct({
   state,
@@ -122,16 +144,19 @@ export function CompanyAct({
   const [artifactMode, setArtifactMode] = useState<ArtifactMode>("dossier");
   // A confirm 409 that this driver has already resolved into a next step,
   // rather than a bare failure: "skew" means the draft changed under the
-  // human, "notReady" means the read itself is not confirmable yet. Neither
-  // is the generic confirmFailed banner — see confirmBannerMessage below —
-  // because neither is "fix your input and try the same thing again". This
-  // is the banner's OWN category and outlives the refetch below: it clears
-  // only at the next confirm attempt (onMutate), not the moment Continue
-  // re-arms, so the reassurance stays on screen until the reader has had a
-  // chance to read it, not merely until it stops being true.
-  const [confirmNotice, setConfirmNotice] = useState<
-    "skew" | "notReady" | null
-  >(null);
+  // human, "notReady" means the read itself is not confirmable yet, and
+  // "checkFailed" means the driver could not find out which of those it was
+  // — an honest "I could not check", never a diagnosis of the read stated
+  // on the strength of a request that never landed. None is the generic
+  // confirmFailed banner — see confirmBannerMessage below — because none is
+  // "fix your input and try the same thing again". This is the banner's OWN
+  // category and outlives the refetch below: it clears only at the next
+  // confirm attempt (onMutate), not the moment Continue re-arms, so the
+  // reassurance stays on screen until the reader has had a chance to read
+  // it, not merely until it stops being true.
+  const [confirmNotice, setConfirmNotice] = useState<ConfirmNotice | null>(
+    null,
+  );
   // Whether a "skew" 409 blocks the NEXT press of Continue, settled in one
   // of three outcomes once its refetch (or the reader's own manual retry of
   // one) resolves — (1) a genuinely NEW proposal hash landed: the block
@@ -148,6 +173,10 @@ export function CompanyAct({
   // itself, so a second press cannot start a second refetch on top of one
   // already running.
   const [awaitingProposalRefresh, setAwaitingProposalRefresh] = useState(false);
+  // The same, for the already-confirmed check a bare `conflict` runs: while
+  // one is in flight its own retry is disabled, so a second press cannot
+  // start a second check on top of the one already running.
+  const [awaitingConflictCheck, setAwaitingConflictCheck] = useState(false);
   // The proposal hash THIS confirm attempt submitted, captured inside the
   // mutation so the version-skew refresh below can tell "the refetch moved
   // past the rejected draft" from "the refetch landed the exact same one" —
@@ -189,10 +218,12 @@ export function CompanyAct({
     history: () => [],
     applyChanges,
     // A whole-entity pick, unlike applyChanges: its provenance and its
-    // never-overwrite-an-edit guard are draftWithLegalEntity's job, not a
-    // loop over field/value pairs.
+    // never-overwrite-an-edit guard belong to the draft helper, not to a
+    // loop over field/value pairs. The clarify's own variant, because
+    // answering the question IS the decision about legal_name — see
+    // draftWithDecidedLegalEntity.
     applyLegalEntity: (entity) =>
-      setDraft((current) => draftWithLegalEntity(current, entity)),
+      setDraft((current) => draftWithDecidedLegalEntity(current, entity)),
   });
 
   // The proposal endpoint joins through persisted wizard state, so the
@@ -317,6 +348,53 @@ export function CompanyAct({
     [dispatch, persist, prevSnapshot, queryClient, selectedFactKeys],
   );
 
+  // The one check a bare `conflict` 409 ever runs, whether it fires from the
+  // mutation's own onError or the reader asks to look again — one place, so
+  // the outcomes below cannot drift between the two callers.
+  //
+  // A plain `conflict` collapses two server states the code alone cannot
+  // tell apart (already confirmed vs. not yet confirmable), and only this
+  // read's own status separates them: a member company already existing on
+  // GET /company proves nothing about THIS read (the member path can carry
+  // one from before the attempt began), so /company is consulted only once
+  // the refetched status says "confirmed", and its answer is what moves the
+  // reader forward.
+  //
+  // Every step here can fail, and a failed check is its own outcome rather
+  // than a fall-through: reading "not ready to confirm" out of a refetch
+  // that never landed, or leaving the probe's failure silent, would put the
+  // reader back on a Continue button whose next press earns the identical
+  // 409 — the loop this branch exists to close.
+  const recoverFromConflict = useCallback(() => {
+    setAwaitingConflictCheck(true);
+    const check = async () => {
+      const result = await siteRead.refetch();
+      if (result.isError || result.data === undefined) {
+        setConfirmNotice("checkFailed");
+        return;
+      }
+      if (result.data.status !== "confirmed") {
+        setConfirmNotice("notReady");
+        return;
+      }
+      const { data } = await api.GET("/company");
+      if (data === undefined) {
+        setConfirmNotice("checkFailed");
+        return;
+      }
+      finishConfirm(data);
+    };
+    void check()
+      .catch((checkError) => {
+        // Whatever actually broke belongs in the console, never in the
+        // sentence the human reads — and never nowhere, which is what left
+        // Continue re-armed onto the same rejection.
+        console.error("already-confirmed check failed", checkError);
+        setConfirmNotice("checkFailed");
+      })
+      .finally(() => setAwaitingConflictCheck(false));
+  }, [finishConfirm, siteRead.refetch]);
+
   const confirm = useMutation({
     mutationFn: async (): Promise<CompanyProfile> => {
       const values = draftRef.current.values;
@@ -381,14 +459,9 @@ export function CompanyAct({
     // draft the human reviewed is stale: the read is re-fetched right away
     // (`useCompanyRead`'s own poll already stopped once the read went
     // terminal, so nothing else will), and the NEXT press of Continue sends
-    // whatever that fetch turns up. A plain `conflict` collapses two server
-    // states the client cannot tell apart from the code alone (already
-    // confirmed vs. not yet confirmable) — GET /company resolves which:
-    // if a company exists now, this read's confirmation already landed
-    // (by an earlier click, another tab, or a retry that won the race) and
-    // the reader is moved forward exactly as a fresh success would; if not,
-    // the read genuinely is not confirmable yet and the reader is told so,
-    // with a fresh read fetched under them for whenever it settles.
+    // whatever that fetch turns up. A plain `conflict` goes to
+    // recoverFromConflict, which is where the two server states that code
+    // collapses are told apart.
     onError: (error) => {
       const code = problemCodeOf(error);
       if (code === "version_skew") {
@@ -398,28 +471,9 @@ export function CompanyAct({
         refreshAfterSkew();
         return;
       }
-      if (code !== "conflict") {
-        return;
+      if (code === "conflict") {
+        recoverFromConflict();
       }
-      // A generic conflict can mean the read genuinely is not confirmable
-      // yet — the same "not ready" case, worded differently by the server.
-      // Whether THIS read's own confirmation already landed is a question
-      // only this read's own status answers: a member company already
-      // existing on GET /company proves nothing about this read in
-      // particular (the member path can carry one from before this attempt
-      // ever started), so the refetched read's `status` is checked first,
-      // and /company is only consulted once that status says "confirmed".
-      void siteRead.refetch().then((result) => {
-        if (result.data?.status === "confirmed") {
-          void api.GET("/company").then(({ data }) => {
-            if (data) {
-              finishConfirm(data);
-            }
-          });
-          return;
-        }
-        setConfirmNotice("notReady");
-      });
     },
   });
 
@@ -660,6 +714,17 @@ export function CompanyAct({
   // cases, so this stays null for those rather than doubling the message.
   const confirmBannerMessage =
     confirm.isError && confirmNotice === null ? confirm.error.message : null;
+  // The action a resolved-409 notice offers, or none. A "skew" notice earns
+  // one only once its automatic refresh has already run and left the block
+  // standing (`skewStuck`) — before that there is nothing left to ask for,
+  // and Continue itself is the next step. A failed check always earns one:
+  // it is the only thing that can turn "I could not check" into an answer.
+  const noticeRetry =
+    confirmNotice === "skew" && skewStuck
+      ? { run: refreshAfterSkew, busy: awaitingProposalRefresh }
+      : confirmNotice === "checkFailed"
+        ? { run: recoverFromConflict, busy: awaitingConflictCheck }
+        : null;
   const reviewScene =
     state.phase === "co.review" && reviewProposal ? (
       <div className="ob-scene">
@@ -874,33 +939,26 @@ export function CompanyAct({
           )}
           {/* A confirm 409 this driver already turned into a next step
               rather than a bare failure — see the `confirm` mutation's
-              onError, and refreshAfterSkew, for which server state each one
-              names, and why neither is "fix your input and press the same
-              button again". A "skew" notice that is also `skewStuck` swaps
-              in its own message plus a retry: the refresh already ran once
-              and did not clear the block, so pressing Continue again would
-              only repeat the same 409 — the reader's one route forward is
-              asking for another look, not the button this notice disables. */}
+              onError, refreshAfterSkew and recoverFromConflict for which
+              server state each one names, and why none is "fix your input
+              and press the same button again". Two of them carry a retry
+              (see noticeRetry): the check that could clear the notice is
+              the reader's route forward, not the button. */}
           {confirmNotice !== null && (
             <div role="alert">
               <NarrationBubble
                 entry={{
                   kind: "narration",
                   id: `confirm:${confirmNotice}${skewStuck ? ":stuck" : ""}`,
-                  i18nKey:
-                    confirmNotice === "notReady"
-                      ? "ob.conv.review.confirmNotReady"
-                      : skewStuck
-                        ? "ob.conv.review.confirmVersionSkewStuck"
-                        : "ob.conv.review.confirmVersionSkew",
+                  i18nKey: confirmNoticeKey(confirmNotice, skewStuck),
                 }}
               />
-              {confirmNotice === "skew" && skewStuck && (
+              {noticeRetry !== null && (
                 <Button
                   small
                   variant="ghost"
-                  onClick={refreshAfterSkew}
-                  disabled={awaitingProposalRefresh}
+                  onClick={noticeRetry.run}
+                  disabled={noticeRetry.busy}
                 >
                   {t("common.retry")}
                 </Button>

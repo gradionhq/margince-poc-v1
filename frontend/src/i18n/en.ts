@@ -295,6 +295,14 @@ export const en = {
   "common.empty": "Nothing here yet.",
   "common.saving": "Saving…",
 
+  // The app-level boundary's fallback. It says what happened and what to do
+  // next, and nothing about the error itself: a render throw carries our own
+  // internals, which the reader can neither read nor act on. Two sentences,
+  // no dash (VOICE-RULE-5).
+  "app.errorTitle": "This view stopped working.",
+  "app.errorBody": "Try it again. If it keeps failing, reload the page.",
+  "app.errorRetry": "Try again",
+
   "list.search": "Search",
   "list.sort": "Sort",
   "list.showArchived": "Show archived",
@@ -2133,6 +2141,13 @@ export const en = {
     "Not stated on your legal or imprint page. Yours to add.",
   "ob.conv.triage.legalNotChecked":
     "I did not find a legal or imprint page on your site to check. Yours to add.",
+  // The omission notice on an empty row, once a read has actually run: the
+  // field is named as withheld rather than left blank, and the reason is only
+  // ever what the read can support. `omittedGate` is the read's own sentence,
+  // quoted, so it never reads as our explanation of the cause.
+  "ob.conv.triage.omittedLabel": "Omitted, not guessed",
+  "ob.conv.triage.omittedField": "{field}: {reason}",
+  "ob.conv.triage.omittedGate": "From the read: {detail}",
   "ob.conv.triage.mapLabel": "Jump to a section",
   "ob.conv.triage.sectionBlocking": "{count} needed to continue",
   "ob.conv.triage.sectionAdvisory": "{count} worth a check",
@@ -2270,6 +2285,8 @@ export const en = {
     "I checked again, but nothing has changed yet. Pressing Continue now would fail the same way, so have another look or check again in a moment.",
   "ob.conv.review.confirmNotReady":
     "This read is not ready to confirm yet. Wait for it to finish, or start a fresh one.",
+  "ob.conv.review.confirmCheckFailed":
+    "I could not check where this read stands, so nothing has moved on. Check again, or press Continue in a moment.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.results.continue": "Continue",
