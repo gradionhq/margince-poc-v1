@@ -79,9 +79,8 @@ type installDocument struct {
 // already holds half the vocabulary is where a conditionally-written backfill
 // has somewhere to fail.
 type legacyInstalls struct {
-	LegacyCoreVersion  string                                `json:"legacy_core_version"`
-	MidlifeCoreVersion string                                `json:"midlife_core_version"`
-	Installs           map[string]map[string]installDocument `json:"installs"`
+	LegacyCoreVersion string                                `json:"legacy_core_version"`
+	Installs          map[string]map[string]installDocument `json:"installs"`
 }
 
 func TestLegacyInstallFixtureIsTheInitialCommitVocabulary(t *testing.T) {

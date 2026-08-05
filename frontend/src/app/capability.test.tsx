@@ -9,6 +9,7 @@ import {
   type RbacObject,
   useCan,
   useCanMutate,
+  useCanUpsert,
   useCanWrite,
   useHoldsWriteGrant,
 } from "./capability";
@@ -188,6 +189,53 @@ describe("useHoldsWriteGrant — any write verb", () => {
 
     expect(await mutate()).toBe(false);
     expect(await holdsWrite("product")).toBe(true);
+  });
+});
+
+describe("useCanUpsert — the grant an upsert control can honestly ask for", () => {
+  // The rate sheets are one endpoint that inserts OR replaces, so the server
+  // admits on create-or-update and demands the specific verb inside the
+  // transaction. A control asking for `create` alone would hide the editor
+  // from a principal the server would have admitted.
+  async function upsert(object: RbacObject): Promise<boolean> {
+    const { result } = renderHook(
+      () => ({ me: useMe(), allowed: useCanUpsert(object) }),
+      { wrapper },
+    );
+    await waitFor(() => {
+      expect(result.current.me.isPending).toBe(false);
+    });
+    return result.current.allowed;
+  }
+
+  it("admits a principal holding only update, which create alone would hide", async () => {
+    stubMe(meFixture({ allow: { fx_rate: ["update"] } }));
+
+    expect(await upsert("fx_rate")).toBe(true);
+  });
+
+  it("admits a principal holding only create", async () => {
+    stubMe(meFixture({ allow: { ai_model_rate: ["create"] } }));
+
+    expect(await upsert("ai_model_rate")).toBe(true);
+  });
+
+  it("refuses a principal holding neither, however much else it reads", async () => {
+    stubMe(
+      meFixture({ allow: { fx_rate: ["read"], ai_model_rate: ["read"] } }),
+    );
+
+    expect(await upsert("fx_rate")).toBe(false);
+    expect(await upsert("ai_model_rate")).toBe(false);
+  });
+
+  it("still clamps on the licensing seat — unlike the nav predicate", async () => {
+    // This one DOES fold the seat in: it gates a mutating control, not a page.
+    stubMe(
+      meFixture({ seat: "read", allow: { fx_rate: ["create", "update"] } }),
+    );
+
+    expect(await upsert("fx_rate")).toBe(false);
   });
 });
 

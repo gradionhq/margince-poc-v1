@@ -179,8 +179,11 @@ func modelRatePerms(g principal.ObjectGrant) principal.Permissions {
 // sheet carries the identical pair.
 func TestModelRateCreateAndUpdateGrantsGateSeparately(t *testing.T) {
 	e := Setup(t)
-	store := ai.NewRateStore(e.Pool)
-	today := time.Now().UTC().Truncate(24 * time.Hour)
+	// Pinned, not sampled: the store validates the effective day against its
+	// OWN clock inside the transaction, so a real clock crossing UTC midnight
+	// between the two would refuse this write as past-dated.
+	today := pinnedRateDay()
+	store := ai.NewRateStore(e.Pool).WithClock(func() time.Time { return today })
 	setOn := func(ctx context.Context, input string, day time.Time) error {
 		_, err := store.SetModelRate(ctx, ai.SetModelRateInput{
 			Provider: "anthropic", ModelID: "m",
@@ -232,13 +235,16 @@ func TestModelRateCreateAndUpdateGrantsGateSeparately(t *testing.T) {
 // create grant the insert used.
 func TestModelRateOverwriteAuditsAsUpdate(t *testing.T) {
 	e := Setup(t)
-	store := ai.NewRateStore(e.Pool)
+	// Pinned so both writes land on the SAME day: a real clock crossing UTC
+	// midnight between them would create two rows and audit two creates.
+	today := pinnedRateDay()
+	store := ai.NewRateStore(e.Pool).WithClock(func() time.Time { return today })
 	ctx := e.Admin()
 	for _, price := range []string{"1", "2"} {
 		if _, err := store.SetModelRate(ctx, ai.SetModelRateInput{
 			Provider: "anthropic", ModelID: "m",
 			InputUsd: price, OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0",
-			EffectiveDate: time.Now().UTC(),
+			EffectiveDate: today,
 		}); err != nil {
 			t.Fatalf("set %s: %v", price, err)
 		}
@@ -256,4 +262,12 @@ func TestModelRateOverwriteAuditsAsUpdate(t *testing.T) {
 		  AND (before->>'input_microusd')::bigint = 1000000`); n != 1 {
 		t.Fatalf("update audit rows carrying the displaced price = %d, want 1", n)
 	}
+}
+
+// pinnedRateDay is the fixed "today" the rate tests hand to the store's clock.
+// Effective-dated writes are validated against that clock inside the
+// transaction, so a test that sampled the real one would fail whenever the run
+// straddled UTC midnight — rarely, and never on the machine that wrote it.
+func pinnedRateDay() time.Time {
+	return time.Date(2026, time.August, 5, 0, 0, 0, 0, time.UTC)
 }

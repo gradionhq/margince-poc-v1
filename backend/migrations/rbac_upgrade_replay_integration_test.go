@@ -57,22 +57,49 @@ import (
 //
 // Neither fixture can drift unnoticed. rbac_seeded_defaults.json is compared
 // against policy.MustDefaultJSON on every unit run by a gate that lives inside
-// the fence; rbac_legacy_installs.json has its cohort derived from the initial
-// commit by a gate at the backend root.
+// the fence; rbac_legacy_installs.json has both its cohort AND its grants
+// derived from the initial commit by a gate at the backend root.
 const (
 	legacyInstallsFixture = "testdata/rbac_legacy_installs.json"
 	seededDefaultsFixture = "testdata/rbac_seeded_defaults.json"
 )
 
-type replayInstalls struct {
-	LegacyCoreVersion string                       `json:"legacy_core_version"`
-	Installs          map[string]map[string]anyDoc `json:"installs"`
+// verbs is one object's grant, compared by value.
+//
+// Decoding into this rather than into map[string]any is load-bearing, not
+// tidiness. policy.Parse unmarshals a stored document into exactly this shape
+// when identity.loadGrants resolves a session, so a migration that wrote
+// `"create": "false"` — a string where a bool belongs — locks out every user
+// assigned that role. A structural decode would read the same document as an
+// ordinary all-false grant and report the upgrade clean. Decoding strictly
+// means this test rejects any document the server itself would reject.
+type verbs struct {
+	Create bool `json:"create"`
+	Read   bool `json:"read"`
+	Update bool `json:"update"`
+	Delete bool `json:"delete"`
 }
 
-// anyDoc is the permissions document as stored: decoded structurally so the
-// comparison is semantic. Comparing raw bytes would fail on jsonb's key
-// reordering and prove nothing about the grants.
-type anyDoc map[string]any
+// replayDocument is a role.permissions document, decoded the way the server
+// decodes it.
+type replayDocument struct {
+	Objects  map[string]verbs `json:"objects"`
+	RowScope string           `json:"row_scope"`
+}
+
+// replayInstalls is the committed fixture the replay seeds. Two installations,
+// because one oldest-possible document is the worst case only while every
+// backfill is an unconditional additive write — true of the SQL as written
+// today, but an assumption about future migrations. A mid-life document that
+// already holds half the vocabulary is where a conditionally-written backfill
+// has somewhere to fail.
+//
+// The documents stay raw: this test plants them verbatim, and the gate at the
+// backend root is what holds their content to the initial commit.
+type replayInstalls struct {
+	LegacyCoreVersion string                                `json:"legacy_core_version"`
+	Installs          map[string]map[string]json.RawMessage `json:"installs"`
+}
 
 func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 	ctx := context.Background()
@@ -112,7 +139,7 @@ func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 // assertMatrix compares every system role's document against what the server
 // seeds today. Errorf, not Fatalf: one role's missing object must not hide the
 // other four, and a reader triaging a failed upgrade wants the whole picture.
-func assertMatrix(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID string, want map[string]anyDoc) {
+func assertMatrix(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID string, want map[string]replayDocument) {
 	t.Helper()
 	for _, role := range slices.Sorted(maps.Keys(want)) {
 		got := readPermissions(ctx, t, conn, workspaceID, role)
@@ -125,104 +152,52 @@ func assertMatrix(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID
 // diffDocuments reports the cells that differ, one line each — a whole-document
 // dump of 29 objects buries the one that moved.
 //
-// The comparison is on EFFECTIVE grant, not on JSON shape, and the difference
-// is load-bearing. A freshly seeded installation stores every object in the
-// vocabulary, including the ones a role holds nothing on, as an explicit
-// {create,read,update,delete} all false. A backfill migration writes a key only
-// for the roles it actually grants something to, so an upgraded installation
-// omits those objects entirely. Both mean "this role may do nothing here" —
-// platform/auth reads an absent key and an all-false grant identically — so
-// asserting raw equality would fail on twelve cells (manager, rep and read_only
-// across embedding_reindex, fx_rate, ai_model_rate and import_run) that are
-// correct. Normalizing here keeps every case that matters red: absent-vs-granted
-// still fails, wrong verbs still fail, and an object granted outside the
-// vocabulary still fails, because none of those normalize to the zero grant.
-func diffDocuments(got, want anyDoc) []string {
-	gotObjects, wantObjects := objectsOf(got), objectsOf(want)
+// The two directions are deliberately NOT symmetric, because the runtime is not
+// symmetric about them.
+//
+// An object the seed grants but the upgrade omits is compared BY VALUE, and an
+// omission whose seeded grant is the zero grant passes. A freshly seeded
+// installation stores every object in the vocabulary, including the ones a role
+// holds nothing on; a backfill writes a key only for the roles it grants
+// something to. Both mean "this role may do nothing here", and demanding key
+// presence would fail twelve correct cells (manager, rep and read_only across
+// embedding_reindex, fx_rate, ai_model_rate and import_run) while catching
+// nothing.
+//
+// An object the upgrade produced but the seed does not name FAILS OUTRIGHT,
+// whatever verbs it carries — including all-false. That asymmetry is the whole
+// point: identity.loadGrants runs every stored document through policy.Parse at
+// login, and Parse REJECTS an unknown object key rather than ignoring it. A
+// backfill with a typo'd path — `{objects,import_runs}` for `{objects,import_run}`
+// — writes a harmless-looking all-false row and locks every user holding that
+// role out of the product. Comparing that cell by value would call it equal.
+func diffDocuments(got, want replayDocument) []string {
 	var lines []string
-	for _, object := range slices.Sorted(maps.Keys(union(gotObjects, wantObjects))) {
-		held, seeded := effectiveGrant(gotObjects, object), effectiveGrant(wantObjects, object)
+	for _, object := range slices.Sorted(maps.Keys(got.Objects)) {
+		if _, known := want.Objects[object]; !known {
+			lines = append(lines, "holds a grant on "+object+", which is not in the seeded "+
+				"vocabulary. policy.Parse rejects an unknown object at login, so every user "+
+				"assigned this role would be locked out — check the JSON path the backfill writes")
+		}
+	}
+	for _, object := range slices.Sorted(maps.Keys(want.Objects)) {
+		held, seeded := got.Objects[object], want.Objects[object]
 		if held == seeded {
 			continue
 		}
-		switch {
-		case held == (verbs{}):
+		if held == (verbs{}) {
 			lines = append(lines, "holds no grant on "+object+" after the upgrade, but the server "+
 				"seeds "+render(seeded)+"; an existing installation would 403 on every "+object+
 				" route. Its backfill migration is missing or matched no rows")
-		case seeded == (verbs{}):
-			lines = append(lines, "holds "+render(held)+" on "+object+", which the seeded matrix "+
-				"grants nothing on; a migration grants more than the vocabulary allows")
-		default:
-			lines = append(lines, "grant on "+object+" is "+render(held)+", the server seeds "+
-				render(seeded)+"; the backfill writes the wrong verbs")
+			continue
 		}
+		lines = append(lines, "grant on "+object+" is "+render(held)+", the server seeds "+
+			render(seeded)+"; the backfill writes the wrong verbs")
 	}
-	if heldScope, seededScope := rowScope(got), rowScope(want); heldScope != seededScope {
-		lines = append(lines, "row_scope is "+heldScope+", the server seeds "+seededScope)
+	if got.RowScope != want.RowScope {
+		lines = append(lines, "row_scope is "+got.RowScope+", the server seeds "+want.RowScope)
 	}
 	return lines
-}
-
-// verbs is one grant, compared by value. The tags are for the failure message
-// only — a diff quoting {"delete":false} reads against the stored document, one
-// quoting {"Delete":false} reads against this struct.
-type verbs struct {
-	Create bool `json:"create"`
-	Read   bool `json:"read"`
-	Update bool `json:"update"`
-	Delete bool `json:"delete"`
-}
-
-// effectiveGrant reads one object's grant out of a permissions document,
-// treating an absent or malformed one as the zero grant — which is what
-// platform/auth does with it.
-func effectiveGrant(objects map[string]any, object string) verbs {
-	grant, isObject := objects[object].(map[string]any)
-	if !isObject {
-		return verbs{}
-	}
-	return verbs{
-		Create: flag(grant, "create"),
-		Read:   flag(grant, "read"),
-		Update: flag(grant, "update"),
-		Delete: flag(grant, "delete"),
-	}
-}
-
-func flag(grant map[string]any, verb string) bool {
-	set, isBool := grant[verb].(bool)
-	return isBool && set
-}
-
-func union(a, b map[string]any) map[string]struct{} {
-	keys := make(map[string]struct{}, len(a)+len(b))
-	for key := range a {
-		keys[key] = struct{}{}
-	}
-	for key := range b {
-		keys[key] = struct{}{}
-	}
-	return keys
-}
-
-func objectsOf(doc anyDoc) map[string]any {
-	objects, isObject := doc["objects"].(map[string]any)
-	if !isObject {
-		return map[string]any{}
-	}
-	return objects
-}
-
-// rowScope reads the document's scope token. A missing or non-string scope
-// renders as the literal it stored, so a malformed document reports what it
-// actually holds rather than an empty string.
-func rowScope(doc anyDoc) string {
-	scope, isString := doc["row_scope"].(string)
-	if !isString {
-		return "<absent or not a scope token>"
-	}
-	return scope
 }
 
 func render(grant verbs) string {
@@ -242,11 +217,7 @@ func seedInstallations(t *testing.T, conn *pgx.Conn, installs replayInstalls) ma
 		workspaceID := seedWorkspace(t, conn, "rbac-replay-"+install)
 		workspaces[install] = workspaceID
 		for _, role := range slices.Sorted(maps.Keys(installs.Installs[install])) {
-			document, err := json.Marshal(installs.Installs[install][role])
-			if err != nil {
-				t.Fatalf("rendering the %s document for role %q: %v", install, role, err)
-			}
-			seedRole(t, conn, workspaceID, role, true, document)
+			seedRole(t, conn, workspaceID, role, true, installs.Installs[install][role])
 		}
 	}
 	return workspaces
@@ -292,9 +263,9 @@ func readReplayInstalls(t *testing.T) replayInstalls {
 	return installs
 }
 
-func readSeededDefaults(t *testing.T) map[string]anyDoc {
+func readSeededDefaults(t *testing.T) map[string]replayDocument {
 	t.Helper()
-	want := map[string]anyDoc{}
+	want := map[string]replayDocument{}
 	if err := json.Unmarshal(readFixture(t, seededDefaultsFixture), &want); err != nil {
 		t.Fatalf("decoding %s: %v", seededDefaultsFixture, err)
 	}
@@ -321,7 +292,7 @@ func readFixture(t *testing.T, path string) []byte {
 // is fatal rather than an empty document: the replay seeds every system role
 // before the upgrade, so a vanished role means a migration deleted it, which no
 // diff of grants would explain.
-func readPermissions(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID, key string) anyDoc {
+func readPermissions(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID, key string) replayDocument {
 	t.Helper()
 	var raw []byte
 	err := conn.QueryRow(ctx,
@@ -330,9 +301,11 @@ func readPermissions(ctx context.Context, t *testing.T, conn *pgx.Conn, workspac
 	if err != nil {
 		t.Fatalf("reading the permissions document for role %q: %v", key, err)
 	}
-	var document anyDoc
+	var document replayDocument
 	if err := json.Unmarshal(raw, &document); err != nil {
-		t.Fatalf("decoding the stored permissions document for role %q: %v", key, err)
+		t.Fatalf("role %q holds a permissions document the server itself could not parse: %v\n"+
+			"policy.Parse decodes into this same shape at login, so a migration that wrote a "+
+			"malformed grant locks out every user assigned this role.", key, err)
 	}
 	return document
 }
