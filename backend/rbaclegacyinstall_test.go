@@ -148,6 +148,12 @@ func TestMidlifeInstallFixtureSitsBetweenTheInitialCohortAndHead(t *testing.T) {
 					"policy.coreObjects; drop the stale object", role, object)
 			}
 		}
+		if len(held) <= len(legacy) {
+			t.Errorf("role %q in the midlife fixture holds %d objects and the initial cohort is %d — "+
+				"it has gained nothing since the initial commit, so it is a duplicate of that case "+
+				"rather than a partial upgrade. Add the objects a mid-life installation would have held.",
+				role, len(held), len(legacy))
+		}
 		if len(held) >= len(head) {
 			t.Errorf("role %q in the midlife fixture holds %d objects and the vocabulary is now %d — "+
 				"the mid-life case has caught up with head and no longer exercises a partial upgrade. "+

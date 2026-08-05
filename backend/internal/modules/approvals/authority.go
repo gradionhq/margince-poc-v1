@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -31,34 +30,12 @@ import (
 // and a typo in any of them would silently ask for a grant nobody holds.
 const objectActivity = "activity"
 
-// grantRequirement is one RBAC demand approving a staged kind makes. Named
+// grantRequirement is one RBAC pair approving a staged kind requires. Named
 // rather than anonymous because the derivation below appends to the set and the
 // composition layer's satisfiability gate reads the objects back out of it.
-//
-// AnyOf holds the actions that each independently satisfy this demand, so the
-// requirement set is an AND of ORs. Nearly every kind names one action and the
-// OR is a formality; the rate sheets are why the shape exists. Their write path
-// is ONE endpoint that inserts or replaces, admitted on create-or-update and
-// then held to the specific verb inside the transaction. Which verb an apply
-// will need is unknowable when the proposal is decided — the sheet can change
-// in between — so the decision mirrors the endpoint's admission. Demanding
-// `create` alone would let a create-only approver release an overwrite under
-// create authority, which is exactly the substitution the store's second check
-// exists to refuse, and would leave an update-only principal unable to decide
-// any rate proposal while the direct editor admits them.
 type grantRequirement struct {
 	Object string
-	AnyOf  []principal.Action
-}
-
-// needs is the ordinary single-action demand.
-func needs(object string, action principal.Action) grantRequirement {
-	return grantRequirement{Object: object, AnyOf: []principal.Action{action}}
-}
-
-// needsAny is the upsert demand: any one of these actions admits the decision.
-func needsAny(object string, actions ...principal.Action) grantRequirement {
-	return grantRequirement{Object: object, AnyOf: actions}
+	Action principal.Action
 }
 
 // decisionGrants maps each stageable kind onto the RBAC its effect needs given
@@ -68,55 +45,73 @@ func needsAny(object string, actions ...principal.Action) grantRequirement {
 // both today, and decisionGrantsFor combines them so one that grows a second half
 // gains authority rather than silently losing the first.
 var decisionGrants = map[string][]grantRequirement{
-	"advance_deal": {needs(tableDeal, principal.ActionUpdate)},
+	"advance_deal": {{tableDeal, principal.ActionUpdate}},
 	// progress_deal is advance_deal plus a timeline note; the gated effect
 	// is the deal move, so deciding it needs the same grant.
-	"progress_deal": {needs(tableDeal, principal.ActionUpdate)},
-	"promote_lead":  {needs(tableLead, principal.ActionUpdate), needs(tablePerson, principal.ActionCreate)},
+	"progress_deal": {{tableDeal, principal.ActionUpdate}},
+	"promote_lead":  {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
-	"send_email": {needs(objectActivity, principal.ActionCreate)},
+	"send_email": {{objectActivity, principal.ActionCreate}},
 	// send_message is the same effect on a messaging channel: an activity
 	// write, with the consent gate running in the handler whoever approved it.
-	"send_message": {needs(objectActivity, principal.ActionCreate)},
-	"book_meeting": {needs(objectActivity, principal.ActionCreate)},
+	"send_message": {{objectActivity, principal.ActionCreate}},
+	"book_meeting": {{objectActivity, principal.ActionCreate}},
 	// Sending an offer releases the draft→sent transition (B-E03.19) —
 	// an offer write; deciding it needs the same grant the send itself
 	// requires.
-	"send_offer": {needs(targetOffer, principal.ActionUpdate)},
+	"send_offer": {{targetOffer, principal.ActionUpdate}},
 	// Accepting a cold-start read-back writes enrichment fields onto an
 	// organization; "enrich" is the same effect staged through the
 	// transport gate by an agent caller.
-	"coldstart": {needs(tableOrganization, principal.ActionUpdate)},
-	"enrich":    {needs(tableOrganization, principal.ActionUpdate)},
-	// A rate refresh proposes an effective-dated row on a workspace-shared
-	// price sheet. Deciding it takes the SAME admission the editor's write path
-	// opens with — create-or-update — because the apply is an upsert and runs as
-	// the system principal, so this is the only grant check standing between an
-	// approver and the row it replaces.
-	"fx_rate_proposal":       {needsAny(targetFxRate, principal.ActionCreate, principal.ActionUpdate)},
-	"ai_model_rate_proposal": {needsAny(targetAIModelRate, principal.ActionCreate, principal.ActionUpdate)},
+	"coldstart": {{tableOrganization, principal.ActionUpdate}},
+	"enrich":    {{tableOrganization, principal.ActionUpdate}},
+	// A rate refresh proposes an effective-dated row on a workspace-shared price
+	// sheet, and deciding it requires BOTH write verbs on that sheet.
+	//
+	// The release is an upsert: it inserts a new (currency, day) or replaces an
+	// existing rate, and which one it will be is not knowable when the decision
+	// is made — the sheet can change between the decision and the apply. The
+	// apply also runs as the system principal, so the store's in-transaction
+	// check on the specific verb never fires here; this is the only grant
+	// standing between an approver and the row the release replaces.
+	//
+	// Either verb alone would authorize the operation it does not name: a
+	// create-only approver could release an overwrite, precisely the
+	// substitution the store's second check exists to refuse. Requiring both is
+	// the conservative reading — approve an upsert only if you could have
+	// performed either half yourself. Every seeded role holding one holds the
+	// other (writeNoDelete for admin and ops, the zero grant for everyone
+	// else), so this constrains edited roles only, and constrains them right.
+	"fx_rate_proposal": {
+		{targetFxRate, principal.ActionCreate},
+		{targetFxRate, principal.ActionUpdate},
+	},
+	"ai_model_rate_proposal": {
+		{targetAIModelRate, principal.ActionCreate},
+		{targetAIModelRate, principal.ActionUpdate},
+	},
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
-	"deepread": {needs(tableOrganization, principal.ActionUpdate)},
+	"deepread": {{tableOrganization, principal.ActionUpdate}},
 	// Accepting a site_lead proposal (a published person from a deep read's
 	// team page) captures them as a LEAD through the capture sink — the
 	// effect is a lead create, so deciding it needs that grant.
-	"site_lead": {needs(tableLead, principal.ActionCreate)},
+	"site_lead": {{tableLead, principal.ActionCreate}},
 	// Approving a LinkedIn match links an imported connection to a contact and
 	// writes that contact's LinkedIn address — a person write, so deciding it
 	// needs the grant the write itself takes.
-	"linkedin_match": {needs(tablePerson, principal.ActionUpdate)},
+	"linkedin_match": {{tablePerson, principal.ActionUpdate}},
 	// Accepting a capture_counterparty proposal (ADR-0072/A118: a first-time
 	// sender the verdict engine could not judge) creates the person and, unless
 	// the domain is free-mail, the organization behind them — so deciding it
 	// needs both create grants, exactly as if the approver had typed them in.
-	"capture_counterparty": {needs(tablePerson, principal.ActionCreate), needs(tableOrganization, principal.ActionCreate)},
+	"capture_counterparty": {{tablePerson, principal.ActionCreate}, {tableOrganization, principal.ActionCreate}},
 	// Accepting an org_name_promotion proposal (PO-F-2a: one employee's
 	// signature naming their company, with nothing corroborating it) renames
 	// the organization — the same update authority the name editor needs.
-	"org_name_promotion": {needs(tableOrganization, principal.ActionUpdate)},
+	"org_name_promotion": {{tableOrganization, principal.ActionUpdate}},
 	// Accepting a lifecycle_change proposal (the account-intelligence arc: the
 	// correspondence says the contract ended while the record still reads as
 	// live) moves the account's stage — the same update authority the header's
@@ -127,15 +122,15 @@ var decisionGrants = map[string][]grantRequirement{
 	// organization editor could read model-derived correspondence and close a
 	// signal they have no standing to see — the ordinary triage path takes
 	// signal:update and EnsureSignalVisible for exactly that reason.
-	"lifecycle_change": {needs(tableOrganization, principal.ActionUpdate), needs(targetSignal, principal.ActionUpdate)},
+	"lifecycle_change": {{tableOrganization, principal.ActionUpdate}, {targetSignal, principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
-	"close_date_correction": {needs(tableDeal, principal.ActionUpdate)},
+	"close_date_correction": {{tableDeal, principal.ActionUpdate}},
 	// Confirming an overnight follow-up proposal (features/07 §8a) creates
 	// the drafted task activity; the target deal's visibility gates who
 	// may see and decide it (targetVisible), the create grant gates the
 	// write the confirm performs.
-	"deal_follow_up": {needs(objectActivity, principal.ActionCreate)},
+	"deal_follow_up": {{objectActivity, principal.ActionCreate}},
 }
 
 // targetResolvedGrants are the kinds whose decision grant is not fixed by the
@@ -270,13 +265,9 @@ func requireDecisionGrants(p principal.Principal, a row) error {
 		return err
 	}
 	for _, g := range grants {
-		if slices.ContainsFunc(g.AnyOf, func(action principal.Action) bool {
-			return p.Permissions.Allows(g.Object, action)
-		}) {
-			continue
+		if !p.Permissions.Allows(g.Object, g.Action) {
+			return fmt.Errorf("approving %s needs %s.%s: %w", a.Kind, g.Object, g.Action, apperrors.ErrPermissionDenied)
 		}
-		return fmt.Errorf("approving %s needs %s.%s: %w",
-			a.Kind, g.Object, joinActions(g.AnyOf), apperrors.ErrPermissionDenied)
 	}
 	return nil
 }
@@ -300,7 +291,7 @@ func decisionGrantsFor(kind string, targetType *string) ([]grantRequirement, err
 	}
 	// Cloned, not appended in place: fixed is the map's own slice, and appending
 	// into its spare capacity would rewrite what the next caller reads.
-	return append(slices.Clone(fixed), needs(*targetType, action)), nil
+	return append(slices.Clone(fixed), grantRequirement{*targetType, action}), nil
 }
 
 // DecisionGrantObjects reports the RBAC objects approving a staging of this kind
@@ -351,15 +342,4 @@ func KindHasDecisionGrants(kind string) bool {
 	}
 	_, resolvedFromTarget := targetResolvedGrants[kind]
 	return resolvedFromTarget
-}
-
-// joinActions renders a requirement's acceptable actions for the refusal
-// message: "create" for the ordinary case, "create|update" for an upsert, so
-// the reader is told which grant would have admitted them.
-func joinActions(actions []principal.Action) string {
-	rendered := make([]string, 0, len(actions))
-	for _, action := range actions {
-		rendered = append(rendered, string(action))
-	}
-	return strings.Join(rendered, "|")
 }

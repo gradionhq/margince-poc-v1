@@ -5,17 +5,11 @@
 
 package migrations
 
-// The obligation, stated once: an installation that predates every backfill,
-// upgraded to head, ends up holding exactly the matrix the server would seed
-// today. This test executes it.
-//
-// It replaced a static scan of the migration SQL for '{objects,<name>}'. That
-// scan was correct and still deleted, because it proves a migration MENTIONS a
-// JSON path — not that the upgrade worked. A migration whose WHERE clause
-// targets the wrong roles, drops is_system, or writes the wrong verbs passes a
-// scan and leaves real users at 403. Replaying the upgrade and comparing the
-// end state has nowhere for that to hide, and it covers every object rather
-// than the six a hand-written list happened to name.
+// The obligation: an installation that predates every backfill, upgraded to
+// head, holds exactly the matrix the server seeds today. This executes it
+// rather than approximating it — a check that a migration MENTIONS a JSON path
+// cannot tell a backfill targeting the wrong roles, dropping is_system, or
+// writing the wrong verbs from a correct one.
 //
 // Three mechanics carry it:
 //
@@ -26,14 +20,13 @@ package migrations
 //     exactly the remainder. No down migrations, nothing to unwind.
 //   - Roles are seeded by APP code (identity.seedSystemRoles), not by a
 //     migration, so a freshly migrated database holds no role rows at all. The
-//     legacy documents must be planted before the upgrade — "migrate everything
-//     and inspect" would assert nothing.
+//     legacy documents must be planted before the upgrade, or there is nothing
+//     to compare.
 //
-// What it does NOT subsume: the parity cases next door, which prove a backfill
-// does not clobber an ALTERED grant, that the is_system predicate holds, and
-// that a '{}' document is never silently created. A pristine-legacy comparison
-// cannot reach any of those. Those are the correctness half; this is the
-// coverage half.
+// The parity cases next door hold the other half — that a backfill does not
+// clobber an ALTERED grant, that the is_system predicate holds, and that a '{}'
+// document is never silently created. A pristine-legacy comparison reaches none
+// of those.
 
 import (
 	"context"
@@ -49,15 +42,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 )
 
-// Both fixtures are committed rather than computed here, and the reason is the
-// same in each case: this package cannot import identity/internal/policy. Go's
-// own import fence restricts that package to internal/modules/identity/**, and
-// .go-arch-lint.yml independently allows `migrations` to depend on `platform`
-// alone. Widening either to serve a test would grant a production edge.
-//
-// Neither fixture can drift unnoticed. rbac_seeded_defaults.json is compared
-// against policy.MustDefaultJSON on every unit run by a gate that lives inside
-// the fence; rbac_legacy_installs.json has both its cohort AND its grants
+// The fixtures are committed because this package cannot import
+// identity/internal/policy: Go's import fence restricts it to
+// internal/modules/identity/**, and .go-arch-lint.yml allows `migrations` to
+// depend on `platform` alone. Neither fixture can drift —
+// rbac_seeded_defaults.json is held to policy.MustDefaultJSON by a gate inside
+// the fence, and rbac_legacy_installs.json has both its cohort and its grants
 // derived from the initial commit by a gate at the backend root.
 const (
 	legacyInstallsFixture = "testdata/rbac_legacy_installs.json"

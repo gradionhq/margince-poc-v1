@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,14 +29,27 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-// Both rate cards gate on CREATE, not update: setting a rate is an upsert the
-// server admits through the create grant, and no endpoint anywhere checks
-// fx_rate:update. A fixture granting update instead would leave both cards
-// hidden — which is exactly the mis-binding this names away.
+// Setting a rate is an UPSERT: it inserts on a (pair, day) the sheet has never
+// carried and replaces the row when it has. The server admits the call on
+// either write grant and then demands the specific one inside the transaction,
+// so each card asks the same union — hence a `create`-only fixture and an
+// `update`-only one both have to open the card they name.
 const RATE_SETTER: GrantSpec = {
   fx_rate: ["create"],
   ai_model_rate: ["create"],
 };
+
+// The card a heading names, so an affordance can be attributed to ONE sheet.
+// Both cards spell "Refresh from sources" identically, and a screen-wide query
+// for it cannot tell which card offered it — which is precisely the confusion
+// a transposed `useCanUpsert` object would hide in.
+function rateCard(title: string): HTMLElement {
+  const card = screen.getByRole("heading", { name: title }).closest("section");
+  if (!(card instanceof HTMLElement)) {
+    throw new Error(`no rate card is headed "${title}"`);
+  }
+  return card;
+}
 
 function ratesBackend(allow: GrantSpec) {
   return vi.fn(async (input: RequestInfo | URL) => {
@@ -118,5 +132,74 @@ describe("RatesScreen", () => {
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Set rate" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add model rate" })).toBeNull();
+  });
+
+  // One object at a time. A fixture that grants both sheets at once cannot tell
+  // a correct binding from a transposed one — each card would find its grant
+  // either way — so each case below grants exactly one and requires the OTHER
+  // card to stay read-only.
+  it("opens the FX sheet alone on an fx_rate create grant", async () => {
+    vi.stubGlobal("fetch", ratesBackend({ fx_rate: ["create"] }));
+    render(<RatesScreen />);
+    await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
+
+    const fx = rateCard("Currency rates");
+    expect(within(fx).getByRole("button", { name: "Set rate" })).toBeTruthy();
+    expect(
+      within(fx).getByRole("button", { name: "Refresh from sources" }),
+    ).toBeTruthy();
+
+    // The model sheet still renders its rows — it is the WRITING that is
+    // withheld, not the reading.
+    const model = rateCard("AI model costs");
+    expect(within(model).getByText("claude-opus-4-8")).toBeTruthy();
+    expect(
+      within(model).queryByRole("button", { name: "Add model rate" }),
+    ).toBeNull();
+    expect(
+      within(model).queryByRole("button", { name: "Refresh from sources" }),
+    ).toBeNull();
+  });
+
+  it("opens the model sheet alone on an ai_model_rate update grant", async () => {
+    // `update` and not `create`: the upsert admits either, so the mirror case
+    // also proves the card asks the union rather than one hard-coded verb.
+    vi.stubGlobal("fetch", ratesBackend({ ai_model_rate: ["update"] }));
+    render(<RatesScreen />);
+    await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
+
+    const model = rateCard("AI model costs");
+    expect(
+      within(model).getByRole("button", { name: "Add model rate" }),
+    ).toBeTruthy();
+    expect(
+      within(model).getByRole("button", { name: "Refresh from sources" }),
+    ).toBeTruthy();
+
+    const fx = rateCard("Currency rates");
+    expect(within(fx).getByText("USD")).toBeTruthy();
+    expect(within(fx).queryByRole("button", { name: "Set rate" })).toBeNull();
+    expect(
+      within(fx).queryByRole("button", { name: "Refresh from sources" }),
+    ).toBeNull();
+  });
+
+  it("offers no write affordance on either sheet for a read-only grant on both", async () => {
+    // A read grant is not an absent one: the object IS in the snapshot, with
+    // every write verb false. A card that checked only for the object's
+    // presence would open here.
+    vi.stubGlobal(
+      "fetch",
+      ratesBackend({ fx_rate: ["read"], ai_model_rate: ["read"] }),
+    );
+    render(<RatesScreen />);
+    await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
+    expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
+
+    expect(screen.queryByRole("button", { name: "Set rate" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add model rate" })).toBeNull();
+    expect(
+      screen.queryAllByRole("button", { name: "Refresh from sources" }),
+    ).toEqual([]);
   });
 });

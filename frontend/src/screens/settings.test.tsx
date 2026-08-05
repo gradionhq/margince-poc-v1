@@ -636,6 +636,68 @@ describe("SettingsScreen Organization group", () => {
     );
   });
 
+  it("renders the group for a single visible member — a lone embedding_reindex write opens Data model", async () => {
+    // The Data model tab's other half. Granting it alone is what separates the
+    // predicate from its sibling: a `data` wired to the catalog objects, or a
+    // `rates` wired to this one, shows up as a tab the whole-list assertion
+    // does not expect.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["rep"],
+        allow: { embedding_reindex: ["update"] },
+      }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Data model", "Overlay"]),
+    );
+  });
+
+  it("opens Rates & costs for a lone fx_rate write, with Catalog and Data model absent", async () => {
+    // The rate sheets are the only cards on the tab, and fx_rate is one of the
+    // two objects they author — so this grant alone has to open it, and the
+    // neighbouring tabs have to stay shut.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({ roles: ["rep"], allow: { fx_rate: ["create"] } }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Rates & costs", "Overlay"]),
+    );
+  });
+
+  it("opens Rates & costs for a lone ai_model_rate write", async () => {
+    // The other half of the same predicate: either object on its own opens the
+    // tab, so the union has to be read as a union and not as one object with a
+    // decorative second term.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({ roles: ["rep"], allow: { ai_model_rate: ["update"] } }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Rates & costs", "Overlay"]),
+    );
+  });
+
+  it("opens Catalog for a lone offer_template write", async () => {
+    // Catalog's third member, held here without pipeline or product, so the
+    // tab can only have come from the offer_template term.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["rep"],
+        allow: { offer_template: ["create", "update"] },
+      }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Catalog", "Overlay"]),
+    );
+  });
+
   it("opens Catalog for a manager on product writes alone, with no pipeline grant", async () => {
     // The seeded manager holds pipeline read-only and product create/update/
     // delete, so this is the case the role check used to hide: the cards on

@@ -246,19 +246,27 @@ func TestRequireDecisionGrants(t *testing.T) {
 			perms:   grants(map[string]principal.ObjectGrant{"deal": {Update: true}}),
 			wantErr: true,
 		},
-		// The rate sheets are an upsert behind one endpoint, admitted on
-		// create-or-update. The apply runs as the system principal, so this
-		// check is the only grant standing between an approver and the row the
-		// release replaces — it has to ask what the editor asks.
+		// The release is an upsert whose verb is unknowable at decision time,
+		// and it applies as the system principal, so the store's specific check
+		// never fires. Either verb alone would authorize the operation it does
+		// not name — hence both, and each half is asserted separately so a
+		// requirement silently dropped from the pair fails here.
 		{
-			name:  "fx_rate_proposal admits an update-only approver",
+			name:  "fx_rate_proposal admits an approver holding both write verbs",
 			a:     row{Kind: "fx_rate_proposal"},
-			perms: grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Update: true}}),
+			perms: grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Create: true, Update: true}}),
 		},
 		{
-			name:  "fx_rate_proposal admits a create-only approver",
-			a:     row{Kind: "fx_rate_proposal"},
-			perms: grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Create: true}}),
+			name:    "fx_rate_proposal refuses a create-only approver, who could not overwrite directly",
+			a:       row{Kind: "fx_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Create: true}}),
+			wantErr: true, denied: true,
+		},
+		{
+			name:    "fx_rate_proposal refuses an update-only approver, who could not insert directly",
+			a:       row{Kind: "fx_rate_proposal"},
+			perms:   grants(map[string]principal.ObjectGrant{"fx_rate": {Read: true, Update: true}}),
+			wantErr: true, denied: true,
 		},
 		{
 			name:    "fx_rate_proposal refuses an approver holding only read",
@@ -267,14 +275,14 @@ func TestRequireDecisionGrants(t *testing.T) {
 			wantErr: true, denied: true,
 		},
 		{
-			name:  "ai_model_rate_proposal admits an update-only approver",
+			name:  "ai_model_rate_proposal admits an approver holding both write verbs",
 			a:     row{Kind: "ai_model_rate_proposal"},
-			perms: grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Update: true}}),
+			perms: grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Create: true, Update: true}}),
 		},
 		{
-			name:    "ai_model_rate_proposal refuses an approver holding only read",
+			name:    "ai_model_rate_proposal refuses a create-only approver",
 			a:       row{Kind: "ai_model_rate_proposal"},
-			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true}}),
+			perms:   grants(map[string]principal.ObjectGrant{"ai_model_rate": {Read: true, Create: true}}),
 			wantErr: true, denied: true,
 		},
 	}

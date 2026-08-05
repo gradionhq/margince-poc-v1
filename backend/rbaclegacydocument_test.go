@@ -31,6 +31,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -305,7 +306,14 @@ func mustStringLiteral(t *testing.T, expr ast.Expr) string {
 	if !isBasic || basic.Kind != token.STRING {
 		t.Fatalf("expected a string literal key")
 	}
-	return strings.Trim(basic.Value, `"`)
+	// Unquote, not a quote trim: a trim silently mis-decodes any escape and
+	// would hand back a role key that matches nothing, reading as a missing
+	// role rather than as the malformed literal it is.
+	unquoted, err := strconv.Unquote(basic.Value)
+	if err != nil {
+		t.Fatalf("unquoting role key %s: %v", basic.Value, err)
+	}
+	return unquoted
 }
 
 func parseLegacyPolicy(t *testing.T) *ast.File {

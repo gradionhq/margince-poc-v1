@@ -25,10 +25,6 @@ const policyFile = "internal/modules/identity/internal/policy/policy.go"
 // coreObjectsFromSource extracts the string values of policy.go's coreObjects
 // declaration as it stands today. Derived, never restated — a renamed or moved
 // declaration fails loudly rather than silently shrinking a gate's coverage.
-//
-// It deliberately does NOT read identity/internal/policy as a package: that
-// package is import-fenced to internal/modules/identity/**, so this parses the
-// declaration, in the manner of enumsync_test.go.
 func coreObjectsFromSource(t *testing.T) []string {
 	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), policyFile, nil, 0)
