@@ -135,6 +135,17 @@ TIMING="$(mktemp)"
 OUTDIR="$(mktemp -d)"
 trap 'rm -f "$CANDIDATES" "$LANEPKGS" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING"; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
 
+# The ONE spelling of "which build constraints does this file declare": the
+# region above the `package` clause, one expression per line. Both passes below
+# read it and judge it differently — the ownership pass asks only whether
+# `integration` appears, discovery holds the expression to a strict allowlist —
+# and a lane that extracted it twice could drift into admitting packages whose
+# files it then refuses to tag. scripts/check-test-lanes.sh performs the same
+# scan for the opposite direction.
+constraint_exprs() {
+  sed -n '/^package /q;p' "$1" | sed -nE 's|^//go:build ||p; s|^// \+build ||p'
+}
+
 # Which candidate packages does this lane own? A package is one when at least
 # one of its test files names `integration` in its build-constraint region.
 #
@@ -148,9 +159,7 @@ while IFS='|' read -r d rel; do
   pkgdir="$d/${rel#./}"; [[ "$rel" = "." ]] && pkgdir="$d"
   for f in "$pkgdir"/*_test.go; do
     [[ -e "$f" ]] || continue
-    if sed -n '/^package /q;p' "$f" \
-      | sed -nE 's|^//go:build ||p; s|^// \+build ||p' \
-      | grep -qw 'integration'; then
+    if constraint_exprs "$f" | grep -qw 'integration'; then
       echo "$d|$rel"
       break
     fi
@@ -196,7 +205,7 @@ while IFS='|' read -r d rel; do
           exit 1
           ;;
       esac
-    done < <(sed -n '/^package /q;p' "$f" | sed -nE 's|^//go:build ||p; s|^// \+build ||p')
+    done < <(constraint_exprs "$f")
     # An unconstrained file is a unit-lane file. Record what it holds, keyed by
     # package, so the lane can report what it left to `make check` rather than
     # silently narrowing — a quieter lane and a broken selector look identical.
