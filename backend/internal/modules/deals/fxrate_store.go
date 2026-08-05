@@ -116,18 +116,56 @@ func (s *Store) SetFxRateInTx(ctx context.Context, tx pgx.Tx, in SetFxRateInput)
 // currency/rate shape — returning the upper-cased from-currency. The effective-
 // day resolution and past-date guard are deferred to writeFxRate so they sample
 // the clock at write time.
+//
+// TWO CHECKS WITH ONE PURPOSE. One endpoint sets a rate, and which grant that
+// needs — create for a new (currency, day), update when it replaces an existing
+// rate — is only knowable from the sheet. So admission splits: this half asks
+// the cheap question a caller can be refused on without a pool connection ("may
+// this principal write the sheet AT ALL"), and writeFxRate demands the specific
+// grant once it has read the row. Neither half is redundant: drop this one and
+// an unauthorized caller costs a connection and a transaction; drop the other
+// and `update` is granted by holding `create`.
 func (s *Store) prepareFxRate(ctx context.Context, in SetFxRateInput) (from string, err error) {
-	if err := auth.Require(ctx, "fx_rate", principal.ActionCreate); err != nil {
+	if err := auth.RequireAny(ctx, "fx_rate", principal.ActionCreate, principal.ActionUpdate); err != nil {
 		return "", err
 	}
 	return normalizeFxCurrencyRate(in)
+}
+
+// replacedFxRate reads the rate this write would overwrite, if any: the second
+// admission check needs insert-vs-overwrite, and an overwrite's audit owes the
+// ledger the rate it displaced. The before image mirrors the after image's
+// shape key for key, so the two diff to exactly the field that moved. Called
+// under the currency's write-identity lock, so no concurrent writer can insert
+// the row between this read and the upsert that follows.
+func replacedFxRate(ctx context.Context, tx pgx.Tx, from, base string, effDate time.Time) (before map[string]any, replacing bool, err error) {
+	var rate string
+	err = tx.QueryRow(ctx, `
+		SELECT rate::text FROM fx_rate
+		WHERE from_currency = $1 AND to_currency = $2 AND rate_date = $3`,
+		from, base, effDate).Scan(&rate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read replaced fx_rate: %w", err)
+	}
+	return fxRateImage(from, base, rate, effDate), true, nil
+}
+
+// fxRateImage renders one audit image of a sheet row. Before and after share
+// it, so the pair diffs to exactly the rate that moved rather than to a
+// difference in how each side was spelled.
+func fxRateImage(from, base, rate string, effDate time.Time) map[string]any {
+	return map[string]any{"from": from, "to": base, "rate": rate, "date": effDate}
 }
 
 // writeFxRate does the transactional body: resolve and guard the effective day
 // against a clock sampled INSIDE the tx (so a write that waited for the pool
 // across UTC midnight is stored against the day it commits — append-forward
 // stays true at write time), resolve the workspace base, reject from == base,
-// upsert the append-forward row, and audit — all in the caller-owned tx.
+// require the grant the upsert turns out to need, then upsert the
+// append-forward row and audit — all in the caller-owned tx.
 func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetFxRateInput) (FxRateRow, error) {
 	// Serialize writers of this currency's sheet identity BEFORE sampling the
 	// clock: a write that waited here for a precondition-holding transaction
@@ -156,6 +194,16 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetF
 		return FxRateRow{}, fxInvalid("from_currency", "fx_rate_base_self",
 			"from_currency equals the base currency (the rate is always 1)")
 	}
+	before, replacing, err := replacedFxRate(ctx, tx, from, base, effDate)
+	if err != nil {
+		return FxRateRow{}, err
+	}
+	// The specific half of the admission pair prepareFxRate opened: now that
+	// insert-vs-overwrite is known, demand the grant this write really needs.
+	action := auth.UpsertAction(replacing)
+	if err := auth.Require(ctx, "fx_rate", action); err != nil {
+		return FxRateRow{}, err
+	}
 	var (
 		out  FxRateRow
 		fxID ids.UUID
@@ -176,9 +224,18 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetF
 	// product rate-card (CreateProduct is audit-only). Ratified in
 	// writeshape_test.go; inventing an fx_rate.* verb on the deal stream
 	// would violate the closed catalog (contract-first, P3).
-	if _, err := storekit.Audit(ctx, tx, "create", "fx_rate", fxID, nil,
-		map[string]any{"from": from, "to": base, "rate": rate, "date": effDate}); err != nil {
-		return FxRateRow{}, fmt.Errorf("audit fx_rate create: %w", err)
+	//
+	// The audit verb is the SAME word the gate above demanded, so
+	// authorization_rule attributes the grant that actually admitted the write
+	// rather than a plausible-looking one.
+	// Both images read PERSISTED values: `before` is the displaced row as the
+	// column stores it, so the after image has to be the stored row too. Echoing
+	// the caller's raw string instead would diff a scale-10 numeric against
+	// whatever the request happened to spell — 0.9000000000 against 0.9 — and
+	// report a rate change where only the spelling moved.
+	if _, err := storekit.Audit(ctx, tx, string(action), "fx_rate", fxID, before,
+		fxRateImage(out.FromCurrency, out.ToCurrency, out.Rate, out.RateDate)); err != nil {
+		return FxRateRow{}, fmt.Errorf("audit fx_rate %s: %w", action, err)
 	}
 	return out, nil
 }

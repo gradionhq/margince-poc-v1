@@ -219,6 +219,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # Full history: this job runs the backend unit lane, which includes
+          # the RBAC legacy-cohort gates. Those derive the initial commit's
+          # object vocabulary and grants by reading 2cb50021 — a fixture the
+          # migration replay seeds from, so it must not be hand-editable. They
+          # FAIL on a shallow checkout rather than degrading to an empty cohort,
+          # because a gate that quietly checks nothing looks exactly like a
+          # passing one.
+          fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
@@ -385,6 +393,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # Full history: this job runs the backend unit lane, which includes
+          # the RBAC legacy-cohort gates. Those derive the initial commit's
+          # object vocabulary and grants by reading 2cb50021 — a fixture the
+          # migration replay seeds from, so it must not be hand-editable. They
+          # FAIL on a shallow checkout rather than degrading to an empty cohort,
+          # because a gate that quietly checks nothing looks exactly like a
+          # passing one.
+          fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod

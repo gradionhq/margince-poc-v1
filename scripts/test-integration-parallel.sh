@@ -166,7 +166,7 @@ while IFS='|' read -r d rel; do
   pkgdir="$d/${rel#./}"; [[ "$rel" = "." ]] && pkgdir="$d"
   for f in "$pkgdir"/*_test.go; do
     [[ -e "$f" ]] || continue
-    if constraint_exprs "$f" | grep -qw 'integration'; then
+    if constraint_exprs "$f" | grep -qx 'integration'; then
       echo "$d|$rel"
       break
     fi
@@ -206,6 +206,13 @@ while IFS='|' read -r d rel; do
       [[ -n "$expr" ]] || continue
       case "$expr" in
         integration) tagged=1 ;;
+        # !integration is the mirror of `integration`: the unit-lane-only gates.
+        # The RBAC legacy-cohort gates read git history to derive the initial
+        # commit's vocabulary, and the integration lanes clone shallow, so those
+        # files are excluded from THIS build exactly as the compiler excludes
+        # them. Statically decidable for the same reason `integration` is — this
+        # lane's build always satisfies the tag.
+        '!integration') skip_file=1 ;;
         e2e_llm|livesmoke|voicelive) skip_file=1 ;;
         *)
           echo "FAIL: $f carries build constraint '$expr' — not one the static shard discovery knows" >&2
