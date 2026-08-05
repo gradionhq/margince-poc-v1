@@ -360,6 +360,106 @@ A fitness test asserting every `confirmation_required` policy row has a
 resolvable approval mapping would turn #484's class of gap into a build failure
 instead of a runtime 403. Worth doing when #484 is picked up.
 
+## Session pickup — 2026-08-04 (the person Relationship Room, branch `feat/person-relationship-room`, NOT pushed)
+
+**The person page opens on a reason to be there rather than on a record.** 22
+commits in the worktree `.tmp/worktrees/person-room`, nothing pushed, no PR.
+Built against the shared `margince` dev database (247 people, ~2,950 captured
+activities) rather than fixtures, which is how three of the defects below were
+found at all.
+
+What landed, in build order:
+
+- **Multi-party participants (B1).** Mail capture never parsed `Cc`; the
+  calendar folded attendees into body text. Both now emit
+  `NormalizedRecord.Participants`, resolved to a colleague or a known contact
+  at stamping time rather than left for a promotion that never comes — the
+  interaction graph joins `user_id` to `person_id`, so an address-only row is
+  invisible to it. Migration 0185 adds the replay marker the history pass
+  needs; the two-end backfill needs no state because its predicate shrinks as
+  it runs, and this one cannot borrow that trick because most messages have no
+  CCs.
+- **Relationship change derived at read (B2).** `relstrength.Changes` folds
+  the same §4 curve over a window ending in the past, so the system can say
+  "it went warm on Tuesday" without storing yesterday's number. Four kinds; a
+  BAND crossing is reported and a point drift is not. No table, so an erased
+  activity takes its derived change with it.
+- **The correction ledger (C0).** `ai_feedback`, specified upstream
+  (AIRT-SCHEMA-1) and never built until now. Migration 0186.
+  `POST /ai/feedback` is human-only and gated on the SUBJECT's update grant.
+  Art. 17 deletes it in the single erasure transaction; Art. 15 exports it as
+  `corrections`.
+- **Moments (C1).** Five deterministic rules over what the 360 already read,
+  ranked in a fixed editorial order. Dismissal writes an `ai_feedback` verdict
+  keyed on the moment's PATH, so it survives the evidence moving.
+- **The local graph (C3).** `GET /people/{id}/graph` — a `direct` arm with
+  visibility-filtered receipts and an `account` arm carrying pooled counts
+  only, row-scoped per arm rather than once at the root.
+- **Frontend (C4).** Moment card with dismissal, change lines on the pulse,
+  the correction UI on enriched fields, the Connections panel, timeline
+  filters.
+
+### Open — three phases the plan names and this branch did not build
+
+- **C2 (person brief + ask)** is blocked upstream, not deferred by choice.
+  `person_brief` / `person_ask` are new sites on a task `ai-tasks.yaml` still
+  calls `planned`, and that file generates the task declarations. It cannot
+  start without a spec change.
+- **D (commitments)** has no producer. The lifecycle rides approvals +
+  activities, which exist — but the extraction that would STAGE a proposal is
+  itself an AI task needing the same upstream declaration, so building the
+  lifecycle alone would ship a queue nothing fills.
+- **Workstream S steps 2 and 4** (the profiler, the public-professional signal
+  lane). S1+S3 shipped: the `websearch` seam and LinkedIn-URL discovery are in
+  and dormant until `BRAVE_SEARCH_API_KEY` is bound.
+
+### Gates
+
+`make check` green. `craft static` **PASS, 0 blocker / 0 major / 0 minor** under
+the now-strict bar. `make test-integration` green. On CI: all 12 integration
+shards, UAT + axe, frontend, deterministic-gates, live-boot, govulncheck,
+CodeQL, DCO, craft-residue, docker images — 27 checks passing.
+
+**SonarCloud's new-code coverage is the one open gate**, and it is a required
+check. It went 29.6% → 76.9% over ten rounds of tests added here; the
+threshold is 80%.
+
+Those tests are worth keeping whatever happens to the gate. They pin claims
+that were previously only described in comments: the forged-Cc refusal from
+both sides, the view-ack's monotonicity (a GET that moved the baseline would
+destroy the answer the reader opened the page for), the account arm's
+counts-not-messages disclosure rule asserted as an ABSENCE, merge
+survivorship, and the replay pass's termination argument.
+
+What is left uncovered is mostly `return err` propagation and branches that
+need an injected database fault. Reaching those means mocking a boundary the
+craftsmanship rules say to leave alone, which would produce the over-mocked,
+assertion-thin tests the same rules call noise. The recommendation on the
+record is an admin override on that one check rather than a permanent
+threshold change, which would weaken the gate for every later PR to unblock
+one.
+
+**One CI flake to expect, unrelated to this branch.**
+`TestTwoMessagesReportingTheSameRenameAuditItOnce`
+(`ensurechannel_contention_integration_test.go`) fails under shard load with
+"no backend waited on the held row within 20000 probes — the writer never
+reached the lock, so this run proved nothing". It is a lock-contention test
+reporting that its own precondition did not hold. Re-run the shard.
+
+### Two things worth carrying forward
+
+**The migration numbers collided twice.** 0180 and 0181 were already taken by
+a parallel session's signals work and already applied to the shared dev
+database, so the first `make migrate` reported "applied 0" and the table
+silently did not exist. Check `schema_migrations_core` before assuming a
+number is free.
+
+**Running against real data found what fixtures would not:** three wrong
+column names, an employment predicate keyed on `is_current_primary` (which
+answers *which of several employers is the main one*, not *are they still
+there*), and a flow-mapping description in `crm.yaml` whose comma split it
+into a sibling key and made the whole contract fail OpenAPI validation while
+the codegen stayed happy about it.
 ## Session pickup — 2026-08-05 (the RBAC matrix doc and the migration replay gate, PR #474, merged)
 
 **The migration gate now replays the upgrade instead of scanning the SQL.** The
