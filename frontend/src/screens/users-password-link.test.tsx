@@ -156,7 +156,10 @@ describe("admin-issued set-password link", () => {
       screen.getByLabelText("New member's email"),
       "newbie@acme.test",
     );
-    await userEvent.type(screen.getByLabelText("New member's full name"), "New Bie");
+    await userEvent.type(
+      screen.getByLabelText("New member's full name"),
+      "New Bie",
+    );
     await userEvent.click(screen.getByRole("button", { name: /^invite$/i }));
 
     // Without this the admin walks away from a successful invite holding
@@ -164,9 +167,9 @@ describe("admin-issued set-password link", () => {
     const field =
       await screen.findByLabelText<HTMLInputElement>("Set-password link");
     expect(field.value).toBe(LINK_URL);
-    expect(calls.some((url) => url.includes("/users/u-new/password-link"))).toBe(
-      true,
-    );
+    expect(
+      calls.some((url) => url.includes("/users/u-new/password-link")),
+    ).toBe(true);
   });
 
   it("leaves a post-invite mint failure visible with a retry", async () => {
@@ -181,7 +184,10 @@ describe("admin-issued set-password link", () => {
       screen.getByLabelText("New member's email"),
       "newbie@acme.test",
     );
-    await userEvent.type(screen.getByLabelText("New member's full name"), "New Bie");
+    await userEvent.type(
+      screen.getByLabelText("New member's full name"),
+      "New Bie",
+    );
     await userEvent.click(screen.getByRole("button", { name: /^invite$/i }));
 
     // The member exists but has no way in. Reporting a clean success here is
@@ -204,7 +210,9 @@ describe("admin-issued set-password link", () => {
     await screen.findByLabelText("Set-password link");
     await userEvent.click(screen.getByRole("button", { name: /copy link/i }));
     // The admin is told to copy by hand rather than left with a dead button.
-    expect(await screen.findByText(/could not copy automatically/i)).toBeTruthy();
+    expect(
+      await screen.findByText(/could not copy automatically/i),
+    ).toBeTruthy();
   });
 
   it("keeps a failed mint visible with a retry rather than reporting success", async () => {
