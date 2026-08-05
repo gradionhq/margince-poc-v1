@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package compose
+
+// The anchor company's face (A55, PO-AC-25). It is the one company created BY a
+// website read rather than enriched after one: the read runs while the
+// organization still does not exist, so the mark it resolves waits on the
+// dossier and the confirmation adopts it as it creates the row. Nothing else
+// ever offers this company a logo — no sweep revisits it — so what these cases
+// pin is the difference between the company every user meets first having a
+// face and never having one.
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/imagenorm"
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// touchIconURL is the mark acme.example declares on its landing page.
+const touchIconURL = seedURL + "/touch.png"
+
+// onboardingLogoWorker builds the logo lane over a fake site and an in-memory
+// object store — the worker as the onboarding read runs it, minus the crawl.
+func onboardingLogoWorker(e *integration.Env, site *assetSite, blob blobstore.Store) *siteDeepReadWorker {
+	return &siteDeepReadWorker{
+		people: e.People, fetch: site, blob: blob,
+		log: slog.New(slog.DiscardHandler),
+	}
+}
+
+// declaringCrawl is what the seed page declared, as the crawl carries it into
+// the logo lane.
+func declaringCrawl() siteCrawl {
+	return siteCrawl{
+		SeedURL: seedURL,
+		SeedAssets: declaredAssets{
+			icons: []webread.IconRef{{URL: touchIconURL, Rel: webread.RelAppleTouchIcon}},
+		},
+	}
+}
+
+// readTheOnboardingSite starts the unbound dossier, claims it the way the
+// worker does, and runs the logo lane over the seed page's declarations.
+func readTheOnboardingSite(t *testing.T, e *integration.Env, w *siteDeepReadWorker) SiteDeepReadArgs {
+	t.Helper()
+	read, joined, err := e.People.StartOnboardingSiteRead(
+		e.As(e.Rep1, nil, integration.AdminPerms), seedURL, "human:"+e.Rep1.String(), nil)
+	if err != nil {
+		t.Fatalf("start the onboarding read: %v", err)
+	}
+	if joined {
+		t.Fatal("a fresh onboarding read joined an existing dossier")
+	}
+	args := SiteDeepReadArgs{Workspace: e.WS, SiteReadID: read.ID, RequestedBy: read.RequestedBy}
+	workerCtx := deepReadWorkerCtx(context.Background(), args)
+	claim, err := e.People.BeginSiteRead(workerCtx, read.ID, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("claim the onboarding read: %v", err)
+	}
+	w.resolveLogo(workerCtx, args, claim, declaringCrawl())
+	return args
+}
+
+// confirmTheAnchor finishes the claimed dossier and confirms it — the step that
+// creates the company the installation is.
+func confirmTheAnchor(t *testing.T, e *integration.Env, args SiteDeepReadArgs) people.Company {
+	t.Helper()
+	hash, err := siteReadProposalHash(nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("hashing the empty draft: %v", err)
+	}
+	if err := e.People.FinishSiteRead(deepReadWorkerCtx(context.Background(), args), args.SiteReadID,
+		people.FinishSiteReadInput{
+			Status:       "done",
+			Pages:        []people.SiteReadPage{{URL: seedURL, Kind: "home"}},
+			ProposalHash: hash,
+		}); err != nil {
+		t.Fatalf("finish the onboarding read: %v", err)
+	}
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	ready, err := e.People.GetOnboardingSiteRead(ctx, args.SiteReadID)
+	if err != nil {
+		t.Fatalf("read the finished draft: %v", err)
+	}
+	website := seedURL
+	company, err := e.People.ConfirmCompanySiteRead(ctx, people.ConfirmCompanySiteReadInput{
+		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
+		DisplayName: "Acme", Website: &website,
+	}, nil)
+	if err != nil {
+		t.Fatalf("confirm the onboarding read: %v", err)
+	}
+	return company
+}
+
+// parkedLogo answers what the dossier is holding for the confirmation.
+func parkedLogo(t *testing.T, e *integration.Env, readID ids.UUID) (key, origin *string) {
+	t.Helper()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT logo_object_key, logo_origin FROM site_read WHERE id = $1`, readID).Scan(&key, &origin)
+	}); err != nil {
+		t.Fatalf("reading the dossier's logo: %v", err)
+	}
+	return key, origin
+}
+
+func TestOnboardingReadResolvesTheLogoTheConfirmedAnchorWears(t *testing.T) {
+	e := integration.Setup(t)
+	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
+	blob := blobstore.NewMemory()
+	args := readTheOnboardingSite(t, e, onboardingLogoWorker(e, site, blob))
+
+	key, origin := parkedLogo(t, e, args.SiteReadID)
+	if key == nil || *key == "" || origin == nil || *origin != touchIconURL {
+		t.Fatalf("the unbound dossier parked no mark: key %v origin %v", key, origin)
+	}
+	stored, object, err := blob.Get(context.Background(), *key)
+	if err != nil {
+		t.Fatalf("the parked key names no object: %v", err)
+	}
+	if err := stored.Close(); err != nil {
+		t.Fatalf("closing the stored object: %v", err)
+	}
+	if object.ContentType != imagenorm.ContentType {
+		t.Fatalf("stored content type %q, want the normalized %q", object.ContentType, imagenorm.ContentType)
+	}
+
+	company := confirmTheAnchor(t, e, args)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	boundKey, err := e.People.OrganizationLogoKey(ctx, company.OrganizationID)
+	if err != nil {
+		t.Fatalf("the confirmed anchor has no logo: %v", err)
+	}
+	if boundKey != *key {
+		t.Fatalf("the anchor names %q, want the object the read stored at %q", boundKey, *key)
+	}
+	org, err := e.People.GetOrganization(ctx, company.OrganizationID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("read the anchor: %v", err)
+	}
+	wantURL := "/v1/organizations/" + company.OrganizationID.String() + "/logo"
+	if org.LogoUrl == nil || *org.LogoUrl != wantURL {
+		t.Fatalf("logo_url = %v, want %q — the face the SPA renders", org.LogoUrl, wantURL)
+	}
+
+	// The mark is the site read's, never the confirming human's: provenance is
+	// written once, and a machine mark filed under a person would make the
+	// human-precedence guard refuse every later resolve.
+	var capturedBy string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT captured_by FROM field_provenance
+			WHERE object_type = 'organization' AND object_id = $1 AND field_name = 'logo'
+			ORDER BY captured_at DESC, id DESC LIMIT 1`, company.OrganizationID).Scan(&capturedBy)
+	}); err != nil {
+		t.Fatalf("reading the logo's provenance: %v", err)
+	}
+	if capturedBy != "agent:site-read" {
+		t.Fatalf("logo captured_by = %q, want the site read", capturedBy)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE entity_type = 'organization' AND entity_id = $1 AND after->'fields' ? 'logo'`,
+		company.OrganizationID); n != 1 {
+		t.Fatalf("the logo write left %d audit rows, want exactly 1", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM event_outbox
+		WHERE envelope->>'type' = 'organization.updated'
+		  AND envelope->'entity'->>'id' = $1
+		  AND envelope->'payload'->'changed_fields'->>'source_url' = $2`,
+		company.OrganizationID.String(), touchIconURL); n != 1 {
+		t.Fatalf("the logo write published %d organization.updated events for the mark, want 1", n)
+	}
+}
+
+func TestConfirmingAnOnboardingReadSurvivesALogoThatNeverResolved(t *testing.T) {
+	// An air-gapped install, a site that declares nothing, an asset that will
+	// not answer: the company still has to come into being. A logo is polish on
+	// a read whose product is the company itself.
+	e := integration.Setup(t)
+	site := &assetSite{failing: map[string]bool{touchIconURL: true}}
+	args := readTheOnboardingSite(t, e, onboardingLogoWorker(e, site, blobstore.NewMemory()))
+
+	if key, origin := parkedLogo(t, e, args.SiteReadID); key != nil || origin != nil {
+		t.Fatalf("a resolve that fetched nothing parked key %v origin %v", key, origin)
+	}
+	company := confirmTheAnchor(t, e, args)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	if _, err := e.People.OrganizationLogoKey(ctx, company.OrganizationID); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("an anchor with no resolved logo answers %v, want not-found so the monogram renders", err)
+	}
+	org, err := e.People.GetOrganization(ctx, company.OrganizationID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("read the anchor: %v", err)
+	}
+	if org.LogoUrl != nil {
+		t.Fatalf("logo_url = %q, want none", *org.LogoUrl)
+	}
+}
+
+func TestConfirmingAnOnboardingReadKeepsTheLogoAPersonGaveTheAnchor(t *testing.T) {
+	e := integration.Setup(t)
+	human := e.As(e.Rep1, nil, integration.AdminPerms)
+	saved, err := e.People.SaveCompany(human, people.SaveCompanyInput{DisplayName: "Acme"})
+	if err != nil {
+		t.Fatalf("describe the company by hand: %v", err)
+	}
+	uploaded := blobstore.WorkspaceKey(ids.From[ids.WorkspaceKind](e.WS), "organization_logo",
+		saved.OrganizationID.String()+"/uploaded")
+	if _, _, err := e.People.SetOrganizationLogo(human, saved.OrganizationID, uploaded,
+		seedURL+"/chosen-by-a-person.png"); err != nil {
+		t.Fatalf("record the person's own logo: %v", err)
+	}
+
+	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
+	args := readTheOnboardingSite(t, e, onboardingLogoWorker(e, site, blobstore.NewMemory()))
+	if key, _ := parkedLogo(t, e, args.SiteReadID); key == nil {
+		t.Fatal("the read resolved no mark; this case has nothing to refuse")
+	}
+	company := confirmTheAnchor(t, e, args)
+
+	boundKey, err := e.People.OrganizationLogoKey(human, company.OrganizationID)
+	if err != nil {
+		t.Fatalf("the anchor lost its logo: %v", err)
+	}
+	if boundKey != uploaded {
+		t.Fatalf("the anchor now names %q, want the logo the person set at %q", boundKey, uploaded)
+	}
+}

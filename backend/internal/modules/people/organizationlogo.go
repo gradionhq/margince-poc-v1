@@ -119,6 +119,106 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 	return written, supersededKey, nil
 }
 
+// RecordSiteReadLogo parks a resolved mark on the dossier that found it, for a
+// read whose subject does not exist yet. An onboarding read is unbound by
+// construction — it reads the site to propose a company a human has not
+// confirmed into being — and the seed page's declarations are in hand only
+// while the crawl is, so a mark that is not parked here is a mark nothing can
+// resolve later.
+//
+// It reports whether the dossier took the reference — a read already bound or
+// confirmed has moved on without it — and hands back the key the row named
+// before, so the caller can reclaim bytes nothing references any more. Same
+// contract as SetOrganizationLogo, for the same reason: each attempt writes its
+// own key, so two resolves of one read can never write the same object.
+//
+// No auth.Require, the same rationale as BeginSiteRead: the worker is not a
+// human principal, the human's authority was checked when the read was started,
+// and the workspace-bound transaction still scopes the write to the job's
+// tenant. The reference on the dossier is operational, like every other worker
+// write to this row; the audited write on the RECORD happens when a
+// confirmation binds it.
+func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, objectKey, originURL string) (recorded bool, supersededKey *string, err error) {
+	if objectKey == "" || originURL == "" {
+		return false, nil, errors.New("people: a resolved logo needs both its storage key and the URL it was resolved from")
+	}
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// RETURNING the pre-write key, exactly as SetOrganizationLogo does: the
+		// sub-select reads the statement's own snapshot, so it names the object
+		// this write supersedes rather than the one it just stored.
+		var previous *string
+		err := tx.QueryRow(ctx, `
+			UPDATE site_read SET logo_object_key = $2, logo_origin = $3, updated_at = now()
+			WHERE id = $1 AND organization_id IS NULL AND confirmed_at IS NULL
+			RETURNING (SELECT sr.logo_object_key FROM site_read sr WHERE sr.id = $1)`,
+			readID, objectKey, originURL).Scan(&previous)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The read is bound or confirmed already. Its company was decided
+			// without this mark, and overwriting the reference now would name
+			// bytes no record will ever adopt.
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("record the website read's logo: %w", err)
+		}
+		recorded = true
+		supersededKey = supersededObject(previous, objectKey)
+		return nil
+	})
+	if err != nil {
+		return false, nil, err
+	}
+	return recorded, supersededKey, nil
+}
+
+// bindSiteReadLogo gives the company a confirmation creates the mark its own
+// website read already resolved — the step that makes the anchor's face arrive
+// on the same terms as every other company's (A55). It runs inside the
+// confirmation's transaction, so the company and its logo commit together.
+//
+// Fill-empty, like every site-read field the confirmation applies: a mark the
+// record already wears — a person's own, or one an earlier read landed — stays,
+// and the parked object is simply not adopted. That is also what keeps this
+// write from stranding bytes nothing could collect afterwards: this module owns
+// no object store, so it may adopt an object but must never drop the last
+// reference to one.
+func bindSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, orgID ids.OrganizationID) error {
+	var objectKey, originURL *string
+	if err := tx.QueryRow(ctx,
+		`SELECT logo_object_key, logo_origin FROM site_read WHERE id = $1`, readID).
+		Scan(&objectKey, &originURL); err != nil {
+		return fmt.Errorf("read the website read's logo: %w", err)
+	}
+	if objectKey == nil || *objectKey == "" || originURL == nil || *originURL == "" {
+		// The read resolved nothing usable — an air-gapped install, a site that
+		// declares no icon, an asset that would not decode. The record draws its
+		// deterministic monogram, which is a face rather than a gap.
+		return nil
+	}
+	held, err := logoHeldByHuman(ctx, tx, orgID)
+	if err != nil {
+		return err
+	}
+	if held {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE organization SET logo_object_key = $2, logo_origin = $3
+		WHERE id = $1 AND archived_at IS NULL AND logo_object_key IS NULL`,
+		orgID, *objectKey, *originURL)
+	if err != nil {
+		return fmt.Errorf("bind the website read's logo: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	// The site read is what captured this, never the human who confirmed the
+	// draft: provenance is written once and never re-derived, and a machine mark
+	// recorded under a person's name would make the human-precedence guard
+	// refuse every later resolve for a logo nobody chose.
+	return recordLogoWrite(ctx, tx, orgID, *originURL, companySiteReadCapturedBy)
+}
+
 // supersededObject names the object this write orphaned, or nil when it
 // orphaned none — the organization had no logo, or the caller re-recorded the
 // key already on the row.

@@ -167,6 +167,9 @@ func applySiteReadConfirmation(
 		return siteReadConfirmation{}, err
 	}
 	appliedFacts = append(appliedFacts, humanFacts...)
+	if err := bindSiteReadLogo(ctx, tx, read.ID, orgID); err != nil {
+		return siteReadConfirmation{}, err
+	}
 	return siteReadConfirmation{
 		organizationID: orgID,
 		created:        created,
