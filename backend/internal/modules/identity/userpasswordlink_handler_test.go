@@ -129,8 +129,11 @@ func TestRedemptionIsReachableOnAnEmailLessInstallation(t *testing.T) {
 }
 
 func TestMeAdvertisesTheLinkActionOnlyToAnAdminWhoCanUseIt(t *testing.T) {
-	admin := Identity{Roles: []string{"admin"}}
-	rep := Identity{Roles: []string{"rep"}}
+	// A real session always carries a seat; an unset one is fail-closed, so the
+	// fixtures name it rather than leaning on a default.
+	admin := Identity{Roles: []string{"admin"}, SeatType: "full"}
+	rep := Identity{Roles: []string{"rep"}, SeatType: "full"}
+	readSeatAdmin := Identity{Roles: []string{"admin"}, SeatType: "read"}
 
 	emailLess := emailLessInstallation()
 	if !emailLess.canIssuePasswordLink(admin) {
@@ -140,6 +143,12 @@ func TestMeAdvertisesTheLinkActionOnlyToAnAdminWhoCanUseIt(t *testing.T) {
 	// why this is a caller capability and not a deployment-posture flag.
 	if emailLess.canIssuePasswordLink(rep) {
 		t.Error("rep: want the action hidden")
+	}
+	// The seat ceiling sits ABOVE RBAC: serveAsHuman refuses every mutating
+	// method from a read seat before the role is consulted, so advertising this
+	// to a read-seat admin would offer a button that can only answer 403.
+	if emailLess.canIssuePasswordLink(readSeatAdmin) {
+		t.Error("admin on a read seat: want the action hidden, since the seat ceiling refuses it")
 	}
 	if NewHandlers(&Service{}).canIssuePasswordLink(admin) {
 		t.Error("admin with no public base URL: want the action hidden, since it could only 409")

@@ -204,23 +204,23 @@ func (s *Service) CreatePasswordReset(ctx context.Context, email string) (string
 	minted := false
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var userID ids.UserID
-		// FOR UPDATE serializes this mint against every other issuer of the
-		// same member's set-password tokens — a concurrent forgot-password, or
-		// an admin issuing a link. Without it, two transactions at READ
-		// COMMITTED each miss the other's uncommitted insert and both leave a
-		// live token, so "one outstanding token" would hold only when nobody
-		// raced. The lock is on the member for the same reason IssuePasswordLink
-		// takes it there: the member is what both issuers contend over.
 		lookupErr := tx.QueryRow(ctx,
 			`SELECT id FROM app_user
-			 WHERE email = lower($1) AND status = 'active' AND archived_at IS NULL AND password_hash IS NOT NULL
-			 FOR UPDATE`,
+			 WHERE email = lower($1) AND status = 'active' AND archived_at IS NULL AND password_hash IS NOT NULL`,
 			email).Scan(&userID)
 		if errors.Is(lookupErr, pgx.ErrNoRows) {
 			return nil
 		}
 		if lookupErr != nil {
 			return lookupErr
+		}
+		// Serialize against every other issuer of this member's set-password
+		// tokens — a concurrent forgot-password, or an admin issuing a link.
+		// Without it, two transactions at READ COMMITTED each miss the other's
+		// uncommitted insert and both leave a live token, so "one outstanding
+		// token" would hold only when nobody raced.
+		if err := lockMemberForTokenIssue(ctx, tx, userID); err != nil {
+			return err
 		}
 		// One outstanding reset per account: a new request supersedes any
 		// earlier unredeemed token.

@@ -3838,6 +3838,11 @@ export interface paths {
          *
          *     The operation deliberately does NOT accept `Idempotency-Key`: the idempotency runtime
          *     persists successful response bodies, and this body is a live credential.
+         *
+         *
+         *     `Cache-Control: no-store` is emitted on EVERY response, not only the 201. The refusals
+         *     disclose the installation's delivery posture and the caller's standing, neither of which
+         *     belongs in a shared proxy's cache.
          */
         post: operations["issueUserPasswordLink"];
         delete?: never;

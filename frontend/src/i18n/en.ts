@@ -3084,13 +3084,14 @@ export const en = {
   "users.link.action": "Get set-password link",
   "users.link.title": "Set-password link for {name}",
   "users.link.pending": "Creating the link…",
+  // Two sentences, no dash (VOICE-RULE-5).
   "users.link.body":
-    "Send this link to the member over a channel you trust. It works once, and it is shown only now — close this and you can create a new one from their row.",
+    "Send this link to the member over a channel you trust. It works once and is shown only now. Close this and you can create a new one from their row.",
   "users.link.urlLabel": "Set-password link",
   "users.link.copy": "Copy link",
   "users.link.copied": "Copied",
   "users.link.copyFailed":
-    "Could not copy automatically — select the link and copy it.",
+    "Could not copy automatically. Select the link and copy it.",
   "users.link.expires": "Expires {when}.",
   "users.link.failed":
     "The member was created, but the link could not be. They cannot sign in until you send them one.",

@@ -3,7 +3,11 @@
 
 package identity
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
 
 // passwordLink is the ONE spelling of an emailed set-password deep link, and the
 // reason it is a function rather than a string per caller is that the token's
@@ -59,9 +63,15 @@ func (h Handlers) canSendPasswordLink() bool {
 // set-password links, which is what /me advertises. It is a caller capability
 // and not a deployment-posture flag on purpose: /me answers every
 // authenticated member, so a bare posture boolean would tell every rep whether
-// the installation has an email channel. The three conditions are exactly the
-// ones IssueUserPasswordLink enforces, so the client never renders a control
-// that can only fail.
+// the installation has an email channel. The conditions are exactly the ones a
+// real call must clear, so the client never renders a control that can only
+// fail — including the seat ceiling, which sits ABOVE RBAC: an admin on a
+// licence read seat is refused every mutating method by serveAsHuman before
+// their role is ever consulted, so advertising the action to them would offer a
+// button that answers 403 whatever their role says.
 func (h Handlers) canIssuePasswordLink(id Identity) bool {
-	return id.hasRole(roleAdmin) && h.resetMailer == nil && h.passwordLinkBaseURL != ""
+	return id.hasRole(roleAdmin) &&
+		principal.SeatType(id.SeatType).CanMutate() &&
+		h.resetMailer == nil &&
+		h.passwordLinkBaseURL != ""
 }

@@ -97,19 +97,41 @@ func (s *Service) IssuePasswordLink(ctx context.Context, actor Identity, userID 
 	return raw, expiresAt, nil
 }
 
-// supersedeSetPasswordTokens locks the target member, refuses a non-active one,
-// and consumes their outstanding unused set-password tokens. It reports how
-// many it consumed, which the audit image records.
+// lockMemberForTokenIssue serializes every issuer of one member's set-password
+// tokens — this path and the forgot-password mint — for the rest of the
+// transaction.
 //
-// The lock is the point of doing this in one place: without FOR UPDATE, two
-// admins issuing concurrently can each miss the other's uncommitted insert at
-// READ COMMITTED and both leave a live token, quietly breaking the
-// one-outstanding-token rule. It also serializes the status check against a
-// concurrent deactivation.
+// It is an ADVISORY lock rather than `SELECT … FOR UPDATE` on app_user, and the
+// reason is deadlock avoidance rather than taste. Redemption locks the
+// `auth_token` row first and then writes `app_user`; an issuer that locked
+// `app_user` first and then wrote `auth_token` would take the same two locks in
+// the opposite order, so a redeem racing an issue could each hold what the
+// other waits for and one would die with `deadlock detected` — in the
+// forgot-password case, silently, since that mint runs detached from the
+// request. Holding no app_user row lock at all removes the cycle, and the
+// advisory lock still serializes issuers against each other, which a row lock
+// on a token that may not exist yet could never do.
+func lockMemberForTokenIssue(ctx context.Context, tx pgx.Tx, userID ids.UserID) error {
+	_, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, userID.String())
+	return err
+}
+
+// supersedeSetPasswordTokens refuses a non-active member and consumes their
+// outstanding unused set-password tokens, reporting how many it consumed for
+// the audit image.
+//
+// The member is read WITHOUT a row lock (see lockMemberForTokenIssue). A
+// deactivation committing between this check and the insert would leave a token
+// that redemption then refuses anyway, because redemption re-checks that the
+// account is active — so the window costs a wasted link, never a usable one.
 func supersedeSetPasswordTokens(ctx context.Context, tx pgx.Tx, userID ids.UserID) (int64, error) {
+	if err := lockMemberForTokenIssue(ctx, tx, userID); err != nil {
+		return 0, err
+	}
 	var status string
 	err := tx.QueryRow(ctx,
-		`SELECT status FROM app_user WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
+		`SELECT status FROM app_user WHERE id = $1 AND archived_at IS NULL`,
 		userID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, apperrors.ErrNotFound
