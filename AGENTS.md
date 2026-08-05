@@ -4,7 +4,7 @@ Margince CRM implementation PoC (WP0 foundation + WP1 core spine), built from th
 sibling spec repo **`margince-foundation`** (contract-first, P3: when this code and
 the spec disagree, the spec wins). Its tree is `specs/` — `specs/subsystems/` holds
 the per-module chapters, `specs/contract/` the normative contract, `specs/adr/` the
-decisions; the ticket backlog is at that repo's root in `backlog/`. See
+decisions; delivery tracking lives at that repo's root in `tooling/`. See
 [CLAUDE.md](CLAUDE.md#where-the-spec-is-read-before-building) for the full map.
 Don't edit the spec from here — raise discrepancies for upstream reconciliation.
 
