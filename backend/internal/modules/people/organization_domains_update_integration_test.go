@@ -85,32 +85,6 @@ func domainCapturedBy(ctx context.Context, t *testing.T, e *dedupeEnv, orgID ids
 	return by
 }
 
-// liveRelationshipTypesOf reads the org's unarchived relationship types.
-func liveRelationshipTypesOf(ctx context.Context, t *testing.T, e *dedupeEnv, orgID ids.OrganizationID) map[string]bool {
-	t.Helper()
-	out := map[string]bool{}
-	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT relationship_type FROM organization_relationship_type
-			  WHERE organization_id = $1 AND archived_at IS NULL`, orgID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var rt string
-			if err := rows.Scan(&rt); err != nil {
-				return err
-			}
-			out[rt] = true
-		}
-		return rows.Err()
-	}); err != nil {
-		t.Fatalf("reading relationship types: %v", err)
-	}
-	return out
-}
-
 func TestUpdateOrganizationDomainsReplaceSet(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
@@ -302,7 +276,7 @@ func TestUpdateOrganizationAcceptsDomainsAndRelationshipTypesTogether(t *testing
 	if len(live) != 1 || !live["kerrix-industrial.test"] {
 		t.Errorf("live domains = %+v, want only kerrix-industrial.test as primary", live)
 	}
-	if types := liveRelationshipTypesOf(ctx, t, e, orgID); len(types) != 1 || !types["customer"] {
+	if types := liveTypesOf(ctx, t, e, orgID); len(types) != 1 || !types["customer"] {
 		t.Errorf("live relationship types = %+v, want only customer", types)
 	}
 	// One request is one write: the version bumps once, not once per replace-set.
