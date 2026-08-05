@@ -65,6 +65,19 @@ func TestScheduleIntervalTakesTheOperatorsDial(t *testing.T) {
 	}
 }
 
+// TestTheReconcileIntervalMatchesTheStatedStalenessBound holds the graph
+// projection's staleness promise to the cadence that makes it true.
+func TestTheReconcileIntervalMatchesTheStatedStalenessBound(t *testing.T) {
+	// The migration states that window counts may be up to 24h over-inclusive.
+	// That promise is only true if this pass runs daily; loosening the declared
+	// cadence without amending the migration would make the comment a lie. The
+	// declaration is what River is handed, so it is what this asserts.
+	spec := specFor(t, GraphEdgeReconcileArgs{}.Kind())
+	if spec.Cadence.Fixed != 24*time.Hour {
+		t.Errorf("declared reconcile cadence is %v, but the projection's stated bound is 24h", spec.Cadence.Fixed)
+	}
+}
+
 // TestPeriodicForUsesTheDeclaredLiteralCadence proves the resolver is wired to
 // the periodic entry, not merely callable.
 func TestPeriodicForUsesTheDeclaredLiteralCadence(t *testing.T) {

@@ -431,24 +431,13 @@ var SchedulerPerms = principal.Permissions{
 	RowScope: principal.RowScopeTeam,
 }
 
-// ApplyRiverSchema layers River's own schema onto the harness-migrated
-// database, as cmd/migrate does after core and custom. It is the ONE
-// spelling: several suites across this package and package compose drive a
-// real River runner, and each needs the schema present.
+// ApplyRiverSchema gives this package's suites River's schema on the
+// harness-migrated database, as cmd/migrate does after core and custom. Several
+// suites here and in package compose drive a real River runner and each needs it
+// present.
 //
-// Call it AFTER Setup. EnsureSchema opens the first integration test in a
-// process with DROP SCHEMA public CASCADE, which takes River's tables with
-// it, so a call that ran first would have its work destroyed.
-//
-// The guard is river_migration's existence rather than a once-per-process
-// flag, because neither of the two things that can invalidate the schema is
-// visible to a flag: EnsureSchema drops the tables outright, and Reset
-// empties river_migration's applied-version ledger while leaving the tables
-// standing. jobs.Migrate is itself idempotent, but River reads that emptied
-// ledger and would replay its first migration against tables that still
-// exist, failing on SQLSTATE 42P07 — so the table, not the ledger, is what
-// must be probed. Tests in these packages run sequentially (no t.Parallel),
-// which is what makes the check-then-migrate window safe.
+// Call it AFTER Setup — testdb.EnsureRiverSchema explains why the order matters
+// and why the guard probes the table rather than a flag.
 func ApplyRiverSchema(t *testing.T) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -461,16 +450,8 @@ func ApplyRiverSchema(t *testing.T) {
 		t.Fatalf("opening owner pool: %v", err)
 	}
 	defer ownerPool.Close()
-	var present bool
-	if err := ownerPool.QueryRow(ctx,
-		`SELECT to_regclass('public.river_migration') IS NOT NULL`).Scan(&present); err != nil {
-		t.Fatalf("checking the river schema: %v", err)
-	}
-	if present {
-		return
-	}
-	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
-		t.Fatalf("applying the river schema: %v", err)
+	if err := testdb.EnsureRiverSchema(ctx, ownerPool, jobs.Migrate); err != nil {
+		t.Fatal(err)
 	}
 }
 

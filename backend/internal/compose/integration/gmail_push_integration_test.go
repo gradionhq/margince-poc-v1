@@ -20,12 +20,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -33,29 +31,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
-
-// ensureRiverSchema applies River's schema once for this package process —
-// the harness migrates core+custom only, and the enqueue path needs
-// river_job (the same discipline the workqueue suite uses).
-func ensureRiverSchema(t *testing.T) {
-	t.Helper()
-	ctx := context.Background()
-	ownerPool, err := pgxpool.New(ctx, os.Getenv("MARGINCE_TEST_DSN"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ownerPool.Close()
-	var present bool
-	if err := ownerPool.QueryRow(ctx, `SELECT to_regclass('public.river_migration') IS NOT NULL`).Scan(&present); err != nil {
-		t.Fatalf("checking river schema: %v", err)
-	}
-	if present {
-		return
-	}
-	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
-		t.Fatalf("applying river schema: %v", err)
-	}
-}
 
 func pushBody(t *testing.T, email string) []byte {
 	t.Helper()
@@ -104,7 +79,7 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ensureRiverSchema(t)
+	ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	inserter, err := jobs.NewInserter(e.Pool, quiet)
 	if err != nil {

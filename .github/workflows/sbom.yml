@@ -21,6 +21,7 @@ on:
       - "Makefile"
       - ".syft.yaml"
       - ".grant.yaml"
+      - "sbom-schemas/**"
       - ".github/workflows/sbom.yml"
   push:
     branches: [main]

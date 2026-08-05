@@ -240,3 +240,50 @@ func TestUpdateOrganizationKeepingOwnDomainIsNoFalseConflict(t *testing.T) {
 		t.Fatalf("live domains = %+v, want {keep.test:true}", live)
 	}
 }
+
+// Both replace-sets in ONE request — the pair nothing covered, and the shape that
+// used to 500: each branch bumped updated_at, and two assignments to one column
+// is a statement Postgres rejects.
+//
+// What this asserts is the endpoint's property, not the patch's: a request naming
+// both sets succeeds, BOTH sets land, and it is a single write. The rendering rule
+// that makes it possible belongs to storekit.Patch and is pinned there
+// (patch_test.go) — which is why this test stays green even if the de-duplication
+// is removed, now that this caller bumps updated_at once.
+func TestUpdateOrganizationAcceptsDomainsAndRelationshipTypesTogether(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Kerrix Industrial", Source: "manual",
+		Domains: []OrgDomainInput{{Domain: "kerrix.test", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+	v0 := orgVersion(ctx, t, e, orgID)
+
+	if _, err := e.store.UpdateOrganization(ctx, orgID, UpdateOrganizationInput{
+		Domains:           &[]OrgDomainInput{{Domain: "kerrix-industrial.test", IsPrimary: true}},
+		RelationshipTypes: &[]string{"customer"},
+	}); err != nil {
+		t.Fatalf("domains and relationship_types in one patch: %v", err)
+	}
+
+	// Both replace-sets actually landed — the request must not merely stop
+	// erroring while silently applying one half.
+	live := liveDomainsOf(ctx, t, e, orgID)
+	if len(live) != 1 || !live["kerrix-industrial.test"] {
+		t.Errorf("live domains = %+v, want only kerrix-industrial.test as primary", live)
+	}
+	if types := liveTypesOf(ctx, t, e, orgID); len(types) != 1 || !types["customer"] {
+		t.Errorf("live relationship types = %+v, want only customer", types)
+	}
+	// One request is one write: the version bumps once, not once per replace-set.
+	if v1 := orgVersion(ctx, t, e, orgID); v1 != v0+1 {
+		t.Errorf("version %d -> %d, want a single bump for a single request", v0, v1)
+	}
+	if n := countOrgUpdatedEvents(ctx, t, e, orgID); n != 1 {
+		t.Errorf("got %d organization.updated events, want exactly 1", n)
+	}
+}

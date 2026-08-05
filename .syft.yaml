@@ -53,3 +53,4 @@ exclude:
   - ./scratchpad/**
   - ./cli/craft/** # code-craftsmanship gate (ADR-0045), a pre-push build tool — not shipped
   - ./fixtures/** # test fixtures (e.g. the crm-hello extension module) — not shipped
+  - ./sbom-schemas/** # vendored upstream SPDX schemas for sbom-validate — build tooling, not shipped

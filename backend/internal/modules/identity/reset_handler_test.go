@@ -36,6 +36,22 @@ func TestResetEndpointsAnswer501WithoutAMailer(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesReflectTheWiredMailer(t *testing.T) {
+	h := NewHandlers(&Service{})
+	rec := httptest.NewRecorder()
+	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
+	if !strings.Contains(rec.Body.String(), `"password_reset":false`) {
+		t.Fatalf("unwired capabilities = %s, want password_reset:false", rec.Body)
+	}
+
+	h = h.WithPasswordReset(nopMailer{}, "https://crm.example.test")
+	rec = httptest.NewRecorder()
+	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
+	if !strings.Contains(rec.Body.String(), `"password_reset":true`) {
+		t.Fatalf("wired capabilities = %s, want password_reset:true", rec.Body)
+	}
+}
+
 func TestResetRequestRefusesMalformedInput(t *testing.T) {
 	h := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}, "https://crm.example.test")
 	if rec := post(h.RequestPasswordReset, "/v1/auth/forgot-password", `{`); rec.Code != http.StatusUnprocessableEntity {

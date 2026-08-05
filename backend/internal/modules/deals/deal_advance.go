@@ -200,9 +200,10 @@ func stageTransitionPatch(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 	if closedAt != nil {
 		p.Set("closed_at", current.ClosedAt, *closedAt)
 	}
-	// lost_reason only exists on a lost deal — never on won or open
-	// (on a reopen the terminal-field sweep below clears it; setting
-	// it twice would be a malformed UPDATE anyway).
+	// Written only when this advance LANDS on lost. A reopen clears it in the
+	// terminal-field sweep below, but a lost deal re-decided as won takes neither
+	// branch and keeps the stale reason — the CHECK is one-directional, so nothing
+	// refuses that state (issue #483).
 	if DealStatus(status) == DealLost && in.LostReason != nil {
 		p.Set("lost_reason", current.LostReason, *in.LostReason)
 	}

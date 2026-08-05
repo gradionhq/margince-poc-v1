@@ -236,19 +236,3 @@ func OperatorResetPasswordSmoke(ctx context.Context, e *revocationEnv, email str
 	}
 	return OperatorResetPassword(context.Background(), tx, ids.From[ids.WorkspaceKind](e.admin.WorkspaceID.UUID), email, "irrelevant password!")
 }
-
-func TestCapabilitiesReflectTheWiredMailer(t *testing.T) {
-	h := NewHandlers(&Service{})
-	rec := httptest.NewRecorder()
-	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
-	if !strings.Contains(rec.Body.String(), `"password_reset":false`) {
-		t.Fatalf("unwired capabilities = %s, want password_reset:false", rec.Body)
-	}
-
-	h = h.WithPasswordReset(&capturedMail{}, "https://crm.example.test")
-	rec = httptest.NewRecorder()
-	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
-	if !strings.Contains(rec.Body.String(), `"password_reset":true`) {
-		t.Fatalf("wired capabilities = %s, want password_reset:true", rec.Body)
-	}
-}
