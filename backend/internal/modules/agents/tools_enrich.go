@@ -72,7 +72,8 @@ func (t enrichCompany) Spec() mcp.ToolSpec {
 			"url":{"type":"string","format":"uri",
 				"description":"Absolute http(s) URL to read instead of the organization's own domain"},
 			"depth":{"type":"string","enum":["page","site"],"default":"page",
-				"description":"page reads one page and returns a staged proposal; site queues a multi-page crawl and returns its read id"}},
+				"description":"page reads one page and returns a staged proposal; site queues a multi-page crawl and returns its read id"},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}

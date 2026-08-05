@@ -142,14 +142,17 @@ func (p pinningApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ strin
 // otherwise control from both ends.
 func TestRedemptionCarriesThePinOntoTheForwardedRequest(t *testing.T) {
 	approvalID := ids.New[ids.ApprovalKind]()
-	pol := agentPolicy{Op: "sendOffer", Access: accessTool, Tool: "send_offer", RecordType: recordTypeOffer}
+	// A live confirm-first verb, not a human-only one: pinning this mechanism
+	// to an operation no agent may reach would keep passing after the mechanism
+	// stopped covering anything an agent can do.
+	pol := agentPolicy{Op: "archiveOffer", Access: accessTool, Tool: "archive_record", RecordType: recordTypeOffer}
 
 	var forwarded string
 	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		forwarded = r.Header.Get("If-Match")
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/offers/x/send", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/offers/x", nil)
 	req.Header.Set(approvalTokenHeader, approvalID.String())
 
 	if !redeemIfPresented(httptest.NewRecorder(), req, next, pinningApprovals{version: 9}, pol, nil) {

@@ -136,11 +136,9 @@ func TestOfferSendRefusesAnyAgentAsHumanOnly(t *testing.T) {
 	if status != http.StatusForbidden || refusal.Code != "permission_denied" {
 		t.Fatalf("agent send → %d %q, want 403 permission_denied (human-only)", status, refusal.Code)
 	}
-	// The distinguishing assertion: this is the human-only refusal, not the
-	// cap refusal or the 🟡 admission wearing the same status.
-	if refusal.Code == scopeRefusalCode {
-		t.Fatalf("send refused as a cap miss (%s) rather than human-only", scopeRefusalCode)
-	}
+	// The code check above already separates this from a cap miss, which
+	// answers scopeRefusalCode. What it cannot separate is the 🟡 admission:
+	// reaching the tier gate at all on a verb no agent may call.
 	if refusal.Code == "approval_required" || strings.Contains(refusal.Detail, "staged as approval") {
 		t.Fatalf("an agent reached the 🟡 gate on a human-only verb: %q", refusal.Detail)
 	}

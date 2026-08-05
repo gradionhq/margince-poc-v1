@@ -6227,7 +6227,7 @@ paths:
     post:
       tags: [Access]
       operationId: createRecordGrant
-      summary: Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+      summary: Share one record with a user or team (human-only).
       description: |
         Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
         scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
@@ -6237,8 +6237,7 @@ paths:
         flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
-      x-agent-access: human-only   # no tool: the grant verbs reject any non-human principal
+      x-agent-access: human-only   # the grant verbs reject any non-human principal
       requestBody:
         required: true
         content:
@@ -6271,14 +6270,13 @@ paths:
     delete:
       tags: [Access]
       operationId: revokeRecordGrant
-      summary: Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+      summary: Revoke a manual record grant (human-only).
       description: |
         Deletes the grant; the subject loses the widened access immediately (the next query no longer
         matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
       parameters:
-        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
-      x-agent-access: human-only   # no tool: the grant verbs reject any non-human principal
+      x-agent-access: human-only   # the grant verbs reject any non-human principal
       responses:
         '204': { description: Revoked. }
         '403':
@@ -7445,13 +7443,12 @@ paths:
       description: |
         draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
         daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
-        emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
-        `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
-        redeems with the X-Approval-Token header (ADR-0036).
-      x-agent-access: human-only   # no tool: the contract promises a delivery no code performs
+        emits `offer.sent`. HUMAN-ONLY: an agent principal is refused outright (403
+        `permission_denied`), with no staging path — releasing an offer to a counterparty is a
+        decision a person makes, not one an agent stages for them.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':

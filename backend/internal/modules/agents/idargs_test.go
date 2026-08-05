@@ -132,10 +132,6 @@ func (seamProbeProvider) Freshness(context.Context, datasource.EntityRef) (datas
 
 var _ datasource.SystemOfRecordProvider = seamProbeProvider{}
 
-// idProbeDispatcher is the whole product surface behind the real dispatcher,
-// with the seam probe underneath. fullRegistry passes nil seams, which is
-// enough to read specs and panics the moment a handler runs; this walk runs
-// handlers.
 // seamProbeLifecycle answers errSeamReached from every lifecycle and enrich
 // seam, so the walk can tell "the arguments got through" from "the tool refused
 // them" — the whole point of the probe.
@@ -157,6 +153,10 @@ func (seamProbeLifecycle) EnrichCompany(context.Context, ids.UUID, string, strin
 	return nil, errSeamReached
 }
 
+// idProbeDispatcher is the whole product surface behind the real dispatcher,
+// with the seam probe underneath. fullRegistry passes nil seams, which is
+// enough to read specs and panics the moment a handler runs; this walk runs
+// handlers.
 func idProbeDispatcher(t *testing.T) *Dispatcher {
 	t.Helper()
 	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))

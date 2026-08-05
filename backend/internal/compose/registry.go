@@ -75,7 +75,11 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// rather than through the Dispatcher: each one's behaviour IS that
 	// module's entry point, which is what the REST route calls too.
 	relinker, disqualifier, advancer := lifecycleSeams(pool)
-	agents.RegisterLifecycleTools(registry, provider, relinker, disqualifier, advancer)
+	// disqualify_lead is the one of the three the overlay provider cannot
+	// serve for a mirrored type, so it takes the guard the REST middleware
+	// applies to the same verb; relink and project-phase are not SoR record
+	// writes and stay available in either mode.
+	agents.RegisterLifecycleTools(registry, provider, relinker, nativeOnlyDisqualifier(sorMode, disqualifier), advancer)
 	// enrich rides the site-read seam rather than the datasource one: it reads
 	// the company's OWN website, which no record provider can answer.
 	agents.RegisterEnrichTool(registry, provider, enricher)

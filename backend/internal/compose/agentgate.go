@@ -126,10 +126,17 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
-	spec, ok := operationSpec(pol, reg)
+	spec, registered, ok := operationSpec(pol, reg)
 	if !ok {
+		// Two faults reach here and an operator fixes them in different
+		// places: an unregistered verb is a registry/contract disagreement,
+		// a tier mismatch is a resolver nobody wired.
+		reason := "declares a dynamic tier with no resolvable tool"
+		if !registered {
+			reason = "declares an agent tool no registry serves"
+		}
 		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s declares a dynamic tier with no resolvable tool: %w", pol.Op, apperrors.ErrPermissionDenied))
+			"agent gate: %s %s: %w", pol.Op, reason, apperrors.ErrPermissionDenied))
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxGatedBody+1))
@@ -319,18 +326,21 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 // has a registered tool — TestEveryDeclaredToolVerbIsRegistered fails the build
 // otherwise — so reaching this branch means the registry and the contract
 // disagree at runtime, and refusing is the only honest answer to that.
-func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
-	spec, registered := reg.Spec(pol.Tool)
+// The second result reports whether a tool was registered at all, so the
+// caller can name which of the two faults it met rather than blaming a tier
+// resolver for a missing tool.
+func operationSpec(pol agentPolicy, reg *agents.Registry) (spec mcp.ToolSpec, registered, ok bool) {
+	spec, registered = reg.Spec(pol.Tool)
 	if !registered {
-		return mcp.ToolSpec{}, false
+		return mcp.ToolSpec{}, false, false
 	}
 	if pol.Tier == tierDynamic && spec.Tier != mcp.TierDynamic {
-		return mcp.ToolSpec{}, false
+		return mcp.ToolSpec{}, true, false
 	}
 	if pol.Tier == tierConfirmationRequired && spec.Tier != mcp.TierConfirmationRequired {
 		spec.Tier, spec.TierResolver = mcp.TierConfirmationRequired, nil
 	}
-	return spec, true
+	return spec, true, true
 }
 
 // tierDeps carries the read-side dependencies the dynamic REST tier

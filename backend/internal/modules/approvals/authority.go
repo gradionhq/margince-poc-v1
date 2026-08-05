@@ -50,10 +50,12 @@ var decisionGrants = map[string][]grantRequirement{
 	// is the deal move, so deciding it needs the same grant.
 	"progress_deal": {{tableDeal, principal.ActionUpdate}},
 	"promote_lead":  {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
-	// Disqualifying retires the lead in place — status + archived_at, the row
-	// still fetchable by id (people/lead.go DisqualifyLead) — so it is a lead
-	// update, not a delete, and deciding it needs the grant the update needs.
-	"disqualify_lead": {{tableLead, principal.ActionUpdate}},
+	// Disqualifying retires the lead in place, and the store gates it on
+	// `lead:delete` (people/lead.go DisqualifyLead) as the REST twin's DELETE
+	// implies. Deciding takes the grant PERFORMING it takes: anything less and
+	// the confirm-first control point sits with someone who could not do the
+	// thing they are releasing.
+	"disqualify_lead": {{tableLead, principal.ActionDelete}},
 	// A phase transition writes the project row and one phase-history row in
 	// one transaction (deals/project_advance.go); the gated effect is the
 	// project move, so the approver needs the project's update grant.
@@ -66,10 +68,6 @@ var decisionGrants = map[string][]grantRequirement{
 	// write, with the consent gate running in the handler whoever approved it.
 	"send_message": {{objectActivity, principal.ActionCreate}},
 	"book_meeting": {{objectActivity, principal.ActionCreate}},
-	// Sending an offer releases the draft→sent transition (B-E03.19) —
-	// an offer write; deciding it needs the same grant the send itself
-	// requires.
-	"send_offer": {{targetOffer, principal.ActionUpdate}},
 	// Accepting a cold-start read-back writes enrichment fields onto an
 	// organization; "enrich" is the same effect staged through the
 	// transport gate by an agent caller.
@@ -146,8 +144,6 @@ var decisionGrants = map[string][]grantRequirement{
 // the release performs on it:
 //
 //   - archive_record deletes the target.
-//   - share_record widens who sees the target, which the direct share path takes
-//     the target type's update grant for.
 //   - merge_records rewrites where records point, and the store maps the merge
 //     verb to update.
 //   - update_record releases a field patch (human-edit precedence,
@@ -161,7 +157,6 @@ var decisionGrants = map[string][]grantRequirement{
 // certify a route whose real decision demands a different object.
 var targetResolvedGrants = map[string]principal.Action{
 	"archive_record": principal.ActionDelete,
-	"share_record":   principal.ActionUpdate,
 	"merge_records":  principal.ActionUpdate,
 	"update_record":  principal.ActionUpdate,
 	"create_record":  principal.ActionCreate,

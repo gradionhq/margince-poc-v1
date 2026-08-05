@@ -132,12 +132,12 @@ func TestOperationSpecTightenOnly(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 
-	spec, ok := operationSpec(agentPolicy{Op: "archivePerson", Access: accessTool, Tool: "update_record", Tier: tierConfirmationRequired}, registry)
+	spec, _, ok := operationSpec(agentPolicy{Op: "archivePerson", Access: accessTool, Tool: "update_record", Tier: tierConfirmationRequired}, registry)
 	if !ok || spec.Tier != mcp.TierConfirmationRequired {
 		t.Fatalf("🟡 annotation over a 🟢 verb → tier %v ok=%v, want TierConfirmationRequired (tighten-only)", spec.Tier, ok)
 	}
 
-	if _, ok := operationSpec(agentPolicy{Op: "phantom", Access: accessTool, Tool: "no_such_tool", Tier: tierDynamic}, registry); ok {
+	if _, _, ok := operationSpec(agentPolicy{Op: "phantom", Access: accessTool, Tool: "no_such_tool", Tier: tierDynamic}, registry); ok {
 		t.Fatal("dynamic annotation without a registered dynamic tool must fail closed")
 	}
 }

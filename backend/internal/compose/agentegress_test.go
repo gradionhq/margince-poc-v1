@@ -103,7 +103,7 @@ func TestUrlTakingOperationsAreNeverAutoExecuteForAgents(t *testing.T) {
 func TestAnUnregisteredVerbIsRefused(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 
-	if _, ok := operationSpec(agentPolicy{
+	if _, _, ok := operationSpec(agentPolicy{
 		Op: "someOperation", Access: accessTool, Tool: "no_such_verb",
 		Tier: tierConfirmationRequired, Scope: scopeWrite,
 	}, registry); ok {

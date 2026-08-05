@@ -18,7 +18,9 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -167,13 +169,18 @@ func (t disqualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 // free-form in both directions — a closed project may re-open — so this checks
 // only that the phase named exists.
 var projectPhases = map[string]bool{
-	"initiative": true, "pursuing": true, "delivering": true, "closed": true,
+	"initiative": true, "pursuing": true, "delivering": true, projectPhaseClosed: true,
 }
+
+// projectPhaseClosed is the one phase with a rule attached: the contract
+// requires a reason to close.
+const projectPhaseClosed = "closed"
 
 type advanceProjectPhaseArgs struct {
 	ProjectID ids.UUID `json:"project_id"`
 	ToPhase   string   `json:"to_phase"`
 	Reason    *string  `json:"reason"`
+	IfVersion *int64   `json:"if_version"`
 }
 
 type advanceProjectPhase struct {
@@ -190,6 +197,7 @@ func (t advanceProjectPhase) Spec() mcp.ToolSpec {
 			"project_id":{"type":"string","format":"uuid"},
 			"to_phase":{"type":"string","enum":["initiative","pursuing","delivering","closed"]},
 			"reason":{"type":"string","description":"Required when to_phase is closed; recorded on the phase-history row either way"},
+			"if_version":{"type":"integer","description":"The version the caller read; the write is refused as skew if the project moved since"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
@@ -219,13 +227,12 @@ func (t advanceProjectPhase) Handle(ctx context.Context, in json.RawMessage) (js
 	if err != nil {
 		return nil, err
 	}
-	// The version the phase decision was read from pins the write: a project
-	// moved underneath is skew, not a transition to overwrite blindly.
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityProject, ID: args.ProjectID})
-	if err != nil {
-		return nil, err
-	}
-	return t.advancer.AdvanceProjectPhase(ctx, args.ProjectID, args.ToPhase, args.Reason, &rec.Version)
+	// The CALLER's version pins the write, exactly as advance_deal and
+	// progress_deal take it. A version this tool read microseconds earlier
+	// would be compared against itself and could never detect skew — a pin in
+	// name only. Optional, so an agent that read nothing is not made to invent
+	// one.
+	return t.advancer.AdvanceProjectPhase(ctx, args.ProjectID, args.ToPhase, args.Reason, args.IfVersion)
 }
 
 // readArgs decodes and admits the phase in one place, so the staging path and
@@ -238,6 +245,13 @@ func (t advanceProjectPhase) readArgs(in json.RawMessage) (advanceProjectPhaseAr
 	}
 	if !projectPhases[args.ToPhase] {
 		return advanceProjectPhaseArgs{}, &BadArgsError{Cause: fmt.Errorf("to_phase %q is not a project phase", args.ToPhase)}
+	}
+	// Closing without a reason is refused by the contract, so refusing it here
+	// is what keeps the promise above: without it the call stages, a human
+	// approves, and the redemption then fails on a rule the agent could have
+	// been told before anyone was asked.
+	if args.ToPhase == projectPhaseClosed && (args.Reason == nil || strings.TrimSpace(*args.Reason) == "") {
+		return advanceProjectPhaseArgs{}, &BadArgsError{Cause: errors.New("reason is required when to_phase is closed")}
 	}
 	return args, nil
 }

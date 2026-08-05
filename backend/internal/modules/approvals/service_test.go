@@ -236,9 +236,14 @@ func TestRequireDecisionGrants(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:  "share_record resolves update from the target type",
-			a:     row{Kind: "share_record", TargetType: &deal},
-			perms: grants(map[string]principal.ObjectGrant{"deal": {Update: true}}),
+			// The record-grant verbs refuse a non-human principal outright, so
+			// nothing stages this kind any more and deciding one is a kind the
+			// table no longer knows — undecidable, which is the fail-closed
+			// answer a zombie authority object would not have.
+			name:    "share_record is no longer a stageable kind",
+			a:       row{Kind: "share_record", TargetType: &deal},
+			perms:   grants(map[string]principal.ObjectGrant{"deal": {Update: true}}),
+			wantErr: true,
 		},
 		{
 			name:    "merge_records without a target type is undecidable",

@@ -42,8 +42,11 @@ import (
 // nativeOnlyAgentTools are the tools whose only implementation reads the
 // native domain tables: the compiled report engine, the two retrieval-grounded
 // context intents, the pipeline-risk scan and its draft sibling, the two
-// relationship-graph reads, and the pipeline configuration read. None has a
-// mirror projection to serve, so each owes an honest refusal in overlay mode.
+// relationship-graph reads, the pipeline configuration read — and one WRITE,
+// disqualify_lead, whose tool calls the people store directly and so misses the
+// REST-only write guard that refuses the same verb for a mirrored type. None
+// has a mirror projection to serve, so each owes an honest refusal in overlay
+// mode.
 // The args only have to be well-formed — the refusal must land before any
 // record lookup, so a not-found in place of the sentinel means the guard runs
 // late.
@@ -64,6 +67,7 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		"intro_path_to":            fmt.Sprintf(`{"organization_id":%q}`, anchor),
 		"at_risk_relationships":    `{}`,
 		"list_pipelines":           `{}`,
+		"disqualify_lead":          fmt.Sprintf(`{"lead_id":%q}`, anchor),
 	}
 }
 

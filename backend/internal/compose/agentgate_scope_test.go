@@ -45,7 +45,7 @@ func TestOutboundVerbsRequireAnOutboundCap(t *testing.T) {
 			continue
 		}
 		checked++
-		spec, ok := operationSpec(pol, registry)
+		spec, _, ok := operationSpec(pol, registry)
 		if !ok {
 			t.Fatalf("%s: the gate cannot resolve a spec for it", pol.Tool)
 		}
@@ -92,7 +92,7 @@ func TestEverySpecsEgressAgreesWithItsScope(t *testing.T) {
 // of the invariant.
 func TestAWriteOnlyPassportIsRefusedTheChannelReply(t *testing.T) {
 	pol := agentPolicies["POST /v1/activities/{id}/send-message"]
-	spec, ok := operationSpec(pol, NewRegistry(nil, SendPath{}))
+	spec, _, ok := operationSpec(pol, NewRegistry(nil, SendPath{}))
 	if !ok {
 		t.Fatal("the gate cannot resolve a spec for the channel reply")
 	}
