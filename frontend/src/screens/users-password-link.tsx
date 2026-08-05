@@ -1,5 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Button, Modal } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
@@ -10,65 +9,68 @@ import { problemMessage } from "./common";
 // with no outbound email, an invited member is created active with no password
 // and no way to be told one — this is how the admin gets a link to hand over.
 //
-// The link is a LIVE account-takeover credential, so the DIALOG owns the
-// request that mints it and the parent renders the dialog only while it is
-// open. Closing therefore unmounts every copy at once — component state and
-// TanStack's own mutation cache — instead of leaving the credential resident
-// behind a hidden modal. It also settles the close-while-in-flight case for
-// free: a response that lands after the close has nothing left to write to.
+// The link is a LIVE account-takeover credential, so `clear()` drops it and
+// `mint()` refuses to write one back once the dialog it belonged to has closed.
+// That is why this is hand-rolled state rather than a react-query mutation: a
+// mutation keeps its result in a cache the dialog does not own, and firing one
+// from a mount effect breaks outright under StrictMode's double mount — the
+// observer is torn down and the request's result never reattaches, so the
+// dialog hangs on "Creating the link…" forever. The request belongs to the
+// admin's click, not to a component mounting.
+//
 // A dismissed link is not recoverable, and need not be — the roster row mints
 // a fresh one.
 
 type PasswordLink = Readonly<{ url: string; expiresAt: string }>;
 
-// PasswordLinkDialog mints a link for one member and shows it. Mount it to
-// issue; unmount it to forget. Both entry points — the roster row and the
-// post-invite flow — use this one component, so the invite has no privileged
-// shortcut that could drift from what the row does.
-export function PasswordLinkDialog({
-  userId,
-  memberName,
-  onClose,
-}: Readonly<{ userId: string; memberName: string; onClose: () => void }>) {
-  const mint = useMutation({
-    mutationFn: async (id: string): Promise<PasswordLink> => {
-      const { data, error } = await api.POST("/users/{id}/password-link", {
-        params: { path: { id } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return { url: data.set_password_url, expiresAt: data.expires_at };
-    },
-  });
+type PasswordLinkState = Readonly<{
+  pending: boolean;
+  link: PasswordLink | null;
+  error: string | null;
+}>;
 
-  // Issue once per mount. The ref guard matters because each issue SUPERSEDES
-  // the member's outstanding token: a double-fire (StrictMode's deliberate
-  // double-invoke, or any re-render that re-ran this) would invalidate the
-  // link it had just minted.
-  const { mutate } = mint;
-  const issued = useRef(false);
-  useEffect(() => {
-    if (issued.current) {
+const idle: PasswordLinkState = { pending: false, link: null, error: null };
+
+// usePasswordLink mints links and holds at most one at a time. Both entry
+// points — the roster row and the post-invite flow — go through it, so the
+// invite has no privileged shortcut that could drift from what the row does.
+export function usePasswordLink() {
+  const [state, setState] = useState<PasswordLinkState>(idle);
+  // The member the open dialog belongs to. A response is accepted only while it
+  // still matches: close mid-flight, or open another member's dialog, and the
+  // in-flight credential is dropped on arrival instead of landing in state
+  // nobody is looking at.
+  const awaiting = useRef<string | null>(null);
+
+  const clear = useCallback(() => {
+    awaiting.current = null;
+    setState(idle);
+  }, []);
+
+  const mint = useCallback(async (userId: string) => {
+    awaiting.current = userId;
+    setState({ pending: true, link: null, error: null });
+    const { data, error } = await api.POST("/users/{id}/password-link", {
+      params: { path: { id: userId } },
+    });
+    if (awaiting.current !== userId) {
       return;
     }
-    issued.current = true;
-    mutate(userId);
-  }, [mutate, userId]);
+    if (error) {
+      setState({ pending: false, link: null, error: problemMessage(error) });
+      return;
+    }
+    setState({
+      pending: false,
+      error: null,
+      link: { url: data.set_password_url, expiresAt: data.expires_at },
+    });
+  }, []);
 
-  return (
-    <PasswordLinkModal
-      onClose={onClose}
-      memberName={memberName}
-      link={mint.data ?? null}
-      pending={mint.isPending}
-      error={mint.error?.message ?? null}
-      onRetry={() => mutate(userId)}
-    />
-  );
+  return { state, mint, clear };
 }
 
-function PasswordLinkModal({
+export function PasswordLinkModal({
   onClose,
   memberName,
   link,

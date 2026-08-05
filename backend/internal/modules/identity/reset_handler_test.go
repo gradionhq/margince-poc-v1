@@ -38,8 +38,12 @@ func TestOnlyTheEmailedHalfOfRecoveryNeedsAMailer(t *testing.T) {
 	// very installations it exists for — and would strand an already-delivered
 	// link if an operator changed the mail settings inside its seven-day life.
 	// An unknown token is refused on its merits (401), never on configuration.
-	if rec := post(h.ResetPassword, "/v1/auth/reset-password", `{"token":"x","new_password":"twelve chars!"}`); rec.Code == http.StatusNotImplemented {
-		t.Fatal("reset-password answered 501 without a mailer — redemption must not depend on a delivery channel")
+	// Asserting the exact status, not merely "anything but 501": a 500 or an
+	// accidental success would both satisfy a not-501 check while meaning the
+	// endpoint is broken. An unknown token earns the same neutral 401 it earns
+	// on a mailer-wired installation.
+	if rec := post(h.ResetPassword, "/v1/auth/reset-password", `{"token":"x","new_password":"twelve chars!"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("reset-password with an unknown token and no mailer = %d, want 401 — redemption must not depend on a delivery channel", rec.Code)
 	}
 }
 

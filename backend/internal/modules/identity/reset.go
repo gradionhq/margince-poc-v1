@@ -56,7 +56,11 @@ const inviteTokenTTL = 7 * 24 * time.Hour
 // single-use token and email its link. Always 202 — the response never
 // discloses whether the address maps to an account.
 func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
-	if h.resetMailer == nil {
+	// Both halves, not just the mailer: sending a link built on an empty base
+	// would mint a live token and mail an unusable URL, consuming the one
+	// recovery attempt the owner gets. The capabilities probe answers from this
+	// same predicate, so the login UI never offers what this would refuse.
+	if !h.canSendPasswordLink() {
 		httperr.NotImplemented(w, r, "RequestPasswordReset")
 		return
 	}

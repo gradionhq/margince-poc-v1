@@ -46,7 +46,12 @@ func TestPasswordLinkKeepsTheTokenOutOfTheServerVisibleURL(t *testing.T) {
 
 // readsBaseURL matches a READ of the field, so the assignment in
 // `WithPublicBaseURL` is not mistaken for a link being built.
-var readsBaseURL = regexp.MustCompile(`h\.passwordLinkBaseURL\s*[^=\s]|h\.passwordLinkBaseURL\s*$`)
+// A single `=` after the field is an ASSIGNMENT and not a read; `==` is a
+// comparison and IS one, so the lookahead-free spelling has to admit the second
+// while excluding the first. Getting this wrong silently narrows the guard:
+// every `==` line would be dropped by the outer filter before the
+// configured-check exemption below ever saw it.
+var readsBaseURL = regexp.MustCompile(`h\.passwordLinkBaseURL\s*(==|[^=\s]|$)`)
 
 // testsWhetherBaseIsConfigured matches the one OTHER thing a caller may
 // legitimately do with the field: ask whether it is set at all. Two callers

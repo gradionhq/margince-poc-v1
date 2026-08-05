@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { type ReactNode, StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { UsersAdminCard } from "./users-admin";
@@ -87,14 +87,21 @@ function backend(opts: {
   });
 }
 
+// StrictMode is not decoration here. An earlier cut of this screen fired the
+// mint from a mount effect; StrictMode's double mount tore the request's
+// observer down and the dialog hung on "Creating the link…" forever — broken on
+// `make dev`, invisible to a suite that rendered without it. Rendering as the
+// dev server does is what makes that class of defect reachable from a test.
 const render = (ui: ReactNode) => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return rtlRender(
-    <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">{ui}</LocaleProvider>
-    </QueryClientProvider>,
+    <StrictMode>
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">{ui}</LocaleProvider>
+      </QueryClientProvider>
+    </StrictMode>,
   );
 };
 

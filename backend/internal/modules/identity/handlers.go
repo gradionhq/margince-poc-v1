@@ -123,20 +123,10 @@ func NewHandlers(svc *Service) Handlers {
 // WithPasswordReset wires the forgot-password flow's outbound-email
 // transport. Wired by the composition root when (and only when) the
 // operator configured email — absent it the flow stays its explicit 501.
-// The link base arrives separately via WithPublicBaseURL, because an
+// The link base arrives separately via WithPasswordLinkBase, because an
 // installation without email still builds set-password links.
 func (h Handlers) WithPasswordReset(m mailer.Mailer) Handlers {
 	h.resetMailer = m
-	return h
-}
-
-// WithPasswordLinkBase injects the canonical external base set-password deep
-// links are built on — the installation's public base URL. The trailing slash
-// is trimmed HERE and only here: passwordLink concatenates onto this value and
-// documents that guarantee, so a base ending in "/" would otherwise produce
-// "//#/".
-func (h Handlers) WithPasswordLinkBase(publicBaseURL string) Handlers {
-	h.passwordLinkBaseURL = strings.TrimRight(publicBaseURL, "/")
 	return h
 }
 
@@ -203,7 +193,7 @@ func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSys
 func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := crmcontracts.AuthCapabilities{
 		Password:      true,
-		PasswordReset: h.resetMailer != nil,
+		PasswordReset: h.canSendPasswordLink(),
 	}
 	caps.OidcProviders = make([]struct {
 		Key   string `json:"key"`
@@ -405,17 +395,6 @@ func clearSessionCookie(w http.ResponseWriter) {
 		Name: SessionCookieName, Value: "", MaxAge: -1,
 		Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
-}
-
-// canIssuePasswordLink reports whether THIS principal may issue member
-// set-password links, which is what /me advertises. It is a caller capability
-// and not a deployment-posture flag on purpose: /me answers every
-// authenticated member, so a bare posture boolean would tell every rep whether
-// the installation has an email channel. The three conditions are exactly the
-// ones IssueUserPasswordLink enforces, so the client never renders a control
-// that can only fail.
-func (h Handlers) canIssuePasswordLink(id Identity) bool {
-	return id.hasRole(roleAdmin) && h.resetMailer == nil && h.passwordLinkBaseURL != ""
 }
 
 // meResponse renders /me for one principal. It is a method rather than a

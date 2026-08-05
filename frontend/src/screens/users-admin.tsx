@@ -15,7 +15,7 @@ import { useT } from "../i18n";
 import { problemMessage, QueryGate, useMe } from "./common";
 import "./users-admin.css";
 import { isOption } from "../app/options";
-import { PasswordLinkDialog } from "./users-password-link";
+import { PasswordLinkModal, usePasswordLink } from "./users-password-link";
 
 type User = components["schemas"]["User"];
 type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
@@ -109,6 +109,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   const [invited, setInvited] = useState<{ id: string; name: string } | null>(
     null,
   );
+  const passwordLink = usePasswordLink();
 
   const invite = useMutation({
     mutationFn: async (): Promise<string> => {
@@ -129,6 +130,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
       qc.invalidateQueries({ queryKey: ["users-admin"] });
       if (canIssueLink) {
         setInvited({ id: newUserId, name: invitedName });
+        void passwordLink.mint(newUserId);
       }
     },
     onError: (e: Error) => setError(e.message),
@@ -184,10 +186,17 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         </p>
       )}
       {invited && (
-        <PasswordLinkDialog
-          userId={invited.id}
+        <PasswordLinkModal
           memberName={invited.name}
-          onClose={() => setInvited(null)}
+          link={passwordLink.state.link}
+          pending={passwordLink.state.pending}
+          error={passwordLink.state.error}
+          onRetry={() => void passwordLink.mint(invited.id)}
+          onClose={() => {
+            // Drop the credential with the dialog, never merely hide it.
+            passwordLink.clear();
+            setInvited(null);
+          }}
         />
       )}
     </form>
@@ -203,6 +212,11 @@ function MemberRow({
   const [error, setError] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const passwordLink = usePasswordLink();
+  const openLink = () => {
+    setLinkOpen(true);
+    void passwordLink.mint(member.id);
+  };
   const refresh = () => {
     setError(null);
     qc.invalidateQueries({ queryKey: ["users-admin"] });
@@ -289,7 +303,7 @@ function MemberRow({
           account and refuses otherwise — so offering one on a deactivated row
           would hand the admin a link that is dead on arrival. */}
       {canIssueLink && member.status === "active" && (
-        <Button small disabled={pending} onClick={() => setLinkOpen(true)}>
+        <Button small disabled={pending} onClick={openLink}>
           {t("users.link.action")}
         </Button>
       )}
@@ -320,13 +334,18 @@ function MemberRow({
       >
         <p className="t-small">{t("users.deactivateConfirmBody")}</p>
       </ConfirmModal>
-      {/* Mounted only while open, so closing discards the credential rather
-          than parking it behind a hidden dialog. */}
       {linkOpen && (
-        <PasswordLinkDialog
-          userId={member.id}
+        <PasswordLinkModal
           memberName={member.display_name}
-          onClose={() => setLinkOpen(false)}
+          link={passwordLink.state.link}
+          pending={passwordLink.state.pending}
+          error={passwordLink.state.error}
+          onRetry={openLink}
+          onClose={() => {
+            // Drop the credential with the dialog, never merely hide it.
+            passwordLink.clear();
+            setLinkOpen(false);
+          }}
         />
       )}
     </li>

@@ -79,16 +79,19 @@ func TestIssuePasswordLinkWritesAnAuditRowAndAnEventCarryingNoToken(t *testing.T
 	}
 
 	var auditCount int
-	var after []byte
+	var after string
+	// Plain text, no jsonb round-trip: casting '' to jsonb is an error, so a
+	// missing audit row — the very regression this guards — would surface as an
+	// opaque scan failure instead of the count assertion below.
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT count(*), coalesce(max(after::text), '')::jsonb FROM audit_log
+		`SELECT count(*), coalesce(max(after::text), '') FROM audit_log
 		 WHERE action = 'password_link_issued' AND entity_id = $1`, member).Scan(&auditCount, &after); err != nil {
 		t.Fatalf("audit lookup: %v", err)
 	}
 	if auditCount != 1 {
 		t.Fatalf("password_link_issued audit rows = %d, want 1", auditCount)
 	}
-	if strings.Contains(string(after), raw) {
+	if strings.Contains(after, raw) {
 		t.Error("the audit image carries the raw token — it must never be written to a ledger")
 	}
 

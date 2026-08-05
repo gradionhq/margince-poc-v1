@@ -143,7 +143,14 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 	}
 	target := ids.UserID{UUID: ids.UUID(id)}
 	if !h.passwordLinkPerActor.Allow(actor.UserID.String()) || !h.passwordLinkPerTarget.Allow(target.String()) {
-		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
+		// The generic budget sentinel renders as "budget exceeded", which tells
+		// an admin neither what happened nor what to do. Say both: the ceiling
+		// exists because each issue invalidates the last link, and the link they
+		// were already given still works.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusTooManyRequests, Code: "rate_limited",
+			Detail: "too many set-password links issued recently; the last link issued for this member is still valid, and more can be issued within the hour",
+		})
 		return
 	}
 	rawToken, expiresAt, err := h.svc.IssuePasswordLink(r.Context(), actor, target)
