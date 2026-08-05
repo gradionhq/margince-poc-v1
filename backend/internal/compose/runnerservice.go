@@ -75,6 +75,7 @@ func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain complet
 // whole pass down with it.
 func (s *RunnerService) TickWorkspace(wsCtx context.Context, now time.Time) error {
 	now = now.UTC()
+	s.reapAbandonedRuns(wsCtx, now)
 	for _, spec := range runner.Catalog() {
 		if due := spec.DueAt(now); !now.Before(due) {
 			// Cron-seeded jobs carry no passport yet: execution fails
@@ -92,6 +93,38 @@ func (s *RunnerService) TickWorkspace(wsCtx context.Context, now time.Time) erro
 		s.executeJob(wsCtx, job)
 	}
 	return nil
+}
+
+// stuckRunGrace is how far past its wall clock a 'running' row must be before
+// the sweep calls it abandoned. RunWallClock bounds a resume, and the pass that
+// started it may itself have been queued behind others, so the grace has to
+// cover the gap between "still working" and "nothing is coming back".
+const stuckRunGrace = RunWallClock
+
+// reapAbandonedRuns closes the runs nothing will ever finish.
+//
+// The approval claim is one-way by design (runner.Store.ClaimSuspendedByApproval):
+// a resume that dies mid-loop, or whose terminal write failed after claiming,
+// leaves the row 'running' with no redelivery able to touch it — a second
+// delivery correctly declines to start a second loop of an approved mutation. So
+// the row is not recoverable, only accountable, and this is the one thing that
+// accounts for it.
+//
+// Best-effort by construction: a sweep failure must not take down the tenant's
+// scheduling pass, which is the caller's actual job. It is reported instead,
+// because a sweep that keeps failing means runs are accumulating in 'running'.
+func (s *RunnerService) reapAbandonedRuns(wsCtx context.Context, now time.Time) {
+	const reason = "abandoned: claimed for resume and never finished (no process is coming back for it)"
+	swept, err := s.store.FailStuckRuns(wsCtx, now.Add(-stuckRunGrace), reason)
+	if err != nil {
+		s.log.Error("runner: sweeping abandoned runs", "err", err)
+		return
+	}
+	if swept > 0 {
+		// Loud on purpose: every row here is a run a human may have approved and
+		// never saw the end of.
+		s.log.Warn("runner: closed abandoned runs", "count", swept, "older_than", stuckRunGrace)
+	}
 }
 
 // executeJob runs one claimed job to its outcome. Failures land on the

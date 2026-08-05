@@ -122,6 +122,35 @@ func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason string) e
 	})
 }
 
+// FailStuckRuns closes the runs that were claimed and then abandoned: a row
+// left in 'running' with nothing alive to finish it.
+//
+// ClaimSuspendedByApproval is deliberately one-way, so a resume that dies —
+// a process killed mid-loop, or a terminal write that failed after the claim —
+// leaves the row 'running' forever. Nothing redelivers it: a second delivery
+// finds no awaiting_approval row and correctly declines to start a second loop.
+// This sweep is the only thing that ends those rows, which is why it exists
+// rather than a retry: the run cannot be finished, only accounted for.
+//
+// before is the cutoff a caller derives from the run wall clock, so a run still
+// legitimately executing is never touched. Only 'running' is swept —
+// 'awaiting_approval' waits on a human and may wait indefinitely.
+func (s *Store) FailStuckRuns(ctx context.Context, before time.Time, reason string) (int64, error) {
+	var swept int64
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE agent_run
+			   SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
+			 WHERE status = 'running' AND updated_at < $1`, before, reason)
+		if err != nil {
+			return err
+		}
+		swept = tag.RowsAffected()
+		return nil
+	})
+	return swept, err
+}
+
 // SuspendedRun is a parked run keyed by its approval — what the
 // approval.decided consumer needs to resume it.
 type SuspendedRun struct {
