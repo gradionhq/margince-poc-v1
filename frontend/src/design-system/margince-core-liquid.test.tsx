@@ -19,7 +19,7 @@ afterEach(cleanup);
 // stubbed to null globally (WDS-CORE-3's fallback-to-CSS case); this test
 // needs the OTHER branch, where a context exists and the shader "compiles",
 // so the effect reaches the ResizeObserver line this guards.
-function fakeGl(): WebGLRenderingContext {
+function fakeGl(onDraw: () => void = () => {}): WebGLRenderingContext {
   const gl = {
     VERTEX_SHADER: 1,
     FRAGMENT_SHADER: 2,
@@ -55,7 +55,7 @@ function fakeGl(): WebGLRenderingContext {
     isContextLost: () => false,
     clearColor: () => {},
     clear: () => {},
-    drawArrays: () => {},
+    drawArrays: onDraw,
     viewport: () => {},
   };
   return gl as unknown as WebGLRenderingContext;
@@ -88,6 +88,87 @@ describe("CoreLiquid", () => {
     } finally {
       globalThis.ResizeObserver = original;
     }
+  });
+
+  // Every assertion below counts `drawArrays`, because the cost this component is
+  // allowed to have IS its drawn frames: what a reader sees is one sphere either
+  // way, and the difference between a Core that costs a fifth of a hero and one
+  // that costs a permanent seat is entirely in how often it draws and when it
+  // stops. A count is the only thing that can fail when that regresses.
+  describe("its draw loop", () => {
+    let draws = 0;
+    let hidden = false;
+
+    beforeEach(() => {
+      draws = 0;
+      hidden = false;
+      // `document.hidden` is a getter on Document.prototype; redefining it here
+      // is what lets a test say "the tab went away" without a real tab.
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: () => hidden,
+      });
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+        fakeGl(() => {
+          draws += 1;
+        }),
+      );
+      vi.useFakeTimers({
+        toFake: [
+          "requestAnimationFrame",
+          "cancelAnimationFrame",
+          "setTimeout",
+          "clearTimeout",
+          "performance",
+        ],
+      });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      // @ts-expect-error - handing `hidden` back to jsdom's own implementation
+      delete document.hidden;
+    });
+
+    it("draws ONE frame for a liquid that does not move, then parks", () => {
+      // `unavailable` holds time still (SPEED), so every later frame would be the
+      // same pixels. A loop that kept running here is invisible in a screenshot
+      // and permanent in a profile — this is the assertion that sees it.
+      render(<CoreLiquid state="unavailable" />);
+      vi.advanceTimersByTime(2000);
+      expect(draws).toBe(1);
+    });
+
+    it("spends the frame budget on a timer rather than polling every refresh", () => {
+      render(<CoreLiquid state="working" />);
+      // A second of animation frames at jsdom's 16ms tick is ~62 callbacks. The
+      // old loop drew on a 24fps gate INSIDE a per-refresh rAF chain, so it woke
+      // for all 62 to use a third of them; this one asks for a frame only when it
+      // intends to draw.
+      vi.advanceTimersByTime(1000);
+      expect(draws).toBeGreaterThan(0);
+      expect(draws).toBeLessThanOrEqual(30);
+    });
+
+    it("stops in a hidden tab and resumes when it is shown again", () => {
+      render(<CoreLiquid state="working" />);
+      vi.advanceTimersByTime(300);
+      const whileVisible = draws;
+      expect(whileVisible).toBeGreaterThan(0);
+
+      hidden = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(5000);
+      // Nothing at all for five seconds of a tab nobody can see.
+      expect(draws).toBe(whileVisible);
+
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(300);
+      // And the pause ENDS. A stop with no guaranteed way back is a frozen
+      // sphere, which is indistinguishable from a shader that failed.
+      expect(draws).toBeGreaterThan(whileVisible);
+    });
   });
 
   it("still paints the shader when the ResizeObserver constructor throws", () => {

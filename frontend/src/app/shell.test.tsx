@@ -372,8 +372,58 @@ describe("TopBar (§2b contextual truth)", () => {
   it("shows the screen title and no actions that were not provided", () => {
     render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
     expect(screen.getByText("Pipeline")).toBeTruthy();
-    // exactly the four always-true controls: search, locale, theme, sign out
-    expect(screen.getAllByRole("button")).toHaveLength(4);
+    // Exactly the two always-true controls: search and the account menu. Language,
+    // theme and sign-out are this person's, so they live inside that menu — the bar
+    // carries screen actions, not preferences.
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+  });
+
+  it("keeps language, theme and sign-out in the account menu, in that order", async () => {
+    render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
+    // Closed, none of them is reachable — that is the point of moving them.
+    expect(
+      screen.queryByRole("button", { name: "Switch to German" }),
+    ).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    const menu = screen
+      .getByRole("button", { name: "Account" })
+      .parentElement?.querySelector(".accountmenu");
+    expect(menu).toBeTruthy();
+    // Settings · language · theme · sign out. The order is the grouping the menu
+    // promises: the account surface, the two preferences, then the way out.
+    const rows = [...(menu?.querySelectorAll("a,button") ?? [])].map(
+      (row) => row.textContent?.trim() ?? "",
+    );
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toBe("Settings");
+    // The two preference rows carry their current value after the name, which is
+    // asserted below — here the order is what matters.
+    expect(rows[1]?.startsWith("Language")).toBe(true);
+    expect(rows[2]?.startsWith("Theme")).toBe(true);
+    expect(rows[3]).toBe("Sign out");
+    // Each preference row states what it is set to now and is NAMED by what
+    // activating it does — the two halves a menu item needs.
+    const language = screen.getByRole("button", { name: "Switch to German" });
+    expect(language.textContent).toContain("English");
+    expect(
+      screen.getByRole("button", { name: /^Switch to (dark|light) theme$/ }),
+    ).toBeTruthy();
+  });
+
+  it("stays open while a preference is being changed", async () => {
+    render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    const theme = screen.getByRole("button", {
+      name: /^Switch to (dark|light) theme$/,
+    });
+    const before = theme.getAttribute("aria-label");
+    await userEvent.click(theme);
+    // The row is still there, now offering the way back: a menu that dismissed
+    // itself would take the control out of view together with the change.
+    const after = screen.getByRole("button", {
+      name: /^Switch to (dark|light) theme$/,
+    });
+    expect(after.getAttribute("aria-label")).not.toBe(before);
   });
 
   // AC-shell-1k: every authenticated route resolves to real copy. This bites on

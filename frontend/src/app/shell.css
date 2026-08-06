@@ -70,6 +70,20 @@
 .scroll {
   flex: 1;
   overflow-y: auto;
+  /* The bar takes its space up front, whether or not this screen scrolls. Without
+     it every navigation between a short screen and a long one shifted the content
+     column by the bar's width, which is most visible on the settings tabs —
+     Account fits, Integrations does not, and the whole page jumped sideways on the
+     way between them. */
+  scrollbar-gutter: stable;
+  /* The containing block for anything absolutely positioned inside a screen.
+     Without it such a box escapes to the initial containing block: it is then
+     laid out against the VIEWPORT rather than clipped by this scroller, so a
+     visually-hidden control near the bottom of a long screen (the LinkedIn
+     import's file input was the first) stretched the document itself and the
+     window grew a second scrollbar next to this one, with a band of dead space
+     under the content. */
+  position: relative;
 }
 /* The shell already insets the content area, so the wrap adds rhythm rather
    than the full page gutter it needed when the scroll ran edge-to-edge. */
@@ -163,6 +177,15 @@
   flex-direction: column;
   gap: 1px;
   overflow-y: auto;
+  /* Vertically it scrolls; horizontally it never does. Leaving overflow-x at its
+     initial `visible` is not neutral — a scroller resolves the other axis to
+     `auto` — and expanding the sidebar animates the grid column from 64px while
+     the labels are already at full width, so for those few frames the panel
+     overflowed itself and flashed a horizontal scrollbar across the navigation.
+     Nothing in the expanded state needs to paint outside the panel; the tooltips
+     and the active indicator that do belong to the collapsed one, which opts out
+     of clipping below. */
+  overflow-x: hidden;
 }
 /* The collapsed panel must NOT clip: the tooltips and the active indicator both
    sit outside its 64px box. Each label clips itself. */
@@ -543,108 +566,25 @@
   font-weight: 600;
   font-size: 11.5px;
 }
-/* The orb: lit glass over drifting emerald smoke, in CSS only — no canvas,
-   because this sits in chrome on every screen and would hold a render loop for
-   the whole session. Same construction as the prototype's, but every colour is a
-   color-mix over a token so it passes ds-purity. */
+/* The agent panel's orb IS the Core primitive (WDS-CORE-1) — the same sphere the
+   sign-in surface and onboarding show, not a second one built out of gradients.
+   A hand-rolled CSS copy used to sit here to avoid holding a render loop in
+   permanent chrome; the Core now draws only while it is actually on screen and at
+   the resolution it is displayed at, so a 40px orb in the rail costs a fraction of
+   a hero and nothing at all behind a hidden tab (margince-core-liquid.tsx).
+
+   Sizing is through the primitive's own custom properties, which is the one thing
+   WDS-CORE-1 lets a caller do. --coreGlass is deliberately well inside --coreSize:
+   the difference is where the halo and the ground caustic live, and squeezing it
+   clips the light off the sphere. */
 .rail .agentorb {
-  position: relative;
-  width: 40px;
-  height: 40px;
+  --coreSize: 42px;
+  --coreGlass: 32px;
   flex: none;
-  border-radius: var(--r-full);
-  overflow: hidden;
-  background:
-    radial-gradient(
-      circle at 30% 24%,
-      color-mix(in srgb, var(--overlayLight) 90%, transparent) 0%,
-      transparent 30%
-    ),
-    radial-gradient(
-      circle at 50% 45%,
-      color-mix(in srgb, var(--accent) 8%, var(--overlayLight)) 0%,
-      color-mix(in srgb, var(--accent) 22%, var(--overlayLight)) 100%
-    );
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--overlayLight) 65%, transparent),
-    inset -2px -3px 6px color-mix(in srgb, var(--overlayDark) 18%, transparent),
-    inset 2px 2px 5px color-mix(in srgb, var(--overlayLight) 50%, transparent),
-    0 1px 5px color-mix(in srgb, var(--accent) 26%, transparent);
-  animation: agent-orb-breathe 5.6s ease-in-out infinite;
-}
-/* the interior: translucent masses, one slow turn */
-.rail .agentorb::before {
-  content: "";
-  position: absolute;
-  inset: -12%;
-  border-radius: var(--r-full);
-  background:
-    radial-gradient(
-      38% 32% at 64% 36%,
-      color-mix(
-          in srgb,
-          color-mix(in srgb, var(--accent) 70%, var(--overlayDark)) 72%,
-          transparent
-        )
-        0%,
-      transparent 72%
-    ),
-    radial-gradient(
-      42% 36% at 34% 66%,
-      color-mix(in srgb, var(--accent) 58%, transparent) 0%,
-      transparent 74%
-    ),
-    radial-gradient(
-      26% 20% at 52% 56%,
-      color-mix(
-          in srgb,
-          color-mix(in srgb, var(--accent) 30%, var(--overlayLight)) 62%,
-          transparent
-        )
-        0%,
-      transparent 70%
-    );
-  animation: agent-orb-drift 14s linear infinite;
-}
-/* the specular: lit glass, fixed, never neon */
-.rail .agentorb::after {
-  content: "";
-  position: absolute;
-  left: 16%;
-  top: 9%;
-  width: 36%;
-  height: 24%;
-  border-radius: var(--r-full);
-  background: radial-gradient(
-    ellipse at center,
-    color-mix(in srgb, var(--overlayLight) 92%, transparent),
-    transparent 70%
-  );
-  transform: rotate(-20deg);
-}
-@keyframes agent-orb-drift {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes agent-orb-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.035);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .rail .agentorb,
-  .rail .agentorb::before {
-    animation: none;
-  }
 }
 .rail .agentfield.collapsed .agentorb {
-  width: 30px;
-  height: 30px;
+  --coreSize: 32px;
+  --coreGlass: 25px;
 }
 .rail .agentstate {
   margin: 0;
@@ -699,7 +639,7 @@
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
-  min-width: 168px;
+  min-width: 188px;
   display: flex;
   flex-direction: column;
   padding: 5px;
@@ -709,6 +649,37 @@
   border-radius: var(--r-sm);
   box-shadow: var(--shadow-pop);
   z-index: 60;
+  /* The menu comes OUT OF the avatar rather than appearing beside it: the
+     transform origin is the control that opened it, so the growth reads as one
+     movement instead of a panel switching on. Short (0.14s) because this is
+     chrome — a menu you have to wait for is a menu that feels slow — and on the
+     shell's own curve, so it belongs to the same choreography as the sidebar
+     collapse rather than carrying a second easing vocabulary.
+     Transform and opacity only: both composite, so it cannot cost a frame.
+     The fallback repeats `.app`'s curve because the top bar is also rendered
+     outside the shell (the component workbench), and an unresolved custom
+     property in a shorthand invalidates the whole declaration — which would
+     silently drop the animation there rather than degrade it. */
+  animation: accountmenu-in 0.14s var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1))
+    both;
+  transform-origin: top right;
+}
+@keyframes accountmenu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+/* The end state, immediately — a menu that renders nothing under reduced motion
+   is broken, not accessible. */
+@media (prefers-reduced-motion: reduce) {
+  .topbar .accountmenu {
+    animation: none;
+  }
 }
 .topbar .accountmenu a,
 .topbar .accountmenu button {
@@ -734,6 +705,28 @@
 .topbar .accountmenu button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+.topbar .accountmenu a:focus-visible,
+.topbar .accountmenu button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* The groups: the account surface, then the two preferences, then the way out.
+   An <hr> rather than a border on the first row of a group — it is a separator,
+   and a screen reader is told so. */
+.topbar .accountmenu hr {
+  height: 1px;
+  border: 0;
+  margin: var(--space-1) 0;
+  background: var(--borderSubtle);
+}
+/* A preference row states the setting on the left and what it is currently set to
+   on the right; the accessible name carries what clicking does. */
+.topbar .accountmenu .menuvalue {
+  margin-left: auto;
+  color: var(--textMeta);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .topbar {

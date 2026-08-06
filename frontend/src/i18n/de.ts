@@ -10,6 +10,14 @@ export const de = {
     "Ledger Green (ADR-0040) — die kanonischen Werte spiegeln die Spec-Mockups; Tests pinnen sie.",
   "theme.toDark": "Dunkles Design",
   "theme.toLight": "Helles Design",
+  // Die Design-Zeile im Kontomenü: worauf es JETZT steht, und die Aktion, die die
+  // Zeile für einen Screenreader benennt. Die beiden Labels darüber bleiben die
+  // Namen des reinen Icon-Schalters auf Anmeldung und Onboarding, wo kein Satz
+  // in die Zeile passt.
+  "theme.light": "Hell",
+  "theme.dark": "Dunkel",
+  "theme.switchToDark": "Auf dunkles Design umschalten",
+  "theme.switchToLight": "Auf helles Design umschalten",
 
   "section.surfaces": "Flächen",
   "section.accentAi": "Akzent & KI",
@@ -93,6 +101,8 @@ export const de = {
   "shell.collapse": "Seitenleiste einklappen",
   "shell.expand": "Seitenleiste ausklappen",
   "shell.accountAria": "Konto",
+  "shell.language": "Sprache",
+  "shell.theme": "Design",
   "shell.views": "Ansichten",
   "shell.more": "Mehr",
   "agent.title": "Margince KI",
@@ -103,6 +113,10 @@ export const de = {
   "agent.fixture": "Beispieldaten",
   "locale.toEnglish": "Auf Englisch umschalten",
   "locale.toGerman": "Auf Deutsch umschalten",
+  // Eine Sprache steht in ihrer eigenen Sprache, in beiden Katalogen — so
+  // findet jemand seine, der die aktuelle nicht lesen kann.
+  "locale.nameEnglish": "English",
+  "locale.nameGerman": "Deutsch",
 
   "screen.pending":
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",

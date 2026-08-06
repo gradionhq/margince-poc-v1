@@ -181,6 +181,20 @@ numbers appear here when releases start.
   credential, so a connection appears once however many times its
   credential has rotated. Revoking a grant-bound passport ends the whole
   connection, not just the current credential.
+- **Language and theme moved into the account menu.** The top bar carried
+  two icon buttons for them beside the avatar; both are this person's
+  preferences rather than screen actions, so the bar is down to search and
+  one account affordance, and the menu reads Settings · Language · Theme ·
+  Sign out with the two preferences stating what they are set to. Changing
+  one keeps the menu open, so the theme you pick is visible from the
+  control that picked it.
+- **One orb in the product.** The agent panel at the sidebar foot drew a
+  CSS lookalike of the Core because the real primitive held a render loop
+  for the whole session. The Core now costs what it displays — it draws at
+  the size it is shown at, spends its 24fps budget on a timer instead of a
+  callback per display refresh, and stops entirely on a hidden tab or an
+  off-screen canvas — so the shell shows the same sphere as sign-in and
+  onboarding, and the duplicate is gone.
 - **AI model routing is now per-engineer**: the working dev config moved
   from a committed `backend/ai-routing.yaml` to a gitignored
   `config/ai-routing.yaml`, seeded from `config/ai-routing.example.yaml`

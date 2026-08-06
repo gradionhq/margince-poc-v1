@@ -1,11 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Languages,
   LogOut,
   Menu,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
   Settings,
+  Sun,
   X,
 } from "lucide-react";
 import {
@@ -17,6 +20,7 @@ import {
   useState,
 } from "react";
 import type { components } from "../api/schema";
+import { MarginceCoreScene } from "../design-system/margince-core";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useLogout, useMe } from "../screens/common";
@@ -34,7 +38,7 @@ import {
 import { paletteHotkeyLabel } from "./palette";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
-import { ThemeToggle } from "./theme-toggle";
+import { useTheme } from "./theme";
 import "./shell.css";
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -136,13 +140,20 @@ function BrandBlock() {
 // line is example data until a list operation exists behind it (the AI activity
 // list has no handler), and it says so on screen rather than passing as real.
 //
-// The orb is pure CSS, deliberately NOT the Core primitive: the Core paints its
-// interior on a canvas, and this sits in permanent chrome on every screen, so it
-// would run a render loop for the whole session. The glass shell here uses the
-// same technique the Core's own shell does — color-mix over tokens, no literal
-// colours — and the interior is layered radial gradients instead of a shader.
+// The orb is the Core primitive (WDS-CORE-1), the same sphere sign-in and
+// onboarding show — there is one orb in the product, and a CSS lookalike in
+// permanent chrome was a second. It sits here rather than on the hero surfaces
+// only, because the Core now costs what it displays: the loop stops when the
+// panel is off screen or the window is away, and the buffer follows the 32px it
+// is drawn at (margince-core-liquid.tsx).
+//
+// `quiet` is the honest state and not merely the cheapest beat: the panel states
+// that routing is CONFIGURED, and the runtime does not continuously prove a
+// provider is reachable, so the sphere must not look busy. The feed is off — a
+// mote drifting across the rail's card is not atmosphere, it is a moving speck in
+// the navigation.
 function AgentOrb() {
-  return <span className="agentorb" aria-hidden />;
+  return <MarginceCoreScene state="quiet" feed={false} className="agentorb" />;
 }
 
 function AgentPanel({ collapsed }: Readonly<{ collapsed: boolean }>) {
@@ -398,7 +409,6 @@ export function TopBar({
   actions?: ReactNode;
 }>) {
   const t = useT();
-  const { locale, setLocale } = useLocale();
   const logout = useLogout();
 
   const navItem = NAV.find((item) => item.screen === route.screen);
@@ -442,28 +452,70 @@ export function TopBar({
           <span className="searchhint">{t("shell.searchHint")}</span>
           <kbd className="t-mono">{paletteHotkeyLabel(navigator.platform)}</kbd>
         </button>
-        <button
-          type="button"
-          className="iconbtn"
-          aria-label={
-            locale === "de" ? t("locale.toEnglish") : t("locale.toGerman")
-          }
-          onClick={() => setLocale(locale === "de" ? "en" : "de")}
-        >
-          <span className="t-mono">{locale === "de" ? "EN" : "DE"}</span>
-        </button>
-        {/* The top bar's own 32px chrome sizing wins over the control's
-            portable default — `.topbar .iconbtn` outranks `.theme-toggle`. */}
-        <ThemeToggle className="iconbtn" />
+        {/* Language and theme are preferences, not screen actions: they live in
+            the account menu with the rest of what belongs to this person, so the
+            bar carries only search and the one account affordance. */}
         <AccountMenu logout={logout} />
       </div>
     </header>
   );
 }
 
-// The avatar owns Settings and sign-out. A menu rather than
-// two chrome buttons: the prototype's top bar carries one account affordance,
-// and sign-out beside every screen invites a misclick.
+// The two preference rows: language, then theme, each stating what it is set to
+// now. The name a screen reader gets is the ACTION ("Switch to German", "Dark
+// theme") rather than the row's visible text, because a menu item has to say what
+// activating it does — the visible value is there for the eye, which can see both
+// halves of the row at once.
+//
+// Both keep the menu OPEN: they stop the click from reaching the document
+// listener that dismisses it. Changing a preference is a thing you may want to do
+// twice, or undo immediately, and a menu that closed under you took the theme
+// you just picked out of view along with the control that picked it. Settings and
+// sign-out leave the menu on purpose — they leave the screen.
+function MenuPreferences() {
+  const t = useT();
+  const { locale, setLocale } = useLocale();
+  const [theme, toggleTheme] = useTheme();
+  const german = locale === "de";
+  const light = theme === "light";
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={german ? t("locale.toEnglish") : t("locale.toGerman")}
+        onClick={(event) => {
+          event.stopPropagation();
+          setLocale(german ? "en" : "de");
+        }}
+      >
+        <Languages size={15} aria-hidden />
+        {t("shell.language")}
+        <span className="menuvalue">
+          {german ? t("locale.nameGerman") : t("locale.nameEnglish")}
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-label={light ? t("theme.switchToDark") : t("theme.switchToLight")}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleTheme();
+        }}
+      >
+        {light ? <Sun size={15} aria-hidden /> : <Moon size={15} aria-hidden />}
+        {t("shell.theme")}
+        <span className="menuvalue">
+          {light ? t("theme.light") : t("theme.dark")}
+        </span>
+      </button>
+    </>
+  );
+}
+
+// The avatar owns everything that belongs to this person: the settings surface,
+// their language and theme, and the way out. A menu rather than a row of chrome
+// buttons — the prototype's top bar carries one account affordance, and sign-out
+// beside every screen invites a misclick.
 function AccountMenu({
   logout,
 }: Readonly<{ logout: ReturnType<typeof useLogout> }>) {
@@ -524,6 +576,9 @@ function AccountMenu({
             <Settings size={15} aria-hidden />
             {t("nav.settings")}
           </a>
+          <hr />
+          <MenuPreferences />
+          <hr />
           <button
             type="button"
             disabled={logout.isPending}

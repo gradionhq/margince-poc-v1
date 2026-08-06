@@ -22,10 +22,11 @@ body {
  * else's brand, and on a dark surface the platform's own scrollbar chrome fights
  * the palette rather than joining it.
  *
- * Declared at the root because every one of these properties INHERITS, so this is
- * the whole document in one place and a component that wants different can still
- * say so locally (`.mw-artifact` and the conversation thread already hide their
- * scrollbars this way, and those rules still win).
+ * Declared at the root because these properties INHERIT — with one exception,
+ * `scrollbar-width`, which does not and is therefore declared on every element
+ * below. A component that wants different can still say so locally
+ * (`.mw-artifact` and the conversation thread already hide their scrollbars this
+ * way, and a class selector outranks both rules here).
  */
 :root {
   caret-color: var(--accent);
@@ -39,13 +40,28 @@ body {
      range thumbs, progress fills. This replaces the same declaration repeated in
      three screens — see quotas.css and onboarding-facts.css, now redundant. */
   accent-color: var(--accent);
-  scrollbar-width: thin;
   /* Thumb, then track. The track is TRANSPARENT rather than --bgPage on purpose:
      a scroller is not always on the page surface — the rail is a dark green field
      in both themes, and a code block has its own fill — so naming a colour here
      would mismatch every scroller that is not on the page background. Transparent
      shows whatever is actually behind it and cannot be wrong. */
   scrollbar-color: var(--accent) transparent;
+}
+
+/*
+ * The thin scrollbar, on EVERY scroller.
+ *
+ * `scrollbar-width` is the one property in the block above that does not
+ * inherit, so declaring it on `:root` alone styled the document scroller and
+ * nothing else: every in-app scroller — the content area, the rail, a capped
+ * card — kept the platform's default-width bar next to a thumb that was already
+ * painted in the accent. The universal selector carries zero specificity, so a
+ * scroller that deliberately hides its bar (`scrollbar-width: none` on
+ * `.mw-artifact`, the conversation thread) still wins.
+ */
+*,
+::backdrop {
+  scrollbar-width: thin;
 }
 
 /* Selected text reads as the accent holding it, in both themes: --bgPage on
