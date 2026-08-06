@@ -76,9 +76,10 @@ const userColumns = `id, workspace_id, email, display_name, status, is_agent, ` 
 
 // $1 is the "read role keys?" flag on every user query below, so the aggregate
 // stays inside ONE fixed query string instead of two the caller picks between.
-// Postgres does not evaluate the untaken CASE arm, so a non-admin page costs
-// exactly what it did before this column existed. NULL (not read) is
-// deliberately not '{}' (read, holds none) — see userRow.Roles.
+// The untaken CASE arm's subquery is not EXECUTED (EXPLAIN ANALYZE with the
+// flag bound false shows no SubPlan running), so a non-admin page pays no
+// per-row role lookup — it still carries the arm in its plan. NULL (not read)
+// is deliberately not '{}' (read, holds none) — see userRow.Roles.
 const listUsersQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
@@ -124,14 +125,12 @@ func scanUser(r pgx.Row) (userRow, error) {
 const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $2 AND archived_at IS NULL`
 
 // GetUser reads one member by id regardless of status (RLS-scoped to the
-// caller's workspace) — the read the admin write handlers return after a
-// mutation. withRoles is the caller's explicit statement that it is entitled to
-// the role keys, so a future non-admin caller has to ask for them rather than
-// inherit them. ErrNotFound when absent or archived.
-func (s *Service) GetUser(ctx context.Context, userID ids.UserID, withRoles bool) (userRow, error) {
+// caller's workspace) — the read every admin write returns after a mutation, so
+// it always asks for the role keys. ErrNotFound when absent or archived.
+func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
 	var u userRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, withRoles, userID))
+		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, true, userID))
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -220,9 +219,11 @@ func (s *Service) ListTeams(ctx context.Context, in ListTeamsInput) ([]teamRow, 
 	})
 }
 
-// rosterCursor is the decoded keyset position both roster lists page from:
-// the house (created_at, id) tuple, nil when the caller sent no cursor (the
-// $1::timestamptz IS NULL branch in both queries then matches every row).
+// rosterCursor is the decoded keyset position both roster lists page from: the
+// house (created_at, id) tuple, nil when the caller sent no cursor — the
+// `::timestamptz IS NULL` branch then matches every row. Its bind NUMBER differs
+// per list (the user queries spend $1 on the role-key flag), which is exactly
+// why this says which branch rather than which parameter.
 type rosterCursor struct {
 	createdAt *time.Time
 	id        *ids.UUID

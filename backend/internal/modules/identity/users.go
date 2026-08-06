@@ -84,7 +84,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 		var roleID ids.UUID
 		roleErr := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, in.Role).Scan(&roleID)
 		if errors.Is(roleErr, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
+			return errUnknownRole
 		}
 		if roleErr != nil {
 			return roleErr

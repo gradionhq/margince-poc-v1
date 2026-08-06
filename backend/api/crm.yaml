@@ -6375,7 +6375,15 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '404':
+          description: >-
+            Not found, with the reason distinguished by the problem `code`:
+            `unknown_role` — this organization defines no role with the requested key.
+            The `role` enum is documentation, not binding validation, so a mistyped key
+            reaches the server and must say which of the two things was not found.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '409':
           description: >-
             Refused, with the reason distinguished by the problem `code`:

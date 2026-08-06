@@ -66,9 +66,10 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 		Role:        string(req.Role),
 	})
 	if err != nil {
-		httperr.Write(w, r, conflictIf(err, errEmailTaken, "email_taken",
+		err = conflictIf(err, errEmailTaken, "email_taken",
 			"a member with this email already exists in this organization; if they were "+
-				"deactivated, reactivate them from the roster instead of inviting again"))
+				"deactivated, reactivate them from the roster instead of inviting again")
+		httperr.Write(w, r, unknownRoleRefusal(err))
 		return
 	}
 	h.sendInvite(r, email.String(), rawToken)
@@ -89,13 +90,7 @@ func (h Handlers) ChangeUserRole(w http.ResponseWriter, r *http.Request, id crmc
 		err = conflictIf(err, errLastActiveAdmin, "last_active_admin",
 			"this member is the organization's only active administrator; give another "+
 				"member the admin role first, then change this one's")
-		// Both refusals here are 404s, and an admin who mistyped a role would
-		// otherwise be told the MEMBER was not found and go looking for the
-		// wrong thing.
-		err = refuseAs(err, errUnknownRole, http.StatusNotFound, "unknown_role",
-			"this organization defines no role with that key; the built-in roles are "+
-				"admin, manager, rep, read_only and ops")
-		httperr.Write(w, r, err)
+		httperr.Write(w, r, unknownRoleRefusal(err))
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
@@ -225,6 +220,19 @@ func conflictIf(err, cause error, code, detail string) error {
 	return refuseAs(err, cause, http.StatusConflict, code, detail)
 }
 
+// unknownRoleRefusal separates the two 404s this surface can answer: an unknown
+// MEMBER and an unknown ROLE. Both invite and change-role look a role key up, so
+// the wording lives here rather than being written out at each — an admin who
+// mistyped a role would otherwise be told the member was not found and go
+// looking for the wrong thing. The roles an organization defines are not a fixed
+// list (a workspace may define its own), so the detail points at where the truth
+// lives instead of reciting an enum that can drift.
+func unknownRoleRefusal(err error) error {
+	return refuseAs(err, errUnknownRole, http.StatusNotFound, "unknown_role",
+		"this organization defines no role with that key; check the roles it does "+
+			"define and use one of those")
+}
+
 // refuseAs is conflictIf's general form: two refusals on this surface share a
 // STATUS but not a meaning — an unknown member and an unknown role are both
 // 404 — so the status stays the caller's to state.
@@ -282,7 +290,7 @@ func (h Handlers) actor(w http.ResponseWriter, r *http.Request) (Identity, bool)
 // and a member row that dropped them here would mean the field's presence
 // tracked the endpoint rather than the caller.
 func (h Handlers) writeUserByID(w http.ResponseWriter, r *http.Request, userID ids.UserID, status int) {
-	row, err := h.svc.GetUser(r.Context(), userID, true)
+	row, err := h.svc.GetUser(r.Context(), userID)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

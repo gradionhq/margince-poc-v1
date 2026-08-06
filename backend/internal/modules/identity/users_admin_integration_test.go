@@ -50,14 +50,29 @@ func TestRosterReadFetchesRoleKeysOnlyWhenAsked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list with roles: %v", err)
 	}
-	var adminRoles []string
-	for _, u := range asked {
-		if u.ID == e.admin.UserID.UUID {
-			adminRoles = u.Roles
+	var adminRow, memberRow *userRow
+	for i := range asked {
+		switch asked[i].ID {
+		case e.admin.UserID.UUID:
+			adminRow = &asked[i]
+		case e.member.UserID.UUID:
+			memberRow = &asked[i]
 		}
 	}
-	if len(adminRoles) != 1 || adminRoles[0] != roleAdmin {
-		t.Errorf("bootstrap admin roles = %v, want [admin] once the read asks", adminRoles)
+	if adminRow == nil || len(adminRow.Roles) != 1 || adminRow.Roles[0] != roleAdmin {
+		t.Errorf("bootstrap admin roles = %v, want [admin] once the read asks", adminRow)
+	}
+	// The other arm of the same distinction: a seat holding NO role, read WITH
+	// the flag, comes back empty-but-present. Nil here would be indistinguishable
+	// from "never asked", which is what the COALESCE exists to prevent.
+	if memberRow == nil {
+		t.Fatal("the seeded member is missing from the roster")
+	}
+	if memberRow.Roles == nil {
+		t.Error("a member holding no role read back nil, want an empty non-nil list")
+	}
+	if len(memberRow.Roles) != 0 {
+		t.Errorf("seeded member roles = %v, want empty", memberRow.Roles)
 	}
 }
 
@@ -74,7 +89,7 @@ func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 		t.Fatalf("invite returned userID=%v token-empty=%v; want both set", userID, rawToken == "")
 	}
 
-	member, err := e.svc.GetUser(e.wsCtx(e.admin), userID, true)
+	member, err := e.svc.GetUser(e.wsCtx(e.admin), userID)
 	if err != nil {
 		t.Fatalf("get invited member: %v", err)
 	}
@@ -186,7 +201,7 @@ func TestReactivateUserRestoresActiveAndEmits(t *testing.T) {
 		t.Fatalf("reactivate: %v", err)
 	}
 
-	member, err := e.svc.GetUser(e.wsCtx(e.admin), e.member.UserID, false)
+	member, err := e.svc.GetUser(e.wsCtx(e.admin), e.member.UserID)
 	if err != nil {
 		t.Fatalf("get reactivated member: %v", err)
 	}

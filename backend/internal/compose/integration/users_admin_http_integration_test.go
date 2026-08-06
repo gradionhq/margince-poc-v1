@@ -56,6 +56,19 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	}
 	assertActionableRefusal(t, "duplicate invite", dupe)
 
+	// The same unknown-role refusal as change-role: the `role` enum is
+	// documentation, not binding validation, so a mistyped key reaches the
+	// server here too and must not read as "no such member".
+	var badRole refusalWire
+	if status := e.call(t, "POST", "/v1/users", map[string]any{
+		"email": "badrole@acme.test", "display_name": "Bad Role", "role": "no-such-role",
+	}, nil, &badRole); status != http.StatusNotFound {
+		t.Fatalf("invite with an undefined role -> %d, want 404", status)
+	}
+	if badRole.Code != "unknown_role" {
+		t.Errorf("invite with an undefined role: code = %q, want unknown_role", badRole.Code)
+	}
+
 	// Malformed input is refused before any member is created.
 	if status := e.call(t, "POST", "/v1/users", map[string]any{
 		"email": "not-an-email", "display_name": "X", "role": "rep",
@@ -125,6 +138,19 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	e.call(t, "GET", "/v1/users?include_inactive=true", nil, nil, &withInactive)
 	if !containsUser(withInactive.Data, invited.ID) {
 		t.Fatalf("include_inactive roster missing the deactivated member %s", invited.ID)
+	}
+	// include_inactive AND q together: the only combination that reaches the
+	// widened+filtered query, and the one whose bind numbering is longest.
+	// Without this the suite executes that string nowhere.
+	var withInactiveFiltered userListWire
+	if status := e.call(t, "GET", "/v1/users?include_inactive=true&q=NEWBIE", nil, nil, &withInactiveFiltered); status != http.StatusOK {
+		t.Fatalf("include_inactive + q -> %d, want 200", status)
+	}
+	if len(withInactiveFiltered.Data) != 1 || withInactiveFiltered.Data[0].ID != invited.ID {
+		t.Fatalf("include_inactive + q = %+v, want only the deactivated member", withInactiveFiltered.Data)
+	}
+	if withInactiveFiltered.Data[0].Roles == nil {
+		t.Error("include_inactive + q dropped the role keys an admin is owed")
 	}
 
 	// Reactivate.
