@@ -16,11 +16,12 @@ package compose
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -86,24 +87,32 @@ type companyEnricher struct{ srv *Server }
 func (c companyEnricher) EnrichCompany(
 	ctx context.Context, orgID ids.UUID, overrideURL, depth string,
 ) (json.RawMessage, error) {
-	if depth == "site" {
+	// Routed on the seam's own constants, and an unknown depth is REFUSED
+	// rather than falling through to the cheaper read: the tool admits the
+	// vocabulary before it gets here, so a value arriving unrecognised means
+	// the two halves disagree, and answering a one-page scrape to a site read
+	// would be a wrong answer rather than an error.
+	switch depth {
+	case agents.EnrichDepthSite:
 		if c.srv == nil || c.srv.siteReadHandlers.engine == nil {
-			return nil, errors.New(`enrich: depth "site" needs a crawl runner, which this deployment has not configured`)
+			return nil, fmt.Errorf("enrich: depth %q needs a crawl runner, which this deployment has not configured", depth)
 		}
 		started, err := c.srv.siteReadHandlers.engine.startSiteRead(ctx, orgID, overrideURL)
 		if err != nil {
 			return nil, err
 		}
 		return json.Marshal(started)
+	case agents.EnrichDepthPage:
+		if c.srv == nil || c.srv.scrapeHandlers.engine == nil {
+			return nil, fmt.Errorf("enrich: depth %q needs a model path, which this deployment has not configured", depth)
+		}
+		proposal, err := c.srv.scrapeHandlers.engine.Propose(ctx, orgID, overrideURL)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(proposal)
 	}
-	if c.srv == nil || c.srv.scrapeHandlers.engine == nil {
-		return nil, errors.New(`enrich: depth "page" needs a model path, which this deployment has not configured`)
-	}
-	proposal, err := c.srv.scrapeHandlers.engine.Propose(ctx, orgID, overrideURL)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(proposal)
+	return nil, fmt.Errorf("enrich: depth %q is neither %q nor %q", depth, agents.EnrichDepthPage, agents.EnrichDepthSite)
 }
 
 // lifecycleSeams builds the three adapters over one pool.

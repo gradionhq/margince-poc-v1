@@ -374,7 +374,7 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 		ToStageID:  args.ToStageID,
 		LostReason: args.LostReason,
 		Source:     toolSource,
-		IfVersion:  args.IfVersion,
+		IfVersion:  pinForWrite(ctx, args.IfVersion),
 	})
 	if err != nil {
 		return nil, err

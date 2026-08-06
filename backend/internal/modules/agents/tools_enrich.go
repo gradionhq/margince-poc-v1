@@ -31,16 +31,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// enrichDepth names how much of the site a call reads. The two values are two
-// contract operations behind one verb, so the argument is what chooses between
-// them rather than the client picking a route.
+// The depth vocabulary: how much of the site a call reads. The two values are
+// two contract operations behind one verb, so the argument is what chooses
+// between them rather than the client picking a route. EXPORTED because the
+// implementation of CompanyEnricher lives in the composition layer and routes
+// on them — a second spelling there would silently send a site read to the
+// one-page path.
 const (
-	enrichDepthPage = "page"
-	enrichDepthSite = "site"
+	EnrichDepthPage = "page"
+	EnrichDepthSite = "site"
 )
 
 // CompanyEnricher reads a company's website and stages what it found. depth is
-// enrichDepthPage (one page, answers with the proposal) or enrichDepthSite (a
+// EnrichDepthPage (one page, answers with the proposal) or EnrichDepthSite (a
 // queued multi-page crawl, answers with the read's id and queue state).
 type CompanyEnricher interface {
 	EnrichCompany(ctx context.Context, orgID ids.UUID, overrideURL, depth string) (json.RawMessage, error)
@@ -119,11 +122,11 @@ func readEnrichArgs(in json.RawMessage) (enrichArgs, error) {
 		return enrichArgs{}, err
 	}
 	if args.Depth == "" {
-		args.Depth = enrichDepthPage
+		args.Depth = EnrichDepthPage
 	}
-	if args.Depth != enrichDepthPage && args.Depth != enrichDepthSite {
+	if args.Depth != EnrichDepthPage && args.Depth != EnrichDepthSite {
 		return enrichArgs{}, &BadArgsError{Cause: fmt.Errorf("depth %q is not %q or %q",
-			args.Depth, enrichDepthPage, enrichDepthSite)}
+			args.Depth, EnrichDepthPage, EnrichDepthSite)}
 	}
 	if args.URL != "" {
 		// The same admission the REST route applies before it fetches: a

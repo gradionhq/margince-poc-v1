@@ -67,17 +67,26 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		"intro_path_to":            fmt.Sprintf(`{"organization_id":%q}`, anchor),
 		"at_risk_relationships":    `{}`,
 		"list_pipelines":           `{}`,
-		"disqualify_lead":          fmt.Sprintf(`{"lead_id":%q}`, anchor),
+		// The record writes the overlay provider cannot serve. disqualify_lead
+		// is refused by a guard at its seam (its tool calls the people store
+		// directly); the other three ride the Dispatcher and are refused by the
+		// provider itself — a difference in mechanism, not in the answer owed,
+		// which is why both kinds are driven here.
+		"disqualify_lead": fmt.Sprintf(`{"lead_id":%q}`, anchor),
+		"promote_lead":    fmt.Sprintf(`{"lead_id":%q,"trigger":"inbound_reply"}`, anchor),
+		"merge_records":   fmt.Sprintf(`{"record_type":"person","source_id":%q,"target_id":%q}`, anchor, ids.NewV7()),
+		"advance_deal":    fmt.Sprintf(`{"deal_id":%q,"to_stage_id":%q}`, anchor, anchor),
 	}
 }
 
-// nativeToolReaderPerms is overlayReaderPerms plus the two objects the guarded
-// set needs beyond reading records. list_pipelines rides the deals module's own
-// config read, RBAC-gated on `pipeline`; disqualify_lead is a WRITE, gated on
-// `lead:delete`. Without either grant the tool is refused for a reason that has
-// nothing to do with system-of-record mode, and both halves of this suite would
-// be asserting the wrong thing — the overlay half would pass on a permission
-// denial that proves no guard exists.
+// nativeToolReaderPerms is overlayReaderPerms plus the objects the guarded set
+// needs beyond reading records. list_pipelines rides the deals module's own
+// config read, RBAC-gated on `pipeline`; the four record writes need the grants
+// their own stores demand (`lead:delete` for disqualify, `lead`+`person` for
+// promote, `person:update` for merge, `deal:update` for advance). Without them
+// the tool is refused for a reason that has nothing to do with system-of-record
+// mode, and both halves of this suite would assert the wrong thing — the
+// overlay half would pass on a permission denial that proves no guard exists.
 func nativeToolReaderPerms() principal.Permissions {
 	perms := overlayReaderPerms
 	objects := make(map[string]principal.ObjectGrant, len(perms.Objects)+2)
@@ -86,8 +95,14 @@ func nativeToolReaderPerms() principal.Permissions {
 	}
 	objects["pipeline"] = principal.ObjectGrant{Read: true}
 	lead := objects["lead"]
-	lead.Read, lead.Delete = true, true
+	lead.Read, lead.Update, lead.Delete = true, true, true
 	objects["lead"] = lead
+	person := objects["person"]
+	person.Read, person.Create, person.Update = true, true, true
+	objects["person"] = person
+	deal := objects["deal"]
+	deal.Read, deal.Update = true, true
+	objects["deal"] = deal
 	perms.Objects = objects
 	return perms
 }
@@ -354,8 +369,9 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	// didn't say unsupported_by_sor".
 	anchored := map[string]bool{
 		"catch_me_up_on": true, "prep_for_meeting": true, "intro_path_to": true,
-		// A write against a minted lead id: not-found IS the served answer.
-		"disqualify_lead": true,
+		// Writes against minted ids: not-found IS the served answer, and it is
+		// the answer only a workspace that actually ran the lookup can give.
+		"disqualify_lead": true, "promote_lead": true, "merge_records": true, "advance_deal": true,
 	}
 
 	for name, args := range nativeOnlyAgentTools(ids.NewV7()) {

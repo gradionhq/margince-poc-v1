@@ -6,9 +6,14 @@ package compose
 // A tool and its route are two transports onto one behaviour, and a vocabulary
 // is part of that behaviour: a phase or a link target the REST body accepts and
 // the tool refuses is the same divergence as a missing tool, arriving one
-// argument at a time. The tool declares its set in an InputSchema and the
-// contract declares it in a request schema, so the two are compared here —
-// against the contract, which is the source of truth for both.
+// argument at a time.
+//
+// Derived in both directions rather than listed. Every registered tool's
+// advertised schema is walked for closed vocabularies, and every one is
+// compared against the operation the policy table says backs that verb. A new
+// tool with an enum is enrolled the day it is written, and a tool argument with
+// no REST twin is skipped by the DERIVATION (no backing operation declares a
+// property of that name), never by being forgotten.
 
 import (
 	"encoding/json"
@@ -18,84 +23,100 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
-// toolEnumsFromTheContract names, for each tool argument that carries a closed
-// vocabulary, the OPERATION whose request body the REST twin takes it from —
-// the operation rather than a component, because the contract declares some of
-// these inline and both spellings have to be readable from one pin.
-var toolEnumsFromTheContract = []struct {
-	tool, arg         string
-	operation, member string
-}{
-	{tool: "relink_activity", arg: "entity_type", operation: "relinkActivity", member: "entity_type"},
-	{tool: "advance_project_phase", arg: "to_phase", operation: "advanceProjectPhase", member: "to_phase"},
-}
-
 func TestEveryToolEnumMatchesTheContractItMirrors(t *testing.T) {
 	doc, err := openapi3.NewLoader().LoadFromFile("../../api/crm.yaml")
 	if err != nil {
 		t.Fatalf("loading the contract: %v", err)
 	}
+	bodies := requestBodiesByOperation(doc)
 	registry := NewRegistry(nil, SendPath{})
 
-	for _, tc := range toolEnumsFromTheContract {
-		t.Run(tc.tool+"."+tc.arg, func(t *testing.T) {
-			spec, registered := registry.Spec(tc.tool)
-			if !registered {
-				t.Fatalf("%s is not registered — this pin no longer covers it", tc.tool)
-			}
-			want := contractEnum(t, doc, tc.operation, tc.member)
-			got := schemaEnum(t, spec.InputSchema, tc.arg)
-			if !slices.Equal(got, want) {
-				t.Errorf("%s advertises %v for %s while the contract's %s body says %s: %v — a value the "+
-					"REST call accepts and the tool refuses is the two transports disagreeing about one behaviour",
-					tc.tool, got, tc.arg, tc.operation, tc.member, want)
-			}
-		})
-	}
-}
-
-// contractEnum reads the declared vocabulary out of an operation's request
-// body. Schemas resolve through their $refs, so a body naming a component and
-// one declaring its properties inline read the same way.
-func contractEnum(t *testing.T, doc *openapi3.T, operation, member string) []string {
-	t.Helper()
-	var body *openapi3.Schema
-	for _, item := range doc.Paths.Map() {
-		for _, op := range item.Operations() {
-			if op.OperationID != operation || op.RequestBody == nil || op.RequestBody.Value == nil {
-				continue
-			}
-			for _, media := range op.RequestBody.Value.Content {
-				if media.Schema != nil && media.Schema.Value != nil {
-					body = media.Schema.Value
+	compared := 0
+	for _, spec := range registry.Specs() {
+		for arg, advertised := range advertisedEnums(t, spec.Name, spec.InputSchema) {
+			for _, op := range backingOperations(spec.Name) {
+				declared, isEnum := contractEnum(t, bodies[op], op, arg)
+				if !isEnum {
+					continue // the operation takes no such argument, or takes it open
+				}
+				compared++
+				if !slices.Equal(advertised, declared) {
+					t.Errorf("%s advertises %v for %s while %s's request body declares %v — a value the "+
+						"REST call accepts and the tool refuses (or the reverse) is the two transports "+
+						"disagreeing about one behaviour", spec.Name, advertised, arg, op, declared)
 				}
 			}
 		}
 	}
-	if body == nil {
-		t.Fatalf("the contract has no request body for %s", operation)
+	if compared == 0 {
+		t.Fatal("no tool argument was compared against a contract enum — this gate asserted nothing")
 	}
-	prop, ok := body.Properties[member]
-	if !ok || prop.Value == nil {
-		t.Fatalf("%s's request body declares no %s", operation, member)
+}
+
+// backingOperations answers the operationIds the generated policy table says a
+// verb backs; a tool composing several operations (or none) yields each of them.
+func backingOperations(tool string) []string {
+	var ops []string
+	for _, pol := range agentPolicies {
+		if pol.Access == accessTool && pol.Tool == tool && !slices.Contains(ops, pol.Op) {
+			ops = append(ops, pol.Op)
+		}
+	}
+	slices.Sort(ops)
+	return ops
+}
+
+// requestBodiesByOperation indexes each operation's request-body schema,
+// resolved through its $refs so an inline body and a component read alike.
+func requestBodiesByOperation(doc *openapi3.T) map[string]*openapi3.Schema {
+	bodies := map[string]*openapi3.Schema{}
+	for _, item := range doc.Paths.Map() {
+		for _, op := range item.Operations() {
+			if op.RequestBody == nil || op.RequestBody.Value == nil {
+				continue
+			}
+			for _, media := range op.RequestBody.Value.Content {
+				if media.Schema != nil && media.Schema.Value != nil {
+					bodies[op.OperationID] = media.Schema.Value
+				}
+			}
+		}
+	}
+	return bodies
+}
+
+// contractEnum reads one property's declared vocabulary, reporting whether the
+// operation declares that property as a closed set at all.
+func contractEnum(t *testing.T, body *openapi3.Schema, operation, member string) ([]string, bool) {
+	t.Helper()
+	if body == nil {
+		return nil, false
+	}
+	prop, declared := body.Properties[member]
+	if !declared || prop.Value == nil || len(prop.Value.Enum) == 0 {
+		return nil, false
 	}
 	values := make([]string, 0, len(prop.Value.Enum))
 	for _, v := range prop.Value.Enum {
+		// A nullable enum carries null as its "unset" member (logActivity's
+		// direction does). That is the absence of a value, not one of them, and
+		// a tool expresses the same thing by omitting the argument — so it is
+		// not part of the vocabulary being compared.
+		if v == nil {
+			continue
+		}
 		s, isString := v.(string)
 		if !isString {
 			t.Fatalf("%s.%s carries a non-string enum member %v", operation, member, v)
 		}
 		values = append(values, s)
 	}
-	if len(values) == 0 {
-		t.Fatalf("%s.%s declares no enum — this pin would compare against nothing", operation, member)
-	}
 	slices.Sort(values)
-	return values
+	return values, true
 }
 
-// schemaEnum reads the same vocabulary out of the tool's advertised schema.
-func schemaEnum(t *testing.T, inputSchema json.RawMessage, arg string) []string {
+// advertisedEnums answers every closed vocabulary a tool's own schema declares.
+func advertisedEnums(t *testing.T, tool string, inputSchema json.RawMessage) map[string][]string {
 	t.Helper()
 	var doc struct {
 		Properties map[string]struct {
@@ -103,13 +124,16 @@ func schemaEnum(t *testing.T, inputSchema json.RawMessage, arg string) []string 
 		} `json:"properties"`
 	}
 	if err := json.Unmarshal(inputSchema, &doc); err != nil {
-		t.Fatalf("the tool's input schema is not readable: %v", err)
+		t.Fatalf("%s: input schema is not readable: %v", tool, err)
 	}
-	prop, declared := doc.Properties[arg]
-	if !declared {
-		t.Fatalf("the tool's input schema declares no %s", arg)
+	enums := map[string][]string{}
+	for name, prop := range doc.Properties {
+		if len(prop.Enum) == 0 {
+			continue
+		}
+		values := slices.Clone(prop.Enum)
+		slices.Sort(values)
+		enums[name] = values
 	}
-	values := slices.Clone(prop.Enum)
-	slices.Sort(values)
-	return values
+	return enums
 }

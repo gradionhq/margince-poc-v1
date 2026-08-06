@@ -105,8 +105,8 @@ func TestEnrichHandlePassesTheAdmittedArgumentsThrough(t *testing.T) {
 	if seam.url != "https://acme.test" {
 		t.Fatalf("seam saw url %q", seam.url)
 	}
-	if seam.depth != enrichDepthPage {
-		t.Fatalf("seam saw depth %q, want the default %q applied before the fetch", seam.depth, enrichDepthPage)
+	if seam.depth != EnrichDepthPage {
+		t.Fatalf("seam saw depth %q, want the default %q applied before the fetch", seam.depth, EnrichDepthPage)
 	}
 }
 
@@ -117,9 +117,9 @@ func TestReadEnrichArgsDefaultsTheDepthAndRefusesAnUnservedOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if args.Depth != enrichDepthPage {
+	if args.Depth != EnrichDepthPage {
 		t.Fatalf("depth defaulted to %q, want %q — the cheaper read is the one an omission gets",
-			args.Depth, enrichDepthPage)
+			args.Depth, EnrichDepthPage)
 	}
 
 	if _, err := readEnrichArgs(json.RawMessage(`{"organization_id":"` + id + `","depth":"crawl"}`)); err == nil {

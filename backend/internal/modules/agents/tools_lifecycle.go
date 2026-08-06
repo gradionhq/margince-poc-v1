@@ -227,12 +227,12 @@ func (t advanceProjectPhase) Handle(ctx context.Context, in json.RawMessage) (js
 	if err != nil {
 		return nil, err
 	}
-	// The CALLER's version pins the write, exactly as advance_deal and
-	// progress_deal take it. A version this tool read microseconds earlier
-	// would be compared against itself and could never detect skew — a pin in
-	// name only. Optional, so an agent that read nothing is not made to invent
-	// one.
-	return t.advancer.AdvanceProjectPhase(ctx, args.ProjectID, args.ToPhase, args.Reason, args.IfVersion)
+	// The caller's version pins the write, or — on the redeemed retry of an
+	// approved call that named none — the version the human approved
+	// (pinForWrite). A version this tool read microseconds earlier would be
+	// compared against itself and could never detect skew: a pin in name only.
+	return t.advancer.AdvanceProjectPhase(ctx, args.ProjectID, args.ToPhase, args.Reason,
+		pinForWrite(ctx, args.IfVersion))
 }
 
 // readArgs decodes and admits the phase in one place, so the staging path and

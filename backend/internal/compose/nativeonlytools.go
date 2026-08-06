@@ -219,7 +219,7 @@ func nativeOnlySlippingLister(mode overlayModeChecker, list agents.SlippingListe
 // while the route refused. A tool and its route are two transports onto one
 // behaviour or they are a silent divergence (ADR-0018/AC-OV-2).
 //
-// TestEveryUnservableRecordWriteVerbIsGuardedOnItsToolPath derives which verbs
+// TestEveryUnservableRecordWriteVerbRefusesOnItsToolPath derives which verbs
 // need this, so a lifecycle seam added for another such verb fails the gate
 // rather than shipping unguarded.
 func nativeOnlyDisqualifier(mode overlayModeChecker, disqualifier agents.LeadDisqualifier) disqualifierGuard {

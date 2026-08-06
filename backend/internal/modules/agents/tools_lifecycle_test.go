@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // errLifecycleSeamReached fails a test whose tool passed arguments through that
@@ -238,4 +239,114 @@ func TestAdvanceProjectPhasePassesTheCallersVersionThrough(t *testing.T) {
 	if seam.ifVersion != nil {
 		t.Fatalf("an omitted if_version became %v — the tool invented a pin", *seam.ifVersion)
 	}
+}
+
+// Redemption commits its own transaction and the write opens a fresh one, so
+// the approved version has to travel INTO the write or the window between them
+// belongs to whoever is racing it — and on this surface that is the same agent,
+// through its own auto-execute update_record. The REST gate closes the window by
+// forwarding the pin as If-Match; this is that guarantee on the MCP transport.
+func TestAReleasedApprovalPinsTheWriteItReleases(t *testing.T) {
+	seam := &recordingAdvancer{}
+	tool := advanceProjectPhase{advancer: seam}
+	call := json.RawMessage(`{"project_id":"` + ids.NewV7().String() + `","to_phase":"delivering"}`)
+
+	// Unredeemed and unpinned by the caller: nothing to condition on, and the
+	// tool must not invent one.
+	if _, err := tool.Handle(context.Background(), call); err != nil {
+		t.Fatal(err)
+	}
+	if seam.ifVersion != nil {
+		t.Fatalf("an unredeemed call carried if_version %v", *seam.ifVersion)
+	}
+
+	// Redeemed against version 9: the write is conditioned on 9.
+	seam.ifVersion = nil
+	released := withApprovalRedeemed(context.Background(), 9, true)
+	if _, err := tool.Handle(released, call); err != nil {
+		t.Fatal(err)
+	}
+	if seam.ifVersion == nil || *seam.ifVersion != 9 {
+		t.Fatalf("released pin reached the store as %v, want 9 — the approved version has to be "+
+			"re-checked inside the transaction that writes", seam.ifVersion)
+	}
+
+	// A caller that named its own version keeps it: that value is bound into
+	// the diff_hash the redemption verified, so it cannot disagree with what
+	// the human approved.
+	seam.ifVersion = nil
+	pinned := json.RawMessage(`{"project_id":"` + ids.NewV7().String() + `","to_phase":"delivering","if_version":4}`)
+	if _, err := tool.Handle(released, pinned); err != nil {
+		t.Fatal(err)
+	}
+	if seam.ifVersion == nil || *seam.ifVersion != 4 {
+		t.Fatalf("caller pin reached the store as %v, want 4", seam.ifVersion)
+	}
+}
+
+// The schema is what a client reads; the admission map is what actually decides.
+// A value advertised and then refused is the same divergence a missing tool is,
+// arriving one argument at a time — and the compose-side gate that binds the
+// schema to the CONTRACT cannot see this layer, because it never calls the tool.
+// So every advertised value is walked through the tool's own admission here.
+func TestEveryAdvertisedEnumValueIsActuallyAdmitted(t *testing.T) {
+	relink := relinkActivity{relinker: &recordingRelinker{}}
+	advance := advanceProjectPhase{advancer: &recordingAdvancer{}}
+
+	cases := []struct {
+		tool  string
+		arg   string
+		spec  mcp.ToolSpec
+		admit func(value string) error
+	}{
+		{
+			tool: "relink_activity", arg: "entity_type", spec: relink.Spec(),
+			admit: func(value string) error {
+				_, err := relink.Handle(context.Background(), json.RawMessage(
+					`{"activity_id":"`+ids.NewV7().String()+`","entity_type":"`+value+
+						`","entity_id":"`+ids.NewV7().String()+`"}`))
+				return err
+			},
+		},
+		{
+			tool: "advance_project_phase", arg: "to_phase", spec: advance.Spec(),
+			admit: func(value string) error {
+				// `closed` carries its own required reason; supplying it keeps
+				// this about the vocabulary rather than the closure rule.
+				_, err := advance.Handle(context.Background(), json.RawMessage(
+					`{"project_id":"`+ids.NewV7().String()+`","to_phase":"`+value+`","reason":"a reason"}`))
+				return err
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		values := advertisedEnum(t, tc.spec.InputSchema, tc.arg)
+		for _, value := range values {
+			t.Run(tc.tool+"/"+value, func(t *testing.T) {
+				if err := tc.admit(value); err != nil {
+					t.Errorf("%s advertises %q for %s and then refuses it: %v", tc.tool, value, tc.arg, err)
+				}
+			})
+		}
+	}
+}
+
+// advertisedEnum reads a property's declared vocabulary out of a tool's own
+// input schema, which is the only copy a client ever sees.
+func advertisedEnum(t *testing.T, inputSchema json.RawMessage, arg string) []string {
+	t.Helper()
+	var doc struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(inputSchema, &doc); err != nil {
+		t.Fatalf("input schema is not readable: %v", err)
+	}
+	values := doc.Properties[arg].Enum
+	if len(values) == 0 {
+		t.Fatalf("the schema advertises no %s vocabulary — this sweep would walk nothing", arg)
+	}
+	return values
 }
