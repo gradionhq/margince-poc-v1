@@ -38,15 +38,20 @@ paths = [
 # The agent tool registry names the contract operations a tool composes —
 # "getPerson/getOrganization/getDeal + listActivities". Slash-joined camelCase
 # reads as high-entropy to the generic detector; it is an operation id, and the
-# gen-agentpolicy drift gate would fail if it were anything else. Scoped to the
-# two registry files AND to the field declaration, so the rest of both files
-# stays scanned.
+# gen-agentpolicy drift gate would fail if it were anything else.
+#
+# Scoped to the module AND to the field declaration, not to the two filenames
+# that happen to trip the detector today: six files in this package declare
+# OpenAPIOp, and naming them individually would mean a new tool file, or one
+# more operation in an existing list, failing the gate over a non-secret. The
+# invariant is "an OpenAPIOp declaration in the agent registry is an operation
+# id" — everything else in these files stays scanned.
 [[allowlists]]
 description = "OpenAPI operation ids in the agent tool registry"
 targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "line"
-paths = ['''backend/internal/modules/agents/tools_(intents|confirm)\.go$''']
+paths = ['''backend/internal/modules/agents/''']
 regexes = ['''OpenAPIOp:\s''']
 
 # `linkedinStatus: LinkedinStatus` — a TypeScript prop and its type. The

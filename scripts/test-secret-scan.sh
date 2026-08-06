@@ -77,6 +77,11 @@ expect caught "backend/internal/modules/agents/tools_intents.go" \
 	"the OpenAPIOp exemption must cover that line only"
 expect caught "backend/internal/modules/agents/tools_confirm.go" \
 	"the OpenAPIOp exemption must cover that line only"
+# The OpenAPIOp exemption is scoped to the whole agents module, so a file that
+# carries no exempted line at all must still be scanned — otherwise widening
+# the path to the module would have quietly widened the exemption to it.
+expect caught "backend/internal/modules/agents/registry.go" \
+	"a module-scoped exemption must not exempt the module"
 expect caught "frontend/src/screens/onboarding-conversation/connect-scene.tsx" \
 	"the LinkedinStatus exemption must cover that secret only"
 
