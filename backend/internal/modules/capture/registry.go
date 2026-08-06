@@ -247,14 +247,17 @@ func (r *Registry) commitSyncCursor(ctx context.Context, connectionID ids.UUID, 
 // seedOwnDomainFromAccount registers the connected mailbox's own domain before
 // any message is read, from the connector's account label.
 //
-// WHETHER that domain may govern storage depends on who vouches for the label.
-// A provider-attested one (OAuth: Gmail, Graph, Calendar) is recorded verified
-// and takes effect immediately. A self-declared one (IMAP, whose login is
-// proved against a host the same caller supplied) is recorded UNVERIFIED and
-// suppresses nothing: it is a candidate for an administrator to confirm, not a
-// claim the system acts on. Without that split, anyone able to reach the
-// connect endpoint could name a domain they do not own and silently stop the
-// workspace storing correspondence with it.
+// A mailbox label — however well the provider attests it — says whose mailbox
+// this is, NOT whose domain it is. A contractor, or anyone whose mail lives at
+// a customer's or a partner's company, connects a perfectly genuine account on
+// a domain the workspace does not own; treating that as internal would silently
+// stop the workspace storing its correspondence with that very company.
+//
+// So a seed is a CANDIDATE. It is recorded verified only when it matches a
+// domain of the installation's own company — the anchor organization, whose
+// domain a human confirmed at cold start, and the only statement in the system
+// about who "we" are. Everything else waits for an administrator and suppresses
+// nothing meanwhile.
 //
 // A connector that cannot name its account seeds nothing and syncs normally —
 // the set stays admin-fed for it, which is a smaller failure than refusing to
@@ -278,16 +281,14 @@ func (r *Registry) seedOwnDomainFromAccount(ctx context.Context, c connector.Con
 	if strings.TrimSpace(label) == "" {
 		return nil
 	}
-	_, attested := c.(connector.AttestedAccountLabeler)
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		return seeddomainOfAddressTx(ctx, tx, label, attested)
+		return seedDomainOfAddressTx(ctx, tx, label)
 	})
 }
 
-// seeddomainOfAddressTx registers the domain of one mailbox address as internal.
-// verified says whether the address was attested by the provider; an unverified
-// row is recorded for an administrator to confirm and governs no drop.
-func seeddomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string, verified bool) error {
+// seedDomainOfAddressTx records one mailbox's domain as a candidate own-domain,
+// verified only if the installation's own company already claims it.
+func seedDomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string) error {
 	domain := domainOfAddress(address)
 	if domain == "" {
 		return nil
@@ -301,6 +302,10 @@ func seeddomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string, verif
 	if consumerMail.IsConsumer(domain) {
 		return nil
 	}
+	verified, err := anchorClaimsDomainTx(ctx, tx, domain)
+	if err != nil {
+		return err
+	}
 	// A row already confirmed by a human is never downgraded by a later sync.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
@@ -310,6 +315,36 @@ func seeddomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string, verif
 		return fmt.Errorf("capture: seeding workspace email domain: %w", err)
 	}
 	return nil
+}
+
+// anchorClaimsDomainTx reports whether the installation's own company registers
+// this domain, or a parent of it.
+//
+// A read of another module's table, which reads are free to be: the fact needed
+// here is "did a human say this domain is ours", and the anchor organization is
+// the only place that answer lives. Writing there would be a different matter.
+func anchorClaimsDomainTx(ctx context.Context, tx pgx.Tx, domain string) (bool, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT d.domain
+		  FROM organization_domain d
+		  JOIN organization o ON o.id = d.organization_id
+		 WHERE o.is_anchor AND o.archived_at IS NULL AND d.archived_at IS NULL`)
+	if err != nil {
+		return false, fmt.Errorf("capture: reading the anchor company's domains: %w", err)
+	}
+	defer rows.Close()
+	var claimed []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return false, fmt.Errorf("capture: reading the anchor company's domains: %w", err)
+		}
+		claimed = append(claimed, d)
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("capture: reading the anchor company's domains: %w", err)
+	}
+	return NewInternalDomains(claimed).CoversDomain(domain), nil
 }
 
 // resolveCredential turns a stored connection's credential into the opaque

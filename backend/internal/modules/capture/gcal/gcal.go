@@ -45,10 +45,9 @@ type Connector struct {
 func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api: api} }
 
 var (
-	_ connector.Connector              = (*Connector)(nil)
-	_ connector.GrantedScoper          = (*Connector)(nil)
-	_ connector.AccountLabeler         = (*Connector)(nil)
-	_ connector.AttestedAccountLabeler = (*Connector)(nil)
+	_ connector.Connector      = (*Connector)(nil)
+	_ connector.GrantedScoper  = (*Connector)(nil)
+	_ connector.AccountLabeler = (*Connector)(nil)
 )
 
 // GrantedScopes reports the Google scopes this calendar connection actually
@@ -220,8 +219,3 @@ func marshalCursor(syncToken string) connector.Cursor {
 	b, _ := json.Marshal(cursorState{SyncToken: syncToken}) //nolint:errchkjson // string-only struct never errors
 	return b
 }
-
-// AccountLabelIsProviderAttested marks this connector's account label as the
-// provider's own answer to "who authorized this", read from the OAuth identity
-// rather than from anything the connecting human typed.
-func (c *Connector) AccountLabelIsProviderAttested() {}

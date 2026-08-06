@@ -288,12 +288,13 @@ func isSkip(err error) bool { return errors.Is(err, connector.ErrSkip) }
 
 // A domain nobody vouched for governs no drop.
 //
-// The IMAP connect endpoint takes a username as free text and proves it against
-// a host the same caller supplies, so its account label is self-declared. If an
-// unverified label could suppress storage, anyone able to reach that endpoint
-// could name a domain they do not own and silently stop the workspace keeping
-// correspondence with it — irreversibly, since every connector advances past a
-// skipped message.
+// A connected mailbox proves whose mailbox it is, never whose domain it is: a
+// contractor, or anyone whose mail lives at a customer's company, connects a
+// genuine account on a domain the workspace does not own. If that alone could
+// suppress storage, the workspace would silently stop keeping correspondence
+// with that company — irreversibly, since every connector advances past a
+// skipped message. Only the installation's own company, or an administrator,
+// can make a domain count.
 func TestAnUnverifiedOwnDomainSuppressesNothing(t *testing.T) {
 	ctx, pool := bootstrapInternalMailWorkspace(t)
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {

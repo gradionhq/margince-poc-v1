@@ -85,23 +85,6 @@ type AccountLabeler interface {
 	AccountLabel(auth Auth) (string, error)
 }
 
-// AttestedAccountLabeler marks a connector whose AccountLabel is vouched for by
-// the PROVIDER's authenticated identity rather than typed by the person
-// connecting — an OAuth profile the provider returned, not a username the
-// caller supplied alongside the host that checked it.
-//
-// The distinction decides what the label may be trusted to do. A self-declared
-// label is fine for display; it must not silently govern whether the workspace
-// STORES a message, because anyone who can reach the connect endpoint could
-// then name a domain they do not own and suppress its correspondence. Gmail,
-// Graph and Calendar authenticate through the provider and implement this;
-// IMAP, whose login is proved against a host the same caller supplies, does not.
-type AttestedAccountLabeler interface {
-	AccountLabeler
-	// AccountLabelIsProviderAttested is a marker; its presence is the claim.
-	AccountLabelIsProviderAttested()
-}
-
 // GrantedScoper reports the PROVIDER scopes a connection actually holds — the
 // provider's own vocabulary ("Mail.Read"), read back from the Auth bundle the
 // consent sealed. Distinct from Descriptor.Scopes, which is this system's

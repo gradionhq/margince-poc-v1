@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -197,11 +198,39 @@ func newCaptureEnv(t *testing.T) captureEnv {
 		}
 	}
 
-	// The anchor sync seeds the mailbox's own domain as internal — every tier
-	// below depends on the workspace knowing which domain is its own.
+	// The installation's own company, as cold start leaves it: a human confirmed
+	// this domain is ours. It is what lets the mailbox seed below count as
+	// verified — a connected mailbox alone proves whose mailbox it is, never
+	// whose domain it is (ADR-0082/A127 §2).
+	if err := database.WithWorkspaceTx(wsCtx, e.Pool, func(tx pgx.Tx) error {
+		orgID := ids.NewV7()
+		if _, err := tx.Exec(wsCtx, `
+			INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
+			VALUES ($1, $2, 'Our Company', true, 'manual', 'human:test')`, orgID, e.WS); err != nil {
+			return err
+		}
+		_, err := tx.Exec(wsCtx, `
+			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+			VALUES ($1, $2, 'myco.example', true, 'manual', 'human:test')`, e.WS, orgID)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the anchor company: %v", err)
+	}
+
+	// The first sync seeds the mailbox's own domain — every tier below depends
+	// on the workspace knowing which domain is its own, and the drop depends on
+	// the anchor having vouched for it.
 	sync(t)
-	if n := countRows(t, e, `SELECT count(*) FROM workspace_email_domain WHERE domain = 'myco.example'`); n != 1 {
-		t.Fatalf("workspace domain seeded %d times, want 1", n)
+	var seeded, verified bool
+	if err := database.WithWorkspaceTx(wsCtx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(wsCtx, `
+			SELECT true, verified FROM workspace_email_domain WHERE domain = 'myco.example'`).
+			Scan(&seeded, &verified)
+	}); err != nil {
+		t.Fatalf("reading the seeded own domain: %v", err)
+	}
+	if !seeded || !verified {
+		t.Fatalf("own domain seeded=%v verified=%v, want both — the anchor claims this domain", seeded, verified)
 	}
 	return captureEnv{e: e, sync: sync, syncSent: syncSent}
 }
@@ -229,7 +258,3 @@ func emailCC(from, fromName, to, cc, msgID string) []byte {
 func (m *mailBatchConnector) AccountLabel(connector.Auth) (string, error) {
 	return captureOwner, nil
 }
-
-// AccountLabelIsProviderAttested marks the label as vouched for, which is what
-// the OAuth connectors this fake stands in for can claim.
-func (m *mailBatchConnector) AccountLabelIsProviderAttested() {}

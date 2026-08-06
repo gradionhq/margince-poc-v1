@@ -51,7 +51,9 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 		// NO company is derived from the domain. Capture withholds one until a
 		// site read says the domain deserves it — inventing "Acme" from
 		// acme.example is exactly what produced junk named after people.
-		if n := countRows(t, e, `SELECT count(*) FROM organization`); n != 0 {
+		// NOT is_anchor: the installation's own company is created by cold
+		// start, not derived from a captured domain.
+		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE NOT is_anchor`); n != 0 {
 			t.Fatalf("%d organizations from an unjudged domain, want 0", n)
 		}
 		// What capture DOES record is the question, once, for the domain.
