@@ -5,38 +5,62 @@
 
 package identity
 
-// The rails under ResetWorkspaceConfig. Its column list is derived from the
-// live catalog, so the two ways it can go wrong are both schema drift the Go
-// code cannot see: a preserved name that no longer matches a column (the
-// installation's identity silently starts being restored), and a config column
-// `= DEFAULT` cannot legally write (the whole reset aborts at runtime). Both
-// are asserted here, against the schema as migrated.
+// The rails under ResetWorkspaceConfig, against the schema as migrated. The
+// column list is derived from the live catalog, so every way this goes wrong
+// is drift the Go code cannot see, in one of two directions: a setting that
+// escapes the restore, or — the destructive one — a value the deployment
+// configured being restored away. The last test here is the rail for that
+// second direction, and it is the reason the fixtures below bootstrap through
+// the real installation path rather than inserting a row by hand.
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// seedConfigWorkspace inserts one workspace to exercise the restore against
-// and returns its id. The database persists across binary runs, so the slug
-// carries the id's random tail — the leading bytes are a millisecond timestamp
-// and two runs in the same minute would collide on workspace_slug_unique.
-func seedConfigWorkspace(t *testing.T, owner *pgx.Conn) ids.UUID {
+// configBootstrap is the deployment configuration every fixture here is
+// bootstrapped from. Each value that lands on the workspace row differs from
+// that column's declared default — a timezone that is not UTC, a currency that
+// is not the fallback — so a restore that reached one of them CHANGES the row
+// instead of coincidentally rewriting it with what was already there.
+var configBootstrap = InstallationBootstrap{
+	BaseCurrency: "CHF", Timezone: "Europe/Berlin",
+	AdminName: "Admin", AdminPassword: "a bootstrap password!",
+}
+
+// seedConfigWorkspace bootstraps one installation through createInstallation —
+// the path a first boot actually takes, so "what a fresh bootstrap leaves" is
+// the real thing rather than this file's idea of it — and returns its id.
+//
+// The database persists across binary runs, so the name (and the slug and
+// admin email derived from it) carries the id's random tail: the leading bytes
+// are a millisecond timestamp, and two runs inside the same minute would
+// collide on workspace_slug_unique.
+func seedConfigWorkspace(t *testing.T, pool *pgxpool.Pool, label string) ids.UUID {
 	t.Helper()
-	slug := "wsconfig-" + ids.NewV7().String()[24:]
-	var ws ids.UUID
-	if err := owner.QueryRow(context.Background(),
-		`INSERT INTO workspace (name, slug, base_currency, timezone)
-		 VALUES ($1, $2, 'EUR', 'Europe/Berlin') RETURNING id`, slug, slug).Scan(&ws); err != nil {
-		t.Fatalf("seeding the workspace: %v", err)
+	ctx := context.Background()
+	name := "wsconfig-" + label + "-" + ids.NewV7().String()[24:]
+	boot := configBootstrap
+	boot.OrganizationName = name
+	boot.AdminEmail = "admin@" + name + ".test"
+
+	var ws ids.WorkspaceID
+	if err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
+		var err error
+		ws, err = createInstallation(ctx, tx, boot, nil)
+		return err
+	}); err != nil {
+		t.Fatalf("bootstrapping the %s installation: %v", label, err)
 	}
-	return ws
+	return ws.UUID
 }
 
 // TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity is the behavioural
@@ -47,7 +71,7 @@ func seedConfigWorkspace(t *testing.T, owner *pgx.Conn) ids.UUID {
 func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	owner, pool := setupIdentityDB(t)
 	ctx := context.Background()
-	ws := seedConfigWorkspace(t, owner)
+	ws := seedConfigWorkspace(t, pool, "settings")
 
 	// Move every setting off its default. The two overlay columns move
 	// together because x_overlay_iff_incumbent admits no other state.
@@ -83,7 +107,7 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	if incumbent != nil {
 		t.Errorf("x_incumbent = %q, want NULL", *incumbent)
 	}
-	if currency != "EUR" || timezone != "Europe/Berlin" || name == "" {
+	if currency != configBootstrap.BaseCurrency || timezone != configBootstrap.Timezone || name == "" {
 		t.Errorf("identity was rewritten: name=%q base_currency=%q timezone=%q — a reset wipes the data, not the installation",
 			name, currency, timezone)
 	}
@@ -97,8 +121,8 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 func TestResetWorkspaceConfigLeavesOtherWorkspacesAlone(t *testing.T) {
 	owner, pool := setupIdentityDB(t)
 	ctx := context.Background()
-	mine := seedConfigWorkspace(t, owner)
-	theirs := seedConfigWorkspace(t, owner)
+	mine := seedConfigWorkspace(t, pool, "mine")
+	theirs := seedConfigWorkspace(t, pool, "theirs")
 
 	if _, err := owner.Exec(ctx,
 		`UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, theirs); err != nil {
@@ -173,13 +197,16 @@ func TestPreservedWorkspaceColumnsAreRealAndExcluded(t *testing.T) {
 	}
 }
 
-// TestEveryWorkspaceConfigColumnCanTakeItsDeclaredDefault is the forward rail
-// the preserved-set check cannot give: the restore writes `= DEFAULT`, which
-// on a column declaring no default writes NULL. For a NOT NULL column that
-// aborts the whole reset transaction — the sweep, the re-seed and the audit
-// row with it — at runtime, on an installation an operator is already wiping.
-// A column added as NOT NULL DEFAULT … passes; one added NOT NULL and
-// backfilled without keeping a default fails here, where the fix is cheap.
+// TestEveryWorkspaceConfigColumnCanTakeItsDeclaredDefault: the restore writes
+// `= DEFAULT`, which on a column declaring no default writes NULL. For a NOT
+// NULL column that aborts the whole reset transaction — the sweep, the re-seed
+// and the audit row with it — at runtime, on an installation an operator is
+// already wiping.
+//
+// The behavioural tests above would fail on such a column too, since they run
+// the real statement. What this adds is the diagnosis: it names the column and
+// says what to do about it, instead of leaving a reader to read 23502 off a
+// statement that lists every column on the row.
 func TestEveryWorkspaceConfigColumnCanTakeItsDeclaredDefault(t *testing.T) {
 	_, pool := setupIdentityDB(t)
 	ctx := context.Background()
@@ -212,4 +239,84 @@ func TestEveryWorkspaceConfigColumnCanTakeItsDeclaredDefault(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("column introspection: %v", err)
 	}
+}
+
+// perInstallationWorkspaceColumns are the columns two installations differ in
+// by construction — the key, the name and slug each was created under, and the
+// timestamps of its own creation. Everything else on the row is either the
+// deployment configuration both were bootstrapped from or a setting at its
+// declared default, so the comparison below can hold them equal.
+var perInstallationWorkspaceColumns = map[string]bool{
+	"id": true, "name": true, "slug": true, "created_at": true, "updated_at": true,
+}
+
+// TestAResetWorkspaceMatchesAFreshlyBootstrappedOne is the rail for the
+// direction that loses data rather than leaking it.
+//
+// Restoring is the DEFAULT here: a column not named in preservedWorkspaceColumns
+// is restored, which is what keeps a new setting from escaping the reset. The
+// cost of that default is the mirror-image mistake — someone adds a column
+// bootstrap writes from margince.yaml and does not declare it preserved, and
+// the reset then quietly discards what the deployment configured. No rail over
+// the restore set can see that, because nothing distinguishes such a column
+// from a setting by shape.
+//
+// Comparing against a SECOND installation bootstrapped from the same
+// configuration can: the fresh one still carries the configured value, the
+// reset one has been returned to the column's default, and the two rows
+// disagree on a key. That is why both fixtures run through createInstallation,
+// and why configBootstrap's values are all off-default — a column bootstrap
+// writes with exactly its own default is invisible here, and to every other
+// test, because there is nothing to observe.
+func TestAResetWorkspaceMatchesAFreshlyBootstrappedOne(t *testing.T) {
+	owner, pool := setupIdentityDB(t)
+	ctx := context.Background()
+
+	// A bootstrap field added later reaches the workspace row only if
+	// createInstallation writes it there, and this test can only see it if
+	// configBootstrap sets it off-default. Neither is checkable from here, so
+	// the field count is the tripwire that sends the next author to look.
+	if got := reflect.TypeOf(InstallationBootstrap{}).NumField(); got != 6 {
+		t.Errorf("InstallationBootstrap has %d fields, this test was written against 6 — if the new one lands on the workspace row, declare its column in preservedWorkspaceColumns and give it an off-default value in configBootstrap, then update this count", got)
+	}
+
+	ws := seedConfigWorkspace(t, pool, "reset")
+	fresh := seedConfigWorkspace(t, pool, "fresh")
+	if _, err := owner.Exec(ctx, `
+		UPDATE workspace
+		   SET capture_auto_enrich = false, x_sor_mode = 'overlay', x_incumbent = 'hubspot'
+		 WHERE id = $1`, ws); err != nil {
+		t.Fatalf("configuring the workspace away from its defaults: %v", err)
+	}
+
+	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	if err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
+		return ResetWorkspaceConfig(wsCtx, tx)
+	}); err != nil {
+		t.Fatalf("ResetWorkspaceConfig: %v", err)
+	}
+
+	after, freshRow := readWorkspaceRow(t, owner, ws), readWorkspaceRow(t, owner, fresh)
+	for col, want := range freshRow {
+		if perInstallationWorkspaceColumns[col] {
+			continue
+		}
+		if got := after[col]; !reflect.DeepEqual(got, want) {
+			t.Errorf("column %q is %v after a reset, but a freshly bootstrapped installation carries %v — if this column holds deployment configuration, declare it in preservedWorkspaceColumns; if it is a setting, its default and its bootstrap value disagree",
+				col, got, want)
+		}
+	}
+}
+
+// readWorkspaceRow returns one workspace row as column → value. The whole row,
+// not a named list: a column added later has to reach the comparison above
+// without anyone remembering to add it here.
+func readWorkspaceRow(t *testing.T, owner *pgx.Conn, ws ids.UUID) map[string]any {
+	t.Helper()
+	var row map[string]any
+	if err := owner.QueryRow(context.Background(),
+		`SELECT to_jsonb(w) FROM workspace w WHERE id = $1`, ws).Scan(&row); err != nil {
+		t.Fatalf("reading the workspace row: %v", err)
+	}
+	return row
 }

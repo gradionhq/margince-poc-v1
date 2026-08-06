@@ -13,6 +13,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -87,14 +88,20 @@ func workspaceConfigColumns(ctx context.Context, tx pgx.Tx) ([]string, error) {
 // exactly as RevertToNative sits behind Disconnect's.
 //
 // The GUC is read WITHOUT missing_ok, for the reason RevertToNative gives:
-// unset, it would resolve to NULL, match no row, and report success having
-// restored nothing.
+// with it, an unset app.workspace_id would resolve to NULL, match no row, and
+// let this report success having restored nothing. Zero rows updated is
+// refused for the other half of that: unlike RevertToNative, this statement
+// has no predicate beyond the id, so there is no reading under which it
+// legitimately matches nothing.
 func ResetWorkspaceConfig(ctx context.Context, tx pgx.Tx) error {
 	cols, err := workspaceConfigColumns(ctx, tx)
 	if err != nil {
 		return err
 	}
 	if len(cols) == 0 {
+		// A workspace row that is identity and nothing else has nothing to
+		// restore. That is not a state this schema is in, which is asserted
+		// rather than assumed — see the fitness rail's vacuity check.
 		return nil
 	}
 	assignments := make([]string, 0, len(cols))
@@ -104,9 +111,14 @@ func ResetWorkspaceConfig(ctx context.Context, tx pgx.Tx) error {
 	// One statement, never one per column: the row carries CHECK constraints
 	// spanning two columns at once (overlay's x_overlay_iff_incumbent), and a
 	// column-at-a-time restore would have to pass through the state they forbid.
-	if _, err := tx.Exec(ctx, `UPDATE workspace SET `+strings.Join(assignments, ", ")+
-		` WHERE id = current_setting('app.workspace_id')::uuid`); err != nil {
+	tag, err := tx.Exec(ctx, `UPDATE workspace SET `+strings.Join(assignments, ", ")+
+		` WHERE id = current_setting('app.workspace_id')::uuid`)
+	if err != nil {
 		return fmt.Errorf("identity: restoring the workspace's configuration columns: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("identity: restoring the workspace's configuration columns: " +
+			"the bound app.workspace_id names no workspace row, so nothing was restored")
 	}
 	return nil
 }
