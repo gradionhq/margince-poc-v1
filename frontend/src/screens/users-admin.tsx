@@ -217,9 +217,14 @@ function MemberRow({
     setLinkOpen(true);
     void passwordLink.mint(member.id);
   };
+  // Returns the refetch so each onSuccess can hand it back to react-query,
+  // which then keeps the mutation pending until the new roster lands. Without
+  // that the mutation settles first and the row renders the pre-change roster
+  // it still has cached — the member's OLD role, briefly, right after a
+  // successful change.
   const refresh = () => {
     setError(null);
-    qc.invalidateQueries({ queryKey: ["users-admin"] });
+    return qc.invalidateQueries({ queryKey: ["users-admin"] });
   };
   const onError = (e: Error) => setError(e.message);
 
@@ -248,7 +253,7 @@ function MemberRow({
     },
     onSuccess: () => {
       setConfirmOff(false);
-      refresh();
+      return refresh();
     },
     onError,
   });
@@ -278,10 +283,11 @@ function MemberRow({
     member.roles?.length === 1 && isOption(member.roles[0], ROLES)
       ? member.roles[0]
       : "";
-  // While a change is in flight the select shows the role being applied, so the
-  // row never snaps back to the old one under the operator. A FAILED change
-  // leaves it on the current role, which is what keeps a retry live: re-picking
-  // the same target still fires onChange.
+  // While a change is in flight the select shows the role being applied — and
+  // it stays in flight until the refreshed roster lands (see refresh), so the
+  // row never renders the replaced role. A FAILED change leaves the select on
+  // the role still held, which is what keeps a retry live: re-picking the same
+  // target still fires onChange.
   const inFlightRole = setRole.isPending ? setRole.variables : undefined;
 
   return (

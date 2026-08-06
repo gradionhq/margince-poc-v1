@@ -304,18 +304,116 @@ describe("UsersAdminCard", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
-    await userEvent.selectOptions(
-      within(active).getByLabelText(/set role for ada active/i),
-      "rep",
-    );
+    const active = rowFor("Ada Active");
+    await userEvent.selectOptions(roleSelect(active, "ada active"), "rep");
 
     await waitFor(() => expect(within(active).getByRole("alert")).toBeTruthy());
     expect(screen.getByText(/leave no admin/i)).toBeTruthy();
     // The refused change left the role untouched, so the select must read the
     // role the member still holds — anything else would claim a change the
-    // server rejected, and would make re-picking "rep" a silent no-op.
+    // server rejected.
     expect(roleSelect(active, "ada active").value).toBe("admin");
+  });
+
+  // The whole reason the select returns to the held role after a refusal: a
+  // select left showing the refused target would make re-picking it a no-op,
+  // and the operator's retry would silently never reach the server.
+  it("lets the same role be re-picked after a refusal", async () => {
+    const patches: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (req.url.includes("/users") && req.method === "GET") {
+          return jsonResponse(ROSTER);
+        }
+        patches.push(req.url);
+        return jsonResponse({ title: "Conflict", detail: "Try again." }, 409);
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    const active = rowFor("Ada Active");
+    await userEvent.selectOptions(roleSelect(active, "ada active"), "rep");
+    await waitFor(() => expect(patches).toHaveLength(1));
+
+    // The SAME target again — the retry the operator would make.
+    await userEvent.selectOptions(roleSelect(active, "ada active"), "rep");
+    await waitFor(() => expect(patches).toHaveLength(2));
+  });
+
+  // A settled mutation whose roster refetch is still outstanding would render
+  // the member's replaced role from the stale cache — the operator would watch
+  // their change appear and then undo itself.
+  it("stays pending until the refreshed roster lands", async () => {
+    let rosterReads = 0;
+    // Built up front rather than captured lazily: the refetch has to be held
+    // open from the moment it starts, and a deferred that only exists once the
+    // request arrives would race the assertions below.
+    let releaseRoster = () => {};
+    const rosterHeld = new Promise<void>((resolve) => {
+      releaseRoster = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (req.url.includes("/users") && req.method === "GET") {
+          rosterReads += 1;
+          if (rosterReads === 1) {
+            return jsonResponse(ROSTER);
+          }
+          // Hold the refetch open so the window between "mutation done" and
+          // "new roster in hand" is observable rather than a race.
+          await rosterHeld;
+          return jsonResponse({
+            ...ROSTER,
+            data: ROSTER.data.map((u) =>
+              u.id === "u-active" ? { ...u, roles: ["manager"] } : u,
+            ),
+          });
+        }
+        return jsonResponse({}, 200);
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    const active = rowFor("Ada Active");
+    await userEvent.selectOptions(roleSelect(active, "ada active"), "manager");
+    await waitFor(() => expect(rosterReads).toBe(2));
+
+    // Mid-flight: the row reads the role being applied and stays locked. "admin"
+    // here would be the stale cache showing through.
+    expect(roleSelect(active, "ada active").value).toBe("manager");
+    expect(roleSelect(active, "ada active").disabled).toBe(true);
+
+    releaseRoster();
+    await waitFor(() =>
+      expect(roleSelect(rowFor("Ada Active"), "ada active").disabled).toBe(
+        false,
+      ),
+    );
+    expect(roleSelect(rowFor("Ada Active"), "ada active").value).toBe(
+      "manager",
+    );
   });
 
   it("surfaces a failed invite as an inline error", async () => {

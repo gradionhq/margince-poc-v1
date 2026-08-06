@@ -54,7 +54,9 @@ type userRow struct {
 // roleKeys aggregates the member's assigned role keys, sorted so a member
 // holding more than one reads the same way on every request. A member with no
 // assignment yields an empty array rather than NULL, so the scan target never
-// has to distinguish "none" from "unknown".
+// has to distinguish "none" from "unknown". It correlates to the UNALIASED
+// app_user of the enclosing SELECT — every userColumns query spells it that
+// way; an alias there would silently break the correlation.
 const roleKeys = `(SELECT COALESCE(array_agg(r.key ORDER BY r.key), '{}')
 	  FROM role_assignment ra JOIN role r ON r.id = ra.role_id
 	  WHERE ra.user_id = app_user.id)`

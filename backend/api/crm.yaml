@@ -13322,6 +13322,8 @@ components:
             rep has no business enumerating who holds `admin`. Normally exactly one key:
             `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients
             that render a single current role must still handle the empty and multi-key cases.
+            Deliberately absent on `MeResponse.user`, whose sibling `MeResponse.roles` is the one
+            authority for the caller's own roles — the same fact spelled twice could disagree.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -13500,7 +13502,9 @@ components:
         roles:
           type: array
           items: { type: string }
-          description: Effective role keys for this principal.
+          description: >
+            Effective role keys for this principal, and the one authority for them —
+            `user.roles` is deliberately left unset here rather than repeating the same fact.
         teams:
           type: array
           items: { type: string, format: uuid }

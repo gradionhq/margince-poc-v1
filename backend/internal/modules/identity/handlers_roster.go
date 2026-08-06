@@ -30,6 +30,10 @@ func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request, params crmco
 		httperr.Write(w, r, err)
 		return
 	}
+	// Same URL, different body per caller: an admin's page carries role keys and
+	// the widened status view, a rep's carries neither. A shared cache keyed on
+	// the URL alone would serve one of them the other's answer.
+	w.Header().Set("Cache-Control", "private, no-store")
 	wire := rosterUserMapping(isAdmin)
 	data := make([]crmcontracts.User, 0, len(rows))
 	for _, u := range rows {

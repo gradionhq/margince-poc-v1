@@ -11270,7 +11270,7 @@ type MeResponse struct {
 		Scopes     *[]MeResponsePassportScopes `json:"scopes,omitempty"`
 	} `json:"passport,omitempty"`
 
-	// Roles Effective role keys for this principal.
+	// Roles Effective role keys for this principal, and the one authority for them — `user.roles` is deliberately left unset here rather than repeating the same fact.
 	Roles []string `json:"roles"`
 
 	// SystemOfRecord The workspace's active system-of-record mode (workspace.x_sor_mode). `native` is the
@@ -14874,7 +14874,7 @@ type User struct {
 	// IsAgent First-party Agent Runner identity vs a human seat.
 	IsAgent bool `json:"is_agent"`
 
-	// Roles This member's assigned system role keys. Present ONLY for an admin caller — the roster is readable by every authenticated member (it feeds the share/assignee pickers), and a rep has no business enumerating who holds `admin`. Normally exactly one key: `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients that render a single current role must still handle the empty and multi-key cases.
+	// Roles This member's assigned system role keys. Present ONLY for an admin caller — the roster is readable by every authenticated member (it feeds the share/assignee pickers), and a rep has no business enumerating who holds `admin`. Normally exactly one key: `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients that render a single current role must still handle the empty and multi-key cases. Deliberately absent on `MeResponse.user`, whose sibling `MeResponse.roles` is the one authority for the caller's own roles — the same fact spelled twice could disagree.
 	Roles  *[]string  `json:"roles,omitempty"`
 	Status UserStatus `json:"status"`
 
