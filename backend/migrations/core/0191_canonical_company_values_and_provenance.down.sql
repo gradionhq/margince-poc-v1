@@ -1,4 +1,4 @@
--- Reverse of 0189. Column drops take their constraints and indexes with them.
+-- Reverse of 0191. Column drops take their constraints and indexes with them.
 --
 -- No DELETE runs here, so the migration role's lack of BYPASSRLS is not a
 -- factor: this down migration removes structure only.
