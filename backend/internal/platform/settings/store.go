@@ -17,7 +17,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	portsettings "github.com/gradionhq/margince/backend/internal/shared/ports/settings"
 )
 
 // Registry is the assembled catalog. Compose builds exactly one from every
@@ -45,15 +44,14 @@ func NewRegistry(defs ...Definition) *Registry {
 	return &Registry{byKey: byKey}
 }
 
-// Lookup resolves a key to its declaration.
+// Store reads and writes settings.
 //
-//nolint:ireturn // returns the type-erased Definition by design — the registry holds entries of many value types, and the concrete Entry[T] cannot be named without the type parameter the caller is looking up
-func (r *Registry) Lookup(key string) (Definition, bool) {
-	d, ok := r.byKey[key]
-	return d, ok
-}
-
-// Store reads and writes settings. It implements ports/settings.Reader.
+// Both entry points are methods on this type, deliberately. The generic
+// helpers below are thin typed wrappers over them, because Go forbids generic
+// methods and a package-level generic function is invisible to
+// rbacgate_test.go's store-entry-point shape — which would leave the ONE
+// table in the schema with no RLS beneath it governed by a gate no fitness
+// function checks.
 type Store struct {
 	pool *pgxpool.Pool
 	reg  *Registry
@@ -62,15 +60,13 @@ type Store struct {
 // New builds the store over the pool and the assembled registry.
 func New(pool *pgxpool.Pool, reg *Registry) *Store { return &Store{pool: pool, reg: reg} }
 
-var _ portsettings.Reader = (*Store)(nil)
-
-// Raw implements ports/settings.Reader: the stored value, or the registered
-// default when no row exists. An unregistered key is an error — a typo must
-// not read as "unset and therefore default".
+// Raw returns the stored value for a key, or the registered default when no
+// row exists. An unregistered key is an error — a typo must not read as
+// "unset and therefore default".
 func (s *Store) Raw(ctx context.Context, key string) (json.RawMessage, error) {
-	def, ok := s.reg.Lookup(key)
-	if !ok {
-		return nil, fmt.Errorf("settings: %s is not a registered setting: %w", key, apperrors.ErrNotFound)
+	def, err := s.lookup(key)
+	if err != nil {
+		return nil, err
 	}
 	if err := auth.Require(ctx, def.Object(), principal.ActionRead); err != nil {
 		return nil, err
@@ -82,7 +78,7 @@ func (s *Store) Raw(ctx context.Context, key string) (json.RawMessage, error) {
 	// resolved principal — a settings read with no workspace bound is a caller
 	// that has not authenticated, which the gate above should be judging.
 	var raw json.RawMessage
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT value FROM setting WHERE key = $1`, key).Scan(&raw)
 	})
 	switch {
@@ -97,102 +93,100 @@ func (s *Store) Raw(ctx context.Context, key string) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// Get resolves a typed setting the caller owns. Cross-module reads go through
-// ports/settings.Read against the same store.
-func Get[T any](ctx context.Context, s *Store, e *Entry[T]) (T, error) {
-	return portsettings.Read(ctx, s, e.TypedKey())
-}
-
-// Set writes a setting, committing the row + audit in ONE transaction like
+// SetRaw writes a setting, committing the row + audit in ONE transaction like
 // every other mutation. No event: the closed event catalog defines no
 // settings verb (EVT-NOEVT-3), the same ruling the capture-settings and
 // fx-rate config writes already carry.
 //
 // An unchanged value is a no-op — no write, no audit row — because an
 // idempotent PATCH should not litter the ledger.
-func Set[T any](ctx context.Context, s *Store, e *Entry[T], v T) error {
-	if err := auth.Require(ctx, e.Object(), principal.ActionUpdate); err != nil {
+func (s *Store) SetRaw(ctx context.Context, key string, next json.RawMessage) error {
+	// Through the registry, not off a caller-supplied entry: an entry a module
+	// declares but compose never registers would otherwise be writable while
+	// invisible to every catalog gate — and unreadable through Raw, which does
+	// resolve through the registry.
+	def, err := s.lookup(key)
+	if err != nil {
 		return err
 	}
-	next, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Errorf("settings: encoding %s: %w", e.Key(), err)
+	if err := auth.Require(ctx, def.Object(), principal.ActionUpdate); err != nil {
+		return err
 	}
-	if err := e.ValidateJSON(next); err != nil {
+	if err := def.ValidateJSON(next); err != nil {
 		return err
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		before, err := currentJSON(ctx, tx, e)
+		before, err := currentJSON(ctx, tx, def)
 		if err != nil {
 			return err
 		}
-		same, err := sameValue(before, next, e)
+		canonical, err := def.CanonicalJSON(before)
 		if err != nil {
 			return err
 		}
-		if same {
+		if string(canonical) == string(next) {
 			return nil
-		}
-		frozen, why, err := e.Frozen(ctx, tx)
-		if err != nil {
-			return fmt.Errorf("settings: probing %s: %w", e.Key(), err)
-		}
-		if frozen {
-			// The owning module's own sentence, so the caller learns what to
-			// do rather than only that they may not.
-			return fmt.Errorf("%w: %s is no longer changeable: %s", apperrors.ErrConflict, e.Key(), why)
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO setting (key, value) VALUES ($1, $2)
 			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-			e.Key(), next); err != nil {
-			return fmt.Errorf("settings: writing %s: %w", e.Key(), err)
+			key, next); err != nil {
+			return fmt.Errorf("settings: writing %s: %w", key, err)
 		}
-		if _, err := storekit.Audit(ctx, tx, e.AuditVerb(), e.Object(), storekit.MustWorkspace(ctx),
-			map[string]any{e.Key(): json.RawMessage(before)},
-			map[string]any{e.Key(): json.RawMessage(next)}); err != nil {
-			return fmt.Errorf("settings: auditing %s: %w", e.Key(), err)
+		if _, err := storekit.Audit(ctx, tx, def.AuditVerb(), def.Object(), storekit.MustWorkspace(ctx),
+			map[string]any{key: json.RawMessage(before)},
+			map[string]any{key: json.RawMessage(next)}); err != nil {
+			return fmt.Errorf("settings: auditing %s: %w", key, err)
 		}
 		return nil
 	})
 }
 
-// sameValue reports whether two encodings mean the same value, by decoding
-// both to the entry's own type and re-encoding canonically.
-//
-// A byte comparison would be wrong, and wrong in a way that only shows up
-// later: `next` comes from Go's json.Marshal, while `before` comes back from
-// Postgres, which normalizes jsonb — key order and whitespace are its choice,
-// not ours. For a scalar the two happen to agree; for a composite value (the
-// settings whose fields must change together) they need not, and every write
-// would look like a change, writing a row and an audit entry saying nothing
-// happened.
-func sameValue[T any](before, next json.RawMessage, e *Entry[T]) (bool, error) {
-	var prev T
-	if err := json.Unmarshal(before, &prev); err != nil {
-		// A stored value that no longer decodes is not "different" — it is a
-		// value this build cannot reason about, and overwriting it silently
-		// would destroy the evidence of whatever wrote it.
-		return false, fmt.Errorf("settings: %s holds a value this build cannot decode: %w", e.Key(), err)
+// lookup resolves a key to its declaration, refusing an unregistered one.
+func (s *Store) lookup(key string) (Definition, error) { //nolint:ireturn // returns the type-erased Definition by design — the registry holds entries of many value types, and the concrete Entry[T] cannot be named without the type parameter the caller is looking up
+	def, ok := s.reg.byKey[key]
+	if !ok {
+		return nil, fmt.Errorf("settings: %s is not a registered setting: %w", key, apperrors.ErrNotFound)
 	}
-	canonical, err := json.Marshal(prev)
+	return def, nil
+}
+
+// Get resolves a typed setting. A thin wrapper over Raw: the gate, the
+// registry lookup and the default all live there.
+func Get[T any](ctx context.Context, s *Store, e *Entry[T]) (T, error) {
+	var zero T
+	raw, err := s.Raw(ctx, e.Key())
 	if err != nil {
-		return false, fmt.Errorf("settings: re-encoding %s for comparison: %w", e.Key(), err)
+		return zero, err
 	}
-	return string(canonical) == string(next), nil
+	var out T
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return zero, fmt.Errorf("settings: decoding %s: %w", e.Key(), err)
+	}
+	return out, nil
+}
+
+// Set writes a typed setting. A thin wrapper over SetRaw, which owns the
+// gate, the validation and the write shape.
+func Set[T any](ctx context.Context, s *Store, e *Entry[T], v T) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("settings: encoding %s: %w", e.Key(), err)
+	}
+	return s.SetRaw(ctx, e.Key(), raw)
 }
 
 // currentJSON reads the value inside an open transaction, falling back to the
 // declared default so the audit row's "before" is the value that was actually
 // in effect — not an empty stand-in that would misreport the first change.
-func currentJSON[T any](ctx context.Context, tx pgx.Tx, e *Entry[T]) (json.RawMessage, error) {
+func currentJSON(ctx context.Context, tx pgx.Tx, def Definition) (json.RawMessage, error) {
 	var raw json.RawMessage
-	err := tx.QueryRow(ctx, `SELECT value FROM setting WHERE key = $1`, e.Key()).Scan(&raw)
+	err := tx.QueryRow(ctx, `SELECT value FROM setting WHERE key = $1`, def.Key()).Scan(&raw)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		return e.DefaultJSON()
+		return def.DefaultJSON()
 	case err != nil:
-		return nil, fmt.Errorf("settings: reading %s before write: %w", e.Key(), err)
+		return nil, fmt.Errorf("settings: reading %s before write: %w", def.Key(), err)
 	}
 	return raw, nil
 }

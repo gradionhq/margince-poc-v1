@@ -69,14 +69,15 @@ func stillDue(t *testing.T, e *integration.Env, domain string) bool {
 	return false
 }
 
+// setAutoEnrich flips the posture through the settings store — the same path
+// production reads (ADR-0090/A135). Writing workspace.capture_auto_enrich
+// directly would set a column nothing consults, leaving the off-arms of these
+// tests asserting against the registered default and the on-arms passing
+// because the default happens to agree.
 func setAutoEnrich(t *testing.T, e *integration.Env, on bool) {
 	t.Helper()
-	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(),
-			`UPDATE workspace SET capture_auto_enrich = $2 WHERE id = $1`, e.WS, on)
-		return err
-	}); err != nil {
-		t.Fatal(err)
+	if _, err := capture.NewSettings(NewSettingsStore(e.Pool)).Update(e.Admin(), &on); err != nil {
+		t.Fatalf("setting capture auto-enrich to %v: %v", on, err)
 	}
 }
 

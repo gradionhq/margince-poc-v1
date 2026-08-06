@@ -52,6 +52,11 @@ func (s *SettingsStore) Get(ctx context.Context) (Settings, error) {
 // change settings, and answering it from the read gate alone would let a
 // read-only role probe the surface with a 200 where the column form gave a
 // 403.
+//
+// The mirror case is real but not reachable: a caller holding update WITHOUT
+// read gets a 403 on an empty patch, because the response comes from Get. No
+// seeded role has that combination — `capture_settings` grants read to every
+// role — so this stays a note rather than a branch.
 func (s *SettingsStore) Update(ctx context.Context, autoEnrich *bool) (Settings, error) {
 	if err := auth.Require(ctx, captureSettingsObject, principal.ActionUpdate); err != nil {
 		return Settings{}, err

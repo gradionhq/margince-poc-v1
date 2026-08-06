@@ -38,13 +38,24 @@ COMMENT ON TABLE setting IS
 -- default would add a row saying nothing and make "has anyone ever changed
 -- this?" unanswerable.
 --
+-- Scoped to the LIVE workspace, the same row the runtime resolves as the
+-- installation (identity.activeWorkspaces: archived_at IS NULL, ADR-0061 §3).
+-- Without that filter a decommissioned workspace that had auto-enrich off
+-- would hand its posture to an installation whose live workspace had it on —
+-- the mirror image of the case this backfill exists to prevent.
+--
+-- `= false` rather than `IS DISTINCT FROM true`: 0121 declares the column
+-- NOT NULL, so there is no third state, and naming the one value that must
+-- carry over says what is meant.
+--
 -- The column itself is deliberately NOT dropped here. Readers switch first,
 -- the drop follows once nothing reads it — which keeps this migration
--- reversible without a data-restoring down.
+-- reversible without a data-restoring down. Tracked as issue #521.
 INSERT INTO setting (key, value)
-SELECT 'capture.auto_enrich', to_jsonb(w.capture_auto_enrich)
-  FROM workspace w
- WHERE w.capture_auto_enrich IS DISTINCT FROM true
- ORDER BY w.created_at
- LIMIT 1
+SELECT 'capture.auto_enrich', to_jsonb(false)
+ WHERE EXISTS (
+   SELECT 1 FROM workspace
+    WHERE archived_at IS NULL
+      AND capture_auto_enrich = false
+ )
     ON CONFLICT (key) DO NOTHING;

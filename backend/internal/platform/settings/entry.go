@@ -14,19 +14,14 @@
 // object that gated the column still gates the row.
 //
 // This package owns the mechanism and no domain. It never learns what a
-// currency or a deal is: validators and freeze probes are supplied by the
-// module that owns the setting, and compose assembles them (shared →
-// platform → modules → compose).
+// currency or a deal is: validators are supplied by the module that owns the
+// setting, and compose assembles them (shared → platform → modules →
+// compose).
 package settings
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/jackc/pgx/v5"
-
-	portsettings "github.com/gradionhq/margince/backend/internal/shared/ports/settings"
 )
 
 // Definition is the type-erased view the registry stores. Entry[T] is the
@@ -47,52 +42,32 @@ type Definition interface {
 	// ValidateJSON checks a candidate value, decoding it to the entry's own
 	// type first. A value that cannot decode is invalid, not zero.
 	ValidateJSON(json.RawMessage) error
-	// Frozen reports whether the setting has become immutable, and why. The
-	// reason is the owning module's own sentence, so the refusal explains
-	// itself rather than denying generically.
-	Frozen(context.Context, pgx.Tx) (bool, string, error)
+	// CanonicalJSON re-encodes a stored value through the entry's own type.
+	// The write path compares against this rather than raw bytes: candidates
+	// are encoded by Go, stored values come back from Postgres, and jsonb
+	// normalization is its choice of key order and whitespace, not ours.
+	CanonicalJSON(json.RawMessage) (json.RawMessage, error)
 }
 
-// Entry is one setting's declaration: its key, governance, default,
-// validation, and optional freeze probe. Modules declare these as package
-// vars; compose registers them.
+// Entry is one setting's declaration: its key, governance, default and
+// validation. Modules declare these as package vars; compose registers them.
 type Entry[T any] struct {
-	key      portsettings.Key[T]
+	key      string
 	object   string
 	verb     string
 	def      T
 	validate func(T) error
-	freeze   func(context.Context, pgx.Tx) (bool, string, error)
 }
 
-// Define declares a setting bound to a cross-module Key. Use this for the
-// installation-wide settings other modules read through
-// ports/settings.Reader; the Key is what keeps the name defined once.
-func Define[T any](key portsettings.Key[T], object, verb string, def T, validate func(T) error) *Entry[T] {
+// Define declares a setting. `key` is `<module>.<name>`; the prefix is not
+// decoration, a fitness gate asserts it names the module that declares the
+// entry. `validate` may be nil when every value of T is admissible.
+func Define[T any](key, object, verb string, def T, validate func(T) error) *Entry[T] {
 	return &Entry[T]{key: key, object: object, verb: verb, def: def, validate: validate}
 }
 
-// DefineLocal declares a setting only its owning module reads. It mints the
-// Key here rather than in the port, so the port's list stays exactly the
-// cross-module surface and does not accumulate names nobody outside reads.
-func DefineLocal[T any](name, object, verb string, def T, validate func(T) error) *Entry[T] {
-	return Define(portsettings.NewLocalKey[T](name), object, verb, def, validate)
-}
-
-// WithFreeze attaches an immutability probe, supplied by the owning module so
-// this package never learns the domain predicate. Returns the entry for
-// declaration-site chaining.
-func (e *Entry[T]) WithFreeze(probe func(context.Context, pgx.Tx) (bool, string, error)) *Entry[T] {
-	e.freeze = probe
-	return e
-}
-
-// TypedKey exposes the typed key so a module can read its own setting without
-// restating the name.
-func (e *Entry[T]) TypedKey() portsettings.Key[T] { return e.key }
-
 // Key is the `<module>.<name>` storage key.
-func (e *Entry[T]) Key() string { return e.key.Name() }
+func (e *Entry[T]) Key() string { return e.key }
 
 // Object is the RBAC object gating this setting.
 func (e *Entry[T]) Object() string { return e.object }
@@ -105,7 +80,7 @@ func (e *Entry[T]) AuditVerb() string { return e.verb }
 func (e *Entry[T]) DefaultJSON() (json.RawMessage, error) {
 	raw, err := json.Marshal(e.def)
 	if err != nil {
-		return nil, fmt.Errorf("settings: encoding default for %s: %w", e.Key(), err)
+		return nil, fmt.Errorf("settings: encoding default for %s: %w", e.key, err)
 	}
 	return raw, nil
 }
@@ -115,10 +90,10 @@ func (e *Entry[T]) DefaultJSON() (json.RawMessage, error) {
 func (e *Entry[T]) ValidateJSON(raw json.RawMessage) error {
 	var v T
 	if err := json.Unmarshal(raw, &v); err != nil {
-		// The decode error is the wrong type for this key, not a leak-worthy
-		// internal: it names the key and the expected shape, nothing else.
+		// The decode failure is "wrong type for this key", not a leak-worthy
+		// internal: it names the key and nothing else.
 		return InvalidValue{
-			Setting: e.Key(), Code: "setting_type_mismatch",
+			Setting: e.key, Code: "setting_type_mismatch",
 			Reason: "the value is not the type this setting holds",
 		}
 	}
@@ -126,9 +101,26 @@ func (e *Entry[T]) ValidateJSON(raw json.RawMessage) error {
 		return nil
 	}
 	if err := e.validate(v); err != nil {
-		return InvalidValue{Setting: e.Key(), Code: "setting_invalid", Reason: err.Error()}
+		return InvalidValue{Setting: e.key, Code: "setting_invalid", Reason: err.Error()}
 	}
 	return nil
+}
+
+// CanonicalJSON re-encodes a stored value through the entry's type, so the
+// write path can tell "unchanged" from "differently spelled".
+func (e *Entry[T]) CanonicalJSON(raw json.RawMessage) (json.RawMessage, error) {
+	var v T
+	if err := json.Unmarshal(raw, &v); err != nil {
+		// A stored value this build cannot decode is not "different" — it is
+		// unreadable, and overwriting it would destroy the evidence of
+		// whatever wrote it.
+		return nil, fmt.Errorf("settings: %s holds a value this build cannot decode: %w", e.key, err)
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("settings: re-encoding %s: %w", e.key, err)
+	}
+	return out, nil
 }
 
 // InvalidValue refuses a setting write whose value the owning module rejects.
@@ -153,12 +145,4 @@ func (e InvalidValue) Error() string {
 // a setting by its key, so the key is what they must act on.
 func (e InvalidValue) FieldFault() (field, code, message string) {
 	return e.Setting, e.Code, e.Reason
-}
-
-// Frozen runs the owning module's immutability probe, if it declared one.
-func (e *Entry[T]) Frozen(ctx context.Context, tx pgx.Tx) (bool, string, error) {
-	if e.freeze == nil {
-		return false, "", nil
-	}
-	return e.freeze(ctx, tx)
 }

@@ -3,10 +3,12 @@
 
 package settings
 
-// The mechanism's behaviour, without a database: validation, the canonical
-// no-op comparison, and the refusal shape. The database-backed half (the gate,
-// the audit row, the freeze probe inside a transaction) is proven in the
-// integration lane, which fails loudly without Postgres rather than skipping.
+// The mechanism's behaviour that needs no database: validation, the refusal
+// shape, and the canonical comparison the write path uses to tell "unchanged"
+// from "differently spelled". The database-backed half — the RBAC gate, the
+// audit row, and the registry refusing an unregistered key on the write path —
+// is proven in internal/compose/integration, which fails loudly without
+// Postgres rather than skipping.
 
 import (
 	"encoding/json"
@@ -23,7 +25,7 @@ type overlayPair struct {
 }
 
 func TestValidateRefusesAValueOfTheWrongType(t *testing.T) {
-	e := DefineLocal[bool]("capture.probe", "capture_settings", "update", true, nil)
+	e := Define[bool]("capture.probe", "capture_settings", "update", true, nil)
 
 	err := e.ValidateJSON(json.RawMessage(`"yes"`))
 	if err == nil {
@@ -43,7 +45,7 @@ func TestValidateRefusesAValueOfTheWrongType(t *testing.T) {
 }
 
 func TestValidateCarriesTheOwningModulesReason(t *testing.T) {
-	e := DefineLocal[string]("installation.probe", "installation_settings", "update", "EUR",
+	e := Define[string]("installation.probe", "capture_settings", "update", "EUR",
 		func(v string) error {
 			if len(v) != 3 {
 				return errors.New("a base currency is three ISO-4217 letters")
@@ -64,18 +66,18 @@ func TestValidateCarriesTheOwningModulesReason(t *testing.T) {
 }
 
 func TestValidateAcceptsWhenTheEntryDeclaresNoValidator(t *testing.T) {
-	e := DefineLocal[bool]("capture.probe", "capture_settings", "update", true, nil)
+	e := Define[bool]("capture.probe", "capture_settings", "update", true, nil)
 	if err := e.ValidateJSON(json.RawMessage(`false`)); err != nil {
 		t.Fatalf("a well-typed value was refused by an entry with no validator: %v", err)
 	}
 }
 
-// The regression this guards: `next` is encoded by Go, `before` comes back
-// from Postgres, which normalizes jsonb on its own terms. Comparing the two
-// byte-for-byte makes an unchanged composite look changed, so every write
-// would store a row and an audit entry recording nothing.
-func TestUnchangedCompositeValueIsRecognisedAcrossReEncoding(t *testing.T) {
-	e := DefineLocal[overlayPair]("overlay.connection", "overlay_settings", "update", overlayPair{}, nil)
+// The regression this guards: a candidate is encoded by Go, while a stored
+// value comes back from Postgres, which normalizes jsonb on its own terms.
+// Comparing the two byte-for-byte makes an unchanged composite look changed,
+// so every write would store a row and an audit entry recording nothing.
+func TestCanonicalFormMakesAReEncodedValueComparable(t *testing.T) {
+	e := Define[overlayPair]("overlay.probe", "capture_settings", "update", overlayPair{}, nil)
 
 	// Field order reversed and whitespace added, exactly as a jsonb round-trip
 	// is free to hand it back.
@@ -85,37 +87,38 @@ func TestUnchangedCompositeValueIsRecognisedAcrossReEncoding(t *testing.T) {
 		t.Fatalf("encoding the candidate value: %v", err)
 	}
 
-	same, err := sameValue(stored, next, e)
+	canonical, err := e.CanonicalJSON(stored)
 	if err != nil {
-		t.Fatalf("comparing values: %v", err)
+		t.Fatalf("canonicalizing the stored value: %v", err)
 	}
-	if !same {
-		t.Error("a re-encoded identical value compared as changed; the write would be a no-op recorded as a change")
+	if string(canonical) != string(next) {
+		t.Errorf("a re-encoded identical value did not compare equal:\n stored canonical = %s\n candidate        = %s\n"+
+			"the write would be a no-op recorded as a change", canonical, next)
 	}
 }
 
-func TestChangedValueIsRecognised(t *testing.T) {
-	e := DefineLocal[overlayPair]("overlay.connection", "overlay_settings", "update", overlayPair{}, nil)
-	next, err := json.Marshal(overlayPair{Mode: "native", Incumbent: ""})
+func TestCanonicalFormStillDistinguishesAGenuineChange(t *testing.T) {
+	e := Define[overlayPair]("overlay.probe", "capture_settings", "update", overlayPair{}, nil)
+	next, err := json.Marshal(overlayPair{Mode: "native"})
 	if err != nil {
 		t.Fatalf("encoding the candidate value: %v", err)
 	}
 
-	same, err := sameValue(json.RawMessage(`{"mode":"overlay","incumbent":"hubspot"}`), next, e)
+	canonical, err := e.CanonicalJSON(json.RawMessage(`{"mode":"overlay","incumbent":"hubspot"}`))
 	if err != nil {
-		t.Fatalf("comparing values: %v", err)
+		t.Fatalf("canonicalizing the stored value: %v", err)
 	}
-	if same {
+	if string(canonical) == string(next) {
 		t.Error("a genuinely different value compared as unchanged; the write would be silently dropped")
 	}
 }
 
 func TestAnUndecodableStoredValueRefusesRatherThanOverwriting(t *testing.T) {
-	e := DefineLocal[bool]("capture.probe", "capture_settings", "update", true, nil)
+	e := Define[bool]("capture.probe", "capture_settings", "update", true, nil)
 
 	// Whatever wrote this, this build cannot read it. Treating it as "different"
 	// would overwrite it and destroy the only evidence of what happened.
-	_, err := sameValue(json.RawMessage(`{"unexpected":"shape"}`), json.RawMessage(`true`), e)
+	_, err := e.CanonicalJSON(json.RawMessage(`{"unexpected":"shape"}`))
 	if err == nil {
 		t.Fatal("an undecodable stored value was silently treated as comparable")
 	}
@@ -124,24 +127,39 @@ func TestAnUndecodableStoredValueRefusesRatherThanOverwriting(t *testing.T) {
 	}
 }
 
-func TestRegistryResolvesRegisteredKeysAndRefusesUnknownOnes(t *testing.T) {
-	e := DefineLocal[bool]("capture.probe", "capture_settings", "update", true, nil)
-	reg := NewRegistry(e)
+func TestAnUnregisteredKeyIsRefusedRatherThanTreatedAsUnset(t *testing.T) {
+	s := New(nil, NewRegistry(Define[bool]("capture.probe", "capture_settings", "update", true, nil)))
 
-	got, ok := reg.Lookup("capture.probe")
-	if !ok {
-		t.Fatal("a registered setting did not resolve")
+	if _, err := s.lookup("capture.probe"); err != nil {
+		t.Fatalf("a registered setting did not resolve: %v", err)
 	}
-	if got.Object() != "capture_settings" || got.AuditVerb() != "update" {
-		t.Errorf("registry lost the entry's governance: object=%q verb=%q", got.Object(), got.AuditVerb())
+	// The pool is nil, so reaching SQL would panic — proving the refusal
+	// happens before any database work, on both the read and the write path.
+	_, err := s.lookup("capture.never_declared")
+	if err == nil {
+		t.Fatal("an unregistered key resolved; a typo must not read as a real setting")
 	}
-	if _, ok := reg.Lookup("capture.never_declared"); ok {
-		t.Error("an unregistered key resolved; a typo must not read as a real setting")
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("unregistered key returned %v, want ErrNotFound so the surface reports 404", err)
+	}
+}
+
+func TestTheRegistryKeepsAnEntrysGovernance(t *testing.T) {
+	s := New(nil, NewRegistry(Define[bool]("capture.probe", "capture_settings", "update", true, nil)))
+	def, err := s.lookup("capture.probe")
+	if err != nil {
+		t.Fatalf("resolving the entry: %v", err)
+	}
+	if def.Object() != "capture_settings" {
+		t.Errorf("registry lost the RBAC object: %q", def.Object())
+	}
+	if def.AuditVerb() != "update" {
+		t.Errorf("registry lost the audit verb: %q", def.AuditVerb())
 	}
 }
 
 func TestDefaultIsTheValueUntilSomeoneChangesIt(t *testing.T) {
-	e := DefineLocal[bool]("capture.probe", "capture_settings", "update", true, nil)
+	e := Define[bool]("capture.probe", "capture_settings", "update", true, nil)
 	raw, err := e.DefaultJSON()
 	if err != nil {
 		t.Fatalf("encoding the default: %v", err)

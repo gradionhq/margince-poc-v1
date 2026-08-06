@@ -23,12 +23,16 @@ import (
 const captureSettingsObject = "capture_settings"
 
 // AutoEnrich is the captured-organization auto-enrich posture (CAP-PARAM-7,
-// ADR-0072/A118). Local: no other module reads it, so its key is minted here
-// rather than added to the port's cross-module list.
+// ADR-0072/A118).
 //
 // Default true preserves 0121's column default, so an installation that never
 // touched the toggle sees no behaviour change across the move.
-var AutoEnrich = settings.DefineLocal[bool](
+//
+// One thing the move DID change: the audit row's before/after field is now
+// keyed `capture.auto_enrich` where the column form wrote `auto_enrich`. The
+// verb, object and actor are unchanged, but an operator reading the ledger
+// across the migration boundary sees both spellings.
+var AutoEnrich = settings.Define[bool](
 	"capture.auto_enrich",
 	captureSettingsObject,
 	"update",

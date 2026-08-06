@@ -82,7 +82,12 @@ func DeploymentConfigKeysForTest() map[string]bool {
 // yamlPaths walks a config struct and returns every dotted yaml path in it,
 // so the collision check tracks the schema rather than a hand-kept list.
 func yamlPaths(t reflect.Type, prefix string) map[string]bool {
-	for t.Kind() == reflect.Pointer {
+	// Unwrap pointers, and slices/arrays too: a config section can be a list
+	// of structs (seeds.consent_purposes), and stopping at the slice would
+	// leave its fields out of the collision set — a gate that is a subset of
+	// the real config surface silently misses exactly the nested keys a
+	// setting is most likely to shadow.
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {

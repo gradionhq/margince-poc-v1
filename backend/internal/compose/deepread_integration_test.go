@@ -788,9 +788,14 @@ func TestDeepReadCancelsAnAutoEnrichJobWhenTheSettingWentOff(t *testing.T) {
 	// if the worker trusted the payload it would skip the check entirely.
 	e.WsExec(t, `UPDATE site_read SET requested_by = $1 WHERE id = $2`, systemAutoEnrichActor, read.ID)
 
-	// Set directly: the subject here is the worker re-reading the flag, not the
-	// admin-only RBAC on the settings endpoint, which has its own test.
-	e.WsExec(t, `UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, e.WS)
+	// Through the settings store, which is what the worker re-reads
+	// (ADR-0090/A135). The subject is still the worker seeing the flag change
+	// mid-flight, not the admin-only RBAC on the endpoint — that has its own
+	// test — but the value has to land where the worker will look for it.
+	off := false
+	if _, err := capture.NewSettings(NewSettingsStore(e.Pool)).Update(e.Admin(), &off); err != nil {
+		t.Fatalf("turning capture auto-enrich off: %v", err)
+	}
 
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("run: %v", err)

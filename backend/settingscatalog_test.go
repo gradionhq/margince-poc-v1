@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,6 +41,10 @@ func TestEverySettingIsUniqueWellFormedAndGoverned(t *testing.T) {
 	defs := compose.SettingsCatalogForTest()
 	if len(defs) == 0 {
 		t.Fatal("the settings catalog is empty; this gate would pass vacuously")
+	}
+	coreObjects := coreObjectsFromSource(t)
+	if len(coreObjects) == 0 {
+		t.Fatal("no core RBAC objects resolved; the object check below would pass vacuously")
 	}
 
 	seen := map[string]int{}
@@ -57,11 +62,15 @@ func TestEverySettingIsUniqueWellFormedAndGoverned(t *testing.T) {
 		if !keyShape.MatchString(d.Key) {
 			t.Errorf("%q is not a <module>.<name> key", d.Key)
 		}
-		// A setting with no RBAC object is ungated: with no RLS on the
-		// `setting` table (0189), the object gate at the writer is the ONLY
-		// control, so an empty one is an open door rather than an oversight.
-		if d.Object == "" {
-			t.Errorf("%s declares no RBAC object; the settings table has no RLS beneath it", d.Key)
+		// The object must be one the RBAC vocabulary actually knows. An empty
+		// one is an open door; an unknown one is worse, because auth.Require
+		// would gate against an object no role is granted — or, if it collides
+		// with a record object like `person`, hand every rep holding
+		// person:update the ability to flip an installation-wide posture. With
+		// no RLS on `setting` (0189) this gate is the only thing standing there.
+		if !slices.Contains(coreObjects, d.Object) {
+			t.Errorf("%s declares RBAC object %q, which is not in the closed object set; "+
+				"the settings table has no RLS beneath this gate", d.Key, d.Object)
 		}
 		// A settings change must stay as legible in the ledger as the
 		// per-column writes it replaced.
@@ -87,12 +96,6 @@ func TestEverySettingKeyIsPrefixedByItsOwningModule(t *testing.T) {
 			known[m.Name()] = true
 		}
 	}
-	// `installation` is the one prefix with no module directory of its own:
-	// it names the installation itself, and identity owns the entries. It is
-	// listed rather than inferred so adding a second such prefix is a visible
-	// decision, not a silent one.
-	known["installation"] = true
-
 	for _, d := range compose.SettingsCatalogForTest() {
 		prefix, _, ok := strings.Cut(d.Key, ".")
 		if !ok {
@@ -100,21 +103,9 @@ func TestEverySettingKeyIsPrefixedByItsOwningModule(t *testing.T) {
 		}
 		if !known[prefix] {
 			t.Errorf("%s is prefixed %q, which is not a module under internal/modules "+
-				"(nor the `installation` prefix); a setting's prefix names its owner", d.Key, prefix)
+				"; a setting's prefix names its owner", d.Key, prefix)
 		}
 	}
-}
-
-// bootstrapSections are the deployment-config sections ADR-0061 §2 consumes
-// exactly once at bootstrap. A setting seeded from one of these is the
-// sanctioned pattern (ADR-0090 §8) — the row is authoritative afterwards —
-// so they are excluded from the collision check. Every OTHER section is a
-// live runtime surface, and a key in both places would have two authorities
-// with nothing to say which one the operator last changed.
-var bootstrapSections = map[string]bool{
-	"organization":    true,
-	"bootstrap_admin": true,
-	"seeds":           true,
 }
 
 func TestNoSettingKeyIsAlsoADeploymentConfigKey(t *testing.T) {
@@ -128,10 +119,6 @@ func TestNoSettingKeyIsAlsoADeploymentConfigKey(t *testing.T) {
 	}
 
 	for _, d := range compose.SettingsCatalogForTest() {
-		section, _, _ := strings.Cut(d.Key, ".")
-		if bootstrapSections[section] {
-			continue
-		}
 		if configPaths[d.Key] {
 			t.Errorf("%s is settable BOTH as a setting row and at runtime in margince.yaml: "+
 				"ADR-0061 §2 forbids a key existing in both surfaces — the effective "+

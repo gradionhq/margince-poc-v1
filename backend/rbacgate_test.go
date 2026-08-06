@@ -228,11 +228,16 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 //
 // internal/platform/settings is here rather than in the exempt set because the
 // gate CAN judge it and does: the settings store is a real governed write path
-// (ADR-0090/A135), its entry points take auth.Require against the object each
-// setting declares, and the `setting` table carries no RLS beneath them — so
-// the object gate is the only control and is exactly what this gate exists to
-// check. Ratifying it as "outside the gate's business" would have hidden the
-// one store whose gate has no backstop.
+// (ADR-0090/A135), and the `setting` table carries no RLS beneath it — so the
+// object gate is the only control there, which is exactly what this gate
+// exists to check. Ratifying it as "outside the gate's business" would have
+// hidden the one store whose gate has no backstop.
+//
+// Both entry points are METHODS on *Store (Raw, SetRaw) for this reason. The
+// typed Get/Set helpers beside them are generic, and Go forbids generic
+// methods — a package-level generic function does not match the shape this
+// gate collects, so writing the store that way would have left the write path
+// invisible here while this comment claimed otherwise.
 var storeEntryPointScope = gatekit.Scope{
 	Roots:   []string{modulesDir, settingsStoreDir},
 	Subject: declaresStoreEntryPoint,
