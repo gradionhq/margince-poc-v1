@@ -2617,12 +2617,13 @@ export interface paths {
          * @description The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
          *     for a human to check and correct in the company form, and NOTHING is written or queued. For a
          *     HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
-         *     and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
-         *     presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
-         *     the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
-         *     caller's path and query, from the server's own address. So the agent tier matches its sibling's:
-         *     🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
-         *     staging remains for callers that propose asynchronously, with no human at the screen.
+         *     and PUT /company is the human's confirmation. That reasoning presupposes someone at the screen,
+         *     and on the agent path there is nobody: the EGRESS effect is the same one POST /coldstart performs
+         *     — an outbound GET to a caller-chosen host, with the caller's path and query, from the server's
+         *     own address — and the call CREATES the organization, so no record-shaped agent verb has a target
+         *     for it. HUMAN-ONLY on both counts: an agent principal is refused (403 `permission_denied`), with
+         *     no staging path. An agent that needs outward-looking research on an organization that already
+         *     exists spends the same `enrich` cap on POST /organizations/{id}/enrich.
          *
          *     Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
          *     non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
