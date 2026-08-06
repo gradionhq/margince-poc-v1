@@ -131,3 +131,42 @@ func TestSweepDropsAbandonedKeys(t *testing.T) {
 		t.Errorf("sweep left %d expired keys behind", len(l.counts))
 	}
 }
+
+func TestResetClearsEverySpentBucket(t *testing.T) {
+	lim := New(1, time.Minute)
+	if !lim.Allow("k") {
+		t.Fatal("the first attempt must be admitted")
+	}
+	if lim.Allow("k") {
+		t.Fatal("the second attempt must be refused; the bucket is spent")
+	}
+
+	lim.Reset()
+
+	if !lim.Allow("k") {
+		t.Error("Allow refused after Reset; the bucket was not cleared")
+	}
+}
+
+// Allow is only one of three entry points that read the accumulated state;
+// Blocked and Record split attempt from outcome and must see the same clean
+// slate, or a Reset that only satisfies Allow is a half-fix.
+func TestResetClearsWhatBlockedAndRecordRead(t *testing.T) {
+	clock := newFakeClock()
+	lim := NewWithClock(2, time.Minute, clock.Now)
+	lim.Record("k")
+	lim.Record("k")
+	if !lim.Blocked("k") {
+		t.Fatal("the limit is reached; Blocked must say so before Reset")
+	}
+
+	lim.Reset()
+
+	if lim.Blocked("k") {
+		t.Error("Blocked still reports the key spent after Reset")
+	}
+	lim.Record("k")
+	if lim.Blocked("k") {
+		t.Error("one Record after Reset must not already read as blocked")
+	}
+}

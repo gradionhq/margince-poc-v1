@@ -55,8 +55,13 @@ func Dedupe(rdb *redis.Client, group string, next Handler) Handler {
 	}
 }
 
+// DedupeKeyPrefix is the namespace every processed-event mark shares. Named
+// here rather than inlined so the reset's purge and the writer cannot drift
+// apart: a key shape only one of them knows is a key the purge leaves behind.
+const DedupeKeyPrefix = "gw:dedupe:"
+
 // dedupeKey is per group: each consumer group owns its own processed set
 // (events.md §4.3 — every group sees every event once).
 func dedupeKey(group string, env kevents.Envelope) string {
-	return "gw:dedupe:" + group + ":" + env.EventID.String()
+	return DedupeKeyPrefix + group + ":" + env.EventID.String()
 }

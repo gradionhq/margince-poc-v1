@@ -1390,6 +1390,10 @@ export const en = {
     "Type your organization's name to confirm. This cannot be undone.",
   "settings.resetDataConfirmName": "Type this organization name:",
   "settings.resetDataConfirmLabel": "Confirm organization name",
+  "settings.resetDataResult":
+    "Cleared {tables} tables, {jobs} job rows, {streams} event streams, {keys} cache keys and {objects} stored files.",
+  "settings.resetDataDrainWarning":
+    "A background job was still running when the reset began. It will fail against the wiped data — harmless, but expect one error in the log.",
   "settings.audit": "Audit log",
   "audit.you": "You",
   "audit.teammate": "A teammate",
