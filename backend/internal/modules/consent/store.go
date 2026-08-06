@@ -140,51 +140,69 @@ func (s *Store) subjectConsent(ctx context.Context, sub subject) ([]State, []Pro
 	}
 	var states []State
 	var events []ProofEvent
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, sub.entityType, sub.id); err != nil {
-			return err
-		}
-		// Every tracked purpose appears — absent rows read as the honest
-		// 'unknown', never as an implicit grant.
-		rows, err := tx.Query(ctx, `
-			SELECT cp.id, cp.key, coalesce(pc.state, 'unknown'), pc.lawful_basis, pc.captured_at
-			FROM consent_purpose cp
-			LEFT JOIN person_consent pc ON pc.purpose_id = cp.id AND pc.`+sub.column+` = $1
-			WHERE cp.archived_at IS NULL
-			ORDER BY cp.key`, sub.id)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var st State
-			if err := rows.Scan(&st.PurposeID, &st.PurposeKey, &st.State, &st.LawfulBasis, &st.UpdatedAt); err != nil {
-				rows.Close()
-				return err
-			}
-			states = append(states, st)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
-		}
-
-		rows, err = tx.Query(ctx, `
-			SELECT id, purpose_id, new_state, lawful_basis, source, captured_by, captured_at
-			FROM consent_event WHERE `+sub.column+` = $1 ORDER BY captured_at DESC, id DESC`, sub.id)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var ev ProofEvent
-			if err := rows.Scan(&ev.ID, &ev.PurposeID, &ev.NewState, &ev.LawfulBasis, &ev.Source, &ev.CapturedBy, &ev.OccurredAt); err != nil {
-				return err
-			}
-			events = append(events, ev)
-		}
-		return rows.Err()
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
+		states, events, err = subjectConsentInTx(ctx, tx, sub)
+		return err
 	})
 	return states, events, err
+}
+
+// PersonConsentTx is PersonConsent inside a caller-opened transaction — the
+// composite record read. Same gates in the same order.
+func (s *Store) PersonConsentTx(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]State, []ProofEvent, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, nil, err
+	}
+	return subjectConsentInTx(ctx, tx, subject{entityType: "person", column: "person_id", id: personID.UUID})
+}
+
+// subjectConsentInTx is the shared body of the store-opened and
+// caller-opened consent reads.
+func subjectConsentInTx(ctx context.Context, tx pgx.Tx, sub subject) ([]State, []ProofEvent, error) {
+	if err := auth.EnsureVisible(ctx, tx, sub.entityType, sub.id); err != nil {
+		return nil, nil, err
+	}
+	var states []State
+	var events []ProofEvent
+	// Every tracked purpose appears — absent rows read as the honest
+	// 'unknown', never as an implicit grant.
+	rows, err := tx.Query(ctx, `
+		SELECT cp.id, cp.key, coalesce(pc.state, 'unknown'), pc.lawful_basis, pc.captured_at
+		FROM consent_purpose cp
+		LEFT JOIN person_consent pc ON pc.purpose_id = cp.id AND pc.`+sub.column+` = $1
+		WHERE cp.archived_at IS NULL
+		ORDER BY cp.key`, sub.id)
+	if err != nil {
+		return nil, nil, err
+	}
+	for rows.Next() {
+		var st State
+		if err := rows.Scan(&st.PurposeID, &st.PurposeKey, &st.State, &st.LawfulBasis, &st.UpdatedAt); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		states = append(states, st)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	rows, err = tx.Query(ctx, `
+		SELECT id, purpose_id, new_state, lawful_basis, source, captured_by, captured_at
+		FROM consent_event WHERE `+sub.column+` = $1 ORDER BY captured_at DESC, id DESC`, sub.id)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ev ProofEvent
+		if err := rows.Scan(&ev.ID, &ev.PurposeID, &ev.NewState, &ev.LawfulBasis, &ev.Source, &ev.CapturedBy, &ev.OccurredAt); err != nil {
+			return nil, nil, err
+		}
+		events = append(events, ev)
+	}
+	return states, events, rows.Err()
 }
 
 type RecordInput struct {

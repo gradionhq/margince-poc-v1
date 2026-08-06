@@ -305,7 +305,6 @@ func stageOrgReplaceSets(ctx context.Context, tx pgx.Tx, id ids.OrganizationID,
 			return "", err
 		}
 		*in.RelationshipTypes = deduped
-		p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
 	}
 	if in.Domains != nil {
 		if err := parseOrgDomains(*in.Domains); err != nil {
@@ -317,8 +316,12 @@ func stageOrgReplaceSets(ctx context.Context, tx pgx.Tx, id ids.OrganizationID,
 		if err := ensureOrgDomainsUnclaimedExcept(ctx, tx, id, *in.Domains); err != nil {
 			return "", err
 		}
-		p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
 	}
+	// A replace-set changes no column on the row itself, so this bump is what
+	// makes the patch non-empty and carries the version guard. Once, after both
+	// branches: a request naming both sets is still one write at one instant, and
+	// which branch happened to run last should not pick the timestamp.
+	p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
 	return by, nil
 }
 

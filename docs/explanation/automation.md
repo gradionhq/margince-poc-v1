@@ -18,9 +18,9 @@ params). Two entirely different triggers reach the same firing pipeline:
 
 ```text
 EVENT TRIGGER                                   CLOCK TRIGGER
-domain write → outbox → relay → Redis           River periodic job (TimeScanner.Scan)
-  → cg:workflows → WorkflowEngine.HandleEvent      → enumerate workspaces
-        │ once per enabled instance                → read stale candidates (ActivityScan seam)
+domain write → outbox → relay → Redis           River dispatcher `time_scan`
+  → cg:workflows → WorkflowEngine.HandleEvent      → one `time_scan_workspace` job per workspace
+        │ once per enabled instance                → ScanWorkspace: stale candidates (ActivityScan seam)
         │                                          → synthesize one workflow.Event per candidate
         └───────────────┬──────────────────────────────────┘
                         ▼
@@ -145,10 +145,12 @@ and does nothing. Every write in the pipeline runs inside `database.WithWorkspac
   dispatches to every registered handler whose `Spec().Trigger.EventType` matches — once per **enabled
   instance** in the event's workspace, the instance's params riding the event into `Plan`. `cmd/worker`
   is the only consumer of `cg:workflows`.
-- **Clock triggers** have no event to arrive on (AUTO-EV-7). `TimeScanner.Scan` (`timescan.go`) is a
-  River-driven periodic pass against an **injected clock**: it enumerates workspaces, reads each clock
-  automation's stale candidates through the `ActivityScan` seam, synthesizes a `workflow.Event` per
-  candidate, and hands each to `runOne`.
+- **Clock triggers** have no event to arrive on (AUTO-EV-7). The `time_scan` dispatcher enumerates the
+  fleet and enqueues one `time_scan_workspace` job per live workspace; `TimeScanner.ScanWorkspace`
+  (`timescan.go`) runs that one tenant's pass against an **injected clock**, reading each clock
+  automation's stale candidates through the `ActivityScan` seam, synthesizing a `workflow.Event` per
+  candidate, and handing each to `runOne`. A workspace whose pass fails fails its own job row rather
+  than becoming a log line inside a run River recorded as completed.
 
 ## 5. The occurrence key — and the trap it avoids
 

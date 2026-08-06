@@ -91,6 +91,7 @@ type Server struct {
 	dataResetHandlers
 	jobHealthHandlers
 	org360Handlers
+	person360Handlers
 	orgBriefHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,

@@ -67,6 +67,10 @@ type meeting struct {
 	cancelled    bool
 	organizerDom string
 	hasExternal  bool // any party (organizer or attendee) outside the owner's domain
+	// participants are the organizer and attendees as structured rows. The body
+	// header still spells them out for the timeline; these are the same people
+	// in a form the interaction graph can actually read.
+	participants []connector.MessageParticipant
 }
 
 // parseEvent reads one raw Calendar event resource and classifies it against
@@ -91,8 +95,54 @@ func parseEvent(raw []byte, owner string) (meeting, error) {
 		organizerDom: organizerDom,
 		// An externally-organized meeting is a customer touch even if the owner
 		// is the only listed attendee — fold the organizer into the signal.
-		hasExternal: external > 0 || isExternalDomain(organizerDom, ownerDom),
+		hasExternal:  external > 0 || isExternalDomain(organizerDom, ownerDom),
+		participants: meetingParties(ev, strings.ToLower(strings.TrimSpace(owner))),
 	}, nil
+}
+
+// ParticipantsOf reads the organizer and attendees out of one stored event
+// resource — the calendar twin of mailmap.ParticipantsOf, for the replay pass
+// that recovers meetings captured before participants were recorded.
+func ParticipantsOf(raw []byte, owner string) ([]connector.MessageParticipant, error) {
+	m, err := parseEvent(raw, owner)
+	if err != nil {
+		return nil, err
+	}
+	return m.participants, nil
+}
+
+// meetingParties returns the organizer and attendees as participant rows,
+// excluding the mailbox owner.
+//
+// The owner is excluded because capture stamps them separately from the
+// connection that produced the event — that row carries their user_id, which
+// is what the interaction graph joins on, whereas a row built from this header
+// would carry only an address and join nothing.
+//
+// Organizer wins over attendee when the same address holds both, which is the
+// common case for a meeting somebody scheduled and then attended: organizing
+// is the stronger statement about their part in it.
+func meetingParties(ev rawEvent, ownerLower string) []connector.MessageParticipant {
+	seen := map[string]bool{}
+	if ownerLower != "" {
+		seen[ownerLower] = true
+	}
+
+	var out []connector.MessageParticipant
+	add := func(email, role string) {
+		address := strings.ToLower(strings.TrimSpace(email))
+		if address == "" || seen[address] {
+			return
+		}
+		seen[address] = true
+		out = append(out, connector.MessageParticipant{Email: address, Role: role})
+	}
+	add(ev.Organizer.Email, connector.ParticipantRoleOrganizer)
+	for _, a := range ev.Attendees {
+		add(a.Email, connector.ParticipantRoleAttendee)
+	}
+
+	return connector.CapParticipants(out)
 }
 
 // isExternalDomain reports whether dom is a real domain outside the owner's —
@@ -142,9 +192,10 @@ func (m meeting) ToRecord(connectorName string, raw []byte) connector.Normalized
 			// A meeting is not directional (no inbound/outbound sender).
 			Direction: "",
 		},
-		Source:     connectorName + ":" + m.id,
-		CapturedBy: "connector:" + connectorName,
-		Raw:        raw,
+		Source:       connectorName + ":" + m.id,
+		CapturedBy:   "connector:" + connectorName,
+		Raw:          raw,
+		Participants: m.participants,
 	}
 }
 

@@ -8,7 +8,8 @@ them line by line. AGENTS.md is machine-read, though, so keep it accurate:
 `cli/craft` feeds the **whole** nearest AGENTS.md into the gate prompt
 (`gate.Assembler.nearestAgents` walks up from the touched directories; this root
 file is the only one in the tree today), and `make check-craft-doc` separately
-asserts that this file still carries a `## Craftsmanship` heading. When a rule
+asserts that **AGENTS.md** still carries a `## Craftsmanship` heading. Nothing
+gates this file's own copy — keep the two in agreement by hand. When a rule
 below changes, decide whether the digest needs it too.
 
 Margince CRM implementation PoC (WP0 foundation + WP1 core spine). This is the
@@ -175,9 +176,15 @@ check monitoring. Read-only working-tree inspection (`git status`, `git diff`,
 3. **Local gates BEFORE pushing**: `make check` (the merge gate — build,
    vet, lint, arch-lint, unit tests, contract drift); add
    `make frontend-check` when `frontend/` changed. The pre-push hook
-   (installed once via `make hooks`) runs `craft static --strict` diff-scoped
-   on top — a BLOCKER or MAJOR finding stops the push; fix it, never bypass
-   the hook.
+   (installed once via `make hooks` — the **root** target, which sets
+   `core.hooksPath`) runs `craft static --strict` diff-scoped on top — a
+   BLOCKER or MAJOR finding stops the push; fix it, never bypass the hook.
+   When a push does change hand-written backend Go, the hook then also runs the
+   two sub-second whole-tree greps (`check-rls-store-path`,
+   `check-no-jurisdiction`), so an RLS-bypassing store statement or a
+   jurisdiction string in core fails locally rather than in CI. A push with no
+   qualifying backend Go changes exits before all three — a docs-only push runs
+   none of them.
 4. **Push the branch and open a PR** (`gh pr create`).
 5. **Watch the GitHub gates and fix red**: CI, DCO, CodeRabbit, and
    SonarCloud must all pass (`gh pr checks <n> --watch`). Fix failures
@@ -223,7 +230,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
   activity link-walk), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
-- `internal/modules/` — eighteen bounded capabilities, flat by default per
+- `internal/modules/` — twenty bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
   growing subpackages only when a named trigger fires (split for a reason, never symmetry); a module NEVER
   imports a sibling: `identity` (workspaces, users, sessions, passports;
@@ -234,14 +241,19 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `activities` (the timeline: idempotent logging + polymorphic links),
   `approvals` (the 🟡 confirm-first engine, ADR-0036: staged rows ARE
   the authority object), `agents` (the governed tool
-  surface: registry, admission gate, stdio/hosted transports, the
+  surface: registry, admission gate, the hosted HTTP transport and its
+  JSON-RPC dispatcher, the
   Surface-B loop — reaches records only through the datasource seam),
   `automation` (the closed 7×7 trigger/action catalog, ADR-0035: the
   registry, the per-workspace standing automation store, and the
   deterministic trigger runtime — event matcher and clock time-scan
   converging on one path, gated at both author-time and match-time),
-  `ai` (the model runtime behind ports/model: Anthropic BYOK, Ollama,
-  the offline fake, routing + budget + secret-stripping), `search`
+  `ai` (the model runtime behind ports/model: BYOK cloud — native
+  anthropic/openai/gemini plus the generic openai_compatible wire —
+  local ollama/vllm, the offline fake; routing + budget +
+  secret-stripping, and the effective-dated `ai_model_rate` sheet the
+  read-side pricer prices calls against — `ai_call` stores tokens, never
+  a price), `search`
   (row-scoped retrieval: FTS + pgvector/RRF hybrid + context graph),
   `capture` (the ONE `connector.Sink`: normalized inbound capture,
   idempotent on the source natural key), `consent` (per-purpose consent
@@ -261,8 +273,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `workspace.x_sor_mode`, serving mirror-backed reads behind the inner
   `incumbent.Incumbent` seam — fail-closed visibility deny-join,
   budget-metered force-fresh read-through, continuous sync (backfill +
-  reconcile poller), disconnect teardown; writes +
-  RunReport declared `unsupported_by_sor`).
+  reconcile poller), disconnect teardown, and the ADR-0071
+  overlay→native cutover; `Update`/`Archive` write back incumbent-first
+  and re-mirror the returned state, while `Create`/`Merge`/`PromoteLead`/
+  `AdvanceDeal` + RunReport are declared `unsupported_by_sor`),
+  `comms` (outbound delivery machinery — the durable staging row, the
+  transmit-time gates, the provider dispatcher; the message itself is an
+  activity), `migration` (the shared importer engine: one classification
+  step, one zero-write dry run, one checkpointed resumable run loop,
+  with sources and native writers injected as seams).
 
   Two sanctioned spine shapes, and ONLY two — don't invent a third:
   **Handlers→Store** for CRUD modules (people, deals, activities, …:
@@ -296,9 +315,10 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `extensions/<name>/` — the stable extension tier (ADR-0069): each unit
   is its own Go module importing ONLY the marker-allowlisted
   `backend/pkg/**` surface; presence under `extensions/` is the
-  enablement. The vanilla tree ships `extensions/de` (the German
-  jurisdiction pack — GoBD calendar-year retention floors), first-party
-  and enabled by default. `make composition` (run by every build lane)
+  enablement. The vanilla tree ships two first-party units, enabled by
+  default: `extensions/de` (the German jurisdiction pack — GoBD
+  calendar-year retention floors) and `extensions/yogi` (one served
+  🟢/read agent tool — the worked example of the governed-tool kind). `make composition` (run by every build lane)
   generates the ignored `build/composition/` wiring; `composition/` at
   the root is the committed vanilla stub so bare go commands resolve.
 
@@ -355,14 +375,16 @@ legibility is the product, not polish.
 
 **The gate runs before every push (diff-scoped), and it is STRICT.**
 `.githooks/pre-push` runs the deterministic arm — `craft static --strict` (the repo's
-`cli/craft` tool, ADR-0045) — over the backend Go files **this push changes vs
-`origin/main`**. There is no pre-existing backlog to exempt: the whole tree was
+`cli/craft` tool, ADR-0045) — over the Go files **this push changes vs
+`origin/main`** in `backend/`, `extensions/` and `fixtures/` alike (a first-party
+extension unit ships the same product). There is no pre-existing backlog to exempt: the whole tree was
 cleared to zero findings before this bar was armed, so the rule is simply that
 touched code is clean. Write it right the first time — a swallowed error, a sleep
 in a test, a bare `any` in a signature, or an 81-line function you add will block
 your push.
 - Install the hook once after cloning: **`make hooks`** (sets `core.hooksPath=.githooks`).
-- Full manual sweep of the whole backend: **`make craft-static`** — green, and the
+- Full manual sweep of every hand-written Go tree (`backend/`, `extensions/`,
+  `fixtures/`): **`make craft-static`** — green, and the
   CI `craftsmanship` job runs the same bar as a required check.
 - `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings
   are 80 CODE lines / 500 file lines for product code and 160 / 1000 for `*_test.go`
@@ -389,7 +411,8 @@ Exempt: generated files (`*_gen.go`) and the drift-frozen
 `internal/contracts/` package — do NOT stamp those. The rule is enforced by
 `TestEveryHandWrittenGoFileCarriesTheLicenseHeader` in
 `backend/license_test.go` (part of `make check`), which derives the file
-list from the tree, so a new file that skips the header fails the gate.
+list from the tree — `backend/`, `extensions/` and `fixtures/`, since each
+unit is its own module — so a new file that skips the header fails the gate.
 Keep the copyright line as-is (`2026 Gradion`); it names the release year,
 not the current year. This is the license model's "honest labeling / don't
 strip notices" obligation (spec `business/12-license.md` §5, §8).

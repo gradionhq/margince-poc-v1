@@ -27,6 +27,12 @@ func TestNewDeclaresAServedTool(t *testing.T) {
 	if tool.Handle == nil {
 		t.Fatal("a served tool must carry a handler")
 	}
+	// A written title, not the verb un-snake-cased: tools/list shows title
+	// over name, and "yogi_quote" is the identifier the field exists to
+	// improve on.
+	if tool.Title == "" || tool.Title == tool.Name {
+		t.Fatalf("Title = %q, want a written display name", tool.Title)
+	}
 	if tool.Tier != extension.TierAutoExecute || tool.RequestedScope != extension.ScopeRead {
 		t.Fatalf("a read-only quote tool should request 🟢/read, got tier=%q scope=%q", tool.Tier, tool.RequestedScope)
 	}

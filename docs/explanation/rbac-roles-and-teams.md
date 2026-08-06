@@ -30,9 +30,10 @@ share is invisible until they have a role that clears the object gate.
 A role is a row in the `role` table (`migrations/core/0002_identity.up.sql`), scoped to one
 workspace. Its `permissions` JSONB holds two things:
 
-- **`objects`** — a per-object-type grant of `{create, read, update, delete}` over the ~20 core
+- **`objects`** — a per-object-type grant of `{create, read, update, delete}` over the 29 core
   objects (`person`, `organization`, `deal`, `lead`, `activity`, `pipeline`, `list`, `custom_field`,
-  `quota`, …).
+  `quota`, …). The closed set is `policy.coreObjects`, published cell-by-cell in
+  [reference/rbac-matrix.md](../reference/rbac-matrix.md).
 - **`row_scope`** — `own` | `team` | `all` (see below).
 
 A fresh workspace is seeded with five **system roles** (`is_system = true`), whose exact grants are
@@ -45,9 +46,9 @@ same values by a test and so cannot drift from them. The shape:
 |---|---|---|
 | `admin` | Full CRUD on everything (config included). | `all` |
 | `ops` | Same CRUD reach as admin — the operations counterpart. | `all` |
-| `manager` | CRUD on records; **read-only** on config (pipeline, automation, custom_field, quota). | `team` |
+| `manager` | CRUD on records; **read-only** on most config (pipeline, automation, custom_field, quota); **no access at all** to the admin-only sheets (`fx_rate`, `ai_model_rate`, `embedding_reindex`, `import_run`). | `team` |
 | `rep` | Create/read/update records (delete only where it's routine, e.g. disqualify a lead); **read-only** on config. | `team` |
-| `read_only` | Read everything; write nothing (except one's own saved views). | `all` |
+| `read_only` | Reads every record kind and every config surface a rep can see; writes nothing except its own saved views. The four admin-only sheets (`fx_rate`, `ai_model_rate`, `embedding_reindex`, `import_run`) are closed to it entirely — not even read. | `all` |
 
 Two things surprise people:
 
@@ -65,7 +66,7 @@ the widest** held (object grants union; row scope takes the widest — `all` > `
 ## Row scope — which rows of a permitted object
 
 Row scope is evaluated in SQL at every list/read over an owner-scoped table
-(`platform/auth/rbac.go`). Given the object gate already passed:
+(`platform/auth/rowscope.go`). Given the object gate already passed:
 
 - **`all`** — no row filter. Sees every row in the workspace. (`Unbounded` — also the system actor.)
 - **`team`** — sees rows they **own**, rows owned by a **teammate** (any member of a team they belong
@@ -123,7 +124,7 @@ How it composes with everything above:
   needs a role granting the verb on that object type. Share a deal with a user whose role lacks
   `deal.read` and they still can't open it — the grant is inert until their role clears the object
   gate.
-- **It applies only to shareable tables** — `person`, `organization`, `deal`, `lead` (`rbac.go`
+- **It applies only to shareable tables** — `person`, `organization`, `deal`, `lead` (`rowscope.go`
   `shareableTables`; the `record_grant` CHECK is the schema-side twin). Config and other objects have
   no per-record share.
 - **A `write` grant satisfies a read** (write ⊇ read).
@@ -135,7 +136,7 @@ How it composes with everything above:
   privilege.
 
 In SQL terms, a read over a shareable table is `ownerPredicate OR liveGrantExists` — the grant is a
-second way in, checked in the same statement as the scope filter (`VisiblePredicate` in `rbac.go`).
+second way in, checked in the same statement as the scope filter (`VisiblePredicate` in `rowscope.go`).
 
 ## Worked example — the dev seed
 
@@ -161,8 +162,10 @@ board) — the symptom that means "no role," distinct from "role present but sco
 ## Where this is enforced (pointers)
 
 - Role definitions + merge: `backend/internal/modules/identity/internal/policy/policy.go`
-- Row-scope + record-grant SQL predicates: `backend/internal/platform/auth/rbac.go`
-  (`OwnerPredicate`, `VisiblePredicate`, `ScopeClauseFor`)
+- Object-level gate: `backend/internal/platform/auth/rbac.go`
+  (`Require`, `RequireAny`, `UpsertAction`, `RequireHuman`, `RequireAdmin`)
+- Row-scope + record-grant SQL predicates: `backend/internal/platform/auth/rowscope.go`
+  (`OwnerPredicate`, `VisiblePredicate`, `ScopeClauseFor`, `shareableTables`)
 - Schema: `role`, `role_assignment`, `team`, `team_membership`, `record_grant`
   (`backend/migrations/core/`)
 - The enforcement architecture (one gate, three transports, RLS backstop):
