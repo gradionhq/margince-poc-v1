@@ -1973,58 +1973,58 @@ func (e CompanySiteReadResolutionAction) Valid() bool {
 
 // Defines values for CompanySiteReadSuggestedChangeField.
 const (
-	BuyingCenter      CompanySiteReadSuggestedChangeField = "buying_center"
-	BuyingIntents     CompanySiteReadSuggestedChangeField = "buying_intents"
-	CommonObjections  CompanySiteReadSuggestedChangeField = "common_objections"
-	CustomerPains     CompanySiteReadSuggestedChangeField = "customer_pains"
-	DesiredOutcomes   CompanySiteReadSuggestedChangeField = "desired_outcomes"
-	DisplayName       CompanySiteReadSuggestedChangeField = "display_name"
-	History           CompanySiteReadSuggestedChangeField = "history"
-	Icp               CompanySiteReadSuggestedChangeField = "icp"
-	Industry          CompanySiteReadSuggestedChangeField = "industry"
-	LegalName         CompanySiteReadSuggestedChangeField = "legal_name"
-	OfferSummary      CompanySiteReadSuggestedChangeField = "offer_summary"
-	RegisterVat       CompanySiteReadSuggestedChangeField = "register_vat"
-	RegisteredAddress CompanySiteReadSuggestedChangeField = "registered_address"
-	SalesMotion       CompanySiteReadSuggestedChangeField = "sales_motion"
-	Usp               CompanySiteReadSuggestedChangeField = "usp"
-	ValueProposition  CompanySiteReadSuggestedChangeField = "value_proposition"
+	CompanySiteReadSuggestedChangeFieldBuyingCenter      CompanySiteReadSuggestedChangeField = "buying_center"
+	CompanySiteReadSuggestedChangeFieldBuyingIntents     CompanySiteReadSuggestedChangeField = "buying_intents"
+	CompanySiteReadSuggestedChangeFieldCommonObjections  CompanySiteReadSuggestedChangeField = "common_objections"
+	CompanySiteReadSuggestedChangeFieldCustomerPains     CompanySiteReadSuggestedChangeField = "customer_pains"
+	CompanySiteReadSuggestedChangeFieldDesiredOutcomes   CompanySiteReadSuggestedChangeField = "desired_outcomes"
+	CompanySiteReadSuggestedChangeFieldDisplayName       CompanySiteReadSuggestedChangeField = "display_name"
+	CompanySiteReadSuggestedChangeFieldHistory           CompanySiteReadSuggestedChangeField = "history"
+	CompanySiteReadSuggestedChangeFieldIcp               CompanySiteReadSuggestedChangeField = "icp"
+	CompanySiteReadSuggestedChangeFieldIndustry          CompanySiteReadSuggestedChangeField = "industry"
+	CompanySiteReadSuggestedChangeFieldLegalName         CompanySiteReadSuggestedChangeField = "legal_name"
+	CompanySiteReadSuggestedChangeFieldOfferSummary      CompanySiteReadSuggestedChangeField = "offer_summary"
+	CompanySiteReadSuggestedChangeFieldRegisterVat       CompanySiteReadSuggestedChangeField = "register_vat"
+	CompanySiteReadSuggestedChangeFieldRegisteredAddress CompanySiteReadSuggestedChangeField = "registered_address"
+	CompanySiteReadSuggestedChangeFieldSalesMotion       CompanySiteReadSuggestedChangeField = "sales_motion"
+	CompanySiteReadSuggestedChangeFieldUsp               CompanySiteReadSuggestedChangeField = "usp"
+	CompanySiteReadSuggestedChangeFieldValueProposition  CompanySiteReadSuggestedChangeField = "value_proposition"
 )
 
 // Valid indicates whether the value is a known member of the CompanySiteReadSuggestedChangeField enum.
 func (e CompanySiteReadSuggestedChangeField) Valid() bool {
 	switch e {
-	case BuyingCenter:
+	case CompanySiteReadSuggestedChangeFieldBuyingCenter:
 		return true
-	case BuyingIntents:
+	case CompanySiteReadSuggestedChangeFieldBuyingIntents:
 		return true
-	case CommonObjections:
+	case CompanySiteReadSuggestedChangeFieldCommonObjections:
 		return true
-	case CustomerPains:
+	case CompanySiteReadSuggestedChangeFieldCustomerPains:
 		return true
-	case DesiredOutcomes:
+	case CompanySiteReadSuggestedChangeFieldDesiredOutcomes:
 		return true
-	case DisplayName:
+	case CompanySiteReadSuggestedChangeFieldDisplayName:
 		return true
-	case History:
+	case CompanySiteReadSuggestedChangeFieldHistory:
 		return true
-	case Icp:
+	case CompanySiteReadSuggestedChangeFieldIcp:
 		return true
-	case Industry:
+	case CompanySiteReadSuggestedChangeFieldIndustry:
 		return true
-	case LegalName:
+	case CompanySiteReadSuggestedChangeFieldLegalName:
 		return true
-	case OfferSummary:
+	case CompanySiteReadSuggestedChangeFieldOfferSummary:
 		return true
-	case RegisterVat:
+	case CompanySiteReadSuggestedChangeFieldRegisterVat:
 		return true
-	case RegisteredAddress:
+	case CompanySiteReadSuggestedChangeFieldRegisteredAddress:
 		return true
-	case SalesMotion:
+	case CompanySiteReadSuggestedChangeFieldSalesMotion:
 		return true
-	case Usp:
+	case CompanySiteReadSuggestedChangeFieldUsp:
 		return true
-	case ValueProposition:
+	case CompanySiteReadSuggestedChangeFieldValueProposition:
 		return true
 	default:
 		return false
@@ -7509,6 +7509,66 @@ func (e CapturedByKind) Valid() bool {
 	}
 }
 
+// Defines values for ProfileFieldKey.
+const (
+	ProfileFieldKeyBuyingCenter      ProfileFieldKey = "buying_center"
+	ProfileFieldKeyBuyingIntents     ProfileFieldKey = "buying_intents"
+	ProfileFieldKeyCommonObjections  ProfileFieldKey = "common_objections"
+	ProfileFieldKeyCustomerPains     ProfileFieldKey = "customer_pains"
+	ProfileFieldKeyDesiredOutcomes   ProfileFieldKey = "desired_outcomes"
+	ProfileFieldKeyDisplayName       ProfileFieldKey = "display_name"
+	ProfileFieldKeyHistory           ProfileFieldKey = "history"
+	ProfileFieldKeyIcp               ProfileFieldKey = "icp"
+	ProfileFieldKeyIndustry          ProfileFieldKey = "industry"
+	ProfileFieldKeyLegalName         ProfileFieldKey = "legal_name"
+	ProfileFieldKeyOfferSummary      ProfileFieldKey = "offer_summary"
+	ProfileFieldKeyRegisterVat       ProfileFieldKey = "register_vat"
+	ProfileFieldKeyRegisteredAddress ProfileFieldKey = "registered_address"
+	ProfileFieldKeySalesMotion       ProfileFieldKey = "sales_motion"
+	ProfileFieldKeyUsp               ProfileFieldKey = "usp"
+	ProfileFieldKeyValueProposition  ProfileFieldKey = "value_proposition"
+)
+
+// Valid indicates whether the value is a known member of the ProfileFieldKey enum.
+func (e ProfileFieldKey) Valid() bool {
+	switch e {
+	case ProfileFieldKeyBuyingCenter:
+		return true
+	case ProfileFieldKeyBuyingIntents:
+		return true
+	case ProfileFieldKeyCommonObjections:
+		return true
+	case ProfileFieldKeyCustomerPains:
+		return true
+	case ProfileFieldKeyDesiredOutcomes:
+		return true
+	case ProfileFieldKeyDisplayName:
+		return true
+	case ProfileFieldKeyHistory:
+		return true
+	case ProfileFieldKeyIcp:
+		return true
+	case ProfileFieldKeyIndustry:
+		return true
+	case ProfileFieldKeyLegalName:
+		return true
+	case ProfileFieldKeyOfferSummary:
+		return true
+	case ProfileFieldKeyRegisterVat:
+		return true
+	case ProfileFieldKeyRegisteredAddress:
+		return true
+	case ProfileFieldKeySalesMotion:
+		return true
+	case ProfileFieldKeyUsp:
+		return true
+	case ProfileFieldKeyValueProposition:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListActivitiesParamsKind.
 const (
 	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
@@ -9683,14 +9743,14 @@ type CompanyProfileField struct {
 	EvidenceSnippet *string                  `json:"evidence_snippet,omitempty"`
 	Field           CompanyProfileFieldField `json:"field"`
 
-	// RetrievedAt When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim — "is this still true?" is a different question from "when did we learn it?".
+	// RetrievedAt When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
 	RetrievedAt *time.Time                `json:"retrieved_at,omitempty"`
 	Source      CompanyProfileFieldSource `json:"source"`
 	SourceUrl   *string                   `json:"source_url,omitempty"`
 	UpdatedAt   time.Time                 `json:"updated_at"`
 	Value       string                    `json:"value"`
 
-	// VerifiedAt When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by: a verification without an actor describes a confirmation nobody made.
+	// VerifiedAt When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
 	VerifiedAt *time.Time `json:"verified_at,omitempty"`
 
 	// VerifiedBy The human who confirmed the claim. Server-stamped, never accepted from a request body.
@@ -11926,7 +11986,7 @@ type Organization struct {
 	// Lifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
 	Lifecycle *OrganizationLifecycle `json:"lifecycle,omitempty"`
 
-	// LinkedinUrl Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A first-class validated column rather than a governed custom field, because it bears identity semantics — matching, dedupe, enrichment — that a custom field cannot express. Unique among live rows in a workspace.
+	// LinkedinUrl Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A validated column rather than a governed custom field, because it bears identity semantics — matching, dedupe, enrichment — a custom field cannot express. Unique among live rows.
 	LinkedinUrl *string `json:"linkedin_url,omitempty"`
 
 	// LogoUrl Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
@@ -11967,7 +12027,7 @@ type Organization struct {
 	// not only overlay mode.
 	Version *RowVersion `json:"version,omitempty"`
 
-	// WebsiteUrl The company's readable website, DERIVED from its primary domain row — there is deliberately no website column, because a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write; set the primary domain instead.
+	// WebsiteUrl The company's readable website, DERIVED from its primary domain row. There is deliberately no website column — a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write.
 	WebsiteUrl           *string                `json:"website_url,omitempty"`
 	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
@@ -12453,7 +12513,7 @@ type OrganizationFact struct {
 	// Id The stored row, so a brief sentence written from this fact can cite something the reader can open. Without it a fact-derived claim had to cite the organization, which told the reader where to look but not at what.
 	Id *openapi_types.UUID `json:"id,omitempty"`
 
-	// RetrievedAt When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim — "is this still true?" is a different question from "when did we learn it?".
+	// RetrievedAt When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
 	RetrievedAt *time.Time             `json:"retrieved_at,omitempty"`
 	Source      OrganizationFactSource `json:"source"`
 	SourceUrl   *string                `json:"source_url,omitempty"`
@@ -12464,7 +12524,7 @@ type OrganizationFact struct {
 	Value         string                         `json:"value"`
 	ValueKey      string                         `json:"value_key"`
 
-	// VerifiedAt When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by: a verification without an actor describes a confirmation nobody made.
+	// VerifiedAt When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
 	VerifiedAt *time.Time `json:"verified_at,omitempty"`
 
 	// VerifiedBy The human who confirmed the claim. Server-stamped, never accepted from a request body.
@@ -14830,6 +14890,17 @@ type UpdateOfferTemplateRequest struct {
 	Name      string                 `json:"name"`
 }
 
+// UpdateOrganizationFactRequest The correction path the fact store never had — without it the page can render a confirmed state nothing is able to produce.
+type UpdateOrganizationFactRequest struct {
+	Value string `json:"value"`
+}
+
+// UpdateOrganizationProfileFieldRequest A human correction. The canonical store changes; the machine's proposal and its evidence survive in history (PO-AC-N-1/N-2).
+type UpdateOrganizationProfileFieldRequest struct {
+	// Value The corrected value. Where this field maps to a column on `organization`, the COLUMN is what changes — a correction the header ignores is not a correction (PO-AC-N-1).
+	Value string `json:"value"`
+}
+
 // UpdateOrganizationRequest defines model for UpdateOrganizationRequest.
 type UpdateOrganizationRequest struct {
 	// Address Structured postal address.
@@ -14844,7 +14915,7 @@ type UpdateOrganizationRequest struct {
 	// Lifecycle Where the account stands with us (ADR-0079/A124). Absent = untouched.
 	Lifecycle *UpdateOrganizationRequestLifecycle `json:"lifecycle,omitempty"`
 
-	// LinkedinUrl Canonical LinkedIn company URL. Null clears it. website_url is derived from the primary domain and is refused here.
+	// LinkedinUrl Canonical LinkedIn company URL. Null clears it. website_url is derived and refused here.
 	LinkedinUrl *string             `json:"linkedin_url,omitempty"`
 	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
 	ParentOrgId *openapi_types.UUID `json:"parent_org_id,omitempty"`
@@ -15433,6 +15504,9 @@ type CapturedByKind string
 // Cursor defines model for Cursor.
 type Cursor = string
 
+// FactKey defines model for FactKey.
+type FactKey = string
+
 // Id defines model for Id.
 type Id = openapi_types.UUID
 
@@ -15447,6 +15521,9 @@ type IncludeArchived = bool
 
 // Limit defines model for Limit.
 type Limit = int
+
+// ProfileFieldKey defines model for ProfileFieldKey.
+type ProfileFieldKey string
 
 // Sort defines model for Sort.
 type Sort = string
@@ -15471,6 +15548,9 @@ type Unauthorized = Problem
 
 // ValidationError RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type ValidationError = Problem
+
+// VersionConflict RFC 7807 problem+json with a stable machine `code` and structured `details`.
+type VersionConflict = Problem
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
@@ -17010,6 +17090,76 @@ type AskAboutOrganizationJSONBody struct {
 	Question OrganizationQuestion `json:"question"`
 }
 
+// UpdateOrganizationFactParams defines parameters for UpdateOrganizationFact.
+type UpdateOrganizationFactParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ConfirmOrganizationFactParams defines parameters for ConfirmOrganizationFact.
+type ConfirmOrganizationFactParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // GetOrganizationHierarchyRollupParams defines parameters for GetOrganizationHierarchyRollup.
 type GetOrganizationHierarchyRollupParams struct {
 	// Scope tree (default): aggregate the whole subtree. self: the root's own figures alone.
@@ -17062,6 +17212,76 @@ type MergeOrganizationParams struct {
 
 // UpsertPartnerParams defines parameters for UpsertPartner.
 type UpsertPartnerParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateOrganizationProfileFieldParams defines parameters for UpdateOrganizationProfileField.
+type UpdateOrganizationProfileFieldParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ConfirmOrganizationProfileFieldParams defines parameters for ConfirmOrganizationProfileField.
+type ConfirmOrganizationProfileFieldParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -18633,11 +18853,17 @@ type DeepReadCompanyJSONRequestBody = EnrichCompanyRequest
 // ScrapeCompanyJSONRequestBody defines body for ScrapeCompany for application/json ContentType.
 type ScrapeCompanyJSONRequestBody = EnrichCompanyRequest
 
+// UpdateOrganizationFactJSONRequestBody defines body for UpdateOrganizationFact for application/json ContentType.
+type UpdateOrganizationFactJSONRequestBody = UpdateOrganizationFactRequest
+
 // MergeOrganizationJSONRequestBody defines body for MergeOrganization for application/json ContentType.
 type MergeOrganizationJSONRequestBody MergeOrganizationJSONBody
 
 // UpsertPartnerJSONRequestBody defines body for UpsertPartner for application/json ContentType.
 type UpsertPartnerJSONRequestBody = UpsertPartnerRequest
+
+// UpdateOrganizationProfileFieldJSONRequestBody defines body for UpdateOrganizationProfileField for application/json ContentType.
+type UpdateOrganizationProfileFieldJSONRequestBody = UpdateOrganizationProfileFieldRequest
 
 // DismissOrganizationSuggestionJSONRequestBody defines body for DismissOrganizationSuggestion for application/json ContentType.
 type DismissOrganizationSuggestionJSONRequestBody DismissOrganizationSuggestionJSONBody
@@ -25037,6 +25263,12 @@ type ServerInterface interface {
 	// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 	// (GET /organizations/{id}/facts)
 	ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id)
+	// Correct an extracted fact.
+	// (PATCH /organizations/{id}/facts/{factKey})
+	UpdateOrganizationFact(w http.ResponseWriter, r *http.Request, id Id, factKey FactKey, params UpdateOrganizationFactParams)
+	// Confirm an extracted fact without changing its value.
+	// (POST /organizations/{id}/facts/{factKey}/confirm)
+	ConfirmOrganizationFact(w http.ResponseWriter, r *http.Request, id Id, factKey FactKey, params ConfirmOrganizationFactParams)
 	// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
 	// (GET /organizations/{id}/graph)
 	GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id)
@@ -25058,6 +25290,12 @@ type ServerInterface interface {
 	// The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it.
 	// (GET /organizations/{id}/profile-fields)
 	ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request, id Id)
+	// Correct a profile field — the canonical value changes, the machine's proposal survives.
+	// (PATCH /organizations/{id}/profile-fields/{field})
+	UpdateOrganizationProfileField(w http.ResponseWriter, r *http.Request, id Id, field ProfileFieldKey, params UpdateOrganizationProfileFieldParams)
+	// Confirm a profile field without changing its value.
+	// (POST /organizations/{id}/profile-fields/{field}/confirm)
+	ConfirmOrganizationProfileField(w http.ResponseWriter, r *http.Request, id Id, field ProfileFieldKey, params ConfirmOrganizationProfileFieldParams)
 	// One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
 	// (GET /organizations/{id}/site-reads/{readId})
 	GetSiteRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID)
@@ -26477,6 +26715,18 @@ func (_ Unimplemented) ListOrganizationFacts(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Correct an extracted fact.
+// (PATCH /organizations/{id}/facts/{factKey})
+func (_ Unimplemented) UpdateOrganizationFact(w http.ResponseWriter, r *http.Request, id Id, factKey FactKey, params UpdateOrganizationFactParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Confirm an extracted fact without changing its value.
+// (POST /organizations/{id}/facts/{factKey}/confirm)
+func (_ Unimplemented) ConfirmOrganizationFact(w http.ResponseWriter, r *http.Request, id Id, factKey FactKey, params ConfirmOrganizationFactParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
 // (GET /organizations/{id}/graph)
 func (_ Unimplemented) GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id) {
@@ -26516,6 +26766,18 @@ func (_ Unimplemented) UpsertPartner(w http.ResponseWriter, r *http.Request, id 
 // The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it.
 // (GET /organizations/{id}/profile-fields)
 func (_ Unimplemented) ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Correct a profile field — the canonical value changes, the machine's proposal survives.
+// (PATCH /organizations/{id}/profile-fields/{field})
+func (_ Unimplemented) UpdateOrganizationProfileField(w http.ResponseWriter, r *http.Request, id Id, field ProfileFieldKey, params UpdateOrganizationProfileFieldParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Confirm a profile field without changing its value.
+// (POST /organizations/{id}/profile-fields/{field}/confirm)
+func (_ Unimplemented) ConfirmOrganizationProfileField(w http.ResponseWriter, r *http.Request, id Id, field ProfileFieldKey, params ConfirmOrganizationProfileFieldParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -34735,6 +34997,216 @@ func (siw *ServerInterfaceWrapper) ListOrganizationFacts(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateOrganizationFact operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOrganizationFact(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "factKey" -------------
+	var factKey FactKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "factKey", chi.URLParam(r, "factKey"), &factKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "factKey", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateOrganizationFactParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOrganizationFact(w, r, id, factKey, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmOrganizationFact operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmOrganizationFact(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "factKey" -------------
+	var factKey FactKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "factKey", chi.URLParam(r, "factKey"), &factKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "factKey", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ConfirmOrganizationFactParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmOrganizationFact(w, r, id, factKey, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOrganizationGraph operation middleware
 func (siw *ServerInterfaceWrapper) GetOrganizationGraph(w http.ResponseWriter, r *http.Request) {
 
@@ -35064,6 +35536,216 @@ func (siw *ServerInterfaceWrapper) ListOrganizationProfileFields(w http.Response
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListOrganizationProfileFields(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOrganizationProfileField operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOrganizationProfileField(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "field" -------------
+	var field ProfileFieldKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "field", chi.URLParam(r, "field"), &field, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "field", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateOrganizationProfileFieldParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOrganizationProfileField(w, r, id, field, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmOrganizationProfileField operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmOrganizationProfileField(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "field" -------------
+	var field ProfileFieldKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "field", chi.URLParam(r, "field"), &field, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "field", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ConfirmOrganizationProfileFieldParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmOrganizationProfileField(w, r, id, field, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -42211,6 +42893,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/organizations/{id}/facts", wrapper.ListOrganizationFacts)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/organizations/{id}/facts/{factKey}", wrapper.UpdateOrganizationFact)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/facts/{factKey}/confirm", wrapper.ConfirmOrganizationFact)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/graph", wrapper.GetOrganizationGraph)
 	})
 	r.Group(func(r chi.Router) {
@@ -42230,6 +42918,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/profile-fields", wrapper.ListOrganizationProfileFields)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/organizations/{id}/profile-fields/{field}", wrapper.UpdateOrganizationProfileField)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/profile-fields/{field}/confirm", wrapper.ConfirmOrganizationProfileField)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/site-reads/{readId}", wrapper.GetSiteRead)
