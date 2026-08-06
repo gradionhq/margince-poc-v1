@@ -64,9 +64,8 @@ func verifySelectedOption(selection crmcontracts.OnboardingClarifySelection, rea
 		if clarify.Field != strings.TrimSpace(selection.Field) {
 			return httperr.Validation("selected_option.field", "invalid", "the selection names a different field than its clarification")
 		}
-		value := strings.TrimSpace(selection.Value)
 		for _, option := range clarify.Options {
-			if option.Value == value {
+			if samePickedValue(selection.Value, option.Value) {
 				return nil
 			}
 		}
@@ -91,11 +90,11 @@ func onboardingClarifies(read people.SiteRead, comparisons []people.SiteReadComp
 
 // openOnboardingClarifies drops every question the persisted draft has
 // already answered: a question is resolved ONLY when the draft's value
-// for its field exactly equals one of the question's option values
-// (post-trim) — that match is provably an earlier authorized selection
-// or an accepted value, so re-deriving the question from site evidence
-// alone must not forget it on restore. A hand-typed value that matches
-// no option deliberately leaves the question open: the server cannot
+// for its field is one of the question's option values, as the printed
+// spelling both sides share — that match is provably an earlier authorized
+// selection or an accepted value, so re-deriving the question from site
+// evidence alone must not forget it on restore. A hand-typed value that
+// matches no option deliberately leaves the question open: the server cannot
 // distinguish a human's overriding edit from a read-prefilled draft, so
 // only the provable case resolves.
 func openOnboardingClarifies(read people.SiteRead, comparisons []people.SiteReadComparison, locale string, draft identity.OnboardingCompanyDraft) []crmcontracts.OnboardingClarify {
@@ -113,19 +112,24 @@ func openOnboardingClarifies(read people.SiteRead, comparisons []people.SiteRead
 
 func clarifyAnsweredByDraft(clarify crmcontracts.OnboardingClarify, values map[string]*string) bool {
 	value := values[clarify.Field]
-	if value == nil {
-		return false
-	}
-	answer := strings.TrimSpace(*value)
-	if answer == "" {
+	if value == nil || strings.TrimSpace(*value) == "" {
 		return false
 	}
 	for _, option := range clarify.Options {
-		if option.Value == answer {
+		if samePickedValue(*value, option.Value) {
 			return true
 		}
 	}
 	return false
+}
+
+// samePickedValue answers whether a value a human submitted or a draft holds
+// is one the question offered. Both sides meet in people.PrintedSiteReadValue,
+// the spelling the confirmation grounds an answer in — a gate that read them
+// any other way would refuse (or keep re-asking) an answer the confirmation
+// would take as the site's own.
+func samePickedValue(submitted, offered string) bool {
+	return people.PrintedSiteReadValue(submitted) == people.PrintedSiteReadValue(offered)
 }
 
 // onboardingDraftValues maps each clarifiable profile field to its draft
@@ -235,12 +239,16 @@ func entityClarifies(read people.SiteRead, locale string) []crmcontracts.Onboard
 // (for addresses) not a long word trail with neither comma nor digit.
 // Every presentation and verification path shares this one builder, so
 // what can be picked is exactly what was shown.
+//
+// The collapsing is people.PrintedSiteReadValue, the same spelling the
+// confirmation matches an answer against — an option built one way and
+// verified another is an option the server refuses after offering it.
 func plausibleClarifyValue(raw string, maxRunes int, addressShaped bool) (string, bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || strings.ContainsAny(trimmed, "\n\r") {
 		return "", false
 	}
-	value := strings.Join(strings.Fields(trimmed), " ")
+	value := people.PrintedSiteReadValue(trimmed)
 	if len([]rune(value)) > maxRunes {
 		return "", false
 	}

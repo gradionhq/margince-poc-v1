@@ -29,7 +29,8 @@ import (
 // the reason it is not. An exemption without a reason is itself a finding: the
 // point of the list is that adding to it costs an explanation.
 var laneExemptions = gatekit.Waive(map[string]string{
-	"Embedder": "the retrieval embed lane — the router itself under no task label, typed search.Embedder",
+	"Embedder":        "the retrieval embed lane — the router itself under no task label, typed search.Embedder",
+	"InvalidateCache": "the data reset's per-workspace cache-drop hook — the router's own Invalidate method, not a task lane",
 })
 
 // taskConstantName renders a contract task name the way tools/gen-aitasks

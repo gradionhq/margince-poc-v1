@@ -27,7 +27,13 @@ import {
 } from "../design-system/recordpicker";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { LoadMoreButton, problemCodeOf, throwProblem, useMe } from "./common";
+import {
+  LoadMoreButton,
+  problemCodeOf,
+  problemMessageOf,
+  throwProblem,
+  useMe,
+} from "./common";
 
 // The mirror user-map card (Settings → the overlay tab): who, in the
 // incumbent CRM, each workspace user IS. That mapping is the whole of a
@@ -172,14 +178,6 @@ function invalidateMapping(
     return;
   }
   queryClient.invalidateQueries({ queryKey: ["overlay"] });
-}
-
-// A failed query carries the server's own detail (throwProblem wraps it in a
-// ProblemError whose message IS that detail); anything else — a rejected
-// fetch, say — falls back to the card's own copy rather than printing
-// whatever object came back.
-function failureMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
 }
 
 // What the directory read produced, threaded to every row that can act on it.
@@ -730,8 +728,9 @@ export function MirrorUserMapCard() {
     owners,
     truncated: directoryQuery.data?.truncated ?? false,
     failure: directoryQuery.isError
-      ? failureMessage(
+      ? problemMessageOf(
           directoryQuery.error,
+          t,
           t("overlay.userMap.directoryFailed", { principal }),
         )
       : null,
@@ -767,7 +766,9 @@ export function MirrorUserMapCard() {
       setUnmapping(entry);
     },
     busy,
-    saveError: setMapping.isError ? setMapping.error.message : null,
+    saveError: setMapping.isError
+      ? problemMessageOf(setMapping.error, t)
+      : null,
   };
 
   return (
@@ -801,7 +802,7 @@ export function MirrorUserMapCard() {
         entry={canManage ? unmapping : null}
         self={unmapping?.user_id === meId}
         pending={busy}
-        error={unmap.isError ? unmap.error.message : null}
+        error={unmap.isError ? problemMessageOf(unmap.error, t) : null}
         onClose={() => {
           unmap.reset();
           setUnmapping(null);
@@ -859,7 +860,7 @@ function UserMapNotice({
   if (failed) {
     return (
       <p className="t-small" style={DANGER_STYLE}>
-        {failureMessage(error, t("overlay.userMap.loadFailed"))}
+        {problemMessageOf(error, t, t("overlay.userMap.loadFailed"))}
       </p>
     );
   }

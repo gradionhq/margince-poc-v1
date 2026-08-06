@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
 import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./voice-dna.css";
 
@@ -32,7 +32,7 @@ export function useVoiceVersions(profileId: string | undefined) {
         params: { path: { id: profileId as string } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -101,14 +101,14 @@ function CandidateBanner({
         },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       setError(null);
       onChanged();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
   return (
     <div className="vdna-candidate card">
@@ -167,7 +167,7 @@ export function VoiceHistory({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       setAllVersions((prev) => mergeById(prev, data.data));
       return { items: data.data, next: data.page.next_cursor ?? null };
@@ -183,7 +183,7 @@ export function VoiceHistory({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       setAllDeltas((prev) => mergeById(prev, data.data));
       return { items: data.data, next: data.page.next_cursor ?? null };
@@ -196,7 +196,7 @@ export function VoiceHistory({
         params: { path: { id: profileId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -308,14 +308,14 @@ function VersionRow({
         },
       );
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       setError(null);
       onChanged();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
   const { locale } = useLocale();
   return (

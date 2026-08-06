@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -72,6 +73,22 @@ type deepReadEngine struct {
 	brain     completer
 	enqueue   deepReadEnqueuer
 	log       *slog.Logger
+	// blob collects the mark an onboarding confirmation declines to adopt —
+	// the module that declines owns no object store, so it reports the key and
+	// this side deletes the bytes. Nil is a role that holds no objects, and the
+	// confirmation is told so: it then keeps the dossier's reference rather
+	// than handing over a key nobody here can act on.
+	blob blobstore.Store
+}
+
+// logger answers the engine's logger, or the default when the composition
+// wired none — a lane that reports what it could not do must not be the reason
+// a request panics.
+func (e *deepReadEngine) logger() *slog.Logger {
+	if e.log == nil {
+		return slog.Default()
+	}
+	return e.log
 }
 
 // start resolves the seed URL (body override, else the org's own domain),
@@ -218,6 +235,10 @@ func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 		engine := &deepReadEngine{
 			people: people.NewStore(pool), approvals: approvals.NewService(pool),
 			runtime: ai.NewRunTransparency(pool), brain: brain, enqueue: inserter, log: s.log,
+			// Read here AND written by WithBlobstore, so neither option order
+			// leaves the onboarding confirmation unable to collect the mark its
+			// anchor declined — the two-way wiring WithDataReset carries too.
+			blob: s.blob,
 		}
 		rollout := s.companyContextRollout
 		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}

@@ -352,8 +352,10 @@ paths:
       description: >
         Non-production only. Wipes workspace domain + seeded-config data back to the
         bootstrapped state, preserving the organization and users so login still works,
-        then re-seeds module defaults. Requires the organization name as a typed
-        confirmation. In production this endpoint does not exist (404).
+        then re-seeds module defaults. Also clears the job queue, the event bus, the
+        Redis counters and the object bytes — not only table rows. Requires the
+        organization name as a typed confirmation. In production this endpoint does
+        not exist (404).
       requestBody:
         required: true
         content:
@@ -375,10 +377,32 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [status, tables_cleared]
+                required: [status, tables_cleared, jobs_deleted, streams_purged, cache_keys_deleted, objects_deleted, drain_timed_out]
                 properties:
                   status: { type: string, example: reset }
                   tables_cleared: { type: integer }
+                  jobs_deleted:
+                    type: integer
+                    description: >
+                      Job rows deleted in EVERY state — queued, scheduled, running and retryable work plus the
+                      retained completed, discarded and cancelled history, which a reset to first-boot state
+                      must not leave behind. Covers this workspace's jobs and the fleet dispatchers the periodic
+                      ticks re-insert.
+                  streams_purged:
+                    type: integer
+                    description: Event-bus stream KEYS deleted (their consumer groups are re-created empty), not entries.
+                  cache_keys_deleted:
+                    type: integer
+                    description: Redis keys unlinked — processed-event dedupe marks plus this workspace's overlay budget counters.
+                  objects_deleted:
+                    type: integer
+                    description: Objects removed from the blob store under this workspace's key prefix.
+                  drain_timed_out:
+                    type: boolean
+                    description: >
+                      True when a job was still running when the bounded drain window expired. The reset
+                      proceeded — a long pass must not make an installation unresettable — and the surviving
+                      job's completion write will fail against rows that no longer exist.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403':
           description: >
@@ -4780,10 +4804,12 @@ paths:
       summary: Confirm a selected onboarding draft into the anchor company atomically.
       description: |
         Applies only the submitted profile and selected fact keys. The draft version and proposal
-        hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
-        Every human-held collision requires an explicit keyed resolution. Unchanged values retain
-        website evidence, edits become human assertions, and published people remain separate
-        site-lead proposals rather than becoming contacts or company-context rows.
+        hash bind confirmation to the exact inspected proposal; a stale confirmation returns
+        `409 version_skew`, an already-decided one `409 already_confirmed`, and one whose read has
+        produced no draft `409 not_confirmable`. Every human-held collision requires an explicit
+        keyed resolution. Unchanged values retain website evidence, edits become human assertions,
+        and published people remain separate site-lead proposals rather than becoming contacts or
+        company-context rows.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -4800,7 +4826,15 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: >
+            The draft cannot be confirmed as submitted, and `code` says which of the three it is:
+            `already_confirmed` (this dossier was confirmed already — reload the company),
+            `not_confirmable` (the read has produced no draft yet — wait for it or start a new one),
+            or `version_skew` (the draft moved since it was reviewed — inspect it again).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   # ------------------ /connectors (per-provider OAuth capture) ---------------
@@ -6306,7 +6340,8 @@ paths:
       description: |
         The workspace member roster: id + display name + email + seat/status. Any authenticated member
         may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
-        archived users. Row-scoped by workspace RLS.
+        archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
+        who is the only one who can act on it.
       x-mcp-tool: { verb: search_records, record_type: app_user, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
@@ -13288,6 +13323,17 @@ components:
         timezone: { type: string, default: UTC, description: IANA name. }
         status: { type: string, enum: [active, suspended, deactivated], default: active }
         is_agent: { type: boolean, default: false, description: First-party Agent Runner identity vs a human seat. }
+        roles:
+          type: array
+          items: { type: string }
+          description: >
+            This member's assigned system role keys. Present ONLY for an admin caller — the roster
+            is readable by every authenticated member (it feeds the share/assignee pickers), and a
+            rep has no business enumerating who holds `admin`. Normally exactly one key:
+            `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients
+            that render a single current role must still handle the empty and multi-key cases.
+            Deliberately absent on `MeResponse.user`, whose sibling `MeResponse.roles` is the one
+            authority for the caller's own roles — the same fact spelled twice could disagree.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -13466,7 +13512,9 @@ components:
         roles:
           type: array
           items: { type: string }
-          description: Effective role keys for this principal.
+          description: >
+            Effective role keys for this principal, and the one authority for them —
+            `user.roles` is deliberately left unset here rather than repeating the same fact.
         teams:
           type: array
           items: { type: string, format: uuid }
@@ -14430,11 +14478,18 @@ components:
       type: object
       required: [key, action]
       properties:
-        key: { type: string }
+        key:
+          type: string
+          description: >
+            A human_conflict comparison key, or — for use_value only — any fact comparison key in
+            the draft. Any other key is refused.
         action: { type: string, enum: [keep_current, accept_proposal, use_value] }
         value:
           type: [string, 'null']
-          description: Required and non-blank only for use_value; forbidden for other actions.
+          description: >
+            Required and non-blank only for use_value; forbidden for other actions. A value equal
+            to the read's own proposed value is an acceptance and keeps the page's evidence; a
+            different one is the human's assertion and is stored with no website evidence.
 
     CompanySiteReadLegalEntity:
       type: object
@@ -14707,6 +14762,11 @@ components:
         status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
         status_detail: { type: [string, 'null'], description: 'Safe guidance only; never provider payload, prompt, SQL, or stack data.' }
         next_attempt_at: { type: [string, 'null'], format: date-time }
+        stopped_reason:
+          type: [string, 'null']
+          enum: [budget, page_cap, byte_cap, deadline, null]
+          x-enum-varnames: [CompanySiteReadStoppedReasonBudget, CompanySiteReadStoppedReasonPageCap, CompanySiteReadStoppedReasonByteCap, CompanySiteReadStoppedReasonDeadline, CompanySiteReadStoppedReasonNull]
+          description: 'Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.'
         phase: { type: [string, 'null'], enum: [crawling, extracting] }
         pages_read: { type: integer, minimum: 0 }
         pages:
@@ -14751,12 +14811,18 @@ components:
         profile: { $ref: '#/components/schemas/CompanyProfileInput' }
         selected_fact_keys:
           type: array
+          description: >
+            The proposed facts to keep, exactly as the read stated them. A fact the reader wants
+            to correct is left out of this list and sent as a use_value resolution instead.
           uniqueItems: true
           maxItems: 100
           items: { type: string }
         resolutions:
           type: array
-          description: Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+          description: >
+            Exactly one keyed resolution for every human_conflict comparison, plus an optional
+            use_value for any fact the read got wrong. Omitted is equivalent to an empty array for
+            existing clients and succeeds only when no human conflict exists.
           items: { $ref: '#/components/schemas/CompanySiteReadResolution' }
 
     EnrichCompanyRequest:

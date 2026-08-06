@@ -8,15 +8,19 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider, translate } from "../i18n";
 import {
   isConsentNotGranted,
+  logUnexpectedError,
+  ProblemError,
   problemExistingId,
   problemFieldErrors,
   problemFieldErrorsOf,
   problemMessage,
+  problemMessageOf,
   provenanceOf,
+  QueryStates,
   throwProblem,
 } from "./common";
 import { CreateAction } from "./create";
@@ -31,6 +35,11 @@ const t = (key: Parameters<typeof translate>[1]) => translate("en", key);
 afterEach(() => {
   cleanup();
   window.location.hash = "";
+  // Unconditionally, not at the end of the case that installed a spy: a case
+  // that fails its assertion never reaches its own teardown, and a leaked
+  // console spy silences the rest of the file — which looks exactly like a
+  // suite that passes.
+  vi.restoreAllMocks();
 });
 
 function render(ui: ReactNode) {
@@ -292,5 +301,135 @@ describe("provenanceOf", () => {
     // the one attribution nobody can check.
     expect(provenanceOf(undefined)).toEqual({ kind: "unknown" });
     expect(provenanceOf("")).toEqual({ kind: "unknown" });
+  });
+});
+
+// The display side of the same rule: what a caught failure is allowed to say.
+// A server problem states an honest cause the reader can act on; a rejected
+// fetch or a bug in a handler states our internals in wording nobody wrote for
+// a user, and the two are indistinguishable at the point of rendering unless
+// the type is checked here.
+describe("problemMessageOf", () => {
+  it("shows the server's own detail when the failure carries a problem", () => {
+    expect(
+      problemMessageOf(new ProblemError({ detail: "email taken" }), t),
+    ).toBe("email taken");
+  });
+
+  it("translates a refusal code the same way the raw-body reader does", () => {
+    expect(
+      problemMessageOf(new ProblemError({ code: "unsupported_by_sor" }), t),
+    ).toBe(t("overlay.refused"));
+  });
+
+  it("never repeats the words of a bare Error", () => {
+    const bug = new TypeError("Cannot read properties of undefined");
+    expect(problemMessageOf(bug, t)).toBe(t("common.errorNoCause"));
+    expect(problemMessageOf(bug, t)).not.toContain(bug.message);
+  });
+
+  it("never repeats the words of a thrown non-Error either", () => {
+    for (const thrown of ["boom", { detail: "not a ProblemError" }, null]) {
+      expect(problemMessageOf(thrown, t)).toBe(t("common.errorNoCause"));
+    }
+  });
+
+  it("answers a problem body carrying no reader text with the shared line", () => {
+    // A proxy 502, or a refusal the server sent no body with, reaches the
+    // client as a ProblemError all the same. "request failed" is the message
+    // that error carries into a stack trace — a developer's words, in one
+    // language, and not a sentence anybody wrote for a reader.
+    for (const body of [undefined, {}, "<html>502 Bad Gateway</html>", 42]) {
+      expect(problemMessageOf(new ProblemError(body), t)).toBe(
+        t("common.errorNoCause"),
+      );
+    }
+  });
+
+  it("keeps the server's words whenever the body carries any", () => {
+    // The line above must not become a way to lose a real detail: a body with
+    // a detail, or with only a title, still speaks for itself. A blank detail
+    // is not words — it would render an error state with nothing in it — so
+    // the title behind it is what the reader gets.
+    expect(
+      problemMessageOf(new ProblemError({ title: "Seat expired" }), t),
+    ).toBe("Seat expired");
+    expect(
+      problemMessageOf(
+        new ProblemError({ detail: "  ", title: "Seat expired" }),
+        t,
+      ),
+    ).toBe("Seat expired");
+  });
+
+  it("prefers the surface's own copy for a failure the server never described", () => {
+    expect(
+      problemMessageOf(
+        new Error("Failed to fetch"),
+        t,
+        t("connectors.loadFailed"),
+      ),
+    ).toBe(t("connectors.loadFailed"));
+    // A server problem still speaks for itself: the fallback is for the case
+    // where there is nothing to say, not a way to overwrite the server.
+    expect(
+      problemMessageOf(
+        new ProblemError({ detail: "budget exhausted" }),
+        t,
+        t("connectors.loadFailed"),
+      ),
+    ).toBe("budget exhausted");
+  });
+});
+
+// The other half of that rule. Deciding a failure is not fit to show is only
+// honest if the failure still exists somewhere an operator can read.
+describe("logUnexpectedError", () => {
+  it("keeps a failure the reader is only shown generic copy for", () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bug = new TypeError("Cannot read properties of undefined");
+
+    logUnexpectedError(bug);
+
+    // The value itself, once: a message string would drop the stack that is
+    // the only reason anyone opens the console for this.
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(logged).toHaveBeenCalledWith(bug);
+  });
+
+  it("stays silent for a failure the reader can already read", () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    logUnexpectedError(new ProblemError({ detail: "no seat" }));
+
+    expect(logged).not.toHaveBeenCalled();
+  });
+});
+
+describe("QueryStates", () => {
+  const failing = (error: unknown) => ({
+    isPending: false,
+    isError: true,
+    error,
+    refetch: () => undefined,
+  });
+
+  it("prints the server's detail for a failed query", () => {
+    render(
+      <QueryStates query={failing(new ProblemError({ detail: "no seat" }))}>
+        {null}
+      </QueryStates>,
+    );
+    expect(screen.getByText("no seat")).toBeTruthy();
+  });
+
+  it("prints the shared line, not the message, when the failure is not a problem", () => {
+    render(
+      <QueryStates query={failing(new TypeError("Failed to fetch"))}>
+        {null}
+      </QueryStates>,
+    );
+    expect(screen.getByText(t("common.errorNoCause"))).toBeTruthy();
+    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
   });
 });

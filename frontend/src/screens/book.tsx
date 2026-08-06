@@ -9,7 +9,7 @@ import {
 } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 
 // Booking page shell (B-EP09.14): rail-less (a test asserts no rail),
 // duration toggle, live availability, and HONEST degradation when the
@@ -66,7 +66,7 @@ function SessionBookingScreen() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -78,7 +78,7 @@ function SessionBookingScreen() {
         params: { query: { q: query, limit: 3 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data.find((hit) => hit.type === "person") ?? null;
     },
@@ -97,7 +97,7 @@ function SessionBookingScreen() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -174,7 +174,7 @@ function SessionBookingScreen() {
         <div className="card card-inset" style={{ marginTop: 12 }}>
           <p className="t-label">{t("book.failed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
-            {book.error instanceof Error ? book.error.message : null}
+            {problemMessageOf(book.error, t)}
           </p>
         </div>
       )}
@@ -210,7 +210,7 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -233,7 +233,7 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -335,7 +335,7 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         <div className="card card-inset" style={{ marginTop: 12 }}>
           <p className="t-label">{t("book.failed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
-            {book.error instanceof Error ? book.error.message : null}
+            {problemMessageOf(book.error, t)}
           </p>
         </div>
       )}

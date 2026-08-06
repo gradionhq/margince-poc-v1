@@ -12,7 +12,7 @@ import {
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
-import { problemMessage, QueryStates } from "./common";
+import { QueryStates, throwProblem } from "./common";
 
 // A string response is shown verbatim (real newlines); an object is
 // pretty-printed. Either way the .code-block surface wraps and scrolls it.
@@ -32,7 +32,7 @@ export function CallDetailPanel({
       const { data, error } = await api.GET("/ai/calls/{id}", {
         params: { path: { id } },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
   });
@@ -133,7 +133,7 @@ export function AiCallsCard() {
           query: { cursor: pageParam ?? undefined, task: task || undefined },
         },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     getNextPageParam: (last) => last.page.next_cursor ?? null,

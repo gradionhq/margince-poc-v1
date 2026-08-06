@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Card, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 
 type Graph = components["schemas"]["PersonGraph"];
 type Node = components["schemas"]["PersonGraphNode"];
@@ -26,7 +26,7 @@ export function usePersonGraph(id: string) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -53,7 +53,7 @@ export function PersonGraphPanel({ personId }: Readonly<{ personId: string }>) {
   if (graph.isError) {
     return (
       <p role="alert" style={{ color: "var(--danger)" }}>
-        {graph.error.message}
+        {problemMessageOf(graph.error, t)}
       </p>
     );
   }

@@ -16,7 +16,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { useSorMode } from "./common";
+import { problemMessageOf, useSorMode } from "./common";
 
 // The shared list foundation (P-14): every list screen sends the rich
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
@@ -265,7 +265,7 @@ export function ListGate<Row>({
       <EmptyState>
         <p>{t("common.error")}</p>
         <p className="t-mono" style={{ marginTop: 6 }}>
-          {error instanceof Error ? error.message : null}
+          {problemMessageOf(error, t)}
         </p>
         <Button small onClick={() => refetch()} style={{ marginTop: 10 }}>
           {t("common.retry")}

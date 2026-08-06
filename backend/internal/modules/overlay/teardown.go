@@ -99,10 +99,8 @@ func (s *Service) Disconnect(ctx context.Context) error {
 		if err := purgeMirror(ctx, tx); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `
-			UPDATE workspace SET x_sor_mode = 'native', x_incumbent = NULL
-			WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`); err != nil {
-			return fmt.Errorf("overlay: flipping the workspace back to native mode: %w", err)
+		if _, err := RevertToNative(ctx, tx); err != nil {
+			return err
 		}
 		return nil
 	})
@@ -121,6 +119,39 @@ func (s *Service) Disconnect(ctx context.Context) error {
 	// above would remove even the manual cleanup step.
 	s.deleteUnreferencedRef(ctx, ws, keyvault.Ref(ref), "disconnect")
 	return nil
+}
+
+// RevertToNative returns the bound workspace to native mode inside the
+// caller's transaction, reporting whether it had to. It is the ONE spelling of
+// that flip: Disconnect's teardown takes it, and so does the non-production
+// data reset, which sweeps every table overlay mode depends on and would
+// otherwise leave the workspace claiming to read from an incumbent it no
+// longer has a connection to.
+//
+// Both columns move in one statement because the schema admits no intermediate
+// state (the x_overlay_iff_incumbent CHECK: a mode of 'overlay' and a non-NULL
+// x_incumbent are the same fact). It is exported because these are overlay's
+// own fork-owned columns on a table identity owns — the write belongs to this
+// module wherever it is called from, which is what
+// TestEveryPackageOnlyWritesTablesItOwns holds.
+//
+// Idempotent by predicate: a workspace already native reports false and is not
+// written, so a caller need not ask the mode first.
+//
+// The GUC is read WITHOUT missing_ok. An unset app.workspace_id would otherwise
+// resolve to NULL, match no row, and return (false, nil) — indistinguishable
+// from a workspace that was already native, so a reset running outside a bound
+// transaction would report success having reverted nothing. The error is the
+// honest answer to a question this function cannot answer.
+func RevertToNative(ctx context.Context, tx pgx.Tx) (bool, error) {
+	tag, err := tx.Exec(ctx, `
+		UPDATE workspace SET x_sor_mode = 'native', x_incumbent = NULL
+		WHERE id = current_setting('app.workspace_id')::uuid
+		  AND x_sor_mode <> 'native'`)
+	if err != nil {
+		return false, fmt.Errorf("overlay: flipping the workspace back to native mode: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // incumbentDisconnectedPayload builds the incumbent.disconnected wire

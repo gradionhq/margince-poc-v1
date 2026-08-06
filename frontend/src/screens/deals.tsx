@@ -42,7 +42,7 @@ import { ArchiveAction } from "./archive";
 import {
   LoadMoreButton,
   OverlayUnavailable,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   QueryStates,
   throwProblem,
@@ -86,7 +86,7 @@ function usePipeline() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       const pipeline =
         data.data.find((candidate) => candidate.is_default) ?? data.data[0];
@@ -116,7 +116,7 @@ function usePipelines(enabled: boolean) {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -168,7 +168,7 @@ function useDeals(f: DealFilters) {
         params: { query: dealsQueryParams(f) },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -204,7 +204,7 @@ function OverlayDealsTable({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -659,7 +659,7 @@ export function DealsScreen({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       return data;
     },
@@ -679,7 +679,7 @@ export function DealsScreen({
         params: { query: { limit: 50 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -688,7 +688,7 @@ export function DealsScreen({
   const createDeal = async (values: Record<string, string>) => {
     const pipeline = effectivePipeline;
     if (!pipeline) {
-      throw new Error(problemMessage(null));
+      throwProblem(null);
     }
     const amount = values.amount?.trim();
     const { data, error } = await api.POST("/deals", {
@@ -706,7 +706,7 @@ export function DealsScreen({
       },
     });
     if (error) {
-      throw new Error(problemMessage(error, t));
+      throwProblem(error, t);
     }
     return data;
   };
@@ -873,7 +873,7 @@ export function DealsScreen({
           className="t-caption"
           style={{ color: "var(--danger)", marginTop: 10 }}
         >
-          {advance.error instanceof Error ? advance.error.message : null}
+          {problemMessageOf(advance.error, t)}
         </p>
       )}
       {toast && (
@@ -1113,7 +1113,7 @@ function ReopenAction({
         body: { to_stage_id: toStageId, status: "open" },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       return data;
     },
@@ -1158,7 +1158,7 @@ function ReopenAction({
         </div>
         {reopen.isError && (
           <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {reopen.error instanceof Error ? reopen.error.message : null}
+            {problemMessageOf(reopen.error, t)}
           </p>
         )}
         <div className="actions">
@@ -1524,7 +1524,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1543,7 +1543,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { query: { limit: 50 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1556,7 +1556,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1575,7 +1575,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { query: { entity_type: "deal", entity_id: id, limit: 20 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1588,7 +1588,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1600,7 +1600,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         body: { currency, source: "manual" },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1621,7 +1621,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id: input.approvalId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () =>

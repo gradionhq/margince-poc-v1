@@ -299,9 +299,19 @@ export const de = {
   "rel.kind.coSellWith": "Co-Sell mit",
 
   "common.error": "Konnten diese Ansicht nicht laden.",
+  "common.errorNoCause":
+    "Die Anfrage ist fehlgeschlagen. Keine Ursache gemeldet.",
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",
   "common.saving": "Wird gespeichert…",
+
+  // "Funktioniert nicht mehr", nicht "Fehler aufgetreten": die Ansicht ist
+  // stehengeblieben, und das ist die Beobachtung, die der Lesende selbst
+  // machen kann. Kein Wort über den Fehler.
+  "app.errorTitle": "Diese Ansicht funktioniert nicht mehr.",
+  "app.errorBody":
+    "Versuch es noch einmal. Wenn es weiter fehlschlägt, lade die Seite neu.",
+  "app.errorRetry": "Erneut versuchen",
 
   "list.search": "Suchen",
   "list.sort": "Sortieren",
@@ -1399,6 +1409,10 @@ export const de = {
     "Gib zur Bestätigung den Namen deiner Organisation ein. Dies kann nicht rückgängig gemacht werden.",
   "settings.resetDataConfirmName": "Gib diesen Organisationsnamen ein:",
   "settings.resetDataConfirmLabel": "Organisationsname bestätigen",
+  "settings.resetDataResult":
+    "{tables} Tabellen, {jobs} Job-Einträge, {streams} Event-Streams, {keys} Cache-Schlüssel und {objects} gespeicherte Dateien gelöscht.",
+  "settings.resetDataDrainWarning":
+    "Beim Start des Zurücksetzens lief noch ein Hintergrund-Job. Er schlägt gegen die gelöschten Daten fehl — unkritisch, aber es erscheint ein Fehler im Log.",
   "settings.audit": "Audit-Log",
   "audit.you": "Du",
   "audit.teammate": "Ein Teammitglied",
@@ -2161,12 +2175,17 @@ export const de = {
   "ob.conv.triage.stateEmpty": "leer",
   "ob.conv.triage.stateTyped": "von dir eingetragen",
   "ob.conv.triage.stateStored": "aus deinem Profil",
+  "ob.conv.triage.stateQuoted": "aus deinem Impressum gelesen",
   "ob.conv.triage.emptyHint":
-    "Nicht auf deiner Website gefunden. Trag es ein, wenn es zählt.",
+    "Hier steht noch nichts. Trag es ein, wenn es zählt.",
   "ob.conv.triage.legalNotPublished":
     "Nicht auf deinem Impressum angegeben. Trag es selbst ein.",
   "ob.conv.triage.legalNotChecked":
     "Ich habe kein Impressum auf deiner Website gefunden, das ich prüfen könnte. Trag es selbst ein.",
+  "ob.conv.triage.legalUnpicked":
+    "Dein Impressum nennt mehr als ein Unternehmen. Wähl aus, welches deins ist, dann trage ich es ein.",
+  "ob.conv.triage.omittedLabel": "Ausgelassen, nicht geraten",
+  "ob.conv.triage.omittedField": "{field}: {reason}",
   "ob.conv.triage.mapLabel": "Zu einem Abschnitt springen",
   "ob.conv.triage.sectionBlocking": "{count} nötig, um fortzufahren",
   "ob.conv.triage.sectionAdvisory": "{count} prüfenswert",
@@ -2305,7 +2324,9 @@ export const de = {
   "ob.conv.review.confirmVersionSkewStuck":
     "Ich habe noch einmal geprüft, aber es hat sich noch nichts geändert. Weiter würde jetzt genauso fehlschlagen. Schau noch einmal nach oder prüfe es gleich erneut.",
   "ob.conv.review.confirmNotReady":
-    "Dieser Read ist noch nicht bereit zur Bestätigung. Warte, bis er fertig ist, oder starte einen neuen.",
+    "Dieser Read hat noch keinen Entwurf zum Bestätigen, deshalb ist Weiter vorerst gesperrt. Prüfe erneut, sobald er fertig ist, oder starte einen neuen Read.",
+  "ob.conv.review.confirmCheckFailed":
+    "Dieser Read wurde bereits bestätigt, aber ich konnte das damit angelegte Unternehmen nicht laden. Prüfe es gleich noch einmal.",
   "ob.conv.artifact.empty":
     "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
   "ob.conv.results.continue": "Weiter",
@@ -2479,6 +2500,15 @@ export const de = {
   "ob.live.peopleEmpty":
     "Noch niemand. Ich schlage eine Person nur vor, wenn die Seite Name und Rolle nennt.",
   "ob.live.coverageWarning": "Hinweis",
+  "ob.live.coverageStopped": "Vorzeitig beendet",
+  "ob.live.stoppedPageCap":
+    "Ich habe das Seitenlimit für einen Lesevorgang erreicht. Es gibt also mehr auf deiner Website, das ich nicht geöffnet habe.",
+  "ob.live.stoppedByteCap":
+    "Ich habe das Größenlimit für einen Lesevorgang erreicht. Es gibt also mehr auf deiner Website, das ich nicht geöffnet habe.",
+  "ob.live.stoppedBudget":
+    "Ich habe das Budget für einen Lesevorgang erreicht. Es gibt also mehr auf deiner Website, das ich nicht geöffnet habe.",
+  "ob.live.stoppedDeadline":
+    "Mir ist die Zeit für einen Lesevorgang ausgegangen. Es gibt also mehr auf deiner Website, das ich nicht geöffnet habe.",
   "ob.live.coverageSkipped": "Übersprungen",
   "ob.live.coverageFailed": "Nicht lesbar",
   "ob.live.coverageClean":
@@ -3108,6 +3138,7 @@ export const de = {
   "users.invite": "Einladen",
   "users.setRole": "Rolle setzen…",
   "users.setRoleFor": "Rolle für {name} setzen",
+  "users.rolesHeld": "Hat {roles}. Eine auszuwählen ersetzt alle",
   "users.deactivate": "Deaktivieren",
   "users.reactivate": "Reaktivieren",
   "users.status.active": "Aktiv",
@@ -3154,6 +3185,8 @@ export const de = {
   "settings.companySaved": "Gespeichert",
   "settings.companyRefreshUnavailable":
     "Diese Website-Aktualisierung ist nicht mehr verfügbar.",
+  "settings.companyRefreshUnreadable":
+    "Wir haben den Stand dieses Website-Lesevorgangs verloren. Starte die Aktualisierung erneut.",
   "settings.companyRefreshStale":
     "Der Website-Vorschlag hat sich geändert. Prüfe den neuen Vergleich vor dem Übernehmen.",
   "settings.companyRefreshReview": "Website-Vergleich",

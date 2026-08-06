@@ -6,7 +6,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { ProblemError, problemCode, throwProblem } from "./common";
+import type { MessageKey } from "../i18n/en";
+import { problemCodeOf, problemMessageOf, throwProblem } from "./common";
 
 // The IMAP connect flavor (RC-8/Task 6): the credential providers' first-
 // connect and reconnect both happen through this one form, in Settings —
@@ -29,28 +30,23 @@ const DEFAULT_MAILBOX = "INBOX";
 const DEFAULT_MAX_MESSAGES = "50";
 
 // The two IMAP-specific server conditions get their own honest sentence;
-// anything else falls through to the mutation's generic message. Neither
+// every other failure reads the way failures read everywhere else. Neither
 // sentence ever echoes the submitted host — the server doesn't send it back
 // either, so there is nothing here to leak. Exported so the onboarding IMAP
 // panel (onboarding-connect-panels.tsx) reads the same two sentences off the
 // same server codes, rather than growing its own copy of this mapping.
 export function imapErrorMessage(
   error: unknown,
-  t: (
-    key: "connectors.imapLoginRejected" | "connectors.imapUnreachable",
-  ) => string,
-): string | null {
-  if (!(error instanceof ProblemError)) {
-    return error instanceof Error ? error.message : null;
-  }
-  const code = problemCode(error.problem);
+  t: (key: MessageKey) => string,
+): string {
+  const code = problemCodeOf(error);
   if (code === "imap_login_rejected") {
     return t("connectors.imapLoginRejected");
   }
   if (code === "imap_unreachable") {
     return t("connectors.imapUnreachable");
   }
-  return error.message;
+  return problemMessageOf(error, t);
 }
 
 export function ImapConnectForm({

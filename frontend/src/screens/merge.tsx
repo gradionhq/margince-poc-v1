@@ -6,7 +6,7 @@ import { useEffect, useId, useState } from "react";
 import { navigate, type Route } from "../app/router";
 import { Button, Modal, SearchField } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { useSorMode } from "./common";
+import { problemMessageOf, useSorMode } from "./common";
 
 // The shared "Merge into…" affordance (P-2): a human direct call that folds
 // this record (the source, A) into a picked survivor (B) — A is archived
@@ -55,7 +55,10 @@ export function MergeAction<Survivor extends { id: string }>({
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
   const [target, setTarget] = useState<MergeCandidate | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  // The caught failure itself, not a sentence about it: the effect below
+  // runs debounced and must not depend on the translator, which is a new
+  // function every render. It is turned into copy where it is rendered.
+  const [searchFailure, setSearchFailure] = useState<unknown>(null);
 
   useEffect(() => {
     if (!open) {
@@ -64,7 +67,7 @@ export function MergeAction<Survivor extends { id: string }>({
     const query = term.trim();
     if (!query) {
       setCandidates([]);
-      setSearchError(null);
+      setSearchFailure(null);
       return;
     }
     let cancelled = false;
@@ -75,14 +78,12 @@ export function MergeAction<Survivor extends { id: string }>({
           setCandidates(
             results.filter((candidate) => candidate.id !== sourceId),
           );
-          setSearchError(null);
+          setSearchFailure(null);
         }
       } catch (error) {
         if (!cancelled) {
           setCandidates([]);
-          setSearchError(
-            error instanceof Error ? error.message : "request failed",
-          );
+          setSearchFailure(error);
         }
       }
     }, SEARCH_DEBOUNCE_MS);
@@ -108,7 +109,7 @@ export function MergeAction<Survivor extends { id: string }>({
     setTerm("");
     setCandidates([]);
     setTarget(null);
-    setSearchError(null);
+    setSearchFailure(null);
     mutation.reset();
   };
 
@@ -137,11 +138,11 @@ export function MergeAction<Survivor extends { id: string }>({
             setTarget(null);
           }}
         />
-        {searchError && (
+        {searchFailure ? (
           <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {searchError}
+            {problemMessageOf(searchFailure, t)}
           </p>
-        )}
+        ) : null}
         <ul style={{ listStyle: "none", margin: "8px 0", padding: 0 }}>
           {candidates.map((candidate) => (
             <li key={candidate.id}>
@@ -164,7 +165,7 @@ export function MergeAction<Survivor extends { id: string }>({
         )}
         {mutation.isError && (
           <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {mutation.error instanceof Error ? mutation.error.message : null}
+            {problemMessageOf(mutation.error, t)}
           </p>
         )}
         <div className="actions">

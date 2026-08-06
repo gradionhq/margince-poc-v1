@@ -4,12 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useLocale } from "../../i18n";
-import { problemMessage } from "../common";
+import type { MessageKey } from "../../i18n/en";
+import { ProblemError, problemMessageOf, throwProblem } from "../common";
 import type { CompanyDraft } from "../onboarding";
 import { changeDraftField, prefill } from "../onboarding";
 import { defaultSelectedFactKeys } from "../onboarding-facts";
 import type { ClarifyAnswer } from "./company-proposal";
-import { toMachineQuestion } from "./company-proposal";
+import {
+  draftWithSoleLegalEntity,
+  toMachineQuestion,
+} from "./company-proposal";
 import type {
   ConversationEvent,
   ConversationState,
@@ -33,28 +37,32 @@ type ReadTerminal = Readonly<{
   status: "ready" | "partial";
 }>;
 
-// The one failure `startRead`'s mutationFn may report verbatim: an RFC 7807
-// detail/title already run through problemMessage. A network TypeError (the
-// fetch itself never reached the server) throws unclassified and is never
-// wrapped in this — safeStartError below is what keeps that distinction
-// alive for every reader of `startRead.error`.
-class ReadStartError extends Error {}
+// The one failure `startRead`'s mutationFn may report verbatim: the
+// site-reads endpoint's own RFC 7807 body, carried whole so the reader path
+// below can read its detail. A network TypeError (the fetch itself never
+// reached the server) throws unclassified and is never wrapped in this —
+// safeStartError below is what keeps that distinction alive for every reader
+// of `startRead.error`.
+class ReadStartError extends ProblemError {}
 
 /**
  * `startRead.error` narrowed to what is safe to show: the server's own
- * guidance when the failure is a classified `ReadStartError`, and nothing —
- * logged instead — for anything else. `ob.gate.startFailed` already reads
- * correctly with an empty `{detail}`, so an unclassified failure still gets
- * an honest, catalog-only sentence rather than a raw exception message.
+ * guidance when the failure is a classified `ReadStartError`, and nothing at
+ * all for anything else. `ob.gate.startFailed` already reads correctly with an
+ * empty `{detail}`, so a failure the server never described still gets an
+ * honest, catalog-only sentence rather than a raw exception message.
+ *
+ * Reporting is not this function's job and cannot be: it is called while
+ * rendering, once per render for as long as the error stands, and a console
+ * the same failure fills a screenful of is one nobody can read. The mutation
+ * that failed is observed by the client's own sink, which keeps exactly the
+ * failures nobody wrote words for, once each (app/queryclient.ts, FE-PARAM-4).
  */
-export function safeStartError(error: unknown): string {
-  if (error instanceof ReadStartError) {
-    return error.message;
-  }
-  if (error !== null && error !== undefined) {
-    console.error("company site-read start failed unexpectedly", error);
-  }
-  return "";
+export function safeStartError(
+  error: unknown,
+  t: (key: MessageKey) => string,
+): string {
+  return error instanceof ReadStartError ? problemMessageOf(error, t, "") : "";
 }
 
 type UseCompanyReadArgs = Readonly<{
@@ -160,7 +168,12 @@ export function useCompanyRead({
       prevSnapshot.current = next;
       if (next.draft_version > appliedReadVersion.current) {
         appliedReadVersion.current = next.draft_version;
-        setDraft((current) => prefill(current, next.profile_fields));
+        setDraft((current) =>
+          draftWithSoleLegalEntity(
+            prefill(current, next.profile_fields),
+            next.legal_entities,
+          ),
+        );
         setSelectedFactKeys(defaultSelectedFactKeys(next.facts));
       }
       // Progress first, outcome second: the flush inside a terminal diff
@@ -195,7 +208,10 @@ export function useCompanyRead({
     prevSnapshot.current = adoptedRead;
     appliedReadVersion.current = adoptedRead.draft_version;
     setDraft((current) => {
-      const prefilled = prefill(current, adoptedRead.profile_fields);
+      const prefilled = draftWithSoleLegalEntity(
+        prefill(current, adoptedRead.profile_fields),
+        adoptedRead.legal_entities,
+      );
       // The confirm contract requires the website; a draft persisted before
       // the composer wrote URLs into it (or wiped by an old client) heals
       // from the adopted read's own root - the one URL this read IS.
@@ -217,7 +233,7 @@ export function useCompanyRead({
         body: { url },
       });
       if (error) {
-        throw new ReadStartError(problemMessage(error));
+        throw new ReadStartError(error);
       }
       return data;
     },
@@ -260,7 +276,7 @@ export function useCompanyRead({
         params: { path: { readId: readId ?? "" } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -320,7 +336,7 @@ export function useCompanyRead({
         params: { query: { locale: promptLocale } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

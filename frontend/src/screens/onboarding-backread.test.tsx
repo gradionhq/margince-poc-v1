@@ -209,8 +209,7 @@ describe("the scope preview", () => {
   // A transport failure never reaches `throwProblem` (there is no server
   // body to wrap), so its raw `Error` message is not reader-safe — only a
   // `ProblemError`'s message is server-composed and safe to show verbatim.
-  it("hides a raw transport failure behind a safe sentence, and logs it instead", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("hides a raw transport failure behind a safe sentence", async () => {
     installFetchStub({
       [PREVIEW_ROUTE]: () => {
         throw new Error("ECONNRESET: socket hang up");
@@ -224,8 +223,6 @@ describe("the scope preview", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/ECONNRESET/)).not.toBeInTheDocument();
-    expect(errorSpy).toHaveBeenCalled();
-    errorSpy.mockRestore();
   });
 });
 

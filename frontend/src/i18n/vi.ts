@@ -306,9 +306,15 @@ export const vi = {
   "rel.kind.coSellWith": "Bán chung với",
 
   "common.error": "Không tải được màn hình này.",
+  "common.errorNoCause":
+    "Yêu cầu thất bại. Không có nguyên nhân nào được báo về.",
   "common.retry": "Thử lại",
   "common.empty": "Chưa có gì ở đây.",
   "common.saving": "Đang lưu…",
+
+  "app.errorTitle": "Màn hình này đã ngừng hoạt động.",
+  "app.errorBody": "Hãy thử lại. Nếu vẫn tiếp tục lỗi, hãy tải lại trang.",
+  "app.errorRetry": "Thử lại",
 
   "list.search": "Tìm kiếm",
   "list.sort": "Sắp xếp",
@@ -1401,6 +1407,10 @@ export const vi = {
     "Nhập tên tổ chức của bạn để xác nhận. Không thể hoàn tác.",
   "settings.resetDataConfirmName": "Nhập đúng tên tổ chức này:",
   "settings.resetDataConfirmLabel": "Xác nhận tên tổ chức",
+  "settings.resetDataResult":
+    "Đã xoá {tables} bảng, {jobs} dòng tác vụ, {streams} luồng sự kiện, {keys} khoá bộ nhớ đệm và {objects} tệp đã lưu.",
+  "settings.resetDataDrainWarning":
+    "Khi bắt đầu xoá sạch, vẫn còn một tác vụ nền đang chạy. Tác vụ đó sẽ thất bại vì dữ liệu đã bị xoá — vô hại, nhưng sẽ có một lỗi trong nhật ký.",
   "settings.audit": "Nhật ký kiểm toán",
   "audit.you": "Bạn",
   "audit.teammate": "Một đồng nghiệp",
@@ -2159,12 +2169,17 @@ export const vi = {
   "ob.conv.triage.stateEmpty": "trống",
   "ob.conv.triage.stateTyped": "bạn tự nhập",
   "ob.conv.triage.stateStored": "từ hồ sơ của bạn",
+  "ob.conv.triage.stateQuoted": "đọc từ trang thông tin pháp lý của bạn",
   "ob.conv.triage.emptyHint":
     "Không thấy trên website của bạn. Bạn tự bổ sung.",
   "ob.conv.triage.legalNotPublished":
     "Không được nêu trên trang thông tin pháp lý của bạn. Bạn tự bổ sung.",
   "ob.conv.triage.legalNotChecked":
     "Tôi không tìm thấy trang thông tin pháp lý nào trên website của bạn để đối chiếu. Bạn tự bổ sung.",
+  "ob.conv.triage.legalUnpicked":
+    "Trang thông tin pháp lý của bạn nêu nhiều hơn một công ty. Hãy chọn công ty của bạn và tôi sẽ điền vào đây.",
+  "ob.conv.triage.omittedLabel": "Bỏ trống, không đoán",
+  "ob.conv.triage.omittedField": "{field}: {reason}",
   "ob.conv.triage.mapLabel": "Nhảy tới một mục",
   "ob.conv.triage.sectionBlocking": "{count} mục cần có để tiếp tục",
   "ob.conv.triage.sectionAdvisory": "{count} mục nên xem lại",
@@ -2303,6 +2318,8 @@ export const vi = {
     "Tôi đã kiểm tra lại, nhưng chưa có gì đổi. Bấm Tiếp tục lúc này cũng sẽ hỏng y như vậy, nên hãy xem lại một lượt hoặc kiểm tra lại sau giây lát.",
   "ob.conv.review.confirmNotReady":
     "Lượt đọc này chưa sẵn sàng để xác nhận. Hãy chờ đọc xong, hoặc bắt đầu một lượt mới.",
+  "ob.conv.review.confirmCheckFailed":
+    "Lượt đọc này đã được xác nhận rồi, nhưng tôi không tải được công ty đã tạo từ đó. Hãy kiểm tra lại sau giây lát.",
   "ob.conv.artifact.empty":
     "Chưa đọc được gì. Hãy đưa tôi một website và khung này sẽ đầy lên bằng các phát hiện có dẫn nguồn.",
   "ob.conv.results.continue": "Tiếp tục",
@@ -2473,6 +2490,15 @@ export const vi = {
   "ob.live.peopleEmpty":
     "Chưa có ai. Tôi chỉ đề xuất một người khi trang web nêu cả tên lẫn vai trò.",
   "ob.live.coverageWarning": "Cảnh báo",
+  "ob.live.coverageStopped": "Dừng sớm",
+  "ob.live.stoppedPageCap":
+    "Tôi đã chạm giới hạn số trang cho một lượt đọc, nên vẫn còn phần website của bạn mà tôi chưa mở.",
+  "ob.live.stoppedByteCap":
+    "Tôi đã chạm giới hạn dung lượng cho một lượt đọc, nên vẫn còn phần website của bạn mà tôi chưa mở.",
+  "ob.live.stoppedBudget":
+    "Tôi đã chạm hạn mức cho một lượt đọc, nên vẫn còn phần website của bạn mà tôi chưa mở.",
+  "ob.live.stoppedDeadline":
+    "Tôi đã hết thời gian cho một lượt đọc, nên vẫn còn phần website của bạn mà tôi chưa mở.",
   "ob.live.coverageSkipped": "Đã bỏ qua",
   "ob.live.coverageFailed": "Không đọc được",
   "ob.live.coverageClean":
@@ -3108,6 +3134,7 @@ export const vi = {
   "users.invite": "Mời",
   "users.setRole": "Đặt vai trò…",
   "users.setRoleFor": "Đặt vai trò cho {name}",
+  "users.rolesHeld": "Đang giữ {roles}. Chọn một vai trò sẽ thay thế tất cả",
   "users.deactivate": "Vô hiệu hoá",
   "users.reactivate": "Kích hoạt lại",
   "users.status.active": "Đang hoạt động",
@@ -3155,6 +3182,8 @@ export const vi = {
   "settings.companySaved": "Đã lưu",
   "settings.companyRefreshUnavailable":
     "Lần làm mới từ website này không còn nữa.",
+  "settings.companyRefreshUnreadable":
+    "Chúng tôi đã mất dấu lượt đọc website này. Hãy bắt đầu làm mới lại.",
   "settings.companyRefreshStale":
     "Đề xuất từ website đã đổi. Hãy xem lại bản so sánh mới trước khi áp dụng.",
   "settings.companyRefreshReview": "So sánh với website",

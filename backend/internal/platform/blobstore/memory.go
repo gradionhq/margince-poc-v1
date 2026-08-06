@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"strings"
 	"sync"
 )
 
@@ -61,6 +62,22 @@ func (m *memoryStore) Delete(_ context.Context, key string) error {
 	defer m.mu.Unlock()
 	delete(m.objects, key)
 	return nil
+}
+
+func (m *memoryStore) DeletePrefix(_ context.Context, prefix string) (int, error) {
+	if prefix == "" || !strings.HasSuffix(prefix, "/") {
+		return 0, ErrInvalidPrefix
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	deleted := 0
+	for key := range m.objects {
+		if strings.HasPrefix(key, prefix) {
+			delete(m.objects, key)
+			deleted++
+		}
+	}
+	return deleted, nil
 }
 
 // Health always succeeds: the in-memory store has no backend to reach.

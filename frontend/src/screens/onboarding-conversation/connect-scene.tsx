@@ -7,7 +7,7 @@ import { Button } from "../../design-system/atoms";
 import { ProviderMark } from "../../design-system/provider-mark";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
-import { problemMessage } from "../common";
+import { throwProblem } from "../common";
 import { ConnectDialog } from "./connect-dialog";
 
 // The connect act's work surface: two sections of real-width cards — the
@@ -118,7 +118,7 @@ function useConnectedMailProviders(): ConnectedMailRoster {
     queryFn: async () => {
       const { data, error } = await api.GET("/connectors");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
