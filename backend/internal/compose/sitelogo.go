@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -423,9 +424,10 @@ func debugLogo(logo resolvedLogo, attempts []logoAttempt) DebugLogo {
 }
 
 // reclaimLogoObject deletes an object nothing references any more: the mark a
-// successful write superseded, or this attempt's own bytes when the write did
-// not happen. Best-effort like the rest of the lane — a failure here costs
-// storage, never correctness, so it is logged and the read carries on.
+// successful write superseded, this attempt's own bytes when the write did not
+// happen, or the mark a confirmation declined to adopt. Best-effort like the
+// rest of the lane — a failure here costs storage, never correctness, so it is
+// logged and the caller carries on.
 //
 // It runs on a DETACHED context, for the same reason finish() does: this is
 // the answer to work that has already happened, and the most likely reason to
@@ -433,16 +435,26 @@ func debugLogo(logo resolvedLogo, attempts []logoAttempt) DebugLogo {
 // that just expired would skip exactly the deletes that matter — and an
 // object at a per-attempt key that no row ever named is one nothing else can
 // find to collect later.
-func (w *siteDeepReadWorker) reclaimLogoObject(ctx context.Context, readID ids.UUID, key *string) {
-	if key == nil || *key == "" {
+//
+// A nil store is a role that holds no objects; it never reaches a key worth
+// collecting, because the row-writing calls that report one are guarded by the
+// same fact.
+func deleteUnreferencedLogo(ctx context.Context, blob blobstore.Store, log *slog.Logger, readID ids.UUID, key *string) {
+	if blob == nil || key == nil || *key == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), logoReclaimBudget)
 	defer cancel()
-	if err := w.blob.Delete(ctx, *key); err != nil {
-		w.log.WarnContext(ctx, "reclaiming a superseded logo object failed",
+	if err := blob.Delete(ctx, *key); err != nil {
+		log.WarnContext(ctx, "reclaiming an unreferenced logo object failed",
 			"read", readID.String(), "key", *key, "err", err)
 	}
+}
+
+// reclaimLogoObject binds the worker's own object store and logger to the
+// collection every write path in this lane ends with.
+func (w *siteDeepReadWorker) reclaimLogoObject(ctx context.Context, readID ids.UUID, key *string) {
+	deleteUnreferencedLogo(ctx, w.blob, w.log, readID, key)
 }
 
 // logoAttemptSummary renders the attempts as one log-friendly line, so a

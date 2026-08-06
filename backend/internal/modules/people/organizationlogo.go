@@ -192,6 +192,15 @@ func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, claimed
 	return recorded, supersededKey, nil
 }
 
+// logoUnwornByAnyOrganization is the safety proof every drop of a parked
+// reference carries, in one spelling: the reference goes only while no
+// organization names the same key, so an object a company wears is never
+// reported as collectable. Keys carry their workspace prefix and RLS scopes the
+// check to that same tenant, so a foreign record's bytes cannot be described
+// here at all. It reads the `sr` alias its statements give site_read.
+const logoUnwornByAnyOrganization = `NOT EXISTS (
+		SELECT 1 FROM organization o WHERE o.logo_object_key = sr.logo_object_key)`
+
 // DiscardSiteReadLogo drops the mark parked on a read that can never hand it
 // over, and answers the storage key it dropped so the caller collects the
 // bytes — this module owns no object store, so reclaiming is something it can
@@ -202,12 +211,6 @@ func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, claimed
 // failed, or cancelled because the operator withdrew the setting that queued it
 // — therefore holds bytes no record will ever wear, and the reference on the
 // dossier is the only thing left that can still find them.
-//
-// The NOT EXISTS is the safety proof rather than an optimization: the reference
-// is dropped only while no organization names the same key, so an object a
-// company wears is never reported as collectable. Keys carry their workspace
-// prefix and RLS scopes the check to that same tenant, so a foreign record's
-// bytes cannot be described here at all.
 //
 // No auth.Require, the same rationale as RecordSiteReadLogo: the worker is not
 // a human principal, and the parked reference is operational state on the
@@ -222,8 +225,7 @@ func (s *Store) DiscardSiteReadLogo(ctx context.Context, readID ids.UUID) (*stri
 			UPDATE site_read sr SET logo_object_key = NULL, logo_origin = NULL, updated_at = now()
 			WHERE sr.id = $1 AND sr.confirmed_at IS NULL AND sr.logo_object_key IS NOT NULL
 			  AND sr.status IN ('failed', 'cancelled')
-			  AND NOT EXISTS (
-				SELECT 1 FROM organization o WHERE o.logo_object_key = sr.logo_object_key)
+			  AND `+logoUnwornByAnyOrganization+`
 			RETURNING (SELECT parked.logo_object_key FROM site_read parked WHERE parked.id = $1)`,
 			readID).Scan(&discarded)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -249,40 +251,49 @@ func (s *Store) DiscardSiteReadLogo(ctx context.Context, readID ids.UUID) (*stri
 //
 // Fill-empty, like every site-read field the confirmation applies: a mark the
 // record already wears — a person's own, or one an earlier read landed — stays,
-// and the parked object is simply not adopted. That is also what keeps this
-// write from stranding bytes nothing could collect afterwards: this module owns
-// no object store, so it may adopt an object but must never drop the last
-// reference to one — an adoption MOVES the dossier's reference onto the record,
-// and a confirmation that adopts nothing leaves the dossier's where it is.
-func bindSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, orgID ids.OrganizationID) error {
+// and the parked object is not adopted. Adoption MOVES the dossier's reference
+// onto the record; a decline hands that reference back to the caller as a key
+// to collect, in the same transaction that declined, so the row and the report
+// can never disagree about who holds those bytes.
+//
+// It answers the unadopted key, never a deleted object: this module owns no
+// object store, so reclaiming is something it can only ever REPORT.
+func bindSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, orgID ids.OrganizationID, reclaim bool) (*string, error) {
+	// unadopted names what the confirmation leaves behind for its caller. It
+	// stays nil on every path that leaves nothing: no mark was parked, or the
+	// anchor took the one that was.
+	var unadopted *string
 	var objectKey, originURL *string
 	if err := tx.QueryRow(ctx,
 		`SELECT logo_object_key, logo_origin FROM site_read WHERE id = $1`, readID).
 		Scan(&objectKey, &originURL); err != nil {
-		return fmt.Errorf("read the website read's logo: %w", err)
+		return nil, fmt.Errorf("read the website read's logo: %w", err)
 	}
 	if objectKey == nil || *objectKey == "" || originURL == nil || *originURL == "" {
 		// The read resolved nothing usable — an air-gapped install, a site that
 		// declares no icon, an asset that would not decode. The record draws its
 		// deterministic monogram, which is a face rather than a gap.
-		return nil
+		return unadopted, nil
 	}
 	held, err := logoHeldByHuman(ctx, tx, orgID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if held {
-		return nil
+		return releaseParkedSiteReadLogo(ctx, tx, readID, reclaim)
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE organization SET logo_object_key = $2, logo_origin = $3
 		WHERE id = $1 AND archived_at IS NULL AND logo_object_key IS NULL`,
 		orgID, *objectKey, *originURL)
 	if err != nil {
-		return fmt.Errorf("bind the website read's logo: %w", err)
+		return nil, fmt.Errorf("bind the website read's logo: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return nil
+		// The record already wears a mark, or was archived under this
+		// confirmation: the same decline as a human-held field, and the same
+		// parked object left over.
+		return releaseParkedSiteReadLogo(ctx, tx, readID, reclaim)
 	}
 	// Handed over, not shared: the record is the object's one reference now.
 	// Two rows naming one key would let a later resolve of this organization
@@ -293,13 +304,49 @@ func bindSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, orgID ids
 	if _, err := tx.Exec(ctx, `
 		UPDATE site_read SET logo_object_key = NULL, logo_origin = NULL, updated_at = now()
 		WHERE id = $1`, readID); err != nil {
-		return fmt.Errorf("hand the website read's logo to the company: %w", err)
+		return nil, fmt.Errorf("hand the website read's logo to the company: %w", err)
 	}
 	// The site read is what captured this, never the human who confirmed the
 	// draft: provenance is written once and never re-derived, and a machine mark
 	// recorded under a person's name would make the human-precedence guard
 	// refuse every later resolve for a logo nobody chose.
-	return recordLogoWrite(ctx, tx, orgID, *originURL, companySiteReadCapturedBy)
+	if err := recordLogoWrite(ctx, tx, orgID, *originURL, companySiteReadCapturedBy); err != nil {
+		return nil, err
+	}
+	return unadopted, nil
+}
+
+// releaseParkedSiteReadLogo drops the reference a confirmation declined to
+// adopt and answers the key it dropped, so the caller collects bytes no record
+// wears. The confirmation holds this dossier's row lock, so the drop and the
+// answer describe one state.
+//
+// A caller that owns no object store asks for no release and the reference
+// STAYS. The parked key embeds a per-attempt uuid nothing else recorded — it is
+// the object's last handle — so clearing it for a caller that cannot delete
+// would turn a findable orphan into an unfindable one. It is the confirm path's
+// spelling of the guard the worker keeps in front of DiscardSiteReadLogo.
+func releaseParkedSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, reclaim bool) (*string, error) {
+	// released stays nil for the two outcomes that free nothing: a caller that
+	// cannot collect, and bytes a record already wears — the statement matches no
+	// row then, and the reference stays with the record.
+	var released *string
+	if !reclaim {
+		return released, nil
+	}
+	// RETURNING the pre-write key, exactly as the writes above do: the
+	// sub-select reads the statement's own snapshot, so it names the object this
+	// UPDATE just unreferenced.
+	err := tx.QueryRow(ctx, `
+		UPDATE site_read sr SET logo_object_key = NULL, logo_origin = NULL, updated_at = now()
+		WHERE sr.id = $1 AND sr.logo_object_key IS NOT NULL
+		  AND `+logoUnwornByAnyOrganization+`
+		RETURNING (SELECT parked.logo_object_key FROM site_read parked WHERE parked.id = $1)`,
+		readID).Scan(&released)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("release the website read's unadopted logo: %w", err)
+	}
+	return released, nil
 }
 
 // supersededObject names the object this write orphaned, or nil when it

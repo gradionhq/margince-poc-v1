@@ -311,7 +311,7 @@ func TestOnboardingSiteReadConfirmsSelectedDataAndKeepsPeopleSeparate(t *testing
 
 	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
 	offer, editedICP, website := "Employee onboarding software", "B2B RevOps teams with 50–500 employees", seedURL
-	company, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
+	company, _, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName: "Acme", Website: &website,
 		Fields:           map[string]*string{"offer_summary": &offer, "icp": &editedICP},
@@ -357,7 +357,7 @@ func TestOnboardingSiteReadConfirmsSelectedDataAndKeepsPeopleSeparate(t *testing
 		t.Fatalf("dossier bound to %s, want anchor %s", confirmedOrg, company.OrganizationID)
 	}
 
-	_, err = e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
+	_, _, err = e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName: "Acme", Fields: map[string]*string{"offer_summary": &offer, "icp": &editedICP},
 	}, nil)
@@ -382,7 +382,7 @@ func TestCorrectingAFactAtColdStartStoresItAsTheHumansOwnAssertion(t *testing.T)
 	accepted, wrong := ready.Facts[0], ready.Facts[1]
 	corrected := "ClickHouse — data platform"
 	offer, icp := "Employee onboarding software", "Growing RevOps teams"
-	company, err := e.People.ConfirmCompanySiteRead(human, people.ConfirmCompanySiteReadInput{
+	company, _, err := e.People.ConfirmCompanySiteRead(human, people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName:      "Acme",
 		Fields:           map[string]*string{"offer_summary": &offer, "icp": &icp},
@@ -471,7 +471,7 @@ func TestCompanySiteReadRefreshRequiresConflictDecisionsAndPreservesProvenance(t
 			"registered_address": &proposedAddress,
 		},
 	}
-	if _, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople); err == nil {
+	if _, _, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople); err == nil {
 		t.Fatal("refresh committed without resolving its human conflicts")
 	} else {
 		var invalid *people.InvalidSiteReadResolutionError
@@ -494,7 +494,7 @@ func TestCompanySiteReadRefreshRequiresConflictDecisionsAndPreservesProvenance(t
 		{Key: "icp", Action: "accept_proposal"},
 		{Key: "registered_address", Action: "accept_proposal"},
 	}
-	confirmed, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople)
+	confirmed, _, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople)
 	if err != nil {
 		t.Fatalf("confirm resolved refresh: %v", err)
 	}
@@ -533,7 +533,7 @@ func TestOnboardingConfirmationRollsBackWhenSeparatePeopleCannotStage(t *testing
 	stageFailure := func(context.Context, pgx.Tx, ids.OrganizationID, people.SiteRead, []people.SiteReadPerson) ([]ids.UUID, error) {
 		return nil, errors.New("approval store unavailable")
 	}
-	_, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
+	_, _, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName: "Acme", Fields: map[string]*string{"offer_summary": &offer, "icp": &icp},
 	}, stageFailure)
@@ -621,7 +621,7 @@ func TestConfirmingAReadThatNamedNobodySucceeds(t *testing.T) {
 
 	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
 	website := seedURL
-	company, err := e.People.ConfirmCompanySiteRead(ctx, people.ConfirmCompanySiteReadInput{
+	company, _, err := e.People.ConfirmCompanySiteRead(ctx, people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName: "Acme", Website: &website,
 	}, engine.stageOnboardingPeople)

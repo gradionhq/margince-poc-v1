@@ -6,7 +6,6 @@ package compose
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -89,11 +88,7 @@ func (e *deepReadEngine) companySiteReadRuntime(ctx context.Context, readID ids.
 	if errors.Is(err, apperrors.ErrPermissionDenied) {
 		return ai.RunSummary{}, false, err
 	}
-	logger := e.log
-	if logger == nil {
-		logger = slog.Default()
-	}
-	logger.WarnContext(ctx, "AI runtime transparency unavailable", "read_id", readID, "err", err)
+	e.logger().WarnContext(ctx, "AI runtime transparency unavailable", "read_id", readID, "err", err)
 	return ai.RunSummary{}, false, nil
 }
 
@@ -124,9 +119,13 @@ func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.R
 		httperr.Write(w, r, httperr.Validation("profile.website", "invalid", "website must be a domain or an absolute http(s) URL"))
 		return
 	}
-	company, err := e.people.ConfirmCompanySiteRead(r.Context(), people.ConfirmCompanySiteReadInput{
+	company, unadoptedLogo, err := e.people.ConfirmCompanySiteRead(r.Context(), people.ConfirmCompanySiteReadInput{
 		ReadID: ids.UUID(readID), DraftVersion: req.DraftVersion, ProposalHash: req.ProposalHash,
 		DisplayName: strings.TrimSpace(req.Profile.DisplayName), Website: website,
+		// The object store lives on this side of the seam, so the dossier
+		// releases the mark its anchor declines only while somebody is here to
+		// collect the bytes behind it.
+		ReclaimUnadoptedLogo: e.blob != nil,
 		Fields: map[string]*string{
 			fieldOfferSummary: trimOptional(req.Profile.OfferSummary), fieldLegalName: trimOptional(req.Profile.LegalName),
 			fieldRegisteredAddress: trimOptional(req.Profile.RegisteredAddress), fieldRegisterVat: trimOptional(req.Profile.RegisterVat),
@@ -149,6 +148,11 @@ func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.R
 		httperr.Write(w, r, siteReadConfirmationRefusal(err))
 		return
 	}
+	// After the commit, never inside it: a delete cannot be rolled back, so a
+	// transaction that failed behind one would leave the anchor — or the dossier
+	// — pointing at bytes nothing can serve. The committed row no longer names
+	// these, and no record ever did.
+	deleteUnreferencedLogo(r.Context(), e.blob, e.logger(), ids.UUID(readID), unadoptedLogo)
 	httperr.WriteJSON(w, http.StatusOK, toContractCompany(company))
 }
 

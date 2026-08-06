@@ -43,14 +43,20 @@ var ErrSiteReadNotConfirmable = errors.New("people: the website read is not read
 // ConfirmCompanySiteReadInput is the inspected onboarding draft plus the
 // human's selected profile and fact subset.
 type ConfirmCompanySiteReadInput struct {
-	ReadID                 ids.UUID
-	DraftVersion           int
-	ProposalHash           string
-	DisplayName            string
-	Website                *string
-	Fields                 map[string]*string
-	SelectedFactKeys       []string
-	Resolutions            []SiteReadResolution
+	ReadID           ids.UUID
+	DraftVersion     int
+	ProposalHash     string
+	DisplayName      string
+	Website          *string
+	Fields           map[string]*string
+	SelectedFactKeys []string
+	Resolutions      []SiteReadResolution
+	// ReclaimUnadoptedLogo declares that the caller owns an object store and
+	// will collect the mark the confirmation reports as unadopted. A caller
+	// that owns none leaves it false, and the dossier keeps its reference —
+	// releaseParkedSiteReadLogo carries why that reference must not be dropped
+	// by anybody who cannot delete the bytes behind it.
+	ReclaimUnadoptedLogo   bool
 	skipProfileFields      map[string]bool
 	overwriteProfileFields map[string]bool
 	overwriteFactKeys      map[string]bool
@@ -72,17 +78,31 @@ func SiteReadFactKey(f DeepReadFact) string {
 // updates the anchor, writes the selected profile/facts, stages people
 // separately, and marks the dossier confirmed. A stale or replayed draft
 // changes nothing.
-func (s *Store) ConfirmCompanySiteRead(ctx context.Context, in ConfirmCompanySiteReadInput, stagePeople StageSiteReadPeople) (Company, error) {
+//
+// It also hands back the storage key of a mark the anchor did NOT adopt,
+// because a logo already holds that field, so the caller collects bytes no
+// record wears. Nil is the ordinary answer: the read parked no mark, the anchor
+// adopted it, or the caller declared no object store to collect it with. Same
+// contract as SetOrganizationLogo and RecordSiteReadLogo — a store reports a
+// collection, it never performs one.
+func (s *Store) ConfirmCompanySiteRead(ctx context.Context, in ConfirmCompanySiteReadInput, stagePeople StageSiteReadPeople) (Company, *string, error) {
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 	var out Company
+	var unadoptedLogo *string
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		out, err = s.confirmCompanySiteReadTx(ctx, tx, in, by, stagePeople)
+		out, unadoptedLogo, err = s.confirmCompanySiteReadTx(ctx, tx, in, by, stagePeople)
 		return err
 	})
-	return out, err
+	if err != nil {
+		// The transaction rolled back, so the dossier still names whatever it
+		// parked. Reporting a key here would ask the caller to delete bytes a
+		// row is still pointing at.
+		return Company{}, nil, err
+	}
+	return out, unadoptedLogo, nil
 }
 
 type siteReadConfirmation struct {
@@ -100,46 +120,51 @@ func (s *Store) confirmCompanySiteReadTx(
 	in ConfirmCompanySiteReadInput,
 	by string,
 	stagePeople StageSiteReadPeople,
-) (Company, error) {
+) (Company, *string, error) {
 	if err := lockCompanyState(ctx, tx); err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 	read, err := lockOnboardingSiteRead(ctx, tx, in.ReadID)
 	if err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 	if err := validateSiteReadConfirmation(read, in); err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 	current, err := readAnchorForComparison(ctx, tx)
 	if err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 	in, err = resolveSiteReadConflicts(read, current, in)
 	if err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 
 	confirmation, err := applySiteReadConfirmation(ctx, tx, read, in, by)
 	if err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 	confirmation.proposalIDs, err = stageConfirmedSiteReadPeople(ctx, tx, confirmation.organizationID, read, stagePeople)
 	if err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 	if err := recordSiteReadConfirmation(ctx, tx, read, confirmation); err != nil {
-		return Company{}, err
+		return Company{}, nil, err
 	}
 	// The logo lands AFTER the confirmation's own event, never before it. Its
 	// write publishes organization.updated, and the confirmation that mints the
 	// anchor publishes organization.created; the outbox ships a single entity's
 	// rows in insert order, so binding first would hand a consumer an update for
 	// an organization it has not been told about yet.
-	if err := bindSiteReadLogo(ctx, tx, read.ID, confirmation.organizationID); err != nil {
-		return Company{}, err
+	unadoptedLogo, err := bindSiteReadLogo(ctx, tx, read.ID, confirmation.organizationID, in.ReclaimUnadoptedLogo)
+	if err != nil {
+		return Company{}, nil, err
 	}
-	return readCompany(ctx, tx, confirmation.organizationID)
+	company, err := readCompany(ctx, tx, confirmation.organizationID)
+	if err != nil {
+		return Company{}, nil, err
+	}
+	return company, unadoptedLogo, nil
 }
 
 func validateSiteReadConfirmation(read SiteRead, in ConfirmCompanySiteReadInput) error {
