@@ -214,6 +214,78 @@ func TestConfirmingAnOnboardingReadSurvivesALogoThatNeverResolved(t *testing.T) 
 	}
 }
 
+func TestAReadThatFailsGivesBackTheLogoItParked(t *testing.T) {
+	// The mark is stored while the page is in hand, before anything the model
+	// lanes produced is judged — so a read that dies afterwards has already paid
+	// for bytes no confirmation will ever adopt: only a done or partial read
+	// binds a company. The dossier's reference is the last thing that can find
+	// them, so the collection happens where the read goes terminal.
+	e := integration.Setup(t)
+	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
+	blob := blobstore.NewMemory()
+	w := onboardingLogoWorker(e, site, blob)
+	args := readTheOnboardingSite(t, e, w)
+
+	key, _ := parkedLogo(t, e, args.SiteReadID)
+	if key == nil {
+		t.Fatal("the read parked no mark; this case has nothing to reclaim")
+	}
+	cause := errors.New("every extraction lane died")
+	if err := w.fail(deepReadWorkerCtx(context.Background(), args), args.SiteReadID, cause); !errors.Is(err, cause) {
+		t.Fatalf("failing the read answered %v, want the cause it was given", err)
+	}
+
+	if left, origin := parkedLogo(t, e, args.SiteReadID); left != nil || origin != nil {
+		t.Fatalf("the failed dossier still names key %v origin %v", left, origin)
+	}
+	if _, _, err := blob.Get(context.Background(), *key); !errors.Is(err, blobstore.ErrNotFound) {
+		t.Fatalf("the parked object answers %v, want it collected", err)
+	}
+}
+
+func TestAFailedReadKeepsTheBytesACompanyIsAlreadyWearing(t *testing.T) {
+	// Deleting bytes is irreversible, and an adoption leaves the record and the
+	// dossier naming ONE object: whatever else the read's collection may take, a
+	// key a company wears is not it. Here the read fails after that adoption —
+	// the record's face must survive it, reference and bytes alike.
+	e := integration.Setup(t)
+	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
+	blob := blobstore.NewMemory()
+	w := onboardingLogoWorker(e, site, blob)
+	args := readTheOnboardingSite(t, e, w)
+
+	key, _ := parkedLogo(t, e, args.SiteReadID)
+	if key == nil {
+		t.Fatal("the read parked no mark; this case has nothing to protect")
+	}
+	human := e.As(e.Rep1, nil, integration.AdminPerms)
+	saved, err := e.People.SaveCompany(human, people.SaveCompanyInput{DisplayName: "Acme"})
+	if err != nil {
+		t.Fatalf("describe the company: %v", err)
+	}
+	if _, _, err := e.People.SetOrganizationLogo(human, saved.OrganizationID, *key, touchIconURL); err != nil {
+		t.Fatalf("give the company the resolved mark: %v", err)
+	}
+
+	if err := w.fail(deepReadWorkerCtx(context.Background(), args), args.SiteReadID,
+		errors.New("every extraction lane died")); err == nil {
+		t.Fatal("failing the read answered no cause")
+	}
+
+	stored, _, err := blob.Get(context.Background(), *key)
+	if err != nil {
+		t.Fatalf("the object the company wears answers %v, want it kept", err)
+	}
+	if err := stored.Close(); err != nil {
+		t.Fatalf("closing the stored object: %v", err)
+	}
+	// The reference is kept too: dropping it is what would leave the bytes
+	// unreachable by anything that could collect them later.
+	if left, _ := parkedLogo(t, e, args.SiteReadID); left == nil || *left != *key {
+		t.Fatalf("the dossier now names %v, want the key the company shares at %q", left, *key)
+	}
+}
+
 func TestConfirmingAnOnboardingReadKeepsTheLogoAPersonGaveTheAnchor(t *testing.T) {
 	e := integration.Setup(t)
 	human := e.As(e.Rep1, nil, integration.AdminPerms)

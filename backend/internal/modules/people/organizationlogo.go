@@ -171,6 +171,56 @@ func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, objectK
 	return recorded, supersededKey, nil
 }
 
+// DiscardSiteReadLogo drops the mark parked on a read that can never hand it
+// over, and answers the storage key it dropped so the caller collects the
+// bytes — this module owns no object store, so reclaiming is something it can
+// only ever REPORT.
+//
+// A confirmation is the only thing that adopts a parked mark, and it accepts
+// none but a done or partial read. A read that ended without a dossier —
+// failed, or cancelled because the operator withdrew the setting that queued it
+// — therefore holds bytes no record will ever wear, and the reference on the
+// dossier is the only thing left that can still find them.
+//
+// The NOT EXISTS is the safety proof rather than an optimization: the reference
+// is dropped only while no organization names the same key, so an object a
+// company wears is never reported as collectable. Keys carry their workspace
+// prefix and RLS scopes the check to that same tenant, so a foreign record's
+// bytes cannot be described here at all.
+//
+// No auth.Require, the same rationale as RecordSiteReadLogo: the worker is not
+// a human principal, and the parked reference is operational state on the
+// dossier row rather than a fact on a record.
+func (s *Store) DiscardSiteReadLogo(ctx context.Context, readID ids.UUID) (*string, error) {
+	var discarded *string
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// RETURNING the pre-write key, exactly as the two writes above do: the
+		// sub-select reads the statement's own snapshot, so it names the object
+		// this UPDATE just unreferenced.
+		err := tx.QueryRow(ctx, `
+			UPDATE site_read sr SET logo_object_key = NULL, logo_origin = NULL, updated_at = now()
+			WHERE sr.id = $1 AND sr.confirmed_at IS NULL AND sr.logo_object_key IS NOT NULL
+			  AND sr.status IN ('failed', 'cancelled')
+			  AND NOT EXISTS (
+				SELECT 1 FROM organization o WHERE o.logo_object_key = sr.logo_object_key)
+			RETURNING (SELECT parked.logo_object_key FROM site_read parked WHERE parked.id = $1)`,
+			readID).Scan(&discarded)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Nothing parked, a read that may still be confirmed, or bytes a
+			// record already wears: all three keep the object.
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("discard the website read's logo: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return discarded, nil
+}
+
 // bindSiteReadLogo gives the company a confirmation creates the mark its own
 // website read already resolved — the step that makes the anchor's face arrive
 // on the same terms as every other company's (A55). It runs inside the

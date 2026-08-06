@@ -359,6 +359,29 @@ func (w *siteDeepReadWorker) recordDossierLogo(ctx context.Context, readID ids.U
 		"stored_bytes", len(logo.PNG), "candidates", logoAttemptSummary(attempts))
 }
 
+// reclaimParkedLogo collects the mark a read parked and can no longer hand to
+// anybody. The onboarding lane stores its bytes while the page is still in
+// hand, long before the confirmation that would adopt them exists; a read that
+// ends without a dossier never reaches that confirmation, and the reference on
+// the dossier row is the only thing that can still find the object.
+//
+// Best-effort like the rest of the lane, and for a sharper reason here: the
+// read has already failed, and storage is not worth failing it a second time.
+// The store answers only with a key no record names, so nothing on this path
+// can delete bytes a company wears.
+func (w *siteDeepReadWorker) reclaimParkedLogo(ctx context.Context, readID ids.UUID) {
+	if w.blob == nil {
+		return
+	}
+	key, err := w.people.DiscardSiteReadLogo(ctx, readID)
+	if err != nil {
+		w.log.WarnContext(ctx, "dropping the logo parked on a read that ended without a company failed",
+			"read", readID.String(), "err", err)
+		return
+	}
+	w.reclaimLogoObject(ctx, readID, key)
+}
+
 // logoWorthResolving asks before resolving anything: a field a person holds is
 // not going to be written, so fetching and normalizing a mark for it is work
 // nobody uses. The write applies the rule again under the row lock — this is
