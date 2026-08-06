@@ -1,7 +1,9 @@
 import type { MessageKey } from "./en";
 
 // Vietnamese catalog. `satisfies` forces exact key parity with en.ts;
-// i18n.test.ts proves no value is left in English.
+// i18n.test.ts proves every value differs from its English counterpart
+// except the allowlisted brand names, endonyms and other strings that are
+// correct in English on purpose.
 export const vi = {
   "app.title": "Design token Margince",
   "app.subtitle":
