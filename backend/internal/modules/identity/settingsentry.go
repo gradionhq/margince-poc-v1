@@ -44,7 +44,7 @@ var Name = settings.Define[string](
 		}
 		return nil
 	},
-)
+).AsInstallationIdentity()
 
 // Timezone is the IANA reporting-period zone every period boundary is
 // computed in. Distinct from a user's own timezone (app_user.timezone), which
@@ -64,7 +64,7 @@ var Timezone = settings.Define[string](
 		}
 		return nil
 	},
-)
+).AsInstallationIdentity()
 
 // BaseCurrency is the ISO-4217 currency every money roll-up converts to.
 //
@@ -91,7 +91,7 @@ var BaseCurrency = settings.Define[string](
 		}
 		return nil
 	},
-)
+).AsInstallationIdentity()
 
 // Definitions is identity's contribution to the settings registry.
 func Definitions() []settings.Definition {

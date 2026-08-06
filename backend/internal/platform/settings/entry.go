@@ -57,6 +57,16 @@ type Definition interface {
 	Frozen(context.Context, pgx.Tx) (bool, string, error)
 	// HasFreezeProbe reports whether an immutability probe is attached.
 	HasFreezeProbe() bool
+	// SurvivesDataReset reports whether this setting is part of the
+	// INSTALLATION'S IDENTITY rather than its configuration. A data reset
+	// returns the installation to first-boot state without re-creating it, so
+	// identity outlives the wipe and configuration does not.
+	//
+	// False by default, deliberately: a setting added later is reset unless
+	// someone declares otherwise, rather than silently escaping the wipe. That
+	// is the same direction identity.preservedWorkspaceColumns takes for the
+	// columns these replaced.
+	SurvivesDataReset() bool
 }
 
 // Entry is one setting's declaration: its key, governance, default and
@@ -68,6 +78,7 @@ type Entry[T any] struct {
 	def      T
 	validate func(T) error
 	freeze   func(context.Context, pgx.Tx) (bool, string, error)
+	identity bool
 }
 
 // Define declares a setting. `key` is `<module>.<name>`; the prefix is not
@@ -76,6 +87,19 @@ type Entry[T any] struct {
 func Define[T any](key, object, verb string, def T, validate func(T) error) *Entry[T] {
 	return &Entry[T]{key: key, object: object, verb: verb, def: def, validate: validate}
 }
+
+// AsInstallationIdentity marks this setting as part of what the installation
+// IS rather than how it is configured, so a data reset spares it. Reserved for
+// the values bootstrap takes from the deployment configuration — an
+// installation keeps its name, currency and zone across a reset that wipes its
+// data.
+func (e *Entry[T]) AsInstallationIdentity() *Entry[T] {
+	e.identity = true
+	return e
+}
+
+// SurvivesDataReset reports whether a data reset spares this setting.
+func (e *Entry[T]) SurvivesDataReset() bool { return e.identity }
 
 // WithFreeze attaches an immutability probe, supplied by the owning module so
 // this package never learns the domain predicate. Returns the entry for

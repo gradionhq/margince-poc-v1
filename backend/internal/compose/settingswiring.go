@@ -56,8 +56,14 @@ var settingsDefinitions = sync.OnceValue(func() []settings.Definition {
 // one per consumer costs nothing and avoids threading a shared instance
 // through every job constructor.
 func NewSettingsStore(pool *pgxpool.Pool) *settings.Store {
-	return settings.New(pool, settings.NewRegistry(settingsDefinitions()...))
+	return settings.New(pool, settingsRegistry())
 }
+
+// settingsRegistry is the assembled catalog, built once. The data reset needs
+// it without a pool — it runs inside a transaction the caller already holds.
+var settingsRegistry = sync.OnceValue(func() *settings.Registry {
+	return settings.NewRegistry(settingsDefinitions()...)
+})
 
 // SettingSpec is the fitness gate's view of one registered setting: plain
 // data, so the root-package gates can judge the catalog without importing

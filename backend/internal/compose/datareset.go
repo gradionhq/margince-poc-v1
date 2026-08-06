@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -257,6 +258,21 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 		// before something writes the column — a blanket restore cannot report
 		// what it changed, and that fact belongs in the audit row.
 		if err := identity.ResetWorkspaceConfig(ctx, tx); err != nil {
+			return err
+		}
+
+		// The same obligation for the settings that no longer live on that row
+		// (ADR-0090/A135). `setting` carries no workspace_id, so the table
+		// sweep above — derived from the tables that do — never had it as a
+		// candidate either. Without this, every setting outlives the wipe
+		// exactly as capture_auto_enrich did before #523, and so would every
+		// setting added after this one.
+		//
+		// Same split, same direction: identity survives (the installation
+		// keeps its name, currency and zone), configuration is deleted back to
+		// its registered default, and a setting is configuration unless its
+		// entry declares otherwise.
+		if err := settings.ResetConfig(ctx, tx, settingsRegistry()); err != nil {
 			return err
 		}
 

@@ -218,6 +218,34 @@ func currentJSON(ctx context.Context, tx pgx.Tx, def Definition) (json.RawMessag
 	return raw, nil
 }
 
+// ResetConfig restores the CONFIGURATION settings to first-boot state by
+// deleting their rows: an absent row reads as the registered default, which is
+// exactly what a fresh installation sees. Identity settings are spared.
+//
+// Deleting rather than writing defaults is what keeps this honest — a row
+// holding the default value and no row at all are the same to every reader,
+// and "has anyone ever changed this?" stays answerable afterwards.
+//
+// Runs inside the caller's reset transaction. The key list comes from the
+// registry, so a setting added later is reset with nothing here to keep in
+// step.
+func ResetConfig(ctx context.Context, tx pgx.Tx, reg *Registry) error {
+	keys := make([]string, 0, len(reg.byKey))
+	for key, def := range reg.byKey {
+		if def.SurvivesDataReset() {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM setting WHERE key = ANY($1)`, keys); err != nil {
+		return fmt.Errorf("settings: restoring configuration to first-boot state: %w", err)
+	}
+	return nil
+}
+
 // SeedValue is the typed form of Seed, for a caller holding the entry.
 func SeedValue[T any](ctx context.Context, tx pgx.Tx, e *Entry[T], v T) error {
 	raw, err := json.Marshal(v)
