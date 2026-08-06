@@ -791,6 +791,10 @@ function ResetDataCard() {
 
   const reset = useMutation({
     mutationFn: async () => {
+      // The summary always describes the latest attempt, never a prior one:
+      // clearing here means a retry's error can never leave a previous
+      // success sitting on screen, and an in-flight retry shows no summary.
+      setSummary(null);
       const { data, error } = await api.POST("/admin/reset-data", {
         body: { confirmation: typed },
       });

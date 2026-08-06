@@ -1386,6 +1386,71 @@ describe("ResetDataCard (danger zone)", () => {
     renderSettingsAsAdmin({ resetResponse: fullResetBody });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
+
+  it("clears a prior success summary once a retry fails, rather than showing both", async () => {
+    // The first POST to /admin/reset-data succeeds; the second (a retry, e.g.
+    // after a typo) 422s. A dedicated fetch mock rather than resetDataBackend
+    // because that helper's resetStatus is fixed for every call — this test
+    // needs the response to change between the two attempts.
+    let resetCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const method = (
+          input instanceof Request ? input.method : (init?.method ?? "GET")
+        ).toUpperCase();
+        if (url.endsWith("/v1/me")) {
+          const me = meFixture({
+            roles: ["admin"],
+            allow: { custom_field: ["create", "update"] },
+          });
+          return jsonResponse({
+            ...me,
+            workspace_name: "Acme Inc",
+            non_production: true,
+          });
+        }
+        if (url.includes("/admin/reset-data") && method === "POST") {
+          resetCalls += 1;
+          if (resetCalls === 1) {
+            return jsonResponse(fullResetBody);
+          }
+          return jsonResponse(
+            { detail: "The typed confirmation does not match." },
+            422,
+          );
+        }
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }),
+    );
+    render(<SettingsScreen tab="data" />);
+
+    await confirmReset("Acme Inc");
+    expect(
+      await screen.findByText(/Cleared 84 tables, 12 queued jobs/),
+    ).toBeInTheDocument();
+
+    // Retry: the dialog stays open on error, so the summary from the first
+    // attempt must not still be sitting behind it.
+    await userEvent.click(
+      await screen.findByRole("button", { name: /reset data/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByRole("textbox");
+    await userEvent.type(input, "Acme Inc");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /reset data/i }),
+    );
+
+    expect(
+      await screen.findByText("The typed confirmation does not match."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
 });
 
 describe("AuditLogCard", () => {
