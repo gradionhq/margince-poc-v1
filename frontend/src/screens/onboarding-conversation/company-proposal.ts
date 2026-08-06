@@ -183,6 +183,13 @@ function collapseWhitespace(value: string): string {
 // the entity fill settles nothing about legal_name for one, by design, so
 // treating it as picked would fill address and registration number from an
 // entity nothing on screen identifies.
+//
+// Nor does an ambiguous one. Two candidates can print the same name and carry
+// different registrations, and the option names only the name — so taking the
+// first would hang one company's address and register number off another
+// company's identity, the mixture this block exists to prevent. The
+// confirmation refuses the same case for the same reason: it grounds a legal
+// block only when the details match one and only one stored entity.
 export function legalEntityForOption(
   entities: readonly LegalEntity[],
   optionValue: string,
@@ -191,9 +198,10 @@ export function legalEntityForOption(
   if (picked === "") {
     return undefined;
   }
-  return entities.find(
+  const named = entities.filter(
     (candidate) => collapseWhitespace(candidate.name) === picked,
   );
+  return named.length === 1 ? named[0] : undefined;
 }
 
 // Evidence-or-omit for a candidate: the read's verbatim quote when it captured

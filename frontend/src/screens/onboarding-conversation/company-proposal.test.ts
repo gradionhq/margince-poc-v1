@@ -5,6 +5,7 @@ import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
 import {
   draftWithLegalEntity,
   draftWithSoleLegalEntity,
+  legalEntityForOption,
   legalFieldGap,
 } from "./company-proposal";
 
@@ -182,6 +183,41 @@ describe("draftWithLegalEntity settling the chosen name", () => {
     // if the site had grounded it.
     expect(next.edited.has("legal_name")).toBe(true);
     expect(next.grounded.legal_name).toBeUndefined();
+  });
+});
+
+// Which candidate an option names, and when the answer is honestly "no idea".
+describe("legalEntityForOption", () => {
+  it("finds the candidate whose printed name the option carries", () => {
+    expect(
+      legalEntityForOption([gradionEntity], "Gradion Co., Ltd.")?.source_url,
+    ).toBe(gradionEntity.source_url);
+  });
+
+  it("names no candidate at all when two of them print the same name", () => {
+    // The option carries a name and nothing else, so with two companies
+    // printing it there is no way to tell which registration was clicked —
+    // and taking the first would file one company's address and register
+    // number under the other one's identity.
+    const twin: LegalEntity = {
+      name: "Gradion Co., Ltd.",
+      registered_address: "Musterstraße 1, 10115 Berlin",
+      register_number: "HRB 999999 B",
+      source_url: "https://gradion.com/en/legal-notice",
+    };
+    expect(
+      legalEntityForOption([gradionEntity, twin], "Gradion Co., Ltd."),
+    ).toBeUndefined();
+  });
+
+  it("still names the one candidate that prints it when the others do not", () => {
+    const other: LegalEntity = {
+      name: "Gradion Holding GmbH",
+      source_url: "https://gradion.com/legal-notice",
+    };
+    expect(
+      legalEntityForOption([gradionEntity, other], "Gradion Co., Ltd.")?.name,
+    ).toBe("Gradion Co., Ltd.");
   });
 });
 
