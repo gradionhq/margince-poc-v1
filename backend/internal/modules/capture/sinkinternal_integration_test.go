@@ -44,25 +44,34 @@ func bootstrapInternalMailWorkspace(t *testing.T, ownDomains ...string) (context
 		wsUUID, slug); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}
+	// Every tenant write from here on goes through the workspace transaction,
+	// like the sink's own do — a fixture that reaches past the GUC would be
+	// setting up rows under a contract the code under test never uses.
+	wsCtx := mailSinkContext(ctx, wsUUID)
 	if len(ownDomains) > 0 {
 		// Registered the way cold start does it: the installation's own company
 		// claims these domains. That claim, not a row in the capture registry,
 		// is what makes them count.
-		orgID := ids.NewV7()
-		if _, err := owner.Exec(ctx, `
-			INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
-			VALUES ($1, $2, 'Our Company', true, 'manual', 'human:test')`, orgID, wsUUID); err != nil {
+		if err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
+			orgID := ids.NewV7()
+			if _, err := tx.Exec(wsCtx, `
+				INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
+				VALUES ($1, $2, 'Our Company', true, 'manual', 'human:test')`, orgID, wsUUID); err != nil {
+				return err
+			}
+			for i, d := range ownDomains {
+				if _, err := tx.Exec(wsCtx, `
+					INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+					VALUES ($1, $2, $3, $4, 'manual', 'human:test')`, wsUUID, orgID, d, i == 0); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
 			t.Fatalf("seeding the anchor company: %v", err)
 		}
-		for i, d := range ownDomains {
-			if _, err := owner.Exec(ctx, `
-				INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-				VALUES ($1, $2, $3, $4, 'manual', 'human:test')`, wsUUID, orgID, d, i == 0); err != nil {
-				t.Fatalf("registering own domain %s: %v", d, err)
-			}
-		}
 	}
-	return mailSinkContext(ctx, wsUUID), pool
+	return wsCtx, pool
 }
 
 // mailSinkContext binds the per-user mail connector principal the sync loop
