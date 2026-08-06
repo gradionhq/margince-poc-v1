@@ -41,7 +41,7 @@ import {
   isAlreadyDecided,
   isVersionSkew,
   ProblemError,
-  problemMessage,
+  problemMessageOf,
   provenanceOf,
   QueryGate,
   throwProblem,
@@ -174,7 +174,7 @@ function ApprovalDetailModal({
         params: { path: { id: approvalId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -321,7 +321,7 @@ function DecideOutcome({
           className="t-caption"
           style={{ color: "var(--danger)", marginTop: 8 }}
         >
-          {decide.error instanceof Error ? decide.error.message : null}
+          {problemMessageOf(decide.error, t)}
         </p>
       )}
       {skew && (

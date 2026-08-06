@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { problemMessage } from "./common";
+import { throwProblem } from "./common";
 
 type VoiceProfile = components["schemas"]["VoiceProfile"];
 
@@ -15,7 +15,7 @@ export function useVoiceProfile() {
     queryFn: async (): Promise<VoiceProfile | null> => {
       const { data, error } = await api.GET("/voice-profiles");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data[0] ?? null;
     },
@@ -29,7 +29,7 @@ async function readProfileId(): Promise<string | null> {
   // falsy `error` with no `data`; reading "no profile yet" out of that would
   // mint a second profile for an owner who already has one.
   if (!response.ok || !data) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data.data[0]?.id ?? null;
 }
@@ -58,7 +58,7 @@ async function resolveProfileId(): Promise<string> {
       return won;
     }
   }
-  throw new Error(problemMessage(created.error));
+  throwProblem(created.error);
 }
 
 // The resolution in flight, shared by every caller that asks while it is open.

@@ -10,7 +10,7 @@ import {
   SectionHeader,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { ensureProfileId, useVoiceProfile } from "./voice-profile";
 import { ActiveVoiceInsights, VoiceHistory } from "./voice-versions";
 import "./voice-dna.css";
@@ -32,7 +32,7 @@ function useVoiceSources(profileId: string) {
         params: { path: { id: profileId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return { sources: data.data, summary: data.summary };
     },
@@ -197,14 +197,14 @@ function PersonalityEditor({
         body: { personality_md: text },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       setError(null);
       onSaved();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
   const dirty = text !== profile.personality_md;
   return (
@@ -250,14 +250,14 @@ function CorpusManifest({
         { params: { path: { id: profileId, sourceId } } },
       );
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       setError(null);
       onChanged();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
 
   return (
@@ -328,7 +328,7 @@ function CorpusSources({
         },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
@@ -336,7 +336,7 @@ function CorpusSources({
       setError(null);
       onChanged();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
 
   return (
@@ -495,7 +495,7 @@ function BuildControls({
         body: { reason: "manual" },
       });
       if (created.error) {
-        throw new Error(problemMessage(created.error));
+        throwProblem(created.error);
       }
       const buildId = created.data.id;
       for (let attempt = 0; attempt < 40; attempt++) {
@@ -504,7 +504,7 @@ function BuildControls({
           { params: { path: { id: profile.id, buildId } } },
         );
         if (err) {
-          throw new Error(problemMessage(err));
+          throwProblem(err);
         }
         if (
           data.status === "succeeded" ||
@@ -526,7 +526,7 @@ function BuildControls({
       setError(null);
       onBuilt();
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
 
   // The corpus summary rides the same query key CorpusManifest already read,

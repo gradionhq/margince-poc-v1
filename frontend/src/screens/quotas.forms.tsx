@@ -7,7 +7,7 @@ import { ifMatch } from "../api/version";
 import { Button, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { ArchiveAction } from "./archive";
-import { ProblemError, throwProblem } from "./common";
+import { ProblemError, problemMessageOf, throwProblem } from "./common";
 import { EditAction } from "./edit";
 import { useRoster } from "./entityref";
 import "./quotas.css";
@@ -128,14 +128,14 @@ function SetTargetModal({
     },
   });
 
-  const errorMessage =
-    mutation.error instanceof ProblemError
-      ? isOwnerXorTeam(mutation.error.problem)
-        ? t("quotas.err.ownerXorTeam")
-        : mutation.error.message
-      : mutation.error instanceof Error
-        ? mutation.error.message
-        : null;
+  const ownerXorTeam =
+    mutation.error instanceof ProblemError &&
+    isOwnerXorTeam(mutation.error.problem);
+  const errorMessage = !mutation.isError
+    ? null
+    : ownerXorTeam
+      ? t("quotas.err.ownerXorTeam")
+      : problemMessageOf(mutation.error, t);
 
   const roster = side === "owner" ? users : teams;
   const canSubmit =

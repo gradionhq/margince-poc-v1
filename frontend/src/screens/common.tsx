@@ -135,7 +135,7 @@ export function useLogout() {
   return useMutation({
     mutationFn: async () => {
       const { error } = await api.POST("/auth/logout");
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
     },
     onSuccess: async () => {
       // The next 401 at the boundary is this deliberate exit, not an
@@ -196,7 +196,7 @@ export function QueryStates({
       <EmptyState>
         <p>{t("common.error")}</p>
         <p className="t-mono" style={{ marginTop: 6 }}>
-          {query.error instanceof Error ? query.error.message : null}
+          {problemMessageOf(query.error, t)}
         </p>
         <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
           {t("common.retry")}
@@ -390,6 +390,28 @@ export function problemCode(problem: unknown): string | null {
 // or a thrown Error never claims a server code it doesn't have.
 export function problemCodeOf(error: unknown): string | null {
   return error instanceof ProblemError ? problemCode(error.problem) : null;
+}
+
+// The ONE way a caught failure becomes words on a screen, on the same terms as
+// problemCodeOf: only a ProblemError carries a server problem, and its RFC-7807
+// detail is a cause the server composed for a reader. Everything else — a
+// rejected fetch, a bug in a handler, a thrown string — reports in wording
+// nobody wrote for a user, and often names our own internals, so it never
+// reaches the screen: the reader gets the shared failure line instead.
+//
+// A surface with better words for its own failure passes them as `fallback`:
+// the connector card saying it could not read the connectors beats the generic
+// line there. That is catalog copy the caller has already translated, which is
+// the only other thing allowed through here.
+export function problemMessageOf(
+  error: unknown,
+  t: (key: MessageKey) => string,
+  fallback?: string,
+): string {
+  if (error instanceof ProblemError) {
+    return problemMessage(error.problem, t);
+  }
+  return fallback ?? t("common.errorNoCause");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

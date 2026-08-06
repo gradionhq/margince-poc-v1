@@ -11,7 +11,7 @@ import { api } from "../api/client";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, throwProblem } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import { imapErrorMessage } from "./imap-connect-form";
 import { OnboardingBackread } from "./onboarding-backread";
 
@@ -162,7 +162,7 @@ export function OAuthConnectPanel({
         body: {},
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -179,7 +179,10 @@ export function OAuthConnectPanel({
   return (
     <>
       {connect.isError && (
-        <ConnectWarn title={t(copy.failed)} body={connect.error.message} />
+        <ConnectWarn
+          title={t(copy.failed)}
+          body={problemMessageOf(connect.error, t)}
+        />
       )}
       <p
         className="spoken-hint"
@@ -254,7 +257,7 @@ export function OAuthReturnPanel({
     queryFn: async () => {
       const { data, error } = await api.GET("/connectors");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -544,7 +547,7 @@ export function ImapConnectPanel({
       {connect.isError && (
         <ConnectWarn
           title={t("ob.s4.connectFailed")}
-          body={imapErrorMessage(connect.error, t) ?? t("ob.s4.connectFailed")}
+          body={imapErrorMessage(connect.error, t)}
         />
       )}
 

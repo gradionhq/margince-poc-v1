@@ -28,7 +28,7 @@ import { ArchiveAction } from "./archive";
 import {
   LoadMoreButton,
   problemCode,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   QueryStates,
   throwProblem,
@@ -106,7 +106,7 @@ function useWebhookSubscriptions() {
         return { deliveryEnabled: false, data: [] };
       }
       if (error || !response.ok) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return { deliveryEnabled: data.delivery_enabled, data: data.data };
     },
@@ -209,7 +209,7 @@ function useCreateWebhookSubscription(onCreated: (secret: string) => void) {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -308,7 +308,7 @@ function RotateSecretAction({
         confirmLabel={t("deals.confirm")}
         onConfirm={() => mutation.mutate()}
         pending={mutation.isPending}
-        error={mutation.isError ? mutation.error.message : null}
+        error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
       >
         <p className="t-body">{t("webhooks.rotateConfirm.body")}</p>
       </ConfirmModal>
@@ -415,7 +415,7 @@ function useWebhookDeliveries(subscriptionId: string) {
         { params: { path: { id: subscriptionId }, query: { limit } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -496,7 +496,7 @@ function ReplayDeliveryAction({
           })
         }
         pending={mutation.isPending}
-        error={mutation.isError ? mutation.error.message : null}
+        error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
       >
         <p className="t-body">{t("webhooks.deliveries.replayConfirm.body")}</p>
       </ConfirmModal>
@@ -877,7 +877,7 @@ export function WebhooksCard() {
           title={t("webhooks.new")}
           fields={CREATE_SUBSCRIPTION_FIELDS}
           pending={create.isPending}
-          error={create.isError ? create.error.message : null}
+          error={create.isError ? problemMessageOf(create.error, t) : null}
           onSubmit={(values) => create.mutate(values)}
         />
       )}

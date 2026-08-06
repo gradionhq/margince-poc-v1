@@ -23,7 +23,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { EntityRef, useRoster } from "./entityref";
 import "./share.css";
 
@@ -118,7 +118,7 @@ async function fetchGrants(
     },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data.data;
 }
@@ -412,13 +412,13 @@ function ShareScreenBody({
     },
   });
 
-  // A 403 approval_required or a 422 validation problem both need to render
-  // as honest, human copy — never the bare code or a stringified object.
-  function honestMessage(error: unknown): string | null {
+  // A 403 approval_required needs the surface's own sentence; every other
+  // refusal reads best in the server's words.
+  function honestMessage(error: unknown): string {
     if (error instanceof ApprovalRequiredError) {
       return t("share.approvalRequired");
     }
-    return error instanceof Error ? error.message : null;
+    return problemMessageOf(error, t);
   }
 
   const grantErrorMessage = grant.isError ? honestMessage(grant.error) : null;

@@ -19,7 +19,7 @@ import { DealCard } from "../design-system/composed";
 import { formatDate, formatDateTime, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { errorClassKey, isUnhealthy } from "./connector-status";
 import {
   ApprovalRow,
@@ -47,7 +47,7 @@ export function useMorningBrief(): UseQueryResult<MorningBrief | null> {
         return null;
       }
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data ?? null;
     },
@@ -74,7 +74,7 @@ function useMorningDigest(): UseQueryResult<MorningDigest | null> {
         return null;
       }
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data ?? null;
     },
@@ -235,7 +235,7 @@ function useBriefItemMark(itemId: string) {
         params: { path: { itemId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -265,7 +265,7 @@ function BriefItemCard({ item }: Readonly<{ item: MorningBriefItem }>) {
         params: { path: { id: item.deal_id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -332,7 +332,7 @@ function BriefItemCard({ item }: Readonly<{ item: MorningBriefItem }>) {
       </div>
       {mark.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
-          {mark.error instanceof Error ? mark.error.message : null}
+          {problemMessageOf(mark.error, t)}
         </p>
       )}
     </article>
@@ -362,7 +362,7 @@ function BriefSection() {
     mutationFn: async () => {
       const { data, error } = await api.POST("/brief");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -397,9 +397,7 @@ function BriefSection() {
                 {refreshButton("home.generate")}
                 {refresh.isError && (
                   <p className="t-caption" style={{ color: "var(--danger)" }}>
-                    {refresh.error instanceof Error
-                      ? refresh.error.message
-                      : null}
+                    {problemMessageOf(refresh.error, t)}
                   </p>
                 )}
               </Card>
@@ -430,9 +428,7 @@ function BriefSection() {
               )}
               {refresh.isError && (
                 <p className="t-caption" style={{ color: "var(--danger)" }}>
-                  {refresh.error instanceof Error
-                    ? refresh.error.message
-                    : null}
+                  {problemMessageOf(refresh.error, t)}
                 </p>
               )}
             </div>
@@ -459,7 +455,7 @@ export function HomeScreen() {
         params: { query: { limit: 100 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

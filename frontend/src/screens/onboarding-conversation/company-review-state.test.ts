@@ -59,6 +59,29 @@ describe("rowFor provenance", () => {
     expect(row.state).toBe("stored");
   });
 
+  it("never blends the draft's own grounding with the proposal's score", () => {
+    // The draft carries the value the human picked off the legal notice; the
+    // proposal happens to argue for the same string with a measured score.
+    // Reading the quote off one and the number off the other would describe
+    // one value with two provenances at once.
+    const draft: CompanyDraft = {
+      values: { ...EMPTY_DRAFT.values, industry: "Robotics" },
+      grounded: {
+        industry: {
+          field: "industry",
+          value: "Robotics",
+          source_kind: "url",
+          source_url: "https://acme.example/impressum",
+        },
+      },
+      edited: new Set(),
+    };
+    const byName = new Map([["industry", proposalFieldFor("Robotics")]]);
+    const row = rowFor("industry", draft, byName, stubT);
+    expect(row.confidence).toBeNull();
+    expect(row.evidence).toBeNull();
+  });
+
   it("still attaches the proposal's evidence when only surrounding whitespace differs", () => {
     // A stored profile value formFromProfile copied untouched can carry
     // whitespace the proposal's own value never had — the same fact, not a
@@ -68,5 +91,58 @@ describe("rowFor provenance", () => {
     const row = rowFor("industry", draft, byName, stubT);
     expect(row.evidence).not.toBeNull();
     expect(row.confidence).toBe(0.92);
+  });
+});
+
+// A value the human settled by choosing one of the read's own candidates
+// carries the page it was printed on, and that page's words when the read
+// captured them — but no score, because nothing measured one. The row has to
+// say that without inventing a band and without an empty evidence line.
+describe("rowFor on a value with no measured confidence", () => {
+  function chosenDraft(snippet: string | undefined): CompanyDraft {
+    return {
+      values: { ...EMPTY_DRAFT.values, legal_name: "Gradion Co., Ltd." },
+      grounded: {
+        legal_name: {
+          field: "legal_name",
+          value: "Gradion Co., Ltd.",
+          evidence_snippet: snippet,
+          source_kind: "url",
+          source_url: "https://gradion.com/legal-notice",
+        },
+      },
+      edited: new Set(),
+    };
+  }
+
+  it("bands it nowhere and reports no score at all", () => {
+    const row = rowFor(
+      "legal_name",
+      chosenDraft("Gradion Co., Ltd. · 0318"),
+      new Map(),
+      stubT,
+    );
+    expect(row.state).toBe("chosen");
+    // Not "low", not 0: an unmeasured value is not a weak one.
+    expect(row.confidence).toBeNull();
+  });
+
+  it("still shows the page's own words when the candidate printed them", () => {
+    const row = rowFor(
+      "legal_name",
+      chosenDraft("Gradion Co., Ltd. · 0318"),
+      new Map(),
+      stubT,
+    );
+    expect(row.evidence).toEqual({
+      snippet: "Gradion Co., Ltd. · 0318",
+      source: "https://gradion.com/legal-notice",
+    });
+  });
+
+  it("shows no evidence line at all when the candidate printed no quote", () => {
+    const row = rowFor("legal_name", chosenDraft(undefined), new Map(), stubT);
+    expect(row.state).toBe("chosen");
+    expect(row.evidence).toBeNull();
   });
 });

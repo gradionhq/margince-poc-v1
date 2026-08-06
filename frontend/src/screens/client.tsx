@@ -9,7 +9,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 
 // Client surfaces (B-EP09.13a): the rail-less extension chrome — the fixed
 // dark "Back to Margince" bar, a sender lookup that renders a mini-360 for a
@@ -28,7 +28,7 @@ export function ClientSurfaceScreen() {
         params: { query: { q: query, limit: 5 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data.filter((hit) => hit.type === "person");
     },
@@ -104,7 +104,7 @@ export function ClientSurfaceScreen() {
             className="t-caption"
             style={{ color: "var(--danger)", marginTop: 10 }}
           >
-            {lookup.error instanceof Error ? lookup.error.message : null}
+            {problemMessageOf(lookup.error, t)}
           </p>
         )}
 

@@ -33,8 +33,8 @@ describe("the query retry policy", () => {
   });
 
   it("does not retry a failure that carries no server status", () => {
-    // A rejected fetch, and a screen that threw a plain Error rather than a
-    // ProblemError: neither can be shown to be the server's fault.
+    // A rejected fetch and a failure raised inside a query function: the
+    // server reported neither, so FE-PARAM-2 retries neither.
     expect(retryQuery(0, new TypeError("Failed to fetch"))).toBe(false);
     expect(retryQuery(0, new Error("record not found"))).toBe(false);
   });

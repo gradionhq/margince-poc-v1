@@ -291,6 +291,10 @@ export const en = {
   "rel.kind.coSellWith": "Co-sell with",
 
   "common.error": "Couldn't load this view.",
+  // What a failure that carries no server problem is allowed to say. A rejected
+  // fetch and a bug in our own code both report in wording nobody authored for
+  // a reader, so the screen states the fact it can stand behind and stops.
+  "common.errorNoCause": "The request failed. No cause reported.",
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
   "common.saving": "Saving…",
@@ -2136,6 +2140,10 @@ export const en = {
   "ob.conv.triage.stateEmpty": "empty",
   "ob.conv.triage.stateTyped": "typed by you",
   "ob.conv.triage.stateStored": "from your profile",
+  // A value the human settled by picking one of the read's candidates: it
+  // came off the site, but nothing ever scored it, so the word names who
+  // chose it rather than how sure anything is.
+  "ob.conv.triage.stateChosen": "chosen by you from the site",
   "ob.conv.triage.emptyHint": "Not found on your site. Yours to add.",
   "ob.conv.triage.legalNotPublished":
     "Not stated on your legal or imprint page. Yours to add.",

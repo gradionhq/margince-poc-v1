@@ -5,7 +5,7 @@ import { Badge, DataTable, SectionHeader } from "../design-system/atoms";
 import { formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
-import { problemMessage, throwProblem } from "./common";
+import { throwProblem } from "./common";
 import { CreateAction, type CreateField } from "./create";
 import { EditAction } from "./edit";
 import {
@@ -35,7 +35,7 @@ async function fetchProductsPage(
     },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,

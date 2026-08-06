@@ -7,7 +7,7 @@ import type { components } from "../../api/schema";
 import type { CompanyDraft } from "../onboarding";
 import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
 import type { SuggestedCompanyChange } from "../onboarding-read";
-import { draftWithDecidedLegalEntity } from "./company-proposal";
+import { draftWithLegalEntity } from "./company-proposal";
 import { useClarifyAnswers } from "./use-clarify-answers";
 
 // The legal-entity clarify authorizes exactly legal_name (the contract's own
@@ -94,7 +94,7 @@ function stubAuthorizedReply() {
 
 // Both collaborators are the REAL ones the company act wires in: the
 // ordinary change path is a changeDraftField loop over the authorized
-// changes, and an entity pick goes through draftWithDecidedLegalEntity.
+// changes, and an entity pick goes through draftWithLegalEntity.
 // Stubbing either would leave the one thing these tests are about — which
 // path a decision takes, and what provenance it leaves behind — unexercised.
 function setupHook(
@@ -119,10 +119,7 @@ function setupHook(
   const applyLegalEntity = vi.fn(
     applyLegalEntityOverride ??
       ((entity: LegalEntity) => {
-        draftRef.current = draftWithDecidedLegalEntity(
-          draftRef.current,
-          entity,
-        );
+        draftRef.current = draftWithLegalEntity(draftRef.current, entity);
       }),
   );
   const legalEntitiesRef = { current: legalEntities };

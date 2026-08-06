@@ -297,6 +297,8 @@ export const de = {
   "rel.kind.coSellWith": "Co-Sell mit",
 
   "common.error": "Konnten diese Ansicht nicht laden.",
+  "common.errorNoCause":
+    "Die Anfrage ist fehlgeschlagen. Keine Ursache gemeldet.",
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",
   "common.saving": "Wird gespeichert…",
@@ -2167,6 +2169,7 @@ export const de = {
   "ob.conv.triage.stateEmpty": "leer",
   "ob.conv.triage.stateTyped": "von dir eingetragen",
   "ob.conv.triage.stateStored": "aus deinem Profil",
+  "ob.conv.triage.stateChosen": "von dir auf der Website ausgewählt",
   "ob.conv.triage.emptyHint":
     "Nicht auf deiner Website gefunden. Trag es ein, wenn es zählt.",
   "ob.conv.triage.legalNotPublished":

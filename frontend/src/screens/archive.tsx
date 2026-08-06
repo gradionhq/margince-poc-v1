@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { Button, Modal } from "../design-system/atoms";
 import { useT } from "../i18n";
+import { problemMessageOf } from "./common";
 
 // The shared archive/disqualify affordance (P-3): a human-direct DELETE that
 // soft-archives a person/organization/lead (sets archived_at; leads also
@@ -88,7 +89,7 @@ export function ArchiveAction<Archived extends { id: string }>({
         <p style={{ marginBottom: 16 }}>{confirmText}</p>
         {mutation.isError && (
           <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {mutation.error instanceof Error ? mutation.error.message : null}
+            {problemMessageOf(mutation.error, t)}
           </p>
         )}
         <div className="actions">

@@ -314,11 +314,17 @@ const REVIEW_STATE: ConversationState = {
   pendingQuestion: null,
 };
 
+// Every case below waits on the guide's own sentence rather than the board's
+// heading. The heading arrives with the read-only fallback proposal, which is
+// a render or two BEFORE the draft is prefilled from the read — so a board
+// waited for that way can still be showing every field empty and everything
+// blocking. The sentence is rendered from `blockingCount` itself, the number
+// each case is about, so it cannot read as settled before the board is.
 describe("the rail's review to-do list", () => {
   it("carries exactly as many items as the board's own section tallies add up to", async () => {
     renderReview(REVIEW_STATE, REVIEW_FIELDS);
 
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/2 fields block confirm/);
     // The board's own nav names every outstanding field as its own
     // `.ob-triage-nav-item`, blocking and advisory alike (only the badge
     // above them is blocking-only now) — the same two-tier split the rail's
@@ -343,7 +349,7 @@ describe("the rail's review to-do list", () => {
   // either drifts from `isRequired`/REQUIRED_FIELDS, this fails.
   it("counts exactly as many blocking rows as the nav's own blocking badges", async () => {
     renderReview(REVIEW_STATE, REVIEW_FIELDS);
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/2 fields block confirm/);
 
     const nav = document.querySelector(".ob-triage-nav") as HTMLElement;
     const boardBlocking = [
@@ -368,7 +374,12 @@ describe("the rail's review to-do list", () => {
         options: [],
       },
     ]);
+    // Two waits, because two things have to have landed: the decision item
+    // proves the REAL proposal is in (the fallback carries no open question),
+    // and "3" proves the draft is prefilled — 2 blocking fields plus the one
+    // decision. Before the prefill the same sentence would read 4.
     await screen.findByText("needs a decision");
+    await screen.findByText(/3 fields block confirm/);
 
     const kinds = [
       ...document.querySelectorAll(".ob-conv-attention button"),
@@ -397,8 +408,10 @@ describe("the rail's review to-do list", () => {
     // The board itself renders from the same proposal fetch and settles
     // first via the read-only fallback (no open questions yet); waiting for
     // the decision button itself is waiting for the REAL proposal, the one
-    // that actually carries the still-open clarify.
+    // that actually carries the still-open clarify — and then for the count
+    // that says the draft is prefilled too.
     await screen.findByText("needs a decision");
+    await screen.findByText(/3 fields block confirm/);
 
     expect(
       document.querySelectorAll(
@@ -410,7 +423,7 @@ describe("the rail's review to-do list", () => {
 
   it("names the header whenever the list itself renders", async () => {
     renderReview(REVIEW_STATE, REVIEW_FIELDS);
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/2 fields block confirm/);
 
     const attention = document.querySelector(
       ".ob-conv-attention",
@@ -431,7 +444,7 @@ describe("the rail's review to-do list", () => {
       REVIEW_STATE,
       REVIEW_FIELDS.concat([proposedField("icp", "Mid-market B2B", 0.9)]),
     );
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/1 field blocks confirm/);
     expect(
       document.querySelectorAll(".ob-conv-attention [data-kind='blocks']"),
     ).toHaveLength(1);
@@ -446,7 +459,7 @@ describe("the rail's review to-do list", () => {
         proposedField("offer_summary", "Revenue software", 0.9),
       ]),
     );
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/Nothing blocks you/);
     expect(
       document.querySelectorAll(".ob-conv-attention [data-kind='blocks']"),
     ).toHaveLength(0);
@@ -455,7 +468,7 @@ describe("the rail's review to-do list", () => {
 
   it("puts exactly the required-and-empty fields in the blocking group, nothing else", async () => {
     renderReview(REVIEW_STATE, REVIEW_FIELDS);
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/2 fields block confirm/);
 
     const blockingGroup = screen
       .getByText("Needed before you can continue")
@@ -483,10 +496,85 @@ describe("the rail's review to-do list", () => {
       proposedField("desired_outcomes", "Faster ramp", 0.9),
     ]);
     renderReview(REVIEW_STATE, allSettled);
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    // The clean sentence IS the assertion's own state: nothing blocking and
+    // nothing advisory. Before the prefill the guide is still counting gaps.
+    await screen.findByText(/looks clean/);
 
     expect(document.querySelector(".ob-conv-attention")).toBeNull();
-    expect(screen.getByText(/looks clean/)).toBeInTheDocument();
+  });
+});
+
+// The dossier's entity cards and the clarify's candidate list ask the same
+// question of the same candidates, so a pick has to settle the same way on
+// both: the chosen name wins over a name typed earlier, because that name
+// standing above this candidate's address and registration number would put
+// two companies on one card. The bug this guards was the dossier keeping the
+// typed name while silently taking the rest of the block from the candidate.
+describe("the dossier's legal-entity picker", () => {
+  const GRADION_LTD = {
+    name: "Gradion Co., Ltd.",
+    registered_address: "Level 12, Bitexco Tower, Ho Chi Minh City",
+    register_number: "0318 447 291",
+    evidence_snippet: "Gradion Co., Ltd. · 0318 447 291",
+    source_url: "https://gradion.com/legal-notice",
+  };
+
+  it("settles the chosen name over one the human typed earlier", async () => {
+    // A read that reached the AI budget ceiling keeps the evidence it already
+    // collected but never becomes confirmable, so no review scene takes the
+    // surface — the dossier stays, with its "edit fields directly" escape
+    // hatch and the entity cards behind it.
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
+        jsonResponse({
+          ...REVIEW_READ,
+          status: "deferred",
+          status_code: "budget_deferred",
+          legal_entities: [
+            GRADION_LTD,
+            {
+              name: "Gradion Holding GmbH",
+              source_url: "https://gradion.com/legal-notice",
+            },
+          ],
+        }),
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse({ title: "not ready", code: "not_found" }, 404),
+    });
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <LocaleProvider initial="en">
+          <CompanyAct
+            state={REVIEW_STATE}
+            dispatch={vi.fn()}
+            profile={null}
+            persist={vi.fn(async () => true)}
+          />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit fields directly" }),
+    );
+    const legalName = screen.getByLabelText(/Registered legal name/);
+    fireEvent.change(legalName, { target: { value: "Gradion, roughly" } });
+
+    const card = screen.getByRole("button", { name: /Gradion Co\., Ltd\./ });
+    fireEvent.click(card);
+
+    expect(legalName).toHaveValue("Gradion Co., Ltd.");
+    // The picker marks a card chosen by comparing the card to legal_name, so
+    // a pick that left the typed name standing also denied the very click it
+    // had just honoured everywhere else.
+    expect(card).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(/Registered address/)).toHaveValue(
+      GRADION_LTD.registered_address,
+    );
   });
 });
 

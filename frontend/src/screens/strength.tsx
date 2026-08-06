@@ -12,7 +12,12 @@ import {
 } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { OverlayUnavailable, problemMessage, useSorMode } from "./common";
+import {
+  OverlayUnavailable,
+  problemMessageOf,
+  throwProblem,
+  useSorMode,
+} from "./common";
 
 // The relationship-strength card (Phase 3, P-4): "no mystery number" — the
 // composite score NEVER renders alone. It always carries its bucket badge
@@ -44,7 +49,7 @@ async function fetchStrength(
       params: { path: { id } },
     });
     if (error) {
-      throw new Error(problemMessage(error));
+      throwProblem(error);
     }
     return data;
   }
@@ -52,7 +57,7 @@ async function fetchStrength(
     params: { path: { id } },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }
@@ -88,11 +93,7 @@ export function StrengthCard({
         </div>
       )}
       {!overlay && query.isError && (
-        <EmptyState>
-          {query.error instanceof Error
-            ? query.error.message
-            : t("common.error")}
-        </EmptyState>
+        <EmptyState>{problemMessageOf(query.error, t)}</EmptyState>
       )}
       {!overlay && query.isSuccess && (
         <StrengthBody strength={query.data} locale={locale} />

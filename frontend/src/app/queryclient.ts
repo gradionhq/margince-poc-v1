@@ -34,12 +34,14 @@ function problemStatusOf(error: unknown): number | null {
 // FE-PARAM-2: retry a server error, never a client error.
 export function retryQuery(failureCount: number, error: Error): boolean {
   const status = problemStatusOf(error);
-  // A failure that carries no status is NOT retried. It cannot be shown to be
-  // the server's fault: a rejected fetch and a 4xx that a screen flattened
-  // into a plain Error arrive here identically, so retrying would mean
-  // retrying a client refusal, which is exactly what this parameter forbids.
-  // Both already land on an error state that offers the reader a retry, so
-  // nothing is lost but the silent second request.
+  // A failure that carries no status is NOT retried, and that stays true now
+  // that a server refusal always arrives as a ProblemError: what is left
+  // without a status is a failure that never reached the server (a rejected
+  // fetch) or one raised inside the query function itself. Neither is a fault
+  // the server reported, which is the only thing FE-PARAM-2 retries — and a
+  // bug in a query function returns the same failure however often it is
+  // asked. The error state that follows offers the reader a retry either way,
+  // so nothing is lost but the silent second request.
   return status !== null && status >= 500 && failureCount < MAX_RETRIES;
 }
 

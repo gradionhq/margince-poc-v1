@@ -165,63 +165,60 @@ export function resolutionsFromAnswers(
   return resolutions;
 }
 
-// Choosing an entity fills one intact legal block and keeps its website
-// provenance (the read grounded it; the human only chose which block). Two
-// things this never does: overwrite a field the human already typed into
-// (their edit wins, unconditionally), and invent a value for a detail this
-// particular candidate does not carry — an absent field is left exactly as
-// it was, never blanked. Mirrors the classic coordinator's entity pick so
-// both shells stamp provenance alike.
+// Evidence-or-omit for a candidate: the read's verbatim quote when it captured
+// one, and otherwise nothing at all. A value is never its own evidence.
+function quotedEvidence(entity: LegalEntity): string | undefined {
+  const snippet = entity.evidence_snippet;
+  return snippet !== undefined && snippet.trim() !== "" ? snippet : undefined;
+}
+
+// Choosing an entity fills one intact legal block. There is one such gesture,
+// wherever it is offered — the clarify's candidate list and the dossier's
+// entity cards ask the same question of the same candidates — so it settles
+// one way: the chosen name follows the pick even over a name the human typed
+// earlier, because their old text standing beside this candidate's address and
+// registration number would describe two companies at once. The details that
+// ride along were never what was asked, so an edit there still wins, and a
+// detail this candidate does not carry is left exactly as it was, never
+// blanked.
+//
+// The block keeps the candidate's own provenance, and only what the candidate
+// actually has: the page it was printed on, plus the verbatim quote when the
+// read captured one. No confidence — see FieldGrounding.
 export function draftWithLegalEntity(
   draft: CompanyDraft,
   entity: LegalEntity,
 ): CompanyDraft {
+  const edited = new Set(draft.edited);
+  if (entity.name.trim() !== "") {
+    // The human mark goes with the value: they selected what the read had
+    // already grounded instead of authoring anything. A candidate with no
+    // name settles nothing about legal_name, and dropping the mark there
+    // would leave the human's own text looking site-sourced.
+    edited.delete("legal_name");
+  }
   const grounded = { ...draft.grounded };
   const values = { ...draft.values };
+  const snippet = quotedEvidence(entity);
   const candidates: ReadonlyArray<[ColdField["field"], string | undefined]> = [
     ["legal_name", entity.name],
     ["registered_address", entity.registered_address],
     ["register_vat", entity.register_number],
   ];
   for (const [field, value] of candidates) {
-    if (draft.edited.has(field) || value === undefined || value.trim() === "") {
+    if (edited.has(field) || value === undefined || value.trim() === "") {
       continue;
     }
     values[field] = value;
     grounded[field] = {
       field,
       value,
-      evidence_snippet: entity.evidence_snippet ?? value,
+      evidence_snippet: snippet,
       source_kind: "url",
       source_url: entity.source_url,
-      confidence: 1,
     };
   }
-  return { values, grounded, edited: draft.edited };
-}
-
-// The same block, applied as the ANSWER to the legal-entity question rather
-// than as a pick made beside the fields. Answering it is a decision about
-// legal_name itself, so that one field follows the pick even over a name the
-// human typed earlier: their old text standing beside the chosen candidate's
-// address and registration number would describe two companies at once. The
-// human mark goes with the value — they selected what the read had already
-// grounded instead of authoring anything, so the whole block reads as the
-// site's evidence. The details that ride along were never what was asked, so
-// an edit there still wins, exactly as above.
-export function draftWithDecidedLegalEntity(
-  draft: CompanyDraft,
-  entity: LegalEntity,
-): CompanyDraft {
-  if (entity.name.trim() === "") {
-    // No name to settle legal_name with: dropping the mark from a value this
-    // pick cannot replace would strip the human's authorship from their own
-    // text and leave it looking site-sourced.
-    return draftWithLegalEntity(draft, entity);
-  }
-  const edited = new Set(draft.edited);
-  edited.delete("legal_name");
-  return draftWithLegalEntity({ ...draft, edited }, entity);
+  return { values, grounded, edited };
 }
 
 // The three fields only a legal/imprint page can ground — the same trio

@@ -20,7 +20,12 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { coldFieldLabel, problemMessage, QueryGate } from "./common";
+import {
+  coldFieldLabel,
+  problemMessageOf,
+  QueryGate,
+  throwProblem,
+} from "./common";
 
 type Capabilities = components["schemas"]["CompanyContextCapabilities"];
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -89,7 +94,7 @@ export function useCompanyContextCapabilities(enabled = true) {
     queryFn: async (): Promise<Capabilities> => {
       const { data, error } = await api.GET("/company/context/capabilities");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -109,7 +114,7 @@ export function ManualCompanySetup() {
         body: trimCompanyInput(form),
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -155,7 +160,9 @@ export function ManualCompanySetup() {
           </div>
         ))}
         {save.isError && (
-          <p className="company-context-error">{save.error.message}</p>
+          <p className="company-context-error">
+            {problemMessageOf(save.error, t)}
+          </p>
         )}
         <div className="company-context-actions">
           <Button
@@ -215,7 +222,7 @@ export function CompanyContextCard() {
     queryFn: async (): Promise<CompanyProfile> => {
       const { data, error } = await api.GET("/company");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -237,7 +244,7 @@ export function CompanyContextCard() {
     mutationFn: async (body: CompanyInput) => {
       const { data, error } = await api.PUT("/company", { body });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -251,14 +258,14 @@ export function CompanyContextCard() {
     mutationFn: async () => {
       const website = form?.website?.trim() ?? "";
       if (!website) {
-        throw new Error(t("settings.companyWebsiteRequired"));
+        throwProblem({ title: t("settings.companyWebsiteRequired") });
       }
       const { data, error } = await api.POST("/company/site-reads", {
         params: { header: { "Idempotency-Key": crypto.randomUUID() } },
         body: { url: absoluteWebsite(website) },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -277,7 +284,7 @@ export function CompanyContextCard() {
         params: { path: { readId: readID ?? "" } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -308,7 +315,7 @@ export function CompanyContextCard() {
   const confirm = useMutation({
     mutationFn: async () => {
       if (!siteRead.data || !form) {
-        throw new Error(t("settings.companyRefreshUnavailable"));
+        throwProblem({ title: t("settings.companyRefreshUnavailable") });
       }
       const body = refreshConfirmation(
         form,
@@ -328,9 +335,9 @@ export function CompanyContextCard() {
       );
       if (error) {
         if (response.status === 409) {
-          throw new Error(t("settings.companyRefreshStale"));
+          throwProblem({ title: t("settings.companyRefreshStale") });
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -412,7 +419,7 @@ export function CompanyContextCard() {
                 <div className="company-context-actions">
                   {save.isError && (
                     <p className="company-context-error">
-                      {save.error.message}
+                      {problemMessageOf(save.error, t)}
                     </p>
                   )}
                   {save.isSuccess && (
@@ -431,7 +438,7 @@ export function CompanyContextCard() {
               </div>
               {(startRefresh.isError || siteRead.isError) && (
                 <p className="company-context-error">
-                  {startRefresh.error?.message ?? siteRead.error?.message}
+                  {problemMessageOf(startRefresh.error ?? siteRead.error, t)}
                 </p>
               )}
               {siteRead.data && (
@@ -448,7 +455,11 @@ export function CompanyContextCard() {
                   }
                   onConfirm={() => confirm.mutate()}
                   confirming={confirm.isPending}
-                  error={confirm.error?.message}
+                  error={
+                    confirm.error
+                      ? problemMessageOf(confirm.error, t)
+                      : undefined
+                  }
                 />
               )}
             </>

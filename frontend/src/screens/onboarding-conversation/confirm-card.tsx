@@ -124,6 +124,7 @@ const STATE_WORD: Readonly<Record<RowState, MessageKey>> = {
   empty: "ob.conv.triage.stateEmpty",
   typed: "ob.conv.triage.stateTyped",
   stored: "ob.conv.triage.stateStored",
+  chosen: "ob.conv.triage.stateChosen",
   high: "confidence.high",
   med: "confidence.med",
   low: "confidence.low",
@@ -142,10 +143,12 @@ function isOutstandingUnbanded(state: RowState): state is "required" | "empty" {
   return state === "required" || state === "empty";
 }
 
-/** The settled half of the same split: `typed` and `stored` both have a
- * value and no confidence to grade, so `isBand` skips them too. */
-function isSettledUnbanded(state: RowState): state is "typed" | "stored" {
-  return state === "typed" || state === "stored";
+/** The settled half of the same split: `typed`, `stored` and `chosen` all
+ * have a value and no confidence to grade, so `isBand` skips them too. */
+function isSettledUnbanded(
+  state: RowState,
+): state is "typed" | "stored" | "chosen" {
+  return state === "typed" || state === "stored" || state === "chosen";
 }
 
 // The mark a row with no gradable value carries: an icon shaped, not
@@ -173,20 +176,24 @@ function OutstandingMark({
 
 // isWork's complement, the settled half: `typed` already has a word
 // (ProvenanceTag's fixed human/agent/connector vocabulary covers it —
-// "typed by you"), but `stored` has no entry in that vocabulary at all. A
-// row a human typed and a row still carrying an untouched profile value are
-// different truths; saying "typed by you" over the second would be wrong,
-// not just imprecise, so it gets its own quiet label instead, reusing the
-// exact words the expanded row already says for the same state.
+// "typed by you"), but neither `stored` nor `chosen` has an entry in that
+// vocabulary at all. A row a human typed, a row still carrying an untouched
+// profile value, and a row whose value the human picked off the site's own
+// legal notice are three different truths; saying "typed by you" over the
+// last two would be wrong, not just imprecise, so each gets its own quiet
+// label instead, reusing the exact words the expanded row already says.
 function ProvenanceMark({
   state,
   t,
-}: Readonly<{ state: "typed" | "stored"; t: ReturnType<typeof useT> }>) {
+}: Readonly<{
+  state: "typed" | "stored" | "chosen";
+  t: ReturnType<typeof useT>;
+}>) {
   if (state === "typed") {
     return <ProvenanceTag provenance={{ kind: "human", self: true }} />;
   }
   return (
-    <span className="ob-triage-row-provenance">{t(STATE_WORD.stored)}</span>
+    <span className="ob-triage-row-provenance">{t(STATE_WORD[state])}</span>
   );
 }
 
@@ -411,10 +418,14 @@ function FieldRow({
         <input id={controlId} value={row.value} onChange={onChange} />
       )}
       {/* Only the evidence pair below the control: the label's state word
-          already says "typed by you", so the human tag would say it twice. */}
-      {row.evidence !== null && isBand(row.state) && (
+          already says "typed by you", so the human tag would say it twice.
+          The quote and the meter are separate claims — a value the human
+          picked off the legal notice carries the page's own words but no
+          measured score, so it shows the quote and NO meter rather than a
+          band nothing graded. */}
+      {row.evidence !== null && (
         <span className="ob-triage-row-proof">
-          <ConfidenceMeter level={row.state} />
+          {isBand(row.state) && <ConfidenceMeter level={row.state} />}
           <EvidenceChip evidence={row.evidence} collapsed />
         </span>
       )}

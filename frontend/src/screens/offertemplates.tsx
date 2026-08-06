@@ -5,7 +5,7 @@ import { Badge, DataTable, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
-import { problemMessage, throwProblem } from "./common";
+import { throwProblem } from "./common";
 import { CreateAction, type CreateField } from "./create";
 import { EditAction } from "./edit";
 import {
@@ -34,7 +34,7 @@ async function fetchTemplatesPage(
     },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,

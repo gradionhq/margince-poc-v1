@@ -23,7 +23,7 @@ function RenderFailure({ onRetry }: Readonly<{ onRetry: () => void }>) {
           variant="primary"
           small
           onClick={onRetry}
-          style={{ marginTop: 10 }}
+          style={{ marginTop: "var(--space-3)" }}
         >
           {t("app.errorRetry")}
         </Button>

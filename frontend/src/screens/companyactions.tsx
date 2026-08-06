@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { throwProblem } from "./common";
 import { CreateAction, type CreateField } from "./create";
 
 // What a rep can START from the company page.
@@ -32,7 +32,7 @@ function useDealTarget() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       const pipeline: Pipeline | undefined =
         data.data.find((candidate) => candidate.is_default) ?? data.data[0];
@@ -108,7 +108,7 @@ export function NewDealAction({
       },
     });
     if (error) {
-      throw new Error(problemMessage(error, t));
+      throwProblem(error, t);
     }
     return data;
   };
@@ -165,7 +165,7 @@ async function resolveTagId(
     params: { query: {} },
   });
   if (readError) {
-    throw new Error(problemMessage(readError, t));
+    throwProblem(readError, t);
   }
   const existing = matching(known.data);
   if (existing) {
@@ -175,7 +175,7 @@ async function resolveTagId(
   const { data, error, response } = await api.POST("/tags", { body: { name } });
   if (response.status !== 409) {
     if (error) {
-      throw new Error(problemMessage(error, t));
+      throwProblem(error, t);
     }
     return data.id;
   }
@@ -184,7 +184,7 @@ async function resolveTagId(
     params: { query: {} },
   });
   if (afterError) {
-    throw new Error(problemMessage(afterError, t));
+    throwProblem(afterError, t);
   }
   const winner = matching(after.data);
   if (!winner) {
@@ -194,7 +194,7 @@ async function resolveTagId(
     // returns and the winner sits past the cap. listTags takes no name filter,
     // so a client cannot ask about that row directly — the reach for it is a
     // contract gap, recorded in STATUS.md rather than looped around here.
-    throw new Error(problemMessage(error, t));
+    throwProblem(error, t);
   }
   return winner;
 }
@@ -224,7 +224,7 @@ export function TagAction({ orgId }: Readonly<{ orgId: string }>) {
       return { id: orgId };
     }
     if (error) {
-      throw new Error(problemMessage(error, t));
+      throwProblem(error, t);
     }
     return { id: data.id };
   };
@@ -267,7 +267,7 @@ export function ListAction({ orgId }: Readonly<{ orgId: string }>) {
       params: { query: { entity_type: "organization" } },
     });
     if (readError) {
-      throw new Error(problemMessage(readError, t));
+      throwProblem(readError, t);
     }
     const existing = known.data.find(
       (list) =>
@@ -280,7 +280,7 @@ export function ListAction({ orgId }: Readonly<{ orgId: string }>) {
         body: { name, entity_type: "organization", list_type: "static" },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       listId = data.id;
     }
@@ -293,7 +293,7 @@ export function ListAction({ orgId }: Readonly<{ orgId: string }>) {
       return { id: orgId };
     }
     if (error) {
-      throw new Error(problemMessage(error, t));
+      throwProblem(error, t);
     }
     return { id: data.id };
   };

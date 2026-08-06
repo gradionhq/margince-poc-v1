@@ -12,7 +12,7 @@ import {
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate, useMe } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
 import { isOption } from "../app/options";
 
@@ -36,7 +36,7 @@ function useMembers(enabled: boolean) {
         params: { query: { include_inactive: true } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -99,7 +99,7 @@ function InviteForm() {
         body: { email: email.trim(), display_name: name.trim(), role },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
@@ -109,7 +109,7 @@ function InviteForm() {
       setError(null);
       qc.invalidateQueries({ queryKey: ["users-admin"] });
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
 
   const canInvite =
@@ -174,7 +174,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
     setError(null);
     qc.invalidateQueries({ queryKey: ["users-admin"] });
   };
-  const onError = (e: Error) => setError(e.message);
+  const onError = (e: Error) => setError(problemMessageOf(e, t));
 
   const setRole = useMutation({
     mutationFn: async (role: Role) => {
@@ -183,7 +183,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         body: { role },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: refresh,
@@ -196,7 +196,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         params: { path: { id: member.id } },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
@@ -212,7 +212,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         params: { path: { id: member.id } },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: refresh,
@@ -274,7 +274,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         confirmLabel={t("users.deactivate")}
         confirmVariant="danger"
         pending={deactivate.isPending}
-        error={deactivate.error?.message}
+        error={deactivate.error ? problemMessageOf(deactivate.error, t) : null}
         onConfirm={() => deactivate.mutate()}
       >
         <p className="t-small">{t("users.deactivateConfirmBody")}</p>

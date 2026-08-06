@@ -24,7 +24,7 @@ import {
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AuditEntryLine } from "./audit";
-import { problemMessage, QueryGate, useMe } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import {
   apiKey,
   CF_OBJECTS,
@@ -571,7 +571,7 @@ export function CustomFieldsScreen() {
         params: { query: { object } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -584,7 +584,7 @@ export function CustomFieldsScreen() {
         params: { query: { entity_type: "custom_field" } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -601,7 +601,7 @@ export function CustomFieldsScreen() {
         body: createBody(draft),
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -623,7 +623,7 @@ export function CustomFieldsScreen() {
       if (context) {
         queryClient.setQueryData(context.key, context.previous);
       }
-      showToast(error instanceof Error ? error.message : problemMessage(error));
+      showToast(problemMessageOf(error, t));
     },
     onSuccess: (_data, draft) => {
       queryClient.invalidateQueries({
@@ -649,7 +649,7 @@ export function CustomFieldsScreen() {
         body: { label: input.label },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -659,7 +659,7 @@ export function CustomFieldsScreen() {
       setRenaming(null);
     },
     onError: (error) => {
-      showToast(error instanceof Error ? error.message : problemMessage(error));
+      showToast(problemMessageOf(error, t));
     },
   });
 
@@ -669,7 +669,7 @@ export function CustomFieldsScreen() {
         params: { path: { id: field.id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -678,7 +678,7 @@ export function CustomFieldsScreen() {
       showToast(t("cf.archived", { label: field.label }));
     },
     onError: (error) => {
-      showToast(error instanceof Error ? error.message : problemMessage(error));
+      showToast(problemMessageOf(error, t));
     },
   });
 

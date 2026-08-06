@@ -20,7 +20,6 @@ import type { SuggestedCompanyChange } from "../onboarding-read";
 import type { ArtifactMode, FindingHighlight } from "./artifact";
 import { CompanyActArtifact } from "./artifact";
 import {
-  draftWithDecidedLegalEntity,
   draftWithLegalEntity,
   evidencedFields,
   isCompanyField,
@@ -219,11 +218,10 @@ export function CompanyAct({
     applyChanges,
     // A whole-entity pick, unlike applyChanges: its provenance and its
     // never-overwrite-an-edit guard belong to the draft helper, not to a
-    // loop over field/value pairs. The clarify's own variant, because
-    // answering the question IS the decision about legal_name — see
-    // draftWithDecidedLegalEntity.
+    // loop over field/value pairs. The same helper the dossier's own entity
+    // cards call, because it is the same gesture — see draftWithLegalEntity.
     applyLegalEntity: (entity) =>
-      setDraft((current) => draftWithDecidedLegalEntity(current, entity)),
+      setDraft((current) => draftWithLegalEntity(current, entity)),
   });
 
   // The proposal endpoint joins through persisted wizard state, so the

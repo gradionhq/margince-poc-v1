@@ -5,7 +5,12 @@ import { navigate, type Route } from "../app/router";
 import { Button, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { ProblemError, problemExistingId, useSorMode } from "./common";
+import {
+  ProblemError,
+  problemExistingId,
+  problemMessageOf,
+  useSorMode,
+} from "./common";
 
 // The record screens whose entities are served from the incumbent mirror in
 // overlay mode. Creating one there answers unsupported_by_sor, so CreateAction
@@ -188,6 +193,7 @@ export function CreateAction<Created extends { id: string }>({
   // "view existing" link.
   resolveExisting?: (code: string, id: string) => Route;
 }>) {
+  const t = useT();
   const [creating, setCreating] = useState(startOpen);
   const mutation = useCreateRecord({
     create,
@@ -213,7 +219,7 @@ export function CreateAction<Created extends { id: string }>({
         title={label}
         fields={fields}
         pending={mutation.isPending}
-        error={mutation.isError ? mutation.error.message : null}
+        error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
         existing={existing}
         resolveExisting={resolveExisting}
         onSubmit={(values, rows) =>

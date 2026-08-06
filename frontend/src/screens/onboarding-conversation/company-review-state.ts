@@ -10,11 +10,11 @@ import { confidenceLevel } from "../inbox";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
 import {
   CUSTOMER_FIELDS,
-  groundingOf,
   isMultilineField,
   isRequired,
   LEGAL_IDENTITY_FIELDS,
   OFFER_FIELDS,
+  provenanceOf,
   SALES_FIELDS,
 } from "../onboarding";
 import { legalFieldGap } from "./company-proposal";
@@ -27,7 +27,7 @@ import { legalFieldGap } from "./company-proposal";
 // Change the rule once, in this file, and every surface ticks over together.
 //
 // No module-level code below touches `../onboarding`'s exports directly —
-// `groundingOf`/`isMultilineField`/`isRequired` are only CALLED, inside
+// `provenanceOf`/`isMultilineField`/`isRequired` are only CALLED, inside
 // `rowFor`'s body, and the field-group consts only inside `reviewFields`'s,
 // never read at the top of this file. confirm-card.tsx sits on an import
 // cycle with `../onboarding` (its own comment on `reviewGroups()` explains
@@ -45,7 +45,11 @@ type CompanySiteRead = components["schemas"]["CompanySiteRead"];
  * - `required` / `empty`: no value; required is the blocking kind.
  * - `typed`: the human wrote it this session: human truth, no meter.
  * - `stored`: carried in from the existing profile untouched (member path).
- * - `high` / `med` / `low`: site-grounded, banded by the shared
+ * - `chosen`: the human settled it by picking one of the read's own
+ *   candidates. It came off a page and keeps that page's quote when the read
+ *   captured one, but nothing measured a confidence for it, so it is banded
+ *   nowhere — an unmeasured value must not read as a weak or a strong one.
+ * - `high` / `med` / `low`: site-grounded and measured, banded by the shared
  *   confidenceLevel thresholds, never a hand-written label beside a number.
  */
 export type RowState =
@@ -53,6 +57,7 @@ export type RowState =
   | "empty"
   | "typed"
   | "stored"
+  | "chosen"
   | "high"
   | "med"
   | "low";
@@ -81,6 +86,7 @@ export const STATE_RANK: Readonly<Record<RowState, number>> = {
   high: 4,
   typed: 5,
   stored: 5,
+  chosen: 5,
 };
 
 /** A row that still wants a decision or a value, as opposed to a skim row. */
@@ -151,14 +157,17 @@ export function rowFor(
       emptyHintKey: "ob.conv.triage.emptyHint",
     };
   }
-  // Grounding precedence: the draft's CURRENT grounding (an entity pick
+  // Grounding precedence: the draft's CURRENT provenance (an entity pick
   // re-grounds the legal block), then the proposal's own evidence — but the
   // proposal's evidence supports the value IT proposed, never whatever value
   // happens to be sitting in the draft. A row still showing the existing
   // profile value (the proposal disagreed, or nobody has resolved which one
   // wins yet) must not borrow the new claim's confidence and snippet as if
   // they backed the old value.
-  const grounding = groundingOf(draft, field);
+  //
+  // ONE of the two answers for the whole row, never a blend: a quote from the
+  // draft's own grounding beside a score from the proposal would describe the
+  // same value with two provenances at once.
   const proposed = byName.get(field);
   // Trimmed on both sides: a stored profile value can carry surrounding
   // whitespace (formFromProfile copies profile strings untouched), and a
@@ -166,13 +175,11 @@ export function rowFor(
   // evidence over nothing more than that whitespace — the same value, read
   // as if the proposal never backed it.
   const provenance =
-    proposed !== undefined && proposed.value.trim() === value.trim()
+    provenanceOf(draft, field) ??
+    (proposed !== undefined && proposed.value.trim() === value.trim()
       ? proposed
-      : undefined;
-  const confidence = grounding?.confidence ?? provenance?.confidence;
-  const snippet = grounding?.evidence_snippet ?? provenance?.evidence_snippet;
-  const source = grounding?.source_url ?? provenance?.source_url;
-  if (confidence === undefined || snippet === undefined) {
+      : null);
+  if (provenance === null) {
     return {
       ...base,
       state: "stored",
@@ -181,10 +188,27 @@ export function rowFor(
       emptyHintKey: "ob.conv.triage.emptyHint",
     };
   }
+  const snippet = provenance.evidence_snippet;
+  // Evidence-or-omit: no verbatim quote, no evidence line — never an empty
+  // one, and never the value standing in as its own proof.
+  const evidence =
+    snippet === undefined || snippet.trim() === ""
+      ? null
+      : { snippet, source: provenance.source_url ?? "" };
+  const { confidence } = provenance;
+  if (confidence === undefined) {
+    return {
+      ...base,
+      state: "chosen",
+      evidence,
+      confidence: null,
+      emptyHintKey: "ob.conv.triage.emptyHint",
+    };
+  }
   return {
     ...base,
     state: confidenceLevel(confidence) ?? "low",
-    evidence: { snippet, source: source ?? "" },
+    evidence,
     confidence,
     emptyHintKey: "ob.conv.triage.emptyHint",
   };

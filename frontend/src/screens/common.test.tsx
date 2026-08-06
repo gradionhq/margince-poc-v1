@@ -12,11 +12,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocaleProvider, translate } from "../i18n";
 import {
   isConsentNotGranted,
+  ProblemError,
   problemExistingId,
   problemFieldErrors,
   problemFieldErrorsOf,
   problemMessage,
+  problemMessageOf,
   provenanceOf,
+  QueryStates,
   throwProblem,
 } from "./common";
 import { CreateAction } from "./create";
@@ -292,5 +295,83 @@ describe("provenanceOf", () => {
     // the one attribution nobody can check.
     expect(provenanceOf(undefined)).toEqual({ kind: "unknown" });
     expect(provenanceOf("")).toEqual({ kind: "unknown" });
+  });
+});
+
+// The display side of the same rule: what a caught failure is allowed to say.
+// A server problem states an honest cause the reader can act on; a rejected
+// fetch or a bug in a handler states our internals in wording nobody wrote for
+// a user, and the two are indistinguishable at the point of rendering unless
+// the type is checked here.
+describe("problemMessageOf", () => {
+  it("shows the server's own detail when the failure carries a problem", () => {
+    expect(
+      problemMessageOf(new ProblemError({ detail: "email taken" }), t),
+    ).toBe("email taken");
+  });
+
+  it("translates a refusal code the same way the raw-body reader does", () => {
+    expect(
+      problemMessageOf(new ProblemError({ code: "unsupported_by_sor" }), t),
+    ).toBe(t("overlay.refused"));
+  });
+
+  it("never repeats the words of a bare Error", () => {
+    const bug = new TypeError("Cannot read properties of undefined");
+    expect(problemMessageOf(bug, t)).toBe(t("common.errorNoCause"));
+    expect(problemMessageOf(bug, t)).not.toContain(bug.message);
+  });
+
+  it("never repeats the words of a thrown non-Error either", () => {
+    for (const thrown of ["boom", { detail: "not a ProblemError" }, null]) {
+      expect(problemMessageOf(thrown, t)).toBe(t("common.errorNoCause"));
+    }
+  });
+
+  it("prefers the surface's own copy for a failure the server never described", () => {
+    expect(
+      problemMessageOf(
+        new Error("Failed to fetch"),
+        t,
+        t("connectors.loadFailed"),
+      ),
+    ).toBe(t("connectors.loadFailed"));
+    // A server problem still speaks for itself: the fallback is for the case
+    // where there is nothing to say, not a way to overwrite the server.
+    expect(
+      problemMessageOf(
+        new ProblemError({ detail: "budget exhausted" }),
+        t,
+        t("connectors.loadFailed"),
+      ),
+    ).toBe("budget exhausted");
+  });
+});
+
+describe("QueryStates", () => {
+  const failing = (error: unknown) => ({
+    isPending: false,
+    isError: true,
+    error,
+    refetch: () => undefined,
+  });
+
+  it("prints the server's detail for a failed query", () => {
+    render(
+      <QueryStates query={failing(new ProblemError({ detail: "no seat" }))}>
+        {null}
+      </QueryStates>,
+    );
+    expect(screen.getByText("no seat")).toBeTruthy();
+  });
+
+  it("prints the shared line, not the message, when the failure is not a problem", () => {
+    render(
+      <QueryStates query={failing(new TypeError("Failed to fetch"))}>
+        {null}
+      </QueryStates>,
+    );
+    expect(screen.getByText(t("common.errorNoCause"))).toBeTruthy();
+    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
   });
 });

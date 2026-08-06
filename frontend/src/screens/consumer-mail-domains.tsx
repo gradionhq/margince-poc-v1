@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import { useCanWrite } from "../app/capability";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 
 // The workspace's own consumer-mail list (CAP-PARAM-5). Mail from a consumer
 // domain still creates the person; what it never creates is a company. The
@@ -27,7 +27,7 @@ function useConsumerMailDomains() {
         "/capture/consumer-mail-domains",
       );
       if (error || !response.ok) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -42,7 +42,7 @@ function useAddConsumerMailDomain() {
         body: entry,
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -63,7 +63,7 @@ function useRemoveConsumerMailDomain() {
         { params: { path: { id } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -135,7 +135,7 @@ export function ConsumerMailDomainsCard() {
             role="alert"
             style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
           >
-            {add.error.message}
+            {problemMessageOf(add.error, t)}
           </span>
         )}
       </form>
@@ -199,7 +199,7 @@ export function ConsumerMailDomainsCard() {
           role="alert"
           style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
         >
-          {remove.error.message}
+          {problemMessageOf(remove.error, t)}
         </span>
       )}
     </section>

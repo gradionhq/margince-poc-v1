@@ -276,3 +276,72 @@ describe("the advisory tier beside the blocking one", () => {
     expect(row("industry")).toHaveTextContent("30");
   });
 });
+
+// A value the human settled by picking one of the read's own legal-entity
+// candidates came off a page — so its words are quotable — but nothing ever
+// scored it: the entity lane carries no confidence on the wire. The board owes
+// that value the quote and NO band; a meter here would be a number the product
+// minted for itself, and an empty chip would be evidence it does not have.
+describe("a value chosen from the read's own candidates", () => {
+  function renderChosen(snippet: string | undefined) {
+    return render(
+      <CompanyConfirmCard
+        proposal={PROPOSAL}
+        draft={{
+          ...DRAFT,
+          values: { ...DRAFT.values, legal_name: COMPANY },
+          grounded: {
+            legal_name: {
+              field: "legal_name",
+              value: COMPANY,
+              evidence_snippet: snippet,
+              source_kind: "url",
+              source_url: "https://gradion.test/impressum",
+            },
+          },
+        }}
+        answers={[]}
+        read={read()}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+  }
+
+  // The row settles, so it opens on demand rather than by default.
+  async function openLegalName() {
+    await userEvent
+      .setup()
+      .click(within(row("legal_name")).getByRole("button"));
+  }
+
+  it("shows the page's own words with no confidence meter beside them", async () => {
+    renderChosen("Gradion GmbH · HRB 12345 B");
+    await openLegalName();
+
+    const legalName = row("legal_name");
+    expect(
+      within(legalName).getByRole("button", { name: /gradion.test/ }),
+    ).toBeInTheDocument();
+    // Not a band, not a zero: nothing graded this value, so the row says who
+    // chose it instead of how sure anything is.
+    expect(legalName.querySelector(".confidence")).toBeNull();
+    expect(legalName).toHaveTextContent("chosen by you from the site");
+  });
+
+  it("shows no evidence line at all when the candidate printed no quote", async () => {
+    renderChosen(undefined);
+    await openLegalName();
+
+    const legalName = row("legal_name");
+    expect(legalName.querySelector(".evidence-chip")).toBeNull();
+    expect(legalName.querySelector(".confidence")).toBeNull();
+    expect(legalName).toHaveTextContent("chosen by you from the site");
+  });
+});

@@ -18,7 +18,6 @@ import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
   OverlayUnavailable,
-  problemMessage,
   provenanceOf,
   QueryGate,
   throwProblem,
@@ -78,7 +77,7 @@ async function fetchPeoplePage(
   if (error) {
     // A LIST read's honest-error path only needs a message to render — the
     // dedupe "view existing" link is a create/update-only concern.
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,
@@ -277,7 +276,7 @@ function useTimeline(
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -459,7 +458,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

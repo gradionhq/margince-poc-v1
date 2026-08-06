@@ -20,7 +20,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import type { CreateField } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
@@ -75,7 +75,7 @@ async function fetchRelationships(
     params: { query: scopeQuery(scope) },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data.data;
 }
@@ -261,7 +261,10 @@ function AddRelationshipAction({
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [target, setTarget] = useState<Candidate | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  // The caught failure itself, not a sentence about it: the effect below
+  // runs debounced and must not depend on the translator, which is a new
+  // function every render. It is turned into copy where it is rendered.
+  const [searchFailure, setSearchFailure] = useState<unknown>(null);
   // Kind fixes the picked endpoint; a stale kind can't outlive its scope
   // because the tab remounts per record, so the first option is always valid.
   const endpoint = options.find((o) => o.kind === kind) ?? options[0];
@@ -274,7 +277,7 @@ function AddRelationshipAction({
     const query = term.trim();
     if (!query) {
       setCandidates([]);
-      setSearchError(null);
+      setSearchFailure(null);
       return;
     }
     let cancelled = false;
@@ -283,14 +286,12 @@ function AddRelationshipAction({
         const results = await searchByEntity(entity, query);
         if (!cancelled) {
           setCandidates(results);
-          setSearchError(null);
+          setSearchFailure(null);
         }
       } catch (error) {
         if (!cancelled) {
           setCandidates([]);
-          setSearchError(
-            error instanceof Error ? error.message : "request failed",
-          );
+          setSearchFailure(error);
         }
       }
     }, SEARCH_DEBOUNCE_MS);
@@ -335,7 +336,7 @@ function AddRelationshipAction({
     setTerm("");
     setCandidates([]);
     setTarget(null);
-    setSearchError(null);
+    setSearchFailure(null);
   }
 
   function close() {
@@ -346,7 +347,7 @@ function AddRelationshipAction({
     setTerm("");
     setCandidates([]);
     setTarget(null);
-    setSearchError(null);
+    setSearchFailure(null);
     mutation.reset();
   }
 
@@ -416,11 +417,11 @@ function AddRelationshipAction({
               setTarget(null);
             }}
           />
-          {searchError && (
+          {searchFailure ? (
             <p className="t-caption" style={{ color: "var(--danger)" }}>
-              {searchError}
+              {problemMessageOf(searchFailure, t)}
             </p>
-          )}
+          ) : null}
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {candidates.map((candidate) => (
               <li key={candidate.id}>
@@ -446,7 +447,7 @@ function AddRelationshipAction({
           )}
           {mutation.isError && (
             <p className="t-caption" style={{ color: "var(--danger)" }}>
-              {mutation.error instanceof Error ? mutation.error.message : null}
+              {problemMessageOf(mutation.error, t)}
             </p>
           )}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -632,7 +633,7 @@ export function RelationshipsTab({
         <p style={{ marginBottom: 16 }}>{t("rel.removeConfirm")}</p>
         {remove.isError && (
           <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {remove.error instanceof Error ? remove.error.message : null}
+            {problemMessageOf(remove.error, t)}
           </p>
         )}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>

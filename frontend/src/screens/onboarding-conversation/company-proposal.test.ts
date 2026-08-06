@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../../api/schema";
 import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
-import {
-  draftWithDecidedLegalEntity,
-  draftWithLegalEntity,
-  legalFieldGap,
-} from "./company-proposal";
+import { draftWithLegalEntity, legalFieldGap } from "./company-proposal";
 
 type LegalEntity = components["schemas"]["CompanySiteReadLegalEntity"];
 type SiteReadPage = components["schemas"]["CompanySiteReadPage"];
@@ -42,10 +38,51 @@ describe("draftWithLegalEntity", () => {
       expect(next.grounded[field]).toMatchObject({
         source_kind: "url",
         source_url: gradionEntity.source_url,
-        confidence: 1,
+        evidence_snippet: gradionEntity.evidence_snippet,
       });
       expect(next.edited.has(field)).toBe(false);
     }
+  });
+
+  it("claims no confidence for the block it fills, because nothing ever measured one", () => {
+    const next = draftWithLegalEntity(EMPTY_DRAFT, gradionEntity);
+    // The candidate carries no score on the wire. A number invented here
+    // would render as the model's own certainty about a human's choice —
+    // and 1 would render as the highest certainty it can express.
+    for (const field of [
+      "legal_name",
+      "registered_address",
+      "register_vat",
+    ] as const) {
+      expect(next.grounded[field]?.confidence).toBeUndefined();
+    }
+  });
+
+  it("carries no evidence at all when the candidate printed no quote, rather than quoting the value back", () => {
+    const unquoted: LegalEntity = {
+      name: "Acme Holding GmbH",
+      registered_address: "Musterstraße 1, 10115 Berlin",
+      source_url: "https://acme.example/impressum",
+    };
+    const next = draftWithLegalEntity(EMPTY_DRAFT, unquoted);
+    expect(next.values.legal_name).toBe("Acme Holding GmbH");
+    // A value is not its own evidence: with nothing verbatim to show, the
+    // grounding keeps only the page it came from.
+    expect(next.grounded.legal_name?.evidence_snippet).toBeUndefined();
+    expect(next.grounded.legal_name?.source_url).toBe(
+      "https://acme.example/impressum",
+    );
+    expect(next.grounded.registered_address?.evidence_snippet).toBeUndefined();
+  });
+
+  it("treats a blank quote the same as none, so no empty evidence line can render", () => {
+    const blankQuote: LegalEntity = {
+      name: "Acme Holding GmbH",
+      evidence_snippet: "   ",
+      source_url: "https://acme.example/impressum",
+    };
+    const next = draftWithLegalEntity(EMPTY_DRAFT, blankQuote);
+    expect(next.grounded.legal_name?.evidence_snippet).toBeUndefined();
   });
 
   it("fills nothing for a detail the candidate does not carry, rather than a blank or a placeholder", () => {
@@ -88,33 +125,39 @@ describe("draftWithLegalEntity", () => {
   });
 });
 
-// Answering the legal-entity question is a decision about the legal name
-// itself, so that field follows the answer where a pick made beside the
-// fields would have left it alone — and it follows as the site's evidence,
-// never as something the human asserted.
-describe("draftWithDecidedLegalEntity", () => {
+// Picking a candidate is a decision about the legal name itself, wherever the
+// candidates are offered — the clarify's list and the dossier's cards are one
+// gesture — so the chosen name follows the pick even over a name the human
+// typed earlier, and it follows as the site's own value, never as something
+// the human asserted.
+describe("draftWithLegalEntity settling the chosen name", () => {
   it("replaces a name the human typed earlier, and stops counting it as theirs", () => {
     const typed = changeDraftField(
       EMPTY_DRAFT,
       "legal_name",
       "Gradion, roughly",
     );
-    const next = draftWithDecidedLegalEntity(typed, gradionEntity);
+    const next = draftWithLegalEntity(typed, gradionEntity);
     expect(next.values.legal_name).toBe("Gradion Co., Ltd.");
     expect(next.edited.has("legal_name")).toBe(false);
     expect(next.grounded.legal_name).toMatchObject({
       source_kind: "url",
       source_url: gradionEntity.source_url,
     });
+    // The whole block describes ONE company: a name from the candidate and
+    // an address from somewhere else is the mixture this settling prevents.
+    expect(next.values.registered_address).toBe(
+      gradionEntity.registered_address,
+    );
   });
 
-  it("still leaves the details the question never asked about to the human", () => {
+  it("still leaves the details the pick never asked about to the human", () => {
     const typed = changeDraftField(
       EMPTY_DRAFT,
       "registered_address",
       "My own address, typed by hand",
     );
-    const next = draftWithDecidedLegalEntity(typed, gradionEntity);
+    const next = draftWithLegalEntity(typed, gradionEntity);
     expect(next.values.registered_address).toBe(
       "My own address, typed by hand",
     );
@@ -128,7 +171,7 @@ describe("draftWithDecidedLegalEntity", () => {
       name: "",
       source_url: "https://gradion.com/legal-notice",
     };
-    const next = draftWithDecidedLegalEntity(typed, nameless);
+    const next = draftWithLegalEntity(typed, nameless);
     expect(next.values.legal_name).toBe("Gradion GmbH");
     // Unmarking a value nothing replaced would show the human's own text as
     // if the site had grounded it.
