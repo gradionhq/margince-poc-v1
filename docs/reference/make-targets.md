@@ -2,8 +2,8 @@
 
 The real Makefile is `backend/Makefile`; the root Makefile delegates the
 common backend targets and adds the frontend lane. In `backend/`, `make`
-(or `make help`) lists targets with descriptions; `help`, `vuln`, and
-`hooks` are backend-only (`make -C backend <target>` from the root).
+(or `make help`) lists targets with descriptions; `vuln` is backend-only
+(`make -C backend vuln` from the root).
 
 ## Everyday
 
@@ -68,7 +68,7 @@ root gates (each is a small script; all merge-blocking):
 | `check-image-pins` | Every workflow `uses:` and container `image:` is pinned to an immutable ref |
 | `contract-breaking-check` | oasdiff severity gate on `api/crm.yaml` vs `origin/main` (breaking change fails; additive passes) |
 | `test-lanes` | Hermetic-unit-lane check: no untagged test opens a real Postgres/Redis |
-| `go-file-length` | Hard 500-LOC cap on hand-written Go, ratcheted via `scripts/go-file-length-waivers.txt` |
+| `go-file-length` | Hard 500-LOC cap on hand-written **product** Go, ratcheted via `scripts/go-file-length-waivers.txt`. Test and generated files are exempt here — `*_test.go` is bounded at 1000 lines by the craft gate instead |
 | `rls-store-path` | No `internal/modules` statement addresses the superuser pool directly (RLS bypass); `// rls-exempt: <reason>` is the escape for a genuinely cross-workspace query |
 | `no-jurisdiction` | No country-specific regulatory identifier (XRechnung/ZUGFeRD/DATEV/…) or ISO-3166 code in core **code**, only in the jurisdiction seam (`internal/modules/de`, `internal/shared/ports/jurisdiction`); statute citations in comments are allowed |
 | `pkg-freeze` | Published-surface freeze (EXT-P3): apidiff on every `backend/pkg` package vs the merge target (`origin/$GITHUB_BASE_REF` in CI; locally the extensions integration branch, else `origin/main`). **Advisory before the first v1+ release tag** — incompatible changes print, never block (the surface is design-fluid). **Enforcing from v1.0.0** — incompatible changes and removed packages fail; a ratified change is its exact apidiff finding line in `scripts/pkg-freeze-allowlist.txt`, bound to the merge-base sha it was ratified against (superseded entries license nothing and warn); removals are never allowlistable. Overrides: `PKG_FREEZE_MODE=advisory\|enforce`, `PKG_FREEZE_BASE=<ref>` |
@@ -78,7 +78,8 @@ root gates (each is a small script; all merge-blocking):
 | Target | What it does |
 |---|---|
 | `vuln` | govulncheck over all packages (not yet part of `check`; CI wiring comes later) |
-| `hooks` | Install `scripts/pre-commit` (gofmt + license-header test) into git's resolved hooks dir (honors `core.hooksPath`) |
+| `hooks` (root) | Point git at `.githooks/` (`core.hooksPath`), arming the diff-scoped pre-push craft gate and the RLS/jurisdiction script gates. Run once after cloning; `make install` does it for you. The backend's own `make -C backend hooks` is a **different** target that installs `scripts/pre-commit` (gofmt + license header) — it does **not** set `core.hooksPath`, so it alone leaves the strict pre-push gate disarmed |
+| `check-gates` | The meta-gate lane: the waiver census, the obligations derived from the migrations and the contract, and the walk-scope proofs. A dev-loop convenience — deliberately **not** a `check-backend` prerequisite, since `make -C backend check` already runs these tests uncached |
 | `tools` / `tools-go` | Install every gate binary at its pinned version (fresh-machine bootstrap) |
 | `migrate-up` / `migrate-down` | Alias for `migrate` / roll back the last migration(s) (`STEPS=n`) |
 | `run` | `go run ./cmd/api` on `:8080` — no db-up/migrate first |
@@ -124,7 +125,23 @@ exception to it.
 
 | Target | What it does |
 |---|---|
-| `craft-static` | Full deterministic craftsmanship sweep of `backend/`, **strict**: BLOCKER and MAJOR findings both fail it, MINOR is advisory. Green — the backlog was cleared to arm this bar. The pre-push hook runs the same bar diff-scoped, and CI's `craftsmanship` job runs this target as a required check. Size ceilings: 80 body lines / 500 file lines for product code, 160 / 1000 for `*_test.go` |
+| `craft-static` | Full deterministic craftsmanship sweep of `backend/`, `extensions/` and `fixtures/` (each a separate Go module, so `./...` never reaches the latter two), **strict**: BLOCKER and MAJOR findings both fail it, MINOR is advisory. Green — the backlog was cleared to arm this bar. The pre-push hook runs the same bar diff-scoped, and CI's `craftsmanship` job runs this target as a required check. Size ceilings: 80 code lines / 500 file lines for product code, 160 / 1000 for `*_test.go`; a comment-only line is not length, so this check agrees with golangci's `funlen` (`ignore-comments`). Every threshold has a flag: `--max-func-lines`, `--max-file-lines`, `--max-test-func-lines`, `--max-test-file-lines` |
+| `craft-residue` | Fail if any unresolved `CRAFT-FIX`/`CRAFT-DISPUTE` review-loop marker is left in the backend tree. CI's `craft-residue` job runs it on **every** non-draft change, docs included |
+| `secret-scan` | No hardcoded credential reaches `main`: gitleaks over a clean `git archive HEAD` export, policy in `.gitleaks.toml`. Scans the committed tree, not the working tree — gitleaks ignores `.gitignore`, so an in-place scan would read a sibling worktree or your real `.env.local` and differ per machine. Installs nothing on your machine and needs no account: `scripts/gitleaks-pin.sh` fetches the version- and checksum-pinned scanner into `.tmp/` on first use, so the binary — and therefore the verdict — is the one CI's `secret-scan` job runs on every non-draft change |
+| `test-secret-scan` | Prove `secret-scan` still catches: plant a credential-shaped token in each file `.gitleaks.toml` exempts, and require the scan to fail anyway. An over-broad allowlist reports "no leaks found" exactly like a clean tree — this is the only thing that tells them apart. CI runs it right after the scan |
+| `check-craft-doc` | Assert AGENTS.md still carries its `## Craftsmanship` section — a cheap doc floor so the gate's rules cannot be silently unpinned from the rulebook. A `check-backend` prerequisite |
+
+## Root-only (SBOM / supply chain)
+
+| Target | What it does |
+|---|---|
+| `sbom` | Generate the three source-tree SBOMs (CycloneDX + SPDX 2.2.1 + SPDX 3.0) from a clean `git archive HEAD` export, license-enriched, then normalize and parity-check them. syft/grant/cosign run as digest-pinned Docker images; `jq`, `git` and `tar` run on the host. License enrichment queries the Go module proxy and npm registry, so the run needs network |
+| `sbom-normalize` / `sbom-parity` | Reconcile syft's three writers to one repo-relative file set / assert all three enumerate it identically. `sbom` runs both; parity fails the build on any diff |
+| `sbom-check` | The license gate — grant against `.grant.yaml` (16 allowed licenses, `require-license` and `require-known-license` both on). Reads the CycloneDX document only |
+| `sbom-validate` | Validate each document against its own format — CycloneDX via `cyclonedx validate`, SPDX 2.2.1 via a hash-pinned `pyspdxtools`, SPDX 3.0.1 via the vendored schema in `sbom-schemas/`. Parity proves the three agree; this proves each is well-formed |
+| `sbom-sign` | Keyless cosign signature per SBOM (`*.cosign.bundle`); needs an OIDC token, so in practice CI's isolated `sign` job. Depends on `sbom-parity`, never on `sbom` — a signature must cover normalized bytes that already agree |
+
+Full detail: [supply-chain.md](supply-chain.md). This lane is **not** part of `make check`.
 
 ## Variables
 

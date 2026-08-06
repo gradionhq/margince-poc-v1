@@ -206,6 +206,13 @@ func largeFile(fc *fileContext, cfg Config) []Finding {
 // longFunc flags a function whose body exceeds the line ceiling — the
 // god-function / arrow-code smell. Test files use the relaxed
 // Config.MaxTestFuncLines ceiling.
+//
+// It counts CODE lines: a line carrying only a comment is not length. The smell
+// this hunts is how much a reader must hold at once, and an explanation reduces
+// that rather than adding to it — so charging for one would price the repo's own
+// comments-say-why rule. It also keeps this check agreeing with golangci's
+// funlen, which this repo configures ignore-comments; two gates measuring the
+// same function differently is how a contributor learns to delete the why.
 func longFunc(fc *fileContext, cfg Config) []Finding {
 	max := cfg.MaxFuncLines
 	if fc.isTest {
@@ -217,10 +224,10 @@ func longFunc(fc *fileContext, cfg Config) []Finding {
 		if !ok || fn.Body == nil {
 			continue
 		}
-		span := fc.line(fn.Body.Rbrace) - fc.line(fn.Body.Lbrace) - 1
+		span := fc.codeLinesIn(fc.line(fn.Body.Lbrace), fc.line(fn.Body.Rbrace))
 		if span > max {
 			out = append(out, newFinding("long-func", Major, fc.path, fc.line(fn.Pos()),
-				"%s is %d body lines (> %d) — extract helpers", fn.Name.Name, span, max))
+				"%s is %d code lines (> %d) — extract helpers", fn.Name.Name, span, max))
 		}
 	}
 	return out

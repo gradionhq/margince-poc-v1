@@ -212,14 +212,14 @@ func appendIf(
 // left to infer it from the evidence order — an ordering nobody promised.
 func setDraftReply(out *crmcontracts.Organization360Suggestion, activityID ids.UUID) {
 	id := openapi_types.UUID(activityID)
-	out.Action = newSuggestionAction(crmcontracts.DraftReply)
+	out.Action = newSuggestionAction(crmcontracts.Organization360SuggestionActionKindDraftReply)
 	out.Action.ActivityId = &id
 }
 
 // setOpenDeal points at the deal that stalled.
 func setOpenDeal(out *crmcontracts.Organization360Suggestion, dealID ids.UUID) {
 	id := openapi_types.UUID(dealID)
-	out.Action = newSuggestionAction(crmcontracts.OpenDeal)
+	out.Action = newSuggestionAction(crmcontracts.Organization360SuggestionActionKindOpenDeal)
 	out.Action.DealId = &id
 }
 
@@ -336,7 +336,7 @@ func noNextStepSuggestion(
 	}
 	// No deal named: the account has several open, and picking one for the
 	// reader would be a guess dressed as advice.
-	out.Action = newSuggestionAction(crmcontracts.AddTask)
+	out.Action = newSuggestionAction(crmcontracts.Organization360SuggestionActionKindAddTask)
 	return out
 }
 

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
+import { ThemeToggle } from "../../app/theme-toggle";
 import type { MarginceCoreState } from "../../design-system/margince-core";
 import {
   MarginceWorkbench,
@@ -192,6 +193,11 @@ export function ConversationWorkbench({
                 detail: me.data.user.email,
               }
             : undefined
+        }
+        personAction={
+          // Onboarding is railless — no top bar, so the rail's foot carries the
+          // one piece of chrome the reader may still want mid-journey.
+          <ThemeToggle />
         }
       >
         {children}

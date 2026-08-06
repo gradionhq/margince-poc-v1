@@ -126,7 +126,7 @@ async function fillAndSend(canvasElement: HTMLElement) {
 }
 
 const meta: Meta = {
-  title: "screens/compose",
+  title: "Screens/compose",
 };
 export default meta;
 

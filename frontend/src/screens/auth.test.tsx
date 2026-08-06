@@ -8,14 +8,23 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocaleProvider } from "../i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THEME_KEY } from "../app/theme";
+import { resetTheme } from "../app/theme-reset";
+import { LocaleProvider, translate } from "../i18n";
 import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
 
 // The unauthenticated surface (A107/ADR-0061 §12): login is the default —
 // no signup mode, no workspace field, no tenant selector on the wire — and
 // the forgot-password flow renders exactly when the capabilities probe
 // reports it operational.
+
+const t = (key: Parameters<typeof translate>[1]) => translate("en", key);
+
+// The theme lives in one module-level store, so the case that presses the
+// toggle below would otherwise hand every later case a flipped document,
+// `localStorage` and store.
+beforeEach(resetTheme);
 
 afterEach(() => {
   cleanup();
@@ -337,6 +346,24 @@ describe("AuthScreen login", () => {
       "pathname",
       "/legal/privacy",
     );
+  });
+
+  // The theme is readable before anyone signs in, so it has to be changeable
+  // there too — the toggle used to exist only in the authenticated top bar.
+  it("changes the document theme from the legal row", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    const toggle = await screen.findByRole("button", {
+      name: t("theme.toDark"),
+    });
+    await userEvent.click(toggle);
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    // The label names the theme the press would move TO, so it has to flip with
+    // the press — a stale label sends a reader the wrong way.
+    expect(toggle.getAttribute("aria-label")).toBe(t("theme.toLight"));
+    expect(window.localStorage.getItem(THEME_KEY)).toBe("dark");
   });
 });
 

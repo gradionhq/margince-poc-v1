@@ -7,6 +7,7 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  Select,
 } from "../design-system/atoms";
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -148,16 +149,12 @@ export function AiCallsCard() {
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader title={t("aicalls.title")} sub={t("aicalls.sub")} />
       <QueryStates query={query}>
-        <select
-          className="input"
-          value={task}
-          onChange={(event) => setTask(event.target.value)}
-        >
+        <Select value={task} onChange={(event) => setTask(event.target.value)}>
           <option value="">{t("aicalls.filter.all")}</option>
           {tasks.map((value) => (
             <option key={value}>{value}</option>
           ))}
-        </select>
+        </Select>
         {calls.length === 0 ? (
           <EmptyState>{t("aicalls.empty")}</EmptyState>
         ) : (

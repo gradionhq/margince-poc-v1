@@ -41,10 +41,20 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
-import { PersonNetworkCard } from "./network";
+import {
+  IdentityRail,
+  type Person360,
+  RelationshipPulse,
+  ThinState,
+  thinRecord,
+  usePerson360,
+  WhoKnowsThem,
+} from "./person360";
+import { EnrichedFields } from "./personcorrections";
+import { PersonGraphPanel } from "./persongraph";
+import { PersonMoments } from "./personmoments";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
-import { StrengthCard } from "./strength";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -298,9 +308,85 @@ const TIMELINE_KINDS: readonly TimelineEntry["kind"][] = [
   "telegram",
 ];
 
+/**
+ * PersonAside is the relationship column, and in overlay mode it SAYS it
+ * cannot answer rather than disappearing.
+ *
+ * Both panels read the interaction projection, which is folded from natively
+ * captured participants — a mirror-backed workspace has none. Rendering
+ * nothing would let the page read as "nobody here knows them", which is a lie
+ * about the relationship rather than an empty answer about the data.
+ */
+function PersonAside({
+  view,
+  overlay,
+}: Readonly<{ view?: Person360; overlay: boolean }>) {
+  if (overlay) {
+    return (
+      <>
+        <OverlayUnavailable />
+        <OverlayUnavailable />
+      </>
+    );
+  }
+  if (!view) {
+    return undefined;
+  }
+  return (
+    <>
+      <RelationshipPulse view={view} />
+      <WhoKnowsThem view={view} />
+    </>
+  );
+}
+
 function timelineKind(kind: string): TimelineEntry["kind"] {
   const known = TIMELINE_KINDS.find((candidate) => candidate === kind);
   return known ?? "note";
+}
+
+// The timeline filters. They group by what a reader is LOOKING for rather
+// than by the activity kind vocabulary: someone scanning for "what did we
+// agree" wants tasks whatever their channel, and someone reconstructing a
+// conversation wants mail and chat together.
+const TIMELINE_FILTERS = ["all", "messages", "meetings", "tasks"] as const;
+type TimelineFilter = (typeof TIMELINE_FILTERS)[number];
+
+// MESSAGE_KINDS is every channel a human conversation arrives on. Kept as a
+// list rather than "not a meeting and not a task" so a kind added later is
+// classified deliberately instead of falling into messages by default.
+const MESSAGE_KINDS = ["email", "whatsapp", "telegram", "call"];
+
+/**
+ * useTimelineFilter keeps the filter per RECORD.
+ *
+ * The screen does not remount when the route changes contact, so a plain
+ * useState would carry "tasks only" onto the next person and show them an
+ * empty timeline with no visible reason for it.
+ */
+function useTimelineFilter(
+  recordId: string,
+): [TimelineFilter, (next: TimelineFilter) => void] {
+  const [filter, setFilter] = useState<TimelineFilter>("all");
+  const [filterFor, setFilterFor] = useState(recordId);
+  if (filterFor !== recordId) {
+    setFilterFor(recordId);
+    setFilter("all");
+  }
+  return [filter, setFilter];
+}
+
+function matchesFilter(activity: Activity, filter: TimelineFilter): boolean {
+  switch (filter) {
+    case "messages":
+      return MESSAGE_KINDS.includes(activity.kind);
+    case "meetings":
+      return activity.kind === "meeting";
+    case "tasks":
+      return activity.kind === "task";
+    default:
+      return true;
+  }
 }
 
 // A timeline row is one line, so a body used as its title has its whitespace
@@ -464,6 +550,12 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const timelineQuery = useTimeline("person", id);
+  const [timelineFilter, setTimelineFilter] = useTimelineFilter(id);
+  const view360 = usePerson360(id);
+  // The composite is only usable once it carries its mandatory root record.
+  // Guarding on the whole payload would let a partial or error-shaped body
+  // through and crash the rail on a person that is not there.
+  const view = view360.data?.person ? view360.data : undefined;
   const overlay = useSorMode() === "overlay";
   const viewerId = useViewerId();
 
@@ -595,7 +687,9 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             timeline={
               timelineQuery.isSuccess
                 ? activityTimeline(
-                    timelineQuery.data.data,
+                    timelineQuery.data.data.filter((a) =>
+                      matchesFilter(a, timelineFilter),
+                    ),
                     viewerId,
                     (activity) => (
                       <TimelineActions
@@ -608,7 +702,27 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   )
                 : []
             }
+            // The filter sits ABOVE the timeline; the notice REPLACES it
+            // (composed.tsx renders `timelineNotice ?? the list`). Putting the
+            // filter in the notice slot hid every activity row behind it.
+            timelineHeader={
+              overlay ? undefined : (
+                <SegmentedControl
+                  options={TIMELINE_FILTERS}
+                  value={timelineFilter}
+                  onChange={setTimelineFilter}
+                  labels={{
+                    all: t("person.timeline.all"),
+                    messages: t("person.timeline.messages"),
+                    meetings: t("person.timeline.meetings"),
+                    tasks: t("person.timeline.tasks"),
+                  }}
+                />
+              )
+            }
             timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
+            rail={view ? <IdentityRail view={view} /> : undefined}
+            aside={<PersonAside view={view} overlay={overlay} />}
           >
             <div style={{ marginBottom: 16 }}>
               <SegmentedControl
@@ -622,18 +736,34 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 }}
               />
             </div>
-            {tab === "overview" && (
+            {/* First on the page, above everything the record IS: the reason
+                to be here. Deterministic, so it paints with the rest rather
+                than arriving later behind a spinner. */}
+            {tab === "overview" && view && (
+              <PersonMoments personId={id} view={view} />
+            )}
+            {tab === "overview" && thinRecord(view) && view && (
+              <ThinState view={view} />
+            )}
+            {/* Consent renders on a thin record too: it is not an absence
+                but a guard — what you may send is a live fact whether or
+                not anyone has written to them yet. */}
+            {tab === "overview" && <ConsentSection personId={person.id} />}
+            {tab === "overview" && view && (
+              <EnrichedFields personId={id} view={view} />
+            )}
+            {tab === "overview" && !thinRecord(view) && (
               <>
-                <StrengthCard kind="person" id={person.id} />
-                <PersonNetworkCard id={person.id} />
-                <ConsentSection personId={person.id} />
                 <CustomFieldsCard object="person" record={person} />
                 <RecordContextPanel entityType="person" id={person.id} />
                 <LogActivity entityType="person" entityId={person.id} />
               </>
             )}
             {tab === "relationships" && (
-              <RelationshipsTab scope={{ person_id: person.id }} />
+              <div style={{ display: "grid", gap: "var(--space-4)" }}>
+                <PersonGraphPanel personId={id} />
+                <RelationshipsTab scope={{ person_id: person.id }} />
+              </div>
             )}
             {tab === "history" && (
               <RecordHistoryTab kind="person" id={person.id} />

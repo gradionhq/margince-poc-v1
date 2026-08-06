@@ -14,12 +14,6 @@
   color: var(--danger);
 }
 
-.purpose-doi-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .dsr-list {
   list-style: none;
   display: flex;

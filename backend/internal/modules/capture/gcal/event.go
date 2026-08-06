@@ -56,9 +56,9 @@ type eventActor struct {
 
 // meeting is the pure, classified result of reading one calendar event against
 // the connected mailbox owner — everything the mapping needs, with no provider
-// handle. The owner's own email domain is the internal-vs-external signal
-// (formulas §20, owner-domain subset: the multi-domain workspace_email_domain
-// registry, CAP-DDL-1, is a separate slice).
+// handle. The owner's own domain gives the internal floor; the workspace's
+// registered domains (CAP-DDL-1) are the authority and are applied by the
+// writer, over the full party set this reports.
 type meeting struct {
 	id           string
 	subject      string
@@ -66,7 +66,16 @@ type meeting struct {
 	occurredAt   time.Time
 	cancelled    bool
 	organizerDom string
-	hasExternal  bool // any party (organizer or attendee) outside the owner's domain
+	hasExternal  bool // any party outside the OWNER's own domain — the floor, see SkipReason
+	// addresses is every party the event names — organizer and attendees,
+	// the owner included. The internal-vs-external decision is taken over this
+	// set by the capture writer against the workspace's registered domains
+	// (ADR-0082/A127); this package reports the parties and judges none.
+	addresses []string
+	// participants are the organizer and attendees as structured rows. The body
+	// header still spells them out for the timeline; these are the same people
+	// in a form the interaction graph can actually read.
+	participants []connector.MessageParticipant
 }
 
 // parseEvent reads one raw Calendar event resource and classifies it against
@@ -89,24 +98,68 @@ func parseEvent(raw []byte, owner string) (meeting, error) {
 		occurredAt:   parseStart(ev.Start),
 		cancelled:    strings.EqualFold(strings.TrimSpace(ev.Status), "cancelled"),
 		organizerDom: organizerDom,
-		// An externally-organized meeting is a customer touch even if the owner
-		// is the only listed attendee — fold the organizer into the signal.
-		hasExternal: external > 0 || isExternalDomain(organizerDom, ownerDom),
+		// The organizer counts as a party: an externally-organized meeting is a
+		// customer touch even when the owner is the only listed attendee.
+		hasExternal:  external > 0 || (organizerDom != "" && organizerDom != ownerDom),
+		addresses:    eventAddresses(ev, owner),
+		participants: meetingParties(ev, strings.ToLower(strings.TrimSpace(owner))),
 	}, nil
 }
 
-// isExternalDomain reports whether dom is a real domain outside the owner's —
-// the atom behind both the attendee and organizer external checks. An empty
-// domain (unparseable/absent) is not counted as external on its own.
-func isExternalDomain(dom, ownerDom string) bool {
-	return dom != "" && dom != ownerDom
+// ParticipantsOf reads the organizer and attendees out of one stored event
+// resource — the calendar twin of mailmap.ParticipantsOf, for the replay pass
+// that recovers meetings captured before participants were recorded.
+func ParticipantsOf(raw []byte, owner string) ([]connector.MessageParticipant, error) {
+	m, err := parseEvent(raw, owner)
+	if err != nil {
+		return nil, err
+	}
+	return m.participants, nil
+}
+
+// meetingParties returns the organizer and attendees as participant rows,
+// excluding the mailbox owner.
+//
+// The owner is excluded because capture stamps them separately from the
+// connection that produced the event — that row carries their user_id, which
+// is what the interaction graph joins on, whereas a row built from this header
+// would carry only an address and join nothing.
+//
+// Organizer wins over attendee when the same address holds both, which is the
+// common case for a meeting somebody scheduled and then attended: organizing
+// is the stronger statement about their part in it.
+func meetingParties(ev rawEvent, ownerLower string) []connector.MessageParticipant {
+	seen := map[string]bool{}
+	if ownerLower != "" {
+		seen[ownerLower] = true
+	}
+
+	var out []connector.MessageParticipant
+	add := func(email, role string) {
+		address := strings.ToLower(strings.TrimSpace(email))
+		if address == "" || seen[address] {
+			return
+		}
+		seen[address] = true
+		out = append(out, connector.MessageParticipant{Email: address, Role: role})
+	}
+	add(ev.Organizer.Email, connector.ParticipantRoleOrganizer)
+	for _, a := range ev.Attendees {
+		add(a.Email, connector.ParticipantRoleAttendee)
+	}
+
+	return connector.CapParticipants(out)
 }
 
 // SkipReason names why a meeting is intentionally dropped, or reports that it
-// should be captured. The all-internal rule (formulas §20) is the load-bearing
-// one: an event with no attendee outside the owner's own domain is an internal
-// meeting and yields zero CRM rows. A cancelled event and one with no stable id
-// are dropped too (nothing to key on / nothing to log).
+// should be captured: a cancelled event and one with no stable id are dropped
+// (nothing to key on / nothing to log).
+//
+// The owner's domain is a FLOOR here, not the authority. The workspace's
+// registered domains decide internal-vs-external for mail and calendar alike
+// (formulas §20, ADR-0082/A127), and only the capture writer can read them —
+// a connector holds no database handle by design. This drops what the owner's
+// own domain alone proves internal; the writer widens that, never narrows it.
 func (m meeting) SkipReason() (string, bool) {
 	if m.id == "" {
 		return "no event id", true
@@ -114,8 +167,21 @@ func (m meeting) SkipReason() (string, bool) {
 	if m.cancelled {
 		return "cancelled", true
 	}
+	// An event naming nobody but the owner is a block in their own calendar —
+	// focus time, a reminder, a flight. Nobody was met, so there is no
+	// interaction to log. This asks whether there was a second party at all,
+	// not whose side they were on, so it needs no knowledge of any domain.
+	if len(m.addresses) <= 1 {
+		return "no party besides the owner", true
+	}
+	// The owner-domain floor. The workspace's registered domains are the
+	// authority (formulas §20) and the writer applies them over the full party
+	// set, which is wider than this — but that set can be empty or incomplete,
+	// and an internal meeting stored while it is would be readable by the whole
+	// workspace. This drops what the owner's own domain alone can prove
+	// internal; the writer widens it, never narrows it.
 	if !m.hasExternal {
-		return "all-internal attendees", true
+		return "no party outside the owner's domain", true
 	}
 	return "", false
 }
@@ -142,9 +208,11 @@ func (m meeting) ToRecord(connectorName string, raw []byte) connector.Normalized
 			// A meeting is not directional (no inbound/outbound sender).
 			Direction: "",
 		},
-		Source:     connectorName + ":" + m.id,
-		CapturedBy: "connector:" + connectorName,
-		Raw:        raw,
+		Source:       connectorName + ":" + m.id,
+		CapturedBy:   "connector:" + connectorName,
+		Raw:          raw,
+		Participants: m.participants,
+		Addresses:    m.addresses,
 	}
 }
 
@@ -234,4 +302,29 @@ func truncate(s string, limit int) string {
 		cut--
 	}
 	return s[:cut] + "…"
+}
+
+// eventAddresses returns every address the event names — organizer, attendees
+// and the connected owner — lowercased, deduplicated, order preserved. The
+// owner is included because the internal decision is taken against the
+// workspace's registered domains rather than against the owner, and a
+// workspace that has not registered its own domain should not have that
+// asserted on its behalf here.
+func eventAddresses(ev rawEvent, owner string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	add := func(address string) {
+		address = strings.ToLower(strings.TrimSpace(address))
+		if address == "" || seen[address] {
+			return
+		}
+		seen[address] = true
+		out = append(out, address)
+	}
+	add(ev.Organizer.Email)
+	for _, a := range ev.Attendees {
+		add(a.Email)
+	}
+	add(owner)
+	return out
 }

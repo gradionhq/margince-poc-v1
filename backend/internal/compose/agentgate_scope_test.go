@@ -3,9 +3,13 @@
 
 package compose
 
-// The scope an outbound verb is admitted under is the cap the granting human
-// set, not a property of the transport. A passport that may not send mail may
-// not send a channel message either — one act, two wires.
+// The cap an outbound verb is admitted under is the one the granting human set,
+// not a property of the transport. A passport that may not send mail may not
+// send a channel message either — one act, two wires.
+//
+// Outbound is two caps, not one: `send` delivers to a counterparty, `enrich`
+// fetches from a third party. Both leave the workspace, so both are held here;
+// what must never happen is either of them reachable on `write`.
 
 import (
 	"context"
@@ -19,50 +23,66 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-func TestOutboundVerbsRequireTheSendScope(t *testing.T) {
+func TestOutboundVerbsRequireAnOutboundCap(t *testing.T) {
 	registry := NewRegistry(nil, SendPath{})
 
-	// The outbound universe: every verb still pinned as a hole, plus every
-	// registered tool that declares egress. Deriving it is what makes closing a
-	// hole at the wrong scope fail here rather than pass quietly.
-	outbound := map[string]bool{}
-	for _, verb := range outboundHoles.Subjects() {
-		outbound[verb] = true
-	}
-	for _, spec := range NewRegistry(nil, SendPath{}).Specs() {
+	// The outbound universe: every registered tool that declares egress.
+	// Deriving it from the registry rather than listing it is what makes a new
+	// outbound tool land under this assertion the day it is written.
+	leaves := map[string]bool{}
+	for _, spec := range registry.Specs() {
 		if spec.Egress {
-			outbound[spec.Name] = true
+			leaves[spec.Name] = true
 		}
+	}
+	if len(leaves) == 0 {
+		t.Fatal("no registered tool declares egress — this sweep asserted nothing")
 	}
 
-	for route, pol := range agentPolicies {
-		if pol.Access != accessTool || !outbound[pol.Tool] {
+	checked := 0
+	for _, pol := range agentPolicies {
+		if pol.Access != accessTool || !leaves[pol.Tool] {
 			continue
 		}
-		if _, registered := registry.Spec(pol.Tool); !registered {
-			// A pinned hole is known-wrong — outboundHoles names the debt,
-			// not a passing grade — so it must not be asserted against
-			// ScopeSend here. TestThePinsDescribeVerbsThatStillExist covers
-			// the other half: it fails the moment the verb gains a tool,
-			// which is when this branch starts asserting on it instead.
-			if !outboundHoles.Waived(t, pol.Tool) {
-				t.Errorf("%s (%s) is derived as outbound but is neither registered nor a pinned hole", pol.Tool, route)
-			}
-			continue
-		}
-		spec, ok := operationSpec(pol, registry)
+		checked++
+		spec, _, ok := operationSpec(pol, registry)
 		if !ok {
 			t.Fatalf("%s: the gate cannot resolve a spec for it", pol.Tool)
 		}
-		if spec.RequiredScope != principal.ScopeSend {
-			t.Errorf("%s admits under scope %q, want %q — a write-only passport can send with it",
-				pol.Tool, spec.RequiredScope, principal.ScopeSend)
+		if !spec.RequiredScope.Egresses() {
+			t.Errorf("%s leaves the workspace but admits under the %q cap, which does not — a "+
+				"passport granted only internal authority reaches outside with it",
+				pol.Tool, spec.RequiredScope)
 		}
 		if spec.Tier != mcp.TierConfirmationRequired {
 			t.Errorf("%s admits at tier %v, want TierConfirmationRequired", pol.Tool, spec.Tier)
 		}
 		if !spec.Egress {
 			t.Errorf("%s does not declare egress; it leaves the workspace", pol.Tool)
+		}
+	}
+	// A registered egress tool with no route in the table would leave the loop
+	// above asserting nothing while `leaves` was happily non-empty.
+	if checked == 0 {
+		t.Fatal("no contract route resolves to a registered egress tool — this sweep asserted nothing")
+	}
+}
+
+// A spec's Egress flag is what tells an operator the act leaves the
+// workspace; its scope is what the passport pays for it. The two are one
+// fact, so a spec may not report them differently — `send` and `enrich` both
+// put a request on the wire, and a spec claiming either while declaring
+// itself workspace-local would be governed correctly and described wrongly.
+func TestEverySpecsEgressAgreesWithItsScope(t *testing.T) {
+	specs := NewRegistry(nil, SendPath{}).Specs()
+	if len(specs) == 0 {
+		t.Fatal("the registry has no tools — this sweep checked nothing")
+	}
+	for _, spec := range specs {
+		if want := spec.RequiredScope.Egresses(); spec.Egress != want {
+			t.Errorf("%s declares Egress=%v but spends the %q cap, whose egress is %v — "+
+				"an operator reading the tool surface would be told the wrong thing about where this act goes",
+				spec.Name, spec.Egress, spec.RequiredScope, want)
 		}
 	}
 }
@@ -72,7 +92,7 @@ func TestOutboundVerbsRequireTheSendScope(t *testing.T) {
 // of the invariant.
 func TestAWriteOnlyPassportIsRefusedTheChannelReply(t *testing.T) {
 	pol := agentPolicies["POST /v1/activities/{id}/send-message"]
-	spec, ok := operationSpec(pol, NewRegistry(nil, SendPath{}))
+	spec, _, ok := operationSpec(pol, NewRegistry(nil, SendPath{}))
 	if !ok {
 		t.Fatal("the gate cannot resolve a spec for the channel reply")
 	}

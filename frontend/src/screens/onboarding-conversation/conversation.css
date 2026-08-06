@@ -901,6 +901,15 @@
   font-size: 0.875rem;
   resize: vertical;
 }
+/* Keyboard focus has to be visible on this field as on every other one. The
+   ring is the AI pair rather than --accent because this surface is the
+   assistant's, matching the composer and the confirm-card fields it sits
+   between; `outline: 0` is deliberately NOT set, so the ring is additive to
+   whatever the platform draws rather than a replacement for it. */
+.ob-voice-paste-area:focus-visible {
+  border-color: var(--aiText);
+  box-shadow: 0 0 0 3px var(--aiMed);
+}
 
 /* The floor meter: a real progress element plus the numbers behind it, so
    the fill is never the only place the count lives. */
@@ -2535,7 +2544,7 @@
   inline-size: 15px;
   block-size: 15px;
   flex: none;
-  margin-block-start: 2px;
+  margin-block-start: 2px; /* ds:ignore optical centring of a 15px glyph on a 13px line; the scale starts at 4px, which drops it off the baseline */
   color: var(--textTertiary);
 }
 
@@ -2564,7 +2573,7 @@
 /* The read's own sentence, set apart from our copy: it is what the read
    reported, quoted, not our account of why the field is missing. */
 .ob-triage-omitted .ob-triage-omitted-gate {
-  margin-block-start: 2px;
+  margin-block-start: var(--space-1);
   color: var(--textMeta);
   font-size: 0.75rem;
 }

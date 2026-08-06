@@ -2,7 +2,15 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it } from "vitest";
-import { OverflowMenu } from "./atoms";
+import {
+  Checkbox,
+  Field,
+  OverflowMenu,
+  Radio,
+  Select,
+  Textarea,
+  TextInput,
+} from "./atoms";
 
 afterEach(cleanup);
 
@@ -34,4 +42,143 @@ it("does not mount its items until the menu is first opened", async () => {
   expect(
     screen.getByRole("button", { name: "Merge", hidden: true }),
   ).toBeTruthy();
+});
+
+// The label is half the control. Every hand-rolled site this atom replaces got
+// its accessible name from a <label> wrapping the input, and a reader ticks the
+// box by clicking the words — so both are asserted through the label text, not
+// through the input node.
+it("names a Checkbox by its label, and the label text toggles it", async () => {
+  const seen: boolean[] = [];
+  render(
+    <Checkbox
+      label="Include archived records"
+      onChange={(event) => seen.push(event.target.checked)}
+    />,
+  );
+
+  const box = screen.getByRole("checkbox", {
+    name: "Include archived records",
+  });
+  await userEvent.click(screen.getByText("Include archived records"));
+
+  expect(seen).toEqual([true]);
+  expect((box as HTMLInputElement).checked).toBe(true);
+});
+
+// Radios group by `name`, which the atom must forward untouched — drop it and
+// every option becomes independently selectable, which looks like working UI
+// until two are on at once.
+it("keeps Radios sharing a name mutually exclusive", async () => {
+  render(
+    <>
+      <Radio name="side" label="Owner" defaultChecked />
+      <Radio name="side" label="Team" />
+    </>,
+  );
+
+  const owner = screen.getByRole("radio", {
+    name: "Owner",
+  }) as HTMLInputElement;
+  const team = screen.getByRole("radio", { name: "Team" }) as HTMLInputElement;
+  expect(owner.checked).toBe(true);
+
+  await userEvent.click(screen.getByText("Team"));
+
+  expect(team.checked).toBe(true);
+  expect(owner.checked).toBe(false);
+});
+
+// Screens layer their own layout on top of the atom (`.compose-body`,
+// `.share-reason`). Dropping either class silently unstyles the control, so the
+// merge is asserted rather than assumed.
+it("merges a caller's className with the atom's own", () => {
+  render(
+    <>
+      <Textarea aria-label="Body" className="compose-body" />
+      <Select aria-label="Stage" className="stage-picker">
+        <option value="won">Won</option>
+      </Select>
+    </>,
+  );
+
+  expect([...screen.getByLabelText("Body").classList].sort()).toEqual([
+    "compose-body",
+    "textarea",
+  ]);
+  expect([...screen.getByLabelText("Stage").classList].sort()).toEqual([
+    "input",
+    "stage-picker",
+  ]);
+});
+
+// The label/control pairing is the whole reason Field exists, and the failure
+// it prevents is silent: a mistyped id in either half leaves a control that
+// looks labelled and is not. Asserting through getByLabelText proves the
+// association rather than the markup.
+it("pairs a Field's label with its control, and two Fields never collide", () => {
+  render(
+    <>
+      <Field label="Deal name">
+        {(control) => <TextInput {...control} defaultValue="Globex" />}
+      </Field>
+      <Field label="Stage">
+        {(control) => (
+          <Select {...control}>
+            <option value="won">Won</option>
+          </Select>
+        )}
+      </Field>
+    </>,
+  );
+
+  expect((screen.getByLabelText("Deal name") as HTMLInputElement).value).toBe(
+    "Globex",
+  );
+  // Two instances of the same component must not share an id — the second
+  // label would then point at the first control, and typing into one would
+  // read as the other.
+  expect(screen.getByLabelText("Deal name").id).not.toBe(
+    screen.getByLabelText("Stage").id,
+  );
+});
+
+// A hint has to describe the control without becoming part of its name: read
+// as a name, the whole help text is announced on every focus.
+it("describes a Field's control by its hint without naming it that", () => {
+  render(
+    <Field label="Reason" hint="Shown to the person you are sharing with">
+      {(control) => <Textarea {...control} />}
+    </Field>,
+  );
+
+  const control = screen.getByLabelText("Reason");
+  const describedBy = control.getAttribute("aria-describedby");
+  expect(describedBy).toBeTruthy();
+  expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+    "Shown to the person you are sharing with",
+  );
+});
+
+// `required` is one prop, spent in two places — the visible marker and the
+// control's own state. The marker is aria-hidden so the requirement is
+// announced once, by the control, not twice.
+it("marks a required Field once for the eye and once for the control", () => {
+  render(
+    <Field label="Role" required>
+      {(control) => (
+        <Select {...control}>
+          <option value="admin">Admin</option>
+        </Select>
+      )}
+    </Field>,
+  );
+
+  // getByRole resolves the accessible name the way an assistive technology
+  // does, so the aria-hidden asterisk is excluded and the name is still "Role".
+  // Queried by label TEXT it would read "Role *" — which is the visible string,
+  // not the announced one.
+  const control = screen.getByRole("combobox", { name: "Role" });
+  expect(control.hasAttribute("required")).toBe(true);
+  expect(screen.getByText("*").getAttribute("aria-hidden")).toBe("true");
 });

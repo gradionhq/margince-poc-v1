@@ -62,19 +62,22 @@ func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain complet
 	}
 }
 
-// TickWorkspace is ONE tenant's scheduler pass: seed the catalog
-// occurrences due at now, then execute the jobs it can claim. wsCtx must
-// already carry the workspace — the caller binds it, so this pass can
-// only ever touch the tenant it was handed.
+// TickWorkspace is ONE tenant's scheduler pass: close the runs abandoned since
+// last time, seed the catalog occurrences due at now, then execute the jobs it
+// can claim. wsCtx must already carry the workspace — the caller binds it, so
+// this pass can only ever touch the tenant it was handed.
 //
-// A seeding or claiming failure is returned, and returning it is the
-// point: it is this tenant's pass that could not run, and its own job row
-// is where that has to land. Execution failures do NOT come back here —
-// executeJob records each on the job row it belongs to, because a brief
-// that never ran must say why on the row an operator reads, not take the
-// whole pass down with it.
+// Three failures, three different destinations, because each belongs to a
+// different row. A seeding or claiming failure is returned, and returning it is
+// the point: it is this tenant's pass that could not run, and its own job row is
+// where that has to land. Execution failures do NOT come back here — executeJob
+// records each on the job row it belongs to, because a brief that never ran must
+// say why on the row an operator reads, not take the whole pass down with it. The
+// sweep's own failure is only logged: it owns no row of this pass, and a tenant's
+// schedule must still run when the accounting for last week's crash cannot.
 func (s *RunnerService) TickWorkspace(wsCtx context.Context, now time.Time) error {
 	now = now.UTC()
+	s.reapAbandonedRuns(wsCtx)
 	for _, spec := range runner.Catalog() {
 		if due := spec.DueAt(now); !now.Before(due) {
 			// Cron-seeded jobs carry no passport yet: execution fails
@@ -92,6 +95,56 @@ func (s *RunnerService) TickWorkspace(wsCtx context.Context, now time.Time) erro
 		s.executeJob(wsCtx, job)
 	}
 	return nil
+}
+
+// stuckRunGrace is how far past its wall clock a 'running' row must be before
+// the sweep calls it abandoned.
+//
+// TWICE RunWallClock, not once, because updated_at is stamped when the run starts
+// and nothing bumps it while the loop runs: a live run's row ages at wall-clock
+// speed, so a run that spends its whole budget is already a full RunWallClock old
+// when it writes its outcome. One wall clock of grace would put that write inside
+// the window. SaveOutcome would then correct the status — it guards on id, not on
+// status — but an operator had already been told a run was abandoned, and for a
+// resumed run that is a lie about a mutation a human approved.
+const stuckRunGrace = 2 * RunWallClock
+
+// abandonedRunReason states what the sweep OBSERVED, and never why. The predicate
+// is a status and an age; it cannot tell a died-mid-resume from a first-leg run
+// whose process was killed, so naming either mechanism would put an unverifiable
+// claim on the only record an operator gets. What it can say is the part that
+// changes what they do next: the run's tools write as they execute, and trace is
+// only persisted at SaveOutcome, so a swept row is empty and yet its writes may
+// well have landed.
+const abandonedRunReason = "abandoned: still running past twice the run wall clock, so no process is " +
+	"coming back for it. Its tools may already have written — check the audit log for this run id " +
+	"before assuming nothing landed."
+
+// reapAbandonedRuns closes the runs nothing will ever finish, in the tenant wsCtx
+// is bound to. The invariant that makes them unrecoverable belongs to
+// runner.Store.FailStuckRuns; what is decided HERE is only where the sweep runs
+// and what happens when it fails.
+//
+// It rides the scheduling pass because that is the tenant loop that already
+// exists and is already bound to one workspace. Best-effort inside it: a sweep
+// failure must not take down the pass, whose actual job is this tenant's
+// schedule. It is reported instead, because a sweep that keeps failing means runs
+// are piling up in 'running' where nothing will read them.
+func (s *RunnerService) reapAbandonedRuns(wsCtx context.Context) {
+	swept, err := s.store.FailStuckRuns(wsCtx, stuckRunGrace, abandonedRunReason)
+	if err != nil {
+		s.log.Error("runner: sweeping abandoned runs", "err", err)
+		return
+	}
+	if len(swept) > 0 {
+		// The ids, not just a count: each of these may be a run a human approved
+		// and never saw the end of, and an operator who cannot name one cannot go
+		// read its audit trail to find out whether its writes landed. One line
+		// carrying them all rather than a line each, because the occasion for this
+		// log is a crash that stranded everything at once.
+		s.log.Warn("runner: closed abandoned runs",
+			"count", len(swept), "runs", swept, "stale_for", stuckRunGrace)
+	}
 }
 
 // executeJob runs one claimed job to its outcome. Failures land on the
@@ -134,11 +187,17 @@ func (s *RunnerService) executeJob(wsCtx context.Context, job runner.QueuedJob) 
 
 	bounded, cancel := context.WithTimeout(runCtx, RunWallClock)
 	defer cancel()
+	// Grounding runs under the run's OWN deadline: RunWallClock has to bound
+	// everything the run does, or it does not bound the run. On the retriever's
+	// own timeout it would otherwise age the row toward the abandoned sweep while
+	// the loop had not started a single step — and grounding already degrades to
+	// an ungrounded run rather than failing one.
+	grounding := s.seedGrounding(bounded, spec.Goal)
 	res, err := s.runner.Run(bounded, runner.Job{
 		Goal:       spec.Goal,
 		TriggerRef: job.TriggerRef,
 		Budget:     spec.Budget,
-		Grounding:  s.seedGrounding(runCtx, spec.Goal),
+		Grounding:  grounding,
 	})
 	s.landOutcome(runCtx, runID, res, err)
 	s.finishJob(wsCtx, job.ID, &runID, "")

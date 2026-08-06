@@ -25,7 +25,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // urlTakingOperations answers the operationIds whose request body declares a
@@ -94,24 +93,22 @@ func TestUrlTakingOperationsAreNeverAutoExecuteForAgents(t *testing.T) {
 	}
 }
 
-// The synthesized ToolSpec for a verb with no registered tool is the path
-// coldStartPreview escaped through: `read` is not a registered tool, so the
-// gate built a spec from the annotation alone. That fallback is legitimate —
-// most contract verbs have no tool twin — but it must carry the annotated
-// tier faithfully rather than defaulting to 🟢, because the annotation is
-// then the ONLY thing standing between an agent and the effect.
-func TestUnregisteredVerbCarriesTheAnnotatedTier(t *testing.T) {
+// An unregistered verb is refused, not furnished with an invented spec.
+//
+// Synthesizing one meant choosing a cap with nothing to choose from, and the
+// choice was `write` — which is how a verb that fetches the web came to run on
+// internal authority. A contract that declares a verb the registry does not
+// serve is a disagreement, and the only honest answer to a disagreement about
+// authority is no.
+func TestAnUnregisteredVerbIsRefused(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 
-	spec, ok := operationSpec(agentPolicy{
-		Op: "coldStartPreview", Access: accessTool, Tool: "enrich", Tier: tierConfirmationRequired,
-	}, registry)
-	if !ok {
-		t.Fatal("an unregistered verb at a static tier must resolve, not fail closed")
-	}
-	if spec.Tier != mcp.TierConfirmationRequired {
-		t.Errorf("unregistered verb annotated confirmation_required resolved to tier %v — "+
-			"the annotation is the only gate an unregistered verb has", spec.Tier)
+	if _, _, ok := operationSpec(agentPolicy{
+		Op: "someOperation", Access: accessTool, Tool: "no_such_verb",
+		Tier: tierConfirmationRequired, Scope: scopeWrite,
+	}, registry); ok {
+		t.Error("a verb with no registered tool resolved to a spec — the gate invented authority " +
+			"the registry never granted")
 	}
 }
 

@@ -12,6 +12,29 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open — an install with no mailer AND no public base URL still onboards nobody
+
+ADR-0061 Amendment 1 closed the email-less case: an admin mints a single-use
+set-password link from Settings → Users & roles and delivers it out of band.
+One posture is still uncovered. With **no mailer and no `--public-base-url`**,
+no link can be built, so `POST /users` goes on creating an ACTIVE member,
+minting a seven-day token and dropping it — the original silent failure intact.
+The surface is honest once the admin looks (the action is hidden, and the
+endpoint refuses with `public_base_url_unset`); the invite itself is not.
+
+Left open because the fix is a product call rather than an implementation one:
+refuse the invite, warn on the roster row, or make a missing base URL a boot
+error whenever no mailer is configured. The third fits the ADR's own
+honest-surface rule best and is the cheapest to reason about — an installation
+that can onboard nobody is misconfigured at boot, not at invite time.
+
+Tracked as **#497**. Related follow-ups from the same review: **#493** (the
+`password_reset` capability claims "configured *and healthy*" but only checks a
+mailer is wired, so a broken relay silently delivers nothing *and* blocks the
+fallback), **#495** (auth rate limits are process-local, so N replicas multiply
+every ceiling by N), **#496** (audit-verb down migrations cannot see the rows
+their refusal probe checks for, under production RLS).
+
 ## Open — the brief's omitted sections are prompt-enforced, not code-enforced
 
 `Input.SectionsOmitted` names what a reader could not see, and the writer is
@@ -316,6 +339,307 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-05 (form controls get one spelling, and the design gates widen, branch `feat/streamline-ui-elements`, PR #469)
+
+**The frontend's form controls are now atoms rather than a convention.**
+`Select`, `Textarea`, `Checkbox`, `Radio` and `Field` joined
+`design-system/atoms.tsx`, and the roughly 100 hand-rolled controls the screens
+had grown moved onto them. The fragmentation this removes was measured before it
+was fixed: a dropdown was a bare `<select className="input">` repeated across
+nineteen files, a textarea was one of three different classes, a checkbox row
+carried its own wrapper class with its own gap — six different values for the
+same control-and-label row — and 46 field rows threaded their own id through a
+label and a control by hand.
+
+What the atoms decide, rather than each call site deciding for itself:
+
+- **The control's surface.** One `.input` / `.textarea` spelling, so a dropdown
+  in a create form and one in settings cannot drift. `.textarea` also gained
+  `width: 100%` and took `.input`'s type size and padding: it had neither, so
+  five callers re-added the width locally and the three that did not rendered a
+  short box in a wide field.
+- **The label pairing.** `Field` mints the id with `useId`, so the typo that
+  silently unlabels a control has nowhere to live. Eleven rows had drawn the
+  label with a `<span>` and pointed at it with `aria-labelledby` — announced
+  correctly, but not a label, so clicking the words focused nothing. A twelfth
+  aimed a `<label for>` at a `<div>`, which cannot be labelled at all.
+- **The required marker.** One prop marks the label and the control. The
+  asterisk is `aria-hidden`, because the control's own `required` already
+  announces the state.
+
+**Two gates widened to cover the surface where the drift actually accumulates.**
+`check-ds-spacing` read only inline React styles — 9% of the CSS surface — and
+explicitly skipped `*.css`, where 71% of it lives; it now reads both, exempting
+`src/design-system` because that tier defines the scale rather than consuming it
+(an atom's optical `padding: 9px 11px` is deliberately off the 4/8/12/16/24
+steps). It also reads untracked files, which `git diff` cannot see and which are
+the strictest case there is — a whole new file was slipping the gate. It caught
+three real violations in its first hour, two of them in code written the same
+afternoon.
+
+`fe-uat` mapped a component to a story by matching filenames, so a component
+covered by a story under another name was reported as a coverage gap forever —
+`trust.tsx` was the standing example. It now maps a component to every story
+that imports it.
+
+**The design-system catalog stopped being a screen catalog.** Nine stories cover
+the twelve previously unstoried atoms, `trust.stories.tsx` covers that module
+whole (the old `fielddiff.stories.tsx` folded into it), and Storybook's sidebar
+reads as three roots instead of five.
+
+### Open here
+
+- **The type scale gained `.t-h3` at 16px/600, and that is a visible change.**
+  `StatCard`'s value had named the class since it was written and no stylesheet
+  declared it, so the figure a stat tile exists to show was rendering at body
+  size. 16px fills the one gap between `.t-h2` (18) and `.t-body` (14).
+  Whether a stat reading wants that step or the louder `.t-display` (22) is a
+  design call, not a defect — the defect was that it had none.
+- **About six `Field` sites remain unmigrated** in `automations.tsx` and
+  `deals.tsx`, each blocked by an inline `style` on the wrapper. `Field` takes a
+  `className`, not a `style`, on purpose; these need the margin moved to a class
+  first, which is a layout decision rather than a mechanical migration.
+  `onboarding-company-form.tsx`'s provenance-bearing label is now unblocked —
+  `Field`'s `label` widened to `ReactNode` — but nobody has moved it.
+- **Ten controls stay raw deliberately**, and should not be swept later without
+  reading why: the two faux-disc pickers (a visually-hidden native input plus a
+  styled disc), the rich settings toggle, the warning callout, the consent line,
+  and the four onboarding textareas that carry the assistant surface's own
+  treatment rather than the form surface's.
+
+### Filed, not fixed
+
+- **#476** — seven Storybook stories do not survive a headless render, and fail
+  identically on `main`. The whole `compose` group renders an empty root, so
+  `ComposeModal` has no working catalog entry. Verified against a clean `main`
+  worktree, so none of it is regression from this branch; the improved `fe-uat`
+  mapping is simply the first thing to render them. Carries the related
+  question of whether an empty `#storybook-root` should fail the gate on its
+  own — today only a throwing `play` fails, which is how the group sat broken.
+- **#477** — the `aicalls` task filter is the one control in the tree with no
+  accessible name of any kind, and its options omit `value`, so the wire value
+  is the option's text. It works only while the label and the value are the
+  same string.
+- **#478** — `fe-uat`'s fan-out. Touching `atoms.tsx` or `i18n/index.tsx` now
+  pulls in most of the catalog: 165 stories, about seven minutes. Fine for a
+  coordinator lane, which is what it is; it needs a stated cap before the lane
+  is ever made required, and a cap must log what it dropped.
+
+### Fixed on the way, worth knowing
+
+`company-act.test.tsx`'s rail-review block counted `.ob-conv-attention li`
+against the global `document` rather than its own render container, so a
+leftover render under suite load made it fail intermittently. It counts its own
+render now. This was a pre-existing flake, and it is the reason to distrust a
+single green suite run: it took a full-suite run under load to show at all.
+## Session pickup — 2026-08-05 (the passport cap comes from the contract, PR #479)
+
+**`x-mcp-tool` now declares the passport scope an operation consumes**, not just
+its tier. The gate had been admitting any verb with no registered MCP tool under
+a hardcoded `principal.ScopeWrite` — eleven verbs, three of which egress — so a
+passport whose granting human withheld `enrich` or `send` spent `write` instead.
+`agentpolicysynthesis_test.go` recorded that in prose maps nothing read.
+
+The tier and the cap answer different questions and neither substitutes for the
+other: a tier says whether a human confirms the act, a scope says whether the act
+was ever delegable. Both are now declared once and enforced below the transport.
+
+- `AgentAdmissionPolicy` gains a `scope` vocabulary; all 104 annotations declare
+  one. **No default and no empty state** — generation fails on a missing value,
+  because a default is exactly what made every verb look internal.
+- `scopeCoherence` holds one verb to one cap. Tier stays per-operation (A34
+  tighten-only); scope is a property of the act, not the route reaching it.
+- Two fitness functions replace the prose: the contract's scope must equal a
+  registered tool's `RequiredScope`, and a spec's `Egress` must agree with
+  whether its cap leaves the workspace (`principal.Scope.Egresses()`).
+  `outboundHoles` is deleted.
+
+**The cap follows the act's PURPOSE** — `send` delivers, `enrich` pulls in, and a
+durable state change is `write` even where it makes network calls. That is why
+`connect_incumbent` is `write` despite calling the incumbent: it seals a
+credential and flips `x_sor_mode`, and `ScopeSet.Has` is exact membership, so
+`enrich` would admit an enrich-only passport to both. Revisit that call before
+adding a verb near it — it is the one non-obvious row in the table.
+
+Behaviour change: a passport holding `write` but not `enrich`/`send` is now
+refused `enrich`, `deep-read`, `coldstart`, `send_offer` and `reconcile_overlay`.
+
+Left open, as issues: **#480** register a real `enrich` MCP tool — the verb still
+has no tool, so it is still absent from `tools/list` and MCP clients cannot
+enrich at all, which is what started this work; **#481** reconcile the annotation
+vocabulary upstream (P3 — the implementation is ahead of the spec on this field);
+**#484** `connect_incumbent` is 🟡 with no approval-kind mapping, so no agent can
+ever connect an overlay (pre-existing, fail-closed, found in UAT); **#482** the
+integration lane's intermittent `SQLSTATE 53200` under 29-way parallelism.
+
+A fitness test asserting every `confirmation_required` policy row has a
+resolvable approval mapping would turn #484's class of gap into a build failure
+instead of a runtime 403. Worth doing when #484 is picked up.
+
+## Session pickup — 2026-08-04 (the person Relationship Room, branch `feat/person-relationship-room`, NOT pushed)
+
+**The person page opens on a reason to be there rather than on a record.** 22
+commits in the worktree `.tmp/worktrees/person-room`, nothing pushed, no PR.
+Built against the shared `margince` dev database (247 people, ~2,950 captured
+activities) rather than fixtures, which is how three of the defects below were
+found at all.
+
+What landed, in build order:
+
+- **Multi-party participants (B1).** Mail capture never parsed `Cc`; the
+  calendar folded attendees into body text. Both now emit
+  `NormalizedRecord.Participants`, resolved to a colleague or a known contact
+  at stamping time rather than left for a promotion that never comes — the
+  interaction graph joins `user_id` to `person_id`, so an address-only row is
+  invisible to it. Migration 0185 adds the replay marker the history pass
+  needs; the two-end backfill needs no state because its predicate shrinks as
+  it runs, and this one cannot borrow that trick because most messages have no
+  CCs.
+- **Relationship change derived at read (B2).** `relstrength.Changes` folds
+  the same §4 curve over a window ending in the past, so the system can say
+  "it went warm on Tuesday" without storing yesterday's number. Four kinds; a
+  BAND crossing is reported and a point drift is not. No table, so an erased
+  activity takes its derived change with it.
+- **The correction ledger (C0).** `ai_feedback`, specified upstream
+  (AIRT-SCHEMA-1) and never built until now. Migration 0186.
+  `POST /ai/feedback` is human-only and gated on the SUBJECT's update grant.
+  Art. 17 deletes it in the single erasure transaction; Art. 15 exports it as
+  `corrections`.
+- **Moments (C1).** Five deterministic rules over what the 360 already read,
+  ranked in a fixed editorial order. Dismissal writes an `ai_feedback` verdict
+  keyed on the moment's PATH, so it survives the evidence moving.
+- **The local graph (C3).** `GET /people/{id}/graph` — a `direct` arm with
+  visibility-filtered receipts and an `account` arm carrying pooled counts
+  only, row-scoped per arm rather than once at the root.
+- **Frontend (C4).** Moment card with dismissal, change lines on the pulse,
+  the correction UI on enriched fields, the Connections panel, timeline
+  filters.
+
+### Open — three phases the plan names and this branch did not build
+
+- **C2 (person brief + ask)** is blocked upstream, not deferred by choice.
+  `person_brief` / `person_ask` are new sites on a task `ai-tasks.yaml` still
+  calls `planned`, and that file generates the task declarations. It cannot
+  start without a spec change.
+- **D (commitments)** has no producer. The lifecycle rides approvals +
+  activities, which exist — but the extraction that would STAGE a proposal is
+  itself an AI task needing the same upstream declaration, so building the
+  lifecycle alone would ship a queue nothing fills.
+- **Workstream S steps 2 and 4** (the profiler, the public-professional signal
+  lane). S1+S3 shipped: the `websearch` seam and LinkedIn-URL discovery are in
+  and dormant until `BRAVE_SEARCH_API_KEY` is bound.
+
+### Gates
+
+`make check` green. `craft static` **PASS, 0 blocker / 0 major / 0 minor** under
+the now-strict bar. `make test-integration` green. On CI: all 12 integration
+shards, UAT + axe, frontend, deterministic-gates, live-boot, govulncheck,
+CodeQL, DCO, craft-residue, docker images — 27 checks passing.
+
+**SonarCloud's new-code coverage is the one open gate**, and it is a required
+check. It went 29.6% → 76.9% over ten rounds of tests added here; the
+threshold is 80%.
+
+Those tests are worth keeping whatever happens to the gate. They pin claims
+that were previously only described in comments: the forged-Cc refusal from
+both sides, the view-ack's monotonicity (a GET that moved the baseline would
+destroy the answer the reader opened the page for), the account arm's
+counts-not-messages disclosure rule asserted as an ABSENCE, merge
+survivorship, and the replay pass's termination argument.
+
+What is left uncovered is mostly `return err` propagation and branches that
+need an injected database fault. Reaching those means mocking a boundary the
+craftsmanship rules say to leave alone, which would produce the over-mocked,
+assertion-thin tests the same rules call noise. The recommendation on the
+record is an admin override on that one check rather than a permanent
+threshold change, which would weaken the gate for every later PR to unblock
+one.
+
+**One CI flake to expect, unrelated to this branch.**
+`TestTwoMessagesReportingTheSameRenameAuditItOnce`
+(`ensurechannel_contention_integration_test.go`) fails under shard load with
+"no backend waited on the held row within 20000 probes — the writer never
+reached the lock, so this run proved nothing". It is a lock-contention test
+reporting that its own precondition did not hold. Re-run the shard.
+
+### Two things worth carrying forward
+
+**The migration numbers collided twice.** 0180 and 0181 were already taken by
+a parallel session's signals work and already applied to the shared dev
+database, so the first `make migrate` reported "applied 0" and the table
+silently did not exist. Check `schema_migrations_core` before assuming a
+number is free.
+
+**Running against real data found what fixtures would not:** three wrong
+column names, an employment predicate keyed on `is_current_primary` (which
+answers *which of several employers is the main one*, not *are they still
+there*), and a flow-mapping description in `crm.yaml` whose comma split it
+into a sibling key and made the whole contract fail OpenAPI validation while
+the codegen stayed happy about it.
+## Session pickup — 2026-08-05 (the RBAC matrix doc and the migration replay gate, PR #474, merged)
+
+**The migration gate now replays the upgrade instead of scanning the SQL.** The
+obligation is that an installation predating every backfill, upgraded to head,
+ends up holding exactly the matrix the server seeds today. That was approximated
+by three hand-maintained lists — a frozen legacy cohort, a 23-entry object →
+migration map, and a parity test whose expectations were a hand-written six of
+those twenty-three. All three are gone. `backend/migrations/rbac_upgrade_replay_integration_test.go`
+applies core through `0019` (the initial commit's head), plants the role
+documents an old installation held, applies core + custom to head, and compares
+every system role's document against the seeded matrix. 29 objects, **1.68s**.
+
+A scan proved a migration *mentioned* a JSON path; the replay proves the upgrade
+*worked*. A scan that drifts fails green; the replay fails red. The six existing
+parity cases stay — they reach non-clobbering, the `is_system` predicate and the
+`{}` guard, which a pristine-legacy comparison cannot.
+
+**The matrix is published.** `docs/reference/rbac-matrix.md` is rendered from
+`policy.MustDefaultJSON` by a golden-file test inside the identity module. A
+positional transposition in the 29-argument `defaults` declaration used to be
+invisible in review; it is now a changed cell in a committed table. No
+enforcement column and no provenance column — both were considered and rejected
+as approximations that would be quietly wrong in an audit artifact, and the page
+carries a "what this does not cover" section saying so.
+
+Two design corrections found while building, both recorded in the PR:
+
+- **`package migrations` cannot import `identity/internal/policy`** — Go's
+  `internal/` fence and `.go-arch-lint.yml` (`migrations: mayDependOn: [platform]`)
+  each forbid it independently. Both fixtures are therefore committed and held to
+  their live sources by gates that *can* see them: one inside the fence, one at
+  the backend root deriving the legacy cohort from `2cb50021`.
+- **A fresh install and an upgraded one differ on the zero-grant cells.** A fresh
+  seed writes an object a role holds nothing on as an explicit all-false grant; a
+  backfill writes a key only for roles it grants something to. `platform/auth`
+  reads both identically, so the comparison normalizes on effective grant.
+
+**The four issues absorbed from PR 1 are closed out.** #448's dead `update` grant on `fx_rate` /
+`ai_model_rate` is now wired rather than removed: a cheap `RequireAny(create, update)` still refuses
+an unauthorized caller before a pool connection is taken, and the specific action is demanded inside
+the transaction once insert-vs-overwrite is known. The rate sheet stays append-forward (a past
+effective date is 422 `fx_rate_past`, no role holds `delete`), so closed business cannot be restated
+— a won deal's rate is frozen onto its own row and roll-ups read a GENERATED column, never the sheet.
+[#450](https://github.com/gradionhq/margince-poc-v1/issues/450) replaces the Settings Organization
+group's role-name gate with per-tab predicates composed from the members; **manager and rep gain
+Catalog and Company**, knowingly, because the nav should describe the seat rather than the role name.
+[#449](https://github.com/gradionhq/margince-poc-v1/issues/449) stays a documented limit;
+[#451](https://github.com/gradionhq/margince-poc-v1/issues/451) is raised upstream.
+
+`platform/auth/rbac.go` crossed the 500-line ceiling once the new helpers landed and was split — the
+row-scope half now lives in `platform/auth/rowscope.go`.
+
+### Open, carried out of this branch
+
+- **[#470](https://github.com/gradionhq/margince-poc-v1/issues/470)** — `PUT /v1/company`
+  is gated on `organization`, an object that governs customer company records
+  rather than the installation's own profile. A rep can already edit it through
+  the API; the client nav gate has been the only obstacle. Filed rather than
+  fixed — it is a permissions change with its own blast radius.
+- **[#471](https://github.com/gradionhq/margince-poc-v1/issues/471)** — the RBAC
+  contract surface (vocabulary enums, the `/me` authorization shape, the
+  deprecated `passport` claim) needs reconciling upstream against AAD-ROLE-1..5.
+
+
 ## Session pickup — 2026-08-04 (a job kind is declared before it is written, branch `feat/job-contract`)
 
 **`backend/api/jobs.yaml` is now the declaration every River job kind is built
@@ -403,12 +727,16 @@ timeout any more, and the sweep tag is stamped at a chokepoint the declaration
 drives. Item 3 is partly closed — every worker return is gated syntactically
 and the four ratified exceptions are declared, though the vetted-vocabulary
 substitution at the endpoint is still what makes the surface safe. Items 4, 5
-and 6 are unchanged and are now filed as issues: #430 (`cmd/worker` serves no
-`/metrics`), #431 (the per-connection sweep masking, a product decision), and
-#432 (`enqueueDigest` fanning the fleet out for one tenant). Two unrelated
-findings were filed alongside them: #428 (`//nolint:forbidigo` is unusable
-tree-wide, so the only available waiver is a path exclusion) and #429 (a
-`STATUS.md` pointer left in a source comment).
+and 6 are **CLOSED by PR #457**: `--observe-addr` gives `cmd/worker` its own
+`/healthz`, `/readyz` and `/metrics` (#430); `margince_sweep_units_total` /
+`_failed` report the per-connection and per-build dispatchers at their declared
+grain, so a dead connection beside a healthy one is no longer masked (#431); and
+`enqueueDigest` now names the child kind for the workspace it already knows
+instead of enqueueing the fleet dispatcher, held as a class by
+`TestNoScheduledDispatcherIsEnqueuedByHand` (#432). The two findings filed
+alongside them — #428 (`//nolint:forbidigo` unusable tree-wide) and #429 (a
+`STATUS.md` pointer left in a source comment) — closed with them. Nothing from
+Phase 1 C remains open.
 
 **What is deliberately NOT enforced at pre-push.** `.githooks/pre-push` runs
 `craft static` only, so the forbidigo bans on direct River registration and on

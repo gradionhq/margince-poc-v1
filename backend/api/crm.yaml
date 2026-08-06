@@ -556,6 +556,7 @@ paths:
         verb: search_records
         record_type: person
         tier: auto_execute
+        scope: read
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -632,6 +633,7 @@ paths:
         verb: create_record
         record_type: person
         tier: auto_execute
+        scope: write
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -685,7 +687,7 @@ paths:
       operationId: getPerson
       summary: Get a person by id (the 360 record).
       description: Fetchable by id even when archived (features/01 §1.1 AC).
-      x-mcp-tool: { verb: read_record, record_type: person, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: person, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The person.
@@ -699,7 +701,7 @@ paths:
       tags: [People]
       operationId: updatePerson
       summary: Update a person (partial).
-      x-mcp-tool: { verb: update_record, record_type: person, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: person, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
@@ -726,7 +728,7 @@ paths:
       description: |
         Sets `archived_at`, removes from default lists, retains in audit; the row is
         still fetchable by id (features/01 §1.1 AC). No hard delete by default.
-      x-mcp-tool: { verb: archive_record, record_type: person, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: person, tier: confirmation_required, scope: write }
       responses:
         '200':
           description: Archived person (now carries a non-null `archived_at`).
@@ -743,7 +745,7 @@ paths:
     post:
       tags: [People]
       operationId: mergePerson
-      x-mcp-tool: { verb: merge_records, record_type: person, tier: confirmation_required }
+      x-mcp-tool: { verb: merge_records, record_type: person, tier: confirmation_required, scope: write }
       summary: Merge this person into a target (non-lossy).
       description: |
         Merge A→B relinks A's emails/phones/relationships/activity links to B with zero
@@ -775,6 +777,187 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /people/{id}/360:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [People]
+      operationId: getPerson360
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
+      description: |
+        The person half of the one-composite-read doctrine (PO-EXT-3), assembled inside ONE
+        workspace transaction so the sections describe one consistent moment rather than a
+        stack of independently-timed round trips. `as_of` stamps that moment; the isolation
+        level is Read Committed, so a write committed mid-read may land in a later section —
+        the stamp is what makes that honest rather than hidden.
+
+        **Authorization is per section.** Reading the person is mandatory: a caller who
+        cannot see them gets the usual 403/404. Every other section needs its own object
+        grant, and a section the caller may not read is *omitted* and named in
+        `sections_omitted` — never returned empty, because empty and forbidden are
+        different facts.
+
+        **Nested collections are summaries, not paging surfaces.** Each carries at most 25
+        rows with `page.has_more` saying whether it was cut, and `page.next_cursor` is
+        always null: page two comes from the endpoint that owns that collection —
+        `GET /activities`, `GET /relationships`.
+
+        `last_inbound_at` and `last_outbound_at` are shown beside each other rather than
+        folded into one "last touch": which direction went last is the whole question — a
+        contact we mailed a fortnight ago with no reply is not the same as one who just
+        wrote to us.
+
+        Native system-of-record only: a workspace reading from an incumbent mirror gets
+        `422 unsupported_in_overlay_mode`.
+      responses:
+        '200':
+          description: The person's 360 view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person360' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /people/{id}/view-ack:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [People]
+      operationId: acknowledgePersonView
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Record that the calling human has now seen this person — the baseline `since_last_visit` counts from.
+      description: |
+        The baseline moves forward only here, never as a side effect of reading the 360: a
+        GET that silently advanced it would destroy the very "what changed" answer the
+        caller opened the page to read, and would make a prefetch indistinguishable from a
+        visit. The upsert is monotonic (`GREATEST(last_viewed_at, now())`), so a
+        late-arriving ack from a slower tab can never rewind a newer one.
+
+        Human-only: an agent reading a record through a passport is not a visit, and must
+        not consume the human's unread marker.
+      responses:
+        '200':
+          description: The stored baseline after the acknowledgment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecordViewAck' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /people/{id}/graph:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [People]
+      operationId: getPersonGraph
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Who around this contact could open a door, and through whom.
+      description: |
+        The local graph answers one question a rep actually asks: *who here can introduce me,
+        and what is the evidence they really know them?* It is not a picture of the whole
+        network — a diagram of everything answers nothing.
+
+        Two groups. `direct` is the colleagues who have corresponded with this contact
+        themselves, warmest first, each with the messages behind the claim. `account` is the
+        other contacts at their employer and which colleague is warmest with each — the route
+        when nobody here knows the person but somebody knows their colleague.
+
+        Row scope is applied per group, not once at the root: a contact outside the caller's
+        scope is absent from `account` rather than named, and an activity they may not read is
+        absent from the receipts rather than counted. `dropped_count` says how many a group
+        lost to the cap so the reader knows the picture is partial.
+
+        The `direct` edges carry receipts — the actual messages, each individually
+        visibility-checked. The `account` edges deliberately carry counts and dates only:
+        pooled interaction metadata is disclosable where the correspondence itself is not.
+      responses:
+        '200':
+          description: The local graph.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonGraph' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /ai/feedback:
+    post:
+      tags: [AI]
+      operationId: recordAIFeedback
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Record a human's verdict on a claim the system derived — the correction the next re-derivation must respect.
+      description: |
+        Everything inferred is re-derived rather than stored, which keeps it honest and also
+        makes it forget: correct a claim and the next read asserts the same wrong thing again.
+        This is where a human's answer is remembered (AIRT-AC-9).
+
+        `suppressed` is never surfaced again. `corrected` shows the human's value and is never
+        overwritten by a fresh inference without a recorded 🟡 approval. `confirmed` may carry a
+        "confirmed by" marker. One current verdict per claim: re-deciding replaces, and
+        `audit_log` carries the history.
+
+        `claim_path` names WHAT the claim is about (`profile_field:title`,
+        `moment:replied_after_gap`) and never its value. That is what makes a verdict survive
+        re-derivation — keyed on the value it would evaporate exactly when the evidence shifts,
+        which is when the human's answer matters most.
+
+        Gated on the SUBJECT's update grant: correcting what the system says about a contact is
+        editing that contact. Human-only, because the whole point of the row is that a person
+        decided.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIFeedbackInput' }
+      responses:
+        '204': { description: The verdict is recorded. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /people/{id}/profile-fields:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [People]
+      operationId: getPersonProfileFields
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
+      description: |
+        The person arm of the enrichment evidence ledger (`person_profile_field`): the
+        fields capture and site-read derive — title, phone, role, linkedin, org_name —
+        each carrying the **verbatim source snippet**, the source reference, confidence,
+        and who set it (`agent:enrich` until a human edits, `human:*` after).
+
+        Evidence-or-omit: a row exists only where a snippet was captured, so this never
+        asserts a value it cannot show the reader. This is the surface behind the
+        "enriched from signature" card (AC-person-11).
+      responses:
+        '200':
+          description: The person's enriched fields with their evidence.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/PersonProfileField' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /people/{id}/strength:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -798,7 +981,7 @@ paths:
       tags: [Organizations]
       operationId: listOrganizations
       summary: List organizations (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: organization, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: organization, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -840,7 +1023,7 @@ paths:
       operationId: createOrganization
       summary: Create an organization.
       description: Domains are normalized/lowercased and unique per workspace (409 on collision).
-      x-mcp-tool: { verb: create_record, record_type: organization, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: organization, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -878,7 +1061,7 @@ paths:
       tags: [Organizations]
       operationId: getOrganization
       summary: Get an organization by id (the 360 record).
-      x-mcp-tool: { verb: read_record, record_type: organization, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: organization, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The organization.
@@ -890,7 +1073,7 @@ paths:
       tags: [Organizations]
       operationId: updateOrganization
       summary: Update an organization (partial).
-      x-mcp-tool: { verb: update_record, record_type: organization, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
@@ -912,7 +1095,7 @@ paths:
       tags: [Organizations]
       operationId: archiveOrganization
       summary: Archive (soft-delete) an organization.
-      x-mcp-tool: { verb: archive_record, record_type: organization, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: organization, tier: confirmation_required, scope: write }
       responses:
         '200':
           description: Archived organization.
@@ -933,7 +1116,7 @@ paths:
         B with zero orphaned FKs, archives A with `merged_into_id = B`. Mirrors person merge
         (features/01 §1.3). One audit transaction (action `merge`); reversible within audit. This is
         the org half of the `merge_records` MCP verb.
-      x-mcp-tool: { verb: merge_records, record_type: organization, tier: confirmation_required }
+      x-mcp-tool: { verb: merge_records, record_type: organization, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -1337,7 +1520,7 @@ paths:
     put:
       tags: [Organizations, Partners]
       operationId: upsertPartner
-      x-mcp-tool: { verb: update_record, record_type: partner, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: partner, tier: auto_execute, scope: write }
       summary: Create/update the partner extension on an org (sets classification='partner').
       description: |
         Promotes an org to a first-class partner (A41/ADR-0032) by upserting its `partner` row and
@@ -1384,7 +1567,7 @@ paths:
         + `confidence`, or it is ABSENT (the no-guess gate). NOTHING is written to the org until a human
         accepts via /approvals — on accept it fills only the org's EMPTY fields, never overwriting a
         human-set value. A blocked or thin page degrades to 422, zero fabricated fields.
-      x-mcp-tool: { verb: enrich, record_type: organization, tier: confirmation_required }
+      x-mcp-tool: { verb: enrich, record_type: organization, tier: confirmation_required, scope: enrich }
       requestBody:
         required: false
         content:
@@ -1433,7 +1616,7 @@ paths:
         SKIPPED and why — robots, off-domain, page cap, model budget) are on the read report. Re-running
         while a read is in flight answers the SAME read (idempotent per org+url). Budget-guarded: the
         crawl stops early and reports `partial` when the model lane demotes to queue-or-local.
-      x-mcp-tool: { verb: enrich, record_type: organization, tier: confirmation_required }
+      x-mcp-tool: { verb: enrich, record_type: organization, tier: confirmation_required, scope: enrich }
       requestBody:
         required: false
         content:
@@ -1469,7 +1652,7 @@ paths:
       tags: [Organizations]
       operationId: getSiteRead
       summary: One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
-      x-mcp-tool: { verb: read_record, record_type: organization, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: organization, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The read report.
@@ -1545,7 +1728,7 @@ paths:
         - name: cert_status
           in: query
           schema: { type: string, enum: [applied, certified, suspended] }
-      x-mcp-tool: { verb: search_records, record_type: partner, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: partner, tier: auto_execute, scope: read }
       responses:
         '200':
           description: A page of partner records.
@@ -1564,7 +1747,7 @@ paths:
       tags: [Deals]
       operationId: listDeals
       summary: List deals (live by default; cursor-paginated). Supports Kanban-by-stage reads.
-      x-mcp-tool: { verb: search_records, record_type: deal, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: deal, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1618,7 +1801,7 @@ paths:
         Amount is integer minor-units + ISO-4217 currency (no float money). The stage
         must belong to the deal's pipeline (422 otherwise). Deals attach to person/org,
         never to a raw lead (ADR-0008 §5).
-      x-mcp-tool: { verb: create_record, record_type: deal, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: deal, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1670,7 +1853,7 @@ paths:
       tags: [Deals]
       operationId: getDeal
       summary: Get a deal by id (the 360 record).
-      x-mcp-tool: { verb: read_record, record_type: deal, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: deal, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The deal.
@@ -1682,7 +1865,7 @@ paths:
       tags: [Deals]
       operationId: updateDeal
       summary: Update a deal (partial). Closing requires terminal status + lost_reason if lost.
-      x-mcp-tool: { verb: update_record, record_type: deal, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: deal, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
@@ -1704,7 +1887,7 @@ paths:
       tags: [Deals]
       operationId: archiveDeal
       summary: Archive (soft-delete) a deal.
-      x-mcp-tool: { verb: archive_record, record_type: deal, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: deal, tier: confirmation_required, scope: write }
       responses:
         '200':
           description: Archived deal.
@@ -1730,7 +1913,7 @@ paths:
       # won/lost terminal stage = 🟡 (approval token required). The resolver reads the target stage's
       # `semantic` from pipeline config (and the overlay stage-mapping in overlay mode), not just the
       # request args — see interfaces.md §2.1 (TierDynamic) and events.md §5.3.
-      x-mcp-tool: { verb: advance_deal, record_type: deal, tier: dynamic, tier_resolver: target_stage_semantic, confirmation_required_when: 'target stage semantic in (won, lost)' }
+      x-mcp-tool: { verb: advance_deal, record_type: deal, tier: dynamic, tier_resolver: target_stage_semantic, confirmation_required_when: 'target stage semantic in (won, lost)', scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -1793,7 +1976,7 @@ paths:
       tags: [Projects]
       operationId: listProjects
       summary: List projects (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: project, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: project, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1840,7 +2023,7 @@ paths:
         A `key` is optional but must match `^[A-Za-z][A-Za-z0-9_-]{1,23}$` and be unique
         among live projects; a collision is `409` carrying the existing project's id.
         The project starts in `initiative` and its creation row is appended to the phase history.
-      x-mcp-tool: { verb: create_record, record_type: project, tier: confirmation_required }
+      x-mcp-tool: { verb: create_record, record_type: project, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -1873,7 +2056,7 @@ paths:
       tags: [Projects]
       operationId: getProject
       summary: Get a project by id.
-      x-mcp-tool: { verb: read_record, record_type: project, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: project, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The project.
@@ -1889,7 +2072,7 @@ paths:
       description: |
         `phase` is NOT settable here — a transition goes through `advanceProjectPhase` so the
         history row and `project.phase_changed` are written from the same transaction.
-      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required }
+      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
@@ -1917,7 +2100,7 @@ paths:
       description: |
         Archives the project and its phase history, and frees its key for reuse. It does NOT
         archive the activities or deals it grouped — the grouping dies, the history does not.
-      x-mcp-tool: { verb: archive_record, record_type: project, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: project, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/IfMatch'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -1940,7 +2123,7 @@ paths:
         the row update and emits `project.phase_changed` instead of `project.updated`.
         Transitions may move in either direction (a closed project may re-open); every
         transition is recorded. Closing without a `reason` is `422 closed_reason_required`.
-      x-mcp-tool: { verb: advance_project_phase, record_type: project, tier: confirmation_required }
+      x-mcp-tool: { verb: advance_project_phase, record_type: project, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -1989,7 +2172,7 @@ paths:
       tags: [Projects]
       operationId: setProjectStakeholder
       summary: Attach a person to a project with a role (idempotent per person).
-      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required }
+      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/ApprovalToken'
       requestBody:
@@ -2016,7 +2199,7 @@ paths:
       tags: [Projects]
       operationId: removeProjectStakeholder
       summary: Detach a person from a project (archives the edge).
-      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required }
+      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/ApprovalToken'
       responses:
@@ -2188,7 +2371,7 @@ paths:
       tags: [Activities]
       operationId: listActivities
       summary: List activities (the timeline; cursor-paginated, filterable by type/entity).
-      x-mcp-tool: { verb: search_records, record_type: activity, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: activity, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -2234,7 +2417,7 @@ paths:
         Captured activities carry `source_system` + `source_id`; re-running capture with the
         same pair is idempotent (no duplicate). An activity may link to >1 entity
         (person and deal). `log_activity` is 🟢 (reversible).
-      x-mcp-tool: { verb: log_activity, record_type: activity, tier: auto_execute }
+      x-mcp-tool: { verb: log_activity, record_type: activity, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -2287,7 +2470,7 @@ paths:
       tags: [Activities]
       operationId: getActivity
       summary: Get an activity by id (includes its links and raw capture payload).
-      x-mcp-tool: { verb: read_record, record_type: activity, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: activity, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The activity.
@@ -2299,7 +2482,7 @@ paths:
       tags: [Activities]
       operationId: updateActivity
       summary: Update an activity (e.g. complete a task).
-      x-mcp-tool: { verb: update_record, record_type: activity, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: activity, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
@@ -2319,7 +2502,7 @@ paths:
     delete:
       tags: [Activities]
       operationId: archiveActivity
-      x-mcp-tool: { verb: archive_record, record_type: activity, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: activity, tier: confirmation_required, scope: write }
       summary: Archive (soft-delete) an activity.
       responses:
         '200':
@@ -2343,7 +2526,7 @@ paths:
         entity_id)` constraint). The activity's original `source`/`captured_by` provenance is **preserved**
         (the relink is a `human:*` or `agent:*` association event, not a re-capture). Writes one `audit_log`
         row (`activity_relink`). 🟢 — it is an internal association, not an outbound action.
-      x-mcp-tool: { verb: relink_activity, record_type: activity, tier: auto_execute }
+      x-mcp-tool: { verb: relink_activity, record_type: activity, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -2377,7 +2560,7 @@ paths:
       operationId: draftEmail
       summary: Draft a reply/follow-up email for context (the `draft_email` MCP verb).
       description: Drafting is 🟢 (never auto-sends). The draft is returned, not sent.
-      x-mcp-tool: { verb: draft_email, record_type: activity, tier: auto_execute }
+      x-mcp-tool: { verb: draft_email, record_type: activity, tier: auto_execute, scope: draft }
       requestBody:
         required: false
         content:
@@ -2411,7 +2594,7 @@ paths:
         `person_consent` row exists for the *purpose* this send falls under (passed as
         `consent_purpose` in the request). A grant for a different purpose does not authorize the
         send; `unknown` and `withdrawn` both block.
-      x-mcp-tool: { verb: send_email, record_type: activity, tier: confirmation_required }
+      x-mcp-tool: { verb: send_email, record_type: activity, tier: confirmation_required, scope: send }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -2461,7 +2644,7 @@ paths:
         proven `granted` `person_consent` row exists for the *purpose* this send falls under
         (passed as `consent_purpose`). A grant for a different purpose does not authorize the
         send; `unknown` and `withdrawn` both block.
-      x-mcp-tool: { verb: send_message, record_type: activity, tier: confirmation_required }
+      x-mcp-tool: { verb: send_message, record_type: activity, tier: confirmation_required, scope: send }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -2499,7 +2682,7 @@ paths:
         Reads connected-calendar free/busy and returns candidate slots. 🟢 read-only — proposes,
         never books. Scheduling is a **governed MCP tool** (`features/07 §5c`): this read pairs with
         the 🟡 `book_meeting` action below.
-      x-mcp-tool: { verb: check_availability, tier: auto_execute }
+      x-mcp-tool: { verb: check_availability, tier: auto_execute, scope: read }
       parameters:
         - { name: host_user_id, in: query, required: false, schema: { type: string, format: uuid }, description: 'Host to check (defaults to the caller).' }
         - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
@@ -2542,7 +2725,7 @@ paths:
         must supply an approval token; a human caller's own action is the approval. On success a
         `meeting` `activity` is logged and linked to the supplied entities. Idempotent on
         `Idempotency-Key`.
-      x-mcp-tool: { verb: book_meeting, record_type: activity, tier: confirmation_required }
+      x-mcp-tool: { verb: book_meeting, record_type: activity, tier: confirmation_required, scope: send }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -2971,7 +3154,7 @@ paths:
       operationId: listLeads
       summary: List leads (their OWN list, distinct from contacts; cursor-paginated).
       description: Leads are segregated by construction — they never appear in /people.
-      x-mcp-tool: { verb: search_records, record_type: lead, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: lead, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -3010,7 +3193,7 @@ paths:
         `company_name` is FREE TEXT — a lead has NO organization FK. Lead-internal exact-email
         dedupe → 409 with existing lead id. Bulk/connector sourcing uses (source_system, source_id)
         for idempotent re-import.
-      x-mcp-tool: { verb: create_record, record_type: lead, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: lead, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -3052,7 +3235,7 @@ paths:
       tags: [Leads]
       operationId: getLead
       summary: Get a lead by id.
-      x-mcp-tool: { verb: read_record, record_type: lead, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: lead, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The lead.
@@ -3064,7 +3247,7 @@ paths:
       tags: [Leads]
       operationId: updateLead
       summary: Update a lead (partial).
-      x-mcp-tool: { verb: update_record, record_type: lead, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: lead, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
@@ -3086,7 +3269,7 @@ paths:
       operationId: disqualifyLead
       summary: Disqualify (soft-archive) a lead.
       description: Sets `archived_at` + `status=disqualified`; still fetchable by id.
-      x-mcp-tool: { verb: disqualify_lead, record_type: lead, tier: confirmation_required }
+      x-mcp-tool: { verb: disqualify_lead, record_type: lead, tier: confirmation_required, scope: write }
       responses:
         '200':
           description: Disqualified lead.
@@ -3101,7 +3284,7 @@ paths:
     post:
       tags: [Leads]
       operationId: promoteLead
-      x-mcp-tool: { verb: promote_lead, record_type: lead, tier: confirmation_required }
+      x-mcp-tool: { verb: promote_lead, record_type: lead, tier: confirmation_required, scope: write }
       summary: Promote a lead to a person on genuine engagement (non-lossy merge).
       description: |
         Promotion runs in one transaction (features/01 §6.4, ADR-0008): if the lead email
@@ -3180,7 +3363,7 @@ paths:
     post:
       tags: [Relationships]
       operationId: createRelationship
-      x-mcp-tool: { verb: create_record, record_type: relationship, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: relationship, tier: auto_execute, scope: write }
       summary: Create a relationship edge (employment or deal stakeholder).
       description: |
         `employment` requires person_id + organization_id; `deal_stakeholder` requires
@@ -3222,7 +3405,7 @@ paths:
     patch:
       tags: [Relationships]
       operationId: updateRelationship
-      x-mcp-tool: { verb: update_record, record_type: relationship, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: relationship, tier: auto_execute, scope: write }
       summary: Update a relationship (role, primary flag, dates).
       parameters:
         - $ref: '#/components/parameters/IfMatch'
@@ -3243,7 +3426,7 @@ paths:
     delete:
       tags: [Relationships]
       operationId: archiveRelationship
-      x-mcp-tool: { verb: archive_record, record_type: relationship, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: relationship, tier: confirmation_required, scope: write }
       summary: Archive (soft-delete) a relationship.
       responses:
         '200':
@@ -3274,7 +3457,7 @@ paths:
     post:
       tags: [Lists]
       operationId: createList
-      x-mcp-tool: { verb: create_record, record_type: list, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: list, tier: auto_execute, scope: write }
       summary: Create a list (static set or dynamic segment).
       requestBody:
         required: true
@@ -3306,7 +3489,7 @@ paths:
     delete:
       tags: [Lists]
       operationId: archiveList
-      x-mcp-tool: { verb: archive_record, record_type: list, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: list, tier: confirmation_required, scope: write }
       summary: Archive a list.
       responses:
         '200':
@@ -3336,7 +3519,7 @@ paths:
     post:
       tags: [Lists]
       operationId: addListMember
-      x-mcp-tool: { verb: update_record, record_type: list, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: list, tier: auto_execute, scope: write }
       summary: Add a member to a static list.
       requestBody:
         required: true
@@ -3373,7 +3556,7 @@ paths:
     post:
       tags: [Views]
       operationId: createSavedView
-      x-mcp-tool: { verb: create_record, record_type: saved_view, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: saved_view, tier: auto_execute, scope: write }
       summary: Save a per-user view (columns, sort, filter state) for a resource.
       requestBody:
         required: true
@@ -3405,7 +3588,7 @@ paths:
     patch:
       tags: [Views]
       operationId: updateSavedView
-      x-mcp-tool: { verb: update_record, record_type: saved_view, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: saved_view, tier: auto_execute, scope: write }
       summary: Update a saved view's name or query state.
       parameters:
         - $ref: '#/components/parameters/IfMatch'
@@ -3426,7 +3609,7 @@ paths:
     delete:
       tags: [Views]
       operationId: archiveSavedView
-      x-mcp-tool: { verb: archive_record, record_type: saved_view, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: saved_view, tier: confirmation_required, scope: write }
       summary: Archive a saved view.
       responses:
         '200':
@@ -3651,7 +3834,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: createWebhookSubscription
-      x-mcp-tool: { verb: create_record, record_type: webhook_subscription, tier: confirmation_required }
+      x-mcp-tool: { verb: create_record, record_type: webhook_subscription, tier: confirmation_required, scope: write }
       summary: Register an outbound webhook subscription (returns the signing secret once).
       description: |
         Registers a target URL + event-type subset. Registering outbound egress, so an agent
@@ -3698,7 +3881,7 @@ paths:
     patch:
       tags: [Webhooks]
       operationId: updateWebhookSubscription
-      x-mcp-tool: { verb: update_record, record_type: webhook_subscription, tier: confirmation_required }
+      x-mcp-tool: { verb: update_record, record_type: webhook_subscription, tier: confirmation_required, scope: write }
       summary: Pause/resume a subscription or re-target its event set.
       description: |
         A partial update (pause/resume or re-target the event set). Re-targeting can widen
@@ -3820,7 +4003,7 @@ paths:
     post:
       tags: [Tags]
       operationId: createTag
-      x-mcp-tool: { verb: create_record, record_type: tag, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: tag, tier: auto_execute, scope: write }
       summary: Create a tag.
       requestBody:
         required: true
@@ -3842,7 +4025,7 @@ paths:
     delete:
       tags: [Tags]
       operationId: archiveTag
-      x-mcp-tool: { verb: archive_record, record_type: tag, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: tag, tier: confirmation_required, scope: write }
       summary: Archive a tag.
       responses:
         '200':
@@ -3858,7 +4041,7 @@ paths:
     post:
       tags: [Tags]
       operationId: applyTag
-      x-mcp-tool: { verb: update_record, record_type: tag, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: tag, tier: auto_execute, scope: write }
       summary: Apply a tag to an entity (person/org/deal/lead).
       requestBody:
         required: true
@@ -3892,7 +4075,7 @@ paths:
         Executes a validated, typed query plan (NOT free-form SQL). Every aggregate cell is
         reconcilable via the `derivation` for "Explain This Number" (features/03 §1.3).
         Bound by RBAC; an agent caller cannot read beyond the human's scope. Audit-logged.
-      x-mcp-tool: { verb: run_report, tier: auto_execute }
+      x-mcp-tool: { verb: run_report, tier: auto_execute, scope: read }
       requestBody:
         required: false
         content:
@@ -3994,7 +4177,7 @@ paths:
       operationId: search
       summary: Cross-object search (people, orgs, deals, activities, leads).
       description: Hybrid full-text search. Results are scoped by RBAC; leads are a distinct result type.
-      x-mcp-tool: { verb: search_records, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, tier: auto_execute, scope: read }
       parameters:
         - name: q
           in: query
@@ -4142,10 +4325,12 @@ paths:
         paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
         EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
         (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
-        NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
-        A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
-        that is honest grounding, not fabrication, and it still stages 🟡.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required }
+        NOTHING is written to real records — the read-back stages a proposal the user accepts via
+        /approvals. A `self_description` field is "grounded" in the user's own words
+        (source_kind=self_description) — that is honest grounding, not fabrication, and it stages
+        the same way. HUMAN-ONLY: this call CREATES the organization, so there is no record for a
+        record-shaped agent verb to target; an agent principal is refused (403 `permission_denied`).
+      x-agent-access: human-only
       requestBody:
         required: true
         content:
@@ -4209,17 +4394,19 @@ paths:
         The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
         for a human to check and correct in the company form, and NOTHING is written or queued. For a
         HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
-        and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
-        presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
-        the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
-        caller's path and query, from the server's own address. So the agent tier matches its sibling's:
-        🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
-        staging remains for callers that propose asynchronously, with no human at the screen.
+        and PUT /company is the human's confirmation. That reasoning presupposes someone at the screen,
+        and on the agent path there is nobody: the EGRESS effect is the same one POST /coldstart performs
+        — an outbound GET to a caller-chosen host, with the caller's path and query, from the server's
+        own address — and the organization does not exist yet, so no record-shaped agent verb has a
+        target for it; the fields feed the form whose confirmation creates it. HUMAN-ONLY on both
+        counts: an agent principal is refused (403 `permission_denied`), with no staging path. An agent
+        that needs outward-looking research on an organization that already exists spends the same
+        `enrich` cap on POST /organizations/{id}/enrich.
 
         Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
         non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
         is returned as an omission for the human to fill in by hand, never as a guess.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required }
+      x-agent-access: human-only   # onboarding: creates the organization, so there is no record to target
       requestBody:
         required: true
         content:
@@ -5311,7 +5498,7 @@ paths:
         - { name: status, in: query, schema: { type: string, enum: [open, in_progress, fulfilled, rejected] } }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
-      x-mcp-tool: { verb: search_records, record_type: data_subject_request, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: data_subject_request, tier: auto_execute, scope: read }
       responses:
         '200':
           description: A page of data-subject requests.
@@ -5529,7 +5716,7 @@ paths:
         CUSTOM-FIELDS-WIRE-1. Unlike a normal resource list, this admin view returns both
         active and retired fields by default — `status` narrows to one lifecycle state.
         Backs the custom-fields admin field table.
-      x-mcp-tool: { verb: search_records, record_type: custom_field, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: custom_field, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -5576,7 +5763,7 @@ paths:
         closed types on one of the five closed objects — the request is refused with a
         `structural_change_refused` 422 (see the example below) and nothing is written:
         a structural change ships as a reviewed source change, not a runtime column.
-      x-mcp-tool: { verb: create_record, record_type: custom_field, tier: confirmation_required }
+      x-mcp-tool: { verb: create_record, record_type: custom_field, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -5714,7 +5901,7 @@ paths:
         `column_name`, `object`, and `type` are absent from the request schema entirely.
         A retired field refuses rename with a 409 `conflict` — retirement is terminal,
         so its label is frozen.
-      x-mcp-tool: { verb: update_record, record_type: custom_field, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: custom_field, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
@@ -5749,7 +5936,7 @@ paths:
         posture: an irreversible-feeling state change users must confirm) — an agent caller
         must supply `X-Approval-Token`. Not the generic archive shape: this is a status flip
         on a still-fetchable row, not `archived_at` (which stays null).
-      x-mcp-tool: { verb: update_record, record_type: custom_field, tier: confirmation_required }
+      x-mcp-tool: { verb: update_record, record_type: custom_field, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -5795,7 +5982,7 @@ paths:
         refuses the edit with a 409 `conflict` — retirement is terminal, so its options
         are frozen; removing an option that stored values still use is also a 409
         (`ADD CONSTRAINT` validates existing rows — migrate the values first).
-      x-mcp-tool: { verb: update_record, record_type: custom_field, tier: confirmation_required }
+      x-mcp-tool: { verb: update_record, record_type: custom_field, tier: confirmation_required, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -6039,7 +6226,7 @@ paths:
         - { name: subject_id, in: query, schema: { type: string, format: uuid } }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
-      x-mcp-tool: { verb: search_records, record_type: record_grant, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: record_grant, tier: auto_execute, scope: read }
       responses:
         '200':
           description: A page of record grants.
@@ -6054,7 +6241,7 @@ paths:
     post:
       tags: [Access]
       operationId: createRecordGrant
-      summary: Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+      summary: Share one record with a user or team (human-only).
       description: |
         Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
         scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
@@ -6064,8 +6251,7 @@ paths:
         flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
-      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: confirmation_required }
+      x-agent-access: human-only   # the grant verbs reject any non-human principal
       requestBody:
         required: true
         content:
@@ -6098,14 +6284,13 @@ paths:
     delete:
       tags: [Access]
       operationId: revokeRecordGrant
-      summary: Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+      summary: Revoke a manual record grant (human-only).
       description: |
         Deletes the grant; the subject loses the widened access immediately (the next query no longer
         matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
       parameters:
-        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
-      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: confirmation_required }
+      x-agent-access: human-only   # the grant verbs reject any non-human principal
       responses:
         '204': { description: Revoked. }
         '403':
@@ -6132,7 +6317,7 @@ paths:
         The workspace member roster: id + display name + email + seat/status. Any authenticated member
         may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
         archived users. Row-scoped by workspace RLS.
-      x-mcp-tool: { verb: search_records, record_type: app_user, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: app_user, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -6177,7 +6362,12 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: A member with this email already exists.
+          description: >-
+            Refused, with the reason distinguished by the problem `code`:
+            `conflict` (a member with this email already exists), or
+            `no_delivery_channel` (this installation has neither an outbound-email channel nor a
+            public base URL, so neither the mailed link nor an admin-issued one could reach the
+            member — an invite would create an ACTIVE account nobody could ever sign in as).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -6269,6 +6459,71 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /users/{id}/password-link:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Identity]
+      operationId: issueUserPasswordLink
+      summary: Mint a single-use set-password link for a member. Admin-only, human-only.
+      description: |
+        The email-less installation's provisioning path (ADR-0061 Amendment 1). Mints a single-use
+        set-password token for the member, supersedes their outstanding unused tokens, and returns
+        the link ONCE for the admin to deliver out-of-band. The token rides in the URL FRAGMENT, so
+        a browser never puts it on the wire; the response itself carries `Cache-Control: no-store`
+        because that protection begins only after navigation. Redeemed through `resetPassword`,
+        which revokes every session the member holds. Emits `user.password_link_issued`.
+
+        Admin-only and human-only — an agent may never mint a credential for a human. Available
+        ONLY where it is needed and can work: refused when an outbound-email channel IS configured
+        (that installation mails the link), when no public base URL is configured (a
+        credential-bearing link is never derived from a request `Host`), and when the target is not
+        active (redemption requires an active account, so the link would be dead on arrival).
+
+        A link may be minted for a member who ALREADY has a password, which is an account takeover.
+        Admins are the trust boundary and can already re-role and deactivate members, but this is a
+        distinct capability: the event names actor and target, and issuance is rate-limited per
+        actor and per target — superseding the target's tokens on every issue makes an unbounded
+        operation a denial-of-recovery primitive. AAD-PARAM-6's step-up re-authentication is the
+        intended preventive control and ships with the unbuilt MFA; until then the controls here
+        are detective and post-hoc.
+
+        The operation deliberately does NOT accept `Idempotency-Key`: the idempotency runtime
+        persists successful response bodies, and this body is a live credential.
+
+
+        `Cache-Control: no-store` is emitted on EVERY response, not only the 201. The refusals
+        disclose the installation's delivery posture and the caller's standing, neither of which
+        belongs in a shared proxy's cache.
+      x-agent-access: human-only
+      responses:
+        '201':
+          description: The set-password link. Returned exactly once; never retrievable again.
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+              description: Always `no-store` — the body carries a live credential.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuePasswordLinkResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            Refused, with the reason distinguished by the problem `code`:
+            `email_channel_configured` (this installation mails the link — use the invite flow),
+            `public_base_url_unset` (no canonical base to build a link against — an operator
+            configuration gap), or `member_not_active` (redemption requires an active member).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: Issuance rate limit reached for this actor or this target.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /teams:
     get:
       tags: [Identity]
@@ -6277,7 +6532,7 @@ paths:
       description: |
         Teams available as record-share subjects, with a member count. Any authenticated member may read.
         Excludes archived teams. Row-scoped by workspace RLS.
-      x-mcp-tool: { verb: search_records, record_type: team, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: team, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -6782,7 +7037,7 @@ paths:
       tags: [Offers]
       operationId: listProducts
       summary: List rate-card products (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: product, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: product, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -6810,7 +7065,7 @@ paths:
       description: |
         Price is integer minor-units + ISO-4217 currency (P11, no float money). `sku` is
         optional; when present it is unique per workspace (409 on a live duplicate).
-      x-mcp-tool: { verb: create_record, record_type: product, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: product, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -6838,7 +7093,7 @@ paths:
       tags: [Offers]
       operationId: getProduct
       summary: Get a product by id.
-      x-mcp-tool: { verb: read_record, record_type: product, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: product, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The product.
@@ -6850,7 +7105,7 @@ paths:
       tags: [Offers]
       operationId: updateProduct
       summary: Update a product (partial). Existing offer lines keep their price snapshot.
-      x-mcp-tool: { verb: update_record, record_type: product, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: product, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -6871,7 +7126,7 @@ paths:
       tags: [Offers]
       operationId: archiveProduct
       summary: Archive (soft-delete) a product. Lines referencing it survive with their snapshot.
-      x-mcp-tool: { verb: archive_record, record_type: product, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: product, tier: confirmation_required, scope: write }
       responses:
         '200':
           description: Archived product.
@@ -6898,7 +7153,7 @@ paths:
       operationId: listOfferTemplates
       summary: List offer templates (branded DE/EN PDF layouts), newest first.
       description: Default view excludes archived rows; pass include_archived=true to include them.
-      x-mcp-tool: { verb: search_records, record_type: offer_template, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: offer_template, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -6925,7 +7180,7 @@ paths:
         `offer_template_name_duplicate`). At most one default template per locale (409
         `offer_template_default_conflict` — setting `is_default=true` while another
         default already holds that locale).
-      x-mcp-tool: { verb: create_record, record_type: offer_template, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: offer_template, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -6974,7 +7229,7 @@ paths:
       tags: [Offers]
       operationId: getOfferTemplate
       summary: Get an offer template by id.
-      x-mcp-tool: { verb: read_record, record_type: offer_template, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: offer_template, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The offer template.
@@ -6989,7 +7244,7 @@ paths:
       operationId: updateOfferTemplate
       summary: Update an offer template (full replace — every writable field is replaced).
       description: Uses PUT (not PATCH) — omitting a writable field resets it, it is not a partial no-op.
-      x-mcp-tool: { verb: update_record, record_type: offer_template, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: offer_template, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IfMatch'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -7014,7 +7269,7 @@ paths:
       operationId: archiveOfferTemplate
       summary: Archive (soft-delete) an offer template.
       description: Sets archived_at (soft-archive); hidden from the default list but still fetchable by id. Offers already carrying this template_id are unaffected — a template is never deleted out from under an existing offer.
-      x-mcp-tool: { verb: archive_record, record_type: offer_template, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: offer_template, tier: confirmation_required, scope: write }
       responses:
         '200':
           description: Archived offer template.
@@ -7037,7 +7292,7 @@ paths:
       tags: [Offers]
       operationId: listDealOffers
       summary: List a deal's offers, newest revision first.
-      x-mcp-tool: { verb: search_records, record_type: offer, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: offer, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -7059,7 +7314,7 @@ paths:
         Line items may ride the create; each snapshots description/price from its optional
         `product_id` unless given explicitly. Totals are DERIVED — a body carrying
         `net_minor`/`gross_minor`/`line_total` (any spelling) is rejected 422.
-      x-mcp-tool: { verb: create_record, record_type: offer, tier: auto_execute }
+      x-mcp-tool: { verb: create_record, record_type: offer, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -7085,7 +7340,7 @@ paths:
       tags: [Offers]
       operationId: getOffer
       summary: Get an offer with its line items and computed totals.
-      x-mcp-tool: { verb: read_record, record_type: offer, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: offer, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The offer.
@@ -7097,7 +7352,7 @@ paths:
       tags: [Offers]
       operationId: updateOffer
       summary: Update offer header fields — allowed only while status=draft.
-      x-mcp-tool: { verb: update_record, record_type: offer, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: offer, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -7122,7 +7377,7 @@ paths:
       tags: [Offers]
       operationId: archiveOffer
       summary: Archive (soft-delete) an offer.
-      x-mcp-tool: { verb: archive_record, record_type: offer, tier: confirmation_required }
+      x-mcp-tool: { verb: archive_record, record_type: offer, tier: confirmation_required, scope: write }
       responses:
         '200':
           description: Archived offer.
@@ -7138,7 +7393,7 @@ paths:
       tags: [Offers]
       operationId: addOfferLineItem
       summary: Add a line item to a draft offer (position defaults to next; totals recomputed).
-      x-mcp-tool: { verb: update_record, record_type: offer, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: offer, tier: auto_execute, scope: write }
       requestBody:
         required: true
         content:
@@ -7164,7 +7419,7 @@ paths:
       tags: [Offers]
       operationId: updateOfferLineItem
       summary: Update a draft offer's line item (totals recomputed; totals themselves are not settable).
-      x-mcp-tool: { verb: update_record, record_type: offer, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: offer, tier: auto_execute, scope: write }
       requestBody:
         required: true
         content:
@@ -7182,7 +7437,7 @@ paths:
       tags: [Offers]
       operationId: removeOfferLineItem
       summary: Remove a line item from a draft offer (totals recomputed).
-      x-mcp-tool: { verb: update_record, record_type: offer, tier: auto_execute }
+      x-mcp-tool: { verb: update_record, record_type: offer, tier: auto_execute, scope: write }
       responses:
         '200':
           description: The offer without the line, totals recomputed.
@@ -7202,13 +7457,12 @@ paths:
       description: |
         draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
         daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
-        emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
-        `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
-        redeems with the X-Approval-Token header (ADR-0036).
-      x-mcp-tool: { verb: send_offer, record_type: offer, tier: confirmation_required }
+        emits `offer.sent`. HUMAN-ONLY: an agent principal is refused outright (403
+        `permission_denied`), with no staging path — releasing an offer to a counterparty is a
+        decision a person makes, not one an agent stages for them.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
@@ -7278,15 +7532,15 @@ paths:
       operationId: regenerateOffer
       summary: Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
       description: |
-        The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
-        sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
+        Copies the sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
         `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
         mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
         also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
         `diff_from_previous` line-item summary versus the prior revision; a mechanical
         regenerate (no AI context available) still works and returns `ai_generated=false`. The
-        produced draft still cannot leave without the 🟡 send gate.
-      x-mcp-tool: { verb: draft_offer, record_type: offer, tier: auto_execute }
+        produced draft still cannot leave without the send gate, which is human-only too.
+        HUMAN-ONLY: an agent principal is refused (403 `permission_denied`); no tool serves this verb.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -7314,7 +7568,7 @@ paths:
         WP7, data-model §12.6). The rendered totals equal the server-computed totals — the PDF
         never recomputes money (P11). Not itself an outbound or irreversible act — `send` is
         the 🟡 gated step that leaves the workspace — so render stays 🟢.
-      x-mcp-tool: { verb: render_offer, record_type: offer, tier: auto_execute }
+      x-agent-access: human-only   # no tool
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -7778,7 +8032,7 @@ paths:
       tags: [Quotas]
       operationId: listQuotas
       summary: List quotas (cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: quota, tier: auto_execute }
+      x-mcp-tool: { verb: search_records, record_type: quota, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -7880,7 +8134,7 @@ paths:
       tags: [Quotas]
       operationId: getQuota
       summary: Get a quota by id.
-      x-mcp-tool: { verb: read_record, record_type: quota, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: quota, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The quota.
@@ -7966,7 +8220,7 @@ paths:
       tags: [Quotas]
       operationId: getQuotaAttainment
       summary: Server-computed attainment for this quota (RD-WIRE-3), decomposed per closed-won deal.
-      x-mcp-tool: { verb: read_record, record_type: quota, tier: auto_execute }
+      x-mcp-tool: { verb: read_record, record_type: quota, tier: auto_execute, scope: read }
       description: |
         RD-FORM-2: attainment = Σ(closed-won base_value_minor in the quota's period) ÷
         target_minor, base-currency converted. Never client-summed — contributing_deals
@@ -8568,10 +8822,7 @@ paths:
       tags: [Overlay]
       operationId: connectOverlay
       summary: Connect the workspace's overlay incumbent (HubSpot).
-      x-mcp-tool:
-        verb: connect_incumbent
-        record_type: overlay_connection
-        tier: confirmation_required
+      x-agent-access: human-only   # no tool: seals a credential and flips the system of record
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnectRequest' } } } }
       responses:
         '201': { description: Connected, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnection' } } } }
@@ -8580,10 +8831,7 @@ paths:
       tags: [Overlay]
       operationId: disconnectOverlay
       summary: Disconnect the overlay incumbent and queue mirror teardown.
-      x-mcp-tool:
-        verb: disconnect_incumbent
-        record_type: overlay_connection
-        tier: confirmation_required
+      x-agent-access: human-only   # no tool: purges the mirror and flips the system of record
       responses:
         '202': { description: Teardown queued }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -8601,10 +8849,7 @@ paths:
       tags: [Overlay]
       operationId: reconcileOverlay
       summary: Queue an out-of-band mirror reconciliation sweep.
-      x-mcp-tool:
-        verb: reconcile_overlay
-        record_type: overlay_connection
-        tier: auto_execute
+      x-agent-access: human-only   # no tool
       responses:
         '202': { description: Sweep queued }
 
@@ -10752,7 +10997,7 @@ components:
       description: The per-user "I have seen this record" baseline, after an acknowledgment.
       required: [entity_type, entity_id, last_viewed_at]
       properties:
-        entity_type: { type: string, enum: [organization] }
+        entity_type: { type: string, enum: [organization, person] }
         entity_id: { type: string, format: uuid }
         last_viewed_at: { type: string, format: date-time }
 
@@ -11170,6 +11415,434 @@ components:
             Absent on an organization with no resolved logo and on every person or deal node —
             a client draws the node's monogram or its token-coloured circle instead.
 
+    PersonProfileField:
+      type: object
+      description: |
+        One enriched field with the evidence it was read from. Evidence-or-omit: a row
+        exists only where a verbatim snippet was captured.
+      required: [field, value, evidence_snippet, source, captured_by, captured_at]
+      properties:
+        field: { type: string, enum: [title, phone, role, linkedin, org_name] }
+        value: { type: string }
+        evidence_snippet:
+          type: string
+          description: The verbatim source text the value was read from — the reader checks the claim against its own source.
+        source_ref:
+          type: [string, 'null']
+          description: "What was read, as `activity:<uuid>` for a signature or `site_read:<url>` for a page."
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        source: { type: string, description: "The channel that produced it, e.g. `capture_enrich` or `site_read`." }
+        captured_by:
+          type: string
+          description: "`agent:enrich` until a human edits the field, `human:<uuid>` after — this is how the page says \"corrected by you\"."
+        captured_at: { type: string, format: date-time }
+        claim_key:
+          type: string
+          description: >-
+            The stable identity of this field as a claim. Pass it to `POST /ai/feedback` as
+            `claim_path` to correct or confirm the value — keyed on WHICH field, so the verdict
+            survives the value being re-derived.
+        verdict:
+          type: string
+          description: >-
+            What a human has already decided about this field, absent when nobody has. A
+            `corrected` field shows their value in `value` and is never overwritten by a fresh
+            inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means
+            the claim is not shown again.
+          enum: [corrected, suppressed, confirmed]
+        verdict_note:
+          type: [string, 'null']
+          description: Why, in the human's own words, when they gave a reason.
+
+    Person360Employment:
+      type: object
+      description: One employment edge, current primary first.
+      required: [relationship_id, organization_id, is_current_primary]
+      properties:
+        relationship_id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        organization_name: { type: [string, 'null'] }
+        role:
+          type: [string, 'null']
+          description: The title as the edge records it, which may differ from the person's own title field.
+        is_current_primary: { type: boolean }
+        started_at: { type: [string, 'null'], format: date-time }
+        ended_at: { type: [string, 'null'], format: date-time, description: Null means ongoing. A former employment keeps its row — history is never overwritten. }
+
+    Person360DealRole:
+      type: object
+      description: One stakeholder seat this person holds on a deal.
+      required: [relationship_id, deal_id, role]
+      properties:
+        relationship_id: { type: string, format: uuid }
+        deal_id: { type: string, format: uuid }
+        deal_title: { type: [string, 'null'] }
+        deal_stage: { type: [string, 'null'] }
+        role:
+          type: string
+          description: "The buying role as recorded — champion, economic_buyer, blocker, influencer, user by convention. Never inferred from a job title."
+
+    Person360SinceLastVisit:
+      type: object
+      description: |
+        What changed on this person since the caller last acknowledged seeing them.
+        Read-only: the 360 never advances the baseline — `POST /people/{id}/view-ack` does.
+      required: [new_activities]
+      properties:
+        baseline_at:
+          type: [string, 'null']
+          format: date-time
+          description: The caller's last acknowledged visit, or null if they have never acknowledged one (first visit — counts run from the person's whole history).
+        new_activities: { type: integer, minimum: 0 }
+
+    Person360:
+      type: object
+      description: |
+        The person record page in one payload (PO-EXT-3). Every section except `person` is
+        optional: absent means the caller lacks its grant, and `sections_omitted` names it.
+      required: [as_of, person, sections_omitted]
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+        person: { $ref: '#/components/schemas/Person' }
+        last_inbound_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When they last wrote to us. Null means nothing inbound was ever captured — a fact
+            about the relationship, not a missing field. Absent entirely when the caller has no
+            activity grant, named in `sections_omitted` as `last_touch`.
+        last_outbound_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When we last wrote to them. Shown BESIDE last_inbound_at rather than folded into one
+            "last touch": which direction went last is the whole question.
+        sections_omitted:
+          type: array
+          description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+          items:
+            type: string
+            enum: [employments, deal_roles, strength, network, activities, next_steps, consent, profile_fields, since_last_visit, last_touch, relationship_changes, moments]
+        strength: { $ref: '#/components/schemas/RelationshipStrength' }
+        relationship_changes:
+          type: array
+          description: >-
+            What CHANGED about this relationship, most consequential first — derived at read
+            from the person's own interactions, never stored. `strength` says what the
+            relationship IS; this says what happened to it, which is what a reader acts on.
+            Empty when nothing crossed a threshold.
+          items: { $ref: '#/components/schemas/PersonRelationshipChange' }
+        moments:
+          type: array
+          description: >-
+            Why this contact is worth attention NOW, most consequential first, at most five.
+            Deterministic and computed at read from captured data — a moment is a reason with
+            its evidence attached, not a model's opinion. A moment a human dismissed does not
+            come back: the verdict lives in `ai_feedback` keyed on `claim_key` below.
+          items: { $ref: '#/components/schemas/PersonMoment' }
+        network:
+          type: object
+          description: The colleagues who know this contact, warmest first — who to ask.
+          required: [colleagues]
+          properties:
+            colleagues: { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
+        employments:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Person360Employment' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        deal_roles:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Person360DealRole' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        activities:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        next_steps:
+          type: object
+          description: Open tasks filed against this person.
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        consent:
+          type: object
+          description: Per-purpose state. The proof log stays at `GET /people/{id}/consent` — this is the guard, not the ledger.
+          required: [state]
+          properties:
+            state: { type: array, items: { $ref: '#/components/schemas/PersonConsentState' } }
+        profile_fields:
+          type: array
+          description: The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
+          items: { $ref: '#/components/schemas/PersonProfileField' }
+        since_last_visit: { $ref: '#/components/schemas/Person360SinceLastVisit' }
+
+    PersonGraph:
+      type: object
+      description: The local graph around one contact — nodes, the edges between them, and the route worth taking.
+      required: [person_id, nodes, edges, groups_omitted]
+      properties:
+        person_id: { type: string, format: uuid }
+        nodes:
+          type: array
+          description: Everyone in the picture, including the contact themselves as the anchor.
+          items: { $ref: '#/components/schemas/PersonGraphNode' }
+        edges:
+          type: array
+          description: Who has actually corresponded with whom. An edge exists only where interactions do.
+          items: { $ref: '#/components/schemas/PersonGraphEdge' }
+        route:
+          $ref: '#/components/schemas/PersonGraphRoute'
+        groups_omitted:
+          type: array
+          description: Groups withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+          items:
+            type: string
+            enum: [direct, account]
+        dropped_count:
+          type: object
+          description: >-
+            How many nodes each group lost to its cap, stated rather than silently truncated.
+            `account` is the true remainder. `direct` counts from a bounded fetch (100), so on a
+            contact more than a hundred colleagues have corresponded with it understates — a
+            shape far outside what this card is for, and making it exact would cost every
+            ordinary read.
+          properties:
+            direct: { type: integer }
+            account: { type: integer }
+
+    PersonGraphNode:
+      type: object
+      required: [id, type, group, label]
+      properties:
+        id:
+          type: string
+          description: Stable within this response, and what an edge refers to. `user:<uuid>` or `person:<uuid>`.
+        type:
+          type: string
+          enum: [colleague, contact]
+        group:
+          type: string
+          description: '`anchor` is the contact this graph is about. `direct` knows them. `account` works with them.'
+          enum: [anchor, direct, account]
+        label: { type: string }
+        sublabel:
+          type: string
+          description: Their role or employer, when the record carries one.
+        person_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+
+    PersonGraphEdge:
+      type: object
+      description: One corresponding pair, with the evidence the graph is allowed to disclose.
+      required: [from, to, strength_bucket, interactions_90d]
+      properties:
+        from: { type: string, description: A node id. }
+        to: { type: string, description: A node id. }
+        strength_bucket:
+          type: string
+          enum: [none, weak, moderate, strong]
+        interactions_90d: { type: integer }
+        inbound_90d: { type: integer }
+        outbound_90d: { type: integer }
+        last_at: { type: [string, 'null'], format: date-time }
+        receipts:
+          type: array
+          maxItems: 3
+          description: >-
+            The actual messages behind this edge, each individually visibility-checked before it
+            is named. Present on `direct` edges only: pooled counts are disclosable where the
+            correspondence itself is not, so an `account` edge carries the numbers and no rows.
+          items: { $ref: '#/components/schemas/PersonGraphReceipt' }
+
+    PersonGraphReceipt:
+      type: object
+      required: [activity_id, occurred_at]
+      properties:
+        activity_id: { type: string, format: uuid }
+        subject: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+
+    PersonGraphRoute:
+      type: object
+      description: |
+        The warmest way in, chosen deterministically rather than scored by a model: the
+        strongest direct relationship if one exists, otherwise the strongest relationship any
+        colleague has with someone else at the same company.
+      required: [via_user_id, via_display_name, why]
+      properties:
+        via_user_id: { type: string, format: uuid }
+        via_display_name: { type: string }
+        through_person_id:
+          type: string
+          format: uuid
+          description: Set when the route goes via a colleague at the same company rather than the contact directly.
+        through_display_name: { type: string }
+        why:
+          type: string
+          description: The proof line, written from the counts — "6 two-way exchanges · replied 2 days ago".
+
+    PersonMoment:
+      type: object
+      description: |
+        One reason this contact is worth attention now, with the evidence behind it.
+
+        Every moment in this version is DETERMINISTIC: derived from captured activity by a
+        rule, never asserted by a model. That is what lets every one of them carry evidence a
+        reader can open, and why `confidence` is `observed_fact` throughout — the enum admits
+        the softer values a later inferred source would need, and nothing produces them yet.
+      required: [claim_key, kind, headline, why_now, confidence, evidence, recommended_action]
+      properties:
+        claim_key:
+          type: string
+          description: >-
+            The stable identity of this moment as a claim. Pass it to `POST /ai/feedback` as
+            `claim_path` to dismiss it — keyed on what the moment is ABOUT, so a dismissal
+            survives the evidence moving and the moment being re-derived tomorrow.
+        kind:
+          type: string
+          description: >-
+            `replied_after_gap` — they answered after a long silence. `unanswered_inbound` —
+            they wrote and nobody has written back. `meeting_ahead` — a meeting with them is
+            coming. `task_overdue` — a next step filed against them has passed its date.
+            `went_quiet` — an established relationship stopped.
+          enum: [replied_after_gap, unanswered_inbound, meeting_ahead, task_overdue, went_quiet]
+        headline:
+          type: string
+          description: The reason in one line, written from the evidence — never a model's paraphrase of it.
+        why_now:
+          type: string
+          description: What makes it timely rather than merely true. A moment that would read the same next month is not a moment.
+        confidence:
+          type: string
+          description: '`observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.'
+          enum: [observed_fact, high, medium]
+        freshness_at:
+          type: string
+          format: date-time
+          description: When the fact behind this moment happened, so a reader can judge its age themselves.
+        evidence:
+          type: array
+          description: What the moment is derived from. Never empty — a reason with no evidence is an opinion.
+          items: { $ref: '#/components/schemas/PersonMomentEvidence' }
+        recommended_action:
+          $ref: '#/components/schemas/PersonMomentAction'
+        secondary_actions:
+          type: array
+          maxItems: 3
+          items: { $ref: '#/components/schemas/PersonMomentAction' }
+
+    PersonMomentEvidence:
+      type: object
+      description: One thing that actually happened, which the reader can open.
+      required: [type, label]
+      properties:
+        type:
+          type: string
+          enum: [activity, task, relationship_change]
+        id:
+          type: string
+          format: uuid
+          description: The record to open. Absent when the evidence is a derived fact rather than a row.
+        label: { type: string }
+        snippet:
+          type: string
+          description: A verbatim excerpt of the evidence, never a summary of it.
+        observed_at: { type: string, format: date-time }
+
+    PersonMomentAction:
+      type: object
+      description: What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click.
+      required: [kind, label, state]
+      properties:
+        kind:
+          type: string
+          enum: [draft_reply, schedule_meeting, complete_task, log_activity, open_record]
+        label: { type: string }
+        state:
+          type: string
+          description: '`available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.'
+          enum: [available, will_confirm, blocked]
+        blocked_reason: { type: string }
+
+    AIFeedbackInput:
+      type: object
+      description: A human's verdict on one derived claim.
+      required: [subject_type, subject_id, claim_kind, claim_path, verdict]
+      properties:
+        subject_type:
+          type: string
+          description: The record the claim is about. One ledger across all four, so a correction made on one screen binds on the others.
+          enum: [organization, person, deal, lead]
+        subject_id: { type: string, format: uuid }
+        claim_kind:
+          type: string
+          enum: [profile_field, inferred_kpi, next_step, signal, research_claim]
+        claim_path:
+          type: string
+          maxLength: 200
+          description: >-
+            What the claim is ABOUT, not what it says — `profile_field:title`,
+            `moment:replied_after_gap`. Hashed server-side into the stable claim key, so the
+            same logical claim maps to the same verdict across every re-derivation.
+        verdict:
+          type: string
+          enum: [corrected, suppressed, confirmed]
+        corrected_value:
+          type: string
+          maxLength: 2000
+          description: The human's value. Required for `corrected` and refused for the other two — a corrected verdict with no value is an answer that was lost on the way in.
+        note:
+          type: string
+          maxLength: 2000
+          description: Why, in the human's words. Optional and never shown to a model.
+
+    PersonRelationshipChange:
+      type: object
+      description: |
+        One thing that happened to a relationship, with the evidence for it. Derived at read
+        by folding the §4 curve over a window that ends in the past, so it needs no table and
+        disappears when the activities behind it are erased.
+      required: [kind, at]
+      properties:
+        kind:
+          type: string
+          description: >-
+            `replied_after_gap` — they answered after a long silence, the strongest buy-signal
+            captured data alone can produce. `went_quiet` — an established relationship stopped.
+            `warmed` / `cooled` — the §4 band moved. A band move is reported; a point drift is
+            not, because the score decays continuously and reporting that would fire on every read.
+          enum: [replied_after_gap, went_quiet, warmed, cooled]
+        at:
+          type: string
+          format: date-time
+          description: >-
+            When it happened — the reply's own timestamp, or the last touch of a relationship
+            that went quiet. For a band move this is the read instant: a band move is observed,
+            not dated.
+        days:
+          type: integer
+          description: >-
+            The span the change is about: the silence a reply broke, or how long a quiet
+            relationship has been quiet. Absent for a band move.
+        from_bucket:
+          type: string
+          description: The §4 band the relationship held one comparison window ago. Band moves only.
+          enum: [none, weak, moderate, strong]
+        to_bucket:
+          type: string
+          description: The band it holds now. Band moves only.
+          enum: [none, weak, moderate, strong]
+
     PersonNetworkColleague:
       type: object
       description: One colleague's own relationship with this contact.
@@ -11185,6 +11858,14 @@ components:
         strength_bucket: { type: string, enum: [none, weak, moderate, strong] }
         interactions_90d: { type: integer, minimum: 0 }
         last_at:          { type: [string, 'null'], format: date-time }
+        # The direction split. Without it a surface can say "6 exchanges" but not
+        # "6 TWO-WAY exchanges" or "replied 2 days ago", and cannot tell a live
+        # correspondence from six unanswered sends — which is the distinction that
+        # decides whether this colleague is a route in at all.
+        inbound_90d:      { type: integer, minimum: 0, description: Interactions in the last 90 days where they wrote to this colleague. }
+        outbound_90d:     { type: integer, minimum: 0, description: Interactions in the last 90 days where this colleague wrote to them. }
+        last_inbound_at:  { type: [string, 'null'], format: date-time, description: When they last replied to this colleague. Null means they never have. }
+        last_outbound_at: { type: [string, 'null'], format: date-time, description: When this colleague last wrote to them. }
 
     PersonNetwork:
       type: object
@@ -12630,6 +13311,25 @@ components:
         display_name: { type: string, minLength: 1, maxLength: 255 }
         role: { type: string, enum: [admin, manager, rep, read_only, ops] }
 
+    IssuePasswordLinkResponse:
+      type: object
+      description: >-
+        A single-use set-password link, returned exactly once and never retrievable again. The
+        server stores only the token's hash, so a lost link is re-issued, never recovered.
+      required: [set_password_url, expires_at]
+      properties:
+        set_password_url:
+          type: string
+          format: uri
+          description: >-
+            The full link to hand to the member. The token rides in the URL FRAGMENT, which a
+            browser never puts on the wire — keeping it out of access logs, `Referer` headers, and
+            service-worker cache keys. Deliver it over a channel the member controls.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the token stops being redeemable (seven days from issue).
+
     ChangeUserRoleRequest:
       type: object
       required: [role]
@@ -12748,7 +13448,7 @@ components:
 
     MeResponse:
       type: object
-      required: [user, roles, teams, workspace_name, non_production]
+      required: [user, roles, teams, workspace_name, non_production, admin_password_link]
       properties:
         user: { $ref: '#/components/schemas/User' }
         workspace_name:
@@ -12762,6 +13462,17 @@ components:
           description: >
             True when the installation runs a non-production posture
             (MARGINCE_ENV). Gates the client-side "Reset data" action.
+        admin_password_link:
+          type: boolean
+          description: >
+            Whether THIS CALLER may issue member set-password links
+            (`issueUserPasswordLink`) — true only when the caller holds `admin`
+            AND the installation has no outbound-email channel AND a public base
+            URL is configured. Deliberately a caller capability rather than a
+            deployment-posture flag: `/me` answers every authenticated member, and
+            a bare posture boolean would tell every rep whether the installation
+            has email configured. Clients render the action on this, so an admin
+            never sees a control that can only fail (ADR-0061 Amendment 1).
         roles:
           type: array
           items: { type: string }
@@ -12971,7 +13682,7 @@ components:
           # audit_log is record-mutations-only: login and bulk export moved to system_log,
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
           # capture skip is NOT here either — it is a system_log 'capture_skip' event.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data]
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }
@@ -13381,6 +14092,18 @@ components:
           type: string
           enum: [auto_execute, confirmation_required, dynamic]
           description: The autonomy tier, identical on REST and MCP (ADR-0055).
+        scope:
+          type: string
+          enum: [read, draft, write, send, enrich]
+          description: >-
+            The passport scope this operation consumes — the cap the granting human
+            set, which the tier cannot substitute for: a tier says whether a human
+            confirms the act, a scope says whether the act was ever delegable. Every
+            `x-mcp-tool` declares one; unlike `tier` and `record_type`, absent is NOT
+            a meaningful state, so generation fails on a missing value rather than
+            emitting a zero. It is what an operation with no registered MCP tool is
+            admitted under, and for one that has a tool the generator holds the two
+            equal — so a verb cannot mean `enrich` on MCP and `write` on REST.
 
     # ---- AI: cold-start ----
     ColdStartRequest:

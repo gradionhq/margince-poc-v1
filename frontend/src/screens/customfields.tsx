@@ -17,6 +17,7 @@ import {
   Button,
   DataTable,
   EmptyState,
+  Field,
   Modal,
   SectionHeader,
   TextInput,
@@ -78,7 +79,6 @@ export function FieldBuilder({
   onToast: (msg: string) => void;
 }>) {
   const t = useT();
-  const ids = { label: useId(), key: useId(), currency: useId() };
   const [label, setLabel] = useState("");
   const [type, setType] = useState<CfType>("text");
   const [currency, setCurrency] = useState("EUR");
@@ -128,29 +128,30 @@ export function FieldBuilder({
       <p className="cf-hint">{t("cf.builder.intro")}</p>
 
       <div className="cf-grid">
-        <div className="field">
-          <label className="t-label" htmlFor={ids.label}>
-            {t("cf.label")}
-          </label>
-          <TextInput
-            id={ids.label}
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label className="t-label" htmlFor={ids.key}>
-            {t("cf.apiKey")}
-          </label>
-          <TextInput
-            id={ids.key}
-            className="t-mono"
-            value={apiKey(object, label)}
-            disabled
-            readOnly
-          />
-          <span className="cf-hint">{t("cf.apiKeyHint")}</span>
-        </div>
+        <Field label={t("cf.label")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field
+          label={t("cf.apiKey")}
+          className="cf-field"
+          hint={t("cf.apiKeyHint")}
+        >
+          {(control) => (
+            <TextInput
+              {...control}
+              className="t-mono"
+              value={apiKey(object, label)}
+              disabled
+              readOnly
+            />
+          )}
+        </Field>
       </div>
 
       <div className="field">
@@ -177,19 +178,23 @@ export function FieldBuilder({
       </div>
 
       {type === "currency" && (
-        <div className="field">
-          <label className="t-label" htmlFor={ids.currency}>
-            {t("cf.currencyCode")}
-          </label>
-          <TextInput
-            id={ids.currency}
-            className="t-mono"
-            value={currency}
-            maxLength={3}
-            onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-          />
-          <span className="cf-hint">{t("cf.currencyHint")}</span>
-        </div>
+        <Field
+          label={t("cf.currencyCode")}
+          className="cf-field"
+          hint={t("cf.currencyHint")}
+        >
+          {(control) => (
+            <TextInput
+              {...control}
+              className="t-mono"
+              value={currency}
+              maxLength={3}
+              onChange={(event) =>
+                setCurrency(event.target.value.toUpperCase())
+              }
+            />
+          )}
+        </Field>
       )}
 
       {type === "picklist" && (
@@ -769,16 +774,15 @@ export function CustomFieldsScreen() {
         <h3 id={renameId} className="section-header">
           {t("cf.edit")}
         </h3>
-        <div className="field">
-          <label className="t-label" htmlFor={`${renameId}-input`}>
-            {t("cf.renamePrompt")}
-          </label>
-          <TextInput
-            id={`${renameId}-input`}
-            value={renameLabel}
-            onChange={(event) => setRenameLabel(event.target.value)}
-          />
-        </div>
+        <Field label={t("cf.renamePrompt")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={renameLabel}
+              onChange={(event) => setRenameLabel(event.target.value)}
+            />
+          )}
+        </Field>
         <div className="cf-actions">
           <Button
             variant="primary"

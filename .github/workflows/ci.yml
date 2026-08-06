@@ -219,6 +219,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # Full history: this job runs the backend unit lane, which includes
+          # the RBAC legacy-cohort gates. Those derive the initial commit's
+          # object vocabulary and grants by reading 2cb50021 — a fixture the
+          # migration replay seeds from, so it must not be hand-editable. They
+          # FAIL on a shallow checkout rather than degrading to an empty cohort,
+          # because a gate that quietly checks nothing looks exactly like a
+          # passing one.
+          fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
@@ -305,6 +313,39 @@ jobs:
         working-directory: .
         run: make craft-residue
 
+  # No hardcoded credential reaches main. gitleaks runs here, in the repo,
+  # rather than through a hosted scanner: the policy is .gitleaks.toml, so an
+  # exemption is argued for in the pull request that needs it and the same
+  # `make secret-scan` reproduces this verdict on a laptop. A scanner whose
+  # exclusions live in a dashboard cannot be reviewed, and drifted from the
+  # list committed here until it flagged fixtures the repo already declared fake.
+  secret-scan:
+    name: secret-scan
+    # Every non-draft change, docs included: a credential can be pasted into
+    # any file type, so this cannot hang off the diff classifier. Same
+    # exception craft-residue takes.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # No install step: scripts/gitleaks-pin.sh fetches the version- and
+      # checksum-pinned binary itself, so this job runs the scanner an engineer
+      # runs, resolved by the same code. The official gitleaks action is
+      # deliberately not used — it needs a paid licence key for organization
+      # repositories, and this gate must stay free of one.
+      - name: secret scan
+        working-directory: .
+        run: make secret-scan
+      # The policy is only trustworthy with this beside it: an allowlist that
+      # grew too broad reports "no leaks found" exactly like a clean tree.
+      - name: the gate still catches
+        working-directory: .
+        run: make test-secret-scan
+
   # The real-Postgres lane, sharded across independent runners. One runner
   # already fans packages out onto per-package clone DBs, but the heaviest
   # package (compose/integration, minutes of serial tests) floors any
@@ -385,6 +426,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # Full history: this job runs the backend unit lane, which includes
+          # the RBAC legacy-cohort gates. Those derive the initial commit's
+          # object vocabulary and grants by reading 2cb50021 — a fixture the
+          # migration replay seeds from, so it must not be hand-editable. They
+          # FAIL on a shallow checkout rather than degrading to an empty cohort,
+          # because a gate that quietly checks nothing looks exactly like a
+          # passing one.
+          fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod

@@ -205,3 +205,39 @@ func nativeOnlySlippingLister(mode overlayModeChecker, list agents.SlippingListe
 		return list(ctx)
 	}
 }
+
+// nativeOnlyDisqualifier guards disqualify_lead, and it is the tool half of a
+// refusal REST already makes.
+//
+// The middleware in overlaywrite.go refuses this verb for every principal on
+// the REST surface: `disqualify_lead` is a record write (overlayRecordWriteTools)
+// against a mirrored type (`lead`), and it has no overlayWriteVerbs entry, so
+// the provider cannot serve it and the native `lead` table is empty in overlay
+// mode. The tool reaches the people store directly — the same entry point the
+// route calls, which is the point — so nothing on that path passes the
+// middleware, and without this the tool would commit to the empty native table
+// while the route refused. A tool and its route are two transports onto one
+// behaviour or they are a silent divergence (ADR-0018/AC-OV-2).
+//
+// TestEveryUnservableRecordWriteVerbRefusesOnItsToolPath derives which verbs
+// need this, so a lifecycle seam added for another such verb fails the gate
+// rather than shipping unguarded.
+func nativeOnlyDisqualifier(mode overlayModeChecker, disqualifier agents.LeadDisqualifier) disqualifierGuard {
+	return disqualifierGuard{mode: mode, inner: disqualifier}
+}
+
+type disqualifierGuard struct {
+	mode  overlayModeChecker
+	inner agents.LeadDisqualifier
+}
+
+func (g disqualifierGuard) DisqualifyLead(ctx context.Context, id ids.UUID) (json.RawMessage, error) {
+	overlay, err := g.mode.isOverlayUncached(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if overlay {
+		return nil, apperrors.ErrUnsupportedBySoR
+	}
+	return g.inner.DisqualifyLead(ctx, id)
+}

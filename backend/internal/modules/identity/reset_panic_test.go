@@ -28,7 +28,7 @@ func TestRequestPasswordResetRecoversAPanicInTheSendGoroutine(t *testing.T) {
 	// invoked. That is exactly what the recover in RequestPasswordReset
 	// exists to survive.
 	svc := &Service{}
-	h := NewHandlers(svc).WithPasswordReset(nopMailer{}, "https://crm.example.test")
+	h := NewHandlers(svc).WithPasswordReset(nopMailer{}).WithPasswordLinkBase("https://crm.example.test")
 	done := make(chan struct{})
 	h.resetSendStarted = func() { close(done) }
 

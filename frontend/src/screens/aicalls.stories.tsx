@@ -69,7 +69,7 @@ function list(data: unknown[], capture = true) {
 }
 
 const meta: Meta<typeof AiCallsCard> = {
-  title: "screens/ai-calls",
+  title: "Screens/ai-calls",
   component: AiCallsCard,
 };
 export default meta;

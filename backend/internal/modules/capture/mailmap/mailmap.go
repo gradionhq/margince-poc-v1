@@ -51,6 +51,13 @@ type Message struct {
 	machineTouched  bool
 	listUnsubscribe bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
 	sentByOwner     bool // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
+	// participants are everyone on To, Cc and Bcc who is neither the mailbox
+	// owner nor the counterparty — the two ends already have their own rows.
+	participants []connector.MessageParticipant
+	// addresses is every address the message names, the two ends included. The
+	// internal-vs-external rule is about the whole message, so it needs the
+	// full set rather than the derived ends (ADR-0082 §3).
+	addresses []string
 }
 
 // AttestSentByOwner returns a copy carrying the provider's own attestation
@@ -94,6 +101,17 @@ func Parse(raw []byte, owner string) (Message, error) {
 
 	fromList, _ := header.AddressList("From")
 	toList, _ := header.AddressList("To")
+	// A malformed Cc line yields no addresses rather than failing the message:
+	// the mail is already read off the wire, and losing the CCs is a smaller
+	// loss than dropping the correspondence.
+	ccList, _ := header.AddressList("Cc")
+	// Bcc survives only on the sender's OWN copy — a recipient's copy never
+	// carries it. Where it does survive it is a real party to the message, and
+	// the internal-vs-external decision has to see it: a colleague who blind-
+	// copied a customer wrote to a customer. Where it does not survive, the
+	// message reads as one address short, which is the accepted loss named in
+	// ADR-0082 §3 and not something this parser can recover.
+	bccList, _ := header.AddressList("Bcc")
 	from := firstAddress(fromList)
 	to := firstAddress(toList)
 
@@ -127,7 +145,92 @@ func Parse(raw []byte, owner string) (Message, error) {
 		autoReply:        autoReply,
 		machineTouched:   machineTouched,
 		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
+		participants:     otherParties(toList, ccList, bccList, ownerLower, counterparty),
+		addresses:        allAddresses(fromList, toList, ccList, bccList),
 	}, nil
+}
+
+// Addresses is every address this message names — From, To, Cc and whatever Bcc
+// survived — deduplicated and lowercased, including the mailbox owner's own.
+//
+// It exists for the internal-vs-external decision, which is a question about
+// the WHOLE message and so cannot be answered from the derived counterparty:
+// that is one end of the exchange, chosen for direction, and a message is only
+// internal when every party to it is. The owner is included rather than assumed
+// internal — their own domain is usually registered, but a workspace that has
+// not registered it should not have that fact invented here.
+func (m Message) Addresses() []string { return m.addresses }
+
+// ParticipantsOf reads the further parties out of one stored original.
+//
+// The replay pass calls it for messages captured before participants were
+// recorded. It is a narrow seam on purpose: the pass wants exactly the CC and
+// To names, and giving it Parse's whole Message would invite it to re-derive
+// direction or subject from headers the activity row already settled at
+// capture time.
+func ParticipantsOf(raw []byte, owner string) ([]connector.MessageParticipant, error) {
+	msg, err := Parse(raw, owner)
+	if err != nil {
+		return nil, err
+	}
+	return msg.participants, nil
+}
+
+// otherParties returns everyone on To and Cc who is neither the mailbox owner
+// nor the counterparty.
+//
+// Both exclusions matter and for different reasons. The owner and the
+// counterparty are the two ends of the exchange and already get their own
+// rows, stamped from the connection rather than from a header — a second row
+// for either would either collide with the uniqueness index or, worse, record
+// the same human twice under two roles.
+//
+// To wins over Cc when an address appears on both, which is a real thing
+// senders do: a direct recipient who is also copied was addressed directly,
+// and that is the stronger claim about their part in the conversation.
+func otherParties(toList, ccList, bccList []*mail.Address, ownerLower, counterparty string) []connector.MessageParticipant {
+	counterpartyLower := strings.ToLower(strings.TrimSpace(counterparty))
+	seen := map[string]bool{ownerLower: true, counterpartyLower: true}
+	delete(seen, "")
+
+	var out []connector.MessageParticipant
+	add := func(list []*mail.Address, role string) {
+		for _, a := range list {
+			address := strings.ToLower(strings.TrimSpace(a.Address))
+			if address == "" || seen[address] {
+				continue
+			}
+			seen[address] = true
+			out = append(out, connector.MessageParticipant{Email: address, Role: role})
+		}
+	}
+	add(toList, connector.ParticipantRoleTo)
+	add(ccList, connector.ParticipantRoleCC)
+	// Bcc last, and so weakest of the three: an address that was also addressed
+	// openly was addressed openly, whatever else the sender did with it.
+	add(bccList, connector.ParticipantRoleBCC)
+
+	return connector.CapParticipants(out)
+}
+
+// allAddresses returns every address the message names across From, To, Cc and
+// Bcc — lowercased, deduplicated, order preserved. Unlike otherParties it
+// excludes nobody: the internal decision is about the whole message, and the
+// owner and counterparty are as much a part of it as the copies.
+func allAddresses(lists ...[]*mail.Address) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, list := range lists {
+		for _, a := range list {
+			address := strings.ToLower(strings.TrimSpace(a.Address))
+			if address == "" || seen[address] {
+				continue
+			}
+			seen[address] = true
+			out = append(out, address)
+		}
+	}
+	return out
 }
 
 // threadKey derives the conversation identity from the standard reply
@@ -203,7 +306,9 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			Direction:       m.direction,
 			ListUnsubscribe: m.listUnsubscribe,
 		}.WithOwnerAttestation(m.sentByOwner),
-		ThreadKey: m.threadKey,
+		ThreadKey:    m.threadKey,
+		Participants: m.participants,
+		Addresses:    m.addresses,
 	}
 }
 

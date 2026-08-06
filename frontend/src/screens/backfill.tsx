@@ -3,7 +3,7 @@ import { Building2, CheckCircle2, History, Mail, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button } from "../design-system/atoms";
+import { Button, Radio } from "../design-system/atoms";
 import { formatDuration } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -310,15 +310,13 @@ function BackfillSetup({
         aria-label={t("backfill.windowLabel")}
       >
         {WINDOWS.map((w) => (
-          <label key={w.value} className="backfill-window">
-            <input
-              type="radio"
-              name="backfill-window"
-              checked={window === w.value}
-              onChange={() => onWindowChange(w.value)}
-            />
-            {t(w.label)}
-          </label>
+          <Radio
+            key={w.value}
+            name="backfill-window"
+            checked={window === w.value}
+            onChange={() => onWindowChange(w.value)}
+            label={t(w.label)}
+          />
         ))}
       </div>
       {previewPending && !previewData && (

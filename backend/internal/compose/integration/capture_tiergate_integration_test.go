@@ -344,7 +344,9 @@ func TestCaptureDoesNotReEnrichACompanyItAlreadyHas(t *testing.T) {
 
 	// The corresponded-with sender becomes a PERSON, and their domain becomes
 	// one open company question — not a company invented from the domain label.
-	if n := countRows(t, e, `SELECT count(*) FROM organization`); n != 0 {
+	// NOT is_anchor: the installation's own company is created by cold start,
+	// not derived from a captured domain.
+	if n := countRows(t, e, `SELECT count(*) FROM organization WHERE NOT is_anchor`); n != 0 {
 		t.Fatalf("%d organizations from an unjudged domain, want 0", n)
 	}
 	if n := countRows(t, e, `

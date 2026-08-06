@@ -3,7 +3,7 @@ import { GitMerge, Undo2, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button } from "../design-system/atoms";
+import { Button, Radio } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 
@@ -167,26 +167,20 @@ function CandidateCard({
           <tr>
             <th>{t("dedupe.field")}</th>
             <th>
-              <label className="dedupe-pick">
-                <input
-                  type="radio"
-                  name={`winner-${candidate.id}`}
-                  checked={winner === candidate.left_id}
-                  onChange={() => setWinner(candidate.left_id)}
-                />
-                {t("dedupe.left")}
-              </label>
+              <Radio
+                name={`winner-${candidate.id}`}
+                checked={winner === candidate.left_id}
+                onChange={() => setWinner(candidate.left_id)}
+                label={t("dedupe.left")}
+              />
             </th>
             <th>
-              <label className="dedupe-pick">
-                <input
-                  type="radio"
-                  name={`winner-${candidate.id}`}
-                  checked={winner === candidate.right_id}
-                  onChange={() => setWinner(candidate.right_id)}
-                />
-                {t("dedupe.right")}
-              </label>
+              <Radio
+                name={`winner-${candidate.id}`}
+                checked={winner === candidate.right_id}
+                onChange={() => setWinner(candidate.right_id)}
+                label={t("dedupe.right")}
+              />
             </th>
           </tr>
         </thead>

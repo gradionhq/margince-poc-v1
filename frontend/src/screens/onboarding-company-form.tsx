@@ -1,6 +1,6 @@
 import { Bot, Check, CheckCircle2, Circle, ShieldCheck } from "lucide-react";
 import type { components } from "../api/schema";
-import { TextInput } from "../design-system/atoms";
+import { Textarea, TextInput } from "../design-system/atoms";
 import {
   ConfidenceMeter,
   EvidenceChip,
@@ -356,9 +356,8 @@ function CompanyFormField({
         {edited && <ProvenanceTag provenance={{ kind: "human", self: true }} />}
       </label>
       {multiline ? (
-        <textarea
+        <Textarea
           id={id}
-          className="textarea"
           value={value}
           required={required}
           aria-invalid={error ? true : undefined}

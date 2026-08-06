@@ -367,6 +367,187 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/360": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
+         * @description The person half of the one-composite-read doctrine (PO-EXT-3), assembled inside ONE
+         *     workspace transaction so the sections describe one consistent moment rather than a
+         *     stack of independently-timed round trips. `as_of` stamps that moment; the isolation
+         *     level is Read Committed, so a write committed mid-read may land in a later section —
+         *     the stamp is what makes that honest rather than hidden.
+         *
+         *     **Authorization is per section.** Reading the person is mandatory: a caller who
+         *     cannot see them gets the usual 403/404. Every other section needs its own object
+         *     grant, and a section the caller may not read is *omitted* and named in
+         *     `sections_omitted` — never returned empty, because empty and forbidden are
+         *     different facts.
+         *
+         *     **Nested collections are summaries, not paging surfaces.** Each carries at most 25
+         *     rows with `page.has_more` saying whether it was cut, and `page.next_cursor` is
+         *     always null: page two comes from the endpoint that owns that collection —
+         *     `GET /activities`, `GET /relationships`.
+         *
+         *     `last_inbound_at` and `last_outbound_at` are shown beside each other rather than
+         *     folded into one "last touch": which direction went last is the whole question — a
+         *     contact we mailed a fortnight ago with no reply is not the same as one who just
+         *     wrote to us.
+         *
+         *     Native system-of-record only: a workspace reading from an incumbent mirror gets
+         *     `422 unsupported_in_overlay_mode`.
+         */
+        get: operations["getPerson360"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/view-ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that the calling human has now seen this person — the baseline `since_last_visit` counts from.
+         * @description The baseline moves forward only here, never as a side effect of reading the 360: a
+         *     GET that silently advanced it would destroy the very "what changed" answer the
+         *     caller opened the page to read, and would make a prefetch indistinguishable from a
+         *     visit. The upsert is monotonic (`GREATEST(last_viewed_at, now())`), so a
+         *     late-arriving ack from a slower tab can never rewind a newer one.
+         *
+         *     Human-only: an agent reading a record through a passport is not a visit, and must
+         *     not consume the human's unread marker.
+         */
+        post: operations["acknowledgePersonView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Who around this contact could open a door, and through whom.
+         * @description The local graph answers one question a rep actually asks: *who here can introduce me,
+         *     and what is the evidence they really know them?* It is not a picture of the whole
+         *     network — a diagram of everything answers nothing.
+         *
+         *     Two groups. `direct` is the colleagues who have corresponded with this contact
+         *     themselves, warmest first, each with the messages behind the claim. `account` is the
+         *     other contacts at their employer and which colleague is warmest with each — the route
+         *     when nobody here knows the person but somebody knows their colleague.
+         *
+         *     Row scope is applied per group, not once at the root: a contact outside the caller's
+         *     scope is absent from `account` rather than named, and an activity they may not read is
+         *     absent from the receipts rather than counted. `dropped_count` says how many a group
+         *     lost to the cap so the reader knows the picture is partial.
+         *
+         *     The `direct` edges carry receipts — the actual messages, each individually
+         *     visibility-checked. The `account` edges deliberately carry counts and dates only:
+         *     pooled interaction metadata is disclosable where the correspondence itself is not.
+         */
+        get: operations["getPersonGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a human's verdict on a claim the system derived — the correction the next re-derivation must respect.
+         * @description Everything inferred is re-derived rather than stored, which keeps it honest and also
+         *     makes it forget: correct a claim and the next read asserts the same wrong thing again.
+         *     This is where a human's answer is remembered (AIRT-AC-9).
+         *
+         *     `suppressed` is never surfaced again. `corrected` shows the human's value and is never
+         *     overwritten by a fresh inference without a recorded 🟡 approval. `confirmed` may carry a
+         *     "confirmed by" marker. One current verdict per claim: re-deciding replaces, and
+         *     `audit_log` carries the history.
+         *
+         *     `claim_path` names WHAT the claim is about (`profile_field:title`,
+         *     `moment:replied_after_gap`) and never its value. That is what makes a verdict survive
+         *     re-derivation — keyed on the value it would evaporate exactly when the evidence shifts,
+         *     which is when the human's answer matters most.
+         *
+         *     Gated on the SUBJECT's update grant: correcting what the system says about a contact is
+         *     editing that contact. Human-only, because the whole point of the row is that a person
+         *     decided.
+         */
+        post: operations["recordAIFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/profile-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
+         * @description The person arm of the enrichment evidence ledger (`person_profile_field`): the
+         *     fields capture and site-read derive — title, phone, role, linkedin, org_name —
+         *     each carrying the **verbatim source snippet**, the source reference, confidence,
+         *     and who set it (`agent:enrich` until a human edits, `human:*` after).
+         *
+         *     Evidence-or-omit: a row exists only where a snippet was captured, so this never
+         *     asserts a value it cannot show the reader. This is the surface behind the
+         *     "enriched from signature" card (AC-person-11).
+         */
+        get: operations["getPersonProfileFields"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/people/{id}/strength": {
         parameters: {
             query?: never;
@@ -2409,9 +2590,11 @@ export interface paths {
          *     paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
          *     EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
          *     (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
-         *     NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
-         *     A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
-         *     that is honest grounding, not fabrication, and it still stages 🟡.
+         *     NOTHING is written to real records — the read-back stages a proposal the user accepts via
+         *     /approvals. A `self_description` field is "grounded" in the user's own words
+         *     (source_kind=self_description) — that is honest grounding, not fabrication, and it stages
+         *     the same way. HUMAN-ONLY: this call CREATES the organization, so there is no record for a
+         *     record-shaped agent verb to target; an agent principal is refused (403 `permission_denied`).
          */
         post: operations["coldStartReadback"];
         delete?: never;
@@ -2434,12 +2617,14 @@ export interface paths {
          * @description The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
          *     for a human to check and correct in the company form, and NOTHING is written or queued. For a
          *     HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
-         *     and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
-         *     presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
-         *     the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
-         *     caller's path and query, from the server's own address. So the agent tier matches its sibling's:
-         *     🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
-         *     staging remains for callers that propose asynchronously, with no human at the screen.
+         *     and PUT /company is the human's confirmation. That reasoning presupposes someone at the screen,
+         *     and on the agent path there is nobody: the EGRESS effect is the same one POST /coldstart performs
+         *     — an outbound GET to a caller-chosen host, with the caller's path and query, from the server's
+         *     own address — and the organization does not exist yet, so no record-shaped agent verb has a
+         *     target for it; the fields feed the form whose confirmation creates it. HUMAN-ONLY on both
+         *     counts: an agent principal is refused (403 `permission_denied`), with no staging path. An agent
+         *     that needs outward-looking research on an organization that already exists spends the same
+         *     `enrich` cap on POST /organizations/{id}/enrich.
          *
          *     Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
          *     non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
@@ -3660,7 +3845,7 @@ export interface paths {
         get: operations["listRecordGrants"];
         put?: never;
         /**
-         * Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+         * Share one record with a user or team (human-only).
          * @description Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
          *     scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
          *     policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
@@ -3689,7 +3874,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+         * Revoke a manual record grant (human-only).
          * @description Deletes the grant; the subject loses the widened access immediately (the next query no longer
          *     matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
          */
@@ -3797,6 +3982,56 @@ export interface paths {
          *     Emits `user.reactivated`. Admin-only.
          */
         post: operations["reactivateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/password-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a single-use set-password link for a member. Admin-only, human-only.
+         * @description The email-less installation's provisioning path (ADR-0061 Amendment 1). Mints a single-use
+         *     set-password token for the member, supersedes their outstanding unused tokens, and returns
+         *     the link ONCE for the admin to deliver out-of-band. The token rides in the URL FRAGMENT, so
+         *     a browser never puts it on the wire; the response itself carries `Cache-Control: no-store`
+         *     because that protection begins only after navigation. Redeemed through `resetPassword`,
+         *     which revokes every session the member holds. Emits `user.password_link_issued`.
+         *
+         *     Admin-only and human-only — an agent may never mint a credential for a human. Available
+         *     ONLY where it is needed and can work: refused when an outbound-email channel IS configured
+         *     (that installation mails the link), when no public base URL is configured (a
+         *     credential-bearing link is never derived from a request `Host`), and when the target is not
+         *     active (redemption requires an active account, so the link would be dead on arrival).
+         *
+         *     A link may be minted for a member who ALREADY has a password, which is an account takeover.
+         *     Admins are the trust boundary and can already re-role and deactivate members, but this is a
+         *     distinct capability: the event names actor and target, and issuance is rate-limited per
+         *     actor and per target — superseding the target's tokens on every issue makes an unbounded
+         *     operation a denial-of-recovery primitive. AAD-PARAM-6's step-up re-authentication is the
+         *     intended preventive control and ships with the unbuilt MFA; until then the controls here
+         *     are detective and post-hoc.
+         *
+         *     The operation deliberately does NOT accept `Idempotency-Key`: the idempotency runtime
+         *     persists successful response bodies, and this body is a live credential.
+         *
+         *
+         *     `Cache-Control: no-store` is emitted on EVERY response, not only the 201. The refusals
+         *     disclose the installation's delivery posture and the caller's standing, neither of which
+         *     belongs in a shared proxy's cache.
+         */
+        post: operations["issueUserPasswordLink"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4357,9 +4592,9 @@ export interface paths {
          * Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
          * @description draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
          *     daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
-         *     emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
-         *     `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
-         *     redeems with the X-Approval-Token header (ADR-0036).
+         *     emits `offer.sent`. HUMAN-ONLY: an agent principal is refused outright (403
+         *     `permission_denied`), with no staging path — releasing an offer to a counterparty is a
+         *     decision a person makes, not one an agent stages for them.
          */
         post: operations["sendOffer"];
         delete?: never;
@@ -4428,14 +4663,14 @@ export interface paths {
         put?: never;
         /**
          * Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
-         * @description The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
-         *     sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
+         * @description Copies the sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
          *     `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
          *     mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
          *     also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
          *     `diff_from_previous` line-item summary versus the prior revision; a mechanical
          *     regenerate (no AI context available) still works and returns `ai_generated=false`. The
-         *     produced draft still cannot leave without the 🟡 send gate.
+         *     produced draft still cannot leave without the send gate, which is human-only too.
+         *     HUMAN-ONLY: an agent principal is refused (403 `permission_denied`); no tool serves this verb.
          */
         post: operations["regenerateOffer"];
         delete?: never;
@@ -6890,7 +7125,7 @@ export interface components {
         /** @description The per-user "I have seen this record" baseline, after an acknowledgment. */
         RecordViewAck: {
             /** @enum {string} */
-            entity_type: "organization";
+            entity_type: "organization" | "person";
             /** Format: uuid */
             entity_id: string;
             /** Format: date-time */
@@ -7238,6 +7473,320 @@ export interface components {
              */
             logo_url?: string | null;
         };
+        /**
+         * @description One enriched field with the evidence it was read from. Evidence-or-omit: a row
+         *     exists only where a verbatim snippet was captured.
+         */
+        PersonProfileField: {
+            /** @enum {string} */
+            field: "title" | "phone" | "role" | "linkedin" | "org_name";
+            value: string;
+            /** @description The verbatim source text the value was read from — the reader checks the claim against its own source. */
+            evidence_snippet: string;
+            /** @description What was read, as `activity:<uuid>` for a signature or `site_read:<url>` for a page. */
+            source_ref?: string | null;
+            confidence?: number | null;
+            /** @description The channel that produced it, e.g. `capture_enrich` or `site_read`. */
+            source: string;
+            /** @description `agent:enrich` until a human edits the field, `human:<uuid>` after — this is how the page says "corrected by you". */
+            captured_by: string;
+            /** Format: date-time */
+            captured_at: string;
+            /** @description The stable identity of this field as a claim. Pass it to `POST /ai/feedback` as `claim_path` to correct or confirm the value — keyed on WHICH field, so the verdict survives the value being re-derived. */
+            claim_key?: string;
+            /**
+             * @description What a human has already decided about this field, absent when nobody has. A `corrected` field shows their value in `value` and is never overwritten by a fresh inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means the claim is not shown again.
+             * @enum {string}
+             */
+            verdict?: "corrected" | "suppressed" | "confirmed";
+            /** @description Why, in the human's own words, when they gave a reason. */
+            verdict_note?: string | null;
+        };
+        /** @description One employment edge, current primary first. */
+        Person360Employment: {
+            /** Format: uuid */
+            relationship_id: string;
+            /** Format: uuid */
+            organization_id: string;
+            organization_name?: string | null;
+            /** @description The title as the edge records it, which may differ from the person's own title field. */
+            role?: string | null;
+            is_current_primary: boolean;
+            /** Format: date-time */
+            started_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Null means ongoing. A former employment keeps its row — history is never overwritten.
+             */
+            ended_at?: string | null;
+        };
+        /** @description One stakeholder seat this person holds on a deal. */
+        Person360DealRole: {
+            /** Format: uuid */
+            relationship_id: string;
+            /** Format: uuid */
+            deal_id: string;
+            deal_title?: string | null;
+            deal_stage?: string | null;
+            /** @description The buying role as recorded — champion, economic_buyer, blocker, influencer, user by convention. Never inferred from a job title. */
+            role: string;
+        };
+        /**
+         * @description What changed on this person since the caller last acknowledged seeing them.
+         *     Read-only: the 360 never advances the baseline — `POST /people/{id}/view-ack` does.
+         */
+        Person360SinceLastVisit: {
+            /**
+             * Format: date-time
+             * @description The caller's last acknowledged visit, or null if they have never acknowledged one (first visit — counts run from the person's whole history).
+             */
+            baseline_at?: string | null;
+            new_activities: number;
+        };
+        /**
+         * @description The person record page in one payload (PO-EXT-3). Every section except `person` is
+         *     optional: absent means the caller lacks its grant, and `sections_omitted` names it.
+         */
+        Person360: {
+            /**
+             * Format: date-time
+             * @description The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+             */
+            as_of: string;
+            person: components["schemas"]["Person"];
+            /**
+             * Format: date-time
+             * @description When they last wrote to us. Null means nothing inbound was ever captured — a fact about the relationship, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
+             */
+            last_inbound_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When we last wrote to them. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question.
+             */
+            last_outbound_at?: string | null;
+            /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
+            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments")[];
+            strength?: components["schemas"]["RelationshipStrength"];
+            /** @description What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold. */
+            relationship_changes?: components["schemas"]["PersonRelationshipChange"][];
+            /** @description Why this contact is worth attention NOW, most consequential first, at most five. Deterministic and computed at read from captured data — a moment is a reason with its evidence attached, not a model's opinion. A moment a human dismissed does not come back: the verdict lives in `ai_feedback` keyed on `claim_key` below. */
+            moments?: components["schemas"]["PersonMoment"][];
+            /** @description The colleagues who know this contact, warmest first — who to ask. */
+            network?: {
+                colleagues: components["schemas"]["PersonNetworkColleague"][];
+            };
+            employments?: {
+                data: components["schemas"]["Person360Employment"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            deal_roles?: {
+                data: components["schemas"]["Person360DealRole"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            activities?: {
+                data: components["schemas"]["Activity"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            /** @description Open tasks filed against this person. */
+            next_steps?: {
+                data: components["schemas"]["Activity"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            /** @description Per-purpose state. The proof log stays at `GET /people/{id}/consent` — this is the guard, not the ledger. */
+            consent?: {
+                state: components["schemas"]["PersonConsentState"][];
+            };
+            /** @description The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`. */
+            profile_fields?: components["schemas"]["PersonProfileField"][];
+            since_last_visit?: components["schemas"]["Person360SinceLastVisit"];
+        };
+        /** @description The local graph around one contact — nodes, the edges between them, and the route worth taking. */
+        PersonGraph: {
+            /** Format: uuid */
+            person_id: string;
+            /** @description Everyone in the picture, including the contact themselves as the anchor. */
+            nodes: components["schemas"]["PersonGraphNode"][];
+            /** @description Who has actually corresponded with whom. An edge exists only where interactions do. */
+            edges: components["schemas"]["PersonGraphEdge"][];
+            route?: components["schemas"]["PersonGraphRoute"];
+            /** @description Groups withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
+            groups_omitted: ("direct" | "account")[];
+            /** @description How many nodes each group lost to its cap, stated rather than silently truncated. `account` is the true remainder. `direct` counts from a bounded fetch (100), so on a contact more than a hundred colleagues have corresponded with it understates — a shape far outside what this card is for, and making it exact would cost every ordinary read. */
+            dropped_count?: {
+                direct?: number;
+                account?: number;
+            };
+        };
+        PersonGraphNode: {
+            /** @description Stable within this response, and what an edge refers to. `user:<uuid>` or `person:<uuid>`. */
+            id: string;
+            /** @enum {string} */
+            type: "colleague" | "contact";
+            /**
+             * @description `anchor` is the contact this graph is about. `direct` knows them. `account` works with them.
+             * @enum {string}
+             */
+            group: "anchor" | "direct" | "account";
+            label: string;
+            /** @description Their role or employer, when the record carries one. */
+            sublabel?: string;
+            /** Format: uuid */
+            person_id?: string;
+            /** Format: uuid */
+            user_id?: string;
+        };
+        /** @description One corresponding pair, with the evidence the graph is allowed to disclose. */
+        PersonGraphEdge: {
+            /** @description A node id. */
+            from: string;
+            /** @description A node id. */
+            to: string;
+            /** @enum {string} */
+            strength_bucket: "none" | "weak" | "moderate" | "strong";
+            interactions_90d: number;
+            inbound_90d?: number;
+            outbound_90d?: number;
+            /** Format: date-time */
+            last_at?: string | null;
+            /** @description The actual messages behind this edge, each individually visibility-checked before it is named. Present on `direct` edges only: pooled counts are disclosable where the correspondence itself is not, so an `account` edge carries the numbers and no rows. */
+            receipts?: components["schemas"]["PersonGraphReceipt"][];
+        };
+        PersonGraphReceipt: {
+            /** Format: uuid */
+            activity_id: string;
+            subject?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        /**
+         * @description The warmest way in, chosen deterministically rather than scored by a model: the
+         *     strongest direct relationship if one exists, otherwise the strongest relationship any
+         *     colleague has with someone else at the same company.
+         */
+        PersonGraphRoute: {
+            /** Format: uuid */
+            via_user_id: string;
+            via_display_name: string;
+            /**
+             * Format: uuid
+             * @description Set when the route goes via a colleague at the same company rather than the contact directly.
+             */
+            through_person_id?: string;
+            through_display_name?: string;
+            /** @description The proof line, written from the counts — "6 two-way exchanges · replied 2 days ago". */
+            why: string;
+        };
+        /**
+         * @description One reason this contact is worth attention now, with the evidence behind it.
+         *
+         *     Every moment in this version is DETERMINISTIC: derived from captured activity by a
+         *     rule, never asserted by a model. That is what lets every one of them carry evidence a
+         *     reader can open, and why `confidence` is `observed_fact` throughout — the enum admits
+         *     the softer values a later inferred source would need, and nothing produces them yet.
+         */
+        PersonMoment: {
+            /** @description The stable identity of this moment as a claim. Pass it to `POST /ai/feedback` as `claim_path` to dismiss it — keyed on what the moment is ABOUT, so a dismissal survives the evidence moving and the moment being re-derived tomorrow. */
+            claim_key: string;
+            /**
+             * @description `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
+             * @enum {string}
+             */
+            kind: "replied_after_gap" | "unanswered_inbound" | "meeting_ahead" | "task_overdue" | "went_quiet";
+            /** @description The reason in one line, written from the evidence — never a model's paraphrase of it. */
+            headline: string;
+            /** @description What makes it timely rather than merely true. A moment that would read the same next month is not a moment. */
+            why_now: string;
+            /**
+             * @description `observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.
+             * @enum {string}
+             */
+            confidence: "observed_fact" | "high" | "medium";
+            /**
+             * Format: date-time
+             * @description When the fact behind this moment happened, so a reader can judge its age themselves.
+             */
+            freshness_at?: string;
+            /** @description What the moment is derived from. Never empty — a reason with no evidence is an opinion. */
+            evidence: components["schemas"]["PersonMomentEvidence"][];
+            recommended_action: components["schemas"]["PersonMomentAction"];
+            secondary_actions?: components["schemas"]["PersonMomentAction"][];
+        };
+        /** @description One thing that actually happened, which the reader can open. */
+        PersonMomentEvidence: {
+            /** @enum {string} */
+            type: "activity" | "task" | "relationship_change";
+            /**
+             * Format: uuid
+             * @description The record to open. Absent when the evidence is a derived fact rather than a row.
+             */
+            id?: string;
+            label: string;
+            /** @description A verbatim excerpt of the evidence, never a summary of it. */
+            snippet?: string;
+            /** Format: date-time */
+            observed_at?: string;
+        };
+        /** @description What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click. */
+        PersonMomentAction: {
+            /** @enum {string} */
+            kind: "draft_reply" | "schedule_meeting" | "complete_task" | "log_activity" | "open_record";
+            label: string;
+            /**
+             * @description `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
+             * @enum {string}
+             */
+            state: "available" | "will_confirm" | "blocked";
+            blocked_reason?: string;
+        };
+        /** @description A human's verdict on one derived claim. */
+        AIFeedbackInput: {
+            /**
+             * @description The record the claim is about. One ledger across all four, so a correction made on one screen binds on the others.
+             * @enum {string}
+             */
+            subject_type: "organization" | "person" | "deal" | "lead";
+            /** Format: uuid */
+            subject_id: string;
+            /** @enum {string} */
+            claim_kind: "profile_field" | "inferred_kpi" | "next_step" | "signal" | "research_claim";
+            /** @description What the claim is ABOUT, not what it says — `profile_field:title`, `moment:replied_after_gap`. Hashed server-side into the stable claim key, so the same logical claim maps to the same verdict across every re-derivation. */
+            claim_path: string;
+            /** @enum {string} */
+            verdict: "corrected" | "suppressed" | "confirmed";
+            /** @description The human's value. Required for `corrected` and refused for the other two — a corrected verdict with no value is an answer that was lost on the way in. */
+            corrected_value?: string;
+            /** @description Why, in the human's words. Optional and never shown to a model. */
+            note?: string;
+        };
+        /**
+         * @description One thing that happened to a relationship, with the evidence for it. Derived at read
+         *     by folding the §4 curve over a window that ends in the past, so it needs no table and
+         *     disappears when the activities behind it are erased.
+         */
+        PersonRelationshipChange: {
+            /**
+             * @description `replied_after_gap` — they answered after a long silence, the strongest buy-signal captured data alone can produce. `went_quiet` — an established relationship stopped. `warmed` / `cooled` — the §4 band moved. A band move is reported; a point drift is not, because the score decays continuously and reporting that would fire on every read.
+             * @enum {string}
+             */
+            kind: "replied_after_gap" | "went_quiet" | "warmed" | "cooled";
+            /**
+             * Format: date-time
+             * @description When it happened — the reply's own timestamp, or the last touch of a relationship that went quiet. For a band move this is the read instant: a band move is observed, not dated.
+             */
+            at: string;
+            /** @description The span the change is about: the silence a reply broke, or how long a quiet relationship has been quiet. Absent for a band move. */
+            days?: number;
+            /**
+             * @description The §4 band the relationship held one comparison window ago. Band moves only.
+             * @enum {string}
+             */
+            from_bucket?: "none" | "weak" | "moderate" | "strong";
+            /**
+             * @description The band it holds now. Band moves only.
+             * @enum {string}
+             */
+            to_bucket?: "none" | "weak" | "moderate" | "strong";
+        };
         /** @description One colleague's own relationship with this contact. */
         PersonNetworkColleague: {
             /** Format: uuid */
@@ -7250,6 +7799,20 @@ export interface components {
             interactions_90d: number;
             /** Format: date-time */
             last_at?: string | null;
+            /** @description Interactions in the last 90 days where they wrote to this colleague. */
+            inbound_90d?: number;
+            /** @description Interactions in the last 90 days where this colleague wrote to them. */
+            outbound_90d?: number;
+            /**
+             * Format: date-time
+             * @description When they last replied to this colleague. Null means they never have.
+             */
+            last_inbound_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When this colleague last wrote to them.
+             */
+            last_outbound_at?: string | null;
         };
         /**
          * @description The colleagues who know this contact, warmest first. Ordering is the answer, not
@@ -8863,6 +9426,19 @@ export interface components {
             /** @enum {string} */
             role: "admin" | "manager" | "rep" | "read_only" | "ops";
         };
+        /** @description A single-use set-password link, returned exactly once and never retrievable again. The server stores only the token's hash, so a lost link is re-issued, never recovered. */
+        IssuePasswordLinkResponse: {
+            /**
+             * Format: uri
+             * @description The full link to hand to the member. The token rides in the URL FRAGMENT, which a browser never puts on the wire — keeping it out of access logs, `Referer` headers, and service-worker cache keys. Deliver it over a channel the member controls.
+             */
+            set_password_url: string;
+            /**
+             * Format: date-time
+             * @description When the token stops being redeemable (seven days from issue).
+             */
+            expires_at: string;
+        };
         ChangeUserRoleRequest: {
             /** @enum {string} */
             role: "admin" | "manager" | "rep" | "read_only" | "ops";
@@ -8968,6 +9544,8 @@ export interface components {
             workspace_name: string;
             /** @description True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action. */
             non_production: boolean;
+            /** @description Whether THIS CALLER may issue member set-password links (`issueUserPasswordLink`) — true only when the caller holds `admin` AND the installation has no outbound-email channel AND a public base URL is configured. Deliberately a caller capability rather than a deployment-posture flag: `/me` answers every authenticated member, and a bare posture boolean would tell every rep whether the installation has email configured. Clients render the action on this, so an admin never sees a control that can only fail (ADR-0061 Amendment 1). */
+            admin_password_link: boolean;
             /** @description Effective role keys for this principal. */
             roles: string[];
             teams: string[];
@@ -9099,7 +9677,7 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued";
             entity_type: string;
             /**
              * Format: uuid
@@ -9454,6 +10032,11 @@ export interface components {
              * @enum {string}
              */
             tier?: "auto_execute" | "confirmation_required" | "dynamic";
+            /**
+             * @description The passport scope this operation consumes — the cap the granting human set, which the tier cannot substitute for: a tier says whether a human confirms the act, a scope says whether the act was ever delegable. Every `x-mcp-tool` declares one; unlike `tier` and `record_type`, absent is NOT a meaningful state, so generation fails on a missing value rather than emitting a zero. It is what an operation with no registered MCP tool is admitted under, and for one that has a tool the generator holds the two equal — so a verb cannot mean `enrich` on MCP and `write` on REST.
+             * @enum {string}
+             */
+            scope?: "read" | "draft" | "write" | "send" | "enrich";
         };
         /**
          * @description EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the
@@ -12608,6 +13191,141 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getPerson360: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person's 360 view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Person360"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    acknowledgePersonView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored baseline after the acknowledgment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordViewAck"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getPersonGraph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The local graph. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonGraph"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    recordAIFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIFeedbackInput"];
+            };
+        };
+        responses: {
+            /** @description The verdict is recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getPersonProfileFields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person's enriched fields with their evidence. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PersonProfileField"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getPersonStrength: {
@@ -19333,16 +20051,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
             };
             path?: never;
             cookie?: never;
@@ -19378,16 +20086,6 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is
@@ -19488,7 +20186,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description A member with this email already exists. */
+            /** @description Refused, with the reason distinguished by the problem `code`: `conflict` (a member with this email already exists), or `no_delivery_channel` (this installation has neither an outbound-email channel nor a public base URL, so neither the mailed link nor an admin-issued one could reach the member — an invite would create an ACTIVE account nobody could ever sign in as). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19603,6 +20301,52 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    issueUserPasswordLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The set-password link. Returned exactly once; never retrievable again. */
+            201: {
+                headers: {
+                    /** @description Always `no-store` — the body carries a live credential. */
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuePasswordLinkResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Refused, with the reason distinguished by the problem `code`: `email_channel_configured` (this installation mails the link — use the invite flow), `public_base_url_unset` (no canonical base to build a link against — an operator configuration gap), or `member_not_active` (redemption requires an active member). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Issuance rate limit reached for this actor or this target. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listTeams: {
@@ -21149,16 +21893,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is

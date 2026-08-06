@@ -99,7 +99,7 @@ function tab(tabId: string, routes: RouteMap) {
 }
 
 const meta: Meta<typeof SettingsScreen> = {
-  title: "screens/settings",
+  title: "Screens/settings",
   component: SettingsScreen,
 };
 export default meta;

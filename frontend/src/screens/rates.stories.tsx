@@ -54,7 +54,7 @@ const MODELS = {
 };
 
 const meta: Meta<typeof RatesScreen> = {
-  title: "screens/rates",
+  title: "Screens/rates",
   component: RatesScreen,
 };
 export default meta;

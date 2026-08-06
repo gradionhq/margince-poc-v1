@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import { Button } from "../design-system/atoms";
+import { Button, Field } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
@@ -476,65 +476,77 @@ export function ImapConnectPanel({
   return (
     <>
       <div className="imap-form">
-        <label className="field">
-          {t("ob.s4.imapHost")}
-          <input
-            className="input"
-            value={host}
-            placeholder={t("ob.s4.imapHostPlaceholder")}
-            onChange={(e) => setHostVal(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          {t("ob.s4.imapPort")}
-          <input
-            className="input"
-            type="number"
-            min={1}
-            max={65535}
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-          />
-        </label>
-        <label className="field full">
-          {t("ob.s4.imapEmail")}
-          <input
-            className="input"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-        <label className="field full">
-          {t("ob.s4.imapPassword")}
-          <input
-            className="input"
-            type="password"
-            autoComplete="off"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          {t("ob.s4.imapMailbox")}
-          <input
-            className="input"
-            value={mailbox}
-            onChange={(e) => setMailbox(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          {t("ob.s4.imapMax")}
-          <input
-            className="input"
-            type="number"
-            min={1}
-            max={200}
-            value={max}
-            onChange={(e) => setMax(e.target.value)}
-          />
-        </label>
+        <Field label={t("ob.s4.imapHost")}>
+          {(control) => (
+            <input
+              {...control}
+              className="input"
+              value={host}
+              placeholder={t("ob.s4.imapHostPlaceholder")}
+              onChange={(e) => setHostVal(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("ob.s4.imapPort")}>
+          {(control) => (
+            <input
+              {...control}
+              className="input"
+              type="number"
+              min={1}
+              max={65535}
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field className="full" label={t("ob.s4.imapEmail")}>
+          {(control) => (
+            <input
+              {...control}
+              className="input"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field className="full" label={t("ob.s4.imapPassword")}>
+          {(control) => (
+            <input
+              {...control}
+              className="input"
+              type="password"
+              autoComplete="off"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("ob.s4.imapMailbox")}>
+          {(control) => (
+            <input
+              {...control}
+              className="input"
+              value={mailbox}
+              onChange={(e) => setMailbox(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("ob.s4.imapMax")}>
+          {(control) => (
+            <input
+              {...control}
+              className="input"
+              type="number"
+              min={1}
+              max={200}
+              value={max}
+              onChange={(e) => setMax(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
 
       <p

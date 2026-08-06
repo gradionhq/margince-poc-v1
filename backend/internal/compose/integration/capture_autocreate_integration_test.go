@@ -51,7 +51,9 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 		// NO company is derived from the domain. Capture withholds one until a
 		// site read says the domain deserves it — inventing "Acme" from
 		// acme.example is exactly what produced junk named after people.
-		if n := countRows(t, e, `SELECT count(*) FROM organization`); n != 0 {
+		// NOT is_anchor: the installation's own company is created by cold
+		// start, not derived from a captured domain.
+		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE NOT is_anchor`); n != 0 {
 			t.Fatalf("%d organizations from an unjudged domain, want 0", n)
 		}
 		// What capture DOES record is the question, once, for the domain.
@@ -191,7 +193,10 @@ func TestCaptureRecordsProvenanceWithoutTheMessageBody(t *testing.T) {
 func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
-	t.Run("the workspace's own domain creates nothing", func(t *testing.T) {
+	t.Run("a wholly internal message stores nothing at all", func(t *testing.T) {
+		// Colleague to colleague produces no rows whatsoever. Suppressing only
+		// the records would leave the subject and body on a link-less activity,
+		// which is readable by the whole workspace (ADR-0082/A127).
 		sync(t, email("carol@myco.example", "Carol Colleague", captureOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
@@ -200,6 +205,39 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 		}
 		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'myco.example'`); n != 0 {
 			t.Fatal("the workspace's own domain must not become a CRM organization")
+		}
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id = 'c1@myco.example'`); n != 0 {
+			t.Fatal("colleague mail must not be stored — a link-less activity is readable workspace-wide")
+		}
+	})
+	t.Run("a colleague copying an outsider keeps the activity and names the outsider", func(t *testing.T) {
+		// T0's remaining job. One external party makes the message
+		// correspondence, so it is captured; the colleague who wrote it is
+		// still not a contact, and the outsider is who a record may be created
+		// for (ADR-0082/A127 §3).
+		raw := emailCC("erin@myco.example", "Erin Colleague", captureOwner,
+			"buyer@outside.example", "e1@myco.example")
+		sync(t, raw)
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id = 'e1@myco.example'`); n != 1 {
+			t.Fatal("one external participant makes the message correspondence — it must be captured")
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'erin@myco.example'`); n != 0 {
+			t.Fatal("the colleague who wrote it is still not a contact")
+		}
+		// The outsider is a first-time sender, so the ladder defers them for a
+		// verdict rather than creating on sight (ADR-0072 T4). The deferral row
+		// names who the ladder is about, which is the claim under test.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty
+			WHERE email = 'buyer@outside.example'`); n != 1 {
+			t.Fatal("the copied outsider is who the creation ladder must be about")
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty
+			WHERE email = 'erin@myco.example'`); n != 0 {
+			t.Fatal("a colleague is never queued for a counterparty verdict")
 		}
 	})
 	t.Run("an erased address stays dead", func(t *testing.T) {

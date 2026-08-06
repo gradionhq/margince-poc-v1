@@ -10,10 +10,14 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Checkbox,
   EmptyState,
+  Field,
   SectionHeader,
   SegmentedControl,
+  Select,
   Skeleton,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -98,8 +102,6 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
   const [key, setKey] = useState("");
   const [label, setLabel] = useState("");
   const [requiresDoi, setRequiresDoi] = useState(false);
-  const keyId = useId();
-  const labelId = useId();
 
   const create = useMutation({
     mutationFn: async () => {
@@ -136,43 +138,39 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
         {t("privacy.purposeAppendOnly")}
       </p>
       <div className="form-stack">
-        <div className="field">
-          <label className="t-label" htmlFor={keyId}>
-            {t("privacy.purposeKey")}
-          </label>
-          <TextInput
-            id={keyId}
-            value={key}
-            onChange={(event) => {
-              setKey(event.target.value);
-              dismissCreateError();
-            }}
-          />
-        </div>
-        <div className="field">
-          <label className="t-label" htmlFor={labelId}>
-            {t("privacy.purposeLabel")}
-          </label>
-          <TextInput
-            id={labelId}
-            value={label}
-            onChange={(event) => {
-              setLabel(event.target.value);
-              dismissCreateError();
-            }}
-          />
-        </div>
-        <label className="t-caption purpose-doi-check">
-          <input
-            type="checkbox"
-            checked={requiresDoi}
-            onChange={(event) => {
-              setRequiresDoi(event.target.checked);
-              dismissCreateError();
-            }}
-          />
-          {t("privacy.purposeDoi")}
-        </label>
+        <Field label={t("privacy.purposeKey")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={key}
+              onChange={(event) => {
+                setKey(event.target.value);
+                dismissCreateError();
+              }}
+            />
+          )}
+        </Field>
+        <Field label={t("privacy.purposeLabel")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={label}
+              onChange={(event) => {
+                setLabel(event.target.value);
+                dismissCreateError();
+              }}
+            />
+          )}
+        </Field>
+        <Checkbox
+          className="t-caption"
+          label={t("privacy.purposeDoi")}
+          checked={requiresDoi}
+          onChange={(event) => {
+            setRequiresDoi(event.target.checked);
+            dismissCreateError();
+          }}
+        />
         {create.isError && (
           <p className="t-caption purpose-form-error">
             {problemMessageOf(create.error, t)}
@@ -281,9 +279,6 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   const [subjectRef, setSubjectRef] = useState("");
   const [person, setPerson] = useState<RecordPickerCandidate | null>(null);
   const [dueAt, setDueAt] = useState("");
-  const kindId = useId();
-  const subjectId = useId();
-  const dueId = useId();
   // The statutory deadline is minted in the OPERATOR's own zone, the same
   // zone the row later renders it back in (PrivacyInboxCard's tz below) —
   // `new Date(dueAt).toISOString()` would instead read the date-only input
@@ -335,26 +330,24 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   return (
     <div className="card card-inset dsr-form">
       <div className="form-stack">
-        <div className="field">
-          <label className="t-label" htmlFor={kindId}>
-            {t("privacy.kind")}
-          </label>
-          <select
-            id={kindId}
-            className="input"
-            value={kind}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (isOption(value, DSR_KINDS)) changeKind(value);
-            }}
-          >
-            {DSR_KINDS.map((value) => (
-              <option key={value} value={value}>
-                {humanizeToken(value)}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Field label={t("privacy.kind")}>
+          {(control) => (
+            <Select
+              {...control}
+              value={kind}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (isOption(value, DSR_KINDS)) changeKind(value);
+              }}
+            >
+              {DSR_KINDS.map((value) => (
+                <option key={value} value={value}>
+                  {humanizeToken(value)}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
 
         {kind === "erasure" ? (
           <div className="field">
@@ -372,39 +365,37 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
             <p className="t-caption">{t("privacy.erasureNeedsPerson")}</p>
           </div>
         ) : (
-          <div className="field">
-            <label className="t-label" htmlFor={subjectId}>
-              {t("privacy.subjectRef")}
-            </label>
-            <TextInput
-              id={subjectId}
-              value={subjectRef}
+          <Field
+            label={t("privacy.subjectRef")}
+            hint={kind === "access" ? t("privacy.accessManual") : undefined}
+          >
+            {(control) => (
+              <TextInput
+                {...control}
+                value={subjectRef}
+                onChange={(event) => {
+                  setSubjectRef(event.target.value);
+                  dismissCreateError();
+                }}
+              />
+            )}
+          </Field>
+        )}
+
+        <Field label={t("privacy.dueAt")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              className="input"
+              value={dueAt}
               onChange={(event) => {
-                setSubjectRef(event.target.value);
+                setDueAt(event.target.value);
                 dismissCreateError();
               }}
             />
-            {kind === "access" && (
-              <p className="t-caption">{t("privacy.accessManual")}</p>
-            )}
-          </div>
-        )}
-
-        <div className="field">
-          <label className="t-label" htmlFor={dueId}>
-            {t("privacy.dueAt")}
-          </label>
-          <input
-            id={dueId}
-            type="date"
-            className="input"
-            value={dueAt}
-            onChange={(event) => {
-              setDueAt(event.target.value);
-              dismissCreateError();
-            }}
-          />
-        </div>
+          )}
+        </Field>
 
         {create.isError && (
           <p className="t-caption dsr-error">
@@ -476,7 +467,6 @@ function DsrRow({
   const queryClient = useQueryClient();
   const [resolution, setResolution] = useState(dsr.resolution ?? "");
   const assigneeFieldId = useId();
-  const resolutionFieldId = useId();
   const panelId = useId();
 
   // Only fetched while this row's panel is actually open — the roster is the
@@ -592,9 +582,8 @@ function DsrRow({
               <label className="t-label" htmlFor={assigneeFieldId}>
                 {t("privacy.assignee")}
               </label>
-              <select
+              <Select
                 id={assigneeFieldId}
-                className="input"
                 value={dsr.assignee_id ?? ""}
                 disabled={patch.isPending}
                 onChange={(event) => {
@@ -614,7 +603,7 @@ function DsrRow({
                     {user.display_name}
                   </option>
                 ))}
-              </select>
+              </Select>
               <p className="t-caption">{t("privacy.assigneeUnassignable")}</p>
               {patch.isPending && (
                 <p className="t-caption">{t("common.saving")}</p>
@@ -635,21 +624,21 @@ function DsrRow({
               <p className="t-caption">{t("privacy.closed")}</p>
             ) : (
               <>
-                <div className="field">
-                  <label className="t-label" htmlFor={resolutionFieldId}>
-                    {t("privacy.resolution")}
-                  </label>
-                  <textarea
-                    id={resolutionFieldId}
-                    className="input"
-                    value={resolution}
-                    onChange={(event) => {
-                      setResolution(event.target.value);
-                      dismissPatchError();
-                    }}
-                  />
-                  <p className="t-caption">{t("privacy.resolutionRequired")}</p>
-                </div>
+                <Field
+                  label={t("privacy.resolution")}
+                  hint={t("privacy.resolutionRequired")}
+                >
+                  {(control) => (
+                    <Textarea
+                      {...control}
+                      value={resolution}
+                      onChange={(event) => {
+                        setResolution(event.target.value);
+                        dismissPatchError();
+                      }}
+                    />
+                  )}
+                </Field>
                 <div className="dsr-actions">
                   {nextStatuses(dsr.status).map((next) => {
                     const closingWithoutAnswer =

@@ -188,31 +188,26 @@ func TestConsentGateRefusesAChannelRecipientAfterWithdrawal(t *testing.T) {
 	}
 }
 
-// A recipient naming neither subject, or both, cannot be put to the gate at all.
-// It is reported as the FAULT it is rather than as a withdrawal: dressed up as
-// ErrConsentNotGranted, a bug that named nobody would park the send with a reason
-// an operator reads as a customer's choice.
+// A recipient the gate cannot ask about is reported as the FAULT it is rather
+// than as a withdrawal: dressed up as ErrConsentNotGranted, a bug that named
+// nobody would park the send with a reason an operator reads as a customer's
+// choice.
+//
+// Which SHAPES are malformed is Recipient.Validate's own invariant and is
+// enumerated where that rule lives (ports/connector). What only this layer can
+// claim is that the gate propagates such a fault unchanged instead of folding it
+// into a suppression answer, so one malformed recipient carries the claim.
 func TestConsentGateRefusesAMalformedRecipientAsAFault(t *testing.T) {
 	e := setupChannelConsent(t)
 	gate := NewGate(e.store)
 
-	for _, tc := range []struct {
-		name string
-		r    connector.Recipient
-	}{
-		{"neither arm", connector.Recipient{}},
-		{"both arms", connector.Recipient{Email: "buyer@example.com", Channel: e.recipient().Channel}},
-		{"half a channel identity", connector.Recipient{Channel: &connector.ChannelIdentity{Provider: "telegram"}}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			err := gate.RequireGrantedForRecipients(e.ctx, []connector.Recipient{tc.r}, "newsletter")
-			if !errors.Is(err, connector.ErrRecipientShape) {
-				t.Fatalf("gate = %v, want ErrRecipientShape", err)
-			}
-			if errors.Is(err, apperrors.ErrConsentNotGranted) {
-				t.Fatal("a malformed recipient was reported as an absent consent grant")
-			}
-		})
+	// Names neither subject: the gate has nobody to ask about.
+	err := gate.RequireGrantedForRecipients(e.ctx, []connector.Recipient{{}}, "newsletter")
+	if !errors.Is(err, connector.ErrRecipientShape) {
+		t.Fatalf("gate = %v, want ErrRecipientShape", err)
+	}
+	if errors.Is(err, apperrors.ErrConsentNotGranted) {
+		t.Fatal("a malformed recipient was reported as an absent consent grant")
 	}
 }
 

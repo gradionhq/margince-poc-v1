@@ -39,6 +39,15 @@ const (
 	ScopeEnrich Scope = "enrich"
 )
 
+// Egresses reports whether spending this cap can put a request on the wire
+// to somewhere outside the workspace: `send` delivers to a counterparty,
+// `enrich` pulls from a third-party site or system. Derived rather than
+// declared per tool, so a spec cannot claim a cap that leaves the workspace
+// while reporting itself workspace-local to an operator.
+func (s Scope) Egresses() bool {
+	return s == ScopeSend || s == ScopeEnrich
+}
+
 // SeatType is the licensing capability ceiling of the human behind a
 // call (data-model app_user.seat_type, A62/ADR-0047). It is a HARD ceiling
 // checked before RBAC: a read seat — or an agent acting for one — may read

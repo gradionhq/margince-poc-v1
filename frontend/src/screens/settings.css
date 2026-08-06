@@ -203,7 +203,6 @@
 }
 
 .company-context-field .textarea {
-  width: 100%;
   min-height: 78px;
 }
 
@@ -323,9 +322,6 @@
 }
 
 .company-context-resolutions label {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
   color: var(--textSecondary);
   font-size: 12px;
 }
@@ -438,4 +434,12 @@
   gap: var(--space-2);
   flex-wrap: wrap;
   justify-content: center;
+}
+
+/* The consumer-mail add row reads as one line: domain, kind, submit. A control
+   surface fills its column by default, which is right under a field label and
+   wrong in a row — the kind picker takes the width of its own options so it
+   stays beside the domain it qualifies. */
+.consumer-mail-kind {
+  width: auto;
 }

@@ -4,7 +4,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
-import { Button, Modal, TextInput } from "../design-system/atoms";
+import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemCodeOf, problemMessageOf, throwProblem } from "./common";
@@ -154,79 +154,70 @@ export function ImapConnectForm({
           });
         }}
       >
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-host`}>
-            {t("connectors.imapHost")}
-          </label>
-          <TextInput
-            id={`${headingId}-host`}
-            value={host}
-            required
-            onChange={(event) => setHost(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-port`}>
-            {t("connectors.imapPort")}
-          </label>
-          <TextInput
-            id={`${headingId}-port`}
-            type="number"
-            min={1}
-            max={65535}
-            value={port}
-            onChange={(event) => setPort(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-username`}>
-            {t("connectors.imapUsername")}
-          </label>
-          <TextInput
-            id={`${headingId}-username`}
-            type="email"
-            autoComplete="email"
-            value={username}
-            required
-            onChange={(event) => setUsername(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-secret`}>
-            {t("connectors.imapSecret")}
-          </label>
-          <TextInput
-            id={`${headingId}-secret`}
-            type="password"
-            autoComplete="off"
-            value={secret}
-            required
-            onChange={(event) => setSecret(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-mailbox`}>
-            {t("connectors.imapMailbox")}
-          </label>
-          <TextInput
-            id={`${headingId}-mailbox`}
-            value={mailbox}
-            onChange={(event) => setMailbox(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-max-messages`}>
-            {t("connectors.imapMaxMessages")}
-          </label>
-          <TextInput
-            id={`${headingId}-max-messages`}
-            type="number"
-            min={1}
-            max={200}
-            value={maxMessages}
-            onChange={(event) => setMaxMessages(event.target.value)}
-          />
-        </div>
+        <Field label={t("connectors.imapHost")} required>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={host}
+              onChange={(event) => setHost(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("connectors.imapPort")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="number"
+              min={1}
+              max={65535}
+              value={port}
+              onChange={(event) => setPort(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("connectors.imapUsername")} required>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="email"
+              autoComplete="email"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("connectors.imapSecret")} required>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="password"
+              autoComplete="off"
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("connectors.imapMailbox")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={mailbox}
+              onChange={(event) => setMailbox(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("connectors.imapMaxMessages")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="number"
+              min={1}
+              max={200}
+              value={maxMessages}
+              onChange={(event) => setMaxMessages(event.target.value)}
+            />
+          )}
+        </Field>
         <p className="t-caption">{t("connectors.imapSecretHint")}</p>
         {errorMessage && (
           <p

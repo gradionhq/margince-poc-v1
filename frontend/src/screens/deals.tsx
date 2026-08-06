@@ -25,6 +25,7 @@ import {
   Modal,
   SectionHeader,
   SegmentedControl,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import {
@@ -455,8 +456,7 @@ function DealFilterSelects({
   const t = useT();
   return (
     <div className="list-toolbar">
-      <select
-        className="input"
+      <Select
         aria-label={t("deals.pipeline")}
         value={pipelineId}
         onChange={(event) => setPipelineId(event.target.value)}
@@ -467,9 +467,8 @@ function DealFilterSelects({
             {pipeline.name}
           </option>
         ))}
-      </select>
-      <select
-        className="input"
+      </Select>
+      <Select
         aria-label={t("deals.stage")}
         value={query.filters.stage_id ?? ""}
         onChange={(event) =>
@@ -482,9 +481,8 @@ function DealFilterSelects({
             {stage.name}
           </option>
         ))}
-      </select>
-      <select
-        className="input"
+      </Select>
+      <Select
         aria-label={t("create.organization")}
         value={query.filters.organization_id ?? ""}
         onChange={(event) =>
@@ -497,7 +495,7 @@ function DealFilterSelects({
             {org.display_name}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }

@@ -11,7 +11,7 @@ import { Shell, WorkspaceRail } from "./shell";
 // fullscreen: the shell sizes itself to the viewport, so Storybook's default
 // canvas padding would clip the sidebar foot and misrepresent the layout.
 const meta: Meta<typeof Shell> = {
-  title: "app/shell",
+  title: "App/Shell",
   component: Shell,
   parameters: { layout: "fullscreen" },
 };

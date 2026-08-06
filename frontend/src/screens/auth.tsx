@@ -260,6 +260,7 @@ export function AuthScreen({
           token={view.token}
           onDone={() => setView({ kind: "reset-done" })}
           onRestart={() => setView({ kind: "forgot" })}
+          selfServiceAvailable={resetAvailable}
         />
       )}
       {view.kind === "reset-done" && (
@@ -885,7 +886,16 @@ function ResetForm({
   token,
   onDone,
   onRestart,
-}: Readonly<{ token: string; onDone: () => void; onRestart: () => void }>) {
+  selfServiceAvailable,
+}: Readonly<{
+  token: string;
+  onDone: () => void;
+  onRestart: () => void;
+  // Whether the forgot-password flow exists at all. A token-bearing link is
+  // redeemable on an installation with no outbound email (the admin issues it
+  // by hand), but self-service recovery there is not.
+  selfServiceAvailable: boolean;
+}>) {
   const t = useT();
   const passwordId = useId();
   const [password, setPassword] = useState("");
@@ -961,11 +971,20 @@ function ResetForm({
               it is the one action that makes things worse: it invalidates the
               token the user is still holding, which for a network blip or a
               refused password is a working link thrown away. */}
-          {failure === "token" && (
-            <button type="button" className="auth-link" onClick={onRestart}>
-              {t("auth.requestNewLink")}
-            </button>
-          )}
+          {failure === "token" &&
+            (selfServiceAvailable ? (
+              <button type="button" className="auth-link" onClick={onRestart}>
+                {t("auth.requestNewLink")}
+              </button>
+            ) : (
+              // With no outbound email there is no self-service flow to send
+              // them to — this link was issued by an admin by hand, so the only
+              // honest next step is to ask that admin for another. Offering
+              // "request a new link" here would route into a flow that answers
+              // 501, which is the same misleading affordance the capability
+              // probe exists to prevent on the login screen.
+              <p className="ae-b">{t("auth.askAdminForNewLink")}</p>
+            ))}
         </div>
       )}
       <div className="auth-actions">

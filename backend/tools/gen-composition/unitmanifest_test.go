@@ -287,6 +287,25 @@ func TestToolDerivesIntoRiskTier(t *testing.T) {
 	}
 }
 
+// TestADeclaredTitleDerivesButStaysOutOfTheDescriptor: a display string
+// grants nothing, so declaring one must neither fail the derivation (it did:
+// the field was unrecognized, which made a unit that named its tool
+// unbuildable) nor move the digest an operator decision binds to.
+func TestADeclaredTitleDerivesButStaysOutOfTheDescriptor(t *testing.T) {
+	fields := "\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,"
+	untitled, err := deriveSynthetic(t, "x", toolUnitSource(fields))
+	if err != nil {
+		t.Fatal(err)
+	}
+	titled, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tTitle: \"Sync contacts\",\n"+fields))
+	if err != nil {
+		t.Fatalf("a declared title must derive: %v", err)
+	}
+	if !bytes.Equal(untitled, titled) {
+		t.Fatalf("the title reached the governance descriptor:\n%s\nvs\n%s", untitled, titled)
+	}
+}
+
 // nonLiteralHeader opens every rejection case's synthetic unit.
 const nonLiteralHeader = `package x
 
@@ -363,6 +382,18 @@ var nonLiteralCases = []struct {
 		name:    "version with surrounding whitespace",
 		source:  nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \" 1.0.0\","),
 		wantErr: "surrounding whitespace",
+	},
+	{
+		// The core registry refuses a blank title with a boot panic, so the
+		// unit author has to hear it here, at the declaration, instead.
+		name:    "tool title that renders as nothing",
+		source:  toolUnitSource("\t\t\tName: \"t\", Title: \"   \", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
+		wantErr: "is blank or carries surrounding whitespace",
+	},
+	{
+		name:    "computed tool title",
+		source:  toolUnitSource("\t\t\tName: \"t\", Title: titleOf(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc titleOf() string { return \"T\" }\n",
+		wantErr: "Tool.Title must be a string literal",
 	},
 }
 

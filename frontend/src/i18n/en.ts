@@ -2716,6 +2716,8 @@ export const en = {
   "auth.resetRateLimited":
     "Too many attempts. Wait a moment, then set your password again.",
   "auth.requestNewLink": "Request a new link",
+  "auth.askAdminForNewLink":
+    "Ask your administrator for a new set-password link.",
   "auth.resetDoneTitle": "Password updated",
   "auth.resetDoneBody":
     "Your password is changed and every other session is signed out. Sign in with the new password.",
@@ -3121,6 +3123,24 @@ export const en = {
   "users.role.rep": "Rep",
   "users.role.read_only": "Read-only",
   "users.role.ops": "Ops",
+  "users.link.action": "Get set-password link",
+  "users.link.title": "Set-password link for {name}",
+  "users.link.pending": "Creating the link…",
+  // Two sentences, no dash (VOICE-RULE-5).
+  "users.link.body":
+    "Send this link to the member over a channel you trust. It works once and is shown only now. Close this and you can create a new one from their row.",
+  "users.link.urlLabel": "Set-password link",
+  "users.link.copy": "Copy link",
+  "users.link.copied": "Copied",
+  "users.link.copyFailed":
+    "Could not copy automatically. Select the link and copy it.",
+  "users.link.expires": "Expires {when}.",
+  "users.link.failed":
+    "The member was created, but the link could not be. They cannot sign in until you send them one.",
+  "users.link.offline":
+    "Could not reach the server. Check your connection and try again.",
+  "users.link.retry": "Try again",
+  "users.link.done": "Done",
   "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
   "settings.companySub":
@@ -3148,7 +3168,7 @@ export const en = {
   "settings.companyResolveAll":
     "Choose an outcome for every human-held conflict.",
   "settings.companyApplyRefresh": "Apply selected changes",
-  "settings.companySelectChange": "Select this website change",
+  "settings.companySelectChange": "Select the {field} change",
   "settings.companyCurrent": "Current confirmed value",
   "settings.companyWebsiteProposal": "Website proposal",
   "settings.companyClass.new": "New",
@@ -3480,6 +3500,102 @@ export const en = {
   "consent.invalidBody":
     "This installation will not authorize the request as it stands — the app may no longer be registered here. Go back to the app you were connecting and start again.",
   "consent.unnamedPassport": "Unnamed passport ({id})",
+  "person.thin.title": "What we know so far",
+  "person.thin.known":
+    "We have {what} for {name}, but nobody here has a recorded exchange with them yet.",
+  "person.thin.remediation.capture":
+    "Connect the mailbox that writes to them, and this page fills itself in — every field with the source it came from.",
+  "person.thin.remediation.employer":
+    "Add their employer and Margince can read that company's site for their role.",
+  "person.thin.logFirst": "Log the first interaction",
+  "person.timeline.all": "All",
+  "person.timeline.messages": "Messages",
+  "person.timeline.meetings": "Meetings",
+  "person.timeline.tasks": "Tasks",
+  "person.enriched.title": "What Margince read",
+  "person.enriched.sub":
+    "Each value with the text it was read from. Correct one and the correction stands.",
+  "person.enriched.field.title": "Title",
+  "person.enriched.field.phone": "Phone",
+  "person.enriched.field.role": "Role",
+  "person.enriched.field.linkedin": "LinkedIn",
+  "person.enriched.field.org_name": "Company",
+  "person.enriched.readFrom": "Read from {source} on {when}",
+  "person.enriched.correctedByYou": "Corrected by you",
+  "person.enriched.confirmed": "Confirmed",
+  "person.enriched.correct": "Correct",
+  "person.enriched.confirm": "That is right",
+  "person.enriched.save": "Save the correction",
+  "person.enriched.cancel": "Cancel",
+  "person.graph.loading": "Reading the network around this contact…",
+  "person.graph.routeTitle": "The warmest way in",
+  "person.graph.routeDirect": "{name} already corresponds with them.",
+  "person.graph.routeVia":
+    "{name} corresponds with {through} at the same company.",
+  "person.graph.noRoute":
+    "Nobody here corresponds with them or with anyone at their company yet.",
+  "person.graph.direct": "Who knows them",
+  "person.graph.directSub":
+    "Colleagues who have corresponded with this contact themselves.",
+  "person.graph.noDirect": "Nobody here has corresponded with them.",
+  "person.graph.account": "At the same company",
+  "person.graph.accountSub":
+    "Their colleagues, and who here is warmest with each.",
+  "person.graph.noAccount": "No other contacts on record at their company.",
+  "person.graph.omitted":
+    "Part of this is hidden because you do not have the grant for it.",
+  "person.graph.noEdge": "No recorded correspondence with {name}.",
+  "person.graph.withColleague": "with {name}",
+  "person.graph.withContact": "with this contact",
+  "person.graph.counts":
+    "{total} interactions in 90 days · {inbound} in, {outbound} out",
+  "person.graph.countsOnly":
+    "Counts only — the messages themselves stay on the timeline.",
+  "person.graph.untitledMessage": "Message with no subject",
+  "person.graph.dropped": "{count} more not shown.",
+  "person.moment.dismiss": "Not now",
+  "person.moment.recommended": "Next:",
+  "person.moment.willConfirm": "will ask you to confirm",
+  "person.moment.blocked": "Not available on this record.",
+  "person.moment.kind.replied_after_gap": "They came back",
+  "person.moment.kind.unanswered_inbound": "You owe a reply",
+  "person.moment.kind.meeting_ahead": "Coming up",
+  "person.moment.kind.task_overdue": "Overdue",
+  "person.moment.kind.went_quiet": "Gone quiet",
+  "person.change.repliedAfterGap": "They replied after {days} quiet days.",
+  "person.change.wentQuiet": "Nothing has happened for {days} days.",
+  "person.change.warmed": "The relationship moved from {from} to {to}.",
+  "person.change.cooled": "The relationship fell from {from} to {to}.",
+  "person.band.none": "no contact",
+  "person.band.weak": "weak",
+  "person.band.moderate": "moderate",
+  "person.band.strong": "strong",
+  "person.pulse.title": "Relationship",
+  "person.pulse.warmestIs": "{name} has the warmest relationship here.",
+  "person.pulse.nobodyYet":
+    "Nobody here has a recorded exchange with them yet.",
+  "person.pulse.lastInbound": "They last wrote",
+  "person.pulse.lastOutbound": "We last wrote",
+  "person.pulse.neverInbound": "never",
+  "person.pulse.neverOutbound": "never",
+  "person.pulse.why": "How this is computed",
+  "person.pulse.arithmetic":
+    "Score {score}/100 = 100 x recency {recency} x frequency {frequency} x reciprocity {reciprocity}. Computed at read from captured cadence, never stored.",
+  "person.identity.title": "Identity",
+  "person.identity.email": "Email",
+  "person.identity.phone": "Phone",
+  "person.identity.currentRole": "Current role",
+  "person.identity.buyingRole": "Buying role",
+  "person.career.title": "Former roles",
+  "person.consent.title": "Outbound guard",
+  "person.consent.allowed": "Allowed: {purposes}",
+  "person.consent.noneGranted":
+    "No purpose is granted, so outbound stays blocked.",
+  "person.consent.blocked": "Blocked: {purposes}",
+  "person.network.title": "Who here knows them",
+  "person.network.twoWay": "{count} two-way exchanges in 90 days",
+  "person.network.oneSided": "{count} interactions in 90 days, one-sided",
+  "person.network.replied": "replied {when}",
 } as const;
 
 export type MessageKey = keyof typeof en;

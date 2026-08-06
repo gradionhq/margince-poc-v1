@@ -15,13 +15,30 @@
           "options": { "maxAllowedComplexity": 15 }
         }
       },
+      "a11y": {
+        "noLabelWithoutControl": {
+          "level": "error",
+          "options": {
+            "inputComponents": [
+              "Select",
+              "Textarea",
+              "TextInput",
+              "SearchField",
+              "MoneyInput"
+            ]
+          }
+        }
+      },
       "correctness": {
         "noUnusedImports": "error",
         "noUnusedVariables": "error"
       },
       "suspicious": {
         "noExplicitAny": "error",
-        "noConsole": { "level": "error", "options": { "allow": ["error", "warn"] } }
+        "noConsole": {
+          "level": "error",
+          "options": { "allow": ["error", "warn"] }
+        }
       },
       "style": {
         "noDescendingSpecificity": "off",

@@ -104,6 +104,15 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 	// counterparties the Sink mints are NOT part of this: each one is counted
 	// onto the run as it is created, so no page-end write can lose or repeat a
 	// batch of them.
+	// The own-domain set is registered before this page is pulled, exactly as
+	// SyncOnce does it. A backfill is the OTHER path into the writer, and it
+	// carries the largest batch the system ever ingests — a months-deep history
+	// pulled before the set exists would store every colleague thread in it,
+	// permanently, since the gate never re-runs over stored rows.
+	if err := r.seedOwnDomainFromAccount(runCtx, c, auth); err != nil {
+		return true, false, 0, errors.Join(err, r.failBackfill(ctx, backfillID, err))
+	}
+
 	pageCtx, _ := withPageProgress(runCtx, r, backfillID, generation)
 	res, pageErr := bf.BackfillPage(pageCtx, auth, after, pageToken, r.sink)
 	if pageErr != nil {

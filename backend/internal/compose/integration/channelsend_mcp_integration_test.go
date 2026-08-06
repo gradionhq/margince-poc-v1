@@ -53,7 +53,7 @@ import (
 // to a Handle in this package").
 func (c *channelSendEnv) sendMessageInvoker(t *testing.T, agentToken string) func(args string) (string, error) {
 	t.Helper()
-	ensureRiverSchema(t)
+	ApplyRiverSchema(t)
 	inserter, err := jobs.NewInserter(c.pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("jobs.NewInserter: %v", err)

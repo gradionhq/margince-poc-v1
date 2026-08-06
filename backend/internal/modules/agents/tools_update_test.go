@@ -76,7 +76,7 @@ func TestUpdateRecordAppliesAReleasedCall(t *testing.T) {
 	p := personFixture(t, id)
 	tool := updateRecord{p: p, ownership: noConflicts{}, staging: &recordingApprovals{}}
 
-	ctx := withApprovalRedeemed(context.Background())
+	ctx := withApprovalRedeemed(context.Background(), 0, false)
 	if _, err := tool.Handle(ctx, updateArgs(t, id)); err != nil {
 		t.Fatalf("Handle err = %v, want nil", err)
 	}

@@ -10,10 +10,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // The legal census only reaches a human through this projection: the
@@ -157,5 +160,26 @@ func TestConfirmingASiteReadLeavesUnrelatedErrorsAlone(t *testing.T) {
 	httperr.Write(recorder, request, siteReadConfirmationRefusal(apperrors.ErrNotFound))
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("a dossier that does not exist → %d, want 404", recorder.Code)
+	}
+}
+
+func TestOnboardingSiteReadHandlersStayExplicitWithoutAConfiguredEngine(t *testing.T) {
+	handlers := siteReadHandlers{}
+	readID := openapi_types.UUID(ids.NewV7())
+	tests := []func(http.ResponseWriter, *http.Request){
+		func(w http.ResponseWriter, r *http.Request) {
+			handlers.StartCompanySiteRead(w, r, crmcontracts.StartCompanySiteReadParams{})
+		},
+		func(w http.ResponseWriter, r *http.Request) { handlers.GetCompanySiteRead(w, r, readID) },
+		func(w http.ResponseWriter, r *http.Request) {
+			handlers.ConfirmCompanySiteRead(w, r, readID, crmcontracts.ConfirmCompanySiteReadParams{})
+		},
+	}
+	for i, invoke := range tests {
+		rec := httptest.NewRecorder()
+		invoke(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if rec.Code != http.StatusNotImplemented {
+			t.Fatalf("unconfigured handler %d → %d, want 501", i, rec.Code)
+		}
 	}
 }
