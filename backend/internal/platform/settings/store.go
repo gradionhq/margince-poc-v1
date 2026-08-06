@@ -101,6 +101,16 @@ func (s *Store) Raw(ctx context.Context, key string) (json.RawMessage, error) {
 // An unchanged value is a no-op — no write, no audit row — because an
 // idempotent PATCH should not litter the ledger.
 func (s *Store) SetRaw(ctx context.Context, key string, next json.RawMessage) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return s.SetRawTx(ctx, tx, key, next)
+	})
+}
+
+// SetRawTx is SetRaw inside a transaction the caller already holds, for a
+// write that has to commit atomically with something else — a patch touching
+// several settings, or a value mirrored onto a column a reader has not moved
+// off yet.
+func (s *Store) SetRawTx(ctx context.Context, tx pgx.Tx, key string, next json.RawMessage) error {
 	// Through the registry, not off a caller-supplied entry: an entry a module
 	// declares but compose never registers would otherwise be writable while
 	// invisible to every catalog gate — and unreadable through Raw, which does
@@ -115,7 +125,16 @@ func (s *Store) SetRaw(ctx context.Context, key string, next json.RawMessage) er
 	if err := def.ValidateJSON(next); err != nil {
 		return err
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	// Serialize writers of THIS key for the rest of the transaction. Two
+	// concurrent writes would otherwise both read the same `before`, and the
+	// later one would audit a value that was never current — or, setting the
+	// same value, write a second audit row for a change that happened once. A
+	// row lock cannot do this: the row may not exist yet, and the first write
+	// to a setting is exactly when it does not.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key); err != nil {
+		return fmt.Errorf("settings: serializing writes to %s: %w", key, err)
+	}
+	{
 		before, err := currentJSON(ctx, tx, def)
 		if err != nil {
 			return err
@@ -148,8 +167,8 @@ func (s *Store) SetRaw(ctx context.Context, key string, next json.RawMessage) er
 			map[string]any{key: json.RawMessage(next)}); err != nil {
 			return fmt.Errorf("settings: auditing %s: %w", key, err)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // lookup resolves a key to its declaration, refusing an unregistered one.

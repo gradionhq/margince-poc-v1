@@ -5067,7 +5067,6 @@ paths:
     get:
       tags: [Identity]
       operationId: getInstallationSettings
-      security: [ { cookieAuth: [] } ]
       summary: The installation's own settings.
       description: |
         Reads the installation's identity and reporting basis (ADR-0090/A135): its name, the

@@ -54,6 +54,16 @@ function useUpdateInstallationSettings() {
     onSuccess: (data) => {
       queryClient.setQueryData(["installation-settings"], data);
     },
+    // A refused patch can still have committed nothing OR something: the
+    // server applies the fields in one transaction, but a validation refusal
+    // on one field is reported after others were accepted in an earlier
+    // request. Refetching on failure means the form shows what the server
+    // actually holds rather than the draft the user typed.
+    onError: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["installation-settings"],
+      });
+    },
   });
 }
 

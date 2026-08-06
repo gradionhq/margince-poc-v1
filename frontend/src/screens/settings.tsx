@@ -244,6 +244,9 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   // User administration, the DSR queue and the audit log map to no RBAC object
   // at all — the server gates them on the role and on an unbounded row scope,
   // so the role is their own honest predicate rather than a stand-in for one.
+  // The same call InstallationSettingsCard makes, so the tab and the fields
+  // inside it can never disagree about who may edit.
+  const canEditInstallation = useCanWrite("installation_settings", "update");
   const isOrgAdmin = (me.data?.roles ?? []).some(
     (role) => role === "admin" || role === "ops",
   );
@@ -267,13 +270,13 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     // themselves on the overlay_connection grants, so a viewer without them
     // gets the honest read-only view instead of a dead link.
     overlay: true,
-    // Installation goes with users/privacy/audit on the role, not on an object
-    // grant: the three values it holds are readable by every seat — that is
-    // what lets any screen render amounts in the right currency — but the TAB
-    // exists to change them, and only admin/ops can. Unlike overlay there is
-    // no topbar affordance pointing here, so a rep given the tab would find
-    // three disabled fields and no reason to have come.
-    installation: isOrgAdmin,
+    // Installation is gated on the SAME live grant the card inside asks for,
+    // not on the role name. Deriving it from admin/ops would disagree with the
+    // card in both directions: an admin whose installation_settings grant was
+    // removed would get a tab of disabled fields, and a principal holding the
+    // grant under another role could not reach the surface they may use. The
+    // tab exists to change these values, so it follows the write grant.
+    installation: canEditInstallation,
   };
 }
 

@@ -2,12 +2,18 @@
 -- are still there and the setting rows are the copy — deleting them restores
 -- the previous source of truth exactly.
 --
--- Any change an operator made through the settings surface while 0191 was
--- applied is lost by this down: it lives only in the setting row, because the
--- column stopped being written. That is stated rather than worked around — a
--- down migration that wrote values BACK onto the columns would silently
--- resurrect a base currency the forward path may have refused to change, and
--- the audit_log rows remain either way as the record of what was set.
+-- The current values are carried back onto the columns first. While 0191 was
+-- applied the settings surface wrote BOTH — the row and its column mirror — so
+-- the two already agree and this is belt-and-braces rather than a guess. It
+-- stays because the mirror is transitional (issue #521): once the readers move
+-- and the columns go, the row is the only copy, and a down that assumed
+-- otherwise would discard every change made since the move.
+UPDATE workspace w SET
+    name          = coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'), w.name),
+    timezone      = coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.timezone'), w.timezone),
+    base_currency = coalesce((SELECT value #>> '{}' FROM setting WHERE key = 'installation.base_currency'), w.base_currency)
+ WHERE w.archived_at IS NULL;
+
 DELETE FROM setting WHERE key IN (
   'installation.name',
   'installation.timezone',

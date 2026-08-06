@@ -3425,7 +3425,7 @@ export const de = {
     "Wird überall dort angezeigt, wo das Produkt Ihre Organisation benennt.",
   "installationSettings.timezone": "Zeitzone für Auswertungen",
   "installationSettings.timezoneHint":
-    "IANA-Zonenname (zum Beispiel Europe/Berlin). Periodengrenzen aller Auswertungen werden darin berechnet — unabhängig von Ihrer eigenen Anzeigezeitzone.",
+    "IANA-Zonenname (zum Beispiel Europe/Berlin). Periodengrenzen aller Auswertungen werden darin berechnet, unabhängig von Ihrer eigenen Anzeigezeitzone.",
   "installationSettings.baseCurrency": "Basiswährung",
   "installationSettings.baseCurrencyHint":
     "ISO-4217-Code, in den alle Beträge für Auswertungen umgerechnet werden. Änderbar, bis der erste Deal dagegen umgerechnet wurde.",

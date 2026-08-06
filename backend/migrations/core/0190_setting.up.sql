@@ -51,11 +51,23 @@ COMMENT ON TABLE setting IS
 -- The column itself is deliberately NOT dropped here. Readers switch first,
 -- the drop follows once nothing reads it — which keeps this migration
 -- reversible without a data-restoring down. Tracked as issue #521.
-INSERT INTO setting (key, value)
-SELECT 'capture.auto_enrich', to_jsonb(false)
- WHERE EXISTS (
-   SELECT 1 FROM workspace
-    WHERE archived_at IS NULL
-      AND capture_auto_enrich = false
- )
-    ON CONFLICT (key) DO NOTHING;
+-- Refuses rather than guesses when several live workspaces exist. ADR-0061 §3
+-- makes that state unreachable at runtime — the API will not start on it — but
+-- a database can still hold it, and there aggregating "is any of them off?"
+-- would hand the installation the posture of a workspace an operator may be
+-- about to discard. Which one is retained is an operator decision, so the
+-- migration stops and says so instead of picking.
+DO $$
+DECLARE live int;
+BEGIN
+  SELECT count(*) INTO live FROM workspace WHERE archived_at IS NULL;
+  IF live > 1 THEN
+    RAISE EXCEPTION 'cannot carry settings across: % live workspaces exist, and which one the installation keeps is an operator decision (ADR-0061 §3)', live;
+  END IF;
+
+  INSERT INTO setting (key, value)
+  SELECT 'capture.auto_enrich', to_jsonb(false)
+    FROM workspace
+   WHERE archived_at IS NULL AND capture_auto_enrich = false
+      ON CONFLICT (key) DO NOTHING;
+END $$;

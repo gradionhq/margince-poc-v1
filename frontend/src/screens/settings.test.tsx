@@ -805,18 +805,18 @@ describe("SettingsScreen Organization group", () => {
     );
   });
 
-  it("gives ops the four objectless tabs while it holds no object grant at all", async () => {
-    // The mirror of the case above: those surfaces have no RBAC object for a
-    // grant to name, so the role is what the server checks and what the nav
-    // must check. Installation joined them with ADR-0090/A135 — its three
-    // values are readable by every seat, but changing them is admin/ops, and
-    // the tab exists to change them.
+  it("gives ops the three objectless tabs while it holds no object grant at all", async () => {
+    // The mirror of the case above: those three surfaces have no RBAC object
+    // for a grant to name, so the role is what the server checks and what the
+    // nav must check. Installation is deliberately NOT among them: it carries
+    // its own `installation_settings` object (ADR-0090/A135), so it follows
+    // the grant like catalog and rates do, and an ops principal holding no
+    // object grant does not get it.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["ops"] }));
     render(<SettingsScreen />);
     await waitFor(() =>
       expect(navTabs()).toEqual([
         ...PERSONAL_TABS,
-        "Installation",
         "Users & roles",
         "Privacy & consent",
         "Audit log",
@@ -854,7 +854,6 @@ describe("SettingsScreen Organization group", () => {
     const { client } = render(<SettingsScreen />);
     const ADMIN_ORG_TABS = [
       ...PERSONAL_TABS,
-      "Installation",
       "Users & roles",
       "Privacy & consent",
       "Audit log",

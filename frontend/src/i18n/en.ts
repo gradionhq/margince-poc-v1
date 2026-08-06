@@ -3408,7 +3408,7 @@ export const en = {
     "Shown wherever the product names your organization.",
   "installationSettings.timezone": "Reporting timezone",
   "installationSettings.timezoneHint":
-    "IANA zone name (for example Europe/Berlin). Period boundaries in every report are computed in it — separate from your own display timezone.",
+    "IANA zone name (for example Europe/Berlin). Period boundaries in every report are computed in it, separate from your own display timezone.",
   "installationSettings.baseCurrency": "Base currency",
   "installationSettings.baseCurrencyHint":
     "ISO-4217 code every amount converts to for roll-ups. Changeable until the first deal converts against it.",
