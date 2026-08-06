@@ -2590,9 +2590,11 @@ export interface paths {
          *     paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
          *     EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
          *     (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
-         *     NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
-         *     A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
-         *     that is honest grounding, not fabrication, and it still stages 🟡.
+         *     NOTHING is written to real records — the read-back stages a proposal the user accepts via
+         *     /approvals. A `self_description` field is "grounded" in the user's own words
+         *     (source_kind=self_description) — that is honest grounding, not fabrication, and it stages
+         *     the same way. HUMAN-ONLY: this call CREATES the organization, so there is no record for a
+         *     record-shaped agent verb to target; an agent principal is refused (403 `permission_denied`).
          */
         post: operations["coldStartReadback"];
         delete?: never;
@@ -2615,12 +2617,14 @@ export interface paths {
          * @description The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
          *     for a human to check and correct in the company form, and NOTHING is written or queued. For a
          *     HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
-         *     and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
-         *     presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
-         *     the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
-         *     caller's path and query, from the server's own address. So the agent tier matches its sibling's:
-         *     🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
-         *     staging remains for callers that propose asynchronously, with no human at the screen.
+         *     and PUT /company is the human's confirmation. That reasoning presupposes someone at the screen,
+         *     and on the agent path there is nobody: the EGRESS effect is the same one POST /coldstart performs
+         *     — an outbound GET to a caller-chosen host, with the caller's path and query, from the server's
+         *     own address — and the organization does not exist yet, so no record-shaped agent verb has a
+         *     target for it; the fields feed the form whose confirmation creates it. HUMAN-ONLY on both
+         *     counts: an agent principal is refused (403 `permission_denied`), with no staging path. An agent
+         *     that needs outward-looking research on an organization that already exists spends the same
+         *     `enrich` cap on POST /organizations/{id}/enrich.
          *
          *     Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
          *     non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
@@ -3839,7 +3843,7 @@ export interface paths {
         get: operations["listRecordGrants"];
         put?: never;
         /**
-         * Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+         * Share one record with a user or team (human-only).
          * @description Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
          *     scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
          *     policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
@@ -3868,7 +3872,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+         * Revoke a manual record grant (human-only).
          * @description Deletes the grant; the subject loses the widened access immediately (the next query no longer
          *     matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
          */
@@ -4586,9 +4590,9 @@ export interface paths {
          * Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
          * @description draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
          *     daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
-         *     emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
-         *     `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
-         *     redeems with the X-Approval-Token header (ADR-0036).
+         *     emits `offer.sent`. HUMAN-ONLY: an agent principal is refused outright (403
+         *     `permission_denied`), with no staging path — releasing an offer to a counterparty is a
+         *     decision a person makes, not one an agent stages for them.
          */
         post: operations["sendOffer"];
         delete?: never;
@@ -4657,14 +4661,14 @@ export interface paths {
         put?: never;
         /**
          * Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
-         * @description The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
-         *     sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
+         * @description Copies the sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
          *     `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
          *     mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
          *     also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
          *     `diff_from_previous` line-item summary versus the prior revision; a mechanical
          *     regenerate (no AI context available) still works and returns `ai_generated=false`. The
-         *     produced draft still cannot leave without the 🟡 send gate.
+         *     produced draft still cannot leave without the send gate, which is human-only too.
+         *     HUMAN-ONLY: an agent principal is refused (403 `permission_denied`); no tool serves this verb.
          */
         post: operations["regenerateOffer"];
         delete?: never;
@@ -20030,16 +20034,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
             };
             path?: never;
             cookie?: never;
@@ -20075,16 +20069,6 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is
@@ -21892,16 +21876,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is
