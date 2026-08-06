@@ -4,19 +4,19 @@
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LOCALES, localeNameKey, useLocale, useT } from "../i18n";
-import "./localemenu.css";
 
 /**
- * The language control, wherever a surface has room for it.
+ * The language control in the top bar.
  *
  * A menu rather than a toggle: with more than two locales a toggle cannot say
  * where the next click lands, which is exactly the reader least able to guess.
- * Carries its own styling rather than borrowing the top bar's `.iconbtn` rule,
- * because that rule is scoped to `.topbar` and the sign-in screen renders none.
+ * It ships behaviour, not chrome: the top bar dresses both of its menus in one
+ * rule (`shell.css`), so this file has no stylesheet of its own and `className`
+ * is required — the trigger's chrome is the host's to name. The sign-in screen
+ * shares no stylesheet with the top bar and offers its languages as a footer
+ * row of its own instead.
  */
-export function LocaleMenu({
-  className,
-}: Readonly<{ className?: string }> = {}) {
+export function LocaleMenu({ className }: Readonly<{ className: string }>) {
   const t = useT();
   const { locale, setLocale } = useLocale();
   const [open, setOpen] = useState(false);
@@ -50,8 +50,12 @@ export function LocaleMenu({
     <div className="localemenu">
       <button
         type="button"
-        className={className ? `localetrigger ${className}` : "localetrigger"}
-        aria-label={t("locale.switchLabel")}
+        className={className}
+        // The visible face is a two-letter code, which a screen reader spells
+        // out and a voice-control user cannot say. Naming the current language
+        // in full keeps the control's purpose AND its present state audible —
+        // the toggle it replaced announced the state for free (WCAG 2.5.3).
+        aria-label={`${t("locale.switchLabel")}: ${t(localeNameKey(locale))}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}

@@ -137,7 +137,9 @@ describe("locale switch", () => {
     );
     // English default: once the session resolves, the rail carries English labels
     expect(await screen.findByRole("link", { name: "Contacts" })).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Language" }));
+    // The trigger names the language it is currently on, so match the label
+    // rather than pinning the whole accessible name to one locale's wording.
+    await userEvent.click(screen.getByRole("button", { name: /^Language/ }));
     await userEvent.click(
       screen.getByRole("menuitemradio", { name: /Deutsch/ }),
     );
