@@ -104,7 +104,9 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "co.decisions.group",
   "partner.role.hosting",
 
-  // Provenance tags whose literal form is pinned by the contract.
+  // Actor labels built on "Agent" and "Connector", which vi carries as
+  // loanwords everywhere else in this catalog — translating them only here
+  // would make the same actor read as two different things.
   "trust.agentTag",
   "consent.actorAgent",
   "consent.actorConnector",
@@ -155,21 +157,32 @@ describe("i18n catalogs", () => {
     }
   });
 
+  // An endonym is a language's name in its OWN language, so it is the same
+  // string in every catalog: the German switcher says "Tiếng Việt" too. Both
+  // loops run over LOCALES — proven above to be exactly the registered
+  // catalogs — so a pair compared by hand cannot leave a third catalog free to
+  // translate a name it should have carried verbatim. The untranslated-leftover
+  // check below cannot stand in for this one: it only flags values EQUAL to
+  // English, and a translated endonym differs from English by definition.
   it("every locale has a name key, and names are endonyms shared by all catalogs", () => {
-    for (const locale of LOCALES) {
-      const key = localeNameKey(locale);
-      expect(translate("en", key)).toBe(translate("de", key));
-      expect(translate("en", key).trim()).not.toBe("");
+    for (const named of LOCALES) {
+      const key = localeNameKey(named);
+      const endonym = translate(DEFAULT_LOCALE, key);
+      expect(endonym.trim(), key).not.toBe("");
+      for (const reader of LOCALES) {
+        expect(translate(reader, key), `${reader}: ${key}`).toBe(endonym);
+      }
     }
   });
 
-  it("both locales interpolate {params}", () => {
-    expect(translate("en", "trust.agentTag", { agent: "capture" })).toBe(
-      "agent: capture",
-    );
-    expect(translate("de", "trust.agentTag", { agent: "capture" })).toBe(
-      "Agent: capture",
-    );
+  it("every catalog interpolates {params}", () => {
+    for (const locale of LOCALES) {
+      const rendered = translate(locale, "trust.agentTag", {
+        agent: "capture",
+      });
+      expect(rendered, locale).toContain("capture");
+      expect(rendered, locale).not.toContain("{agent}");
+    }
   });
 
   it("an unknown placeholder is left visible, never silently dropped", () => {

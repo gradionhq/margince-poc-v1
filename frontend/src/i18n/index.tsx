@@ -10,8 +10,6 @@ import { de } from "./de";
 import { en, type MessageKey } from "./en";
 import { vi } from "./vi";
 
-export type { MessageKey } from "./en";
-
 // Locale is a presentation concern only (architecture/10 §3): it resolves at
 // the render edge and never participates in storage or math. The resolution
 // order is user.locale → workspace.locale → the browser's Accept-Language →
