@@ -11,6 +11,10 @@
   "automerge": true,
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["after 2am and before 6am on monday"]
+  },
   "packageRules": [
     {
       "matchManagers": ["gomod"],
