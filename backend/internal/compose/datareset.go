@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -80,6 +81,12 @@ type dataResetHandlers struct {
 	// bus announcement reaches the rest of the fleet.
 	flush func(ids.UUID)
 }
+
+// resetFinishTimeout bounds the post-commit work below — the cf_* drop, the
+// object and credential purges, and the announcement. Larger than the resume's
+// bound because a prefix sweep enumerates a bucket, but still finite: that work
+// is detached from the request, so nothing else would ever stop it.
+const resetFinishTimeout = 2 * time.Minute
 
 // run performs the full reset for the bound workspace: refuse a mismatched
 // confirmation, then hand the rest to runQuiesced, which does the work with the

@@ -128,12 +128,6 @@ func (h dataResetHandlers) runRuntimePhase(ctx context.Context, rt ResetRuntime,
 // on purpose: this is one queue-resume round trip, not a drain.
 const resetResumeTimeout = 15 * time.Second
 
-// resetFinishTimeout bounds the post-commit work — the cf_* drop, the object
-// and credential purges, and the announcement. Larger than the resume's bound
-// because a prefix sweep enumerates a bucket, but still finite: this is
-// detached from the request, so nothing else would ever stop it.
-const resetFinishTimeout = 2 * time.Minute
-
 // resumeResetQueues lifts the fleet pause a reset took. It is called from a
 // deferred path on EVERY exit — including a panic, and including a Quiesce that
 // failed after its pause already landed — because a pause with nobody left to

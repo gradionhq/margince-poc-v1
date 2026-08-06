@@ -34,19 +34,28 @@ func TestSubscribeResetReceivesThePublishedWorkspace(t *testing.T) {
 		log := slog.New(slog.NewTextHandler(io.Discard, nil))
 		done <- subscribeResetWithReady(runCtx, rdb, log, func(w ids.UUID) { got <- w }, ready)
 	}()
+	// Cleanup is the ONLY reader of done. A second receive elsewhere would take
+	// the goroutine's single value and leave this one blocking forever on an
+	// empty channel — a deadlocked suite, which is worse than the hang this
+	// bounding exists to prevent.
 	t.Cleanup(func() {
 		cancel()
-		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
-			t.Errorf("SubscribeReset: %v", err)
+		select {
+		case err := <-done:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Errorf("SubscribeReset: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("the subscriber goroutine did not return after cancellation")
 		}
 	})
 
 	// Bounded: a SUBSCRIBE that never confirms would otherwise hang here until
-	// the suite timeout, which reads as a stuck run rather than a failure.
+	// the suite timeout, which reads as a stuck run rather than a failure. A
+	// subscription that failed outright never closes ready, so it lands here
+	// too, and cleanup then reports the actual error.
 	select {
 	case <-ready:
-	case err := <-done:
-		t.Fatalf("the subscription ended before it was ready: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the subscription never became ready")
 	}
