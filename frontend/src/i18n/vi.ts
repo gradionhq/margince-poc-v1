@@ -159,11 +159,11 @@ export const vi = {
   "record.edit": "Sửa",
   "record.save": "Lưu",
   "record.archive": "Lưu trữ",
-  "record.disqualify": "Loại",
+  "record.disqualify": "Loại bỏ",
   "record.archiveConfirm":
     "Bạn chắc chứ? Thao tác này lưu trữ bản ghi — không có nút hoàn tác.",
   "record.disqualifyConfirm":
-    "Bạn chắc chứ? Thao tác này loại và lưu trữ lead — không có nút hoàn tác.",
+    "Bạn chắc chứ? Thao tác này loại bỏ và lưu trữ lead — không có nút hoàn tác.",
   "record.archived": "Đã lưu trữ",
   "record.share": "Chia sẻ",
   "record.moreActions": "Thêm thao tác",
