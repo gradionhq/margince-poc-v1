@@ -41,7 +41,7 @@ function homeStory(digest: unknown) {
 }
 
 const meta: Meta<typeof HomeScreen> = {
-  title: "screens/home",
+  title: "Screens/home",
   component: HomeScreen,
 };
 export default meta;

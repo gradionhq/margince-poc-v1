@@ -55,7 +55,7 @@ function admin(overrides: Record<string, unknown> = {}) {
 }
 
 const meta: Meta<typeof EmbedReindexCard> = {
-  title: "screens/embed-reindex-card",
+  title: "Screens/embed-reindex-card",
   component: EmbedReindexCard,
 };
 export default meta;

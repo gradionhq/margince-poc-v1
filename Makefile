@@ -165,8 +165,9 @@ font-lock:
 ## icon-lint — icon-glyph lock lint (UI chrome is Lucide only).
 icon-lint:
 	frontend/scripts/check-icon-glyph.sh
-## ds-spacing — spacing gate: no NEW raw-px margin/padding/gap in inline styles
-## (diff-scoped vs origin/main; use the --space-* scale or a layout class).
+## ds-spacing — spacing gate: no NEW raw-px margin/padding/gap, in inline styles
+## (*.tsx) or in stylesheets (*.css outside the design-system tier, which defines
+## the scale). Diff-scoped vs origin/main; use the --space-* scale or a layout class.
 ds-spacing:
 	frontend/scripts/check-ds-spacing.sh
 

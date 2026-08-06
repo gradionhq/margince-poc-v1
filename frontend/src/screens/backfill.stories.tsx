@@ -33,7 +33,7 @@ function panelStory(
 }
 
 const meta: Meta<typeof BackfillPanel> = {
-  title: "screens/backfill",
+  title: "Screens/backfill",
   component: BackfillPanel,
 };
 export default meta;

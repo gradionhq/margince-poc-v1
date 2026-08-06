@@ -12,6 +12,8 @@ import {
   Modal,
   SectionHeader,
   SegmentedControl,
+  Select,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ProvenanceTag } from "../design-system/trust";
@@ -631,13 +633,9 @@ function LeadOverviewPane({
                   marginBottom: 16,
                 }}
               >
-                <label
-                  className="t-caption"
-                  style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                >
+                <label className="t-caption field">
                   {t("lead.trigger")}
-                  <select
-                    className="input"
+                  <Select
                     aria-label={t("lead.trigger")}
                     value={trigger}
                     onChange={(event) => {
@@ -651,15 +649,11 @@ function LeadOverviewPane({
                         {t(option.label)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
-                <label
-                  className="t-caption"
-                  style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                >
+                <label className="t-caption field">
                   {t("lead.evidenceNote")}
-                  <textarea
-                    className="input"
+                  <Textarea
                     aria-label={t("lead.evidenceNote")}
                     value={note}
                     onChange={(event) => setNote(event.target.value)}

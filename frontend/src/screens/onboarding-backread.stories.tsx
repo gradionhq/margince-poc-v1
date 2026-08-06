@@ -44,7 +44,7 @@ const preview =
     });
 
 const meta: Meta<typeof OnboardingBackread> = {
-  title: "screens/onboarding-backread",
+  title: "Screens/onboarding-backread",
   component: OnboardingBackread,
 };
 export default meta;

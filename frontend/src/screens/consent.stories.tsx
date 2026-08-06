@@ -83,7 +83,7 @@ function section(routes: RouteMap) {
 }
 
 const meta: Meta<typeof ConsentSection> = {
-  title: "screens/consent",
+  title: "Screens/consent",
   component: ConsentSection,
 };
 export default meta;

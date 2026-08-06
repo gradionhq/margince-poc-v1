@@ -1,6 +1,6 @@
 import { Sparkles, X } from "lucide-react";
 import { useState } from "react";
-import { Button } from "../design-system/atoms";
+import { Button, Textarea } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { NAV, RAIL_LESS_SCREENS } from "./nav";
 import type { Route } from "./router";
@@ -42,8 +42,7 @@ export function AskFab({ route }: Readonly<{ route: Route }>) {
             </button>
           </div>
           <p className="t-caption askfab-scope">{t("fab.scope")}</p>
-          <textarea
-            className="textarea askfab-input"
+          <Textarea
             aria-label={t("fab.inputAria")}
             placeholder={t("fab.placeholder")}
             rows={3}

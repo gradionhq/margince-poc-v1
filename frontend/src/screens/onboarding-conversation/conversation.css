@@ -901,6 +901,15 @@
   font-size: 0.875rem;
   resize: vertical;
 }
+/* Keyboard focus has to be visible on this field as on every other one. The
+   ring is the AI pair rather than --accent because this surface is the
+   assistant's, matching the composer and the confirm-card fields it sits
+   between; `outline: 0` is deliberately NOT set, so the ring is additive to
+   whatever the platform draws rather than a replacement for it. */
+.ob-voice-paste-area:focus-visible {
+  border-color: var(--aiText);
+  box-shadow: 0 0 0 3px var(--aiMed);
+}
 
 /* The floor meter: a real progress element plus the numbers behind it, so
    the fill is never the only place the count lives. */

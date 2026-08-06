@@ -595,6 +595,16 @@
   white-space: nowrap;
 }
 
+/* Pushed to the row's right-hand end, the way the runtime chip's caret is. The
+   `auto` margin also holds the control against the right edge when the identity
+   beside it has not resolved yet and the row is otherwise empty. */
+.mw-shell.is-rail .mw-person-action {
+  display: flex;
+  align-items: center;
+  flex: none;
+  margin-left: auto;
+}
+
 .mw-shell.is-rail .mw-person-id small {
   color: var(--textMeta);
   font-family: var(--f-mono);

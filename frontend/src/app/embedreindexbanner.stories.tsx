@@ -43,7 +43,7 @@ function story(reindexNeeded: boolean) {
 }
 
 const meta: Meta<typeof EmbedReindexBanner> = {
-  title: "app/embed-reindex-banner",
+  title: "App/embed-reindex-banner",
   component: EmbedReindexBanner,
 };
 export default meta;

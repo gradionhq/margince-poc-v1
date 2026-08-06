@@ -2,12 +2,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   LogOut,
   Menu,
-  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
   Settings,
-  Sun,
   X,
 } from "lucide-react";
 import {
@@ -36,7 +34,7 @@ import {
 import { paletteHotkeyLabel } from "./palette";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
-import { applyTheme, persistTheme, resolveTheme, type Theme } from "./theme";
+import { ThemeToggle } from "./theme-toggle";
 import "./shell.css";
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -390,28 +388,6 @@ function resolveTitle(
   return offRailKey ? t(offRailKey) : screen;
 }
 
-// Owns CHANGING the theme. Deciding and applying it live in app/theme.ts,
-// because the boot path needs both before this component exists — every
-// unauthenticated surface renders without a TopBar, and used to render without a
-// theme.
-function useTheme(): readonly [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(resolveTheme);
-
-  useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
-
-  const toggle = useCallback(() => {
-    setTheme((current) => {
-      const next = current === "light" ? "dark" : "light";
-      persistTheme(next);
-      return next;
-    });
-  }, []);
-
-  return [theme, toggle] as const;
-}
-
 export function TopBar({
   route,
   onOpenSearch,
@@ -423,7 +399,6 @@ export function TopBar({
 }>) {
   const t = useT();
   const { locale, setLocale } = useLocale();
-  const [theme, toggleTheme] = useTheme();
   const logout = useLogout();
 
   const navItem = NAV.find((item) => item.screen === route.screen);
@@ -477,16 +452,9 @@ export function TopBar({
         >
           <span className="t-mono">{locale === "de" ? "EN" : "DE"}</span>
         </button>
-        <button
-          type="button"
-          className="iconbtn"
-          aria-label={
-            theme === "light" ? t("theme.toDark") : t("theme.toLight")
-          }
-          onClick={toggleTheme}
-        >
-          {theme === "light" ? <Moon aria-hidden /> : <Sun aria-hidden />}
-        </button>
+        {/* The top bar's own 32px chrome sizing wins over the control's
+            portable default — `.topbar .iconbtn` outranks `.theme-toggle`. */}
+        <ThemeToggle className="iconbtn" />
         <AccountMenu logout={logout} />
       </div>
     </header>

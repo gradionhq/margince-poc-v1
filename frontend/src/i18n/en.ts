@@ -3126,7 +3126,7 @@ export const en = {
   "settings.companyResolveAll":
     "Choose an outcome for every human-held conflict.",
   "settings.companyApplyRefresh": "Apply selected changes",
-  "settings.companySelectChange": "Select this website change",
+  "settings.companySelectChange": "Select the {field} change",
   "settings.companyCurrent": "Current confirmed value",
   "settings.companyWebsiteProposal": "Website proposal",
   "settings.companyClass.new": "New",

@@ -7,8 +7,10 @@ import {
   Badge,
   Button,
   EmptyState,
+  Field,
   Modal,
   SectionHeader,
+  Select,
   Skeleton,
   StatCard,
 } from "../design-system/atoms";
@@ -615,34 +617,36 @@ function SetRoleAction({
             page used them as though everyone shares one definition. */}
         <p className="t-caption">{t("co.role.explain")}</p>
         <div className="form-stack">
-          <label className="field">
-            <span className="t-label">{t("co.role.onDeal")}</span>
-            <select
-              className="input"
-              value={dealId}
-              onChange={(event) => setDealId(event.target.value)}
-            >
-              {openDeals.map((deal) => (
-                <option key={deal.id} value={deal.id}>
-                  {deal.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span className="t-label">{t("co.role.role")}</span>
-            <select
-              className="input"
-              value={picked ?? ""}
-              onChange={(event) => setRole(event.target.value)}
-            >
-              {offered.map((candidate) => (
-                <option key={candidate} value={candidate}>
-                  {dealRoleLabel(candidate, t)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Field label={t("co.role.onDeal")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={dealId}
+                onChange={(event) => setDealId(event.target.value)}
+              >
+                {openDeals.map((deal) => (
+                  <option key={deal.id} value={deal.id}>
+                    {deal.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label={t("co.role.role")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={picked ?? ""}
+                onChange={(event) => setRole(event.target.value)}
+              >
+                {offered.map((candidate) => (
+                  <option key={candidate} value={candidate}>
+                    {dealRoleLabel(candidate, t)}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
           {save.isError && (
             <p className="t-caption form-error">{save.error.message}</p>
           )}
