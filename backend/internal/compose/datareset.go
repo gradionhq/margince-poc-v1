@@ -135,6 +135,28 @@ func clearWorkspaceOutbox(ctx context.Context, tx pgx.Tx) error {
 	return err
 }
 
+// clearOutbox drains the staged events in a transaction of its OWN, before the
+// stream purge, rather than inside the sweep's transaction after it.
+//
+// The relay is not the job fleet: quiescing the queues does not stop it shipping
+// event_outbox rows onto the streams. Staged rows left in place while the
+// streams are purged are re-published seconds later into streams that were just
+// emptied, and a subscriber then works events against rows the sweep is deleting.
+//
+// It narrows the window rather than closing it. The relay claims a batch FOR
+// UPDATE SKIP LOCKED, so this DELETE waits on whatever is in flight — but that
+// batch has already XADDed, and rows any concurrent request commits afterwards
+// still reach the bus. The residual is one relay batch wide, not seconds wide.
+//
+// Running in its own transaction has a price the sweep's did not: a reset that
+// fails later has already dropped this workspace's staged events, and they are
+// never delivered.
+func (h dataResetHandlers) clearOutbox(ctx context.Context) error {
+	return database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
+		return clearWorkspaceOutbox(ctx, tx)
+	})
+}
+
 func isForeignKeyViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
@@ -148,7 +170,7 @@ func isForeignKeyViolation(err error) bool {
 type resetDataResponse struct {
 	Status         string `json:"status"`
 	TablesCleared  int    `json:"tables_cleared"`
-	JobsCancelled  int    `json:"jobs_cancelled"`
+	JobsDeleted    int    `json:"jobs_deleted"`
 	StreamsPurged  int    `json:"streams_purged"`
 	CacheKeys      int    `json:"cache_keys_deleted"`
 	ObjectsDeleted int    `json:"objects_deleted"`
@@ -199,16 +221,19 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetC
 	}); err != nil {
 		return resetCounts{}, err
 	}
-	return h.runQuiesced(ctx, wsID, func(counts *resetCounts) error {
-		return h.sweepAndReseed(ctx, wsID, confirmation, counts)
-	})
+	return h.runQuiesced(ctx, wsID,
+		func() error { return h.clearOutbox(ctx) },
+		func(counts *resetCounts) error {
+			return h.sweepAndReseed(ctx, wsID, confirmation, counts)
+		})
 }
 
-// runQuiesced performs the reset with the job fleet held down: purge the queue,
-// the bus and the budget counters, sweep + re-seed Postgres in one transaction,
-// clear the surfaces no transaction can reach, and announce the reset so every
-// process drops its caches. sweep is the Postgres half, taken as a parameter so
-// this ordering can be exercised without a database.
+// runQuiesced performs the reset with the job fleet held down: drain the outbox,
+// purge the queue, the bus and the budget counters, sweep + re-seed Postgres in
+// one transaction, clear the surfaces no transaction can reach, and announce the
+// reset so every process drops its caches. clearOutbox and sweep are the two
+// Postgres halves the runtime ordering separates, taken as parameters so this
+// ordering can be exercised without a database.
 //
 // The fleet pause's lifetime is exactly this function's, and that is why the
 // resume is deferred HERE rather than inside the phase that takes the pause.
@@ -217,7 +242,7 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetC
 // polls the drain — is still lifted; and the fleet stays down until the last
 // post-commit purge is done, so no job resumes into a window where it reads
 // caches for data being deleted or writes objects the prefix sweep then removes.
-func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, sweep func(*resetCounts) error) (resetCounts, error) {
+func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, clearOutbox func() error, sweep func(*resetCounts) error) (resetCounts, error) {
 	logger := h.log
 	if logger == nil {
 		logger = slog.Default()
@@ -228,7 +253,7 @@ func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, sweep
 	}
 	defer resumeResetQueues(ctx, logger, rt)
 
-	counts, err := h.runRuntimePhase(ctx, rt, wsID, sweep)
+	counts, err := h.runRuntimePhase(ctx, rt, wsID, clearOutbox, sweep)
 	if err != nil {
 		return counts, err
 	}
@@ -254,7 +279,7 @@ func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, sweep
 		}
 	}
 	logger.Info("data reset complete", "workspace_id", wsID,
-		"tables_cleared", counts.TablesCleared, "jobs_cancelled", counts.JobsCancelled,
+		"tables_cleared", counts.TablesCleared, "jobs_deleted", counts.JobsDeleted,
 		"streams_purged", counts.StreamsPurged, "cache_keys_deleted", counts.CacheKeys,
 		"objects_deleted", counts.ObjectsDeleted, "drain_timed_out", counts.DrainTimedOut)
 	return counts, nil
@@ -273,9 +298,11 @@ func confirmResetOrgName(ctx context.Context, tx pgx.Tx, wsID ids.UUID, confirma
 	return nil
 }
 
-// sweepAndReseed is the Postgres half, in ONE transaction: sweep domain +
-// config data, clear the outbox, re-seed module defaults (as bootstrap does),
-// and record the reset in audit_log.
+// sweepAndReseed is the Postgres sweep, in ONE transaction: sweep domain +
+// config data, re-seed module defaults (as bootstrap does), and record the
+// reset in audit_log. The outbox is not this transaction's to clear: draining it
+// is the runtime phase's first act, ahead of the stream purge, so the relay has
+// nothing staged to ship into streams that were just emptied (clearOutbox).
 func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, confirmation string, counts *resetCounts) error {
 	return database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
 		if err := confirmResetOrgName(ctx, tx, wsID, confirmation); err != nil {
@@ -286,9 +313,6 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 			return err
 		}
 		if err := sweepWorkspaceData(ctx, tx, tables); err != nil {
-			return err
-		}
-		if err := clearWorkspaceOutbox(ctx, tx); err != nil {
 			return err
 		}
 		counts.TablesCleared = len(tables)
@@ -326,7 +350,7 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 func resetEvidence(counts resetCounts) map[string]any {
 	return map[string]any{
 		"tables_cleared":     counts.TablesCleared,
-		"jobs_cancelled":     counts.JobsCancelled,
+		"jobs_deleted":       counts.JobsDeleted,
 		"streams_purged":     counts.StreamsPurged,
 		"cache_keys_deleted": counts.CacheKeys,
 		"drain_timed_out":    counts.DrainTimedOut,
@@ -437,7 +461,7 @@ func (h dataResetHandlers) ResetData(w http.ResponseWriter, r *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, resetDataResponse{
 		Status:         "reset",
 		TablesCleared:  counts.TablesCleared,
-		JobsCancelled:  counts.JobsCancelled,
+		JobsDeleted:    counts.JobsDeleted,
 		StreamsPurged:  counts.StreamsPurged,
 		CacheKeys:      counts.CacheKeys,
 		ObjectsDeleted: counts.ObjectsDeleted,

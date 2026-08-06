@@ -38,10 +38,7 @@ func TestSweepWorkspaceDataClearsDomainKeepsIdentity(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := sweepWorkspaceData(ctx, tx, tables); err != nil {
-			return err
-		}
-		return clearWorkspaceOutbox(ctx, tx)
+		return sweepWorkspaceData(ctx, tx, tables)
 	})
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
@@ -153,6 +150,10 @@ func TestResetRunRestoresBootstrapState(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.Admin()
 	e.SeedPerson(t, "Alice", nil)
+	// A pre-reset staged event, marked by its stream so the seeders' own outbox
+	// writes cannot be mistaken for it: the run must leave nothing for the relay
+	// to ship into the streams it purges.
+	e.WsExec(t, `INSERT INTO event_outbox (stream, envelope) VALUES ('pre-reset', jsonb_build_object('workspace_id', $1::text))`, e.WS)
 
 	h := dataResetHandlers{
 		pool:       e.Pool,
@@ -188,6 +189,9 @@ func TestResetRunRestoresBootstrapState(t *testing.T) {
 	}
 	if got := e.WsCount(t, "SELECT count(*) FROM audit_log WHERE action='reset_data'"); got != 1 {
 		t.Errorf("audit_log reset_data rows = %d, want 1", got)
+	}
+	if got := e.WsCount(t, `SELECT count(*) FROM event_outbox WHERE stream = 'pre-reset'`); got != 0 {
+		t.Errorf("pre-reset staged events = %d, want 0 — the relay would ship them into the streams the reset just purged", got)
 	}
 }
 

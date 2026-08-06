@@ -1324,7 +1324,7 @@ describe("ResetDataCard (danger zone)", () => {
   const fullResetBody = {
     status: "reset",
     tables_cleared: 84,
-    jobs_cancelled: 12,
+    jobs_deleted: 12,
     streams_purged: 12,
     cache_keys_deleted: 341,
     objects_deleted: 7,
@@ -1366,7 +1366,7 @@ describe("ResetDataCard (danger zone)", () => {
 
     expect(
       await screen.findByText(
-        /Cleared 84 tables, 12 queued jobs, 12 event streams/,
+        /Cleared 84 tables, 12 job rows, 12 event streams/,
       ),
     ).toBeInTheDocument();
   });
@@ -1382,8 +1382,12 @@ describe("ResetDataCard (danger zone)", () => {
     );
   });
 
-  it("shows no summary before a reset has run", () => {
+  it("shows no summary before a reset has run", async () => {
     renderSettingsAsAdmin({ resetResponse: fullResetBody });
+    // Wait for the card itself: until /v1/me resolves ResetDataCard renders
+    // null, and an assertion made before that passes against an empty screen
+    // rather than against a card that is deliberately quiet.
+    await screen.findByRole("button", { name: /reset data/i });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
@@ -1431,7 +1435,7 @@ describe("ResetDataCard (danger zone)", () => {
 
     await confirmReset("Acme Inc");
     expect(
-      await screen.findByText(/Cleared 84 tables, 12 queued jobs/),
+      await screen.findByText(/Cleared 84 tables, 12 job rows/),
     ).toBeInTheDocument();
 
     // Retry: the dialog stays open on error, so the summary from the first

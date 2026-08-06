@@ -12684,8 +12684,8 @@ export interface operations {
                         /** @example reset */
                         status: string;
                         tables_cleared: number;
-                        /** @description Queued, scheduled, running and retryable job rows deleted — this workspace's work plus the fleet dispatchers the periodic ticks re-insert. */
-                        jobs_cancelled: number;
+                        /** @description Job rows deleted in EVERY state — queued, scheduled, running and retryable work plus the retained completed, discarded and cancelled history, which a reset to first-boot state must not leave behind. Covers this workspace's jobs and the fleet dispatchers the periodic ticks re-insert. */
+                        jobs_deleted: number;
                         /** @description Event-bus stream KEYS deleted (their consumer groups are re-created empty), not entries. */
                         streams_purged: number;
                         /** @description Redis keys unlinked — processed-event dedupe marks plus this workspace's overlay budget counters. */

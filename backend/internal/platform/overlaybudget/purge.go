@@ -17,16 +17,17 @@ const purgeScanBatch = 500
 // PurgeWorkspace drops every budget counter for ws, returning the number of
 // keys unlinked. A reset install must not report a spent budget.
 //
-// The scan is prefix-bound to this workspace (ops.go builds every key as
-// ovb:<ws>:…), so a co-tenant's counters are out of reach by key shape rather
-// than by care. A meter with no Redis client — the fail-closed value compose
-// constructs before cmd rebinds it — has nothing to purge and reports zero.
+// The scan is prefix-bound to this workspace (keyPrefix + the workspace id is
+// how ops.go builds every key), so a co-tenant's counters are out of reach by
+// key shape rather than by care. A meter with no Redis client — the fail-closed
+// value compose constructs before cmd rebinds it — has nothing to purge and
+// reports zero.
 func (m *Meter) PurgeWorkspace(ctx context.Context, ws ids.UUID) (int, error) {
 	if m.rdb == nil {
 		return 0, nil
 	}
 	var deleted int
-	iter := m.rdb.Scan(ctx, 0, "ovb:"+ws.String()+":*", purgeScanBatch).Iterator()
+	iter := m.rdb.Scan(ctx, 0, keyPrefix+ws.String()+":*", purgeScanBatch).Iterator()
 	batch := make([]string, 0, purgeScanBatch)
 	flush := func() error {
 		if len(batch) == 0 {

@@ -82,8 +82,9 @@ func CountRunning(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	return n, nil
 }
 
-// PurgeWorkspace deletes this workspace's queued work and every fleet
-// dispatcher row, in every state including running.
+// PurgeWorkspace deletes this workspace's job rows and every fleet dispatcher
+// row, in EVERY state — no state predicate. The count it returns is therefore
+// job rows deleted, not a backlog depth.
 //
 // Two disjoint sets, and both belong to a reset. A row whose
 // args->>'workspace_id' matches is this tenant's work, and the rows it would
@@ -91,6 +92,10 @@ func CountRunning(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 // DISPATCHER by the invariant TestEveryWorkspaceScopedArgsSpellsItsWorkspace-
 // KeyTheSameWay holds (role.go): deleting it is safe because the periodic
 // ticks re-insert it on the next cadence.
+//
+// River's retained completed/discarded/cancelled history goes with them: an
+// installation wiped back to first-boot state must not carry a job record of
+// the work it no longer has the rows for.
 //
 // Running rows go too. After a completed drain there are none; after a drain
 // timeout the surviving job's completion write fails and logs, which is what
@@ -101,7 +106,7 @@ func PurgeWorkspace(ctx context.Context, pool *pgxpool.Pool, ws ids.UUID) (int, 
 		WHERE args->>'workspace_id' = $1
 		   OR args->>'workspace_id' IS NULL`, ws.String())
 	if err != nil {
-		return 0, fmt.Errorf("jobs: purging queued work: %w", err)
+		return 0, fmt.Errorf("jobs: purging job rows: %w", err)
 	}
 	return int(tag.RowsAffected()), nil
 }

@@ -377,13 +377,17 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [status, tables_cleared, jobs_cancelled, streams_purged, cache_keys_deleted, objects_deleted, drain_timed_out]
+                required: [status, tables_cleared, jobs_deleted, streams_purged, cache_keys_deleted, objects_deleted, drain_timed_out]
                 properties:
                   status: { type: string, example: reset }
                   tables_cleared: { type: integer }
-                  jobs_cancelled:
+                  jobs_deleted:
                     type: integer
-                    description: Queued, scheduled, running and retryable job rows deleted — this workspace's work plus the fleet dispatchers the periodic ticks re-insert.
+                    description: >
+                      Job rows deleted in EVERY state — queued, scheduled, running and retryable work plus the
+                      retained completed, discarded and cancelled history, which a reset to first-boot state
+                      must not leave behind. Covers this workspace's jobs and the fleet dispatchers the periodic
+                      ticks re-insert.
                   streams_purged:
                     type: integer
                     description: Event-bus stream KEYS deleted (their consumer groups are re-created empty), not entries.

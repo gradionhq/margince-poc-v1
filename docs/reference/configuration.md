@@ -552,20 +552,29 @@ against records that no longer exist. The endpoint therefore also:
    pass must not make an installation unresettable — but it sets
    `drain_timed_out` in the response, the audit evidence and the log, and the
    surviving job's completion write will fail against the wiped rows.
-2. **Purges queued work** (`river_job`): this workspace's rows plus the
-   fleet dispatchers, which the periodic ticks re-insert on the next cadence.
-3. **Purges the event bus** — the catalog streams, their consumer groups
+2. **Drains the staged outbox** — this workspace's `event_outbox` rows, in a
+   transaction of its own *before* the streams are purged. The outbox relay is
+   not part of the job fleet the pause stopped, so rows left staged would be
+   shipped into the streams moments after they were emptied. This narrows that
+   window to one in-flight relay batch rather than closing it.
+3. **Purges job rows** (`river_job`): this workspace's rows plus the fleet
+   dispatchers, which the periodic ticks re-insert on the next cadence — in
+   every state, including River's retained completed/discarded/cancelled
+   history, which an installation wiped back to first-boot state must not carry.
+4. **Purges the event bus** — the catalog streams, their consumer groups
    (deleted and immediately re-created, so live subscribers keep reading), the
    processed-event dedupe marks, and this workspace's overlay budget counters.
-4. **Deletes the workspace's stored objects** under its `<workspace>/` prefix.
-5. **Announces the reset** on the `gw:control:reset` Redis pub/sub channel, so
+5. **Deletes the workspace's stored objects** under its `<workspace>/` prefix.
+6. **Announces the reset** on the `gw:control:reset` Redis pub/sub channel, so
    the api and the worker each drop the caches they hold (model results,
    resolved SoR mode, auth lockout buckets). No HTTP call reaches the worker
    process; this channel is the only path to it.
 
 The queues are resumed on every exit path, including a failure and a panic,
 on a context detached from the request — an operator whose client disconnects
-mid-reset must not leave the fleet paused.
+mid-reset must not leave the fleet paused. Killing the process outright
+(SIGKILL) runs no exit path at all and does strand the pause; re-running the
+reset lifts it.
 
 The Redis half is **installation-wide**, from a declared key inventory — the
 stream catalog, the `gw:dedupe:` namespace and `ovb:<workspace>:` — and never
@@ -575,16 +584,22 @@ One consequence worth knowing locally: parallel `DEV_SLUG` stacks share a
 single Redis database, so a reset in one stack clears the other's bus.
 
 The 200 body reports what was actually cleared — `tables_cleared`,
-`jobs_cancelled`, `streams_purged` (stream *keys*, not entries),
-`cache_keys_deleted` (dedupe marks plus budget counters), `objects_deleted`
-and `drain_timed_out`. The same counts go into the `audit_log` evidence, with
-one deliberate exception: `objects_deleted` is not in the audit row, because
-the object purge cannot join the transaction that writes it.
+`jobs_deleted` (job rows in every state, history included — not a backlog
+depth), `streams_purged` (stream *keys*, not entries), `cache_keys_deleted`
+(dedupe marks plus budget counters), `objects_deleted` and `drain_timed_out`.
+The same counts go into the `audit_log` evidence, with one deliberate
+exception: `objects_deleted` is not in the audit row, because the object purge
+cannot join the transaction that writes it.
 
 Any purge step failing fails the whole request with an opaque 500 (the cause
-is logged server-side). The purges run *before* the database transaction, so
-a mid-purge failure leaves a safe partial state — queue and bus clear, data
-intact — that re-running the reset recovers.
+is logged server-side). What a failure leaves behind depends on which side of
+the commit it happened. The queue, bus and budget purges run *before* the
+database transaction, so failing there leaves a safe partial state — those
+surfaces clear, the data intact — that re-running the reset recovers. The
+object purge is the exception: it cannot join that transaction and so runs
+*after* it commits, which means a 500 from the object store reports failure
+with the rows already wiped and some stored bytes still present. Re-running
+the reset is again the recovery.
 
 `GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
 show the action only where it will work: Admin settings → *data* tab → Danger

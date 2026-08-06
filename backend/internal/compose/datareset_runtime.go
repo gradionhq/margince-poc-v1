@@ -30,8 +30,9 @@ type ResetRuntime struct {
 	QuiesceQueues func(ctx context.Context) (drained bool, err error)
 	// ResumeQueues lifts the pause. Called from a deferred path.
 	ResumeQueues func(ctx context.Context) error
-	// PurgeQueue deletes this workspace's queued work and the fleet
-	// dispatchers, returning rows deleted.
+	// PurgeQueue deletes this workspace's job rows in every state — pending
+	// work and retained history alike — plus the fleet dispatchers, returning
+	// rows deleted.
 	PurgeQueue func(ctx context.Context, ws ids.UUID) (int, error)
 	// PurgeBus empties the event streams and the dedupe marks, returning
 	// stream keys deleted and cache keys unlinked.
@@ -44,28 +45,31 @@ type ResetRuntime struct {
 // response, the audit evidence and the log line.
 type resetCounts struct {
 	TablesCleared  int
-	JobsCancelled  int
+	JobsDeleted    int
 	StreamsPurged  int
 	CacheKeys      int
 	ObjectsDeleted int
 	DrainTimedOut  bool
 }
 
-// runRuntimePhase quiets the fleet, purges the queue, the bus and this
-// workspace's budget counters, and then runs sweep — the Postgres half — with
-// the fleet still paused. sweep receives the tally so far so the audit row it
-// writes can name what the purges cleared, and writes its own back into it.
+// runRuntimePhase quiets the fleet, drains the outbox, purges the queue, the bus
+// and this workspace's budget counters, and then runs sweep — the Postgres sweep
+// — with the fleet still paused. sweep receives the tally so far so the audit row
+// it writes can name what the purges cleared, and writes its own back into it.
 //
-// The order is load-bearing. Purges run BEFORE the sweep so that a failure
-// mid-purge leaves a safe partial state: the queue and bus are clear and the
-// data is intact, which a re-run recovers. The reverse order would leave live
-// events and queued jobs pointing at rows that no longer exist.
+// The order is load-bearing twice over. Purges run BEFORE the sweep so that a
+// failure mid-purge leaves a safe partial state: the queue and bus are clear and
+// the data is intact, which a re-run recovers. The reverse order would leave live
+// events and queued jobs pointing at rows that no longer exist. And clearOutbox
+// runs before PurgeBus, because the relay is not part of the job fleet the
+// quiesce stopped: staged rows surviving the stream purge are shipped into the
+// streams moments after they were emptied (clearOutbox states the residual).
 //
 // Nothing here resumes the fleet. The caller owns the pause's whole lifetime
 // (dataResetHandlers.runQuiesced) because a resume registered in this function
 // would both miss a Quiesce that failed with the pause already applied and fire
 // before the purges that run after the sweep commits.
-func (h dataResetHandlers) runRuntimePhase(ctx context.Context, rt ResetRuntime, ws ids.UUID, sweep func(*resetCounts) error) (resetCounts, error) {
+func (h dataResetHandlers) runRuntimePhase(ctx context.Context, rt ResetRuntime, ws ids.UUID, clearOutbox func() error, sweep func(*resetCounts) error) (resetCounts, error) {
 	var counts resetCounts
 	if rt.QuiesceQueues != nil {
 		drained, err := rt.QuiesceQueues(ctx)
@@ -74,12 +78,15 @@ func (h dataResetHandlers) runRuntimePhase(ctx context.Context, rt ResetRuntime,
 		}
 		counts.DrainTimedOut = !drained
 	}
+	if err := clearOutbox(); err != nil {
+		return counts, err
+	}
 	if rt.PurgeQueue != nil {
 		n, err := rt.PurgeQueue(ctx, ws)
 		if err != nil {
 			return counts, err
 		}
-		counts.JobsCancelled = n
+		counts.JobsDeleted = n
 	}
 	if rt.PurgeBus != nil {
 		streams, keys, err := rt.PurgeBus(ctx)
@@ -140,6 +147,11 @@ func resumeResetQueues(ctx context.Context, logger *slog.Logger, rt ResetRuntime
 // mode and the auth lockout buckets. The model result cache is NOT here — no
 // Server field carries a ModelPath (each role resolves its own), so the role
 // that built the router composes that flush around this call.
+//
+// Only the system-of-record cache is keyed by ws; ResetRateLimits clears the
+// lockout buckets installation-wide. That is exact rather than over-broad: one
+// installation serves one organization (A107/ADR-0061), so there is no second
+// workspace whose buckets this could reach.
 func (s *Server) FlushResetCaches(ws ids.UUID) {
 	if s.sorDispatch != nil {
 		s.sorDispatch.Invalidate(ws)

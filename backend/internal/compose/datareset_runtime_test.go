@@ -24,8 +24,13 @@ import (
 // runPhase drives the runtime phase over a handler set with no injected
 // surfaces: these cases assert the ResetRuntime ordering, nothing else.
 func runPhase(rt ResetRuntime, sweep func(*resetCounts) error) (resetCounts, error) {
-	return dataResetHandlers{}.runRuntimePhase(context.Background(), rt, ids.NewV7(), sweep)
+	return dataResetHandlers{}.runRuntimePhase(context.Background(), rt, ids.NewV7(), noOutbox, sweep)
 }
+
+// noOutbox stands in for the outbox drain in the cases that assert something
+// else: these handler sets wire no pool, and the drain's own ordering has a
+// test of its own.
+func noOutbox() error { return nil }
 
 // resetHandlers is a handler set whose only wiring is rt — the pause's lifetime
 // belongs to runQuiesced, so every assertion about it goes through that.
@@ -44,7 +49,7 @@ func TestPurgeFailureAbortsBeforeAnyDataIsSweptAndStillResumesTheFleet(t *testin
 		SignalReset:   func(context.Context, ids.UUID) error { return nil },
 	}
 
-	_, err := resetHandlers(rt).runQuiesced(context.Background(), ids.NewV7(), func(*resetCounts) error {
+	_, err := resetHandlers(rt).runQuiesced(context.Background(), ids.NewV7(), noOutbox, func(*resetCounts) error {
 		swept = true
 		return nil
 	})
@@ -57,6 +62,68 @@ func TestPurgeFailureAbortsBeforeAnyDataIsSweptAndStillResumesTheFleet(t *testin
 	}
 	if !resumed {
 		t.Error("the fleet stayed paused after a failure; resume is deferred precisely so this cannot happen")
+	}
+}
+
+// TestTheOutboxIsDrainedBeforeTheStreamsArePurged: the outbox relay is not part
+// of the job fleet the quiesce stops. A staged event still in event_outbox when
+// the streams are emptied is shipped straight back into them, and a subscriber
+// then works it against rows the sweep is deleting — the bus would clear itself
+// only to re-fill from Postgres. Asserted through what each later step
+// OBSERVES, not through a call log.
+func TestTheOutboxIsDrainedBeforeTheStreamsArePurged(t *testing.T) {
+	drained := false
+	drainedAtBusPurge, drainedAtSweep := false, false
+	rt := ResetRuntime{
+		QuiesceQueues: func(context.Context) (bool, error) { return true, nil },
+		ResumeQueues:  func(context.Context) error { return nil },
+		PurgeBus: func(context.Context) (int, int, error) {
+			drainedAtBusPurge = drained
+			return 0, 0, nil
+		},
+	}
+
+	_, err := resetHandlers(rt).runQuiesced(context.Background(), ids.NewV7(),
+		func() error { drained = true; return nil },
+		func(*resetCounts) error { drainedAtSweep = drained; return nil })
+	if err != nil {
+		t.Fatalf("runQuiesced: %v", err)
+	}
+	if !drainedAtBusPurge {
+		t.Error("the streams were purged with events still staged in the outbox; the relay ships them into the streams moments later")
+	}
+	if !drainedAtSweep {
+		t.Error("the sweep ran with events still staged for rows it is deleting")
+	}
+}
+
+// TestAFailedOutboxDrainStopsTheResetBeforeTheBusIsPurged: purging streams the
+// relay is about to re-fill would report a cleared bus that is not cleared, so
+// the drain failing has to stop the reset where it stands — with the data still
+// intact and the fleet lifted again.
+func TestAFailedOutboxDrainStopsTheResetBeforeTheBusIsPurged(t *testing.T) {
+	busPurged, swept, resumed := false, false, false
+	rt := ResetRuntime{
+		QuiesceQueues: func(context.Context) (bool, error) { return true, nil },
+		ResumeQueues:  func(context.Context) error { resumed = true; return nil },
+		PurgeBus:      func(context.Context) (int, int, error) { busPurged = true; return 0, 0, nil },
+	}
+
+	_, err := resetHandlers(rt).runQuiesced(context.Background(), ids.NewV7(),
+		func() error { return errors.New("outbox drain exploded") },
+		func(*resetCounts) error { swept = true; return nil })
+
+	if err == nil {
+		t.Fatal("a failed outbox drain must fail the reset rather than purge a bus that re-fills itself")
+	}
+	if busPurged {
+		t.Error("the streams were purged although the outbox still holds the events that would re-fill them")
+	}
+	if swept {
+		t.Error("data was swept after the outbox drain failed")
+	}
+	if !resumed {
+		t.Error("the fleet stayed paused after the outbox drain failed")
 	}
 }
 
@@ -76,7 +143,7 @@ func TestAFailedQuiesceStillLiftsTheResetsOwnFleetPause(t *testing.T) {
 		PurgeQueue:   func(context.Context, ids.UUID) (int, error) { return 0, nil },
 	}
 
-	_, err := resetHandlers(rt).runQuiesced(context.Background(), ids.NewV7(), func(*resetCounts) error {
+	_, err := resetHandlers(rt).runQuiesced(context.Background(), ids.NewV7(), noOutbox, func(*resetCounts) error {
 		swept = true
 		return nil
 	})
@@ -114,7 +181,7 @@ func TestTheFleetStaysPausedUntilEveryPostCommitPurgeHasRun(t *testing.T) {
 	h.blob = blob
 	h.flush = func(ids.UUID) { pausedAtFlush = paused }
 
-	if _, err := h.runQuiesced(context.Background(), ids.NewV7(), func(*resetCounts) error { return nil }); err != nil {
+	if _, err := h.runQuiesced(context.Background(), ids.NewV7(), noOutbox, func(*resetCounts) error { return nil }); err != nil {
 		t.Fatalf("runQuiesced: %v", err)
 	}
 
@@ -173,7 +240,7 @@ func TestTheResumeOutlivesTheAbandonedResetRequest(t *testing.T) {
 	}
 
 	// The client gives up mid-sweep — the longest step, and the one it waits on.
-	_, err := resetHandlers(rt).runQuiesced(ctx, ids.NewV7(), func(*resetCounts) error {
+	_, err := resetHandlers(rt).runQuiesced(ctx, ids.NewV7(), noOutbox, func(*resetCounts) error {
 		cancel()
 		return ctx.Err()
 	})
@@ -202,7 +269,7 @@ func TestDrainTimeoutIsReportedAndDoesNotFailTheReset(t *testing.T) {
 	if !counts.DrainTimedOut {
 		t.Error("DrainTimedOut = false; the operator would never learn a job was still running")
 	}
-	if counts.JobsCancelled != 3 || counts.StreamsPurged != 12 || counts.CacheKeys != 41 {
+	if counts.JobsDeleted != 3 || counts.StreamsPurged != 12 || counts.CacheKeys != 41 {
 		t.Errorf("counts = %+v; every surface's tally must reach the response", counts)
 	}
 }
@@ -221,7 +288,7 @@ func TestAResetWithoutARuntimeStillSweepsPostgres(t *testing.T) {
 	if !swept {
 		t.Error("the Postgres sweep did not run")
 	}
-	if counts.JobsCancelled != 0 || counts.StreamsPurged != 0 {
+	if counts.JobsDeleted != 0 || counts.StreamsPurged != 0 {
 		t.Errorf("counts = %+v, want zeros", counts)
 	}
 }
@@ -237,7 +304,7 @@ func TestResetSweepSeesThePurgeTalliesAndReportsItsOwn(t *testing.T) {
 	}
 
 	counts, err := runPhase(rt, func(c *resetCounts) error {
-		if c.JobsCancelled != 7 || c.StreamsPurged != 1 || c.CacheKeys != 2 {
+		if c.JobsDeleted != 7 || c.StreamsPurged != 1 || c.CacheKeys != 2 {
 			t.Errorf("sweep saw counts = %+v; the audit evidence it writes must name what the purges cleared", *c)
 		}
 		c.TablesCleared = 5
@@ -327,7 +394,7 @@ func TestAFailedResumeDoesNotFailAnOtherwiseCleanReset(t *testing.T) {
 	}
 
 	h := resetHandlers(rt)
-	if _, err := h.runQuiesced(context.Background(), ids.NewV7(), func(*resetCounts) error { return nil }); err != nil {
+	if _, err := h.runQuiesced(context.Background(), ids.NewV7(), noOutbox, func(*resetCounts) error { return nil }); err != nil {
 		t.Fatalf("resume failure must not fail the reset: %v", err)
 	}
 }

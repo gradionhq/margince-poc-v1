@@ -843,7 +843,7 @@ function ResetDataCard() {
         >
           {t("settings.resetDataResult", {
             tables: summary.tables_cleared,
-            jobs: summary.jobs_cancelled,
+            jobs: summary.jobs_deleted,
             streams: summary.streams_purged,
             keys: summary.cache_keys_deleted,
             objects: summary.objects_deleted,

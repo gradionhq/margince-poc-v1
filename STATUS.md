@@ -37,7 +37,7 @@ their refusal probe checks for, under production RLS).
 
 ## Open — contract drift: the reset's response gained five fields
 
-`backend/api/crm.yaml`'s `resetData` 200 body now declares `jobs_cancelled`,
+`backend/api/crm.yaml`'s `resetData` 200 body now declares `jobs_deleted`,
 `streams_purged`, `cache_keys_deleted`, `objects_deleted` and
 `drain_timed_out`, all required. The spec repo's `specs/contract/crm.yaml` is
 the source of truth (P3) and does not carry them yet — this is deliberate
