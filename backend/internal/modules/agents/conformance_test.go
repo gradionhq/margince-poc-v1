@@ -332,6 +332,48 @@ func TestReadOnlyIsDerivedFromTheEnforcedScope(t *testing.T) {
 	}
 }
 
+// A 🟡 tool is completed by re-presenting the same call with the approval a
+// human released, so `approval_id` is not an optional nicety on those tools: it
+// is the only way to finish one. A schema that omits it while forbidding
+// additional properties tells a validating client the argument does not exist —
+// and this surface is documentation for exactly such clients, and for models
+// reading it as one. Derived from the registered set, so a new confirm-first
+// tool is enrolled the day it is written.
+func TestEveryConfirmFirstToolAdvertisesItsApprovalArgument(t *testing.T) {
+	checked := 0
+	for _, spec := range fullRegistry(t).Specs() {
+		if spec.Tier != mcp.TierConfirmationRequired {
+			continue
+		}
+		checked++
+		// Read as a raw object: JSON Schema's keys are the protocol's
+		// (`additionalProperties`), not this codebase's snake_case.
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(spec.InputSchema, &doc); err != nil {
+			t.Errorf("%s: input schema is not readable: %v", spec.Name, err)
+			continue
+		}
+		var properties map[string]json.RawMessage
+		if err := json.Unmarshal(doc["properties"], &properties); err != nil {
+			t.Errorf("%s: input schema declares no readable properties: %v", spec.Name, err)
+			continue
+		}
+		if _, declared := properties["approval_id"]; declared {
+			continue
+		}
+		// An open schema still lets a client send the argument; a closed one
+		// does not, so only the closed case is a broken redemption path.
+		if closed := string(doc["additionalProperties"]) == "false"; closed {
+			t.Errorf("%s is confirm-first and forbids additional properties, but advertises no "+
+				"approval_id — a client validating against this surface cannot redeem an approval "+
+				"a human already granted", spec.Name)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no confirm-first tool resolved — this gate asserted nothing")
+	}
+}
+
 // Registration is where a spec defect has to stop: past it, the defect is a
 // served response. A title-less tool would render its identifier as its
 // display name, and a non-object output schema is a promise tools/call cannot
