@@ -54,7 +54,7 @@ import { ActorTag } from "./audit";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
   LoadMoreButton,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   throwProblem,
   useLogout,
@@ -391,7 +391,7 @@ function PassportCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/passports");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -412,7 +412,7 @@ function PassportCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -428,7 +428,7 @@ function PassportCard() {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -501,7 +501,7 @@ function PassportCard() {
           className="t-caption"
           style={{ color: "var(--danger)", marginTop: 8 }}
         >
-          {mint.error instanceof Error ? mint.error.message : null}
+          {problemMessageOf(mint.error, t)}
         </p>
       )}
       <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
@@ -604,7 +604,7 @@ function PassportCard() {
         confirmLabel={t("settings.revoke")}
         onConfirm={() => confirmId && revoke.mutate(confirmId)}
         pending={revoke.isPending}
-        error={revoke.error instanceof Error ? revoke.error.message : null}
+        error={revoke.error ? problemMessageOf(revoke.error, t) : null}
       >
         <p>{t("settings.revokeConfirm")}</p>
       </ConfirmModal>
@@ -624,7 +624,7 @@ function AgentToolsCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/agent-tools");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -634,7 +634,7 @@ function AgentToolsCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/passports");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -879,7 +879,7 @@ function ResetDataCard() {
         confirmDisabled={typed.trim() === "" || reset.isPending}
         onConfirm={() => reset.mutate()}
         pending={reset.isPending}
-        error={reset.error instanceof Error ? reset.error.message : null}
+        error={reset.error ? problemMessageOf(reset.error, t) : null}
       >
         <p>{t("settings.resetDataConfirmBody")}</p>
         {workspaceName ? (
@@ -1053,7 +1053,7 @@ function StageCreate({ pipelineId }: Readonly<{ pipelineId: string }>) {
         title={t("stage.new")}
         fields={stageFields(t)}
         pending={mutation.isPending}
-        error={mutation.isError ? mutation.error.message : null}
+        error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
         onSubmit={(values) => mutation.mutate(values)}
       />
     </>
@@ -1206,7 +1206,7 @@ export function PipelinesCard() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -1512,7 +1512,7 @@ export function AuditLogCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1536,7 +1536,7 @@ export function AuditLogCard() {
       <EmptyState>
         <p>{t("common.error")}</p>
         <p className="t-mono" style={{ marginTop: 6 }}>
-          {query.error instanceof Error ? query.error.message : null}
+          {problemMessageOf(query.error, t)}
         </p>
         <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
           {t("common.retry")}

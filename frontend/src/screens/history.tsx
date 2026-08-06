@@ -21,8 +21,8 @@ import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import {
   LoadMoreButton,
-  problemMessage,
   QueryStates,
+  throwProblem,
   useViewerId,
 } from "./common";
 import {
@@ -60,7 +60,7 @@ export function useRecordHistory(
         },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -204,7 +204,7 @@ export function useFieldHistory(
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

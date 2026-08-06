@@ -5,7 +5,7 @@ import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { useNow } from "../../format/now";
 import { useLocale, useT } from "../../i18n";
-import { problemMessage } from "../common";
+import { throwProblem } from "../common";
 import type { PayoffCounts } from "../onboarding-payoff";
 import { PayoffMessage } from "../onboarding-payoff";
 import { ResultsStep } from "../onboarding-results";
@@ -76,7 +76,7 @@ function usePayoffFacts(
         if (response.status === 404) {
           return null;
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

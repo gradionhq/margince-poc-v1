@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
@@ -222,5 +223,102 @@ describe("CompanyContextCard refresh review", () => {
     ).toBeNull();
     expect(screen.queryByRole("checkbox", { name: /Industry/ })).toBeNull();
     expect(screen.getByRole("radio", { name: "Keep current" })).toBeTruthy();
+  });
+});
+
+// Two failures reach the same paragraph and only one of them was written for
+// the person reading it: the start POST answers the URL they just typed, while
+// a status poll answers a read id they never saw.
+describe("CompanyContextCard refresh failures", () => {
+  // The site-read routes split by method here: starting a read and polling it
+  // share a path prefix, and the whole distinction under test is which of the
+  // two failed.
+  function backendWithSiteReads(
+    start: () => Response,
+    poll: () => Response,
+  ): typeof fetch {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request =
+        input instanceof Request ? input : new Request(String(input), init);
+      const path = new URL(request.url).pathname;
+      if (path.startsWith("/v1/company/site-reads")) {
+        return request.method === "POST" ? start() : poll();
+      }
+      return new Response(JSON.stringify(routeBody(path)), {
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+  }
+
+  function problemResponse(detail: string, status: number) {
+    return new Response(JSON.stringify({ detail, status }), {
+      status,
+      headers: { "Content-Type": "application/problem+json" },
+    });
+  }
+
+  async function clickRefresh(stub: typeof fetch) {
+    vi.stubGlobal("fetch", stub);
+    render(
+      <Providers>
+        <CompanyContextCard />
+      </Providers>,
+    );
+    const refresh = await screen.findByRole(
+      "button",
+      { name: "Refresh from website" },
+      { timeout: SETTLE_MS },
+    );
+    // The button appears as soon as the profile lands, but the start it fires
+    // reads the website out of the form state — so the click waits for the
+    // control that holds it rather than for the button alone.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByLabelText<HTMLInputElement>("Public company website")
+            .value,
+        ).toBe(COMPANY.website),
+      { timeout: SETTLE_MS },
+    );
+    await userEvent.click(refresh);
+  }
+
+  it("quotes the server when the start itself was refused", async () => {
+    await clickRefresh(
+      backendWithSiteReads(
+        () => problemResponse("That site refuses automated readers.", 422),
+        () => problemResponse("site read not found", 404),
+      ),
+    );
+
+    expect(
+      await screen.findByText(
+        "That site refuses automated readers.",
+        undefined,
+        { timeout: SETTLE_MS },
+      ),
+    ).toBeTruthy();
+  });
+
+  it("keeps a failed status poll to the catalog sentence", async () => {
+    await clickRefresh(
+      backendWithSiteReads(
+        () =>
+          new Response(JSON.stringify(SITE_READ), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        () => problemResponse("site_read 0000-0020 row not visible", 404),
+      ),
+    );
+
+    expect(
+      await screen.findByText(
+        "We lost track of this website read. Start the refresh again.",
+        undefined,
+        { timeout: SETTLE_MS },
+      ),
+    ).toBeTruthy();
+    // The poll's own detail names a row nobody typed and no reader can act on.
+    expect(screen.queryByText(/row not visible/)).toBeNull();
   });
 });

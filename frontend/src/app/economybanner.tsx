@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { Badge, Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { bandTone } from "../screens/aiusage";
-import { problemMessage } from "../screens/common";
+import { throwProblem } from "../screens/common";
 import { useCan } from "./capability";
 
 export function EconomyBanner() {
@@ -28,7 +28,7 @@ export function EconomyBanner() {
       const { data, error } = await api.GET("/ai/usage", {
         params: { query: { from: today, to: today } },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       if (!data?.budget) throw new Error("malformed AI usage response");
       return data;
     },

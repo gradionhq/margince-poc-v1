@@ -155,7 +155,7 @@ type StubOptions = {
   messageReply?: MessageReply;
   /** A 409 the confirm POST returns instead of succeeding, RFC-7807-shaped
    * so `problemCodeOf` reads the same `code` the real backend sentinels
-   * carry (version_skew / conflict). */
+   * carry (version_skew / already_confirmed / not_confirmable). */
   confirmProblem?: { code: string; detail: string };
   /** GET /company's answer while a confirmProblem is staged: whether the
    * confirmation this 409 blocked had, in fact, already landed. */
@@ -259,17 +259,6 @@ function stubApi(options: StubOptions = {}) {
             { detail: "read fetch failed" },
             options.pollStatus,
           );
-        }
-        // A conflict this driver resolves as "already confirmed" is only
-        // ever trusted from THIS read's own status: the real backend moves
-        // the read itself to "confirmed" the moment its confirmation lands,
-        // so the fixture mirrors that transition once a confirm attempt has
-        // actually gone out, exactly as the recovery's own refetch expects.
-        if (confirmAttempted && options.companyAlreadyExists) {
-          return jsonResponse({
-            ...(options.read ?? readyRead),
-            status: "confirmed",
-          });
         }
         if (confirmAttempted && options.afterConfirmAttempt) {
           return jsonResponse(options.afterConfirmAttempt.read);
@@ -734,7 +723,10 @@ describe("the conversational company act", () => {
   // presented as if it were.
   it("an already-confirmed 409 moves the reader forward instead of leaving them pressing a dead button", async () => {
     stubApi({
-      confirmProblem: { code: "conflict", detail: "already confirmed" },
+      confirmProblem: {
+        code: "already_confirmed",
+        detail: "already confirmed",
+      },
       companyAlreadyExists: true,
     });
     render(<OnboardingScreen />);
@@ -757,13 +749,13 @@ describe("the conversational company act", () => {
     expect(screen.queryByText(/already confirmed/)).toBeNull();
   });
 
-  // The third server state (read not yet confirmable) shares the same
-  // generic 409 code as "already confirmed"; GET /company is how the two
-  // are told apart, and this is the branch where that check comes back
-  // empty — genuinely nothing to move forward to.
+  // The third server state: the read has produced no draft, which it says
+  // in its own code, so nothing has to be probed to tell it apart from an
+  // already-confirmed one — and genuinely nothing is there to move forward
+  // to.
   it("a not-yet-confirmable 409 says so plainly instead of implying a retry would work", async () => {
     stubApi({
-      confirmProblem: { code: "conflict", detail: "read not ready" },
+      confirmProblem: { code: "not_confirmable", detail: "read not ready" },
       companyAlreadyExists: false,
     });
     render(<OnboardingScreen />);
@@ -777,7 +769,7 @@ describe("the conversational company act", () => {
     });
     await userEvent.click(accept);
 
-    expect(await screen.findByText(/not ready to confirm yet/)).toBeTruthy();
+    expect(await screen.findByText(/no draft to confirm yet/)).toBeTruthy();
     expect(screen.queryByText(/read not ready/)).toBeNull();
     expect(screen.queryByText(/Company profile confirmed/)).toBeNull();
   });

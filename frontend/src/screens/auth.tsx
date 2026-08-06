@@ -26,7 +26,7 @@ import {
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AuthExperience, type AuthPhase, PhoneDisclosure } from "./auth-core";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import "./auth.css";
 
 // The default unauthenticated screen is LOGIN, not setup or signup
@@ -160,7 +160,7 @@ export function AuthScreen({
     queryFn: async () => {
       const { data, error } = await api.GET("/auth/capabilities");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -182,7 +182,7 @@ export function AuthScreen({
     queryFn: async () => {
       const { data, error } = await api.GET("/assistant/profile");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -599,7 +599,7 @@ function LoginForm({
         if (response.status === 401) throw new LoginError("credentials");
         if (response.status === 429) throw new LoginError("rate-limited");
         if (response.status >= 500) throw new LoginError("unreachable");
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       // The login response only says the credential exchange succeeded. The
       // session is real when the app's authenticated /me probe accepts the
@@ -774,7 +774,7 @@ function ForgotForm({
         body: { email: email.trim() },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => onSent(email.trim()),
@@ -818,11 +818,7 @@ function ForgotForm({
         </Field>
       </div>
       {request.isError && (
-        <ErrorNote
-          message={
-            request.error instanceof Error ? request.error.message : null
-          }
-        />
+        <ErrorNote message={problemMessageOf(request.error, t)} />
       )}
       <div className="auth-actions">
         <Button

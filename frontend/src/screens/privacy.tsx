@@ -33,7 +33,7 @@ import { humanizeToken } from "./audit";
 import {
   LoadMoreButton,
   ProblemError,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   throwProblem,
 } from "./common";
@@ -65,14 +65,6 @@ type DsrKind = CreateDataSubjectRequest["kind"];
 // nothing in this app called it) and the DSR inbox. GET + POST only — there
 // is no PATCH or DELETE on /consent-purposes, so a purpose is append-only by
 // contract, not by convention; the create form says so up front.
-
-// share.tsx:417's honestMessage idiom, shared by every mutation error render
-// in this file: surface the server's own explanation rather than a canned
-// one. A ProblemError's message is already problemMessage(problem), so this
-// covers both the plain-Error and ProblemError mutation failures below.
-function honestMessage(error: unknown): string | null {
-  return error instanceof Error ? error.message : null;
-}
 
 // The DSR closed status machine (consent/dsr.go's dsrTransitions) rejects an
 // illegal "<from> → <to>" move with a 422 validation_error whose ONE failing
@@ -121,7 +113,7 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -181,7 +173,7 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
         />
         {create.isError && (
           <p className="t-caption purpose-form-error">
-            {honestMessage(create.error)}
+            {problemMessageOf(create.error, t)}
           </p>
         )}
         <Button
@@ -205,7 +197,7 @@ export function ConsentPurposesCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/consent-purposes");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -406,7 +398,9 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
         </Field>
 
         {create.isError && (
-          <p className="t-caption dsr-error">{honestMessage(create.error)}</p>
+          <p className="t-caption dsr-error">
+            {problemMessageOf(create.error, t)}
+          </p>
         )}
 
         <Button
@@ -553,7 +547,7 @@ function DsrRow({
     ? null
     : patchProblem && isIllegalTransition(patchProblem)
       ? t("privacy.movedOn")
-      : honestMessage(patch.error);
+      : problemMessageOf(patch.error, t);
 
   return (
     <li className="dsr-row">
@@ -762,7 +756,9 @@ function FulfilErasureModal({
   // so ConfirmModal's generic inline-error slot (built for a validation
   // mistake) is reserved for everything else.
   const errorMessage =
-    patch.isError && !held && !movedOn ? honestMessage(patch.error) : null;
+    patch.isError && !held && !movedOn
+      ? problemMessageOf(patch.error, t)
+      : null;
 
   return (
     <ConfirmModal
@@ -852,7 +848,7 @@ export function PrivacyInboxCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -890,7 +886,7 @@ export function PrivacyInboxCard() {
       <EmptyState>
         <p>{t("common.error")}</p>
         <p className="t-mono" style={{ marginTop: "var(--space-2)" }}>
-          {query.error instanceof Error ? query.error.message : null}
+          {problemMessageOf(query.error, t)}
         </p>
         <Button
           small

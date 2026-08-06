@@ -2,13 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
-import type { Locale } from "../../i18n";
-import { problemMessage } from "../common";
+import { type Locale, useT } from "../../i18n";
+import { ProblemError, problemMessageOf } from "../common";
 import type { CompanyDraft } from "../onboarding";
 import { onboardingDraftPayload } from "../onboarding";
 import type { SuggestedCompanyChange } from "../onboarding-read";
 import type { ClarifyAnswer } from "./company-proposal";
-import { isCompanyField } from "./company-proposal";
+import { isCompanyField, legalEntityForOption } from "./company-proposal";
 
 // Clarify answering with server authorization: a clicked option travels as
 // selected_option, and ONLY the change matching that exact field+value
@@ -22,10 +22,16 @@ import { isCompanyField } from "./company-proposal";
 // selected_option verifies a single field+value tuple and nothing else), so
 // address and registration number are never in the server's reply. They
 // were already on screen, in the SAME candidate the human just picked
-// (CompanySiteRead.legal_entities, matched by name) — draftWithLegalEntity
-// pulls them from there once legal_name itself is authorized, with the same
+// (CompanySiteRead.legal_entities, matched by name) — the entity fill pulls
+// them from there once legal_name itself is authorized, with the same
 // grounded provenance as any other site-read value, never as if it were a
 // manual edit.
+//
+// One decision leaves one provenance, so the authorized legal_name travels
+// with them rather than down the ordinary change path: that path is for a
+// value the human TYPED and stamps it as their own assertion, which would
+// leave the two fields the same pick filled reading as the site's evidence
+// and the name they were picked by reading as hand-entered.
 
 type MessageReply = components["schemas"]["OnboardingCompanyMessageReply"];
 type Proposal = components["schemas"]["OnboardingCompanyProposal"];
@@ -42,40 +48,64 @@ export type ClarifyFailure =
   | { kind: "request"; detail: string }
   | { kind: "unconfirmed" };
 
-// The one error mutationFn is allowed to throw with a message safe to show
-// verbatim (problemMessage already stripped it of anything internal). Any
-// OTHER exception — a bug in this hook's own onSuccess handling included —
-// is never trusted with a raw .message: onError below treats it the same
-// as an unconfirmed choice rather than surfacing whatever it happened to
-// say.
-class ClarifyRequestError extends Error {}
+// The one error mutationFn is allowed to throw whose words may reach the
+// reader: it carries the messages endpoint's own RFC 7807 body, so the shown
+// detail is a sentence the server composed. Any OTHER exception — a bug in
+// this hook's own onSuccess handling included — is never trusted with a raw
+// .message: onError below treats it the same as an unconfirmed choice rather
+// than surfacing whatever it happened to say.
+class ClarifyRequestError extends ProblemError {}
 
 // The one field name the legal-entity clarify always answers; only an
 // authorized change to THIS field ever triggers the entity-detail fill.
 const LEGAL_ENTITY_FIELD = "legal_name";
 
-// The candidate the human just picked, matched by the exact name the server
-// authorized — never a different entity, never a guess. The choice is
-// already recorded server-side by the time this runs; a bug here is a
-// lesser, separate failure and must never be reported as if the choice
-// itself had failed, so it is caught and logged rather than left to bubble
-// into onError's (unrelated) authorization-failure handling.
-function fillLegalEntity(
-  field: string,
-  value: string,
+// The candidate the human just picked, matched by the name the server
+// authorized — never a different entity, never a guess. The match itself is
+// legalEntityForOption, shared with every other surface that resolves an
+// option value back to its candidate, so what counts as picked is one rule.
+//
+// Only the legal-entity clarify can fill a block: another question's option
+// value may happen to read like a candidate's name without being an answer
+// about which company this is. A pick with no candidate behind it goes down
+// the ordinary change path instead.
+function pickedLegalEntity(
+  selection: OptionSelection,
   legalEntities: readonly LegalEntity[],
+): LegalEntity | undefined {
+  if (selection.field !== LEGAL_ENTITY_FIELD) {
+    return undefined;
+  }
+  return legalEntityForOption(legalEntities, selection.value);
+}
+
+// Where an authorized change lands: through the entity fill when the human
+// chose one of the read's own candidates, so the whole legal block keeps the
+// site's evidence, and down the ordinary change path otherwise.
+//
+// The fallback covers the two cases where no candidate can carry the value:
+// the read has none this pick resolves to (see pickedLegalEntity, which
+// counts a nameless one as none), and a fill that throws. The choice is
+// already recorded server-side by the time this runs, so it has to reach the
+// draft either way — and a bug in the fill is a lesser, separate failure
+// that must never be reported as if the choice itself had failed, so it is
+// caught and logged rather than left to bubble into onError's (unrelated)
+// authorization-failure handling.
+function applyAuthorizedChoice(
+  authorized: readonly SuggestedCompanyChange[],
+  entity: LegalEntity | undefined,
+  applyChanges: (changes: readonly SuggestedCompanyChange[]) => void,
   applyLegalEntity: (entity: LegalEntity) => void,
 ): void {
-  if (field !== LEGAL_ENTITY_FIELD) {
+  if (entity === undefined) {
+    applyChanges(authorized);
     return;
   }
   try {
-    const entity = legalEntities.find((candidate) => candidate.name === value);
-    if (entity) {
-      applyLegalEntity(entity);
-    }
+    applyLegalEntity(entity);
   } catch (fillError) {
     console.error("legal-entity fill failed", fillError);
+    applyChanges(authorized);
   }
 }
 
@@ -90,10 +120,11 @@ type UseClarifyAnswersArgs = Readonly<{
   legalEntitiesRef: Readonly<{ current: readonly LegalEntity[] }>;
   history: () => components["schemas"]["CompanySiteReadConversationTurn"][];
   applyChanges: (changes: readonly SuggestedCompanyChange[]) => void;
-  /** Merges the chosen entity's grounded fields into the draft. Kept apart
-   * from applyChanges: a whole-entity pick carries its own provenance and
-   * its own never-overwrite-an-edit guard, both already decided inside
-   * draftWithLegalEntity rather than at this call site. */
+  /** Merges the chosen entity's whole grounded block — the authorized name
+   * included — into the draft. Kept apart from applyChanges: an entity pick
+   * carries its own provenance and its own never-overwrite-an-edit guard,
+   * both decided by the draft helper it calls rather than at this call
+   * site. */
   applyLegalEntity: (entity: LegalEntity) => void;
 }>;
 
@@ -106,6 +137,7 @@ export function useClarifyAnswers({
   applyChanges,
   applyLegalEntity,
 }: UseClarifyAnswersArgs) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [answers, setAnswers] = useState<ClarifyAnswer[]>([]);
   const [failure, setFailure] = useState<ClarifyFailure | null>(null);
@@ -133,7 +165,7 @@ export function useClarifyAnswers({
         },
       });
       if (error) {
-        throw new ClarifyRequestError(problemMessage(error));
+        throw new ClarifyRequestError(error);
       }
       return data;
     },
@@ -149,11 +181,10 @@ export function useClarifyAnswers({
         isCompanyField(selection.field, values) &&
         values[selection.field] !== selection.value;
       if (authorized.length > 0) {
-        applyChanges(authorized);
-        fillLegalEntity(
-          selection.field,
-          selection.value,
-          legalEntitiesRef.current,
+        applyAuthorizedChoice(
+          authorized,
+          pickedLegalEntity(selection, legalEntitiesRef.current),
+          applyChanges,
           applyLegalEntity,
         );
       } else if (changeNeeded) {
@@ -167,12 +198,14 @@ export function useClarifyAnswers({
     onError: (error, selection) => {
       rollback(selection.clarifyId);
       if (error instanceof ClarifyRequestError) {
-        setFailure({ kind: "request", detail: error.message });
+        setFailure({ kind: "request", detail: problemMessageOf(error, t) });
         return;
       }
-      // Never a raw exception message: whatever actually broke belongs in
-      // the console, not in the sentence the human reads.
-      console.error("clarify authorization failed unexpectedly", error);
+      // Never a raw exception message in the sentence the human reads. The
+      // failure itself needs no report from here: every mutation the
+      // application runs is observed by the client's own sink, which keeps
+      // exactly the ones nobody wrote words for (app/queryclient.ts,
+      // FE-PARAM-4) — a second copy here would report one failure twice.
       setFailure({ kind: "unconfirmed" });
     },
   });

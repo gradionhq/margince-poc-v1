@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
-import { problemMessage } from "../common";
+import { throwProblem } from "../common";
 import type { CompanyForm } from "../onboarding";
 import { wizardStateBody, writeWizardState } from "../onboarding";
 import { isCompanyField } from "./company-proposal";
@@ -69,7 +69,7 @@ async function loadSavedState(): Promise<SavedState> {
   const { data, error, response } = await api.GET("/onboarding/state");
   if (error) {
     if (response.status !== 404) {
-      throw new Error(problemMessage(error));
+      throwProblem(error);
     }
     // 404 = nothing persisted yet: the first write starts at version 0.
     return FRESH_STATE;

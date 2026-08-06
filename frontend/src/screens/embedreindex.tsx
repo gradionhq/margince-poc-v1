@@ -11,7 +11,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDuration, formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { bandTone } from "./aiusage";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 
 // The v6 B2 embedding-reindex surface (ADR-0068 design §5.6-swap). The
 // status read is admin/ops-only server-side now (migration 0114:
@@ -274,7 +274,7 @@ export function EmbedReindexCard() {
     queryFn: async (): Promise<ReindexStatus> => {
       const { data, error } = await api.GET("/embeddings/reindex/status");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       if (!data) {
         throw new Error("malformed reindex status response");
@@ -292,7 +292,7 @@ export function EmbedReindexCard() {
     queryFn: async (): Promise<ReindexPreview> => {
       const { data, error } = await api.GET("/embeddings/reindex/preview");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       if (!data) {
         throw new Error("malformed reindex preview response");
@@ -314,7 +314,7 @@ export function EmbedReindexCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       if (!data) {
         throw new Error("malformed reindex confirm response");
@@ -404,7 +404,7 @@ export function EmbedReindexCard() {
               !preview.data
             }
             pending={confirm.isPending}
-            error={confirm.error?.message}
+            error={confirm.error ? problemMessageOf(confirm.error, t) : null}
             onConfirm={() => {
               // The grant can be withdrawn while this dialog sits open — /me
               // refetches on focus and after any 403 — so the write re-reads it
@@ -420,7 +420,7 @@ export function EmbedReindexCard() {
             )}
             {preview.isError && (
               <p className="t-small" style={{ color: "var(--danger)" }}>
-                {preview.error.message}
+                {problemMessageOf(preview.error, t)}
               </p>
             )}
             <EstimateBody preview={preview.data} locale={locale} t={t} />

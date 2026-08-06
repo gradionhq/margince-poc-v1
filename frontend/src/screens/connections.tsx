@@ -14,7 +14,7 @@ import {
   Skeleton,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { throwProblem } from "./common";
 import "./connections.css";
 import { EntityRef } from "./entityref";
 
@@ -71,7 +71,7 @@ export function useOrganizationGraph(id: string, enabled = true) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

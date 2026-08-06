@@ -12,7 +12,7 @@ import {
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
-import { problemMessage, QueryGate, useMe } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 
 // The automations editor (B-EP09.15): a management UI over the CLOSED
 // catalog (E15/ADR-0035). The anti-DSL invariant of features/10 §1 holds by
@@ -277,7 +277,7 @@ export function AutomationRow({
         body,
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -293,7 +293,7 @@ export function AutomationRow({
         params: { path: { id: automation.id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -304,10 +304,10 @@ export function AutomationRow({
   const enabled = automation.status === "enabled";
 
   let mutationError: string | null = null;
-  if (patch.error instanceof Error) {
-    mutationError = patch.error.message;
-  } else if (remove.error instanceof Error) {
-    mutationError = remove.error.message;
+  if (patch.error) {
+    mutationError = problemMessageOf(patch.error, t);
+  } else if (remove.error) {
+    mutationError = problemMessageOf(remove.error, t);
   }
 
   return (
@@ -426,7 +426,7 @@ export function AutomationsScreen() {
     queryFn: async () => {
       const { data, error } = await api.GET("/automations/catalog");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -439,7 +439,7 @@ export function AutomationsScreen() {
         params: { query: { limit: 50 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -455,7 +455,7 @@ export function AutomationsScreen() {
         body: input,
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -549,7 +549,7 @@ export function AutomationsScreen() {
               className="t-caption"
               style={{ color: "var(--danger)", marginTop: 8 }}
             >
-              {create.error instanceof Error ? create.error.message : null}
+              {problemMessageOf(create.error, t)}
             </p>
           )}
         </section>

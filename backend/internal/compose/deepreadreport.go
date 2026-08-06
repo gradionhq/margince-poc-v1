@@ -22,7 +22,7 @@ func (w *siteDeepReadWorker) reportRead(ctx context.Context, args SiteDeepReadAr
 	if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, extraction.err); deferred {
 		return deferErr
 	}
-	mergedFields, legalConflict := w.gateLegalCensus(ctx, args, claim, crawl, &extraction)
+	mergedFields, legalWarning := w.gateLegalCensus(ctx, args, claim, crawl, &extraction)
 	factCount := len(mergedFields) + len(extraction.merged.facts)
 	if extraction.err != nil && factCount == 0 && len(extraction.merged.people) == 0 && len(extraction.merged.entities) == 0 {
 		// Every lane died before anything was evidenced: nothing honest
@@ -37,7 +37,7 @@ func (w *siteDeepReadWorker) reportRead(ctx context.Context, args SiteDeepReadAr
 	if err != nil {
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}
-	warnings := readWarnings(legalConflict, extraction.err)
+	warnings := readWarnings(legalWarning, extraction.err)
 	draftFields := deepReadFields(mergedFields)
 	draftPeople := siteReadPeople(extraction.merged.people)
 	draftEntities := siteReadLegalEntities(extraction.merged.entities)
@@ -54,18 +54,21 @@ func (w *siteDeepReadWorker) reportRead(ctx context.Context, args SiteDeepReadAr
 
 // gateLegalCensus runs the no-guess legal gate over the extraction: it answers
 // the profile fields that survived, folds those fields back into the census the
-// legal pages voted on, and reports what the gate dropped on the legal lane. A
-// multi-entity conflict is both logged and carried to the dossier as a warning,
-// because the read cannot decide which entity the company is.
-func (w *siteDeepReadWorker) gateLegalCensus(ctx context.Context, args SiteDeepReadArgs, claim people.SiteReadClaim, crawl siteCrawl, extraction *siteExtraction) ([]evidencedField, bool) {
-	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
+// legal pages voted on, and reports what the gate dropped on the legal lane. An
+// abstention is both logged and carried to the dossier as the warning naming the
+// cause that fired — a read that could not settle WHICH entity the company is
+// and a read whose legal page never came back are different things to be told.
+func (w *siteDeepReadWorker) gateLegalCensus(ctx context.Context, args SiteDeepReadArgs, claim people.SiteReadClaim, crawl siteCrawl, extraction *siteExtraction) ([]evidencedField, string) {
+	// The gate answers THAT it abstained; a human is owed WHY, so the cause is
+	// read from the same census the gate votes on.
+	warning := legalAbstentionOf(extraction.merged.entities, extraction.legalCensusIncomplete).warning()
+	mergedFields, _, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
 	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, mergedFields)
 	w.extract.reportDrops(ctx, laneLegal, legalDrops)
-	if legalConflict {
-		w.log.WarnContext(ctx, legalWarningMultipleEntities,
-			"read", args.SiteReadID.String(), "seed", claim.SeedURL)
+	if warning != "" {
+		w.log.WarnContext(ctx, warning, "read", args.SiteReadID.String(), "seed", claim.SeedURL)
 	}
-	return mergedFields, legalConflict
+	return mergedFields, warning
 }
 
 // dossierStatus is the terminal status of a read that evidenced something: a
@@ -109,11 +112,13 @@ func (w *siteDeepReadWorker) landFindings(ctx context.Context, args SiteDeepRead
 }
 
 // readWarnings are the caveats the dossier shows a human: what this read could
-// not settle, so a confirmation is never made on an unstated assumption.
-func readWarnings(legalConflict bool, extractErr error) []string {
+// not settle, so a confirmation is never made on an unstated assumption. The
+// legal caveat arrives already spelled for the cause that fired; empty means the
+// legal gate settled and there is nothing to caveat.
+func readWarnings(legalWarning string, extractErr error) []string {
 	warnings := make([]string, 0, 2)
-	if legalConflict {
-		warnings = append(warnings, legalWarningMultipleEntities)
+	if legalWarning != "" {
+		warnings = append(warnings, legalWarning)
 	}
 	if extractErr != nil {
 		warnings = append(warnings, "Some pages could not be extracted; the grounded findings that completed are still available.")

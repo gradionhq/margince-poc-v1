@@ -3,7 +3,10 @@
 
 package compose
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A group's legal notice states the same entity more than once: every
 // locale of the page repeats it, and each block is headed by the market
@@ -120,5 +123,46 @@ func TestLegalEntityDetailCountsWhatWasPrinted(t *testing.T) {
 		if got := legalEntityDetail(tc.entity); got != tc.want {
 			t.Errorf("%s: legalEntityDetail = %d, want %d", tc.name, got, tc.want)
 		}
+	}
+}
+
+// The trio is withheld for two unrelated reasons, and the human is told
+// which. A run whose legal page failed to extract must never be told the
+// domain hosts several companies — that is a corporate structure nobody
+// read, stated as fact on the strength of a provider outage.
+func TestLegalAbstentionNamesTheCauseThatFired(t *testing.T) {
+	one := []corpusLegalEntity{{Name: "Acme GmbH", SourceURL: seedURL + "/impressum"}}
+	two := []corpusLegalEntity{
+		{Name: "Acme GmbH", SourceURL: seedURL + "/impressum"},
+		{Name: "Acme Pte. Ltd.", SourceURL: seedURL + "/impressum"},
+	}
+	for _, tc := range []struct {
+		name             string
+		entities         []corpusLegalEntity
+		censusIncomplete bool
+		want             legalAbstention
+	}{
+		{"a legal page that never came back", one, true, legalAbstentionCensusIncomplete},
+		{"a domain that states two entities", two, false, legalAbstentionMultipleEntities},
+		{"both: what the site publishes outranks what this run missed", two, true, legalAbstentionMultipleEntities},
+		{"a settled census", one, false, legalAbstentionNone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := legalAbstentionOf(tc.entities, tc.censusIncomplete)
+			if got != tc.want {
+				t.Fatalf("abstention = %q, want %q", got, tc.want)
+			}
+			// The drop record and the sentence a human reads answer the
+			// same question, so they are derived from the same value.
+			if want := tc.want.warning(); got.warning() != want {
+				t.Errorf("warning = %q, want %q", got.warning(), want)
+			}
+		})
+	}
+	if legalAbstentionCensusIncomplete.warning() == legalAbstentionMultipleEntities.warning() {
+		t.Fatal("the two causes must not share one sentence")
+	}
+	if strings.Contains(legalWarningCensusIncomplete, "more than one entity") {
+		t.Errorf("the incomplete-census warning must claim nothing about the number of entities: %q", legalWarningCensusIncomplete)
 	}
 }

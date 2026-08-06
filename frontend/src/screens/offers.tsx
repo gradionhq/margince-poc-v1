@@ -25,7 +25,7 @@ import { type Locale, useLocale, useT } from "../i18n";
 import {
   isVersionSkew,
   ProblemError,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   throwProblem,
 } from "./common";
@@ -65,7 +65,7 @@ function useOfferTemplates() {
         params: { query: { limit: 100 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -98,7 +98,7 @@ function useBuyerOrgPreview(buyerOrgId: string | null, open: boolean) {
         params: { path: { id: buyerOrgId ?? "" } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return {
         id: buyerOrgId ?? "",
@@ -184,7 +184,7 @@ function EditOfferHeaderModal({
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")
-      : mutation.error?.message
+      : problemMessageOf(mutation.error, t)
     : null;
 
   return (
@@ -536,7 +536,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
   const errorMessage = activeError
     ? skew
       ? t("edit.versionSkew")
-      : activeError.message
+      : problemMessageOf(activeError, t)
     : null;
 
   const saveLine =
@@ -870,7 +870,7 @@ function SendOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")
-      : (mutation.error?.message ?? null)
+      : problemMessageOf(mutation.error, t)
     : null;
 
   return (
@@ -935,7 +935,7 @@ function AcceptOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")
-      : (mutation.error?.message ?? null)
+      : problemMessageOf(mutation.error, t)
     : null;
 
   return (
@@ -999,7 +999,7 @@ function RejectOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")
-      : (mutation.error?.message ?? null)
+      : problemMessageOf(mutation.error, t)
     : null;
 
   return (
@@ -1071,7 +1071,9 @@ function RegenerateOfferAction({ offer }: Readonly<{ offer: Offer }>) {
     },
   });
 
-  const errorMessage = mutation.isError ? mutation.error?.message : null;
+  const errorMessage = mutation.isError
+    ? problemMessageOf(mutation.error, t)
+    : null;
 
   return (
     <>
@@ -1240,7 +1242,9 @@ function RenderOfferPdfAction({ offer }: Readonly<{ offer: Offer }>) {
   });
 
   const unavailable = mutation.data?.available === false;
-  const errorMessage = mutation.isError ? mutation.error?.message : null;
+  const errorMessage = mutation.isError
+    ? problemMessageOf(mutation.error, t)
+    : null;
 
   return (
     <section
@@ -1301,7 +1305,7 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

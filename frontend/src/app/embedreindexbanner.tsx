@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { useT } from "../i18n";
-import { problemMessage } from "../screens/common";
+import { throwProblem } from "../screens/common";
 import { embedReindexStatusQueryKey } from "../screens/embedreindex";
 import { useCan } from "./capability";
 
@@ -30,7 +30,7 @@ export function EmbedReindexBanner() {
     queryFn: async () => {
       const { data, error } = await api.GET("/embeddings/reindex/status");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       if (!data) {
         throw new Error("malformed reindex status response");

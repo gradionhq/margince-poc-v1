@@ -7,7 +7,7 @@ import { Badge, Button, SectionHeader } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { type Locale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import type { QueryLike } from "./common";
+import { problemMessageOf, type QueryLike } from "./common";
 
 // The overlay card's read-only health surface (Settings → Integrations):
 // per-object mirror sync freshness and the incumbent API budget window.
@@ -101,9 +101,7 @@ function SyncStatusPanel({
   if (query.isError) {
     return (
       <p className="t-small" style={{ color: "var(--danger)" }}>
-        {query.error instanceof Error
-          ? query.error.message
-          : t("overlay.syncLoadFailed")}
+        {problemMessageOf(query.error, t, t("overlay.syncLoadFailed"))}
       </p>
     );
   }
@@ -216,9 +214,7 @@ function BudgetPanel({ query }: Readonly<{ query: QueryLike<Budget> }>) {
   if (query.isError) {
     return (
       <p className="t-small" style={{ color: "var(--danger)" }}>
-        {query.error instanceof Error
-          ? query.error.message
-          : t("overlay.budgetLoadFailed")}
+        {problemMessageOf(query.error, t, t("overlay.budgetLoadFailed"))}
       </p>
     );
   }

@@ -115,6 +115,11 @@ func WithBlobstore(store blobstore.Store) Option {
 		// as well as read in WithDataReset so neither option order leaves the
 		// reset silently unable to reach the object store.
 		s.dataResetHandlers.blob = store
+		// Same two-way wiring for the onboarding confirmation, which collects
+		// the mark its anchor declined to adopt (WithDeepRead reads s.blob).
+		if s.siteReadHandlers.engine != nil {
+			s.siteReadHandlers.engine.blob = store
+		}
 	}
 }
 

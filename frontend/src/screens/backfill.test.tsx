@@ -295,3 +295,50 @@ describe("honest capability and staleness", () => {
     expect(await screen.findByText(/only be widened/i)).toBeTruthy();
   });
 });
+
+// What the panel PUTS ON THE SCREEN for a failure, which is the half a reader
+// ever sees. Keeping the same failure readable on the console belongs to the
+// client's mutation sink and is pinned once against it (app/queryclient.test).
+describe("a failure nobody wrote for a reader", () => {
+  it("shows the shared line and never the transport wording", async () => {
+    installFetchStub({
+      "POST /connectors/gmail/backfill/preview": () =>
+        jsonResponse(previewOf(400)),
+      "POST /connectors/gmail/backfill": () => {
+        throw new TypeError("ECONNREFUSED: connection refused");
+      },
+    });
+    render(<BackfillPanel provider="gmail" initial={{ state: "none" }} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Start the import/ }),
+    );
+
+    expect(
+      await screen.findByText("The request failed. No cause reported."),
+    ).toBeTruthy();
+    // The wording nobody wrote for a user stays off the screen entirely.
+    expect(screen.queryByText(/ECONNREFUSED/)).toBeNull();
+  });
+
+  it("shows the server's own cause when the server composed one", async () => {
+    installFetchStub({
+      "POST /connectors/gmail/backfill/preview": () =>
+        jsonResponse(previewOf(400)),
+      "POST /connectors/gmail/backfill": () =>
+        jsonResponse(
+          { code: "quota_exhausted", detail: "This month's budget is spent." },
+          429,
+        ),
+    });
+    render(<BackfillPanel provider="gmail" initial={{ state: "none" }} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Start the import/ }),
+    );
+
+    expect(
+      await screen.findByText("This month's budget is spent."),
+    ).toBeTruthy();
+  });
+});

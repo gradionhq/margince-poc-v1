@@ -22,7 +22,7 @@ import {
   isConsentNotGranted,
   ProblemError,
   problemFieldErrorsOf,
-  problemMessage,
+  problemMessageOf,
   throwProblem,
 } from "./common";
 import { useConsentPurposes } from "./consent";
@@ -68,7 +68,7 @@ function useSearchTargets() {
       const { data, error } = await api.GET("/search", {
         params: { query: { q, limit: 10 } },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       const out: RecordPickerCandidate[] = [];
       for (const result of data.data) {
         if (result.type === "activity") continue;
@@ -110,7 +110,7 @@ export function RelinkModal({
       if (!target || !kind) {
         // The confirm is disabled without a target, so this only fires if the
         // remembered kind was lost — surface it, never send an empty relink.
-        throw new Error(t("compose.relinkTarget"));
+        throwProblem({ title: t("compose.relinkTarget") });
       }
       const { data, error } = await api.POST("/activities/{id}/relink", {
         params: {
@@ -123,7 +123,7 @@ export function RelinkModal({
           replace_existing_of_type: replace,
         },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     onSuccess: () => {
@@ -143,7 +143,7 @@ export function RelinkModal({
       confirmDisabled={!target}
       onConfirm={() => mutation.mutate()}
       pending={mutation.isPending}
-      error={mutation.isError ? mutation.error.message : null}
+      error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
     >
       <div className="compose-fields">
         <RecordPicker
@@ -640,9 +640,7 @@ export function ComposeModal({
       // fall through as a fabricated draft and crash the fill on undefined
       // fields. Requiring `data` here also re-narrows it for the fill below.
       if (!response.ok || !data) {
-        throw new Error(
-          problemMessage(error || { title: t("compose.actionFailed") }),
-        );
+        throwProblem(error || { title: t("compose.actionFailed") });
       }
       return { available: true as const, draft: data };
     },
@@ -694,9 +692,7 @@ export function ComposeModal({
       // server's signal is still open — the rep would be told their verdict
       // was recorded when it never left the building.
       if (!response.ok) {
-        throw new Error(
-          problemMessage(error || { title: t("compose.actionFailed") }),
-        );
+        throwProblem(error || { title: t("compose.actionFailed") });
       }
     },
     onMutate: () => {
@@ -771,7 +767,7 @@ export function ComposeModal({
   // must not appear alongside it.
   const refusal = refusalOf(send.error);
   const sendError =
-    send.isError && refusal === null ? send.error.message : null;
+    send.isError && refusal === null ? problemMessageOf(send.error, t) : null;
   const canSend = canSendCompose(isTelegram, { to, subject, body, purpose });
   // While a rejection is in flight the draft it names is being disposed of, so
   // nothing else on this surface may act on that draft: sending would race the
@@ -815,7 +811,7 @@ export function ComposeModal({
               run: () => draft.mutate(),
               pending: draft.isPending,
               disabled: draft.isPending || rejectionInFlight,
-              error: draft.isError ? draft.error.message : null,
+              error: draft.isError ? problemMessageOf(draft.error, t) : null,
             }}
             discard={
               rejectable
@@ -825,7 +821,9 @@ export function ComposeModal({
                     // The mirror of the send gate: a rejection may not be
                     // started against a draft already on its way out.
                     disabled: send.isPending,
-                    error: discard.isError ? discard.error.message : null,
+                    error: discard.isError
+                      ? problemMessageOf(discard.error, t)
+                      : null,
                   }
                 : null
             }
@@ -911,7 +909,7 @@ function useTelegramReachable(
       const { data, error } = await api.GET("/people/{id}", {
         params: { path: { id: personId as string } },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     enabled: isChannel && personId != null,
