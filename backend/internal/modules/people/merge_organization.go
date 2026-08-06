@@ -74,10 +74,10 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 		// retires it, and merging a customer INTO it folds their people, deals
 		// and history onto the installation's own company with no way to tell
 		// them apart afterwards.
-		if err := refuseIfAnchor(ctx, tx, sourceID, "merged into another company"); err != nil {
+		if err := refuseIfAnchor(ctx, tx, sourceID, "id", "it cannot be merged into another company. Merge the duplicate the other way, or archive it"); err != nil {
 			return err
 		}
-		if err := refuseIfAnchor(ctx, tx, targetID, "merged into"); err != nil {
+		if err := refuseIfAnchor(ctx, tx, targetID, "target_id", "nothing can be merged into it. Choose another company as the survivor"); err != nil {
 			return err
 		}
 		if err := refuseWhenBothCarryProjects(ctx, tx, sourceID, targetID); err != nil {

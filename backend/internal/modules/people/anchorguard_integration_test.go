@@ -24,6 +24,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -46,7 +47,7 @@ func TestTheAnchorCannotBeArchived(t *testing.T) {
 
 func TestTheAnchorCannotBeMergedAway(t *testing.T) {
 	env := newAnchorEnv(t)
-	other := env.newOrganization(t, "Brandt GmbH")
+	other := env.newOrganization(t)
 
 	_, err := env.store.MergeOrganization(env.ctx, env.anchorID, other)
 	if !anchorProtected(err) {
@@ -61,7 +62,7 @@ func TestTheAnchorCannotBeMergedAway(t *testing.T) {
 // installation's own company with no way to tell them apart afterwards.
 func TestNothingCanBeMergedIntoTheAnchor(t *testing.T) {
 	env := newAnchorEnv(t)
-	other := env.newOrganization(t, "Brandt GmbH")
+	other := env.newOrganization(t)
 
 	_, err := env.store.MergeOrganization(env.ctx, other, env.anchorID)
 	if !anchorProtected(err) {
@@ -91,7 +92,7 @@ func TestTheSchemaRefusesToRetireTheAnchor(t *testing.T) {
 // selling to", and present when a caller asks for it (PO-AC-43).
 func TestTheAnchorIsAbsentFromTheCompanyListUntilAskedFor(t *testing.T) {
 	env := newAnchorEnv(t)
-	env.newOrganization(t, "Brandt GmbH")
+	env.newOrganization(t)
 
 	listed, _, err := env.store.ListOrganizations(env.ctx, ListOrganizationsInput{})
 	if err != nil {
@@ -159,21 +160,87 @@ func newAnchorEnv(t *testing.T) *anchorEnv {
 	}
 }
 
-// newOrganization creates an ordinary customer company.
-func (e *anchorEnv) newOrganization(t *testing.T, name string) ids.OrganizationID {
+// newOrganization creates an ordinary customer company — the other side of
+// every refusal here, and the thing the anchor must stay distinguishable from.
+func (e *anchorEnv) newOrganization(t *testing.T) ids.OrganizationID {
 	t.Helper()
-	org, err := e.store.CreateOrganization(e.ctx, CreateOrganizationInput{DisplayName: name})
+	org, err := e.store.CreateOrganization(e.ctx, CreateOrganizationInput{DisplayName: "Brandt GmbH"})
 	if err != nil {
-		t.Fatalf("creating %s: %v", name, err)
+		t.Fatalf("creating the customer company: %v", err)
 	}
 	return ids.OrganizationID{UUID: ids.UUID(org.Id)}
 }
 
+// assertCompanyStillReadable checks the durable row, not only that the read
+// answers. A refusal returned from inside the transaction rolls back by
+// construction, so asserting the read alone would pass for a guard that refused
+// AFTER a partial write; the row's own state is what would catch that.
 func (e *anchorEnv) assertCompanyStillReadable(t *testing.T) {
 	t.Helper()
 	if _, err := e.store.GetCompany(e.ctx); err != nil {
 		t.Fatalf("the company read must survive a refused operation, got %v — a workspace whose anchor is gone reads as one that was never set up", err)
 	}
+	var intact bool
+	if err := database.WithWorkspaceTx(e.ctx, e.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.ctx, `
+			SELECT is_anchor AND archived_at IS NULL AND merged_into_id IS NULL
+			  FROM organization WHERE id = $1`, e.anchorID).Scan(&intact)
+	}); err != nil {
+		t.Fatalf("reading the anchor row: %v", err)
+	}
+	if !intact {
+		t.Fatal("the anchor row was touched by a refused operation")
+	}
+}
+
+// The trigger is the half of the guard no service call can reach: a merge
+// refused by the store never writes merged_into_id, so only a direct write
+// proves the trigger exists, fires on the column, and names the constraint the
+// error classifier reads.
+func TestTheSchemaRefusesAMergeIntoTheAnchor(t *testing.T) {
+	env := newAnchorEnv(t)
+	other := env.newOrganization(t)
+
+	err := database.WithWorkspaceTx(env.ctx, env.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(env.ctx,
+			`UPDATE organization SET merged_into_id = $1 WHERE id = $2`, env.anchorID, other)
+		return err
+	})
+	if err == nil {
+		t.Fatal("a direct merge into the anchor was accepted — the trigger must refuse it")
+	}
+	name, ok := storekit.CheckViolation(err)
+	if !ok {
+		t.Fatalf("got %v, want a check violation the error classifier can answer 422 for", err)
+	}
+	if name != "organization_anchor_is_permanent" {
+		t.Errorf("constraint = %q, want organization_anchor_is_permanent — the name is what the classifier reads", name)
+	}
+	env.assertCompanyStillReadable(t)
+}
+
+// Clearing is_anchor and archiving in one statement satisfies the CHECK, which
+// only reads the row's final state — so the demotion arm of the trigger is what
+// stands between a direct writer and an installation left with no anchor at all.
+func TestTheSchemaRefusesDemotingTheAnchor(t *testing.T) {
+	env := newAnchorEnv(t)
+
+	err := database.WithWorkspaceTx(env.ctx, env.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(env.ctx,
+			`UPDATE organization SET is_anchor = false, archived_at = now() WHERE id = $1`, env.anchorID)
+		return err
+	})
+	if err == nil {
+		t.Fatal("clearing is_anchor while archiving was accepted — the workspace would read as never configured")
+	}
+	name, ok := storekit.CheckViolation(err)
+	if !ok {
+		t.Fatalf("got %v, want a check violation the error classifier can answer 422 for", err)
+	}
+	if name != "organization_anchor_is_permanent" {
+		t.Errorf("constraint = %q, want organization_anchor_is_permanent — the name is what the classifier reads", name)
+	}
+	env.assertCompanyStillReadable(t)
 }
 
 // openapiUUID renders a typed id in the wire model's uuid type, so a

@@ -40,7 +40,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
-		if err := refuseIfAnchor(ctx, tx, id, "archived"); err != nil {
+		if err := refuseIfAnchor(ctx, tx, id, "id", "it cannot be archived. Archive a different company, or edit this one on the company page"); err != nil {
 			return err
 		}
 		if _, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {

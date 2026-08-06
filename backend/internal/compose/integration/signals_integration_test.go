@@ -310,6 +310,38 @@ func TestResolverDropsTheUnattributable(t *testing.T) {
 	}
 }
 
+// The installation's own company is never a signal subject, on any of the
+// resolver's match arms. The prior-interaction arm is the one that has to be
+// asked directly: our own staff are employed at the anchor, so a colleague
+// writing from an address on no registered domain matches it and nothing else
+// (ADR-0082/A127).
+func TestResolverNeverAttributesToTheOwnCompany(t *testing.T) {
+	e := setupSearch(t)
+	store := signalStore(e)
+	admin := e.adminSignals()
+
+	anchor := e.seed(t,
+		`INSERT INTO organization (id, workspace_id, display_name, owner_id, is_anchor, source, captured_by)
+		 VALUES ($1, $2, $3, $4, true, 'manual', 'human:x')`, "Our Own Company", e.Rep1)
+	colleague := e.seedEmployedContact(t, anchor, "Robin Colleague", "robin@private.invalid")
+	e.grantConsent(t, colleague)
+
+	sigID := createRaw(t, store, admin, "inbound:robin@private.invalid")
+	got, err := store.Resolve(admin, sigID)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if string(got.ResolutionState) != "dropped" {
+		t.Fatalf("resolution_state = %q, want dropped — the own company is not an account to hold signals about", got.ResolutionState)
+	}
+	if got.ResolvedOrgId != nil {
+		t.Fatalf("resolved_org_id = %v, want nil — a colleague's mail resolved to the installation's own company", got.ResolvedOrgId)
+	}
+	if got.ResolvedPersonId != nil {
+		t.Fatalf("resolved_person_id = %v, want nil — an unattributed signal links nobody", got.ResolvedPersonId)
+	}
+}
+
 // The warm/cold branch classifies by our own contact graph: an org where
 // we hold a live contact is warm (routes to the warm room) and answers
 // with the contact evidence; an org with no contact is cold.

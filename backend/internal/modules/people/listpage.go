@@ -122,17 +122,10 @@ func listPage[T any](ctx context.Context, s *Store, sortSpec *string, limitIn *i
 // organization classification) append alongside in the spec's filters.
 type listFilters struct {
 	IncludeArchived bool
-	// IncludeAnchor admits the installation's own company. It is excluded by
-	// default because these lists answer "which companies are we selling to",
-	// and the company running the CRM is not one of them (ADR-0082/A127). The
-	// shape is IncludeArchived's, deliberately: a class of rows almost never
-	// wanted, never silently unreachable. Only the organization list reads it —
-	// the anchor is one organization, and no person or deal is one.
-	IncludeAnchor bool
-	OwnerID       *ids.UserID
-	Query         *string
-	Cursor        *string
-	CustomFilters map[string]string
+	OwnerID         *ids.UserID
+	Query           *string
+	Cursor          *string
+	CustomFilters   map[string]string
 	// CapturedByKind filters on WHO created the row, matched against the
 	// captured_by prefix. `agent` is the review list for the records an AI
 	// created (ADR-0075/A121 §3a). capturedByKindClause checks it against the
@@ -269,9 +262,6 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	var where []string
 	if !f.IncludeArchived {
 		where = append(where, "archived_at IS NULL")
-	}
-	if !f.IncludeAnchor && f.entity == organizationEntity {
-		where = append(where, "NOT is_anchor")
 	}
 	if f.OwnerID != nil {
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*f.OwnerID)))

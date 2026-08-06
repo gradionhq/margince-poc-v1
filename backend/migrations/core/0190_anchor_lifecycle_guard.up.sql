@@ -39,12 +39,19 @@ ALTER TABLE organization
   ADD CONSTRAINT organization_anchor_is_permanent
   CHECK (NOT is_anchor OR (archived_at IS NULL AND merged_into_id IS NULL));
 
--- The merge TARGET needs a trigger rather than a CHECK: folding a customer into
--- the anchor leaves the anchor's own row untouched, so no constraint on it ever
--- fires — the damage is on the other side, where a customer's people, deals and
--- history are relinked onto the installation's own company and cannot be told
--- apart afterwards.
-CREATE OR REPLACE FUNCTION organization_refuse_merge_into_anchor() RETURNS trigger
+-- Two cases the CHECK above cannot reach, both of which retire the anchor:
+--
+-- 1. Merging a CUSTOMER into the anchor leaves the anchor's own row untouched,
+--    so no constraint on it ever fires — the damage is on the other side, where
+--    a customer's people, deals and history are relinked onto the
+--    installation's own company and cannot be told apart afterwards.
+-- 2. Clearing is_anchor and archiving in the SAME write satisfies the CHECK,
+--    which only reads the row's final state. The installation would be left
+--    with no anchor at all, which is the loss this migration exists to prevent.
+--    The flag is set once, when the installation is configured, and no product
+--    path updates it; a write that clears it is a direct writer, which is
+--    exactly who the schema half of this guard is for.
+CREATE OR REPLACE FUNCTION organization_refuse_anchor_retirement() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   IF NEW.merged_into_id IS NOT NULL
@@ -54,11 +61,18 @@ BEGIN
       USING ERRCODE = 'check_violation',
             CONSTRAINT = 'organization_anchor_is_permanent';
   END IF;
+  IF TG_OP = 'UPDATE' AND OLD.is_anchor AND NOT NEW.is_anchor
+     AND OLD.archived_at IS NULL AND OLD.merged_into_id IS NULL THEN
+    RAISE EXCEPTION 'organization % is the anchor organization and may not be demoted', NEW.id
+      USING ERRCODE = 'check_violation',
+            CONSTRAINT = 'organization_anchor_is_permanent';
+  END IF;
   RETURN NEW;
 END;
 $$;
 
 DROP TRIGGER IF EXISTS organization_refuse_merge_into_anchor ON organization;
-CREATE TRIGGER organization_refuse_merge_into_anchor
-  BEFORE INSERT OR UPDATE OF merged_into_id ON organization
-  FOR EACH ROW EXECUTE FUNCTION organization_refuse_merge_into_anchor();
+DROP TRIGGER IF EXISTS organization_refuse_anchor_retirement ON organization;
+CREATE TRIGGER organization_refuse_anchor_retirement
+  BEFORE INSERT OR UPDATE OF merged_into_id, is_anchor ON organization
+  FOR EACH ROW EXECUTE FUNCTION organization_refuse_anchor_retirement();

@@ -149,6 +149,10 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 	if len(arms) == 0 {
 		return OrganizationMatch{Decision: DecisionNoMatch}, nil
 	}
+	// Tier 1 (exactOrgByDomain, above) keeps the anchor deliberately: a domain
+	// hit landing a colleague on the own company is the employer inference that
+	// path exists for. This tier is name similarity, where the own company's
+	// name matching a captured record is a coincidence, not a fact.
 	rows, err := tx.Query(ctx, `
 		SELECT id, display_name, coalesce(legal_name, '') FROM organization
 		 WHERE archived_at IS NULL

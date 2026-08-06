@@ -64,7 +64,10 @@ type searchBranch struct {
 	title        string
 	snippet      string
 	activityWalk bool
-	// extraWhere narrows the branch beyond archived_at and the row scope.
+	// extraWhere narrows DISCOVERY on this branch, beyond archived_at and the
+	// row scope. The by-id graph anchor read (graph.go) deliberately does not
+	// apply it: a record named by id is not being discovered, and the own
+	// company stays readable everywhere it is asked for by name.
 	// The organization branch uses it to keep the installation's own company
 	// out of results: search is how people find accounts, and the company
 	// running the CRM is not one to find (ADR-0082/A127). It stays reachable

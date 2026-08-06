@@ -13,6 +13,8 @@ package people
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -22,28 +24,43 @@ import (
 // AnchorProtectedError refuses an operation that would retire the workspace's
 // own company. Losing it is not a lost record: the company read resolves only a
 // live anchor, so the whole workspace reads as one that was never configured.
-type AnchorProtectedError struct{ Action string }
-
-func (e *AnchorProtectedError) Error() string {
-	return "this is the workspace's own company; it cannot be " + e.Action
+type AnchorProtectedError struct {
+	// Field names the request value that carried the anchor, so a caller sent
+	// two ids knows which one is refused: a merge names its source in the path
+	// and its target in the body, and blaming the path id for a bad target
+	// points the client at a value that was fine.
+	Field  string
+	Action string
 }
 
-// FieldFault maps it onto the wire as a 422 naming the record.
+func (e *AnchorProtectedError) Error() string {
+	return "this is the workspace's own company; " + e.Action
+}
+
+// FieldFault maps it onto the wire as a 422 naming the value to change.
 func (e *AnchorProtectedError) FieldFault() (field, code, message string) {
-	return "id", "anchor_protected", e.Error()
+	return e.Field, "anchor_protected", e.Error()
 }
 
 // refuseIfAnchor stops an operation naming the installation's own company.
-func refuseIfAnchor(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, action string) error {
+func refuseIfAnchor(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, field, action string) error {
 	var anchor bool
-	if err := tx.QueryRow(ctx,
-		`SELECT is_anchor FROM organization WHERE id = $1`, orgID).Scan(&anchor); err != nil {
-		// A row that is not there is not the anchor; the caller's own
-		// not-found path reports it.
-		return nil //nolint:nilerr // deliberate: absence is the caller's answer to give, not this guard's
+	switch err := tx.QueryRow(ctx,
+		`SELECT is_anchor FROM organization WHERE id = $1`, orgID).Scan(&anchor); {
+	case err == nil:
+	case errors.Is(err, pgx.ErrNoRows):
+		// A row that is not there is not the anchor, and the caller's own
+		// not-found path is the one that should say so.
+		return nil
+	default:
+		// Anything else is unknown, not absent. Returning nil here would let a
+		// dead connection or an aborted transaction PERMIT the operation this
+		// guard exists to refuse — and in a merge that means relinking a
+		// customer's people, deals and history before the schema stops it.
+		return fmt.Errorf("people: reading the anchor flag for organization %s: %w", orgID, err)
 	}
 	if anchor {
-		return &AnchorProtectedError{Action: action}
+		return &AnchorProtectedError{Field: field, Action: action}
 	}
 	return nil
 }
