@@ -137,12 +137,14 @@ test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
   // The language control is a preference, so it lives in the account menu
   // rather than in the top bar: reaching it takes opening that menu.
   await page.getByRole("button", { name: "Konto" }).click();
-  await page.getByRole("button", { name: "Auf Englisch umschalten" }).click();
+  await page
+    .getByRole("button", { name: "Sprache: Auf Englisch umschalten" })
+    .click();
   await expect(page.locator('nav.rail a[aria-label="Contacts"]')).toBeVisible();
   // The menu stays open across the switch, and comes back in the new locale —
   // the same row now offers the way back.
   await expect(
-    page.getByRole("button", { name: "Switch to German" }),
+    page.getByRole("button", { name: "Language: Switch to German" }),
   ).toBeVisible();
 });
 

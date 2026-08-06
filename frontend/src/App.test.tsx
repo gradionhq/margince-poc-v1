@@ -140,7 +140,7 @@ describe("locale switch", () => {
     // The language control lives in the account menu, so the switch takes opening it.
     await userEvent.click(screen.getByRole("button", { name: "Account" }));
     await userEvent.click(
-      screen.getByRole("button", { name: "Switch to German" }),
+      screen.getByRole("button", { name: "Language: Switch to German" }),
     );
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Kontakte" })).toBeTruthy(),

@@ -474,10 +474,12 @@ export function TopBar({
 }
 
 // The two preference rows: language, then theme, each stating what it is set to
-// now. The name a screen reader gets is the ACTION ("Switch to German", "Dark
-// theme") rather than the row's visible text, because a menu item has to say what
-// activating it does — the visible value is there for the eye, which can see both
-// halves of the row at once.
+// now. The name carries BOTH halves — the visible label, then the action
+// ("Language: Switch to German") — and each half is load-bearing. A menu item has
+// to say what activating it does, or the name describes a state rather than a
+// control; and WCAG 2.5.3 (Label in Name) requires the visible label to be part of
+// the name, or a speech-input user who says the word they can read ("Language")
+// activates nothing.
 //
 // Both keep the menu OPEN: they stop the click from reaching the document
 // listener that dismisses it. Changing a preference is a thing you may want to do
@@ -494,7 +496,9 @@ function MenuPreferences() {
     <>
       <button
         type="button"
-        aria-label={german ? t("locale.toEnglish") : t("locale.toGerman")}
+        aria-label={`${t("shell.language")}: ${
+          german ? t("locale.toEnglish") : t("locale.toGerman")
+        }`}
         onClick={(event) => {
           event.stopPropagation();
           setLocale(german ? "en" : "de");
@@ -508,7 +512,9 @@ function MenuPreferences() {
       </button>
       <button
         type="button"
-        aria-label={light ? t("theme.switchToDark") : t("theme.switchToLight")}
+        aria-label={`${t("shell.theme")}: ${
+          light ? t("theme.switchToDark") : t("theme.switchToLight")
+        }`}
         onClick={(event) => {
           event.stopPropagation();
           toggleTheme();

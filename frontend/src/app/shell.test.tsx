@@ -382,7 +382,7 @@ describe("TopBar (§2b contextual truth)", () => {
     render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
     // Closed, none of them is reachable — that is the point of moving them.
     expect(
-      screen.queryByRole("button", { name: "Switch to German" }),
+      screen.queryByRole("button", { name: "Language: Switch to German" }),
     ).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Account" }));
     const menu = screen
@@ -403,10 +403,14 @@ describe("TopBar (§2b contextual truth)", () => {
     expect(rows[3]).toBe("Sign out");
     // Each preference row states what it is set to now and is NAMED by what
     // activating it does — the two halves a menu item needs.
-    const language = screen.getByRole("button", { name: "Switch to German" });
+    const language = screen.getByRole("button", {
+      name: "Language: Switch to German",
+    });
     expect(language.textContent).toContain("English");
     expect(
-      screen.getByRole("button", { name: /^Switch to (dark|light) theme$/ }),
+      screen.getByRole("button", {
+        name: /^Theme: Switch to (dark|light) theme$/,
+      }),
     ).toBeTruthy();
   });
 
@@ -415,7 +419,9 @@ describe("TopBar (§2b contextual truth)", () => {
     const avatar = screen.getByRole("button", { name: "Account" });
     await userEvent.click(avatar);
     // Standing on a row, the way a keyboard user arrives at one.
-    const language = screen.getByRole("button", { name: "Switch to German" });
+    const language = screen.getByRole("button", {
+      name: "Language: Switch to German",
+    });
     language.focus();
     expect(document.activeElement).toBe(language);
 
@@ -430,14 +436,14 @@ describe("TopBar (§2b contextual truth)", () => {
     render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
     await userEvent.click(screen.getByRole("button", { name: "Account" }));
     const theme = screen.getByRole("button", {
-      name: /^Switch to (dark|light) theme$/,
+      name: /^Theme: Switch to (dark|light) theme$/,
     });
     const before = theme.getAttribute("aria-label");
     await userEvent.click(theme);
     // The row is still there, now offering the way back: a menu that dismissed
     // itself would take the control out of view together with the change.
     const after = screen.getByRole("button", {
-      name: /^Switch to (dark|light) theme$/,
+      name: /^Theme: Switch to (dark|light) theme$/,
     });
     expect(after.getAttribute("aria-label")).not.toBe(before);
 
@@ -447,7 +453,7 @@ describe("TopBar (§2b contextual truth)", () => {
     // test in this file a theme that depends on test order.
     await userEvent.click(after);
     const restored = screen.getByRole("button", {
-      name: /^Switch to (dark|light) theme$/,
+      name: /^Theme: Switch to (dark|light) theme$/,
     });
     expect(restored.getAttribute("aria-label")).toBe(before);
   });
