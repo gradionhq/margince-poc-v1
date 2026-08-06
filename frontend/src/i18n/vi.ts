@@ -1498,7 +1498,7 @@ export const vi = {
   "ob.corePreparing": "Tôi đang chuẩn bị đọc {host}",
   "ob.coreLegalReading": "Tôi đang đọc danh tính pháp lý trên {host}",
   "ob.coreLegalReadingBody":
-    "Tôi đang tìm phần thông tin pháp lý, tổ chức đã đăng ký, địa chỉ và số đăng ký hoặc mã số thuế/UID. Điều gì không được nêu thì tôi để trống.",
+    "Tôi đang tìm phần thông tin pháp lý, pháp nhân đã đăng ký, địa chỉ và số đăng ký hoặc mã số thuế/UID. Điều gì không được nêu thì tôi để trống.",
   "ob.coreBusinessReading": "Tôi đang tìm hiểu cách công ty vận hành",
   "ob.coreBusinessReadingBody":
     "Tôi đang nối sản phẩm, khách hàng và định vị với đúng đoạn văn bản công khai chứng minh cho chúng.",
