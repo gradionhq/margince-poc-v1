@@ -350,7 +350,12 @@ function usePageTitle(title: string) {
 
 // LocaleFooter is the one footer utility that actually works today (§3.3
 // honesty: no Privacy/Help links exist yet, so none render). Language
-// names are proper nouns, deliberately not translated.
+// names are proper nouns, deliberately not translated — which is exactly why
+// each carries its own `lang` below: three languages sit in a document
+// declared to be in one, and a screen reader would otherwise read "Tiếng
+// Việt" with the phonemes of whichever locale is currently on. Same WCAG
+// 3.1.1 rule LocaleProvider keeps for the document; our locale codes are BCP
+// 47 language subtags, so the code IS the value `lang` wants.
 function LocaleFooter() {
   const t = useT();
   const { locale, setLocale } = useLocale();
@@ -365,7 +370,7 @@ function LocaleFooter() {
             aria-pressed={option === locale}
             onClick={() => setLocale(option)}
           >
-            {t(localeNameKey(option))}
+            <span lang={option}>{t(localeNameKey(option))}</span>
           </button>
         </Fragment>
       ))}

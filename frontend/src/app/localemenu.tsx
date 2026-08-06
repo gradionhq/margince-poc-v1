@@ -2,8 +2,110 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { Check } from "lucide-react";
-import { useEffect, useState } from "react";
-import { LOCALES, localeNameKey, useLocale, useT } from "../i18n";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { LOCALES, type Locale, localeNameKey, useLocale, useT } from "../i18n";
+
+// The movement `role="menu"` obliges: Up/Down step and wrap, Home/End jump to
+// the ends. A Map rather than an object literal so a keystroke can never reach
+// something inherited from Object.prototype.
+const NAVIGATION = new Map<string, (from: number) => number>([
+  ["ArrowDown", (from) => from + 1],
+  ["ArrowUp", (from) => from - 1],
+  ["Home", () => 0],
+  ["End", () => LOCALES.length - 1],
+]);
+
+/**
+ * The open list of languages.
+ *
+ * Split from the trigger because focus is the whole job here: mounting IS
+ * opening, so one effect can put focus on the language already in force and
+ * then follow the arrows, and unmounting cannot leave a stale position behind.
+ */
+function LocaleList({
+  current,
+  onSelect,
+  onDismiss,
+}: Readonly<{
+  current: Locale;
+  onSelect: (locale: Locale) => void;
+  onDismiss: () => void;
+}>) {
+  const t = useT();
+  const items = useRef<(HTMLButtonElement | null)[]>([]);
+  // The list opens on the current language, so the reader is told where they
+  // already are before they move. i18n.test.ts proves LOCALES covers every
+  // catalog, so the current locale is listed; a list that lost an entry would
+  // otherwise open with focus on nothing at all, which is the one outcome this
+  // component exists to prevent — so an unlisted current falls to the top row.
+  const [active, setActive] = useState(() =>
+    Math.max(LOCALES.indexOf(current), 0),
+  );
+
+  useEffect(() => {
+    items.current[active]?.focus();
+  }, [active]);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Tab means the reader is leaving. The menu closes behind them rather than
+    // staying open, and expanded, over a page they have moved on from.
+    if (event.key === "Tab") {
+      onDismiss();
+      return;
+    }
+    const move = NAVIGATION.get(event.key);
+    if (!move) {
+      return;
+    }
+    // These keys scroll the document by default; inside the menu they ARE the
+    // navigation, so the page must not move underneath it.
+    event.preventDefault();
+    setActive((from) => (move(from) + LOCALES.length) % LOCALES.length);
+  };
+
+  return (
+    <div
+      className="localelist"
+      role="menu"
+      // Without a name a screen reader announces this second layer as "menu"
+      // and nothing else — the reader is told a list opened but not of what.
+      aria-label={t("locale.switchLabel")}
+      onKeyDown={onKeyDown}
+    >
+      {LOCALES.map((option, index) => (
+        <button
+          key={option}
+          type="button"
+          role="menuitemradio"
+          aria-checked={option === current}
+          // A roving tabstop: one Tab reaches the list, one Tab leaves it, and
+          // the arrows move within it. Tab through every language would make
+          // the menu a wall rather than a choice.
+          tabIndex={index === active ? 0 : -1}
+          ref={(node) => {
+            items.current[index] = node;
+          }}
+          onClick={() => onSelect(option)}
+        >
+          {/* Three languages inside a document declared to be in one. Without
+              its own `lang` a screen reader reads "Tiếng Việt" with the
+              phonemes of whichever locale is currently on — the same WCAG 3.1.1
+              rule LocaleProvider keeps for the document, applied to the control
+              that changes it. Our locale codes are BCP 47 language subtags, so
+              the code IS the value `lang` wants. */}
+          <span lang={option}>{t(localeNameKey(option))}</span>
+          {option === current && <Check size={14} aria-hidden />}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /**
  * The language control in the top bar.
@@ -20,6 +122,29 @@ export function LocaleMenu({ className }: Readonly<{ className: string }>) {
   const t = useT();
   const { locale, setLocale } = useLocale();
   const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+
+  // Closing must not strand the reader at the top of the document — this is
+  // the only in-app control for changing language, so the person most likely
+  // to need it is the one least able to recover from losing focus.
+  //
+  // Focus goes back to the trigger unless the closing gesture has already
+  // handed it to another control: a click into a text field has said where
+  // focus belongs and pulling it back would fight the reader. Focus on <body>
+  // is the opposite case — the menu that held it has just gone away and left
+  // nothing behind, which is exactly the stranding this repairs.
+  const close = useCallback(() => {
+    const focused = document.activeElement;
+    const claimed =
+      focused !== null &&
+      focused !== document.body &&
+      !(wrap.current?.contains(focused) ?? false);
+    setOpen(false);
+    if (!claimed) {
+      trigger.current?.focus();
+    }
+  }, []);
 
   // Dismissal lives on the document so Escape works from anywhere in the menu
   // and any outside click closes it — the opening click is deferred past so it
@@ -30,10 +155,10 @@ export function LocaleMenu({ className }: Readonly<{ className: string }>) {
     }
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
+        close();
       }
     };
-    const onClick = () => setOpen(false);
+    const onClick = () => close();
     document.addEventListener("keydown", onKey);
     const timer = window.setTimeout(
       () => document.addEventListener("click", onClick),
@@ -44,12 +169,13 @@ export function LocaleMenu({ className }: Readonly<{ className: string }>) {
       window.clearTimeout(timer);
       document.removeEventListener("click", onClick);
     };
-  }, [open]);
+  }, [open, close]);
 
   return (
-    <div className="localemenu">
+    <div className="localemenu" ref={wrap}>
       <button
         type="button"
+        ref={trigger}
         className={className}
         // The visible face is a two-letter code, which a screen reader spells
         // out and a voice-control user cannot say. Naming the current language
@@ -58,25 +184,22 @@ export function LocaleMenu({ className }: Readonly<{ className: string }>) {
         aria-label={`${t("locale.switchLabel")}: ${t(localeNameKey(locale))}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => (open ? close() : setOpen(true))}
       >
         <span className="t-mono">{locale.toUpperCase()}</span>
       </button>
       {open && (
-        <div className="localelist" role="menu">
-          {LOCALES.map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="menuitemradio"
-              aria-checked={option === locale}
-              onClick={() => setLocale(option)}
-            >
-              {t(localeNameKey(option))}
-              {option === locale && <Check size={14} aria-hidden />}
-            </button>
-          ))}
-        </div>
+        <LocaleList
+          current={locale}
+          // A choice closes the menu the same way a dismissal does — through
+          // `close`, so the reader lands back on the trigger, which now names
+          // the language they just picked.
+          onSelect={(option) => {
+            setLocale(option);
+            close();
+          }}
+          onDismiss={close}
+        />
       )}
     </div>
   );

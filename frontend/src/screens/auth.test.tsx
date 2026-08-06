@@ -161,6 +161,24 @@ describe("AuthScreen login", () => {
     }
   });
 
+  // The document declares ONE language (LocaleProvider, WCAG 3.1.1) and this
+  // row shows three. Unmarked, a screen reader reads every name with the
+  // phonemes of whichever locale is currently on — so the reader who came here
+  // to find their own language is read it in a language they may not have.
+  it("voices each language name in its own language", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const locale of LOCALES) {
+      const name = t(localeNameKey(locale));
+      const button = screen.getByRole("button", { name });
+      expect(
+        button.querySelector(`[lang="${locale}"]`)?.textContent,
+        name,
+      ).toBe(name);
+    }
+  });
+
   it("is a login form — no signup mode, no workspace field, Enter submits, no tenant header", async () => {
     const calls = stubApi({ password: true, password_reset: false }, () =>
       ok(200, { user: {}, roles: [], teams: [] }),
