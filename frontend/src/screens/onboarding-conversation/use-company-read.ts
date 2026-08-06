@@ -19,6 +19,7 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { diffSiteRead, useNarrationQueue } from "./narration";
+import { onboardingLocale } from "./onboarding-locale";
 
 // The read lifecycle of the company act as one hook: start the read, poll
 // it, narrate poll deltas through the paced queue, prefill the draft per
@@ -324,14 +325,15 @@ export function useCompanyRead({
   }, [siteRead.isError, dispatch, machine]);
 
   const { locale } = useLocale();
+  const promptLocale = onboardingLocale(locale);
   const proposal = useQuery({
-    queryKey: ["onboarding-company-proposal", readId, locale],
+    queryKey: ["onboarding-company-proposal", readId, promptLocale],
     enabled: proposalArmed && proposalJoin === "ready",
     queryFn: async (): Promise<Proposal> => {
       // The open questions' copy speaks the user's language; option values
       // stay locale-invariant server-side.
       const { data, error } = await api.GET("/onboarding/company/proposal", {
-        params: { query: { locale } },
+        params: { query: { locale: promptLocale } },
       });
       if (error) {
         throwProblem(error);

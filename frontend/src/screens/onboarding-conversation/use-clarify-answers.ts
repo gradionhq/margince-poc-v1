@@ -9,6 +9,7 @@ import { onboardingDraftPayload } from "../onboarding";
 import type { SuggestedCompanyChange } from "../onboarding-read";
 import type { ClarifyAnswer } from "./company-proposal";
 import { isCompanyField, legalEntityForOption } from "./company-proposal";
+import { onboardingLocale } from "./onboarding-locale";
 
 // Clarify answering with server authorization: a clicked option travels as
 // selected_option, and ONLY the change matching that exact field+value
@@ -153,7 +154,7 @@ export function useClarifyAnswers({
       const { data, error } = await api.POST("/onboarding/company/messages", {
         body: {
           message: selection.label,
-          locale,
+          locale: onboardingLocale(locale),
           act: "company",
           selected_option: {
             clarify_id: selection.clarifyId,

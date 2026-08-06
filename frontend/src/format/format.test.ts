@@ -30,6 +30,17 @@ describe("money formatting (B-EP09.17)", () => {
     // JPY has zero minor digits — 1234 minor units is ¥1,234, not ¥12.34
     expect(formatMoney(1234, "JPY", "en")).toContain("1,234");
   });
+
+  // VND is a zero-decimal currency: formatMoney divides by
+  // 10 ** maximumFractionDigits, which resolves to 1 here. Nothing pinned this,
+  // and a regression would inflate every Vietnamese money figure 100×.
+  it("renders a zero-decimal currency without shifting the decimal point", () => {
+    expect(formatMoney(1_284_000, "VND", "vi")).toBe("1.284.000\u00a0₫");
+  });
+
+  it("still scales two-decimal currencies under vi", () => {
+    expect(formatMoney(128_400, "EUR", "vi")).toBe("1.284,00\u00a0€");
+  });
 });
 
 describe("date/time formatting (B-EP09.17/19)", () => {
@@ -46,6 +57,12 @@ describe("date/time formatting (B-EP09.17/19)", () => {
     const workspaceZone = formatDate(instant, "de", "Europe/Berlin");
     expect(userZone).toBe("05.06.2026");
     expect(workspaceZone).toBe("04.06.2026");
+  });
+
+  it("formats vi dates day-first", () => {
+    expect(formatDate("2026-06-24T10:00:00Z", "vi", "Asia/Ho_Chi_Minh")).toBe(
+      "24/06/2026",
+    );
   });
 
   it("rejects fixed-offset zones — IANA names only (AC-DS-TZ4)", () => {

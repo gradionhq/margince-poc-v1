@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { LocaleProvider } from "../i18n";
+import { type Locale, LocaleProvider } from "../i18n";
 import {
   PAYOFF_FRESH_WINDOW_MS,
   type PayoffCounts,
@@ -26,7 +26,7 @@ const full: PayoffCounts = {
   voiceWords: 30512,
 };
 
-function withLocale(ui: ReactNode, locale: "en" | "de" = "en") {
+function withLocale(ui: ReactNode, locale: Locale = "en") {
   return render(<LocaleProvider initial={locale}>{ui}</LocaleProvider>);
 }
 

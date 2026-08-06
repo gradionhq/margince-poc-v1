@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { THEME_KEY } from "../app/theme";
 import { resetTheme } from "../app/theme-reset";
-import { LocaleProvider, translate } from "../i18n";
+import { LOCALES, LocaleProvider, localeNameKey, translate } from "../i18n";
 import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
 
 // The unauthenticated surface (A107/ADR-0061 §12): login is the default —
@@ -146,6 +146,37 @@ describe("AuthScreen login", () => {
     expect(await screen.findByLabelText("Email")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
     expect(screen.queryByText("Configured")).toBeNull();
+  });
+
+  // Derived from LOCALES rather than listed: a hardcoded pair passes while the
+  // footer quietly drops the third language, which is the one failure this
+  // case exists to catch — the reader who cannot read the screen it is on.
+  it("the sign-in footer offers every shipped locale", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const locale of LOCALES) {
+      const name = t(localeNameKey(locale));
+      expect(screen.getByRole("button", { name }), name).toBeTruthy();
+    }
+  });
+
+  // The document declares ONE language (LocaleProvider, WCAG 3.1.1) and this
+  // row shows three. Unmarked, a screen reader reads every name with the
+  // phonemes of whichever locale is currently on — so the reader who came here
+  // to find their own language is read it in a language they may not have.
+  it("voices each language name in its own language", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const locale of LOCALES) {
+      const name = t(localeNameKey(locale));
+      const button = screen.getByRole("button", { name });
+      expect(
+        button.querySelector(`[lang="${locale}"]`)?.textContent,
+        name,
+      ).toBe(name);
+    }
   });
 
   it("is a login form — no signup mode, no workspace field, Enter submits, no tenant header", async () => {
