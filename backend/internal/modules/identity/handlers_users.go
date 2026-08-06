@@ -66,9 +66,10 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 		Role:        string(req.Role),
 	})
 	if err != nil {
-		httperr.Write(w, r, conflictIf(err, errEmailTaken,
+		err = conflictIf(err, errEmailTaken, "email_taken",
 			"a member with this email already exists in this organization; if they were "+
-				"deactivated, reactivate them from the roster instead of inviting again"))
+				"deactivated, reactivate them from the roster instead of inviting again")
+		httperr.Write(w, r, unknownRoleRefusal(err))
 		return
 	}
 	h.sendInvite(r, email.String(), rawToken)
@@ -86,9 +87,10 @@ func (h Handlers) ChangeUserRole(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	if err := h.svc.ChangeUserRole(r.Context(), actor, ids.UserID{UUID: ids.UUID(id)}, string(req.Role)); err != nil {
-		httperr.Write(w, r, conflictIf(err, errLastActiveAdmin,
+		err = conflictIf(err, errLastActiveAdmin, "last_active_admin",
 			"this member is the organization's only active administrator; give another "+
-				"member the admin role first, then change this one's"))
+				"member the admin role first, then change this one's")
+		httperr.Write(w, r, unknownRoleRefusal(err))
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
@@ -113,7 +115,7 @@ func (h Handlers) DeactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 		UserID: ids.UserID{UUID: ids.UUID(id)},
 		Reason: req.Reason,
 	}); err != nil {
-		httperr.Write(w, r, conflictIf(err, errLastActiveAdmin,
+		httperr.Write(w, r, conflictIf(err, errLastActiveAdmin, "last_active_admin",
 			"this member is the organization's only active administrator; deactivating them "+
 				"would leave nobody able to manage users — give another member the admin role first"))
 		return
@@ -128,9 +130,14 @@ func (h Handlers) ReactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	if err := h.svc.ReactivateUser(r.Context(), actor, ids.UserID{UUID: ids.UUID(id)}); err != nil {
-		httperr.Write(w, r, conflictIf(err, errNotDeactivated,
-			"this member is suspended, not deactivated; a suspension is cleared by resolving "+
-				"what caused it, and reactivating would hide that"))
+		// Two states reach this and they need opposite actions, so the refusal
+		// names both rather than guessing: an INVITED member has simply never
+		// set a password, and a SUSPENDED one is held for a reason that
+		// reactivating would quietly clear.
+		httperr.Write(w, r, conflictIf(err, errNotDeactivated, "not_deactivated",
+			"only a deactivated member can be reactivated, and this one is not; an invited "+
+				"member is still waiting to set their password, and a suspended member needs "+
+				"whatever caused the suspension resolved instead"))
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
@@ -210,11 +217,35 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 // worded here. Without this the whole surface answers the bare word "conflict",
 // which tells an admin neither what went wrong nor what to do — the sentinel's
 // own text is a log line, not advice.
-func conflictIf(err, cause error, detail string) error {
+//
+// code carries the same distinction to a CLIENT: detail is prose for a human,
+// and a UI that has to branch on which refusal it hit would otherwise be left
+// matching sentences.
+func conflictIf(err, cause error, code, detail string) error {
+	return refuseAs(err, cause, http.StatusConflict, code, detail)
+}
+
+// unknownRoleRefusal separates the two 404s this surface can answer: an unknown
+// MEMBER and an unknown ROLE. Both invite and change-role look a role key up, so
+// the wording lives here rather than being written out at each — an admin who
+// mistyped a role would otherwise be told the member was not found and go
+// looking for the wrong thing. The roles an organization defines are not a fixed
+// list (a workspace may define its own), so the detail points at where the truth
+// lives instead of reciting an enum that can drift.
+func unknownRoleRefusal(err error) error {
+	return refuseAs(err, errUnknownRole, http.StatusNotFound, "unknown_role",
+		"this organization defines no role with that key; check the roles it does "+
+			"define and use one of those")
+}
+
+// refuseAs is conflictIf's general form: two refusals on this surface share a
+// STATUS but not a meaning — an unknown member and an unknown role are both
+// 404 — so the status stays the caller's to state.
+func refuseAs(err, cause error, status int, code, detail string) error {
 	if !errors.Is(err, cause) {
 		return err
 	}
-	return &httperr.DetailedError{Status: http.StatusConflict, Code: "conflict", Detail: detail}
+	return &httperr.DetailedError{Status: status, Code: code, Detail: detail}
 }
 
 // tooManyPasswordLinksBy renders an issuance-ceiling refusal. The generic

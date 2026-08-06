@@ -16,6 +16,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,100 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// The roster read gates the role-key lookup on WithRoles, and the wire mapping
+// withholds the keys again for a non-admin. Those are two independent defences,
+// so the HTTP deny arm passes even with this one forced open — which is exactly
+// why the read needs its own test rather than borrowing that one's coverage.
+func TestRosterReadFetchesRoleKeysOnlyWhenAsked(t *testing.T) {
+	e := setupRevocationEnv(t, "roster-role-keys")
+
+	withheld, _, err := e.svc.ListUsers(e.wsCtx(e.admin), ListUsersInput{})
+	if err != nil {
+		t.Fatalf("list without roles: %v", err)
+	}
+	if len(withheld) == 0 {
+		t.Fatal("roster is empty; the assertions below would hold vacuously")
+	}
+	for _, u := range withheld {
+		// NIL, not empty: an empty list would claim the member holds no role,
+		// which is a different and false statement.
+		if u.Roles != nil {
+			t.Errorf("member %q carries roles %v on a read that did not ask for them", u.Email, u.Roles)
+		}
+	}
+
+	asked, _, err := e.svc.ListUsers(e.wsCtx(e.admin), ListUsersInput{WithRoles: true})
+	if err != nil {
+		t.Fatalf("list with roles: %v", err)
+	}
+	var adminRow, memberRow *userRow
+	for i := range asked {
+		switch asked[i].ID {
+		case e.admin.UserID.UUID:
+			adminRow = &asked[i]
+		case e.member.UserID.UUID:
+			memberRow = &asked[i]
+		}
+	}
+	if adminRow == nil || len(adminRow.Roles) != 1 || adminRow.Roles[0] != roleAdmin {
+		t.Errorf("bootstrap admin roles = %v, want [admin] once the read asks", adminRow)
+	}
+	// The other arm of the same distinction: a seat holding NO role, read WITH
+	// the flag, comes back empty-but-present. Nil here would be indistinguishable
+	// from "never asked", which is what the COALESCE exists to prevent.
+	if memberRow == nil {
+		t.Fatal("the seeded member is missing from the roster")
+	}
+	if memberRow.Roles == nil {
+		t.Error("a member holding no role read back nil, want an empty non-nil list")
+	}
+	if len(memberRow.Roles) != 0 {
+		t.Errorf("seeded member roles = %v, want empty", memberRow.Roles)
+	}
+}
+
+// The reactivate refusal enumerates the states it can be reached from, and its
+// contract description does the same. Both are only true for a KNOWN status set:
+// 'active' returns early as a no-op and 'deactivated' is the happy path, so
+// every other value lands in that refusal and is described by it. A new status
+// added without revisiting the copy would make both quietly wrong — this test
+// exists because exactly that had already happened (0055 added 'invited' while
+// the refusal still said "this member is suspended").
+func TestReactivateRefusalNamesEveryStateItCanBeReachedFrom(t *testing.T) {
+	e := setupRevocationEnv(t, "reactivate-states")
+
+	var check string
+	if err := e.owner.QueryRow(context.Background(), `
+		SELECT pg_get_constraintdef(c.oid)
+		FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid
+		WHERE t.relname = 'app_user' AND c.contype = 'c'
+		  AND pg_get_constraintdef(c.oid) LIKE '%status%'`).Scan(&check); err != nil {
+		t.Fatalf("reading the app_user status constraint: %v", err)
+	}
+	// The statuses the refusal and the contract account for. Compared as a SET
+	// against the literals the constraint actually admits — counting quotes
+	// would also count any cast, collation or quoted identifier Postgres puts in
+	// its normalised text, and would miss a rename that kept the same count.
+	known := map[string]bool{"invited": true, "active": true, "suspended": true, "deactivated": true}
+	admitted := map[string]bool{}
+	for _, m := range regexp.MustCompile(`'([^']*)'`).FindAllStringSubmatch(check, -1) {
+		admitted[m[1]] = true
+	}
+	for status := range known {
+		if !admitted[status] {
+			t.Errorf("status %q is no longer admitted by %s", status, check)
+		}
+	}
+	for status := range admitted {
+		if !known[status] {
+			t.Errorf("app_user.status admits %q, which nothing here accounts for: %s\n"+
+				"the reactivate refusal names the states it can be reached from, and its "+
+				"contract description repeats them — both need updating with the new state",
+				status, check)
+		}
+	}
+}
 
 func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 	e := setupRevocationEnv(t, "invite-user")

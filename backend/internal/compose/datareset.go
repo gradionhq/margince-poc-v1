@@ -16,6 +16,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -240,6 +241,24 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 			return err
 		}
 		counts.SorModeReverted = reverted
+
+		// And every OTHER setting on that same row, back to the default a fresh
+		// bootstrap leaves. The overlay flip above is not the general case, it
+		// is the reported one: the sweep is derived from the tables carrying a
+		// workspace_id column and workspace keys on id, so NO workspace-level
+		// setting is in its target set — capture_auto_enrich (CAP-PARAM-7)
+		// outlived every reset before this call, and so would the next setting
+		// added to the row.
+		//
+		// identity owns that row and derives its own column list the same way,
+		// so nothing here has to be kept in step with the schema. It runs AFTER
+		// the flip, and restores those two columns again as part of its sweep,
+		// because whether the installation WAS in overlay mode is only knowable
+		// before something writes the column — a blanket restore cannot report
+		// what it changed, and that fact belongs in the audit row.
+		if err := identity.ResetWorkspaceConfig(ctx, tx); err != nil {
+			return err
+		}
 
 		// Re-seed under a system principal + a fresh correlation id, exactly as
 		// bootstrap does (identity/installation.go), so the seeders' own

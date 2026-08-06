@@ -6385,11 +6385,19 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '404':
+          description: >-
+            Not found, with the reason distinguished by the problem `code`:
+            `unknown_role` — this organization defines no role with the requested key.
+            The `role` enum is documentation, not binding validation, so a mistyped key
+            reaches the server and must say which of the two things was not found.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '409':
           description: >-
             Refused, with the reason distinguished by the problem `code`:
-            `conflict` (a member with this email already exists), or
+            `email_taken` (a member with this email already exists), or
             `no_delivery_channel` (this installation has neither an outbound-email channel nor a
             public base URL, so neither the mailed link nor an admin-issued one could reach the
             member — an invite would create an ACTIVE account nobody could ever sign in as).
@@ -6422,9 +6430,19 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '404':
+          description: >-
+            Not found, with the reason distinguished by the problem `code`:
+            `not_found` (no such member) or `unknown_role` (the member exists, but this
+            organization defines no role with that key). Both are 404; a client that
+            tells the operator which one it hit needs the code, not the prose.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '409':
-          description: Refused — demoting this member would leave the organization with no active admin.
+          description: >-
+            Refused with `code: last_active_admin` — demoting this member would leave the
+            organization with no active admin.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -6457,7 +6475,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Refused — this is the last active admin; deactivating them would lock the organization out.
+          description: >-
+            Refused with `code: last_active_admin` — this is the last active admin;
+            deactivating them would lock the organization out.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -6483,6 +6503,17 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            Refused with `code: not_deactivated` — only a deactivated member can be
+            reactivated, and this one is in some other state. Both reachable states need
+            a different action, not this one: an `invited` member has never set a
+            password, and a `suspended` member is held for a reason that reactivating
+            would clear without it ever being resolved. (An `active` member is a no-op
+            and answers 200, not this.)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /users/{id}/password-link:
     parameters:

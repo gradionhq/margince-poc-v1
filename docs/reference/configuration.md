@@ -526,10 +526,21 @@ On success it wipes workspace domain + seeded-config data back to the
 first-boot bootstrapped state and re-runs the module seeders (pipeline/stages,
 consent purposes + retention, AI defaults, starter automations, the booking
 page) — the same seed path `identity`'s installation bootstrap uses. It
-**preserves** the identity/auth layer (`workspace`, every `app_user`, roles,
-role assignments, teams, team memberships, sessions, passports, tokens — so
-login keeps working) and the append-only ledgers `audit_log` / `system_log`.
+**preserves** the identity/auth layer (every `app_user`, roles, role
+assignments, teams, team memberships, sessions, passports, tokens — so login
+keeps working) and the append-only ledgers `audit_log` / `system_log`.
 The reset itself is recorded as an `audit_log` row (action `reset_data`).
+
+The `workspace` row survives too — it carries the organization — but only its
+**installation identity** is preserved: the primary key, the name, slug, base
+currency and timezone bootstrap took from `margince.yaml`, and `created_at`.
+(`updated_at` moves, as it does for any write — the reset did write the row.)
+Every other column on it is a workspace-level **setting**, and each
+one goes back to the default its migration declared (`capture_auto_enrich`, the
+overlay mode columns, and whatever is added next). Nothing here is a kept list:
+the columns are derived from the catalog, so a setting added later is restored
+the day its column exists, and a column that genuinely belongs to the
+installation's identity has to be declared preserved to be spared.
 
 The sweep runs as the app role — no superuser, no disabled triggers — so it
 discovers a safe delete order at runtime (a savepoint per table per pass,
@@ -572,10 +583,13 @@ against records that no longer exist. The endpoint therefore also:
    before the rows naming them go. Which tables hold one is derived from the
    catalog on the `credential_ref` column, so a connection table added later is
    covered the day its column exists.
-6. **Returns an overlay-mode installation to native.** The `workspace` row is
-   preserved because it carries the organization, but everything overlay mode
-   depends on is swept — the incumbent connection, the mirror, the budget
-   counters — so a workspace left in overlay would claim to read from an
+6. **Restores every workspace-level setting**, including returning an
+   overlay-mode installation to native. The table sweep reaches none of them:
+   its target list is derived from the tables carrying a `workspace_id` column,
+   and `workspace` keys on `id`, so that row is not a candidate for it at all.
+   The overlay columns are the consequential case — everything overlay mode
+   depends on IS swept (the incumbent connection, the mirror, the budget
+   counters), so a workspace left in overlay would claim to read from an
    incumbent it no longer has a connection to, dispatching every read at an
    empty mirror. `x_sor_mode` and `x_incumbent` flip together, as the schema
    requires. This is not the governed `Disconnect` teardown: those rows are

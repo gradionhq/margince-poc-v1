@@ -107,8 +107,16 @@ func rosterUserMapping(isAdmin bool) func(userRow) crmcontracts.User {
 // keys the admin card renders and acts on. Splitting it from wireUser makes
 // the disclosure gate structural — a caller that has not been checked for
 // admin cannot reach the roles by forgetting a flag.
+//
+// A row whose read did not ask for the keys (nil, not empty) is answered
+// WITHOUT the field rather than with an empty one: "[]" on the wire means the
+// member holds no role, and claiming that about someone who may hold several
+// is worse than saying nothing.
 func wireUserWithRoles(u userRow) crmcontracts.User {
 	wire := wireUser(u)
+	if u.Roles == nil {
+		return wire
+	}
 	roles := u.Roles
 	wire.Roles = &roles
 	return wire

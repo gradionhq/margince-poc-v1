@@ -4,6 +4,8 @@
 package identity
 
 import (
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
@@ -143,6 +145,69 @@ func TestRosterUserMappingDisclosesRoleKeysOnlyToAnAdmin(t *testing.T) {
 	if got := rosterUserMapping(true)(row); got.Roles == nil {
 		t.Error("admin roster Roles = nil, want the member's role keys")
 	}
+}
+
+// A row the read never asked for role keys on arrives nil, and the wire answers
+// WITHOUT the field. Emitting "[]" instead would tell the client this member
+// holds no role — a statement about someone's privileges that nothing checked.
+func TestWireUserWithRolesOmitsTheFieldWhenTheReadDidNotAskForIt(t *testing.T) {
+	got := wireUserWithRoles(userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "ada@example.com",
+		DisplayName: "Ada Admin",
+		Status:      "active",
+		Roles:       nil,
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	})
+
+	if got.Roles != nil {
+		t.Errorf("Roles = %v, want absent — nil means the read never fetched them", *got.Roles)
+	}
+}
+
+// The bind numbering is a contract between each query string and the args its
+// spec sends: leadArgs bind first, then the pager's own. Deriving the obligation
+// from the strings beats remembering it — a fifth query with the wrong offset
+// would otherwise fail at runtime in pgx, on whichever request first used it.
+func TestRosterQueryPlaceholdersMatchTheArgsTheirPagerSends(t *testing.T) {
+	// pager args: (q if filtered) + created_at + id + limit.
+	const plainPagerArgs, filteredPagerArgs = 3, 4
+	for _, c := range []struct {
+		name     string
+		query    string
+		leadArgs int
+		pager    int
+	}{
+		{"listUsers", listUsersQuery, 1, plainPagerArgs},
+		{"listUsersFiltered", listUsersFilteredQuery, 1, filteredPagerArgs},
+		{"listUsersAll", listUsersAllQuery, 1, plainPagerArgs},
+		{"listUsersAllFiltered", listUsersAllFilteredQuery, 1, filteredPagerArgs},
+		{"listTeams", listTeamsQuery, 0, plainPagerArgs},
+		{"listTeamsFiltered", listTeamsFilteredQuery, 0, filteredPagerArgs},
+	} {
+		want := c.leadArgs + c.pager
+		if got := highestPlaceholder(c.query); got != want {
+			t.Errorf("%s: highest placeholder $%d, but its spec sends %d args (%d lead + %d pager)",
+				c.name, got, want, c.leadArgs, c.pager)
+		}
+	}
+}
+
+// highestPlaceholder reports the largest $n in a query, which is the number of
+// arguments Postgres will expect.
+func highestPlaceholder(query string) int {
+	highest := 0
+	for _, m := range regexp.MustCompile(`\$(\d+)`).FindAllStringSubmatch(query, -1) {
+		n, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue // $ followed by digits cannot fail Atoi; guard for the linter
+		}
+		if n > highest {
+			highest = n
+		}
+	}
+	return highest
 }
 
 func TestWireTeam(t *testing.T) {

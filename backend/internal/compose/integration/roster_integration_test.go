@@ -155,16 +155,23 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 		}
 	}
 	// The role aggregate is tenant-scoped too, not just the member rows: B's
-	// uniquely-keyed role must appear nowhere in A's page.
+	// uniquely-keyed role must appear nowhere in A's page. Counting the keys
+	// actually seen first, because a regression that stopped emitting them
+	// would otherwise leave this loop inspecting nothing and still passing.
+	keysSeen := 0
 	for _, u := range users.Data {
 		if u.Roles == nil {
 			continue
 		}
+		keysSeen += len(*u.Roles)
 		for _, key := range *u.Roles {
 			if key == "other-tenant-only" {
 				t.Errorf("cross-tenant leak: %q carries workspace B's role key", u.Email)
 			}
 		}
+	}
+	if keysSeen == 0 {
+		t.Fatal("no role keys on the admin roster at all; the cross-tenant check would pass vacuously")
 	}
 
 	// (c) q narrows over display_name/email, case-insensitively.
