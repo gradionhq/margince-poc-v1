@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -356,9 +355,8 @@ func splitConfirmedProfile(proposed []DeepReadField, legalEntities []SiteReadLeg
 		if value == nil {
 			continue
 		}
-		trimmed := strings.TrimSpace(*value)
-		proposal, exact := byField[field]
-		if exact && trimmed == strings.TrimSpace(proposal.Value) {
+		proposal, fromRead := byField[field]
+		if fromRead && samePrintedValue(*value, proposal.Value) {
 			siteFields = append(siteFields, ColdStartFieldInput(proposal))
 			continue
 		}
@@ -373,19 +371,24 @@ func splitConfirmedProfile(proposed []DeepReadField, legalEntities []SiteReadLeg
 // number into claims typed by that human. Every non-blank submitted detail
 // must match one and only one stored block, so mixed or edited identities keep
 // the normal human provenance.
+//
+// Submitted and stored details meet through PrintedSiteReadValue, the spelling
+// the option a human picked was built in: comparing the raw extraction instead
+// would refuse the pick for every entity whose printed identity carries a run
+// of whitespace, and file the page's own words as that human's assertion.
 func selectedLegalEntityFields(entities []SiteReadLegalEntity, in ConfirmCompanySiteReadInput) []DeepReadField {
-	legalName := strings.TrimSpace(pointerValue(in.Fields[fieldLegalName]))
+	legalName := PrintedSiteReadValue(pointerValue(in.Fields[fieldLegalName]))
 	if legalName == "" {
 		return nil
 	}
-	address := strings.TrimSpace(pointerValue(in.Fields[fieldRegisteredAddress]))
-	register := strings.TrimSpace(pointerValue(in.Fields[fieldRegisterVat]))
+	address := PrintedSiteReadValue(pointerValue(in.Fields[fieldRegisteredAddress]))
+	register := PrintedSiteReadValue(pointerValue(in.Fields[fieldRegisterVat]))
 	var selected *SiteReadLegalEntity
 	for i := range entities {
 		entity := &entities[i]
-		if strings.TrimSpace(entity.Name) != legalName ||
-			(address != "" && strings.TrimSpace(entity.RegisteredAddress) != address) ||
-			(register != "" && strings.TrimSpace(entity.RegisterNumber) != register) {
+		if !samePrintedValue(entity.Name, legalName) ||
+			(address != "" && !samePrintedValue(entity.RegisteredAddress, address)) ||
+			(register != "" && !samePrintedValue(entity.RegisterNumber, register)) {
 			continue
 		}
 		if selected != nil {
@@ -397,18 +400,20 @@ func selectedLegalEntityFields(entities []SiteReadLegalEntity, in ConfirmCompany
 		return nil
 	}
 
+	// The value lands in the spelling the human was shown and picked, not the
+	// raw run the extraction kept — the record carries what the page reads as.
 	fields := []DeepReadField{{
-		Field: fieldLegalName, Value: selected.Name, EvidenceSnippet: selected.EvidenceSnippet,
+		Field: fieldLegalName, Value: PrintedSiteReadValue(selected.Name), EvidenceSnippet: selected.EvidenceSnippet,
 		SourceURL: selected.SourceURL, Confidence: 1,
 	}}
 	for _, field := range []struct {
 		name  string
 		value string
 	}{
-		{name: fieldRegisteredAddress, value: selected.RegisteredAddress},
-		{name: fieldRegisterVat, value: selected.RegisterNumber},
+		{name: fieldRegisteredAddress, value: PrintedSiteReadValue(selected.RegisteredAddress)},
+		{name: fieldRegisterVat, value: PrintedSiteReadValue(selected.RegisterNumber)},
 	} {
-		if strings.TrimSpace(field.value) != "" {
+		if field.value != "" {
 			fields = append(fields, DeepReadField{
 				Field: field.name, Value: field.value, EvidenceSnippet: selected.EvidenceSnippet,
 				SourceURL: selected.SourceURL, Confidence: 1,

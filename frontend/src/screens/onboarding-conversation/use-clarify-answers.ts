@@ -8,7 +8,7 @@ import type { CompanyDraft } from "../onboarding";
 import { onboardingDraftPayload } from "../onboarding";
 import type { SuggestedCompanyChange } from "../onboarding-read";
 import type { ClarifyAnswer } from "./company-proposal";
-import { isCompanyField } from "./company-proposal";
+import { isCompanyField, legalEntityForOption } from "./company-proposal";
 
 // Clarify answering with server authorization: a clicked option travels as
 // selected_option, and ONLY the change matching that exact field+value
@@ -61,33 +61,22 @@ class ClarifyRequestError extends ProblemError {}
 const LEGAL_ENTITY_FIELD = "legal_name";
 
 // The candidate the human just picked, matched by the name the server
-// authorized — never a different entity, never a guess.
+// authorized — never a different entity, never a guess. The match itself is
+// legalEntityForOption, shared with every other surface that resolves an
+// option value back to its candidate, so what counts as picked is one rule.
 //
-// Matched the way the SERVER matches the same pair when it decides whether a
-// confirmed legal block keeps the site's provenance (people's
-// selectedLegalEntityFields: trimmed on both sides): the option value a human
-// can click is a normalized copy of the candidate's name, so a stored name
-// carrying incidental whitespace is one the server counts as picked. Compared
-// raw, the client alone would call it absent — and the pick it then routes
-// down the ordinary change path leaves address and registration number
-// unfilled and the chosen name reading as hand-entered.
-//
-// A candidate the read could not name is no match either. The fill settles
-// nothing about legal_name for one, by design: a nameless candidate must not
-// unmark a name the human typed themselves. So routing the choice there
-// would record the clarify as answered while the very field it answers stays
-// as it was, and would fill address and registration number from an entity
-// nothing on screen identifies. It goes down the ordinary change path
-// instead, exactly as an authorized value with no candidate behind it does.
+// Only the legal-entity clarify can fill a block: another question's option
+// value may happen to read like a candidate's name without being an answer
+// about which company this is. A pick with no candidate behind it goes down
+// the ordinary change path instead.
 function pickedLegalEntity(
   selection: OptionSelection,
   legalEntities: readonly LegalEntity[],
 ): LegalEntity | undefined {
-  const picked = selection.value.trim();
-  if (selection.field !== LEGAL_ENTITY_FIELD || picked === "") {
+  if (selection.field !== LEGAL_ENTITY_FIELD) {
     return undefined;
   }
-  return legalEntities.find((candidate) => candidate.name.trim() === picked);
+  return legalEntityForOption(legalEntities, selection.value);
 }
 
 // Where an authorized change lands: through the entity fill when the human
@@ -212,9 +201,11 @@ export function useClarifyAnswers({
         setFailure({ kind: "request", detail: problemMessageOf(error, t) });
         return;
       }
-      // Never a raw exception message: whatever actually broke belongs in
-      // the console, not in the sentence the human reads.
-      console.error("clarify authorization failed unexpectedly", error);
+      // Never a raw exception message in the sentence the human reads. The
+      // failure itself needs no report from here: every mutation the
+      // application runs is observed by the client's own sink, which keeps
+      // exactly the ones nobody wrote words for (app/queryclient.ts,
+      // FE-PARAM-4) — a second copy here would report one failure twice.
       setFailure({ kind: "unconfirmed" });
     },
   });

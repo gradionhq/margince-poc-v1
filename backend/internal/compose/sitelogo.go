@@ -275,7 +275,7 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 	if claim.OrganizationID == nil {
-		w.recordDossierLogo(ctx, args.SiteReadID, key, logo, attempts)
+		w.recordDossierLogo(ctx, args.SiteReadID, claim, key, logo, attempts)
 		return
 	}
 	w.recordOrganizationLogo(ctx, args.SiteReadID,
@@ -338,11 +338,13 @@ func (w *siteDeepReadWorker) recordOrganizationLogo(ctx context.Context, readID 
 // under the same human-precedence rule an organization write obeys; a read
 // nobody confirms simply never hands it over.
 //
-// A dossier that has moved on refuses the reference, and the bytes stored for it
-// are collected right here: an object no row names is one nothing can find to
-// collect later, so the attempt that stored it is the last chance it gets.
-func (w *siteDeepReadWorker) recordDossierLogo(ctx context.Context, readID ids.UUID, key string, logo resolvedLogo, attempts []logoAttempt) {
-	recorded, superseded, err := w.people.RecordSiteReadLogo(ctx, readID, key, logo.SourceURL)
+// The park carries the lease this attempt claimed the read under, so a dossier
+// that has moved on — ended, or reclaimed by a replacement attempt — refuses
+// the reference. The bytes stored for a refused park are collected right here:
+// an object no row names is one nothing can find to collect later, so the
+// attempt that stored it is the last chance it gets.
+func (w *siteDeepReadWorker) recordDossierLogo(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, key string, logo resolvedLogo, attempts []logoAttempt) {
+	recorded, superseded, err := w.people.RecordSiteReadLogo(ctx, readID, claim.ClaimedAt, key, logo.SourceURL)
 	if err != nil {
 		// Kept for the same reason the organization write keeps its bytes: a
 		// failed call is not a write that did not happen.
@@ -352,7 +354,7 @@ func (w *siteDeepReadWorker) recordDossierLogo(ctx context.Context, readID ids.U
 	}
 	if !recorded {
 		w.reclaimLogoObject(ctx, readID, &key)
-		w.log.InfoContext(ctx, "resolved logo left unused: the website read is past taking one — it has its company, or it has already reported",
+		w.log.InfoContext(ctx, "resolved logo left unused: the website read is past taking one — it has its company, it has already reported, or another attempt holds it now",
 			"read", readID.String(), "source", logo.SourceURL)
 		return
 	}

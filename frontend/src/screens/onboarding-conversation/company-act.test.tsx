@@ -659,6 +659,11 @@ const CONFIRM_FIELDS: readonly FieldFixture[] = [
 
 const CONFIRM_PATH = `POST /company/site-reads/${REVIEW_READ_ID}/confirm`;
 
+// The read having moved on to a new draft while the review sat on the old
+// one: the version pair a confirm quotes is exactly this pair, so a proposal
+// still answering for the previous draft is the stale one.
+const MOVED_DRAFT = { draft_version: 2, proposal_hash: "proposal-2" } as const;
+
 // The sentence a refused confirm reads as, one per code the server documents
 // for this operation (crm.yaml, confirmCompanySiteRead): the read has no
 // draft to confirm, and the read was confirmed already but the company it
@@ -1047,18 +1052,26 @@ describe("recovering from a rejected confirm", () => {
 
   // The re-check refreshes the read AND the proposal because the confirm
   // sends both — the read the server has to call confirmable, and the version
-  // pair that press quotes. react-query holds the last good proposal through a
-  // failed refetch, so a block lifted on the read alone re-arms Continue onto
-  // the pair from before the read moved: a version_skew 409 earned on the very
-  // next press, and a second avoidable recovery for the reader to sit through.
+  // pair that press quotes. The read moving on is exactly what the reader is
+  // waiting for here, and it is what leaves the proposal's own pair behind.
+  //
+  // First, the moved read with a proposal half that FAILED: react-query serves
+  // its last good proposal through a failure, so a block lifted on the read
+  // alone re-arms Continue onto the pair from before the read moved — a
+  // version_skew 409 earned on the very next press, and a second avoidable
+  // recovery for the reader to sit through.
   it("never re-arms Continue on a re-check whose proposal half failed, however ready the read comes back", async () => {
     let proposalCalls = 0;
+    let readCalls = 0;
     installFetchStub({
-      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
-        jsonResponse({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        return jsonResponse({
           ...REVIEW_READ,
+          ...(readCalls > 1 ? MOVED_DRAFT : {}),
           profile_fields: CONFIRM_FIELDS.map(toColdField),
-        }),
+        });
+      },
       "GET /onboarding/company/proposal": () => {
         proposalCalls += 1;
         return proposalCalls > 1
@@ -1086,6 +1099,86 @@ describe("recovering from a rejected confirm", () => {
     // the retry that can still end it stays where the reader can press it.
     expect(continueButton).toBeDisabled();
     expect(screen.getByText(NOT_READY_NOTICE)).toBeInTheDocument();
+  });
+
+  // The same moved read, with a proposal half that SUCCEEDED and answered for
+  // the draft the read has since left behind. A check that asks only whether
+  // the request came back cannot tell this from a current one — and this is
+  // the likelier of the two, because the proposal answers off its own join
+  // and so trails the read rather than failing with it.
+  it("never re-arms Continue on a proposal that answered for a draft the read has moved past", async () => {
+    let proposalCalls = 0;
+    let readCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        return jsonResponse({
+          ...REVIEW_READ,
+          ...(readCalls > 1 ? MOVED_DRAFT : {}),
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () => {
+        proposalCalls += 1;
+        return jsonResponse(reviewProposal(CONFIRM_FIELDS));
+      },
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
+    });
+    renderConfirmReview();
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await screen.findByText(NOT_READY_NOTICE);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(1));
+    await vi.waitFor(() => expect(retry).toBeEnabled());
+
+    // Both halves landed, and the read is confirmable again. The pair the next
+    // press would quote still names the draft the read has moved past, so
+    // releasing here would trade this refusal for a version_skew on the very
+    // next press.
+    expect(continueButton).toBeDisabled();
+    expect(screen.getByText(NOT_READY_NOTICE)).toBeInTheDocument();
+  });
+
+  // The one case with no pair to compare: with no proposal ever served, the
+  // confirm quotes the refreshed read's own version pair (the mutation's
+  // `proposalFromRead` fallback), which cannot be behind the read it was just
+  // taken from. Holding the block here would leave the reader pressing a
+  // re-check that can never release, on a read the server calls confirmable.
+  it("re-arms Continue when the proposal endpoint has never answered at all", async () => {
+    let readCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        return jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () =>
+        Promise.reject(new Error("proposal endpoint unreachable")),
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
+    });
+    renderConfirmReview();
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await screen.findByText(NOT_READY_NOTICE);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(readCalls).toBeGreaterThan(1));
+    await vi.waitFor(() => expect(continueButton).toBeEnabled());
+    expect(screen.queryByText(NOT_READY_NOTICE)).toBeNull();
   });
 
   it("walks the reader on to the company an already-confirmed read created, with no second look at the read", async () => {

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -126,13 +127,20 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 // while the crawl is, so a mark that is not parked here is a mark nothing can
 // resolve later.
 //
-// Only a read a worker still HOLDS takes the reference — running, the state
-// BeginSiteRead's claim puts the row in. Past that the row has already answered
-// for its mark: a read that ended without a company had its parked object
-// collected on the way to terminal, and a read that ended with a report handed a
-// human a draft whose mark must not change while they review it. A park after
-// either is a reference nothing adopts and nothing collects, which is the one
-// orphan this lane can no longer find.
+// Only the attempt that currently HOLDS the read takes the reference: the read
+// must still be running AND still carry the lease the caller was handed at
+// BeginSiteRead (SiteReadClaim.ClaimedAt). Running alone is not enough, because
+// a reclaim puts a running row back into running under a NEW attempt: a stalled
+// worker resuming afterwards would overwrite the mark the current attempt just
+// parked and be handed that attempt's object back as superseded, so its caller
+// would delete the very bytes the dossier had adopted.
+//
+// Past the claim the row has also already answered for its mark: a read that
+// ended without a company had its parked object collected on the way to
+// terminal, and a read that ended with a report handed a human a draft whose
+// mark must not change while they review it. A park after either is a reference
+// nothing adopts and nothing collects, which is the one orphan this lane can no
+// longer find.
 //
 // It reports whether the dossier took the reference and hands back the key the
 // row named before, so the caller can reclaim bytes nothing references any more.
@@ -147,9 +155,12 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 // tenant. The reference on the dossier is operational, like every other worker
 // write to this row; the audited write on the RECORD happens when a
 // confirmation binds it.
-func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, objectKey, originURL string) (recorded bool, supersededKey *string, err error) {
+func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, claimedAt time.Time, objectKey, originURL string) (recorded bool, supersededKey *string, err error) {
 	if objectKey == "" || originURL == "" {
 		return false, nil, errors.New("people: a resolved logo needs both its storage key and the URL it was resolved from")
+	}
+	if claimedAt.IsZero() {
+		return false, nil, errors.New("people: parking a website read's mark needs the lease BeginSiteRead handed the attempt that resolved it")
 	}
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// RETURNING the pre-write key, exactly as SetOrganizationLogo does: the
@@ -158,13 +169,14 @@ func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, objectK
 		var previous *string
 		err := tx.QueryRow(ctx, `
 			UPDATE site_read SET logo_object_key = $2, logo_origin = $3, updated_at = now()
-			WHERE id = $1 AND status = 'running' AND organization_id IS NULL AND confirmed_at IS NULL
+			WHERE id = $1 AND status = 'running' AND started_at = $4
+			  AND organization_id IS NULL AND confirmed_at IS NULL
 			RETURNING (SELECT sr.logo_object_key FROM site_read sr WHERE sr.id = $1)`,
-			readID, objectKey, originURL).Scan(&previous)
+			readID, objectKey, originURL, claimedAt.UTC()).Scan(&previous)
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Bound, confirmed, or no longer running: the read has answered for
-			// its mark without this one, and recording it now would name bytes no
-			// record adopts and no collection reaches.
+			// Bound, confirmed, no longer running, or running for somebody else:
+			// the read has answered for its mark without this one, and recording
+			// it now would name bytes no record adopts and no collection reaches.
 			return nil
 		}
 		if err != nil {

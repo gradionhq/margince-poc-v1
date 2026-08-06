@@ -1,9 +1,10 @@
 /** @vitest-environment jsdom */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
+import { createQueryClient } from "../../app/queryclient";
 import { translate } from "../../i18n";
 import type { CompanyDraft } from "../onboarding";
 import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
@@ -47,15 +48,24 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// The application's OWN client: a failure this hook does not describe to the
+// reader is reported by the client's mutation sink and by nothing else
+// (app/queryclient.ts, FE-PARAM-4), so the cases below can only count those
+// reports honestly against the same wiring the browser runs.
 function wrapper({ children }: Readonly<{ children: ReactNode }>) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={createQueryClient()}>
+      {children}
+    </QueryClientProvider>
+  );
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // Unconditionally, not at the end of the case that installed a spy: a case
+  // that fails its assertion never reaches its own teardown, and a leaked
+  // console spy would silently answer the next case's question for it.
+  vi.restoreAllMocks();
 });
 
 // One reply shape covers every test: only legal_name ever comes back
@@ -300,6 +310,45 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
     expect(draftRef.current.edited.has("legal_name")).toBe(false);
   });
 
+  // Whitespace INSIDE the name, which trimming cannot reach: the option was
+  // built by collapsing every run of it to one space, so the two strings only
+  // ever meet under that same rule. Compared trimmed alone, this pick loses
+  // the address, the registration number and the imprint's provenance with
+  // them, and the chosen name is stamped as one the human typed.
+  it("fills from a candidate whose printed name carries doubled whitespace of its own", async () => {
+    stubAuthorizedReply();
+    const doubled: LegalEntity = {
+      ...gradionEntity,
+      name: "Gradion  Co.,\tLtd.",
+    };
+    const doubledClarify: Clarify = {
+      ...entityClarify,
+      options: [
+        { value: "Gradion Co., Ltd.", label: "Gradion Co., Ltd." },
+        { value: "Some Other GmbH", label: "Some Other GmbH" },
+      ],
+    };
+    const { result, draftRef, applyLegalEntity } = setupHook(
+      [doubled],
+      doubledClarify,
+    );
+
+    act(() => {
+      result.current.answerClarify(doubledClarify.id, "Gradion Co., Ltd.");
+    });
+
+    await waitFor(() => expect(applyLegalEntity).toHaveBeenCalledWith(doubled));
+    expect(draftRef.current.values.registered_address).toBe(
+      doubled.registered_address,
+    );
+    expect(draftRef.current.values.register_vat).toBe(doubled.register_number);
+    expect(draftRef.current.grounded.registered_address).toMatchObject({
+      source_kind: "url",
+      source_url: doubled.source_url,
+    });
+    expect(draftRef.current.edited.has("legal_name")).toBe(false);
+  });
+
   it("never fills anything when no candidate on the read matches the authorized value", async () => {
     stubAuthorizedReply();
     const { result, draftRef, applyLegalEntity } = setupHook([]);
@@ -452,15 +501,15 @@ describe("useClarifyAnswers — honest failures", () => {
     });
   });
 
-  it("never surfaces a raw exception message when something unexpected breaks the round trip", async () => {
+  it("never surfaces a raw exception message when something unexpected breaks the round trip, and reports it exactly once", async () => {
+    const crash = new TypeError("Cannot read properties of undefined");
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
-        throw new TypeError(
-          "Cannot read properties of undefined (reading 'x')",
-        );
+        throw crash;
       }),
     );
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const { result } = setupHook([]);
 
     act(() => {
@@ -469,5 +518,35 @@ describe("useClarifyAnswers — honest failures", () => {
 
     await waitFor(() => expect(result.current.failure).not.toBeNull());
     expect(result.current.failure).toEqual({ kind: "unconfirmed" });
+    // The reader is told the choice did not stick; the thing that actually
+    // broke is kept once, by the client's own sink, so an operator reading
+    // the console sees one failure rather than two spellings of it.
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledWith(crash);
+  });
+
+  it("keeps nothing at all for a refusal the reader can already read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          { title: "conflict", detail: "That option is no longer open." },
+          409,
+        ),
+      ),
+    );
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = setupHook([]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+    expect(result.current.failure).toEqual({
+      kind: "request",
+      detail: "That option is no longer open.",
+    });
+    expect(errorLog).not.toHaveBeenCalled();
   });
 });

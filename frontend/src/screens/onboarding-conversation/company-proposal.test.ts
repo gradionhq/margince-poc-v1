@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../../api/schema";
+import type { CompanyDraft } from "../onboarding";
 import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
 import {
   draftWithLegalEntity,
@@ -290,23 +291,34 @@ describe("legalFieldGap", () => {
     status: "fetched",
     kind: "home",
   };
+  // Nobody has answered which company is ours: no value, and nothing grounded
+  // to have answered it with.
+  const unanswered = EMPTY_DRAFT;
 
   it("reads as genuinely not published once a fetched page was classified as the legal notice", () => {
     expect(
-      legalFieldGap("registered_address", [homeFetched, impressumFetched]),
+      legalFieldGap(
+        "registered_address",
+        [homeFetched, impressumFetched],
+        unanswered,
+      ),
     ).toBe("not-published");
   });
 
   it("reads as not checked when no page in the crawl was classified as the legal notice", () => {
-    expect(legalFieldGap("registered_address", [homeFetched])).toBe(
+    expect(legalFieldGap("registered_address", [homeFetched], unanswered)).toBe(
       "not-checked",
     );
-    expect(legalFieldGap("registered_address", [])).toBe("not-checked");
+    expect(legalFieldGap("registered_address", [], unanswered)).toBe(
+      "not-checked",
+    );
   });
 
   it("names no gap at all on the manual path, where nothing ever went looking", () => {
-    expect(legalFieldGap("registered_address", undefined)).toBeNull();
-    expect(legalFieldGap("legal_name", undefined)).toBeNull();
+    expect(
+      legalFieldGap("registered_address", undefined, unanswered),
+    ).toBeNull();
+    expect(legalFieldGap("legal_name", undefined, unanswered)).toBeNull();
   });
 
   it("reads as not checked when the legal page was found but never actually fetched", () => {
@@ -316,7 +328,9 @@ describe("legalFieldGap", () => {
       kind: "impressum",
       reason: "robots",
     };
-    expect(legalFieldGap("registered_address", [blocked])).toBe("not-checked");
+    expect(legalFieldGap("registered_address", [blocked], unanswered)).toBe(
+      "not-checked",
+    );
   });
 
   const secondEntity: LegalEntity = {
@@ -331,11 +345,16 @@ describe("legalFieldGap", () => {
     // give for the blank the human is looking at.
     const several = [gradionEntity, secondEntity];
     expect(
-      legalFieldGap("registered_address", [impressumFetched], several),
+      legalFieldGap(
+        "registered_address",
+        [impressumFetched],
+        unanswered,
+        several,
+      ),
     ).toBe("unpicked");
-    expect(legalFieldGap("legal_name", [impressumFetched], several)).toBe(
-      "unpicked",
-    );
+    expect(
+      legalFieldGap("legal_name", [impressumFetched], unanswered, several),
+    ).toBe("unpicked");
   });
 
   it("names no choice to make when the imprint names only one company", () => {
@@ -344,10 +363,14 @@ describe("legalFieldGap", () => {
     // the human's own clearing — and "not stated" would be false besides, since
     // the candidate quotes the value straight off the page.
     expect(
-      legalFieldGap("legal_name", [impressumFetched], [gradionEntity]),
+      legalFieldGap("legal_name", [impressumFetched], unanswered, [
+        gradionEntity,
+      ]),
     ).toBeNull();
     expect(
-      legalFieldGap("registered_address", [impressumFetched], [gradionEntity]),
+      legalFieldGap("registered_address", [impressumFetched], unanswered, [
+        gradionEntity,
+      ]),
     ).toBeNull();
   });
 
@@ -359,11 +382,10 @@ describe("legalFieldGap", () => {
       source_url: "https://acme.example/impressum",
     };
     expect(
-      legalFieldGap(
-        "register_vat",
-        [impressumFetched],
-        [nameOnly, secondEntity],
-      ),
+      legalFieldGap("register_vat", [impressumFetched], unanswered, [
+        nameOnly,
+        secondEntity,
+      ]),
     ).toBe("not-published");
   });
 
@@ -373,12 +395,74 @@ describe("legalFieldGap", () => {
       source_url: "https://acme.example/impressum",
     };
     expect(
-      legalFieldGap("registered_address", [impressumFetched], [nameOnly]),
+      legalFieldGap("registered_address", [impressumFetched], unanswered, [
+        nameOnly,
+      ]),
     ).toBe("not-published");
   });
 
   it("names no gap at all for a field no legal page could ever have settled", () => {
-    expect(legalFieldGap("offer_summary", [impressumFetched])).toBeNull();
-    expect(legalFieldGap("display_name", [])).toBeNull();
+    expect(
+      legalFieldGap("offer_summary", [impressumFetched], unanswered),
+    ).toBeNull();
+    expect(legalFieldGap("display_name", [], unanswered)).toBeNull();
+  });
+
+  // The choice is a decision the draft keeps, not a question the read can
+  // re-ask: once one candidate's block is in the draft, "choose which company
+  // is yours" points at a decision the human has already taken.
+  it("stops asking for the choice once the draft carries a candidate's own block", () => {
+    const several = [gradionEntity, secondEntity];
+    // The pick, then the address box emptied again: the field it names is
+    // blank and its grounding is gone with it, while the rest of the block
+    // still stands on the entity that was chosen.
+    const cleared = changeDraftField(
+      draftWithLegalEntity(EMPTY_DRAFT, gradionEntity),
+      "registered_address",
+      "",
+    );
+    expect(cleared.grounded.registered_address).toBeUndefined();
+    expect(
+      legalFieldGap("registered_address", [impressumFetched], cleared, several),
+    ).toBeNull();
+  });
+
+  it("stops asking even when the box the human emptied is the name they picked by", () => {
+    const several = [gradionEntity, secondEntity];
+    const cleared = changeDraftField(
+      draftWithLegalEntity(EMPTY_DRAFT, gradionEntity),
+      "legal_name",
+      "",
+    );
+    expect(
+      legalFieldGap("legal_name", [impressumFetched], cleared, several),
+    ).toBeNull();
+  });
+
+  // The signal is the census lane's own ungraded grounding, not grounding of
+  // any kind: the graded extraction lane proposes a legal name without anyone
+  // having said which company on the page it belongs to, and that question is
+  // still open.
+  it("still asks for the choice when the trio is only grounded by the graded lane", () => {
+    const graded: CompanyDraft = {
+      ...EMPTY_DRAFT,
+      values: { ...EMPTY_DRAFT.values, legal_name: gradionEntity.name },
+      grounded: {
+        legal_name: {
+          field: "legal_name",
+          value: gradionEntity.name,
+          evidence_snippet: "Gradion Co., Ltd.",
+          source_kind: "url",
+          source_url: gradionEntity.source_url,
+          confidence: 0.82,
+        },
+      },
+    };
+    expect(
+      legalFieldGap("registered_address", [impressumFetched], graded, [
+        gradionEntity,
+        secondEntity,
+      ]),
+    ).toBe("unpicked");
   });
 });

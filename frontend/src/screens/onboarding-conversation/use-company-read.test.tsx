@@ -1,8 +1,9 @@
 /** @vitest-environment jsdom */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createQueryClient } from "../../app/queryclient";
 import { translate } from "../../i18n";
 import { initialConversationState } from "./conversation-machine";
 import { safeStartError, useCompanyRead } from "./use-company-read";
@@ -13,14 +14,19 @@ import { safeStartError, useCompanyRead } from "./use-company-read";
 // place that distinction is read back: the gate and the thread both go
 // through it rather than reading the caught value themselves, so neither can
 // regress into showing a raw exception or an unfiltered server body.
+//
+// The application's OWN client, not a bare one: what reaches the console for
+// each of those failures is half of what these cases pin, and that is the
+// client's mutation sink's decision to make (app/queryclient.ts, FE-PARAM-4).
 
 const t = (key: Parameters<typeof translate>[1]) => translate("en", key);
 
 function wrapper({ children }: Readonly<{ children: ReactNode }>) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={createQueryClient()}>
+      {children}
+    </QueryClientProvider>
+  );
 }
 
 function renderRead() {
@@ -92,7 +98,7 @@ describe("safeStartError", () => {
     expect(errorLog).not.toHaveBeenCalled();
   });
 
-  it("never surfaces a raw exception when the request itself fails", async () => {
+  it("never surfaces a raw exception when the request itself fails, and reports it exactly once", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -109,6 +115,12 @@ describe("safeStartError", () => {
     await waitFor(() => expect(result.current.startRead.isError).toBe(true));
     // The reader gets nothing to fill {detail} with — never "Failed to fetch".
     expect(safeStartError(result.current.startRead.error, t)).toBe("");
-    expect(errorLog).toHaveBeenCalled();
+    // ONE failure, ONE report, from the client's own sink. Reading the error
+    // back is something the gate and the thread do on every render for as
+    // long as it stands, so a report written from here would file the same
+    // failure again for each of them.
+    expect(safeStartError(result.current.startRead.error, t)).toBe("");
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledWith(result.current.startRead.error);
   });
 });

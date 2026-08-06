@@ -46,23 +46,22 @@ class ReadStartError extends ProblemError {}
 
 /**
  * `startRead.error` narrowed to what is safe to show: the server's own
- * guidance when the failure is a classified `ReadStartError`, and nothing —
- * logged instead — for anything else. `ob.gate.startFailed` already reads
- * correctly with an empty `{detail}`, so a failure the server never described
- * still gets an honest, catalog-only sentence rather than a raw exception
- * message.
+ * guidance when the failure is a classified `ReadStartError`, and nothing at
+ * all for anything else. `ob.gate.startFailed` already reads correctly with an
+ * empty `{detail}`, so a failure the server never described still gets an
+ * honest, catalog-only sentence rather than a raw exception message.
+ *
+ * Reporting is not this function's job and cannot be: it is called while
+ * rendering, once per render for as long as the error stands, and a console
+ * the same failure fills a screenful of is one nobody can read. The mutation
+ * that failed is observed by the client's own sink, which keeps exactly the
+ * failures nobody wrote words for, once each (app/queryclient.ts, FE-PARAM-4).
  */
 export function safeStartError(
   error: unknown,
   t: (key: MessageKey) => string,
 ): string {
-  if (error instanceof ReadStartError) {
-    return problemMessageOf(error, t, "");
-  }
-  if (error !== null && error !== undefined) {
-    console.error("company site-read start failed unexpectedly", error);
-  }
-  return "";
+  return error instanceof ReadStartError ? problemMessageOf(error, t, "") : "";
 }
 
 type UseCompanyReadArgs = Readonly<{

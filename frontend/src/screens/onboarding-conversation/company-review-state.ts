@@ -138,10 +138,11 @@ const GENERIC_EMPTY_HINT: MessageKey = "ob.conv.triage.emptyHint";
 
 function gapReasonFor(
   field: CompanyFieldName,
+  draft: CompanyDraft,
   pages: CompanySiteRead["pages"] | undefined,
   entities: CompanySiteRead["legal_entities"] | undefined,
 ): MessageKey | null {
-  const gap = legalFieldGap(field, pages, entities);
+  const gap = legalFieldGap(field, pages, draft, entities);
   return gap === null ? null : GAP_REASON[gap];
 }
 
@@ -166,7 +167,7 @@ export function rowFor(
     omissionReasonKey: null,
   };
   if (value.trim() === "") {
-    const reason = gapReasonFor(field, pages, entities);
+    const reason = gapReasonFor(field, draft, pages, entities);
     return {
       ...base,
       state: isRequired(field) ? "required" : "empty",

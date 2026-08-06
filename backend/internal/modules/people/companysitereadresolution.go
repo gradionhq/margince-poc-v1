@@ -169,7 +169,7 @@ func applyFactResolution(in *ConfirmCompanySiteReadInput, proposal DeepReadFact,
 		// authored claim, so it keeps that page's evidence instead of being
 		// rewritten as an evidence-less human assertion (ADR-0065). It is the
 		// same rule splitConfirmedProfile applies to a profile field.
-		if value == strings.TrimSpace(proposal.Value) {
+		if samePrintedValue(value, proposal.Value) {
 			acceptSiteReadFact(in, key)
 			return
 		}

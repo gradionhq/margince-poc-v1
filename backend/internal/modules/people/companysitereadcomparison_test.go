@@ -380,6 +380,47 @@ func TestSplitConfirmedProfileKeepsSelectedLegalEntityWebsiteGrounding(t *testin
 	}
 }
 
+func TestSplitConfirmedProfileGroundsAnEntityPrintedWithExtraWhitespace(t *testing.T) {
+	// What a human is offered is the printed value with its whitespace runs
+	// collapsed; the census keeps the run the page set. Reading the two
+	// literally would refuse the pick for exactly those entities and file the
+	// legal notice's own words as that human's assertion.
+	picked := "NFQ Solutions GmbH"
+	pickedAddress := "Deliusstraße 7, 24114 Kiel"
+	in := ConfirmCompanySiteReadInput{
+		DisplayName: "Gradion",
+		Fields: map[string]*string{
+			fieldLegalName:         &picked,
+			fieldRegisteredAddress: &pickedAddress,
+		},
+	}
+	entities := []SiteReadLegalEntity{
+		{Name: "Gradion Pte. Ltd.", SourceURL: "https://gradion.com/imprint"},
+		{
+			Name: "NFQ  Solutions GmbH", RegisteredAddress: "Deliusstraße 7,  24114 Kiel",
+			EvidenceSnippet: "NFQ Solutions GmbH, Deliusstraße 7",
+			SourceURL:       "https://gradion.com/de/imprint",
+		},
+	}
+
+	site, human := splitConfirmedProfile(nil, entities, in)
+	if len(human) != 1 || human[fieldDisplayName] == nil {
+		t.Fatalf("human fields = %#v, want only display_name — the pick is the page's own value", human)
+	}
+	if len(site) != 2 {
+		t.Fatalf("site fields = %#v, want the picked legal name and address grounded on the legal page", site)
+	}
+	for _, field := range site {
+		if field.SourceURL != "https://gradion.com/de/imprint" || field.EvidenceSnippet == "" {
+			t.Fatalf("site field lost legal-page evidence: %#v", field)
+		}
+		want := map[string]string{fieldLegalName: picked, fieldRegisteredAddress: pickedAddress}[field.Field]
+		if field.Value != want {
+			t.Fatalf("%s lands as %q, want the spelling the human was shown: %q", field.Field, field.Value, want)
+		}
+	}
+}
+
 func TestSplitConfirmedProfileDoesNotGroundMixedOrAmbiguousLegalBlocks(t *testing.T) {
 	name := "Acme GmbH"
 	register := "HRB 2"

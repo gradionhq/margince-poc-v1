@@ -29,6 +29,7 @@ import {
   draftWithLegalEntity,
   evidencedFields,
   isCompanyField,
+  legalEntityForOption,
   missingRequiredFields,
   proposalFromRead,
   resolutionsFromAnswers,
@@ -101,6 +102,31 @@ type ConfirmNotice = "skew" | "notReady" | "checkFailed";
 // What a notice offers the reader instead of the Continue button: the one
 // look that can turn the state it describes into a different one.
 type NoticeRetry = Readonly<{ run: () => void; busy: boolean }>;
+
+// Whether the version pair the next confirm would quote is the one this read
+// carries — the whole question a readiness re-check has to answer about the
+// proposal half, since the pair is all the confirm takes from it.
+//
+// The proposal is that pair's source whenever it has one: `ready` is the
+// server's own word for "this read has a draft to confirm", and the pair has
+// to be THIS read's, not one from before it moved. A proposal endpoint that
+// has never answered is the one case that needs no comparison — the confirm
+// then quotes the refreshed read's own pair (see the mutation body's
+// `proposalFromRead` fallback) — and it is distinguishable from a stale pair
+// precisely because no snapshot was ever kept to go stale.
+function quotesReadVersion(
+  quoted: Proposal | undefined,
+  refreshed: CompanySiteRead,
+): boolean {
+  if (quoted === undefined) {
+    return true;
+  }
+  return (
+    quoted.ready &&
+    quoted.draft_version === refreshed.draft_version &&
+    quoted.proposal_hash === refreshed.proposal_hash
+  );
+}
 
 // The sentence a notice reads as. A "skew" has two, because the reader's
 // next step changes once its refresh has run and the block is still there.
@@ -413,15 +439,14 @@ export function CompanyAct({
   // one the server just refused — so the block stands, exactly as it does
   // for a snapshot that comes back unconfirmable again.
   //
-  // Both halves have to land, on the same terms, because the confirm sends
+  // Both halves are checked, on their own terms, because the confirm sends
   // both: a read the server calls confirmable AND the version pair that press
-  // would quote. The proposal is the pair's source whenever it has one, and
-  // react-query holds its last good snapshot through a failure, so lifting on
-  // the read alone re-arms Continue onto a pair from before the read moved —
-  // a version_skew earned on the next press rather than avoided. The proposal
-  // endpoint having never answered at all is the one exception, and not a
-  // stale pair: the confirm then quotes the refreshed read's own version pair
-  // (see the mutation body's `proposalFromRead` fallback).
+  // would quote. A refetch that merely SETTLED proves nothing about the pair —
+  // react-query serves its last good proposal through a failure, and a
+  // successful one can still answer for a draft the read has since moved past
+  // — so the block lifts only once that pair IS the refreshed read's own. Any
+  // other release re-arms Continue onto a version_skew earned on the next
+  // press rather than avoided.
   const recheckReadiness = useCallback(() => {
     setAwaitingReadinessCheck(true);
     void Promise.allSettled([siteRead.refetch(), proposal.refetch()]).then(
@@ -431,13 +456,11 @@ export function CompanyAct({
           readOutcome.status === "fulfilled" && !readOutcome.value.isError
             ? readOutcome.value.data
             : undefined;
-        const confirmable =
-          refreshed?.status === "ready" || refreshed?.status === "partial";
-        const pairIsFresh =
+        const released =
+          refreshed !== undefined &&
+          (refreshed.status === "ready" || refreshed.status === "partial") &&
           proposalOutcome.status === "fulfilled" &&
-          (!proposalOutcome.value.isError ||
-            proposalOutcome.value.data === undefined);
-        const released = confirmable && pairIsFresh;
+          quotesReadVersion(proposalOutcome.value.data, refreshed);
         setNotReadyBlocked(!released);
         if (released) {
           // The reader ran this check themselves and it released the block,
@@ -760,12 +783,16 @@ export function CompanyAct({
         onAnswer={handleAnswer}
         onDismiss={handleDismiss}
         // The entity candidates carry their address, registry number and
-        // imprint quote on the read; matching by the option's value (the
-        // entity name) attaches each card's detail. Any other clarify has
-        // none to attach and its cards render as name-only.
+        // imprint quote on the read; resolving the option's value back to its
+        // candidate attaches each card's detail. Through the same matcher the
+        // pick itself uses, so a card can never show details for a candidate
+        // the pick would then fail to find — or show none for one it would.
+        // Any other clarify has no candidate to attach and its cards render
+        // as name-only.
         factsOf={(value) => {
-          const entity = (read?.legal_entities ?? []).find(
-            (candidate) => candidate.name === value,
+          const entity = legalEntityForOption(
+            read?.legal_entities ?? [],
+            value,
           );
           return entity === undefined
             ? null

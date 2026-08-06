@@ -425,10 +425,10 @@ func (b *recordingBlobstore) account() (stored, outstanding []string) {
 	return stored, outstanding
 }
 
-// endedOnboardingRead starts an unbound dossier, claims it the way the worker
-// does, and closes it — the row a resolve still in flight comes back to when the
-// reclaim window (BeginSiteRead) has handed the read to another attempt.
-func endedOnboardingRead(t *testing.T, e *integration.Env, status string) SiteDeepReadArgs {
+// claimedOnboardingRead starts an unbound dossier and claims it the way the
+// worker does, answering both what the job carries and the lease the claim
+// stamped.
+func claimedOnboardingRead(t *testing.T, e *integration.Env) (SiteDeepReadArgs, people.SiteReadClaim) {
 	t.Helper()
 	read, _, err := e.People.StartOnboardingSiteRead(
 		e.As(e.Rep1, nil, integration.AdminPerms), seedURL, "human:"+e.Rep1.String(), nil)
@@ -436,14 +436,24 @@ func endedOnboardingRead(t *testing.T, e *integration.Env, status string) SiteDe
 		t.Fatalf("start the onboarding read: %v", err)
 	}
 	args := SiteDeepReadArgs{Workspace: e.WS, SiteReadID: read.ID, RequestedBy: read.RequestedBy}
-	workerCtx := deepReadWorkerCtx(context.Background(), args)
-	if _, err := e.People.BeginSiteRead(workerCtx, read.ID, 10*time.Minute); err != nil {
+	claim, err := e.People.BeginSiteRead(deepReadWorkerCtx(context.Background(), args), read.ID, 10*time.Minute)
+	if err != nil {
 		t.Fatalf("claim the onboarding read: %v", err)
 	}
-	if err := e.People.FinishSiteRead(workerCtx, read.ID, people.FinishSiteReadInput{Status: status}); err != nil {
+	return args, claim
+}
+
+// endedOnboardingRead starts an unbound dossier, claims it the way the worker
+// does, and closes it — the row a resolve still in flight comes back to when the
+// reclaim window (BeginSiteRead) has handed the read to another attempt.
+func endedOnboardingRead(t *testing.T, e *integration.Env, status string) (SiteDeepReadArgs, people.SiteReadClaim) {
+	t.Helper()
+	args, claim := claimedOnboardingRead(t, e)
+	if err := e.People.FinishSiteRead(deepReadWorkerCtx(context.Background(), args),
+		args.SiteReadID, people.FinishSiteReadInput{Status: status}); err != nil {
 		t.Fatalf("end the onboarding read as %s: %v", status, err)
 	}
-	return args
+	return args, claim
 }
 
 func TestADossierThatEndedRefusesALateParkedMark(t *testing.T) {
@@ -456,10 +466,10 @@ func TestADossierThatEndedRefusesALateParkedMark(t *testing.T) {
 	for _, status := range []string{"failed", "cancelled", "done", "partial"} {
 		t.Run(status, func(t *testing.T) {
 			e := integration.Setup(t)
-			args := endedOnboardingRead(t, e, status)
+			args, claim := endedOnboardingRead(t, e, status)
 			workerCtx := deepReadWorkerCtx(context.Background(), args)
 			late := siteReadLogoKey(ids.From[ids.WorkspaceKind](e.WS), args.SiteReadID)
-			recorded, superseded, err := e.People.RecordSiteReadLogo(workerCtx, args.SiteReadID, late, touchIconURL)
+			recorded, superseded, err := e.People.RecordSiteReadLogo(workerCtx, args.SiteReadID, claim.ClaimedAt, late, touchIconURL)
 			if err != nil {
 				t.Fatalf("parking a mark on a %s read: %v", status, err)
 			}
@@ -485,12 +495,11 @@ func TestAResolveThatLandsAfterTheReadEndedCollectsItsOwnBytes(t *testing.T) {
 	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
 	blob := newRecordingBlobstore()
 	w := onboardingLogoWorker(e, site, blob)
-	args := endedOnboardingRead(t, e, "failed")
+	args, claim := endedOnboardingRead(t, e, "failed")
 
 	// The claim a stalled attempt still holds: unbound, seeded from the page it
 	// crawled before the dossier was closed under it.
-	w.resolveLogo(deepReadWorkerCtx(context.Background(), args), args,
-		people.SiteReadClaim{TargetKind: people.TargetKindOnboarding, SeedURL: seedURL}, declaringCrawl())
+	w.resolveLogo(deepReadWorkerCtx(context.Background(), args), args, claim, declaringCrawl())
 
 	stored, outstanding := blob.account()
 	if len(stored) == 0 {
@@ -501,6 +510,96 @@ func TestAResolveThatLandsAfterTheReadEndedCollectsItsOwnBytes(t *testing.T) {
 	}
 	if key, origin := parkedLogo(t, e, args.SiteReadID); key != nil || origin != nil {
 		t.Fatalf("the failed dossier took the late mark: key %v origin %v", key, origin)
+	}
+}
+
+// reclaimTheRead takes a still-running dossier over the way a replacement
+// worker does. The lease it presents has lapsed by the time the statement
+// reaches the database — the reclaim the worker performs once its own,
+// minutes-long grace has run out, with none of the waiting.
+func reclaimTheRead(t *testing.T, e *integration.Env, args SiteDeepReadArgs) people.SiteReadClaim {
+	t.Helper()
+	claim, err := e.People.BeginSiteRead(deepReadWorkerCtx(context.Background(), args),
+		args.SiteReadID, time.Microsecond)
+	if err != nil {
+		t.Fatalf("reclaim the stalled read: %v", err)
+	}
+	return claim
+}
+
+func TestOnlyTheAttemptHoldingTheReadParksItsMark(t *testing.T) {
+	// A reclaim puts a running read back into running under a NEW attempt, so
+	// the status alone cannot tell the two apart. The stalled attempt resuming
+	// afterwards must be refused: parking would replace the mark the holder just
+	// recorded, and the superseded key it would be handed back is the holder's
+	// own object — which its caller then deletes.
+	e := integration.Setup(t)
+	args, stalled := claimedOnboardingRead(t, e)
+	workerCtx := deepReadWorkerCtx(context.Background(), args)
+	current := reclaimTheRead(t, e, args)
+
+	held := siteReadLogoKey(ids.From[ids.WorkspaceKind](e.WS), args.SiteReadID)
+	recorded, superseded, err := e.People.RecordSiteReadLogo(workerCtx, args.SiteReadID, current.ClaimedAt, held, touchIconURL)
+	if err != nil {
+		t.Fatalf("the holding attempt parking its mark: %v", err)
+	}
+	if !recorded || superseded != nil {
+		t.Fatalf("the holding attempt's park recorded %v superseding %v, want it taken and superseding nothing", recorded, superseded)
+	}
+
+	late := siteReadLogoKey(ids.From[ids.WorkspaceKind](e.WS), args.SiteReadID)
+	recorded, superseded, err = e.People.RecordSiteReadLogo(workerCtx, args.SiteReadID, stalled.ClaimedAt, late, seedURL+"/stale.png")
+	if err != nil {
+		t.Fatalf("the stalled attempt parking its mark: %v", err)
+	}
+	if recorded {
+		t.Fatal("the stalled attempt parked its mark on a read another attempt holds")
+	}
+	if superseded != nil {
+		t.Fatalf("the refused park named %q as superseded — the holder's object, which the caller would collect", *superseded)
+	}
+	key, origin := parkedLogo(t, e, args.SiteReadID)
+	if key == nil || origin == nil {
+		t.Fatal("the dossier holds no mark at all; the refused park cleared the holder's")
+	}
+	if *key != held || *origin != touchIconURL {
+		t.Fatalf("the dossier names key %q origin %q, want the holding attempt's mark at %q", *key, *origin, held)
+	}
+}
+
+func TestAResolveThatLandsAfterAnotherAttemptTookTheReadKeepsThatAttemptsBytes(t *testing.T) {
+	// The whole lane over the same hand-off: the refused attempt collects the
+	// bytes IT stored, and leaves standing the object the holder's mark names.
+	// Collecting that one would leave the dossier — and the company its
+	// confirmation creates — pointing at bytes nothing can serve.
+	e := integration.Setup(t)
+	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
+	blob := newRecordingBlobstore()
+	w := onboardingLogoWorker(e, site, blob)
+	args, stalled := claimedOnboardingRead(t, e)
+	workerCtx := deepReadWorkerCtx(context.Background(), args)
+
+	w.resolveLogo(workerCtx, args, reclaimTheRead(t, e, args), declaringCrawl())
+	held, _ := parkedLogo(t, e, args.SiteReadID)
+	if held == nil {
+		t.Fatal("the holding attempt parked no mark; this case has nothing to protect")
+	}
+
+	w.resolveLogo(workerCtx, args, stalled, declaringCrawl())
+
+	after, origin := parkedLogo(t, e, args.SiteReadID)
+	if after == nil || origin == nil {
+		t.Fatal("the dossier holds no mark at all; the refused resolve cleared the holder's")
+	}
+	if *after != *held || *origin != touchIconURL {
+		t.Fatalf("the dossier names key %q origin %q, want the holding attempt's mark at %q", *after, *origin, *held)
+	}
+	stored, outstanding := blob.account()
+	if len(stored) != 2 {
+		t.Fatalf("the two attempts stored %v, want one object each", stored)
+	}
+	if len(outstanding) != 1 || outstanding[0] != *held {
+		t.Fatalf("%v was left stored; want only the mark the dossier names at %q", outstanding, *held)
 	}
 }
 

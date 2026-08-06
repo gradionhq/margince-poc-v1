@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { components } from "../../api/schema";
 import type { MessageKey } from "../../i18n/en";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
-import { EMPTY_DRAFT } from "../onboarding";
+import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
+import { draftWithLegalEntity } from "./company-proposal";
 import { rowFor } from "./company-review-state";
 
 type ProposalField = components["schemas"]["OnboardingCompanyProposalField"];
@@ -199,6 +200,29 @@ describe("rowFor's empty hint over the read's legal candidates", () => {
       candidate,
     ]);
     expect(row.state).toBe("required");
+    expect(row.omissionReasonKey).toBeNull();
+    expect(row.emptyHintKey).toBe("ob.conv.triage.emptyHint");
+  });
+
+  // A row is an omission notice, so it must not restate a decision as an open
+  // one: the human picked their company off a multi-entity imprint and then
+  // emptied one of the boxes that pick filled. The choice is made; the box is
+  // simply blank.
+  it("stops asking who the company is once the draft carries the chosen entity", () => {
+    const picked = changeDraftField(
+      draftWithLegalEntity(EMPTY_DRAFT, {
+        name: candidate.name,
+        registered_address: candidate.registered_address,
+        register_number: "HRB 12345",
+        source_url: candidate.source_url,
+      }),
+      "registered_address",
+      "",
+    );
+    const row = rowFor("registered_address", picked, new Map(), stubT, pages, [
+      candidate,
+      { name: "Gradion Holding GmbH", source_url: candidate.source_url },
+    ]);
     expect(row.omissionReasonKey).toBeNull();
     expect(row.emptyHintKey).toBe("ob.conv.triage.emptyHint");
   });
