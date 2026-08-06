@@ -148,6 +148,15 @@ describe("AuthScreen login", () => {
     expect(screen.queryByText("Configured")).toBeNull();
   });
 
+  it("the sign-in footer offers every shipped locale", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const name of ["English", "Deutsch"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+  });
+
   it("is a login form — no signup mode, no workspace field, Enter submits, no tenant header", async () => {
     const calls = stubApi({ password: true, password_reset: false }, () =>
       ok(200, { user: {}, roles: [], teams: [] }),

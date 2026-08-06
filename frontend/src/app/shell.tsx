@@ -17,13 +17,14 @@ import {
   useState,
 } from "react";
 import type { components } from "../api/schema";
-import { useLocale, useT } from "../i18n";
+import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useLogout, useMe } from "../screens/common";
 import { useEntityName } from "../screens/entityref";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
+import { LocaleMenu } from "./localemenu";
 import {
   BADGE_SCREENS,
   MOBILE_PRIMARY,
@@ -398,7 +399,6 @@ export function TopBar({
   actions?: ReactNode;
 }>) {
   const t = useT();
-  const { locale, setLocale } = useLocale();
   const logout = useLogout();
 
   const navItem = NAV.find((item) => item.screen === route.screen);
@@ -442,16 +442,7 @@ export function TopBar({
           <span className="searchhint">{t("shell.searchHint")}</span>
           <kbd className="t-mono">{paletteHotkeyLabel(navigator.platform)}</kbd>
         </button>
-        <button
-          type="button"
-          className="iconbtn"
-          aria-label={
-            locale === "de" ? t("locale.toEnglish") : t("locale.toGerman")
-          }
-          onClick={() => setLocale(locale === "de" ? "en" : "de")}
-        >
-          <span className="t-mono">{locale === "de" ? "EN" : "DE"}</span>
-        </button>
+        <LocaleMenu className="iconbtn" />
         {/* The top bar's own 32px chrome sizing wins over the control's
             portable default — `.topbar .iconbtn` outranks `.theme-toggle`. */}
         <ThemeToggle className="iconbtn" />

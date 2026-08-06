@@ -98,8 +98,9 @@ export const en = {
   "agent.exampleRouting": "Local + cloud",
   "agent.exampleCost": "€2.41 today",
   "agent.fixture": "Example data",
-  "locale.toEnglish": "Switch to English",
-  "locale.toGerman": "Switch to German",
+  "locale.name.en": "English",
+  "locale.name.de": "Deutsch",
+  "locale.switchLabel": "Language",
 
   "screen.pending":
     "Not built yet — this surface arrives with its build ticket.",
@@ -2680,8 +2681,6 @@ export const en = {
   "auth.resetDoneBody":
     "Your password is changed and every other session is signed out. Sign in with the new password.",
   "auth.backToLogin": "Back to sign in",
-  "auth.langDeutsch": "Deutsch",
-  "auth.langEnglish": "English",
   "auth.signOut": "Sign out",
 
   "client.back": "Back to Margince",

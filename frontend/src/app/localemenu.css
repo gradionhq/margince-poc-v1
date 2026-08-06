@@ -1,0 +1,38 @@
+.localemenu {
+  position: relative;
+  flex: none;
+}
+.localelist {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  gap: 1px;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+  z-index: 60;
+}
+.localelist button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--textContent);
+  font-family: var(--f-body);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.localelist button:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}

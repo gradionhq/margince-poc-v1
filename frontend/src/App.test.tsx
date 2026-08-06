@@ -137,8 +137,9 @@ describe("locale switch", () => {
     );
     // English default: once the session resolves, the rail carries English labels
     expect(await screen.findByRole("link", { name: "Contacts" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Language" }));
     await userEvent.click(
-      screen.getByRole("button", { name: "Switch to German" }),
+      screen.getByRole("menuitemradio", { name: /Deutsch/ }),
     );
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Kontakte" })).toBeTruthy(),

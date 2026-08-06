@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import {
   type FormEvent,
+  Fragment,
   type ReactNode,
   useEffect,
   useId,
@@ -23,7 +24,7 @@ import {
   ProviderMark,
   providerBrandName,
 } from "../design-system/provider-mark";
-import { useLocale, useT } from "../i18n";
+import { LOCALES, localeNameKey, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AuthExperience, type AuthPhase, PhoneDisclosure } from "./auth-core";
 import { problemMessage } from "./common";
@@ -355,23 +356,19 @@ function LocaleFooter() {
   const { locale, setLocale } = useLocale();
   return (
     <div className="auth-footer">
-      <button
-        type="button"
-        className="auth-link"
-        aria-pressed={locale === "de"}
-        onClick={() => setLocale("de")}
-      >
-        {t("auth.langDeutsch")}
-      </button>
-      <span aria-hidden>·</span>
-      <button
-        type="button"
-        className="auth-link"
-        aria-pressed={locale === "en"}
-        onClick={() => setLocale("en")}
-      >
-        {t("auth.langEnglish")}
-      </button>
+      {LOCALES.map((option, index) => (
+        <Fragment key={option}>
+          {index > 0 && <span aria-hidden>·</span>}
+          <button
+            type="button"
+            className="auth-link"
+            aria-pressed={option === locale}
+            onClick={() => setLocale(option)}
+          >
+            {t(localeNameKey(option))}
+          </button>
+        </Fragment>
+      ))}
     </div>
   );
 }
