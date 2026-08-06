@@ -6,6 +6,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -393,4 +395,96 @@ func TestResetLeavesANativeWorkspaceAlone(t *testing.T) {
 		WHERE action = 'reset_data' AND evidence->>'sor_mode_reverted' = 'true'`); got != 0 {
 		t.Errorf("evidence claims a mode revert on an install that was already native (%d rows)", got)
 	}
+}
+
+// TestResetPurgesTheSealedCredentialsItsSweepOrphans: vault_secret carries no
+// workspace_id — the tenant lives inside the ref and inside the AES-256-GCM
+// AAD, deliberately, so it is operational infrastructure rather than a tenant
+// table and the sweep never sees it.
+//
+// That means the sweep deletes the connection rows holding the refs and leaves
+// the sealed ciphertext behind forever, unreachable but resident: credential
+// material outliving the wipe that was supposed to produce a clean slate. The
+// refs must therefore be collected BEFORE the rows go, and redeemed after.
+//
+// The assertion is that the secret is gone from the VAULT, not that a counter
+// moved: an implementation that tallied refs without redeeming them would look
+// identical from the evidence alone.
+func TestResetPurgesTheSealedCredentialsItsSweepOrphans(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	vault := resetTestVault(t, e)
+	wsID := ids.From[ids.WorkspaceKind](e.WS)
+	mine, err := vault.Put(ctx, wsID, []byte("an incumbent's oauth refresh token"))
+	if err != nil {
+		t.Fatalf("sealing the credential under test: %v", err)
+	}
+	e.WsExec(t, `INSERT INTO incumbent_connection (id, workspace_id, incumbent, region, status, credential_ref)
+		VALUES ($1, $2, 'hubspot', 'eu', 'active', $3)`, ids.NewV7(), e.WS, string(mine))
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		vault: vault,
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if _, err := vault.Get(ctx, wsID, mine); !errors.Is(err, keyvault.ErrNotFound) {
+		t.Errorf("the sealed credential outlived the reset (Get returned %v) — a wipe that leaves credential material resident is not a clean slate", err)
+	}
+	if got := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE action = 'reset_data' AND evidence->>'secrets_purged' = '1'`); got != 1 {
+		t.Errorf("reset_data rows recording one purged secret = %d, want 1", got)
+	}
+}
+
+// TestResetLeavesAnotherWorkspacesSealedCredential: the ref collection is
+// bound to the workspace being reset. vault_secret has no RLS to fall back on
+// — isolation here is the collecting query's job — so a co-tenant's sealed
+// credential surviving is the property that matters, not the count.
+func TestResetLeavesAnotherWorkspacesSealedCredential(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	vault := resetTestVault(t, e)
+	theirs := ids.New[ids.WorkspaceKind]()
+	theirRef, err := vault.Put(ctx, theirs, []byte("another tenant's token"))
+	if err != nil {
+		t.Fatalf("sealing the co-tenant's credential: %v", err)
+	}
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		vault: vault,
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if _, err := vault.Get(ctx, theirs, theirRef); err != nil {
+		t.Errorf("a reset reached past its own tenant into another workspace's sealed credential: %v", err)
+	}
+}
+
+// resetTestVault builds the local vault provider over the harness pool. The
+// root key is fixed and meaningless — these tests assert reachability of the
+// ciphertext, never its contents.
+func resetTestVault(t *testing.T, e *integration.Env) keyvault.Vault {
+	t.Helper()
+	vault, err := keyvault.New(keyvault.Config{
+		RootKey: bytes.Repeat([]byte{7}, 32),
+		Pool:    e.Pool,
+	})
+	if err != nil {
+		t.Fatalf("building the test vault: %v", err)
+	}
+	return vault
 }

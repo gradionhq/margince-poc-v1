@@ -137,6 +137,10 @@ func WithBlobstore(store blobstore.Store) Option {
 func WithKeyvault(vault keyvault.Vault) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.vault = vault
+		// Backfilled for the same reason the object store is: WithDataReset may
+		// have already run, and a reset that cannot reach the vault leaves the
+		// sealed credentials of the installation it just wiped resident.
+		s.dataResetHandlers.vault = vault
 		// Rebuild the capture registry with the vault so the connector-
 		// credential paths (Connect seals, Sync resolves) have their custodian.
 		// The standing IMAP connect rides this same registry and needs no
@@ -267,6 +271,7 @@ func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runti
 			runtime: &s.resetRuntime,
 			budget:  s.overlayMeter,
 			blob:    s.blob,
+			vault:   s.vault,
 			flush:   s.flushAfterOwnReset,
 		}
 	}

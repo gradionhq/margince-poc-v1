@@ -54,6 +54,13 @@ type resetCounts struct {
 	// this reset returned it to native. Not a count, but it rides here for the
 	// same reason the counts do: the audit row and the log line both report it.
 	SorModeReverted bool
+	// SecretsPurged counts the sealed credentials redeemed from the vault.
+	SecretsPurged int
+	// secretRefs carries the handles collected inside the sweep's transaction
+	// to the redemption that runs after it commits. Unexported because it is
+	// in-flight state, not a tally: nothing outside this file reports it, and
+	// the handles themselves must never reach a response or a log line.
+	secretRefs []string
 }
 
 // runRuntimePhase quiets the fleet, drains the outbox, purges the queue, the bus

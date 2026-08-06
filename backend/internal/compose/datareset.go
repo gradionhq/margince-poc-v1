@@ -6,6 +6,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -70,6 +72,10 @@ type dataResetHandlers struct {
 	budget *overlaybudget.Meter
 	// blob is the object store holding the bytes the swept rows referenced.
 	blob blobstore.Store
+	// vault holds the sealed credentials the swept connection rows referenced.
+	// Its storage carries no workspace_id, so the sweep cannot reach it and the
+	// ciphertext would otherwise outlive the installation it belonged to.
+	vault keyvault.Vault
 	// flush drops this process's own caches (Server.FlushResetCaches); the
 	// bus announcement reaches the rest of the fleet.
 	flush func(ids.UUID)
@@ -153,7 +159,7 @@ func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, clear
 		"tables_cleared", counts.TablesCleared, "jobs_deleted", counts.JobsDeleted,
 		"streams_purged", counts.StreamsPurged, "cache_keys_deleted", counts.CacheKeys,
 		"objects_deleted", counts.ObjectsDeleted, "drain_timed_out", counts.DrainTimedOut,
-		"sor_mode_reverted", counts.SorModeReverted)
+		"sor_mode_reverted", counts.SorModeReverted, "secrets_purged", counts.SecretsPurged)
 	return counts, nil
 }
 
@@ -184,6 +190,16 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 		if err != nil {
 			return err
 		}
+		// Before the sweep, while the rows naming them still exist: the
+		// ciphertext lives in a table with no workspace_id, so these handles are
+		// the only thing that will still connect it to this tenant afterwards.
+		// They are redeemed after the commit (purgeUnjoinableSurfaces).
+		secretRefs, err := collectWorkspaceSecretRefs(ctx, tx)
+		if err != nil {
+			return err
+		}
+		counts.secretRefs = secretRefs
+
 		if err := sweepWorkspaceData(ctx, tx, tables); err != nil {
 			return err
 		}
@@ -248,6 +264,12 @@ func resetEvidence(counts resetCounts) map[string]any {
 		// It belongs in the permanent record because it changes where every
 		// subsequent read is served from, which no other count here does.
 		"sor_mode_reverted": counts.SorModeReverted,
+		// Sealed credentials redeemed from the vault. Like objects_deleted this
+		// is tallied after the commit, so the number this row carries is the
+		// count the sweep COLLECTED — the work the reset committed itself to —
+		// while the response reports what was actually redeemed. They differ
+		// only when the purge failed, and then the request failed with them.
+		"secrets_purged": len(counts.secretRefs),
 	}
 }
 
@@ -279,6 +301,35 @@ func (h dataResetHandlers) purgeUnjoinableSurfaces(ctx context.Context, logger *
 			return err
 		}
 		counts.ObjectsDeleted = n
+	}
+	return h.purgeSealedCredentials(ctx, wsID, counts)
+}
+
+// purgeSealedCredentials redeems the credential handles the sweep collected
+// before it deleted the rows naming them.
+//
+// It runs after the commit because the vault is a seam, not a table: the local
+// provider happens to write Postgres, but a remote one has no transaction to
+// join. The handles were captured inside the transaction instead, which is the
+// half that has to be consistent — a sweep that rolled back leaves refs this
+// never receives.
+//
+// A failure fails the request. The alternative is reporting an installation as
+// reset while its sealed credentials are still resident, which is precisely
+// the state this exists to prevent. Delete is idempotent, so re-running the
+// reset finishes a partial purge.
+func (h dataResetHandlers) purgeSealedCredentials(ctx context.Context, wsID ids.UUID, counts *resetCounts) error {
+	if h.vault == nil {
+		return nil
+	}
+	ws := ids.From[ids.WorkspaceKind](wsID)
+	for _, ref := range counts.secretRefs {
+		// The ref is never logged or returned: it is the address of a secret,
+		// and an error naming it would put that address in every log sink.
+		if err := h.vault.Delete(ctx, ws, keyvault.Ref(ref)); err != nil {
+			return fmt.Errorf("data reset: purging a sealed credential: %w", err)
+		}
+		counts.SecretsPurged++
 	}
 	return nil
 }

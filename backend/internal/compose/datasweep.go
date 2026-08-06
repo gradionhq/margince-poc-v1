@@ -149,6 +149,83 @@ func isForeignKeyViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }
 
+// vaultRefColumn is the one spelling every table uses for a keyvault
+// handle (connector_connection, channel_connection, incumbent_connection).
+// Deriving the collection from the catalog on this name rather than listing
+// those three means a connection table added later is covered the day its
+// column exists, which a hand-kept list would not be.
+const vaultRefColumn = "credential_ref"
+
+// collectWorkspaceSecretRefs reads every sealed-credential handle this
+// workspace owns, BEFORE the sweep deletes the rows that name them.
+//
+// It has to run first because vault_secret is deliberately not a tenant table:
+// it carries no workspace_id and no RLS (migrations/core/0062), since the
+// tenant lives inside the ref and inside the AES-256-GCM AAD. The sweep
+// therefore never sees it, and a reset that did not collect these first would
+// leave the ciphertext resident and unreachable forever — credential material
+// outliving the wipe that was supposed to clear it.
+func collectWorkspaceSecretRefs(ctx context.Context, tx pgx.Tx) ([]string, error) {
+	tables, err := tablesWithVaultRef(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	var refs []string
+	for _, t := range tables {
+		rows, err := tx.Query(ctx,
+			`SELECT `+pgx.Identifier{vaultRefColumn}.Sanitize()+
+				` FROM `+pgx.Identifier{t}.Sanitize()+
+				` WHERE workspace_id = current_setting('app.workspace_id')::uuid
+				  AND `+pgx.Identifier{vaultRefColumn}.Sanitize()+` IS NOT NULL`)
+		if err != nil {
+			return nil, fmt.Errorf("data reset: reading credential handles from %s: %w", t, err)
+		}
+		for rows.Next() {
+			var ref string
+			if err := rows.Scan(&ref); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("data reset: reading a credential handle from %s: %w", t, err)
+			}
+			refs = append(refs, ref)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("data reset: reading credential handles from %s: %w", t, err)
+		}
+	}
+	return refs, nil
+}
+
+// tablesWithVaultRef lists the workspace-scoped tables holding a
+// credential handle, derived from the catalog for the same reason
+// resetTargetTables is: a new one enrols itself.
+func tablesWithVaultRef(ctx context.Context, tx pgx.Tx) ([]string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT c.relname
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_attribute a ON a.attrelid = c.oid
+		JOIN pg_attribute w ON w.attrelid = c.oid
+		WHERE n.nspname = 'public'
+		  AND c.relkind = 'r'
+		  AND a.attname = $1 AND a.attnum > 0 AND NOT a.attisdropped
+		  AND w.attname = 'workspace_id' AND w.attnum > 0 AND NOT w.attisdropped
+		ORDER BY c.relname`, vaultRefColumn)
+	if err != nil {
+		return nil, fmt.Errorf("data reset: listing tables holding a credential handle: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
+}
+
 // dropResetCustomFieldColumns drops every runtime cf_* column via the owner
 // pool (the ONE sanctioned ALTER TABLE chokepoint). DROP COLUMN CASCADE also
 // removes each column's generated cf_<slug>_check constraint.

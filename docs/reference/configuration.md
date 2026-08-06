@@ -565,6 +565,13 @@ against records that no longer exist. The endpoint therefore also:
    (deleted and immediately re-created, so live subscribers keep reading), the
    processed-event dedupe marks, and this workspace's overlay budget counters.
 5. **Deletes the workspace's stored objects** under its `<workspace>/` prefix.
+   It also redeems the **sealed credentials** those swept connection rows
+   referenced. `vault_secret` deliberately carries no `workspace_id` — the
+   tenant lives inside the ref and inside the AES-256-GCM AAD — so the sweep
+   cannot see it, and the handles are collected inside the sweep's transaction
+   before the rows naming them go. Which tables hold one is derived from the
+   catalog on the `credential_ref` column, so a connection table added later is
+   covered the day its column exists.
 6. **Returns an overlay-mode installation to native.** The `workspace` row is
    preserved because it carries the organization, but everything overlay mode
    depends on is swept — the incumbent connection, the mirror, the budget
