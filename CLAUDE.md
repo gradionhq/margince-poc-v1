@@ -373,10 +373,22 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    -- the write goes here
+
+    UPDATE <table> SET ...
+    WHERE (<the original condition>)
+      AND <table>.workspace_id = ws;   -- required, see below
   END LOOP;
 END $$;
 ```
+
+Both halves are mandatory, and they do different jobs. The **binding** makes the
+rows visible; it does **not** scope the statement. An executor RLS does not
+filter — any superuser, so every dev machine and CI — sees every workspace on
+every iteration, so without the **predicate** the write runs once per workspace:
+survivable for an idempotent `UPDATE`, a unique violation for an `INSERT`. Bind
+inside the loop (hoisting it out names one workspace for all of them), and
+qualify the predicate with the statement's own target (an `INSERT … SELECT` names
+it on the source alias instead, which is where its `workspace_id` comes from).
 
 `workspace` itself is outside RLS, which is what lets the loop enumerate it, and
 `set_config`'s third argument keeps the binding transaction-local. **Nothing

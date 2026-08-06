@@ -6,13 +6,17 @@
 -- the ones already deployed: same grants, same guards, in the workspace-scoped
 -- shape that actually lands them.
 --
--- Only channel_connection needs it. The other core RBAC objects were verified
--- present on the deployed installation — every backfill before 0148 ran while
--- the role table was still empty (roles are seeded by app code at bootstrap,
--- not by a migration), so those objects came from the code-side seed and no
--- write was lost. 0154 is the only core object whose backfill ran against role
--- rows that already existed. import_run, the other loss, is fork-owned and
--- repaired in the custom namespace.
+-- channel_connection is the only core RBAC object that needs it, and the reason
+-- is structural rather than observed: roles are seeded by app code at bootstrap,
+-- never by a migration, so a backfill that runs before an installation's first
+-- boot has no rows to write and nothing to lose. Only an object introduced AFTER
+-- an installation exists can lose its backfill, and channel_connection is the
+-- only core one that did. import_run is the other, fork-owned, and repaired in
+-- the custom namespace.
+--
+-- The RBAC losses are the ones this repairs. Whether a non-RBAC backfill was also
+-- lost depends on whether an installation held matching rows when it ran, which
+-- no migration can answer for every installation — issue #541 tracks the audit.
 --
 -- Guarded on key absence, so this is a no-op wherever 0154 did land — including
 -- every fresh database, which gets these grants from the seed.

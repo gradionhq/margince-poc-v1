@@ -333,10 +333,19 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    -- the write goes here
+
+    UPDATE <table> SET ...
+    WHERE (<the original condition>)
+      AND <table>.workspace_id = ws;
   END LOOP;
 END $$;
 ```
+
+Both halves are mandatory. The binding makes rows VISIBLE; the predicate SCOPES
+the statement — an executor RLS does not filter (any superuser, so dev and CI)
+sees every workspace on every iteration, so without the predicate the write
+repeats N times. Bind inside the loop, and qualify the predicate with the
+statement's own target (an `INSERT … SELECT` names it on the source alias).
 
 Two gates hold it: `TestTenantWritesInMigrationsAreWorkspaceScoped` (unit) and
 the RBAC upgrade replay, which migrates as a NON-SUPERUSER owner. Full account in

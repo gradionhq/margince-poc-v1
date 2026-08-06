@@ -17,18 +17,25 @@ package migrations
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 )
 
-// The migrator's own credentials. It exists only inside the throwaway test
-// database's cluster, and its whole purpose is to hold NO exemption: not a
-// superuser, no BYPASSRLS, but the owner of everything the migrations create.
-const (
-	migratorRole     = "margince_migrator_test"
-	migratorPassword = "margince_migrator_test"
-)
+// migratorRole holds NO exemption — not a superuser, no BYPASSRLS — while owning
+// everything the migrations create. That is the whole point of it.
+//
+// A role is CLUSTER-scoped, not database-scoped, so a login role left behind by a
+// test run is a standing credential on every database in that cluster, including
+// the dev one; and this role owns the migrated tables, so it can drop their RLS
+// policies outright. It is therefore created with a per-run random password and
+// dropped again in Cleanup, and the name carries the pid so two concurrent
+// packages cannot adopt each other's.
+var migratorRole = fmt.Sprintf("margince_migrator_test_%d", os.Getpid())
 
 // extensionsTheOperatorInstalls are created by the cluster operator out of band
 // (a superuser step: an init container in the deployed stack, `make db-up`
@@ -43,19 +50,33 @@ var extensionsTheOperatorInstalls = []string{"vector", "btree_gist", "unaccent",
 func asMigrator(t *testing.T, admin *pgx.Conn) *pgx.Conn {
 	t.Helper()
 	ctx := context.Background()
+	password := randomPassword(t)
+	// Dropped and recreated rather than reused: a role left over from an earlier
+	// run may have been granted anything in the meantime, and inheriting it would
+	// quietly weaken every assertion that rests on what this role cannot do.
 	for _, statement := range []string{
-		`DO $$ BEGIN
-			IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '` + migratorRole + `') THEN
-				CREATE ROLE ` + migratorRole + ` LOGIN PASSWORD '` + migratorPassword + `'
-					NOSUPERUSER NOBYPASSRLS;
-			END IF;
-		END $$`,
+		`DROP ROLE IF EXISTS ` + migratorRole,
+		`CREATE ROLE ` + migratorRole + ` LOGIN PASSWORD '` + password + `' NOSUPERUSER NOBYPASSRLS`,
 		`GRANT CREATE, USAGE ON SCHEMA public TO ` + migratorRole,
 	} {
 		if _, err := admin.Exec(ctx, statement); err != nil {
 			t.Fatalf("preparing the %s role: %v", migratorRole, err)
 		}
 	}
+	t.Cleanup(func() {
+		// The role owns the migrated tables, so its objects go first. Left
+		// behind, it would be a standing login on every database in the cluster
+		// with the power to drop those tables' RLS policies.
+		for _, statement := range []string{
+			`DROP OWNED BY ` + migratorRole + ` CASCADE`,
+			`DROP ROLE IF EXISTS ` + migratorRole,
+		} {
+			if _, err := admin.Exec(context.Background(), statement); err != nil {
+				t.Errorf("removing the %s role (%s): %v — a login role left on this cluster owns the "+
+					"migrated tables and can drop their tenant-isolation policies", migratorRole, statement, err)
+			}
+		}
+	})
 	for _, extension := range extensionsTheOperatorInstalls {
 		if _, err := admin.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS `+extension); err != nil {
 			t.Fatalf("installing the %s extension as the operator would: %v", extension, err)
@@ -66,7 +87,7 @@ func asMigrator(t *testing.T, admin *pgx.Conn) *pgx.Conn {
 	if err != nil {
 		t.Fatalf("parsing the test DSN: %v", err)
 	}
-	config.User, config.Password = migratorRole, migratorPassword
+	config.User, config.Password = migratorRole, password
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		t.Fatalf("connecting as %s: %v", migratorRole, err)
@@ -96,6 +117,17 @@ func assertNoRLSExemption(ctx context.Context, t *testing.T, conn *pgx.Conn) {
 		t.Fatalf("the migration role holds rolsuper=%t rolbypassrls=%t, so row-level security does "+
 			"not bind it and every assertion resting on this connection proves nothing", super, bypass)
 	}
+}
+
+// randomPassword mints the run's credential. Hex of 16 random bytes: no quoting
+// concerns in the CREATE ROLE literal, and nothing derivable from the repo.
+func randomPassword(t *testing.T) string {
+	t.Helper()
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		t.Fatalf("minting the migration role's password: %v", err)
+	}
+	return hex.EncodeToString(buf)
 }
 
 func mustOwnerDSN(t *testing.T) string {

@@ -105,7 +105,7 @@ func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 	// would pass here. See migrationrole_integration_test.go.
 	migrator := asMigrator(t, conn)
 
-	core, custom := loadNamespaces(t)
+	core, custom := namespaces(t)
 	installs := readReplayInstalls(t)
 	want := readSeededDefaults(t)
 
@@ -234,19 +234,6 @@ func prefixThrough(t *testing.T, core dbmigrate.Namespace, version string) int {
 		"A shipped core migration cannot be renumbered or removed, so this means the fixture is wrong.",
 		version, legacyInstallsFixture)
 	return 0
-}
-
-func loadNamespaces(t *testing.T) (core, custom dbmigrate.Namespace) {
-	t.Helper()
-	core, err := Core()
-	if err != nil {
-		t.Fatalf("loading core: %v", err)
-	}
-	custom, err = Custom()
-	if err != nil {
-		t.Fatalf("loading custom: %v", err)
-	}
-	return core, custom
 }
 
 func readReplayInstalls(t *testing.T) replayInstalls {
