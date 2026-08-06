@@ -10,7 +10,7 @@ import {
 } from "../design-system/atoms";
 import { formatMoney, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { QueryGate, throwProblem } from "./common";
 
 type AiUsage = components["schemas"]["AiUsage"];
 type UsageTask = AiUsage["days"][number]["tasks"][number];
@@ -86,7 +86,7 @@ export function AiUsageCard() {
       const { data, error } = await api.GET("/ai/usage", {
         params: { query: month ?? {} },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       if (!data?.budget || !Array.isArray(data.days)) {
         throw new Error("malformed AI usage response");
       }

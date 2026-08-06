@@ -13,6 +13,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -33,6 +34,23 @@ const (
 	userStatusDeactivated = "deactivated"
 	userAuditKeyStatus    = "status"
 	roleAdmin             = "admin"
+)
+
+// The three distinct refusals this surface can answer with. Each WRAPS
+// apperrors.ErrConflict, so every caller that only asks "was this a conflict?"
+// is unaffected, while a handler can tell them apart and say which one it was:
+// the bare sentinel reaches the operator as the single word "conflict", which
+// names neither what happened nor what to do about it. The advice differs per
+// verb (deactivating vs demoting the last admin), so the handler supplies the
+// wording and these carry only the cause.
+var (
+	errEmailTaken      = fmt.Errorf("%w: a member with this email already exists", apperrors.ErrConflict)
+	errNotDeactivated  = fmt.Errorf("%w: the member is not deactivated", apperrors.ErrConflict)
+	errLastActiveAdmin = fmt.Errorf("%w: the member is the only active administrator", apperrors.ErrConflict)
+	// A role key nobody defines is a 404 like a missing member, but it is a
+	// DIFFERENT 404: the admin mistyped a role, not a person. Wrapping keeps
+	// the status while letting the handler say which of the two happened.
+	errUnknownRole = fmt.Errorf("%w: no role with this key is defined", apperrors.ErrNotFound)
 )
 
 // InviteUserInput carries the admin-supplied details for a new member. No
@@ -66,7 +84,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 		var roleID ids.UUID
 		roleErr := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, in.Role).Scan(&roleID)
 		if errors.Is(roleErr, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
+			return errUnknownRole
 		}
 		if roleErr != nil {
 			return roleErr
@@ -77,7 +95,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			wsID, in.Email, in.DisplayName).Scan(&newUserID)
 		var pgErr *pgconn.PgError
 		if errors.As(insErr, &pgErr) && pgErr.Code == "23505" {
-			return apperrors.ErrConflict
+			return errEmailTaken
 		}
 		if insErr != nil {
 			return insErr
@@ -142,7 +160,7 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 		// is held for a different reason (e.g. lockout) and must not be silently
 		// cleared by this path.
 		if status != userStatusDeactivated {
-			return apperrors.ErrConflict
+			return errNotDeactivated
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE app_user SET status = 'active' WHERE id = $1`, userID); err != nil {
@@ -269,7 +287,7 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 			return err
 		}
 		if lastAdmin {
-			return apperrors.ErrConflict
+			return errLastActiveAdmin
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, in.UserID); err != nil {
@@ -382,7 +400,7 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 		var roleID ids.UUID
 		err := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, toRole).Scan(&roleID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
+			return errUnknownRole
 		}
 		if err != nil {
 			return err
@@ -408,7 +426,7 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 				return err
 			}
 			if lastAdmin {
-				return apperrors.ErrConflict
+				return errLastActiveAdmin
 			}
 		}
 

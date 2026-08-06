@@ -6,7 +6,6 @@ package compose
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -89,11 +88,7 @@ func (e *deepReadEngine) companySiteReadRuntime(ctx context.Context, readID ids.
 	if errors.Is(err, apperrors.ErrPermissionDenied) {
 		return ai.RunSummary{}, false, err
 	}
-	logger := e.log
-	if logger == nil {
-		logger = slog.Default()
-	}
-	logger.WarnContext(ctx, "AI runtime transparency unavailable", "read_id", readID, "err", err)
+	e.logger().WarnContext(ctx, "AI runtime transparency unavailable", "read_id", readID, "err", err)
 	return ai.RunSummary{}, false, nil
 }
 
@@ -124,9 +119,13 @@ func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.R
 		httperr.Write(w, r, httperr.Validation("profile.website", "invalid", "website must be a domain or an absolute http(s) URL"))
 		return
 	}
-	company, err := e.people.ConfirmCompanySiteRead(r.Context(), people.ConfirmCompanySiteReadInput{
+	company, unadoptedLogo, err := e.people.ConfirmCompanySiteRead(r.Context(), people.ConfirmCompanySiteReadInput{
 		ReadID: ids.UUID(readID), DraftVersion: req.DraftVersion, ProposalHash: req.ProposalHash,
 		DisplayName: strings.TrimSpace(req.Profile.DisplayName), Website: website,
+		// The object store lives on this side of the seam, so the dossier
+		// releases the mark its anchor declines only while somebody is here to
+		// collect the bytes behind it.
+		ReclaimUnadoptedLogo: e.blob != nil,
 		Fields: map[string]*string{
 			fieldOfferSummary: trimOptional(req.Profile.OfferSummary), fieldLegalName: trimOptional(req.Profile.LegalName),
 			fieldRegisteredAddress: trimOptional(req.Profile.RegisteredAddress), fieldRegisterVat: trimOptional(req.Profile.RegisterVat),
@@ -146,10 +145,38 @@ func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.R
 			httperr.Write(w, r, httperr.Validation("resolutions", "invalid", invalid.Reason))
 			return
 		}
-		httperr.Write(w, r, err)
+		httperr.Write(w, r, siteReadConfirmationRefusal(err))
 		return
 	}
+	// After the commit, never inside it: a delete cannot be rolled back, so a
+	// transaction that failed behind one would leave the anchor — or the dossier
+	// — pointing at bytes nothing can serve. The committed row no longer names
+	// these, and no record ever did.
+	deleteUnreferencedLogo(r.Context(), e.blob, e.logger(), ids.UUID(readID), unadoptedLogo)
 	httperr.WriteJSON(w, http.StatusOK, toContractCompany(company))
+}
+
+// siteReadConfirmationRefusal gives each way a confirmation can be refused its
+// own contract code. All three are 409s and a client branches on the machine
+// code alone (frontend.md), so sharing one code between them would leave it
+// unable to tell "somebody already finished onboarding" from "this read has no
+// draft yet" without refetching and re-deriving which it was. The third, a
+// draft that moved under the reader, already has version_skew from the shared
+// registry and is left to it.
+func siteReadConfirmationRefusal(err error) error {
+	switch {
+	case errors.Is(err, people.ErrSiteReadAlreadyConfirmed):
+		return &httperr.DetailedError{
+			Status: http.StatusConflict, Code: "already_confirmed",
+			Detail: "This website read was already confirmed. Open the company profile to see what it created.",
+		}
+	case errors.Is(err, people.ErrSiteReadNotConfirmable):
+		return &httperr.DetailedError{
+			Status: http.StatusConflict, Code: "not_confirmable",
+			Detail: "This website read has no draft to confirm. Wait for it to finish, or start a new read.",
+		}
+	}
+	return err
 }
 
 func (e *deepReadEngine) stageOnboardingPeople(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, read people.SiteRead, found []people.SiteReadPerson) ([]ids.UUID, error) {
@@ -290,6 +317,13 @@ func attachCompanySiteReadOptionals(out *crmcontracts.CompanySiteRead, read peop
 	if read.Phase != nil {
 		phase := crmcontracts.CompanySiteReadPhase(*read.Phase)
 		out.Phase = &phase
+	}
+	if read.StoppedReason != nil {
+		// A read that ended on a cap, a deadline or the budget stopped by
+		// decision, not by fault. Without the reason a bounded read and a
+		// broken one look alike, and the caller has nothing honest to say.
+		reason := crmcontracts.CompanySiteReadStoppedReason(*read.StoppedReason)
+		out.StoppedReason = &reason
 	}
 }
 

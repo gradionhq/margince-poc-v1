@@ -151,6 +151,35 @@ func TestEntityClarifiesFilterImplausibleCensusDebris(t *testing.T) {
 	})
 }
 
+func TestEveryEntityOptionIsOfferedInTheSpellingTheConfirmationMatches(t *testing.T) {
+	// The option value travels to the client and comes back verbatim, and the
+	// confirmation matches it against the census through
+	// people.PrintedSiteReadValue. An option not already in that spelling is one
+	// the server offers and then refuses to recognize — and the pick lands as a
+	// human assertion instead of the website evidence it is.
+	read := people.SiteRead{DraftVersion: 1, LegalEntities: []people.SiteReadLegalEntity{
+		{Name: "NFQ  Solutions GmbH", RegisteredAddress: "Deliusstraße 7,  24114 Kiel", SourceURL: "https://gradion.example/de/legal"},
+		{Name: "Gradion Pte. Ltd.", RegisteredAddress: "10 Anson Road #22-02, Singapore 079903", SourceURL: "https://gradion.example/legal"},
+	}}
+	clarifies := onboardingClarifies(read, nil, "en")
+	if len(clarifies) != 2 {
+		t.Fatalf("clarifies = %+v, want the name and address questions", clarifies)
+	}
+	for _, clarify := range clarifies {
+		for _, option := range clarify.Options {
+			if got := people.PrintedSiteReadValue(option.Value); got != option.Value {
+				t.Fatalf("%s offers %q, which the confirmation reads as %q", clarify.Field, option.Value, got)
+			}
+			selection := crmcontracts.OnboardingClarifySelection{
+				ClarifyId: clarify.Id, Field: clarify.Field, Value: option.Value,
+			}
+			if err := verifySelectedOption(selection, &read, nil, "en"); err != nil {
+				t.Fatalf("%s refused the option it just offered: %v", clarify.Field, err)
+			}
+		}
+	}
+}
+
 func TestPlausibleClarifyValueBounds(t *testing.T) {
 	tests := map[string]struct {
 		raw          string

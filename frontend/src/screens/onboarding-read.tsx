@@ -19,9 +19,10 @@ import { Button } from "../design-system/atoms";
 import type { MarginceCoreState } from "../design-system/margince-core";
 import { MarginceWorkbench } from "../design-system/margince-workbench";
 import { formatDateTime } from "../format/format";
-import { useLocale, useT } from "../i18n";
+import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { coldFieldLabel, problemMessage } from "./common";
+import { coldFieldLabel, problemMessageOf, throwProblem } from "./common";
+import { onboardingLocale } from "./onboarding-conversation/onboarding-locale";
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type AiProfile = components["schemas"]["AiProfile"];
@@ -240,7 +241,7 @@ function WebsiteWorkbench(
     queryKey: ["ai-profile"],
     queryFn: async (): Promise<AiProfile> => {
       const { data, error } = await api.GET("/ai/profile");
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     staleTime: Number.POSITIVE_INFINITY,
@@ -342,7 +343,7 @@ function WebsiteWorkbench(
           )}
           {conversation.send.isError && (
             <p className="mw-send-error" role="alert">
-              {conversation.send.error.message}
+              {problemMessageOf(conversation.send.error, t)}
             </p>
           )}
         </div>
@@ -427,7 +428,7 @@ function CompanyArtifact(props: ReadCompanyStepProps) {
 
 export function useCompanyConversation(
   mode: ReadCompanyStepProps["mode"],
-  locale: "en" | "de",
+  locale: Locale,
   readFirstMessage: string,
   companyDraft: OnboardingCompanyDraft,
   act: components["schemas"]["OnboardingAct"] = "company",
@@ -442,11 +443,17 @@ export function useCompanyConversation(
       message: string;
       history: ConversationTurn[];
     }): Promise<MessageReply> => {
-      if (!mode) throw new Error(readFirstMessage);
+      if (!mode) throwProblem({ title: readFirstMessage });
       const { data, error } = await api.POST("/onboarding/company/messages", {
-        body: { message, history, locale, act, company_draft: companyDraft },
+        body: {
+          message,
+          history,
+          locale: onboardingLocale(locale),
+          act,
+          company_draft: companyDraft,
+        },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     onMutate: ({ message }) => {
@@ -611,7 +618,7 @@ function WebsiteStatusMessage({
   error: string | null;
   presentation: ReturnType<typeof coreReadPresentation> | null;
   refreshing: boolean;
-  locale: "de" | "en";
+  locale: Locale;
   onManual: () => void;
 }>) {
   const t = useT();

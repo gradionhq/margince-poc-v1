@@ -123,10 +123,17 @@ func (s *Service) Disconnect(ctx context.Context) error {
 
 // RevertToNative returns the bound workspace to native mode inside the
 // caller's transaction, reporting whether it had to. It is the ONE spelling of
-// that flip: Disconnect's teardown takes it, and so does the non-production
-// data reset, which sweeps every table overlay mode depends on and would
-// otherwise leave the workspace claiming to read from an incumbent it no
-// longer has a connection to.
+// that flip as an intentional act: Disconnect's teardown takes it, and so does
+// the non-production data reset, which sweeps every table overlay mode depends
+// on and would otherwise leave the workspace claiming to read from an
+// incumbent it no longer has a connection to.
+//
+// The reset then runs identity.ResetWorkspaceConfig, which restores every
+// non-preserved column on the workspace row to its declared default — these
+// two among them, so they are written again. That ordering is required, not
+// incidental: whether the
+// installation was in overlay mode is only knowable before something writes
+// the column, and only this call reports it.
 //
 // Both columns move in one statement because the schema admits no intermediate
 // state (the x_overlay_iff_incumbent CHECK: a mode of 'overlay' and a non-NULL

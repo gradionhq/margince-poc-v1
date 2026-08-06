@@ -42,7 +42,7 @@ import { AssistantPanel } from "./assistant";
 import {
   coldFieldLabel,
   LoadMoreButton,
-  problemMessage,
+  problemMessageOf,
   provenanceOf,
   QueryGate,
   QueryStates,
@@ -174,7 +174,7 @@ async function fetchOrganizationsPage(
     },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,
@@ -555,7 +555,7 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
         params: { path: { id: orgId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -575,7 +575,7 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
       </div>
       {enrich.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
-          {enrich.error instanceof Error ? enrich.error.message : null}
+          {problemMessageOf(enrich.error, t)}
         </p>
       )}
       {enrich.data && (
@@ -716,7 +716,7 @@ function SiteReadPanel({
         { params: { path: { id: orgId, readId } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -735,7 +735,7 @@ function SiteReadPanel({
   if (reportQuery.isError) {
     return (
       <p className="t-caption" style={{ color: "var(--danger)" }}>
-        {reportQuery.error.message}
+        {problemMessageOf(reportQuery.error, t)}
       </p>
     );
   }
@@ -881,10 +881,13 @@ function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
         { params: { path: { id: orgId } } },
       );
       if (error) {
-        throw new Error(
+        // 501 means the crawl seam is unwired, which the server states in its
+        // own terms and the card states in the reader's. Either way this stays
+        // a problem, so the render below can tell it from a bug in here.
+        throwProblem(
           response.status === 501
-            ? t("deepread.unavailable")
-            : problemMessage(error),
+            ? { title: t("deepread.unavailable") }
+            : error,
         );
       }
       return data;
@@ -902,7 +905,7 @@ function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
       </div>
       {start.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
-          {start.error instanceof Error ? start.error.message : null}
+          {problemMessageOf(start.error, t)}
         </p>
       )}
       {readId && <SiteReadPanel orgId={orgId} readId={readId} />}
@@ -932,7 +935,7 @@ async function fetchHierarchyRollup(
     if (error.code === "fx_rate_unavailable") {
       throw new FxUnavailableError();
     }
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }
@@ -963,7 +966,7 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
     if (rollupQuery.error instanceof FxUnavailableError) {
       return <EmptyState>{t("rollup.fxUnavailable")}</EmptyState>;
     }
-    return <EmptyState>{rollupQuery.error.message}</EmptyState>;
+    return <EmptyState>{problemMessageOf(rollupQuery.error, t)}</EmptyState>;
   }
 
   const rollup = rollupQuery.data;
@@ -1114,7 +1117,7 @@ function ProfileFieldsCard({
         { params: { path: { id: orgId } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data ?? [];
     },
@@ -1253,7 +1256,7 @@ function FactsCard({
         params: { path: { id: orgId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data ?? [];
     },
@@ -1569,7 +1572,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

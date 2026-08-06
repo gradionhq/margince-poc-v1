@@ -690,12 +690,17 @@
   display: none;
 }
 
-/* ===== account menu ===== */
-.topbar .account {
+/* ===== top-bar menus: the account avatar and the language control =====
+   One rule for both, not a copy each: they sit side by side in the same row,
+   where two popups a few pixels apart reads as a mistake rather than as two
+   components. */
+.topbar .account,
+.topbar .localemenu {
   position: relative;
   flex: none;
 }
-.topbar .accountmenu {
+.topbar .accountmenu,
+.topbar .localelist {
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
@@ -711,7 +716,8 @@
   z-index: 60;
 }
 .topbar .accountmenu a,
-.topbar .accountmenu button {
+.topbar .accountmenu button,
+.topbar .localelist button {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -726,8 +732,14 @@
   text-decoration: none;
   cursor: pointer;
 }
+/* The language rows carry a tick for the current locale, pushed to the far
+   end so the names stay left-aligned with each other. */
+.topbar .localelist button {
+  justify-content: space-between;
+}
 .topbar .accountmenu a:hover,
-.topbar .accountmenu button:hover {
+.topbar .accountmenu button:hover,
+.topbar .localelist button:hover {
   background: var(--bgHover);
   color: var(--textPrimary);
 }

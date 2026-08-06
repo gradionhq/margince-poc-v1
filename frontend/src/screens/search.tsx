@@ -15,7 +15,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, type QueryLike } from "./common";
+import { QueryGate, type QueryLike, throwProblem } from "./common";
 import "./search.css";
 
 type SearchResult = components["schemas"]["SearchResult"];
@@ -55,7 +55,7 @@ export function SearchScreen({ q }: Readonly<{ q: string }>) {
         params: { query: { q, limit: 50 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

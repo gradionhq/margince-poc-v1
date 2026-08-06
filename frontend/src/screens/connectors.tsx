@@ -16,7 +16,7 @@ import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { BackfillPanel } from "./backfill";
-import { problemCode, problemMessage } from "./common";
+import { problemCode, problemMessageOf, throwProblem } from "./common";
 import {
   errorClassKey,
   missingSendGrant,
@@ -219,7 +219,7 @@ function useChannelConnections() {
         return { notConfigured: true, data: [] };
       }
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return { notConfigured: false, data: data.data };
     },
@@ -290,7 +290,7 @@ function TelegramConnectorPanel() {
         params: { path: { id: connection.id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -305,9 +305,7 @@ function TelegramConnectorPanel() {
   if (query.isError) {
     return (
       <p className="t-small" style={{ color: "var(--danger)" }}>
-        {query.error instanceof Error
-          ? query.error.message
-          : t("connectors.loadFailed")}
+        {problemMessageOf(query.error, t, t("connectors.loadFailed"))}
       </p>
     );
   }
@@ -360,7 +358,9 @@ function TelegramConnectorPanel() {
         confirmLabel={t("connectors.disconnect")}
         confirmVariant="danger"
         pending={disconnect.isPending}
-        error={disconnect.isError ? disconnect.error.message : null}
+        error={
+          disconnect.isError ? problemMessageOf(disconnect.error, t) : null
+        }
         onConfirm={() => {
           if (disconnecting) {
             disconnect.mutate(disconnecting);
@@ -393,7 +393,7 @@ export function ConnectorsCard() {
         return { notConfigured: true, data: [] };
       }
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return { notConfigured: false, data: data.data };
     },
@@ -419,7 +419,7 @@ export function ConnectorsCard() {
         return null;
       }
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -436,7 +436,7 @@ export function ConnectorsCard() {
         params: { path: { provider } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -479,9 +479,7 @@ export function ConnectorsCard() {
       )}
       {connectors.isError && (
         <p className="t-small" style={{ color: "var(--danger)" }}>
-          {connectors.error instanceof Error
-            ? connectors.error.message
-            : t("connectors.loadFailed")}
+          {problemMessageOf(connectors.error, t, t("connectors.loadFailed"))}
         </p>
       )}
       {connectors.isSuccess && notConfigured && (
@@ -612,7 +610,7 @@ export function ConnectorsCard() {
         )}
       {connect.isError && (
         <p className="t-small" style={{ color: "var(--danger)" }}>
-          {connect.error.message}
+          {problemMessageOf(connect.error, t)}
         </p>
       )}
       <ConfirmModal
@@ -622,7 +620,9 @@ export function ConnectorsCard() {
         confirmLabel={t("connectors.disconnect")}
         confirmVariant="danger"
         pending={disconnect.isPending}
-        error={disconnect.isError ? disconnect.error.message : null}
+        error={
+          disconnect.isError ? problemMessageOf(disconnect.error, t) : null
+        }
         onConfirm={() => {
           if (pendingDisconnect !== null) {
             disconnect.mutate(pendingDisconnect);

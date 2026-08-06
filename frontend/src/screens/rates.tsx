@@ -12,7 +12,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import "./rates.css";
 
 type FxRate = components["schemas"]["FxRate"];
@@ -54,7 +54,7 @@ function RefreshFromSources({
     mutationFn: async () => {
       const { error } = await api.POST(path);
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
   });
@@ -79,7 +79,7 @@ function RefreshFromSources({
           role="alert"
           style={{ color: "var(--danger)" }}
         >
-          {refresh.error.message}
+          {problemMessageOf(refresh.error, t)}
         </span>
       ) : null}
     </span>
@@ -105,7 +105,7 @@ export function FxRatesCard() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -184,14 +184,14 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
         },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fx-rates"] });
       onClose();
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) => setError(problemMessageOf(err, t)),
   });
 
   return (
@@ -272,7 +272,7 @@ export function ModelCostsCard() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -377,14 +377,14 @@ function ModelCostModal({ onClose }: Readonly<{ onClose: () => void }>) {
         },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ai-model-rates"] });
       onClose();
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) => setError(problemMessageOf(err, t)),
   });
 
   const field = (

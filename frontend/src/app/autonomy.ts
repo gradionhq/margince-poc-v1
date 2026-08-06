@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { problemMessage } from "../screens/common";
+import { throwProblem } from "../screens/common";
 
 export type TierName = "auto_execute" | "confirmation_required" | "dynamic";
 export type VerbTierMap = Record<string, TierName>;
@@ -39,7 +39,7 @@ export function useAgentTierMap(): VerbTierMap {
     queryFn: async () => {
       const { data, error } = await api.GET("/agent-tools");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

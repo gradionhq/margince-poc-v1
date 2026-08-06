@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { useCanWrite } from "../app/capability";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 
 // The workspace capture-settings card (CAP-WIRE-7, ADR-0072/A118): the
 // captured-organization auto-enrich toggle. Every role reads it; only admin/ops
@@ -17,7 +17,7 @@ function useCaptureSettings() {
     queryFn: async () => {
       const { data, error, response } = await api.GET("/capture/settings");
       if (error || !response.ok) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -32,7 +32,7 @@ function useUpdateCaptureSettings() {
         body: { auto_enrich: autoEnrich },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -111,7 +111,7 @@ export function CaptureSettingsCard() {
                   role="alert"
                   style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
                 >
-                  {update.error.message}
+                  {problemMessageOf(update.error, t)}
                 </span>
               )}
             </span>

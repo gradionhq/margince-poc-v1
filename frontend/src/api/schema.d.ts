@@ -2874,10 +2874,12 @@ export interface paths {
         /**
          * Confirm a selected onboarding draft into the anchor company atomically.
          * @description Applies only the submitted profile and selected fact keys. The draft version and proposal
-         *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
-         *     Every human-held collision requires an explicit keyed resolution. Unchanged values retain
-         *     website evidence, edits become human assertions, and published people remain separate
-         *     site-lead proposals rather than becoming contacts or company-context rows.
+         *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns
+         *     `409 version_skew`, an already-decided one `409 already_confirmed`, and one whose read has
+         *     produced no draft `409 not_confirmable`. Every human-held collision requires an explicit
+         *     keyed resolution. Unchanged values retain website evidence, edits become human assertions,
+         *     and published people remain separate site-lead proposals rather than becoming contacts or
+         *     company-context rows.
          */
         post: operations["confirmCompanySiteRead"];
         delete?: never;
@@ -3959,7 +3961,8 @@ export interface paths {
          * List workspace members (roster) — cursor-paginated. Read-only.
          * @description The workspace member roster: id + display name + email + seat/status. Any authenticated member
          *     may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
-         *     archived users. Row-scoped by workspace RLS.
+         *     archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
+         *     who is the only one who can act on it.
          */
         get: operations["listUsers"];
         put?: never;
@@ -9509,6 +9512,8 @@ export interface components {
              * @default false
              */
             is_agent: boolean;
+            /** @description This member's assigned system role keys. Present ONLY for an admin caller — the roster is readable by every authenticated member (it feeds the share/assignee pickers), and a rep has no business enumerating who holds `admin`. Normally exactly one key: `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients that render a single current role must still handle the empty and multi-key cases. Deliberately absent on `MeResponse.user`, whose sibling `MeResponse.roles` is the one authority for the caller's own roles — the same fact spelled twice could disagree. */
+            roles?: string[];
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
@@ -9644,7 +9649,7 @@ export interface components {
             non_production: boolean;
             /** @description Whether THIS CALLER may issue member set-password links (`issueUserPasswordLink`) — true only when the caller holds `admin` AND the installation has no outbound-email channel AND a public base URL is configured. Deliberately a caller capability rather than a deployment-posture flag: `/me` answers every authenticated member, and a bare posture boolean would tell every rep whether the installation has email configured. Clients render the action on this, so an admin never sees a control that can only fail (ADR-0061 Amendment 1). */
             admin_password_link: boolean;
-            /** @description Effective role keys for this principal. */
+            /** @description Effective role keys for this principal, and the one authority for them — `user.roles` is deliberately left unset here rather than repeating the same fact. */
             roles: string[];
             teams: string[];
             /**
@@ -10472,10 +10477,11 @@ export interface components {
             proposed_value: string;
         };
         CompanySiteReadResolution: {
+            /** @description A human_conflict comparison key, or — for use_value only — any fact comparison key in the draft. Any other key is refused. */
             key: string;
             /** @enum {string} */
             action: "keep_current" | "accept_proposal" | "use_value";
-            /** @description Required and non-blank only for use_value; forbidden for other actions. */
+            /** @description Required and non-blank only for use_value; forbidden for other actions. A value equal to the read's own proposed value is an acceptance and keeps the page's evidence; a different one is the human's assertion and is stored with no website evidence. */
             value?: string | null;
         };
         CompanySiteReadLegalEntity: {
@@ -10699,6 +10705,11 @@ export interface components {
             status_detail: string | null;
             /** Format: date-time */
             next_attempt_at: string | null;
+            /**
+             * @description Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+             * @enum {string|null}
+             */
+            stopped_reason?: "budget" | "page_cap" | "byte_cap" | "deadline" | null;
             /** @enum {string|null} */
             phase?: "crawling" | "extracting" | null;
             pages_read?: number;
@@ -10723,8 +10734,9 @@ export interface components {
             draft_version: number;
             proposal_hash: string;
             profile: components["schemas"]["CompanyProfileInput"];
+            /** @description The proposed facts to keep, exactly as the read stated them. A fact the reader wants to correct is left out of this list and sent as a use_value resolution instead. */
             selected_fact_keys: string[];
-            /** @description Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists. */
+            /** @description Exactly one keyed resolution for every human_conflict comparison, plus an optional use_value for any fact the read got wrong. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists. */
             resolutions?: components["schemas"]["CompanySiteReadResolution"][];
         };
         /** @description Optional override. With no body the org's own domain is read. */
@@ -18475,7 +18487,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            /** @description The draft cannot be confirmed as submitted, and `code` says which of the three it is: `already_confirmed` (this dossier was confirmed already — reload the company), `not_confirmable` (the read has produced no draft yet — wait for it or start a new one), or `version_skew` (the draft moved since it was reviewed — inspect it again). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             422: components["responses"]["ValidationError"];
         };
     };
@@ -20350,8 +20370,16 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            /** @description Refused, with the reason distinguished by the problem `code`: `conflict` (a member with this email already exists), or `no_delivery_channel` (this installation has neither an outbound-email channel nor a public base URL, so neither the mailed link nor an admin-issued one could reach the member — an invite would create an ACTIVE account nobody could ever sign in as). */
+            /** @description Not found, with the reason distinguished by the problem `code`: `unknown_role` — this organization defines no role with the requested key. The `role` enum is documentation, not binding validation, so a mistyped key reaches the server and must say which of the two things was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Refused, with the reason distinguished by the problem `code`: `email_taken` (a member with this email already exists), or `no_delivery_channel` (this installation has neither an outbound-email channel nor a public base URL, so neither the mailed link nor an admin-issued one could reach the member — an invite would create an ACTIVE account nobody could ever sign in as). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20390,8 +20418,16 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            /** @description Refused — demoting this member would leave the organization with no active admin. */
+            /** @description Not found, with the reason distinguished by the problem `code`: `not_found` (no such member) or `unknown_role` (the member exists, but this organization defines no role with that key). Both are 404; a client that tells the operator which one it hit needs the code, not the prose. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Refused with `code: last_active_admin` — demoting this member would leave the organization with no active admin. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20431,7 +20467,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Refused — this is the last active admin; deactivating them would lock the organization out. */
+            /** @description Refused with `code: last_active_admin` — this is the last active admin; deactivating them would lock the organization out. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20466,6 +20502,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description Refused with `code: not_deactivated` — only a deactivated member can be reactivated, and this one is in some other state. Both reachable states need a different action, not this one: an `invited` member has never set a password, and a `suspended` member is held for a reason that reactivating would clear without it ever being resolved. (An `active` member is a no-op and answers 200, not this.) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     issueUserPasswordLink: {

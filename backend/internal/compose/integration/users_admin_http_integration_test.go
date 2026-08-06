@@ -20,6 +20,10 @@ type userWire struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
+	// A pointer so an absent field stays distinguishable from an empty one:
+	// absent means the caller was not admitted to the role keys, empty means
+	// the member holds none.
+	Roles *[]string `json:"roles"`
 }
 
 type userListWire struct {
@@ -40,14 +44,28 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if invited.ID == "" || invited.Email != "newbie@acme.test" || invited.Status != "active" {
 		t.Fatalf("invited member = %+v, want active, lowercased email", invited)
 	}
+	assertRoles(t, "invite", invited, "rep")
 	base := "/v1/users/" + invited.ID
 
-	// A duplicate email refuses.
+	// A duplicate email refuses, and says so in words.
+	var dupe refusalWire
 	if status := e.call(t, "POST", "/v1/users", map[string]any{
 		"email": "newbie@acme.test", "display_name": "Dupe", "role": "rep",
-	}, nil, nil); status != http.StatusConflict {
+	}, nil, &dupe); status != http.StatusConflict {
 		t.Fatalf("duplicate invite -> %d, want 409", status)
 	}
+	assertActionableRefusal(t, "duplicate invite", dupe, "email_taken")
+
+	// The same unknown-role refusal as change-role: the `role` enum is
+	// documentation, not binding validation, so a mistyped key reaches the
+	// server here too and must not read as "no such member".
+	var badRole refusalWire
+	if status := e.call(t, "POST", "/v1/users", map[string]any{
+		"email": "badrole@acme.test", "display_name": "Bad Role", "role": "no-such-role",
+	}, nil, &badRole); status != http.StatusNotFound {
+		t.Fatalf("invite with an undefined role -> %d, want 404", status)
+	}
+	assertActionableRefusal(t, "invite with an undefined role", badRole, "unknown_role")
 
 	// Malformed input is refused before any member is created.
 	if status := e.call(t, "POST", "/v1/users", map[string]any{
@@ -74,12 +92,29 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if !containsUser(roster.Data, invited.ID) {
 		t.Fatalf("active roster missing the invited member %s", invited.ID)
 	}
+	// An admin's roster carries every member's role keys — the admin card reads
+	// the current role off them.
+	for _, u := range roster.Data {
+		if u.Roles == nil {
+			t.Errorf("roster member %q has no roles field; an admin caller must see it", u.Email)
+		}
+	}
 
-	// Change role.
+	// Change role. The response reports the role now held, not the one replaced.
 	var afterRole userWire
 	if status := e.call(t, "PATCH", base+"/role", map[string]any{"role": "manager"}, nil, &afterRole); status != http.StatusOK {
 		t.Fatalf("change role -> %d, want 200", status)
 	}
+	assertRoles(t, "change role", afterRole, "manager")
+
+	// A role nobody defines is a 404, like a missing member — but a DIFFERENT
+	// one, and the code is what lets a client tell an admin which mistake they
+	// made instead of sending them to look for a member who is right there.
+	var unknownRole refusalWire
+	if status := e.call(t, "PATCH", base+"/role", map[string]any{"role": "no-such-role"}, nil, &unknownRole); status != http.StatusNotFound {
+		t.Fatalf("change role to an undefined role -> %d, want 404", status)
+	}
+	assertActionableRefusal(t, "an undefined role", unknownRole, "unknown_role")
 
 	// Deactivate: the member drops from the active roster but is visible with include_inactive.
 	var afterOff userWire
@@ -99,6 +134,19 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if !containsUser(withInactive.Data, invited.ID) {
 		t.Fatalf("include_inactive roster missing the deactivated member %s", invited.ID)
 	}
+	// include_inactive AND q together: the only combination that reaches the
+	// widened+filtered query, and the one whose bind numbering is longest.
+	// Without this the suite executes that string nowhere.
+	var withInactiveFiltered userListWire
+	if status := e.call(t, "GET", "/v1/users?include_inactive=true&q=NEWBIE", nil, nil, &withInactiveFiltered); status != http.StatusOK {
+		t.Fatalf("include_inactive + q -> %d, want 200", status)
+	}
+	if len(withInactiveFiltered.Data) != 1 || withInactiveFiltered.Data[0].ID != invited.ID {
+		t.Fatalf("include_inactive + q = %+v, want only the deactivated member", withInactiveFiltered.Data)
+	}
+	// The KEY, not merely the field: an empty list would satisfy "not nil" while
+	// still having lost the aggregate on this query's longer bind chain.
+	assertRoles(t, "include_inactive + q", withInactiveFiltered.Data[0], "manager")
 
 	// Reactivate.
 	var afterOn userWire
@@ -109,8 +157,34 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 		t.Fatalf("reactivated member status = %q, want active", afterOn.Status)
 	}
 
-	// The bootstrap admin is the only admin (the invited member is a rep):
-	// neither deactivating nor demoting them is allowed — it would lock the org.
+	// A SUSPENDED member is not merely deactivated — the hold was placed for a
+	// different reason (e.g. lockout), so reactivating would quietly clear it.
+	// The refusal has to explain that, or an admin reads it as a broken button.
+	seedInWorkspace(t, e, wsID(t, e, e.slug),
+		stmt(`UPDATE app_user SET status = 'suspended' WHERE id = $1::uuid`, invited.ID))
+	var suspended refusalWire
+	if status := e.call(t, "POST", base+"/reactivate", nil, nil, &suspended); status != http.StatusConflict {
+		t.Fatalf("reactivating a suspended member -> %d, want 409", status)
+	}
+	assertActionableRefusal(t, "reactivating a suspended member", suspended, "not_deactivated")
+
+	// An INVITED member reaches the same refusal, and it must not describe them
+	// as suspended — they are simply waiting to set a password, which is a
+	// different problem with a different fix.
+	seedInWorkspace(t, e, wsID(t, e, e.slug),
+		stmt(`UPDATE app_user SET status = 'invited' WHERE id = $1::uuid`, invited.ID))
+	var stillInvited refusalWire
+	if status := e.call(t, "POST", base+"/reactivate", nil, nil, &stillInvited); status != http.StatusConflict {
+		t.Fatalf("reactivating an invited member -> %d, want 409", status)
+	}
+	assertActionableRefusal(t, "reactivating an invited member", stillInvited, "not_deactivated")
+	if strings.Contains(stillInvited.Detail, "is suspended") {
+		t.Errorf("an invited member is told %q — that names the wrong state and the wrong fix", stillInvited.Detail)
+	}
+
+	// The bootstrap admin is the only admin (the invited member holds manager
+	// by now): neither deactivating nor demoting them is allowed — it would
+	// lock the organization out of user administration entirely.
 	var me struct {
 		User struct {
 			ID string `json:"id"`
@@ -119,11 +193,59 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("GET /me -> %d, want 200", status)
 	}
-	if status := e.call(t, "POST", "/v1/users/"+me.User.ID+"/deactivate", nil, nil, nil); status != http.StatusConflict {
+	var offLast, demoteLast refusalWire
+	if status := e.call(t, "POST", "/v1/users/"+me.User.ID+"/deactivate", nil, nil, &offLast); status != http.StatusConflict {
 		t.Fatalf("deactivating the last admin -> %d, want 409", status)
 	}
-	if status := e.call(t, "PATCH", "/v1/users/"+me.User.ID+"/role", map[string]any{"role": "rep"}, nil, nil); status != http.StatusConflict {
+	assertActionableRefusal(t, "deactivating the last admin", offLast, "last_active_admin")
+	if status := e.call(t, "PATCH", "/v1/users/"+me.User.ID+"/role", map[string]any{"role": "rep"}, nil, &demoteLast); status != http.StatusConflict {
 		t.Fatalf("demoting the last admin -> %d, want 409", status)
+	}
+	assertActionableRefusal(t, "demoting the last admin", demoteLast, "last_active_admin")
+}
+
+type refusalWire struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
+}
+
+// assertActionableRefusal holds this surface's refusals to the bar the repo sets
+// for every error, in both registers. For a HUMAN: a detail that exists, reads
+// as a sentence, and is not merely the code again — these once reached the
+// operator as the bare word "conflict". For a CLIENT: the specific code it
+// branches on, since a generic one leaves a UI matching prose.
+func assertActionableRefusal(t *testing.T, what string, got refusalWire, wantCode string) {
+	t.Helper()
+	if got.Code != wantCode {
+		t.Errorf("%s: code = %q, want %q", what, got.Code, wantCode)
+	}
+	if got.Detail == "" {
+		t.Errorf("%s: refusal carries no detail; the operator is shown only %q", what, got.Code)
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(got.Detail), got.Code) {
+		t.Errorf("%s: detail = %q, which is just the code — it names neither the cause nor the fix", what, got.Detail)
+	}
+	if len(strings.Fields(got.Detail)) < 5 {
+		t.Errorf("%s: detail = %q is too terse to tell an admin what to do next", what, got.Detail)
+	}
+}
+
+// assertRoles checks the member response reports exactly the role keys the
+// admin surface renders a current role from.
+func assertRoles(t *testing.T, what string, got userWire, want ...string) {
+	t.Helper()
+	if got.Roles == nil {
+		t.Fatalf("%s: roles absent from an admin's response; want %v", what, want)
+	}
+	if len(*got.Roles) != len(want) {
+		t.Fatalf("%s: roles = %v, want %v", what, *got.Roles, want)
+	}
+	for i, key := range want {
+		if (*got.Roles)[i] != key {
+			t.Errorf("%s: roles = %v, want %v", what, *got.Roles, want)
+			return
+		}
 	}
 }
 

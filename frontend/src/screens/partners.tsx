@@ -18,7 +18,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { EntityRef } from "./entityref";
 import {
   ListGate,
@@ -137,7 +137,7 @@ async function fetchPartner(organizationId: string): Promise<Partner | null> {
     return null;
   }
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data ?? null;
 }
@@ -356,7 +356,7 @@ function PartnerForm({
       </Field>
       {mutation.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
-          {mutation.error instanceof Error ? mutation.error.message : null}
+          {problemMessageOf(mutation.error, t)}
         </p>
       )}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -516,7 +516,7 @@ async function fetchPartnersPage(
     },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,

@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
-import { problemMessage } from "../common";
+import { throwProblem } from "../common";
 
 // Saving the member's own LinkedIn answer (ADR-0078 §2.1b).
 //
@@ -22,7 +22,7 @@ export function useSaveLinkedInAccount() {
         body: { profile_url: input.profileUrl, connected: input.connected },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

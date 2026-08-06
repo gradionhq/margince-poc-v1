@@ -13,7 +13,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
-import { problemMessage, useSorMode } from "./common";
+import { problemMessageOf, throwProblem, useSorMode } from "./common";
 
 // Log a note or task from a 360 (person/company/deal/lead): the contract's
 // logActivity POST, linked to the record being viewed, occurred_at stamped
@@ -77,7 +77,7 @@ export function LogActivityForm({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       return data;
     },
@@ -160,7 +160,7 @@ export function LogActivityForm({
         )}
       </Field>
       {log.isError && (
-        <p className="t-caption form-error">{log.error.message}</p>
+        <p className="t-caption form-error">{problemMessageOf(log.error, t)}</p>
       )}
       <div className="form-actions">
         <Button

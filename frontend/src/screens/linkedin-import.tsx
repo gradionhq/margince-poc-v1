@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import "./linkedin-import.css";
 
 // The LinkedIn connections import (ADR-0078 §2.1b).
@@ -42,7 +42,7 @@ function useImportConnections() {
       });
       const payload = await response.json().catch(() => undefined);
       if (!response.ok) {
-        throw new Error(problemMessage(payload));
+        throwProblem(payload);
       }
       return payload as ImportSummary;
     },
@@ -68,7 +68,7 @@ function useLinkedInAccount() {
     queryFn: async (): Promise<LinkedInAccount> => {
       const { data, error } = await api.GET("/me/linkedin-account", {});
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -85,7 +85,7 @@ function useSaveLinkedInAccount() {
         body: { profile_url: profileUrl, connected: false },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -119,7 +119,7 @@ function LinkedInProfileSection() {
   if (account.isError) {
     return (
       <p role="alert" className="co-error">
-        {account.error.message}
+        {problemMessageOf(account.error, t)}
       </p>
     );
   }
@@ -154,7 +154,7 @@ function LinkedInProfileSection() {
         </Button>
         {save.isError && (
           <span role="alert" className="co-error">
-            {save.error.message}
+            {problemMessageOf(save.error, t)}
           </span>
         )}
       </div>
@@ -215,7 +215,7 @@ export function LinkedInImportCard() {
           className="co-error"
           data-testid="linkedin-import-error"
         >
-          {importer.error.message}
+          {problemMessageOf(importer.error, t)}
         </p>
       )}
       {importer.isSuccess && <ImportResult summary={importer.data} />}

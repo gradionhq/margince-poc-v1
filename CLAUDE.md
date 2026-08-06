@@ -44,10 +44,10 @@ The normative spec is the sibling repo **`margince-foundation`**; its key trees
 - **`specs/adr/`** — `DECISIONS.md` (the locked index) + `ADR-*.md`;
   **ADR-0054/A69** mandates this repo's layout (amended 2026-07-04 —
   four `cmd/<role>` binaries + the §9 single-tx exception).
-- **`backlog/`** — at the spec repo **root**, not under `specs/` — the V1 ticket
-  breakdown, one directory per ticketed chapter. Not every chapter is ticketed:
-  `backlog/README.md` carries the ticketable / not-yet-ticketable tables and the
-  dispatch status.
+- **`tooling/delivery-board.md`** — at the spec repo **root**, not under `specs/` —
+  how the team tracks delivery. The `backlog/` ticket tree that used to sit beside
+  it was retired on 2026-07-22; a chapter's ACs and the subsystem text are the
+  work definition now, so don't go looking for a ticket per chapter.
 
 Two traps when reading the spec: `specs/spec/` is a dead stub (a stale
 `__pycache__`) — ignore it. And chapters carry `derives-from:` pins to older paths

@@ -13,8 +13,9 @@ import { formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import {
   OverlayUnavailable,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
+  throwProblem,
   useSorMode,
 } from "./common";
 import { QuotasView } from "./quotas";
@@ -126,7 +127,7 @@ export function ReportsScreen() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data.find((pipeline) => pipeline.is_default) ?? data.data[0];
     },
@@ -147,7 +148,7 @@ export function ReportsScreen() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -173,7 +174,7 @@ export function ReportsScreen() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -412,9 +413,7 @@ export function ReportsScreen() {
                   {derivationQuery.isError && (
                     <div style={{ marginTop: 8 }}>
                       <p className="t-caption">
-                        {derivationQuery.error instanceof Error
-                          ? derivationQuery.error.message
-                          : t("common.error")}
+                        {problemMessageOf(derivationQuery.error, t)}
                       </p>
                       <Button
                         small
