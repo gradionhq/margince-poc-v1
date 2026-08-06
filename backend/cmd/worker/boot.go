@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // runDebugSubcommand dispatches the DB-less debug loops — `worker siteread …`
@@ -138,7 +140,7 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 	startProjectionLanes(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
-	startResetLane(laneCtx, rdb, modelPath, lanes.background, logger)
+	startResetLane(laneCtx, runtimeenv.Parse(os.Getenv("MARGINCE_ENV")), rdb, modelPath, lanes.background, logger)
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)
 	if err != nil {
@@ -173,8 +175,17 @@ func startWorkflowLane(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Clien
 // performed in the api invalidates what this role cached.
 //
 // Unlike the lanes above, this is not an events.md consumer group: pub/sub,
-// no envelope, no dedupe wrapper, no consumer group to reclaim from.
-func startResetLane(ctx context.Context, rdb *redis.Client, modelPath compose.ModelPath, background *sync.WaitGroup, logger *slog.Logger) {
+// no envelope, no dedupe wrapper, no consumer group to reclaim from. It is
+// also unauthenticated — the channel carries no signature, so whoever reaches
+// the bus can publish — which is why the posture gate matters here and not
+// only on the api. A reset cannot happen in production at all (the endpoint
+// 404s before auth), so a production worker has no announcement to wait for,
+// and subscribing anyway would leave an unauthenticated publisher able to
+// force cache misses on it indefinitely.
+func startResetLane(ctx context.Context, env runtimeenv.Environment, rdb *redis.Client, modelPath compose.ModelPath, background *sync.WaitGroup, logger *slog.Logger) {
+	if !env.IsNonProduction() {
+		return
+	}
 	flush := resetFlush(modelPath)
 	background.Go(func() {
 		// The filter is ctx.Err() rather than the returned error, so a shutdown

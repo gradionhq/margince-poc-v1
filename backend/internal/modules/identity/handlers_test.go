@@ -3,9 +3,6 @@
 
 package identity
 
-// ResetRateLimits clears the four in-process auth lockout buckets — the
-// state a non-production data reset cannot otherwise reach.
-
 import "testing"
 
 func TestResetRateLimitsReopensASpentBucket(t *testing.T) {

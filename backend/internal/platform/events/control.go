@@ -23,6 +23,12 @@ import (
 // went missing would be a lost fact.
 const ResetChannel = "gw:control:reset"
 
+// maxResetPayloadLen bounds what this channel will even look at. A payload is
+// one workspace UUID (36 bytes); the allowance is generous rather than tight
+// because refusing a legitimate id would silently stop a reset from flushing
+// caches, while the only thing a larger one can be is noise.
+const maxResetPayloadLen = 64
+
 // PublishReset announces that ws was reset, so every process drops what it
 // cached for that workspace. Delivery is best-effort by construction: pub/sub
 // reaches whoever is listening now, which is precisely the set of processes
@@ -69,6 +75,15 @@ func subscribeResetWithReady(ctx context.Context, rdb *redis.Client, log *slog.L
 		case msg, ok := <-sub.Channel():
 			if !ok {
 				return errSubscriptionClosed
+			}
+			if len(msg.Payload) > maxResetPayloadLen {
+				// Length only, never the payload: a publisher chooses this
+				// string and Redis admits a very large one, so quoting it into
+				// a log line — which ids.Parse's error does — hands whoever
+				// reaches the bus a cheap amplifier into every subscriber's
+				// log. The same reasoning bounds ratelimit's map keys.
+				log.Warn("bus: skipping oversized reset payload", "bytes", len(msg.Payload))
+				continue
 			}
 			ws, err := ids.Parse(msg.Payload)
 			if err != nil {

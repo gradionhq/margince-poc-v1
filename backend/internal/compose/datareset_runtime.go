@@ -144,17 +144,39 @@ func resumeResetQueues(ctx context.Context, logger *slog.Logger, rt ResetRuntime
 // FlushResetCaches drops this process's cached answers for ws after a reset.
 //
 // It covers what the Server itself holds: the per-workspace system-of-record
-// mode and the auth lockout buckets. The model result cache is NOT here — no
-// Server field carries a ModelPath (each role resolves its own), so the role
-// that built the router composes that flush around this call.
+// mode. The model result cache is NOT here — no Server field carries a
+// ModelPath (each role resolves its own), so the role that built the router
+// composes that flush around this call.
 //
-// Only the system-of-record cache is keyed by ws; ResetRateLimits clears the
-// lockout buckets installation-wide. That is exact rather than over-broad: one
-// installation serves one organization (A107/ADR-0061), so there is no second
-// workspace whose buckets this could reach.
+// Everything reachable here must be safe for an UNAUTHENTICATED caller to
+// trigger. This runs on the reset control channel, which is Redis pub/sub with
+// no signature and no provenance: anyone who can reach the bus can publish a
+// workspace id and land in this method, having passed none of the gates the
+// reset endpoint enforces. Dropping a cached answer costs a recomputation and
+// nothing else, which is why the cache flush fans out and the lockout reset
+// below does not.
 func (s *Server) FlushResetCaches(ws ids.UUID) {
 	if s.sorDispatch != nil {
 		s.sorDispatch.Invalidate(ws)
 	}
+}
+
+// flushAfterOwnReset is the flush for the process that actually PERFORMED the
+// reset, and it is deliberately not the one the control channel reaches.
+//
+// It adds the auth lockout buckets to the cache flush. Those buckets are
+// brute-force brakes — a login attempt costs a full Argon2id verification, a
+// reset request costs an outbound email — so clearing them is a security
+// event, not a cache drop. It is safe here because this path runs inside the
+// reset handler, downstream of the non-production posture, the human-only and
+// admin-only gates, and the typed confirmation. It would not be safe on the
+// bus.
+//
+// Only the system-of-record cache is keyed by ws; the buckets clear
+// installation-wide. That is exact rather than over-broad: one installation
+// serves one organization (A107/ADR-0061), so there is no second workspace
+// whose buckets this could reach.
+func (s *Server) flushAfterOwnReset(ws ids.UUID) {
+	s.FlushResetCaches(ws)
 	s.ResetRateLimits()
 }

@@ -258,12 +258,16 @@ func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runti
 			// before or after this option (see Server.resetRuntime). The meter
 			// is likewise the ONE shared instance WithOverlayMeter rebinds; the
 			// object store is backfilled by WithBlobstore when it runs later,
-			// and FlushResetCaches is a method value that reads the Server's
-			// caches at reset time, not now.
+			// and the flush is a method value that reads the Server's caches at
+			// reset time, not now.
+			//
+			// flushAfterOwnReset, NOT FlushResetCaches: this handler is the
+			// gated path, so it is the one allowed to clear the auth lockout
+			// buckets as well as the caches.
 			runtime: &s.resetRuntime,
 			budget:  s.overlayMeter,
 			blob:    s.blob,
-			flush:   s.FlushResetCaches,
+			flush:   s.flushAfterOwnReset,
 		}
 	}
 }
