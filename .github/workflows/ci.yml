@@ -313,6 +313,50 @@ jobs:
         working-directory: .
         run: make craft-residue
 
+  # No hardcoded credential reaches main. gitleaks runs here, in the repo,
+  # rather than through a hosted scanner: the policy is .gitleaks.toml, so an
+  # exemption is argued for in the pull request that needs it and the same
+  # `make secret-scan` reproduces this verdict on a laptop. A scanner whose
+  # exclusions live in a dashboard cannot be reviewed, and drifted from the
+  # list committed here until it flagged fixtures the repo already declared fake.
+  secret-scan:
+    name: secret-scan
+    # Every non-draft change, docs included: a credential can be pasted into
+    # any file type, so this cannot hang off the diff classifier. Same
+    # exception craft-residue takes.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Version AND checksum pinned, like every other tool that reads this
+      # repo: a re-cut release tag must not be able to swap the scanner. The
+      # official action is deliberately not used — it needs a paid licence key
+      # for organization repositories, and this gate must stay free of one.
+      - name: Install gitleaks (pinned)
+        working-directory: .
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -fsSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar xzf gitleaks.tar.gz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          rm -f gitleaks gitleaks.tar.gz
+      - name: secret scan
+        working-directory: .
+        run: make secret-scan
+      # The policy is only trustworthy with this beside it: an allowlist that
+      # grew too broad reports "no leaks found" exactly like a clean tree.
+      - name: the gate still catches
+        working-directory: .
+        run: make test-secret-scan
+
   # The real-Postgres lane, sharded across independent runners. One runner
   # already fans packages out onto per-package clone DBs, but the heaviest
   # package (compose/integration, minutes of serial tests) floors any
