@@ -13,6 +13,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -250,6 +251,39 @@ func TestCompanyContextRendererAdmitsOnlyWholeItemsWithinBudget(t *testing.T) {
 	}
 	if !strings.Contains(block, `"truncated":true`) {
 		t.Fatalf("bounded rendering did not disclose truncation: %s", block)
+	}
+}
+
+// The own company's id is the one thing an agent cannot ask for any other way
+// — the company operation is human-only — so it has to survive the same budget
+// squeeze that drops facts, and it must be absent rather than rendered as a
+// zero uuid when there is no anchor to name (ADR-0082/A127).
+func TestTheOwnCompanyIDSurvivesTruncationAndIsAbsentWhenUnset(t *testing.T) {
+	orgID := ids.From[ids.OrganizationKind](ids.NewV7())
+	oversized := people.CompanyContext{
+		OrganizationID: orgID,
+		Scopes: []people.CompanyContextSection{{
+			Scope: people.CompanyContextIdentity,
+			Items: []people.CompanyContextItem{{Key: "history", Value: strings.Repeat("x", 2000), Source: "site_read"}},
+		}},
+	}
+	block, err := renderCompanyContext(oversized, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(block, `"organization_id":"`+orgID.String()+`"`) {
+		t.Fatalf("the own company's id was truncated away with the facts: %s", block)
+	}
+	if !strings.Contains(block, `"truncated":true`) {
+		t.Fatalf("the oversized item was admitted after all: %s", block)
+	}
+
+	block, err = renderCompanyContext(people.CompanyContext{}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(block, "organization_id") {
+		t.Fatalf("an unset anchor still rendered an id field: %s", block)
 	}
 }
 
