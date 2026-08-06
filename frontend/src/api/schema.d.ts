@@ -3982,6 +3982,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/{id}/password-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a single-use set-password link for a member. Admin-only, human-only.
+         * @description The email-less installation's provisioning path (ADR-0061 Amendment 1). Mints a single-use
+         *     set-password token for the member, supersedes their outstanding unused tokens, and returns
+         *     the link ONCE for the admin to deliver out-of-band. The token rides in the URL FRAGMENT, so
+         *     a browser never puts it on the wire; the response itself carries `Cache-Control: no-store`
+         *     because that protection begins only after navigation. Redeemed through `resetPassword`,
+         *     which revokes every session the member holds. Emits `user.password_link_issued`.
+         *
+         *     Admin-only and human-only — an agent may never mint a credential for a human. Available
+         *     ONLY where it is needed and can work: refused when an outbound-email channel IS configured
+         *     (that installation mails the link), when no public base URL is configured (a
+         *     credential-bearing link is never derived from a request `Host`), and when the target is not
+         *     active (redemption requires an active account, so the link would be dead on arrival).
+         *
+         *     A link may be minted for a member who ALREADY has a password, which is an account takeover.
+         *     Admins are the trust boundary and can already re-role and deactivate members, but this is a
+         *     distinct capability: the event names actor and target, and issuance is rate-limited per
+         *     actor and per target — superseding the target's tokens on every issue makes an unbounded
+         *     operation a denial-of-recovery primitive. AAD-PARAM-6's step-up re-authentication is the
+         *     intended preventive control and ships with the unbuilt MFA; until then the controls here
+         *     are detective and post-hoc.
+         *
+         *     The operation deliberately does NOT accept `Idempotency-Key`: the idempotency runtime
+         *     persists successful response bodies, and this body is a live credential.
+         *
+         *
+         *     `Cache-Control: no-store` is emitted on EVERY response, not only the 201. The refusals
+         *     disclose the installation's delivery posture and the caller's standing, neither of which
+         *     belongs in a shared proxy's cache.
+         */
+        post: operations["issueUserPasswordLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams": {
         parameters: {
             query?: never;
@@ -9370,6 +9420,19 @@ export interface components {
             /** @enum {string} */
             role: "admin" | "manager" | "rep" | "read_only" | "ops";
         };
+        /** @description A single-use set-password link, returned exactly once and never retrievable again. The server stores only the token's hash, so a lost link is re-issued, never recovered. */
+        IssuePasswordLinkResponse: {
+            /**
+             * Format: uri
+             * @description The full link to hand to the member. The token rides in the URL FRAGMENT, which a browser never puts on the wire — keeping it out of access logs, `Referer` headers, and service-worker cache keys. Deliver it over a channel the member controls.
+             */
+            set_password_url: string;
+            /**
+             * Format: date-time
+             * @description When the token stops being redeemable (seven days from issue).
+             */
+            expires_at: string;
+        };
         ChangeUserRoleRequest: {
             /** @enum {string} */
             role: "admin" | "manager" | "rep" | "read_only" | "ops";
@@ -9475,6 +9538,8 @@ export interface components {
             workspace_name: string;
             /** @description True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action. */
             non_production: boolean;
+            /** @description Whether THIS CALLER may issue member set-password links (`issueUserPasswordLink`) — true only when the caller holds `admin` AND the installation has no outbound-email channel AND a public base URL is configured. Deliberately a caller capability rather than a deployment-posture flag: `/me` answers every authenticated member, and a bare posture boolean would tell every rep whether the installation has email configured. Clients render the action on this, so an admin never sees a control that can only fail (ADR-0061 Amendment 1). */
+            admin_password_link: boolean;
             /** @description Effective role keys for this principal. */
             roles: string[];
             teams: string[];
@@ -9606,7 +9671,7 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued";
             entity_type: string;
             /**
              * Format: uuid
@@ -20120,7 +20185,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description A member with this email already exists. */
+            /** @description Refused, with the reason distinguished by the problem `code`: `conflict` (a member with this email already exists), or `no_delivery_channel` (this installation has neither an outbound-email channel nor a public base URL, so neither the mailed link nor an admin-issued one could reach the member — an invite would create an ACTIVE account nobody could ever sign in as). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20235,6 +20300,52 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    issueUserPasswordLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The set-password link. Returned exactly once; never retrievable again. */
+            201: {
+                headers: {
+                    /** @description Always `no-store` — the body carries a live credential. */
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuePasswordLinkResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Refused, with the reason distinguished by the problem `code`: `email_channel_configured` (this installation mails the link — use the invite flow), `public_base_url_unset` (no canonical base to build a link against — an operator configuration gap), or `member_not_active` (redemption requires an active member). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Issuance rate limit reached for this actor or this target. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listTeams: {

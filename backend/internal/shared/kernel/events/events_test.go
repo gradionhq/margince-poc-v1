@@ -68,6 +68,11 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		// A member imported their own LinkedIn network. Past tense like the
 		// rest; the list simply had not met it before.
 		"imported": true,
+		// An admin issued a member's set-password link. The verb carries its
+		// object because "issued" alone would not say what was issued, and on
+		// an identity stream that also mints passports the distinction is the
+		// whole point of the event.
+		"password_link_issued": true,
 	}
 
 	for _, typ := range Types() {

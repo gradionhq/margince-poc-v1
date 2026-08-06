@@ -6350,7 +6350,12 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: A member with this email already exists.
+          description: >-
+            Refused, with the reason distinguished by the problem `code`:
+            `conflict` (a member with this email already exists), or
+            `no_delivery_channel` (this installation has neither an outbound-email channel nor a
+            public base URL, so neither the mailed link nor an admin-issued one could reach the
+            member — an invite would create an ACTIVE account nobody could ever sign in as).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -6441,6 +6446,71 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{id}/password-link:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Identity]
+      operationId: issueUserPasswordLink
+      summary: Mint a single-use set-password link for a member. Admin-only, human-only.
+      description: |
+        The email-less installation's provisioning path (ADR-0061 Amendment 1). Mints a single-use
+        set-password token for the member, supersedes their outstanding unused tokens, and returns
+        the link ONCE for the admin to deliver out-of-band. The token rides in the URL FRAGMENT, so
+        a browser never puts it on the wire; the response itself carries `Cache-Control: no-store`
+        because that protection begins only after navigation. Redeemed through `resetPassword`,
+        which revokes every session the member holds. Emits `user.password_link_issued`.
+
+        Admin-only and human-only — an agent may never mint a credential for a human. Available
+        ONLY where it is needed and can work: refused when an outbound-email channel IS configured
+        (that installation mails the link), when no public base URL is configured (a
+        credential-bearing link is never derived from a request `Host`), and when the target is not
+        active (redemption requires an active account, so the link would be dead on arrival).
+
+        A link may be minted for a member who ALREADY has a password, which is an account takeover.
+        Admins are the trust boundary and can already re-role and deactivate members, but this is a
+        distinct capability: the event names actor and target, and issuance is rate-limited per
+        actor and per target — superseding the target's tokens on every issue makes an unbounded
+        operation a denial-of-recovery primitive. AAD-PARAM-6's step-up re-authentication is the
+        intended preventive control and ships with the unbuilt MFA; until then the controls here
+        are detective and post-hoc.
+
+        The operation deliberately does NOT accept `Idempotency-Key`: the idempotency runtime
+        persists successful response bodies, and this body is a live credential.
+
+
+        `Cache-Control: no-store` is emitted on EVERY response, not only the 201. The refusals
+        disclose the installation's delivery posture and the caller's standing, neither of which
+        belongs in a shared proxy's cache.
+      x-agent-access: human-only
+      responses:
+        '201':
+          description: The set-password link. Returned exactly once; never retrievable again.
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+              description: Always `no-store` — the body carries a live credential.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuePasswordLinkResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            Refused, with the reason distinguished by the problem `code`:
+            `email_channel_configured` (this installation mails the link — use the invite flow),
+            `public_base_url_unset` (no canonical base to build a link against — an operator
+            configuration gap), or `member_not_active` (redemption requires an active member).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: Issuance rate limit reached for this actor or this target.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /teams:
     get:
@@ -13242,6 +13312,25 @@ components:
         display_name: { type: string, minLength: 1, maxLength: 255 }
         role: { type: string, enum: [admin, manager, rep, read_only, ops] }
 
+    IssuePasswordLinkResponse:
+      type: object
+      description: >-
+        A single-use set-password link, returned exactly once and never retrievable again. The
+        server stores only the token's hash, so a lost link is re-issued, never recovered.
+      required: [set_password_url, expires_at]
+      properties:
+        set_password_url:
+          type: string
+          format: uri
+          description: >-
+            The full link to hand to the member. The token rides in the URL FRAGMENT, which a
+            browser never puts on the wire — keeping it out of access logs, `Referer` headers, and
+            service-worker cache keys. Deliver it over a channel the member controls.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the token stops being redeemable (seven days from issue).
+
     ChangeUserRoleRequest:
       type: object
       required: [role]
@@ -13360,7 +13449,7 @@ components:
 
     MeResponse:
       type: object
-      required: [user, roles, teams, workspace_name, non_production]
+      required: [user, roles, teams, workspace_name, non_production, admin_password_link]
       properties:
         user: { $ref: '#/components/schemas/User' }
         workspace_name:
@@ -13374,6 +13463,17 @@ components:
           description: >
             True when the installation runs a non-production posture
             (MARGINCE_ENV). Gates the client-side "Reset data" action.
+        admin_password_link:
+          type: boolean
+          description: >
+            Whether THIS CALLER may issue member set-password links
+            (`issueUserPasswordLink`) — true only when the caller holds `admin`
+            AND the installation has no outbound-email channel AND a public base
+            URL is configured. Deliberately a caller capability rather than a
+            deployment-posture flag: `/me` answers every authenticated member, and
+            a bare posture boolean would tell every rep whether the installation
+            has email configured. Clients render the action on this, so an admin
+            never sees a control that can only fail (ADR-0061 Amendment 1).
         roles:
           type: array
           items: { type: string }
@@ -13583,7 +13683,7 @@ components:
           # audit_log is record-mutations-only: login and bulk export moved to system_log,
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
           # capture skip is NOT here either — it is a system_log 'capture_skip' event.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data]
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }

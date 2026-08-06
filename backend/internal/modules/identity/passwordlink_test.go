@@ -3,10 +3,11 @@
 
 package identity
 
-// Where an emailed credential sits in a URL is a security property, so it is
-// gated rather than reviewed. Two mails carry a live single-use token — the
-// password reset (one hour) and the member invite (seven days) — and both are
-// only as safe as the URL they are pasted into: a token in the server-visible
+// Where a delivered credential sits in a URL is a security property, so it is
+// gated rather than reviewed. Three links carry a live single-use token — the
+// password reset (one hour), the member invite (seven days), and the admin-issued
+// set-password link (seven days) — and each is
+// only as safe as the URL it is pasted into: a token in the server-visible
 // part reaches nginx access logs, is sent as a Referer on the SPA's same-origin
 // /v1 calls, and becomes a Cache Storage key when a service worker caches the
 // navigation.
@@ -44,19 +45,33 @@ func TestPasswordLinkKeepsTheTokenOutOfTheServerVisibleURL(t *testing.T) {
 }
 
 // readsBaseURL matches a READ of the field, so the assignment in
-// `WithPasswordReset` is not mistaken for a link being built.
-var readsBaseURL = regexp.MustCompile(`h\.resetBaseURL\s*[^=\s]|h\.resetBaseURL\s*$`)
+// `Handlers.WithPasswordLinkBase` is not mistaken for a link being built.
+// A single `=` after the field is an ASSIGNMENT and not a read; `==` is a
+// comparison and IS one, so the lookahead-free spelling has to admit the second
+// while excluding the first. Getting this wrong silently narrows the guard:
+// every `==` line would be dropped by the outer filter before the
+// configured-check exemption below ever saw it.
+var readsBaseURL = regexp.MustCompile(`h\.passwordLinkBaseURL\s*(==|[^=\s]|$)`)
 
-func TestEveryEmailedLinkIsBuiltByPasswordLink(t *testing.T) {
+// testsWhetherBaseIsConfigured matches the one OTHER thing a caller may
+// legitimately do with the field: ask whether it is set at all. Two callers
+// need that and neither builds a URL — /me decides whether to advertise the
+// admin-issued link, and the issuing handler refuses when there is no base to
+// build one from. An emptiness comparison cannot leak a token into a
+// server-visible URL, which is the property this file exists to protect;
+// concatenating the value is what must stay inside passwordLink.
+var testsWhetherBaseIsConfigured = regexp.MustCompile(`h\.passwordLinkBaseURL\s*[!=]=\s*""`)
+
+func TestEveryDeliveredLinkIsBuiltByPasswordLink(t *testing.T) {
 	// Keyed on the BASE URL rather than on a path string, and that choice is the
 	// whole strength of this test: any hand-rolled builder must read
-	// `h.resetBaseURL` to have something to build from, whatever it does with the
+	// `h.passwordLinkBaseURL` to have something to build from, whatever it does with the
 	// path afterwards. Matching a literal like "/reset-password?token=" instead
 	// would pass for an fmt.Sprintf, for a split constant, or for any other
 	// spelling of the same defect — a point fix dressed as a fitness function.
 	//
 	// One directory, non-recursively, is the CORRECT scope and not a shortcut:
-	// `resetBaseURL` is an unexported field, so no other package — including
+	// `passwordLinkBaseURL` is an unexported field, so no other package — including
 	// `identity/internal/...` — can read it. The field's visibility is what bounds
 	// the search. Widen this to the tree and it stops being a closed argument.
 	entries, err := os.ReadDir(".")
@@ -84,9 +99,12 @@ func TestEveryEmailedLinkIsBuiltByPasswordLink(t *testing.T) {
 				continue
 			}
 			checked++
+			if testsWhetherBaseIsConfigured.MatchString(line) {
+				continue
+			}
 			if !strings.Contains(line, "passwordLink(") {
 				t.Errorf(
-					"%s:%d reads resetBaseURL outside passwordLink — build the link "+
+					"%s:%d uses passwordLinkBaseURL outside passwordLink — build the link "+
 						"with passwordLink so the token stays in the fragment:\n\t%s",
 					name, number+1, strings.TrimSpace(line),
 				)
@@ -100,6 +118,6 @@ func TestEveryEmailedLinkIsBuiltByPasswordLink(t *testing.T) {
 		t.Fatal("scanned no package source files — the guard is vacuous")
 	}
 	if checked == 0 {
-		t.Fatal("found no read of resetBaseURL — the guard no longer matches the field")
+		t.Fatal("found no read of passwordLinkBaseURL — the guard no longer matches the field")
 	}
 }

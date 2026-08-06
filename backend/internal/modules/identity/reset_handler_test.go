@@ -26,13 +26,24 @@ func post(h http.HandlerFunc, path, body string) *httptest.ResponseRecorder {
 	return rec
 }
 
-func TestResetEndpointsAnswer501WithoutAMailer(t *testing.T) {
+func TestOnlyTheEmailedHalfOfRecoveryNeedsAMailer(t *testing.T) {
 	h := NewHandlers(&Service{})
+	// Asking for a token by email needs a mailer: without one there is
+	// genuinely nothing to send.
 	if rec := post(h.RequestPasswordReset, "/v1/auth/forgot-password", `{"email":"a@b.test"}`); rec.Code != http.StatusNotImplemented {
 		t.Fatalf("forgot-password without mailer = %d, want 501", rec.Code)
 	}
-	if rec := post(h.ResetPassword, "/v1/auth/reset-password", `{"token":"x","new_password":"twelve chars!"}`); rec.Code != http.StatusNotImplemented {
-		t.Fatalf("reset-password without mailer = %d, want 501", rec.Code)
+	// Redeeming a token you already hold needs only the token. This endpoint
+	// once 501'd here too, which made an admin-issued link unredeemable on the
+	// very installations it exists for — and would strand an already-delivered
+	// link if an operator changed the mail settings inside its seven-day life.
+	// An unknown token is refused on its merits (401), never on configuration.
+	// Asserting the exact status, not merely "anything but 501": a 500 or an
+	// accidental success would both satisfy a not-501 check while meaning the
+	// endpoint is broken. An unknown token earns the same neutral 401 it earns
+	// on a mailer-wired installation.
+	if rec := post(h.ResetPassword, "/v1/auth/reset-password", `{"token":"x","new_password":"twelve chars!"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("reset-password with an unknown token and no mailer = %d, want 401 — redemption must not depend on a delivery channel", rec.Code)
 	}
 }
 
@@ -44,7 +55,7 @@ func TestCapabilitiesReflectTheWiredMailer(t *testing.T) {
 		t.Fatalf("unwired capabilities = %s, want password_reset:false", rec.Body)
 	}
 
-	h = h.WithPasswordReset(nopMailer{}, "https://crm.example.test")
+	h = h.WithPasswordReset(nopMailer{}).WithPasswordLinkBase("https://crm.example.test")
 	rec = httptest.NewRecorder()
 	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
 	if !strings.Contains(rec.Body.String(), `"password_reset":true`) {
@@ -53,7 +64,7 @@ func TestCapabilitiesReflectTheWiredMailer(t *testing.T) {
 }
 
 func TestResetRequestRefusesMalformedInput(t *testing.T) {
-	h := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}, "https://crm.example.test")
+	h := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}).WithPasswordLinkBase("https://crm.example.test")
 	if rec := post(h.RequestPasswordReset, "/v1/auth/forgot-password", `{`); rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("malformed body = %d, want 422", rec.Code)
 	}
@@ -63,7 +74,7 @@ func TestResetRequestRefusesMalformedInput(t *testing.T) {
 }
 
 func TestResetRedeemRefusesMalformedInput(t *testing.T) {
-	h := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}, "https://crm.example.test")
+	h := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}).WithPasswordLinkBase("https://crm.example.test")
 	if rec := post(h.ResetPassword, "/v1/auth/reset-password", `{"token":"","new_password":"twelve chars!"}`); rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("empty token = %d, want 422", rec.Code)
 	}
@@ -73,7 +84,7 @@ func TestResetRedeemRefusesMalformedInput(t *testing.T) {
 }
 
 func TestResetThrottlesFireBeforeAnyWork(t *testing.T) {
-	h := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}, "https://crm.example.test")
+	h := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}).WithPasswordLinkBase("https://crm.example.test")
 	// Drain the per-IP window (30/hour); the zero Service proves no
 	// database is touched on the refused path.
 	var last int
