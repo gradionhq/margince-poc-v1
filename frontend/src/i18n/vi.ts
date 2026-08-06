@@ -441,7 +441,7 @@ export const vi = {
   "people.email": "Email",
   "people.capturedBy": "Ghi nhận bởi",
   "person.consent": "Chấp thuận",
-  "consent.grant": "Cấp",
+  "consent.grant": "Cấp chấp thuận",
   "consent.withdraw": "Rút lại",
   "consent.doubleOptIn": "Phát hành xác nhận kép",
   "consent.doiIssued": "Token dùng một lần (chỉ hiện một lần):",
