@@ -39,6 +39,78 @@ type ollamaWire struct {
 
 type ollamaOptions struct {
 	NumPredict int `json:"num_predict"`
+	NumCtx     int `json:"num_ctx"`
+}
+
+// ollamaMaxTokensDefault caps a request that didn't set MaxTokens, the same
+// answer anthropic and gemini give the same gap. The window below is sized from
+// this number, so leaving it unset would make the output allowance an accident
+// of the arithmetic rather than a stated budget.
+const ollamaMaxTokensDefault = 1024
+
+// ollamaContextFloor is Ollama's own default window. The adapter never asks for
+// less, so a short request cannot come out worse than saying nothing at all.
+const ollamaContextFloor = 4096
+
+// ollamaMaxContext caps the window the adapter will ask for.
+//
+// The prompt is not ours: the extraction lanes feed this provider the text of
+// crawled pages and captured messages, so its LENGTH is chosen by whoever
+// published the page or sent the mail. Ollama sizes the runner's KV cache from
+// num_ctx when it loads a model, so an uncapped window would let a remote party
+// pick that allocation — a megabyte of prose asks for a window in the hundreds
+// of thousands of tokens, gigabytes the host must find or fail trying, taking
+// every other AI lane in the installation with it.
+//
+// Clamping buys a better failure: past this point the prompt truncates, which
+// is confined to the page that caused it.
+const ollamaMaxContext = 32768
+
+// ollamaContextBucket quantizes the window. num_ctx is a RUNNER parameter —
+// Ollama reloads the model when a request's value differs from the loaded
+// one's — and a byte-derived window is a different number on nearly every call,
+// so a crawl fanning out over dozens of pages would pay a model load per page.
+// Rounding up keeps a whole workload on one loaded runner, and the remainder to
+// the boundary doubles as the headroom the chat template needs.
+const ollamaContextBucket = 4096
+
+// ollamaPerMessageOverhead is the role and delimiter scaffolding the template
+// wraps around each turn, which a byte count of the content alone cannot see.
+const ollamaPerMessageOverhead = 8
+
+// contextWindow sizes `num_ctx` for the assembled request.
+//
+// num_ctx bounds prompt AND completion together, while num_predict bounds only
+// the completion — so asking for more output than the window holds past the
+// prompt is a request Ollama cannot satisfy. It does not refuse: it generates
+// until the window is full and stops with `done_reason: "length"`.
+//
+// On a reasoning model that cut lands INSIDE the thinking, which is not the
+// content field, so the caller gets a well-formed reply whose content is the
+// empty string and a schema-carrying task fails as an unparseable one — a
+// wrong-looking model where the truth is a window too small for what was asked.
+//
+// Measured off the wire rather than the request: wire.Messages already carries
+// the system prompt as its leading turn, so counting req.System too would
+// double it. The ~4-bytes-per-token heuristic is the one the embed lane meters
+// with; it only has to be close, because the floor, the bucket and the cap
+// between them decide the value that actually ships.
+func (w ollamaWire) contextWindow(maxTokens int) int {
+	prompt := len(w.Format)
+	for _, message := range w.Messages {
+		prompt += len(message.Content) + len(message.Role) + ollamaPerMessageOverhead
+	}
+	for _, tool := range w.Tools {
+		prompt += len(tool.Function.Name) + len(tool.Function.Description) + len(tool.Function.Parameters)
+	}
+	window := ((prompt/4+maxTokens)/ollamaContextBucket + 1) * ollamaContextBucket
+	if window < ollamaContextFloor {
+		return ollamaContextFloor
+	}
+	if window > ollamaMaxContext {
+		return ollamaMaxContext
+	}
+	return window
 }
 
 type ollamaToolWire struct {
@@ -142,9 +214,6 @@ func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream b
 	if wire.Model == "" {
 		wire.Model = c.defaultModel
 	}
-	if req.MaxTokens > 0 {
-		wire.Options = &ollamaOptions{NumPredict: req.MaxTokens}
-	}
 	if len(req.ResponseSchema) > 0 {
 		wire.Format = req.ResponseSchema
 	}
@@ -159,6 +228,21 @@ func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream b
 		tw.Function.Parameters = tool.InputSchema
 		wire.Tools = append(wire.Tools, tw)
 	}
+	maxTokens := req.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = ollamaMaxTokensDefault
+	}
+	// A budget past the largest window the adapter will ask for cannot be met
+	// whatever it says, and left unclamped it overflows the window arithmetic
+	// into a SMALL number — a request advertising an enormous num_predict
+	// against a tiny context, which Ollama then truncates at once. Clamped here
+	// rather than inside the window so the two fields cannot disagree.
+	if maxTokens > ollamaMaxContext {
+		maxTokens = ollamaMaxContext
+	}
+	// Sized last: the window has to account for the messages, tools and schema
+	// just assembled, so this cannot move above them.
+	wire.Options = &ollamaOptions{NumPredict: maxTokens, NumCtx: wire.contextWindow(maxTokens)}
 	payload, _, err := sendablePayload(ctx, wire, req.SecretStripper)
 	if err != nil {
 		return nil, err
