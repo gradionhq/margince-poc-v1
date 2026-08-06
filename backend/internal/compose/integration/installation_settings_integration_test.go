@@ -194,10 +194,19 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 	stage := e.seed(t, `
 		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
 		VALUES ($1, $2, $3, 'Won', 1, 'won', 100)`, pipeline)
+	// Every CHECK on `deal` has to be satisfied for the row to land, and the
+	// row landing is the whole point of this fixture:
+	//   deal_amount_currency_pair — amount and currency are set together
+	//   deal_closed_at            — a non-open deal carries closed_at
+	//   deal_closed_fx            — a closed deal with an amount carries the rate
+	//   deal_lost_reason          — not reached; 'won', not 'lost'
+	// The frozen rate is the one this test actually needs; the rest are the
+	// price of a valid closed deal.
 	e.seed(t, `
 		INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, source, captured_by,
-		                  amount_minor, fx_rate_to_base, status)
-		VALUES ($1, $2, 'Converted deal', $3, $4, 'seed', 'system:test', 100000, 1.0850000000, 'won')`,
+		                  amount_minor, currency, fx_rate_to_base, status, closed_at)
+		VALUES ($1, $2, 'Converted deal', $3, $4, 'seed', 'system:test',
+		        100000, 'EUR', 1.0850000000, 'won', now())`,
 		pipeline, stage)
 
 	// Prove the fixture landed before trusting what the probe says about it.
