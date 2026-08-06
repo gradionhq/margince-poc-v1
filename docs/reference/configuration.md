@@ -565,7 +565,18 @@ against records that no longer exist. The endpoint therefore also:
    (deleted and immediately re-created, so live subscribers keep reading), the
    processed-event dedupe marks, and this workspace's overlay budget counters.
 5. **Deletes the workspace's stored objects** under its `<workspace>/` prefix.
-6. **Announces the reset** on the `gw:control:reset` Redis pub/sub channel, so
+6. **Returns an overlay-mode installation to native.** The `workspace` row is
+   preserved because it carries the organization, but everything overlay mode
+   depends on is swept — the incumbent connection, the mirror, the budget
+   counters — so a workspace left in overlay would claim to read from an
+   incumbent it no longer has a connection to, dispatching every read at an
+   empty mirror. `x_sor_mode` and `x_incumbent` flip together, as the schema
+   requires. This is not the governed `Disconnect` teardown: those rows are
+   already gone with the sweep, the reset carries its own audit row, and no
+   `incumbent.disconnected` event is emitted into an outbox this reset just
+   drained. Whether it happened is recorded as `sor_mode_reverted` in the audit
+   evidence and the completion log line.
+7. **Announces the reset** on the `gw:control:reset` Redis pub/sub channel, so
    the api and the worker each drop the caches they hold (model results,
    resolved SoR mode, auth lockout buckets). No HTTP call reaches the worker
    process; this channel is the only path to it.

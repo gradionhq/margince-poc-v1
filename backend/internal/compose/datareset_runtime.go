@@ -50,6 +50,10 @@ type resetCounts struct {
 	CacheKeys      int
 	ObjectsDeleted int
 	DrainTimedOut  bool
+	// SorModeReverted records that the installation was in overlay mode and
+	// this reset returned it to native. Not a count, but it rides here for the
+	// same reason the counts do: the audit row and the log line both report it.
+	SorModeReverted bool
 }
 
 // runRuntimePhase quiets the fleet, drains the outbox, purges the queue, the bus

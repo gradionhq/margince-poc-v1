@@ -326,3 +326,71 @@ func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
 		t.Fatalf("trigger scan: %v", err)
 	}
 }
+
+// TestResetReturnsAnOverlayWorkspaceToNativeMode: a reset restores first-boot
+// state, and a first-boot installation is native.
+//
+// The workspace row is in the preserved set — it carries the organization, so
+// the sweep must not delete it — but the overlay-mode columns living on that
+// row are configuration a connect flow wrote, not identity. Everything overlay
+// mode depends on IS swept: the incumbent connection, the mirror, the budget
+// counters. Leaving the mode behind therefore strands the installation claiming
+// to read from an incumbent it no longer has a connection to, with every read
+// dispatching to a mirror that has nothing in it.
+//
+// The two columns move together because the schema requires it:
+// CHECK ((x_sor_mode = 'overlay') = (x_incumbent IS NOT NULL)).
+func TestResetReturnsAnOverlayWorkspaceToNativeMode(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+	e.WsExec(t, `UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`, e.WS)
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	var mode string
+	var incumbent *string
+	if err := e.Pool.QueryRow(ctx,
+		`SELECT x_sor_mode, x_incumbent FROM workspace WHERE id = $1`, e.WS).Scan(&mode, &incumbent); err != nil {
+		t.Fatalf("reading the workspace's mode back: %v", err)
+	}
+	if mode != "native" {
+		t.Errorf("x_sor_mode = %q, want native — the install still reads from an incumbent the reset disconnected it from", mode)
+	}
+	if incumbent != nil {
+		t.Errorf("x_incumbent = %q, want NULL", *incumbent)
+	}
+	if got := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE action = 'reset_data' AND evidence->>'sor_mode_reverted' = 'true'`); got != 1 {
+		t.Errorf("reset_data rows recording the mode revert = %d, want 1 — a flip this consequential belongs in the permanent record", got)
+	}
+}
+
+// TestResetLeavesANativeWorkspaceAlone: the flip is conditional, so a native
+// installation's reset claims no mode change in its evidence.
+func TestResetLeavesANativeWorkspaceAlone(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE action = 'reset_data' AND evidence->>'sor_mode_reverted' = 'true'`); got != 0 {
+		t.Errorf("evidence claims a mode revert on an install that was already native (%d rows)", got)
+	}
+}
