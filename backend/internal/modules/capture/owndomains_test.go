@@ -125,3 +125,23 @@ func TestTheDomainSetNormalizesAndDeduplicates(t *testing.T) {
 		t.Errorf("domains = %v, want the two distinct domains", own.domains)
 	}
 }
+
+// An account label arrives in either shape a provider chooses. Taking the text
+// after the last "@" of the display form yields "acme.com>", which matches no
+// registered domain — so the gate would quietly never fire for that mailbox.
+func TestAnAccountLabelYieldsItsDomainInEitherShape(t *testing.T) {
+	for _, label := range []string{
+		"rep@acme.com",
+		"Rep <rep@acme.com>",
+		"  Rep Example <rep@acme.com>  ",
+		`"Rep, Example" <rep@acme.com>`,
+	} {
+		if got := domainOfAddress(bareAddress(label)); got != "acme.com" {
+			t.Errorf("label %q gave domain %q, want acme.com", label, got)
+		}
+	}
+	// An unparseable label is judged as an address, which is what it was before.
+	if got := domainOfAddress(bareAddress("not an address")); got != "" {
+		t.Errorf("unparseable label gave domain %q, want none", got)
+	}
+}

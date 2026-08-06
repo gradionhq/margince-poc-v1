@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"sort"
 	"strings"
 	"sync"
@@ -184,6 +185,14 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 	// message in it. A rule that only holds from the second sync onward is not
 	// a confidentiality control (ADR-0082/A127 §2).
 	if err := r.seedOwnDomainFromAccount(runCtx, c, auth); err != nil {
+		// Recorded like every other fault in this function before it returns:
+		// the state machine classifies and backs off, and the sidecar gets its
+		// line. A bare return would stop the mailbox with its health still
+		// reading healthy — silently, which is the one way a capture failure
+		// must never look.
+		if recErr := r.recordSyncFailure(runCtx, connectionID, err); recErr != nil {
+			return errors.Join(err, recErr)
+		}
 		return err
 	}
 
@@ -286,7 +295,7 @@ func (r *Registry) seedOwnDomainFromAccount(ctx context.Context, c connector.Con
 
 // seedDomainOfAddressTx records one mailbox's domain as a candidate own-domain.
 func seedDomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string) error {
-	domain := domainOfAddress(address)
+	domain := domainOfAddress(bareAddress(address))
 	if domain == "" {
 		return nil
 	}
@@ -376,4 +385,18 @@ func (r *Registry) connector(name string) (connector.Connector, error) {
 		return nil, fmt.Errorf("capture: connector %q is not compiled in: %w", name, apperrors.ErrNotFound)
 	}
 	return c, nil
+}
+
+// bareAddress strips a display name off an account label. The label is
+// display-grade, and providers return both shapes — "rep@acme.com" and
+// "Rep <rep@acme.com>". Taking the text after the last "@" of the second form
+// yields "acme.com>", which matches no domain anyone registered, so the gate
+// would quietly never fire. An unparseable label is returned as it came: it is
+// then judged as an address, which is what it was before this.
+func bareAddress(label string) string {
+	parsed, err := mail.ParseAddress(strings.TrimSpace(label))
+	if err != nil {
+		return label
+	}
+	return parsed.Address
 }
