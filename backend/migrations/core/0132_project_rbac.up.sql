@@ -16,19 +16,22 @@ BEGIN
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,project}',
       '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-    WHERE is_system AND key IN ('admin','manager','ops')
-      AND NOT permissions->'objects' ? 'project';
+    WHERE (is_system AND key IN ('admin','manager','ops')
+      AND NOT permissions->'objects' ? 'project')
+      AND role.workspace_id = ws;
 
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,project}',
       '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-    WHERE is_system AND key = 'rep'
-      AND NOT permissions->'objects' ? 'project';
+    WHERE (is_system AND key = 'rep'
+      AND NOT permissions->'objects' ? 'project')
+      AND role.workspace_id = ws;
 
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,project}',
       '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-    WHERE is_system AND key = 'read_only'
-      AND NOT permissions->'objects' ? 'project';
+    WHERE (is_system AND key = 'read_only'
+      AND NOT permissions->'objects' ? 'project')
+      AND role.workspace_id = ws;
   END LOOP;
 END $$;

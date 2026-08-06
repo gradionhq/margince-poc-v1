@@ -97,7 +97,26 @@ func TestTheTenantScopeCheckSeesAnUnscopedWriteAndPassesTheScopedShapes(t *testi
 		name: "the required shape",
 		sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
 			PERFORM set_config('app.workspace_id', ws::text, true);
+			UPDATE role SET permissions = '{}'::jsonb
+			WHERE role.workspace_id = ws; END LOOP; END $$;`,
+		flagged: false,
+	}, {
+		name: "a bound loop whose write does not name the workspace it is for",
+		sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
+			PERFORM set_config('app.workspace_id', ws::text, true);
 			UPDATE role SET permissions = '{}'::jsonb; END LOOP; END $$;`,
+		flagged: true,
+	}, {
+		name: "a block that binds only after the write it should have scoped",
+		sql: `DO $$ BEGIN
+			UPDATE role SET permissions = '{}'::jsonb WHERE role.workspace_id = ws;
+			PERFORM set_config('app.workspace_id', ws::text, true); END $$;`,
+		flagged: true,
+	}, {
+		// RLS does not filter TRUNCATE, and COPY FROM against an RLS table is
+		// refused rather than silently emptied — neither is this gate's failure.
+		name:    "a TRUNCATE, which row-level security does not filter",
+		sql:     `TRUNCATE activity;`,
 		flagged: false,
 	}, {
 		name:    "a write to an untenanted table fed by a tenant read",
@@ -153,14 +172,33 @@ func unscopedTenantWrites(sql string, tenant map[string]bool) []string {
 		}
 	}
 	for _, block := range blocks {
-		if strings.Contains(block, workspaceGUCBinding) {
-			continue
-		}
+		bound := strings.Index(block, workspaceGUCBinding)
 		for _, statement := range writeStatements(block) {
-			if table, touched := tenantTableIn(statement, tenant); touched {
-				findings = append(findings, "writes the tenant table "+table+" inside a DO block that never "+
-					"binds app.workspace_id, so row-level security discards the write silently. Loop over "+
-					"workspace and "+workspaceGUCBinding+", ws::text, true) first, as 0154_channel_connection_rbac does.")
+			table, touched := tenantTableIn(statement, tenant)
+			if !touched {
+				continue
+			}
+			// Position, not mere presence: a block that binds AFTER its write, or
+			// once outside the loop it writes in, satisfies a contains-check while
+			// leaving the write exactly as unbound as before.
+			if bound < 0 || bound > strings.Index(block, statement) {
+				findings = append(findings, "writes the tenant table "+table+" inside a DO block that does "+
+					"not bind app.workspace_id before it, so row-level security discards the write silently. "+
+					"Loop over workspace and "+workspaceGUCBinding+", ws::text, true) first, as "+
+					"0154_channel_connection_rbac does.")
+				continue
+			}
+			// The binding makes the rows VISIBLE; it does not scope the statement.
+			// An executor RLS does not filter — the dev and CI superuser — sees
+			// every workspace on every iteration, so a loop without this predicate
+			// repeats the same write N times: survivable for an idempotent UPDATE,
+			// a unique violation for an INSERT.
+			if !workspacePredicatePattern.MatchString(statement) {
+				findings = append(findings, "writes the tenant table "+table+" inside the workspace loop "+
+					"without naming the workspace it is for. Add `AND <alias>.workspace_id = ws`: the GUC "+
+					"binding only makes rows visible, and an executor row-level security does not filter "+
+					"(any superuser, so dev and CI) would apply this statement to EVERY workspace on EVERY "+
+					"iteration.")
 			}
 		}
 	}
@@ -295,9 +333,8 @@ func tenantTableIn(statement string, tenant map[string]bool) (string, bool) {
 func stripLineComments(sql string) string {
 	lines := strings.Split(sql, "\n")
 	for i, line := range lines {
-		if at := strings.Index(line, "--"); at >= 0 {
-			lines[i] = line[:at]
-		}
+		code, _, _ := strings.Cut(line, "--")
+		lines[i] = code
 	}
 	return strings.Join(lines, "\n")
 }
@@ -308,6 +345,15 @@ var (
 	forceRLSPattern     = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+([a-z_][a-z0-9_]*)\s+FORCE\s+ROW\s+LEVEL\s+SECURITY`)
 	dollarTagPattern    = regexp.MustCompile(`\$[a-zA-Z_]*\$`)
 	doIntroducerPattern = regexp.MustCompile(`(?is)(\A|[\s;])DO\s*\z`)
-	writeKeywordPattern = regexp.MustCompile(`(?is)\b(UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+(ONLY\s+)?([a-z_][a-z0-9_]*)`)
-	identifierPattern   = regexp.MustCompile(`[a-z_][a-z0-9_]*`)
+	// The write verbs row-level security actually filters. MERGE belongs here for
+	// the same reason as UPDATE. TRUNCATE and COPY deliberately do NOT: RLS does
+	// not apply to TRUNCATE at all (it is gated by the TRUNCATE privilege, which
+	// fails loudly), and COPY FROM against an RLS table is refused outright —
+	// "COPY FROM not supported with row-level security". Neither can silently
+	// write nothing, which is the only failure this gate exists to catch.
+	writeKeywordPattern = regexp.MustCompile(
+		`(?is)\b(UPDATE|INSERT\s+INTO|DELETE\s+FROM|MERGE\s+INTO)\s+(ONLY\s+)?([a-z_][a-z0-9_]*)`)
+	identifierPattern = regexp.MustCompile(`[a-z_][a-z0-9_]*`)
+	// `workspace_id = ws`, however it is qualified or spaced.
+	workspacePredicatePattern = regexp.MustCompile(`(?is)workspace_id\s*=\s*ws\b`)
 )

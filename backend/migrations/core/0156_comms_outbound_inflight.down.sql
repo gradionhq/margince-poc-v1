@@ -28,7 +28,8 @@ BEGIN
            reason = 'the provider never confirmed whether this message was delivered, '
                  || 'and it will not be retried: a second attempt could deliver it twice with nothing able to tell. '
                  || 'Check the conversation and send again if it did not arrive'
-     WHERE status = 'pending' AND inflight_at IS NOT NULL;
+    WHERE (status = 'pending' AND inflight_at IS NOT NULL)
+      AND comms_outbound.workspace_id = ws;
   END LOOP;
 END $$;
 

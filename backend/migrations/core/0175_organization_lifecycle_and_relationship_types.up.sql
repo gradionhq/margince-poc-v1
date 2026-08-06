@@ -83,7 +83,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    UPDATE organization SET lifecycle = 'customer' WHERE classification = 'customer';
+    UPDATE organization SET lifecycle = 'customer'
+    WHERE (classification = 'customer')
+      AND organization.workspace_id = ws;
 
 
     -- The type rows the old enum can be read as. tech_vendor/platform are things
@@ -109,6 +111,7 @@ BEGIN
     FROM organization o
     WHERE o.classification IN ('customer','competitor','tech_vendor','platform')
       AND o.archived_at IS NULL
+      AND o.workspace_id = ws
     ON CONFLICT DO NOTHING;
 
 
@@ -125,6 +128,7 @@ BEGIN
     -- partner API will admit to (it filters archived_at IS NULL), so importing one
     -- would mint a type row the invariant then refuses to let anyone remove.
     WHERE o.archived_at IS NULL AND p.archived_at IS NULL
+      AND p.workspace_id = ws
     ON CONFLICT DO NOTHING;
   END LOOP;
 END $$;

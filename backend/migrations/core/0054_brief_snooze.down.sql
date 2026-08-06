@@ -6,7 +6,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    UPDATE brief_item SET state = 'new', state_at = NULL, snoozed_until = NULL WHERE state = 'snoozed';
+    UPDATE brief_item SET state = 'new', state_at = NULL, snoozed_until = NULL
+    WHERE (state = 'snoozed')
+      AND brief_item.workspace_id = ws;
   END LOOP;
 END $$;
 

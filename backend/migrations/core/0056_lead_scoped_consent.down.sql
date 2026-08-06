@@ -6,7 +6,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM consent_event WHERE person_id IS NULL;
+    DELETE FROM consent_event
+    WHERE (person_id IS NULL)
+      AND consent_event.workspace_id = ws;
   END LOOP;
 END $$;
 
@@ -20,7 +22,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM person_consent WHERE person_id IS NULL;
+    DELETE FROM person_consent
+    WHERE (person_id IS NULL)
+      AND person_consent.workspace_id = ws;
   END LOOP;
 END $$;
 

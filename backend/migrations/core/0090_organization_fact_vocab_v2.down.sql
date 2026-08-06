@@ -7,7 +7,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM organization_fact WHERE field IN ('location','technology');
+    DELETE FROM organization_fact
+    WHERE (field IN ('location','technology'))
+      AND organization_fact.workspace_id = ws;
   END LOOP;
 END $$;
 

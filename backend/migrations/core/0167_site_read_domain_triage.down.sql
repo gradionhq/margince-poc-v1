@@ -16,7 +16,7 @@ BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
     UPDATE site_read SET target_kind = 'organization'
-     WHERE target_kind = 'domain_triage'
+    WHERE (target_kind = 'domain_triage'
        AND organization_id IS NOT NULL
        AND status NOT IN ('queued', 'deferred', 'running')
        AND NOT EXISTS (
@@ -25,9 +25,12 @@ BEGIN
             AND live.organization_id = site_read.organization_id
             AND live.seed_url = site_read.seed_url
             AND live.target_kind = 'organization'
-            AND live.status IN ('queued', 'running'));
+            AND live.status IN ('queued', 'running')))
+      AND site_read.workspace_id = ws;
 
-    DELETE FROM site_read WHERE target_kind = 'domain_triage';
+    DELETE FROM site_read
+    WHERE (target_kind = 'domain_triage')
+      AND site_read.workspace_id = ws;
   END LOOP;
 END $$;
 

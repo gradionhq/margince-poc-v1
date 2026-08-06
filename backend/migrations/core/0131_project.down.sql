@@ -15,25 +15,45 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM custom_field       WHERE object      = 'project';
+    DELETE FROM custom_field
+    WHERE (object      = 'project')
+      AND custom_field.workspace_id = ws;
 
-    DELETE FROM field_provenance   WHERE object_type = 'project';
+    DELETE FROM field_provenance
+    WHERE (object_type = 'project')
+      AND field_provenance.workspace_id = ws;
 
-    DELETE FROM embedding          WHERE entity_type = 'project';
+    DELETE FROM embedding
+    WHERE (entity_type = 'project')
+      AND embedding.workspace_id = ws;
 
-    DELETE FROM attachment         WHERE entity_type = 'project';
+    DELETE FROM attachment
+    WHERE (entity_type = 'project')
+      AND attachment.workspace_id = ws;
 
-    DELETE FROM record_grant       WHERE record_type = 'project';
+    DELETE FROM record_grant
+    WHERE (record_type = 'project')
+      AND record_grant.workspace_id = ws;
 
-    DELETE FROM taggable           WHERE entity_type = 'project';
+    DELETE FROM taggable
+    WHERE (entity_type = 'project')
+      AND taggable.workspace_id = ws;
 
-    DELETE FROM list_member        WHERE entity_type = 'project';
+    DELETE FROM list_member
+    WHERE (entity_type = 'project')
+      AND list_member.workspace_id = ws;
 
-    DELETE FROM list               WHERE entity_type = 'project';
+    DELETE FROM list
+    WHERE (entity_type = 'project')
+      AND list.workspace_id = ws;
 
-    DELETE FROM activity_link      WHERE entity_type = 'project';
+    DELETE FROM activity_link
+    WHERE (entity_type = 'project')
+      AND activity_link.workspace_id = ws;
 
-    DELETE FROM relationship       WHERE kind        = 'project_stakeholder';
+    DELETE FROM relationship
+    WHERE (kind        = 'project_stakeholder')
+      AND relationship.workspace_id = ws;
   END LOOP;
 END $$;
 

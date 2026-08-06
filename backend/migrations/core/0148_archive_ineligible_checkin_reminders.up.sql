@@ -35,11 +35,12 @@ BEGIN
     PERFORM set_config('app.workspace_id', ws::text, true);
     UPDATE activity
        SET archived_at = now()
-     WHERE kind = 'task'
+    WHERE (kind = 'task'
        AND source = 'system'
        AND archived_at IS NULL
        AND is_done = false
        AND (subject LIKE 'Check in — no activity since %'
-         OR subject LIKE 'Time for a check-in — last touched %');
+         OR subject LIKE 'Time for a check-in — last touched %'))
+      AND activity.workspace_id = ws;
   END LOOP;
 END $$;

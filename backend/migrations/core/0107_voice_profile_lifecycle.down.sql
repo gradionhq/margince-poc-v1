@@ -35,7 +35,8 @@ BEGIN
         END,
         weight = greatest(weight, 0.1),
         excluded = excluded OR content IS NULL,
-        content = coalesce(content, '');
+        content = coalesce(content, '')
+    WHERE voice_corpus_source.workspace_id = ws;
   END LOOP;
 END $$;
 
@@ -70,7 +71,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    UPDATE voice_profile SET status = 'building' WHERE status = 'collecting';
+    UPDATE voice_profile SET status = 'building'
+    WHERE (status = 'collecting')
+      AND voice_profile.workspace_id = ws;
   END LOOP;
 END $$;
 

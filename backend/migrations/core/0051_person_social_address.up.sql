@@ -35,7 +35,8 @@ BEGIN
     INSERT INTO person_social (workspace_id, person_id, platform, handle)
     SELECT p.workspace_id, p.id, kv.key, kv.value
     FROM person p, jsonb_each_text(p.social) AS kv
-    WHERE kv.value IS NOT NULL AND kv.value <> '';
+    WHERE (kv.value IS NOT NULL AND kv.value <> '')
+      AND p.workspace_id = ws;
   END LOOP;
 END $$;
 
@@ -60,7 +61,8 @@ BEGIN
       address_region      = address->>'region',
       address_postal_code = address->>'postal_code',
       address_country     = address->>'country'
-    WHERE address IS NOT NULL;
+    WHERE (address IS NOT NULL)
+      AND person.workspace_id = ws;
   END LOOP;
 END $$;
 
@@ -84,7 +86,8 @@ BEGIN
       address_region      = address->>'region',
       address_postal_code = address->>'postal_code',
       address_country     = address->>'country'
-    WHERE address IS NOT NULL;
+    WHERE (address IS NOT NULL)
+      AND organization.workspace_id = ws;
   END LOOP;
 END $$;
 

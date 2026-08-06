@@ -19,13 +19,15 @@ BEGIN
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,webhook_subscription}',
       '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-    WHERE is_system AND key IN ('admin','ops')
-      AND NOT permissions->'objects' ? 'webhook_subscription';
+    WHERE (is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'webhook_subscription')
+      AND role.workspace_id = ws;
 
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,webhook_subscription}',
       '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-    WHERE is_system AND key IN ('manager','rep','read_only')
-      AND NOT permissions->'objects' ? 'webhook_subscription';
+    WHERE (is_system AND key IN ('manager','rep','read_only')
+      AND NOT permissions->'objects' ? 'webhook_subscription')
+      AND role.workspace_id = ws;
   END LOOP;
 END $$;

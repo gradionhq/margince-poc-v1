@@ -26,7 +26,8 @@ BEGIN
     SET detail = CASE
       WHEN error IS NULL THEN NULL
       WHEN status = 'requires_approval'
-           AND error ~ '^staged as approval [0-9a-fA-F-]{36}; awaiting the human decision$'
+           AND error ~ '^staged as approval [0-9a-fA-F-]{36}
+    WHERE workflow_run.workspace_id = ws; awaiting the human decision$'
         THEN jsonb_build_object(
           'reason', error,
           'approval_id', substring(error from 'staged as approval ([0-9a-fA-F-]{36})')

@@ -50,7 +50,7 @@ BEGIN
     PERFORM set_config('app.workspace_id', ws::text, true);
     UPDATE activity a
        SET archived_at = NULL
-     WHERE a.kind = 'task'
+    WHERE (a.kind = 'task'
        AND a.source = 'system'
        AND a.archived_at IS NOT NULL
        AND a.is_done = false
@@ -82,6 +82,7 @@ BEGIN
                           END)
              -- Or a person had made it theirs, and a re-mint is not the same row.
              OR a.assignee_id IS NOT NULL
-             OR a.remind_at IS NOT NULL);
+             OR a.remind_at IS NOT NULL))
+      AND a.workspace_id = ws;
   END LOOP;
 END $$;

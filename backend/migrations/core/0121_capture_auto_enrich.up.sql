@@ -24,13 +24,15 @@ BEGIN
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,capture_settings}',
       '{"create":false,"read":true,"update":true,"delete":false}'::jsonb)
-    WHERE is_system AND key IN ('admin', 'ops')
-      AND NOT permissions->'objects' ? 'capture_settings';
+    WHERE (is_system AND key IN ('admin', 'ops')
+      AND NOT permissions->'objects' ? 'capture_settings')
+      AND role.workspace_id = ws;
 
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,capture_settings}',
       '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-    WHERE is_system AND key IN ('manager', 'rep', 'read_only')
-      AND NOT permissions->'objects' ? 'capture_settings';
+    WHERE (is_system AND key IN ('manager', 'rep', 'read_only')
+      AND NOT permissions->'objects' ? 'capture_settings')
+      AND role.workspace_id = ws;
   END LOOP;
 END $$;

@@ -25,7 +25,8 @@ BEGIN
       WHEN 'deepread' THEN 'site_read'
       WHEN 'enrich' THEN 'connector'
       ELSE source
-    END;
+    END
+    WHERE organization_profile_field.workspace_id = ws;
   END LOOP;
 END $$;
 
@@ -84,7 +85,8 @@ BEGIN
       WHEN 'deepread' THEN 'site_read'
       WHEN 'enrich' THEN 'connector'
       ELSE source
-    END;
+    END
+    WHERE organization_fact.workspace_id = ws;
   END LOOP;
 END $$;
 

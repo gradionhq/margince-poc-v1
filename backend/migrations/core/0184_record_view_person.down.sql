@@ -13,7 +13,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM user_record_view WHERE entity_type = 'person';
+    DELETE FROM user_record_view
+    WHERE (entity_type = 'person')
+      AND user_record_view.workspace_id = ws;
   END LOOP;
 END $$;
 

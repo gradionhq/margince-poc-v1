@@ -21,9 +21,13 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    UPDATE automation SET tier = 'auto_execute'         WHERE tier = 'green';
+    UPDATE automation SET tier = 'auto_execute'
+    WHERE (tier = 'green')
+      AND automation.workspace_id = ws;
 
-    UPDATE automation SET tier = 'confirmation_required' WHERE tier = 'yellow';
+    UPDATE automation SET tier = 'confirmation_required'
+    WHERE (tier = 'yellow')
+      AND automation.workspace_id = ws;
   END LOOP;
 END $$;
 

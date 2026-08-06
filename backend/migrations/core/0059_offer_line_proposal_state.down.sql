@@ -5,7 +5,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM offer_line_item WHERE proposal_state = 'staged';
+    DELETE FROM offer_line_item
+    WHERE (proposal_state = 'staged')
+      AND offer_line_item.workspace_id = ws;
   END LOOP;
 END $$;
 

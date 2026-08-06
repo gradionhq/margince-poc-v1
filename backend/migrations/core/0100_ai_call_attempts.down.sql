@@ -12,7 +12,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM ai_call WHERE NOT is_terminal OR kind = 'embedding';
+    DELETE FROM ai_call
+    WHERE (NOT is_terminal OR kind = 'embedding')
+      AND ai_call.workspace_id = ws;
   END LOOP;
 END $$;
 

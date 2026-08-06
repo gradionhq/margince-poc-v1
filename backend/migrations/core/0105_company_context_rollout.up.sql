@@ -31,6 +31,7 @@ BEGIN
     WHERE o.is_anchor
       AND o.archived_at IS NULL
       AND NULLIF(btrim(candidate.value), '') IS NOT NULL
+      AND o.workspace_id = ws
     ON CONFLICT (workspace_id, organization_id, field) DO NOTHING;
   END LOOP;
 END $$;

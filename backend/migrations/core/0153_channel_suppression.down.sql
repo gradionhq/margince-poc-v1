@@ -7,7 +7,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM erasure_suppression WHERE kind = 'channel_identity';
+    DELETE FROM erasure_suppression
+    WHERE (kind = 'channel_identity')
+      AND erasure_suppression.workspace_id = ws;
   END LOOP;
 END $$;
 

@@ -7,7 +7,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM comms_outbound WHERE channel_user_id IS NOT NULL;
+    DELETE FROM comms_outbound
+    WHERE (channel_user_id IS NOT NULL)
+      AND comms_outbound.workspace_id = ws;
   END LOOP;
 END $$;
 

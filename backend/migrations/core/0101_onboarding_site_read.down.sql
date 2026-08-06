@@ -10,7 +10,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM site_read WHERE organization_id IS NULL;
+    DELETE FROM site_read
+    WHERE (organization_id IS NULL)
+      AND site_read.workspace_id = ws;
   END LOOP;
 END $$;
 

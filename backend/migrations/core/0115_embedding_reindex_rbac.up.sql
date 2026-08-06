@@ -16,7 +16,8 @@ BEGIN
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,embedding_reindex}',
       '{"create":false,"read":true,"update":true,"delete":false}'::jsonb)
-    WHERE is_system AND key IN ('admin','ops')
-      AND NOT permissions->'objects' ? 'embedding_reindex';
+    WHERE (is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'embedding_reindex')
+      AND role.workspace_id = ws;
   END LOOP;
 END $$;

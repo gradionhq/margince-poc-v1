@@ -15,13 +15,21 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM custom_field     WHERE object      = 'relationship';
+    DELETE FROM custom_field
+    WHERE (object      = 'relationship')
+      AND custom_field.workspace_id = ws;
 
-    DELETE FROM field_provenance WHERE object_type = 'relationship';
+    DELETE FROM field_provenance
+    WHERE (object_type = 'relationship')
+      AND field_provenance.workspace_id = ws;
 
-    DELETE FROM embedding        WHERE entity_type = 'relationship';
+    DELETE FROM embedding
+    WHERE (entity_type = 'relationship')
+      AND embedding.workspace_id = ws;
 
-    DELETE FROM attachment       WHERE entity_type = 'relationship';
+    DELETE FROM attachment
+    WHERE (entity_type = 'relationship')
+      AND attachment.workspace_id = ws;
   END LOOP;
 END $$;
 

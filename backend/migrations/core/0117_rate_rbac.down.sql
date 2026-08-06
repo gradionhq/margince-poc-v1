@@ -8,9 +8,11 @@ BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
     UPDATE role SET permissions = permissions #- '{objects,fx_rate}'
-      WHERE is_system AND key IN ('admin','ops');
+    WHERE (is_system AND key IN ('admin','ops'))
+      AND role.workspace_id = ws;
 
     UPDATE role SET permissions = permissions #- '{objects,ai_model_rate}'
-      WHERE is_system AND key IN ('admin','ops');
+    WHERE (is_system AND key IN ('admin','ops'))
+      AND role.workspace_id = ws;
   END LOOP;
 END $$;

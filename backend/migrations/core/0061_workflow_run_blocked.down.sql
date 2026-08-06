@@ -5,7 +5,9 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    UPDATE workflow_run SET status = 'failed' WHERE status = 'blocked';
+    UPDATE workflow_run SET status = 'failed'
+    WHERE (status = 'blocked')
+      AND workflow_run.workspace_id = ws;
   END LOOP;
 END $$;
 

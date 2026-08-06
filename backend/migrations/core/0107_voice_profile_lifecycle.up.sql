@@ -26,7 +26,8 @@ BEGIN
     PERFORM set_config('app.workspace_id', ws::text, true);
     UPDATE voice_profile
     SET status = 'collecting'
-    WHERE status = 'building';
+    WHERE (status = 'building')
+      AND voice_profile.workspace_id = ws;
 
 
     -- The old contract admitted team scope without a team identifier. There is no
@@ -34,13 +35,17 @@ BEGIN
     -- rows instead of widening private style material to workspace visibility.
     UPDATE voice_profile
     SET scope = 'workspace', owner_id = NULL, archived_at = coalesce(archived_at, now())
-    WHERE scope = 'team';
+    WHERE (scope = 'team')
+      AND voice_profile.workspace_id = ws;
 
-    UPDATE voice_profile SET owner_id = NULL WHERE scope = 'workspace';
+    UPDATE voice_profile SET owner_id = NULL
+    WHERE (scope = 'workspace')
+      AND voice_profile.workspace_id = ws;
 
     UPDATE voice_profile
     SET scope = 'workspace', archived_at = coalesce(archived_at, now())
-    WHERE scope = 'user' AND owner_id IS NULL;
+    WHERE (scope = 'user' AND owner_id IS NULL)
+      AND voice_profile.workspace_id = ws;
   END LOOP;
 END $$;
 
@@ -104,7 +109,8 @@ BEGIN
           END
           ELSE 'general'
         END,
-        weight = least(weight, 2.0);
+        weight = least(weight, 2.0)
+    WHERE voice_corpus_source.workspace_id = ws;
   END LOOP;
 END $$;
 
@@ -222,7 +228,8 @@ BEGIN
           WHERE s.voice_profile_id = p.id AND NOT s.excluded
         ),
         last_built_at = coalesce(p.updated_at, p.created_at)
-    WHERE p.profile_version >= 1;
+    WHERE (p.profile_version >= 1)
+      AND p.workspace_id = ws;
 
     INSERT INTO voice_profile_version
       (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
@@ -253,7 +260,8 @@ BEGIN
            ),
            '{}'::text[], p.last_built_at, p.source, p.captured_by, p.last_built_at
     FROM voice_profile p
-    WHERE p.profile_version >= 1;
+    WHERE p.profile_version >= 1
+      AND p.workspace_id = ws;
   END LOOP;
 END $$;
 

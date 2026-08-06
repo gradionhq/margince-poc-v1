@@ -19,13 +19,15 @@ BEGIN
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,fx_rate}',
       '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-    WHERE is_system AND key IN ('admin','ops')
-      AND NOT permissions->'objects' ? 'fx_rate';
+    WHERE (is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'fx_rate')
+      AND role.workspace_id = ws;
 
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,ai_model_rate}',
       '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-    WHERE is_system AND key IN ('admin','ops')
-      AND NOT permissions->'objects' ? 'ai_model_rate';
+    WHERE (is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'ai_model_rate')
+      AND role.workspace_id = ws;
   END LOOP;
 END $$;

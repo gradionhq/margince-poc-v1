@@ -33,6 +33,7 @@ BEGIN
     UPDATE automation
        SET key  = 'assign_lead_owner',
            name = CASE WHEN name = 'Route new leads' THEN 'Assign new leads an owner' ELSE name END
-     WHERE key = 'route_lead';
+    WHERE (key = 'route_lead')
+      AND automation.workspace_id = ws;
   END LOOP;
 END $$;

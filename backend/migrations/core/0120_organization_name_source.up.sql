@@ -16,11 +16,12 @@ BEGIN
     PERFORM set_config('app.workspace_id', ws::text, true);
     UPDATE organization o
        SET name_source = 'domain'
-     WHERE EXISTS (
+    WHERE (EXISTS (
        SELECT 1 FROM organization_domain d
         WHERE d.organization_id = o.id
           AND d.archived_at IS NULL
           AND lower(d.domain) = lower(o.display_name)
-     );
+     ))
+      AND o.workspace_id = ws;
   END LOOP;
 END $$;

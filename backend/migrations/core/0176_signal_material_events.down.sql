@@ -20,8 +20,10 @@ DECLARE ws uuid;
 BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
-    DELETE FROM signal WHERE kind IN
-      ('contract_ended','new_opportunity','commitment_made','ghosted_thread');
+    DELETE FROM signal
+    WHERE (kind IN
+      ('contract_ended','new_opportunity','commitment_made','ghosted_thread'))
+      AND signal.workspace_id = ws;
   END LOOP;
 END $$;
 

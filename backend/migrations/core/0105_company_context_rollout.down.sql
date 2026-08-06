@@ -4,7 +4,8 @@ BEGIN
   FOR ws IN SELECT id FROM workspace LOOP
     PERFORM set_config('app.workspace_id', ws::text, true);
     DELETE FROM organization_profile_field
-    WHERE source = 'migration' AND captured_by = 'system:migration-0105';
+    WHERE (source = 'migration' AND captured_by = 'system:migration-0105')
+      AND organization_profile_field.workspace_id = ws;
   END LOOP;
 END $$;
 

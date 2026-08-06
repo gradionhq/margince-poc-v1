@@ -20,7 +20,8 @@ BEGIN
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,import_run}',
       '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-    WHERE is_system AND key IN ('admin','ops')
-      AND NOT permissions->'objects' ? 'import_run';
+    WHERE (is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'import_run')
+      AND role.workspace_id = ws;
   END LOOP;
 END $$;
