@@ -42,8 +42,11 @@ import (
 // nativeOnlyAgentTools are the tools whose only implementation reads the
 // native domain tables: the compiled report engine, the two retrieval-grounded
 // context intents, the pipeline-risk scan and its draft sibling, the two
-// relationship-graph reads, and the pipeline configuration read. None has a
-// mirror projection to serve, so each owes an honest refusal in overlay mode.
+// relationship-graph reads, the pipeline configuration read — and one WRITE,
+// disqualify_lead, whose tool calls the people store directly and so misses the
+// REST-only write guard that refuses the same verb for a mirrored type. None
+// has a mirror projection to serve, so each owes an honest refusal in overlay
+// mode.
 // The args only have to be well-formed — the refusal must land before any
 // record lookup, so a not-found in place of the sentinel means the guard runs
 // late.
@@ -64,21 +67,52 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		"intro_path_to":            fmt.Sprintf(`{"organization_id":%q}`, anchor),
 		"at_risk_relationships":    `{}`,
 		"list_pipelines":           `{}`,
+		// A WRITE, and the one whose tool calls its module store directly — so
+		// it needs a decorator (nativeOnlyDisqualifier) where the other
+		// unservable writes inherit the provider's own refusal.
+		"disqualify_lead": fmt.Sprintf(`{"lead_id":%q}`, anchor),
 	}
 }
 
-// nativeToolReaderPerms is overlayReaderPerms plus the `pipeline` object.
-// list_pipelines rides the deals module's own config read, which is RBAC-gated
-// on `pipeline` — so a reader without that grant is refused for a reason that
-// has nothing to do with system-of-record mode, and the native half of this
-// suite would be asserting the wrong thing.
+// providerRefusedRecordWrites are the record writes the overlay provider
+// declares unsupported outright, reached through the Dispatcher rather than a
+// decorator: no nativeOnly… guard names them, and the refusal is the provider's.
+// Derived-set gate: compose's
+// TestEveryUnservableRecordWriteVerbIsARegisteredToolTheOverlayPinDrives reads
+// this fixture and disqualify_lead's above, and fails when a verb that owes an
+// overlay refusal appears in neither.
+func providerRefusedRecordWrites(anchor ids.UUID) map[string]string {
+	return map[string]string{
+		"promote_lead":  fmt.Sprintf(`{"lead_id":%q,"trigger":"inbound_reply"}`, anchor),
+		"merge_records": fmt.Sprintf(`{"record_type":"person","source_id":%q,"target_id":%q}`, anchor, ids.NewV7()),
+		"advance_deal":  fmt.Sprintf(`{"deal_id":%q,"to_stage_id":%q}`, anchor, anchor),
+	}
+}
+
+// nativeToolReaderPerms is overlayReaderPerms plus the objects the guarded set
+// needs beyond reading records. list_pipelines rides the deals module's own
+// config read, RBAC-gated on `pipeline`; the four record writes need the grants
+// their own stores demand (`lead:delete` for disqualify, `lead`+`person` for
+// promote, `person:update` for merge, `deal:update` for advance). Without them
+// the tool is refused for a reason that has nothing to do with system-of-record
+// mode, and both halves of this suite would assert the wrong thing — the
+// overlay half would pass on a permission denial that proves no guard exists.
 func nativeToolReaderPerms() principal.Permissions {
 	perms := overlayReaderPerms
-	objects := make(map[string]principal.ObjectGrant, len(perms.Objects)+1)
+	objects := make(map[string]principal.ObjectGrant, len(perms.Objects)+2)
 	for object, grant := range perms.Objects {
 		objects[object] = grant
 	}
 	objects["pipeline"] = principal.ObjectGrant{Read: true}
+	lead := objects["lead"]
+	lead.Read, lead.Update, lead.Delete = true, true, true
+	objects["lead"] = lead
+	person := objects["person"]
+	person.Read, person.Create, person.Update = true, true, true
+	objects["person"] = person
+	deal := objects["deal"]
+	deal.Read, deal.Update = true, true
+	objects["deal"] = deal
 	perms.Objects = objects
 	return perms
 }
@@ -93,7 +127,8 @@ func TestOverlayAgentToolsRefuseRatherThanAnswerFromNativeTables(t *testing.T) {
 	// nothing to do with system-of-record mode.
 	ctx := overlayActorCtxWith(ws, user, nativeToolReaderPerms())
 
-	for name, args := range nativeOnlyAgentTools(ids.NewV7()) {
+	anchor := ids.NewV7()
+	for name, args := range mergedFixtures(nativeOnlyAgentTools(anchor), providerRefusedRecordWrites(anchor)) {
 		t.Run(name, func(t *testing.T) {
 			if _, ok := registry.Spec(name); !ok {
 				t.Fatalf("%s is not registered — this pin no longer covers it", name)
@@ -334,6 +369,17 @@ func seedNativeModeWorkspaceForFlip(t *testing.T) (ws, user ids.UUID) {
 // serve a native workspace. Such a call may fail on its own terms (bad
 // arguments, a missing anchor record) but never with the unsupported-by-SoR
 // sentinel, which means "this system of record cannot do this at all".
+// mergedFixtures joins the two pins into the one set both halves drive.
+func mergedFixtures(sets ...map[string]string) map[string]string {
+	all := map[string]string{}
+	for _, set := range sets {
+		for name, args := range set {
+			all[name] = args
+		}
+	}
+	return all
+}
+
 func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	e := Setup(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
@@ -345,9 +391,13 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	// didn't say unsupported_by_sor".
 	anchored := map[string]bool{
 		"catch_me_up_on": true, "prep_for_meeting": true, "intro_path_to": true,
+		// Writes against minted ids: not-found IS the served answer, and it is
+		// the answer only a workspace that actually ran the lookup can give.
+		"disqualify_lead": true, "promote_lead": true, "merge_records": true, "advance_deal": true,
 	}
 
-	for name, args := range nativeOnlyAgentTools(ids.NewV7()) {
+	anchor := ids.NewV7()
+	for name, args := range mergedFixtures(nativeOnlyAgentTools(anchor), providerRefusedRecordWrites(anchor)) {
 		t.Run(name, func(t *testing.T) {
 			_, err := registry.Invoke(ctx, name, json.RawMessage(args))
 			if errors.Is(err, apperrors.ErrUnsupportedBySoR) {

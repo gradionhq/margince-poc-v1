@@ -4325,10 +4325,12 @@ paths:
         paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
         EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
         (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
-        NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
-        A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
-        that is honest grounding, not fabrication, and it still stages 🟡.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required, scope: enrich }
+        NOTHING is written to real records — the read-back stages a proposal the user accepts via
+        /approvals. A `self_description` field is "grounded" in the user's own words
+        (source_kind=self_description) — that is honest grounding, not fabrication, and it stages
+        the same way. HUMAN-ONLY: this call CREATES the organization, so there is no record for a
+        record-shaped agent verb to target; an agent principal is refused (403 `permission_denied`).
+      x-agent-access: human-only
       requestBody:
         required: true
         content:
@@ -4392,17 +4394,19 @@ paths:
         The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
         for a human to check and correct in the company form, and NOTHING is written or queued. For a
         HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
-        and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
-        presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
-        the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
-        caller's path and query, from the server's own address. So the agent tier matches its sibling's:
-        🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
-        staging remains for callers that propose asynchronously, with no human at the screen.
+        and PUT /company is the human's confirmation. That reasoning presupposes someone at the screen,
+        and on the agent path there is nobody: the EGRESS effect is the same one POST /coldstart performs
+        — an outbound GET to a caller-chosen host, with the caller's path and query, from the server's
+        own address — and the organization does not exist yet, so no record-shaped agent verb has a
+        target for it; the fields feed the form whose confirmation creates it. HUMAN-ONLY on both
+        counts: an agent principal is refused (403 `permission_denied`), with no staging path. An agent
+        that needs outward-looking research on an organization that already exists spends the same
+        `enrich` cap on POST /organizations/{id}/enrich.
 
         Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
         non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
         is returned as an omission for the human to fill in by hand, never as a guess.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required, scope: enrich }
+      x-agent-access: human-only   # onboarding: creates the organization, so there is no record to target
       requestBody:
         required: true
         content:
@@ -6227,7 +6231,7 @@ paths:
     post:
       tags: [Access]
       operationId: createRecordGrant
-      summary: Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+      summary: Share one record with a user or team (human-only).
       description: |
         Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
         scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
@@ -6237,8 +6241,7 @@ paths:
         flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
-      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: confirmation_required, scope: write }
+      x-agent-access: human-only   # the grant verbs reject any non-human principal
       requestBody:
         required: true
         content:
@@ -6271,14 +6274,13 @@ paths:
     delete:
       tags: [Access]
       operationId: revokeRecordGrant
-      summary: Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+      summary: Revoke a manual record grant (human-only).
       description: |
         Deletes the grant; the subject loses the widened access immediately (the next query no longer
         matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
       parameters:
-        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
-      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: confirmation_required, scope: write }
+      x-agent-access: human-only   # the grant verbs reject any non-human principal
       responses:
         '204': { description: Revoked. }
         '403':
@@ -7445,13 +7447,12 @@ paths:
       description: |
         draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
         daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
-        emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
-        `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
-        redeems with the X-Approval-Token header (ADR-0036).
-      x-mcp-tool: { verb: send_offer, record_type: offer, tier: confirmation_required, scope: send }
+        emits `offer.sent`. HUMAN-ONLY: an agent principal is refused outright (403
+        `permission_denied`), with no staging path — releasing an offer to a counterparty is a
+        decision a person makes, not one an agent stages for them.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
@@ -7521,15 +7522,15 @@ paths:
       operationId: regenerateOffer
       summary: Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
       description: |
-        The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
-        sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
+        Copies the sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
         `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
         mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
         also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
         `diff_from_previous` line-item summary versus the prior revision; a mechanical
         regenerate (no AI context available) still works and returns `ai_generated=false`. The
-        produced draft still cannot leave without the 🟡 send gate.
-      x-mcp-tool: { verb: draft_offer, record_type: offer, tier: auto_execute, scope: write }
+        produced draft still cannot leave without the send gate, which is human-only too.
+        HUMAN-ONLY: an agent principal is refused (403 `permission_denied`); no tool serves this verb.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -7557,7 +7558,7 @@ paths:
         WP7, data-model §12.6). The rendered totals equal the server-computed totals — the PDF
         never recomputes money (P11). Not itself an outbound or irreversible act — `send` is
         the 🟡 gated step that leaves the workspace — so render stays 🟢.
-      x-mcp-tool: { verb: render_offer, record_type: offer, tier: auto_execute, scope: write }
+      x-agent-access: human-only   # no tool
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -8811,11 +8812,7 @@ paths:
       tags: [Overlay]
       operationId: connectOverlay
       summary: Connect the workspace's overlay incumbent (HubSpot).
-      x-mcp-tool:
-        verb: connect_incumbent
-        record_type: overlay_connection
-        tier: confirmation_required
-        scope: write
+      x-agent-access: human-only   # no tool: seals a credential and flips the system of record
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnectRequest' } } } }
       responses:
         '201': { description: Connected, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnection' } } } }
@@ -8824,11 +8821,7 @@ paths:
       tags: [Overlay]
       operationId: disconnectOverlay
       summary: Disconnect the overlay incumbent and queue mirror teardown.
-      x-mcp-tool:
-        verb: disconnect_incumbent
-        record_type: overlay_connection
-        tier: confirmation_required
-        scope: write
+      x-agent-access: human-only   # no tool: purges the mirror and flips the system of record
       responses:
         '202': { description: Teardown queued }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -8846,11 +8839,7 @@ paths:
       tags: [Overlay]
       operationId: reconcileOverlay
       summary: Queue an out-of-band mirror reconciliation sweep.
-      x-mcp-tool:
-        verb: reconcile_overlay
-        record_type: overlay_connection
-        tier: auto_execute
-        scope: enrich
+      x-agent-access: human-only   # no tool
       responses:
         '202': { description: Sweep queued }
 

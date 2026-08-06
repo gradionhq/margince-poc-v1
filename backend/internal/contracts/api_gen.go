@@ -16631,15 +16631,6 @@ type SendOfferParams struct {
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
-	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
-	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
-	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
-
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -17624,28 +17615,10 @@ type CreateRecordGrantParams struct {
 	// than half-honouring it, so read this contract, not the client, to know which calls are safe
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
-
-	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
-	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
-	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
 // RevokeRecordGrantParams defines parameters for RevokeRecordGrant.
 type RevokeRecordGrantParams struct {
-	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
-	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
-	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
-
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -25020,10 +24993,10 @@ type ServerInterface interface {
 	// List manual per-record grants, filtered by record or by subject (A52/ADR-0039).
 	// (GET /record-grants)
 	ListRecordGrants(w http.ResponseWriter, r *http.Request, params ListRecordGrantsParams)
-	// Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+	// Share one record with a user or team (human-only).
 	// (POST /record-grants)
 	CreateRecordGrant(w http.ResponseWriter, r *http.Request, params CreateRecordGrantParams)
-	// Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+	// Revoke a manual record grant (human-only).
 	// (DELETE /record-grants/{id})
 	RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams)
 	// Assembled context (related evidence) for one record.
@@ -26649,13 +26622,13 @@ func (_ Unimplemented) ListRecordGrants(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+// Share one record with a user or team (human-only).
 // (POST /record-grants)
 func (_ Unimplemented) CreateRecordGrant(w http.ResponseWriter, r *http.Request, params CreateRecordGrantParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+// Revoke a manual record grant (human-only).
 // (DELETE /record-grants/{id})
 func (_ Unimplemented) RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -33589,25 +33562,6 @@ func (siw *ServerInterfaceWrapper) SendOffer(w http.ResponseWriter, r *http.Requ
 
 	}
 
-	// ------------- Optional header parameter "X-Approval-Token" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
-		var XApprovalToken ApprovalToken
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
-			return
-		}
-
-		params.XApprovalToken = &XApprovalToken
-
-	}
-
 	// ------------- Optional header parameter "If-Match" -------------
 	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
 		var IfMatch IfMatch
@@ -37887,25 +37841,6 @@ func (siw *ServerInterfaceWrapper) CreateRecordGrant(w http.ResponseWriter, r *h
 
 	}
 
-	// ------------- Optional header parameter "X-Approval-Token" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
-		var XApprovalToken ApprovalToken
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
-			return
-		}
-
-		params.XApprovalToken = &XApprovalToken
-
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateRecordGrant(w, r, params)
 	}))
@@ -37944,25 +37879,6 @@ func (siw *ServerInterfaceWrapper) RevokeRecordGrant(w http.ResponseWriter, r *h
 	var params RevokeRecordGrantParams
 
 	headers := r.Header
-
-	// ------------- Optional header parameter "X-Approval-Token" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
-		var XApprovalToken ApprovalToken
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
-			return
-		}
-
-		params.XApprovalToken = &XApprovalToken
-
-	}
 
 	// ------------- Optional header parameter "If-Match" -------------
 	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {

@@ -126,10 +126,17 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
-	spec, ok := operationSpec(pol, reg)
+	spec, registered, ok := operationSpec(pol, reg)
 	if !ok {
+		// Two faults reach here and an operator fixes them in different
+		// places: an unregistered verb is a registry/contract disagreement,
+		// a tier mismatch is a resolver nobody wired.
+		reason := "declares a dynamic tier with no resolvable tool"
+		if !registered {
+			reason = "declares an agent tool the registry does not serve"
+		}
 		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s declares a dynamic tier with no resolvable tool: %w", pol.Op, apperrors.ErrPermissionDenied))
+			"agent gate: %s %s: %w", pol.Op, reason, apperrors.ErrPermissionDenied))
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxGatedBody+1))
@@ -309,34 +316,31 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 // contract annotation may only TIGHTEN the tool's declared tier (the
 // A34/ADR-0026 tighten-only rule): an op annotated 🟡 stays 🟡 even where
 // the verb's base tier is 🟢 (archive-by-DELETE over update_record). A
-// verb with no registered tool is admitted at the annotation's static
-// tier under the cap the contract declares for it; a dynamic annotation
-// without a registered dynamic tool is unresolvable → fail closed.
-func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
-	spec, registered := reg.Spec(pol.Tool)
+// verb with no registered tool is REFUSED, and a dynamic annotation without
+// a registered dynamic tool likewise → fail closed.
+//
+// This function used to synthesize a spec for an unregistered verb, and that
+// invention was the defect: it had to guess a cap, and the guess was `write`,
+// so verbs that fetch the web or deliver to a counterparty ran on internal
+// authority. There is nothing left to guess. Every verb the contract declares
+// has a registered tool — TestEveryDeclaredToolVerbIsRegistered fails the build
+// otherwise — so reaching this branch means the registry and the contract
+// disagree at runtime, and refusing is the only honest answer to that.
+// The second result reports whether a tool was registered at all, so the
+// caller can name which of the two faults it met rather than blaming a tier
+// resolver for a missing tool.
+func operationSpec(pol agentPolicy, reg *agents.Registry) (spec mcp.ToolSpec, registered, ok bool) {
+	spec, registered = reg.Spec(pol.Tool)
 	if !registered {
-		if pol.Tier == tierDynamic {
-			return mcp.ToolSpec{}, false
-		}
-		tier := mcp.TierAutoExecute
-		if pol.Tier == tierConfirmationRequired {
-			tier = mcp.TierConfirmationRequired
-		}
-		// The scope is the contract's, not this function's. A default here
-		// is how a verb that fetches the web came to spend the write cap:
-		// every verb looked internal because nothing said otherwise.
-		scope := principal.Scope(pol.Scope)
-		return mcp.ToolSpec{
-			Name: pol.Tool, RequiredScope: scope, Tier: tier, Egress: scope.Egresses(),
-		}, true
+		return mcp.ToolSpec{}, false, false
 	}
 	if pol.Tier == tierDynamic && spec.Tier != mcp.TierDynamic {
-		return mcp.ToolSpec{}, false
+		return mcp.ToolSpec{}, true, false
 	}
 	if pol.Tier == tierConfirmationRequired && spec.Tier != mcp.TierConfirmationRequired {
 		spec.Tier, spec.TierResolver = mcp.TierConfirmationRequired, nil
 	}
-	return spec, true
+	return spec, true, true
 }
 
 // tierDeps carries the read-side dependencies the dynamic REST tier

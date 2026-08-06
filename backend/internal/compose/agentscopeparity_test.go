@@ -41,8 +41,12 @@ func TestTheContractScopeMatchesTheRegisteredToolScope(t *testing.T) {
 		}
 		spec, registered := registry.Spec(pol.Tool)
 		if !registered {
-			// A synthesized verb has no second opinion to disagree with; its
-			// pin lives in agentpolicysynthesis_test.go.
+			// Unreachable while TestEveryDeclaredToolVerbIsRegistered holds, and
+			// an ERROR rather than a skip because if that gate ever regressed,
+			// skipping here would silently drop the scope comparison for exactly
+			// the verb that lost its second opinion.
+			t.Errorf("%s (%s) declares a tool the registry does not serve, so its cap has nothing to be "+
+				"compared against — TestEveryDeclaredToolVerbIsRegistered owns that failure", pol.Tool, route)
 			continue
 		}
 		compared++

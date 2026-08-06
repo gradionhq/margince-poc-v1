@@ -268,6 +268,11 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		opt(&srv, pool)
 	}
 	srv.applySendPath(pool)
+	// The tool registry is built HERE, after the options, on the Server that is
+	// actually served — so every engine an option installed is one the tools can
+	// reach. The rebuild each option performs keeps a half-configured Server
+	// coherent while the loop runs; this one is what the surface ends up with.
+	srv.rebuildToolRegistry(pool)
 
 	api := contractAPI(srv, pool, identitySvc)
 	// ONE identity.Service for the whole process: contractAPI's admission
@@ -344,9 +349,12 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// the vault-backed live-incumbent resolver that lets force-fresh reads and
 	// HUMAN write-back reach HubSpot (an AGENT write is refused before it gets
 	// there — egressbackstop.go).
-	// The closure captures srv and reads srv.vault LAZILY at request time, so
-	// building it here (before WithKeyvault installs the vault) is fine.
-	srv.rebuildToolRegistry(pool)
+	//
+	// The tool registry is NOT built here: newServer returns by value and New
+	// applies the options to its own copy, so a registry built on this one
+	// would hold a Server that WithScrape and WithDeepRead never reach — an
+	// enrich tool answering "not configured" while its REST twin works. New
+	// builds it after the option loop, where the Server is the one served.
 	// /me reports the workspace's system-of-record mode so the client can
 	// gate its list UI (an overlay mirror refuses sort/filter dials). The
 	// dispatch owns mode resolution; identity never imports overlay.
@@ -363,7 +371,7 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// The closure captures s and reads s.vault LAZILY at request time, so
 	// rebuilding before WithKeyvault installs the vault is fine.
 	s.toolRegistry = registryWithGate(pool, auth.NewGate(identity.NewService(pool)),
-		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send)
+		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s})
 }
 
 // signalStrength bridges people's §4 relationship-strength computation to
