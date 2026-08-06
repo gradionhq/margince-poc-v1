@@ -115,11 +115,25 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				break
 			}
-			s.log.Error("bus: XREADGROUP failed; retrying", "error", err)
-			select {
-			case <-ctx.Done():
-			case <-time.After(time.Second):
+			// A missing group is recoverable and expected: a data reset deletes
+			// the stream keys, which destroys the groups with them. Re-declaring
+			// is idempotent (ensureGroups tolerates BUSYGROUP), and without it
+			// this loop would log the same error every second for the life of
+			// the process while delivering nothing.
+			if isNoGroup(err) {
+				if createErr := s.ensureGroups(ctx); createErr != nil {
+					// A create that keeps failing (ACL denial, read-only
+					// replica, quota) is not the transient case this branch
+					// exists for; without a pause it spins XAUTOCLAIM,
+					// XGROUP CREATE and XREADGROUP against a degraded Redis
+					// as fast as the process can loop.
+					s.log.Error("bus: re-creating a purged consumer group", "error", createErr)
+					s.backoff(ctx)
+				}
+				continue
 			}
+			s.log.Error("bus: XREADGROUP failed; retrying", "error", err)
+			s.backoff(ctx)
 			continue
 		}
 
@@ -130,6 +144,15 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
+}
+
+// backoff pauses briefly for a retryable transport failure, or returns
+// immediately once ctx is done.
+func (s *Subscriber) backoff(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+	}
 }
 
 // ensureGroups creates the consumer group on every subscribed stream,
@@ -229,6 +252,12 @@ func decodeEnvelope(entry redis.XMessage) (kevents.Envelope, error) {
 // error code is stable, the human tail of the message is not.
 func isBusyGroup(err error) bool {
 	return err != nil && strings.HasPrefix(err.Error(), "BUSYGROUP")
+}
+
+// isNoGroup reports Redis's NOGROUP condition: the stream or the group no
+// longer exists.
+func isNoGroup(err error) bool {
+	return err != nil && strings.HasPrefix(err.Error(), "NOGROUP")
 }
 
 // ForWorkspace scopes a handler to one tenant: events for any other

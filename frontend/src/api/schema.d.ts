@@ -168,7 +168,7 @@ export interface paths {
         put?: never;
         /**
          * Reset a non-production installation to its first-boot state.
-         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
+         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Also clears the job queue, the event bus, the Redis counters and the object bytes — not only table rows. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
          */
         post: operations["resetData"];
         delete?: never;
@@ -12684,6 +12684,16 @@ export interface operations {
                         /** @example reset */
                         status: string;
                         tables_cleared: number;
+                        /** @description Job rows deleted in EVERY state — queued, scheduled, running and retryable work plus the retained completed, discarded and cancelled history, which a reset to first-boot state must not leave behind. Covers this workspace's jobs and the fleet dispatchers the periodic ticks re-insert. */
+                        jobs_deleted: number;
+                        /** @description Event-bus stream KEYS deleted (their consumer groups are re-created empty), not entries. */
+                        streams_purged: number;
+                        /** @description Redis keys unlinked — processed-event dedupe marks plus this workspace's overlay budget counters. */
+                        cache_keys_deleted: number;
+                        /** @description Objects removed from the blob store under this workspace's key prefix. */
+                        objects_deleted: number;
+                        /** @description True when a job was still running when the bounded drain window expired. The reset proceeded — a long pass must not make an installation unresettable — and the surviving job's completion write will fail against rows that no longer exist. */
+                        drain_timed_out: boolean;
                     };
                 };
             };

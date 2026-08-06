@@ -5,6 +5,7 @@ package blobstore_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"testing"
@@ -123,6 +124,90 @@ func TestMemoryStoreHealthIsAlwaysHealthy(t *testing.T) {
 	// it feeds is always healthy — dev without MinIO is still "ready".
 	if err := blobstore.NewMemory().Health(t.Context()); err != nil {
 		t.Fatalf("Health: %v", err)
+	}
+}
+
+// put writes body at key, failing the test on error — the common setup step
+// every DeletePrefix case needs before it can assert on what survived.
+func put(ctx context.Context, t *testing.T, store blobstore.Store, key, body string) {
+	t.Helper()
+	if err := store.Put(ctx, key, bytes.NewReader([]byte(body)), int64(len(body)), ""); err != nil {
+		t.Fatalf("Put %q: %v", key, err)
+	}
+}
+
+func TestDeletePrefixRemovesOnlyThatPrefix(t *testing.T) {
+	ctx := context.Background()
+	store := blobstore.NewMemory()
+	// Keys are opaque to the store (WorkspaceKey only builds them), so literals
+	// keep this test independent of how a workspace id renders.
+	const mine = "ws-a/attachment/a1"
+	put(ctx, t, store, mine, "mine")
+	put(ctx, t, store, "ws-b/attachment/a2", "theirs")
+
+	deleted, err := store.DeletePrefix(ctx, "ws-a/")
+	if err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted = %d, want 1", deleted)
+	}
+	if _, _, err := store.Get(ctx, mine); !errors.Is(err, blobstore.ErrNotFound) {
+		t.Errorf("the prefixed object survived: %v", err)
+	}
+	if _, _, err := store.Get(ctx, "ws-b/attachment/a2"); err != nil {
+		t.Errorf("an object outside the prefix was deleted: %v", err)
+	}
+}
+
+func TestDeletePrefixOnAnEmptyStoreReportsZero(t *testing.T) {
+	deleted, err := blobstore.NewMemory().DeletePrefix(context.Background(), "any/")
+	if err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+}
+
+func TestDeletePrefixRejectsEmptyPrefix(t *testing.T) {
+	ctx := context.Background()
+	store := blobstore.NewMemory()
+	const key = "ws-a/attachment/a1"
+	put(ctx, t, store, key, "mine")
+
+	deleted, err := store.DeletePrefix(ctx, "")
+	if !errors.Is(err, blobstore.ErrInvalidPrefix) {
+		t.Fatalf("DeletePrefix(\"\"): err = %v, want ErrInvalidPrefix", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+	if _, _, err := store.Get(ctx, key); err != nil {
+		t.Errorf("the object did not survive the rejected empty prefix: %v", err)
+	}
+}
+
+func TestDeletePrefixRejectsPrefixNotEndingInSeparator(t *testing.T) {
+	ctx := context.Background()
+	store := blobstore.NewMemory()
+	const keyA = "ws-a/attachment/a1"
+	const keyAbc = "ws-abc/attachment/a2"
+	put(ctx, t, store, keyA, "mine")
+	put(ctx, t, store, keyAbc, "a sibling tenant whose id extends mine")
+
+	deleted, err := store.DeletePrefix(ctx, "ws-a")
+	if !errors.Is(err, blobstore.ErrInvalidPrefix) {
+		t.Fatalf("DeletePrefix(\"ws-a\"): err = %v, want ErrInvalidPrefix", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+	if _, _, err := store.Get(ctx, keyA); err != nil {
+		t.Errorf("ws-a's own object did not survive the rejected prefix: %v", err)
+	}
+	if _, _, err := store.Get(ctx, keyAbc); err != nil {
+		t.Errorf("a sibling tenant's object did not survive the rejected prefix: %v", err)
 	}
 }
 

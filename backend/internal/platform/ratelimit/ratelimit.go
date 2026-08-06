@@ -125,6 +125,22 @@ func (l *Limiter) Blocked(key string) bool {
 	return l.counts[key] >= l.limit
 }
 
+// Reset forgets every bucket, admitting the next attempt on every key.
+//
+// It exists for the non-production data reset: a lockout that outlives the
+// data it protected reads as a broken installation, and the operator who just
+// wiped the install is the same human the limiter would be holding out.
+//
+// sweepAt goes too: leaving a future sweep deadline behind would keep the
+// next sweep from running on a map that no longer matches it.
+func (l *Limiter) Reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.starts = make(map[string]time.Time)
+	l.counts = make(map[string]int)
+	l.sweepAt = time.Time{}
+}
+
 func (l *Limiter) count(key string) int {
 	now := l.now()
 	l.mu.Lock()

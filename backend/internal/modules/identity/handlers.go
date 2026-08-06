@@ -120,6 +120,24 @@ func NewHandlers(svc *Service) Handlers {
 	}
 }
 
+// ResetRateLimits clears the auth lockout buckets. The non-production data
+// reset calls it so the admin who just wiped the installation is not held out
+// of the login and password-reset flows by counters the wipe could not reach.
+// The per-credential throughput ceilings elsewhere are not lockouts and are
+// left running.
+//
+// A handler set that did not come from NewHandlers carries no limiters, and then
+// there is nothing to clear: it must say so by doing nothing, because the caller
+// is a reset handler whose panic would reach an operator as an opaque 500 on a
+// wipe that had otherwise finished.
+func (h *Handlers) ResetRateLimits() {
+	for _, bucket := range []*ratelimit.Limiter{h.loginFailures, h.loginPerIP, h.resetPerEmail, h.resetPerIP} {
+		if bucket != nil {
+			bucket.Reset()
+		}
+	}
+}
+
 // WithPasswordReset wires the forgot-password flow's outbound-email
 // transport. Wired by the composition root when (and only when) the
 // operator configured email — absent it the flow stays its explicit 501.

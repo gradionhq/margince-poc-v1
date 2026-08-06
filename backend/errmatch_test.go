@@ -30,6 +30,7 @@ import (
 // the message prefix, with no typed accessor in the client library.
 var errTextMatchWaivers = gatekit.Waive(map[string]string{
 	"internal/platform/events/subscriber.go:isBusyGroup": "RESP wire errors carry their machine code as the message's first token (BUSYGROUP); go-redis exposes no typed accessor, so the prefix match IS the code match",
+	"internal/platform/events/subscriber.go:isNoGroup":   "the same ground as isBusyGroup: NOGROUP is the RESP error code itself, first token of the message, with no typed accessor in go-redis",
 })
 
 // errorTextCall reports whether expr is a niladic `<recv>.Error()` call —
