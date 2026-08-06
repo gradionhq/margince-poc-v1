@@ -14,7 +14,10 @@
 #           and column-gap whose value carries a raw non-zero px. 0 is fine, a
 #           token is fine (including mixed values like `var(--space-2) 0`), and
 #           a calc() built on a token is fine — the offset inside it is
-#           arithmetic on the scale, not a rhythm value of its own. Every other
+#           arithmetic on the scale, not a rhythm value of its own — but only
+#           that expression is exempt, not the rest of the value. A declaration
+#           is whatever sits between two separators, so a property and its value
+#           on different lines are one declaration. Every other
 #           property that legitimately measures in px (border, border-radius,
 #           min-height, top/left, font-size, box-shadow, …) is untouched: this
 #           gate is about rhythm, not about px.
@@ -155,7 +158,7 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
     printf '%s\n' "$diff_out" \
       | awk '
           # Strips commented-out regions, carrying the open-block state across
-          # lines. Returns the code part of the line, lowercased by the caller.
+          # lines. Returns the code part of the line.
           function decomment(line,   out, p) {
             out = ""
             while (length(line) > 0) {
@@ -175,11 +178,32 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
             return out
           }
 
-          # True when the value carries a px length other than zero. A calc()
-          # over a token is exempt: its offset is arithmetic on the scale.
+          # Drops every calc() built on a token: the offset inside one is
+          # arithmetic on the scale, not a rhythm value of its own. ONLY the
+          # expression is exempt — whatever else the value carries stays gated.
+          # Parentheses are matched by depth so a nested var() does not close
+          # the calc early.
+          function strip_token_calc(value,   out, p, i, depth, start, inner, ch) {
+            out = ""
+            while ((p = index(value, "calc(")) > 0) {
+              out = out substr(value, 1, p - 1)
+              start = p + 5
+              depth = 1
+              for (i = start; i <= length(value); i++) {
+                ch = substr(value, i, 1)
+                if (ch == "(") depth++
+                else if (ch == ")") { depth--; if (depth == 0) break }
+              }
+              inner = substr(value, start, i - start)
+              if (index(inner, "var(") == 0) out = out "calc(" inner ")"
+              value = substr(value, i + 1)
+            }
+            return out value
+          }
+
+          # True when the value carries a px length other than zero.
           function raw_px(value,   rest, n) {
-            if (index(value, "calc(") > 0 && index(value, "var(") > 0) return 0
-            rest = value
+            rest = strip_token_calc(value)
             while (match(rest, /([0-9]+(\.[0-9]+)?|\.[0-9]+)px/)) {
               n = substr(rest, RSTART, RLENGTH - 2) + 0
               if (n != 0) return 1
@@ -195,19 +219,43 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
             return name ~ /^(padding|margin)(-[a-z]+)*$/ || name ~ /^(gap|row-gap|column-gap)$/
           }
 
-          function scan(line,   code, n, i, chunk, c, prop, value) {
-            code = decomment(line)
+          # Judges ONE complete declaration, however many lines it spanned.
+          function judge(text, lineno, is_added, is_waived,   prop, value, shown) {
+            if (!is_added || is_waived || index(text, ":") == 0) return
+            prop = tolower(substr(text, 1, index(text, ":") - 1))
+            value = tolower(substr(text, index(text, ":") + 1))
+            sub(/^[ \t]+/, "", prop); sub(/[ \t]+$/, "", prop)
+            if (!spacing_prop(prop) || !raw_px(value)) return
+            shown = text
+            gsub(/[ \t]+/, " ", shown); sub(/^ /, "", shown); sub(/ +$/, "", shown)
+            printf "  %s:%d: %s\n", target, lineno, shown
+          }
+
+          # Feeds one stylesheet line to the declaration scanner, carrying an
+          # unterminated declaration across lines the same way decomment()
+          # carries an open comment: a value separated from its property by a
+          # newline still belongs to that property. `;`, `{` and `}` all close
+          # the open declaration; the verdict lands on the line it opened on,
+          # and a `ds:ignore` on ANY of its lines waives it.
+          function feed(lineno, raw,   code, p, seg, line_added, line_waived) {
+            code = decomment(raw)
             gsub(/[{}]/, ";", code)
-            n = split(tolower(code), chunk, ";")
-            for (i = 1; i <= n; i++) {
-              c = chunk[i]
-              if (index(c, ":") == 0) continue
-              prop = substr(c, 1, index(c, ":") - 1)
-              value = substr(c, index(c, ":") + 1)
-              sub(/^[ \t]+/, "", prop); sub(/[ \t]+$/, "", prop)
-              if (spacing_prop(prop) && raw_px(value)) return 1
+            line_added = (lineno in added)
+            line_waived = (raw ~ /ds:ignore/)
+            while ((p = index(code, ";")) > 0) {
+              seg = substr(code, 1, p - 1)
+              if (pending == "") pending_line = lineno
+              judge(pending seg, pending_line,
+                    pending_added || line_added, pending_waived || line_waived)
+              code = substr(code, p + 1)
+              pending = ""; pending_added = 0; pending_waived = 0
             }
-            return 0
+            if (code ~ /[^ \t]/) {
+              if (pending == "") pending_line = lineno
+              pending = pending " " code
+              if (line_added) pending_added = 1
+              if (line_waived) pending_waived = 1
+            }
           }
 
           # Pass 1: the diff — which NEW line numbers this branch adds.
@@ -221,12 +269,14 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
             next
           }
 
-          # Pass 2: the stylesheet. Every line feeds scan() so the comment state
-          # stays correct; only the added ones can be reported.
-          {
-            hit = scan($0)
-            if (hit && (FNR in added) && $0 !~ /ds:ignore/)
-              printf "  %s:%d: %s\n", target, FNR, $0
+          # Pass 2: the stylesheet. Every line feeds the scanner so the comment
+          # and declaration state stay correct; only the added ones can be
+          # reported. A declaration left open at EOF is judged on what it has.
+          { feed(FNR, $0) }
+
+          END {
+            if (pending != "")
+              judge(pending, pending_line, pending_added, pending_waived)
           }
         ' target="$f" - "$REPO_ROOT/$f"
   )

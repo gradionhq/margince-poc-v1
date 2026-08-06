@@ -137,18 +137,19 @@ export function FieldBuilder({
             />
           )}
         </Field>
-        <Field label={t("cf.apiKey")}>
+        <Field
+          label={t("cf.apiKey")}
+          className="cf-field"
+          hint={t("cf.apiKeyHint")}
+        >
           {(control) => (
-            <>
-              <TextInput
-                {...control}
-                className="t-mono"
-                value={apiKey(object, label)}
-                disabled
-                readOnly
-              />
-              <span className="cf-hint">{t("cf.apiKeyHint")}</span>
-            </>
+            <TextInput
+              {...control}
+              className="t-mono"
+              value={apiKey(object, label)}
+              disabled
+              readOnly
+            />
           )}
         </Field>
       </div>
@@ -177,20 +178,21 @@ export function FieldBuilder({
       </div>
 
       {type === "currency" && (
-        <Field label={t("cf.currencyCode")}>
+        <Field
+          label={t("cf.currencyCode")}
+          className="cf-field"
+          hint={t("cf.currencyHint")}
+        >
           {(control) => (
-            <>
-              <TextInput
-                {...control}
-                className="t-mono"
-                value={currency}
-                maxLength={3}
-                onChange={(event) =>
-                  setCurrency(event.target.value.toUpperCase())
-                }
-              />
-              <span className="cf-hint">{t("cf.currencyHint")}</span>
-            </>
+            <TextInput
+              {...control}
+              className="t-mono"
+              value={currency}
+              maxLength={3}
+              onChange={(event) =>
+                setCurrency(event.target.value.toUpperCase())
+              }
+            />
           )}
         </Field>
       )}

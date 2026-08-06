@@ -478,19 +478,35 @@ select.input {
    different ones (4px, 6px, 8px, 10px, --space-1, --space-3) for the same row —
    8px is the on-scale middle, and one value is the point.
 
-   `align-items: center` suits a one-line label, which is nearly all of them. A
-   row whose label wraps to two lines wants the tick beside the FIRST line
-   instead, so it passes a class of its own and overrides this — the atom does
-   not try to guess which it is. */
+   The control sits beside the FIRST line of the label, whether the label is one
+   line or five. Two grid rows carry that: row one is a single line tall — never
+   shorter than the control's own box — and the label spans it plus the implicit
+   row that takes the lines after the first, so centring the control in row one
+   centres it on line one. A one-line label leaves row two empty, so that row is
+   the whole label; `align-content` then keeps it centred inside a caller that
+   asks for a taller row (a touch target).
+
+   The gap is `column-gap` alone: a row gap would fall between the label's own
+   two rows and pad the middle of its text. */
 .checkfield {
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: minmax(1lh, auto);
+  justify-content: start;
   align-items: center;
-  gap: var(--space-2);
+  align-content: center;
+  column-gap: var(--space-2);
   cursor: pointer;
 }
-/* The control keeps its own size when the label is long enough to wrap. */
-.checkfield input {
-  flex: none;
+.checkfield > input {
+  grid-row: 1;
+}
+.checkfield > span {
+  grid-row: 1 / span 2;
+}
+/* A disabled control is not actionable, so its row does not invite the click. */
+.checkfield:has(input:disabled) {
+  cursor: not-allowed;
 }
 
 .input-icon {

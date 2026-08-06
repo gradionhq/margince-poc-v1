@@ -158,12 +158,11 @@ export function ImapConnectForm({
           });
         }}
       >
-        <Field label={t("connectors.imapHost")}>
+        <Field label={t("connectors.imapHost")} required>
           {(control) => (
             <TextInput
               {...control}
               value={host}
-              required
               onChange={(event) => setHost(event.target.value)}
             />
           )}
@@ -180,26 +179,24 @@ export function ImapConnectForm({
             />
           )}
         </Field>
-        <Field label={t("connectors.imapUsername")}>
+        <Field label={t("connectors.imapUsername")} required>
           {(control) => (
             <TextInput
               {...control}
               type="email"
               autoComplete="email"
               value={username}
-              required
               onChange={(event) => setUsername(event.target.value)}
             />
           )}
         </Field>
-        <Field label={t("connectors.imapSecret")}>
+        <Field label={t("connectors.imapSecret")} required>
           {(control) => (
             <TextInput
               {...control}
               type="password"
               autoComplete="off"
               value={secret}
-              required
               onChange={(event) => setSecret(event.target.value)}
             />
           )}

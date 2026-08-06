@@ -1075,8 +1075,12 @@
 .capture-hero.done .backfill-h svg {
   color: var(--success);
 }
+/* The window choices wrap rather than overflow: three labelled radios plus the
+   control-label gap outgrow a narrow or zoomed column, and a horizontal
+   scrollbar is not an acceptable way to reach the third option. */
 .backfill-windows {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   margin: var(--space-3) 0;
 }

@@ -39,7 +39,7 @@ type Story = StoryObj<typeof TelegramConnectForm>;
 async function fillAndSubmit(canvasElement: HTMLElement, cta: string) {
   const canvas = within(canvasElement);
   await userEvent.type(
-    canvas.getByLabelText("Bot token"),
+    canvas.getByLabelText("Bot token *"),
     "555000111:AAG-fake-bot-father-token",
   );
   await userEvent.click(canvas.getByRole("button", { name: cta }));

@@ -3144,7 +3144,7 @@ export const de = {
   "settings.companyResolveAll":
     "Wähle für jeden Konflikt mit menschlichen Angaben eine Entscheidung.",
   "settings.companyApplyRefresh": "Ausgewählte Änderungen übernehmen",
-  "settings.companySelectChange": "Änderung an {field} auswählen",
+  "settings.companySelectChange": "Änderung „{field}“ auswählen",
   "settings.companyCurrent": "Aktuell bestätigter Wert",
   "settings.companyWebsiteProposal": "Website-Vorschlag",
   "settings.companyClass.new": "Neu",

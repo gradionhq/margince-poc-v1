@@ -1,6 +1,12 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
@@ -144,6 +150,11 @@ afterEach(() => {
 // this states a budget that survives a loaded machine.
 const SETTLE_MS = 10_000;
 
+// The fixture's two selectable changes — the `new` and `machine_change` rows.
+// The human_conflict row is decided by radio and the unchanged row offers
+// nothing, so neither carries a checkbox.
+const SELECTABLE = 2;
+
 // Renders the card and drives it to the review step, where the comparison
 // cards live.
 async function renderReview() {
@@ -162,6 +173,15 @@ async function renderReview() {
   await screen.findByRole(
     "heading",
     { name: "Review what changed" },
+    { timeout: SETTLE_MS },
+  );
+  // The heading is not the last thing to arrive: the comparison cards commit
+  // from the site read that the heading only announces, so waiting on the
+  // heading alone leaves every assertion below racing the rows it reads. Wait
+  // for the rows themselves — the fixture's two selectable changes — so the
+  // test is settled rather than merely started.
+  await waitFor(
+    () => expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE),
     { timeout: SETTLE_MS },
   );
 }
@@ -196,7 +216,7 @@ describe("CompanyContextCard refresh review", () => {
     // A human conflict is decided by radio, not selected by checkbox, and an
     // unchanged value has nothing to apply — a checkbox on either would write
     // a change the reviewer never chose.
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE);
     expect(
       screen.queryByRole("checkbox", { name: /Ideal customer/ }),
     ).toBeNull();

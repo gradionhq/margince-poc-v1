@@ -6,6 +6,7 @@ import { useCanWrite } from "../app/capability";
 import { SectionHeader, Select } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
+import "./settings.css";
 
 // The workspace's own consumer-mail list (CAP-PARAM-5). Mail from a consumer
 // domain still creates the person; what it never creates is a company. The
@@ -118,6 +119,7 @@ export function ConsumerMailDomainsCard() {
           onChange={(e) => setDomain(e.target.value)}
         />
         <Select
+          className="consumer-mail-kind"
           aria-label={t("consumerMail.kindLabel")}
           data-testid="consumer-mail-kind-select"
           value={kind}

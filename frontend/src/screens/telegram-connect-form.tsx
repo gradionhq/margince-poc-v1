@@ -164,19 +164,21 @@ export function TelegramConnectForm({
               </Badge>
             </div>
           )}
-          <Field label={t("connectors.telegramBotToken")}>
+          <Field
+            label={t("connectors.telegramBotToken")}
+            required
+            hint={t("connectors.telegramBotTokenHint")}
+          >
             {(control) => (
               <TextInput
                 {...control}
                 type="password"
                 autoComplete="off"
                 value={botToken}
-                required
                 onChange={(event) => setBotToken(event.target.value)}
               />
             )}
           </Field>
-          <p className="t-caption">{t("connectors.telegramBotTokenHint")}</p>
           {errorMessage && (
             <p
               role="alert"
