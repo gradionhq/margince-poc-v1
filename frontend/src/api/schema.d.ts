@@ -3112,6 +3112,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/installation/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installation's own settings.
+         * @description Reads the installation's identity and reporting basis (ADR-0090/A135): its name, the
+         *     IANA timezone every reporting period is computed in, and the ISO-4217 base currency
+         *     every money roll-up converts to. Every role may read them — a rep reading amounts
+         *     benefits from knowing which currency they are in — and only admin/ops may change them
+         *     (PATCH). Governed by the `installation_settings` RBAC object.
+         *
+         *     `base_currency_locked` reports whether the currency has stopped being changeable, and
+         *     `base_currency_locked_reason` says why, naming how many deals have already frozen a
+         *     conversion rate against it (ADR-0085 §7). A client renders the field read-only from
+         *     the flag rather than discovering the refusal by attempting a write.
+         */
+        get: operations["getInstallationSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update the installation's settings (admin/ops).
+         * @description Admin/ops-only, human session only — an agent never renames the organization or
+         *     re-bases its reporting currency. A sparse patch: an omitted field is left unchanged.
+         *
+         *     The base currency is refused with `422 setting_frozen` once any deal has frozen a
+         *     conversion rate against it, because changing it would re-mean every roll-up built on
+         *     those rates (ADR-0085 §7). Before that point it is freely changeable, which is the
+         *     case this serves: an installation that chose wrong in its configuration and noticed
+         *     in week one. Audit-only write (no event stream, EVT-NOEVT-3).
+         */
+        patch: operations["updateInstallationSettings"];
+        trace?: never;
+    };
     "/capture/settings": {
         parameters: {
             query?: never;
@@ -5828,6 +5868,43 @@ export interface components {
         WebhookDeliveryListResponse: {
             data: components["schemas"]["WebhookDelivery"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
+         *     changed only by admin/ops.
+         */
+        InstallationSettings: {
+            /** @description The organization's display name. */
+            name: string;
+            /**
+             * @description IANA zone name every reporting period boundary is computed in (not a user's own
+             *     display timezone, which is per-user).
+             */
+            timezone: string;
+            /** @description ISO-4217 code every money roll-up converts to. */
+            base_currency: string;
+            /**
+             * @description True once a deal has frozen a conversion rate against the base currency, after
+             *     which it can no longer be changed (ADR-0085 §7).
+             */
+            base_currency_locked: boolean;
+            /**
+             * @description Why the currency is locked, naming how many deals have already converted against
+             *     it. Absent when it is still changeable.
+             */
+            base_currency_locked_reason?: string;
+        };
+        /** @description A sparse installation-settings patch (admin/ops, human-only). */
+        UpdateInstallationSettingsRequest: {
+            /** @description Rename the organization. */
+            name?: string;
+            /** @description The IANA reporting zone. */
+            timezone?: string;
+            /**
+             * @description ISO-4217 code. Refused with `setting_frozen` once any deal has frozen a conversion
+             *     rate against the current base.
+             */
+            base_currency?: string;
         };
         /**
          * @description The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
@@ -9586,7 +9663,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -18686,6 +18763,55 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getInstallationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The installation settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateInstallationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateInstallationSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated installation settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getCaptureSettings: {

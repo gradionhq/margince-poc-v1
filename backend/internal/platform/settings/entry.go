@@ -20,8 +20,11 @@
 package settings
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Definition is the type-erased view the registry stores. Entry[T] is the
@@ -47,6 +50,13 @@ type Definition interface {
 	// are encoded by Go, stored values come back from Postgres, and jsonb
 	// normalization is its choice of key order and whitespace, not ours.
 	CanonicalJSON(json.RawMessage) (json.RawMessage, error)
+	// Frozen reports whether the setting has stopped being changeable, and
+	// why. The reason is the owning module's own sentence — a refusal that
+	// says "3 deals have already frozen a rate against it" tells the operator
+	// something "immutable" does not.
+	Frozen(context.Context, pgx.Tx) (bool, string, error)
+	// HasFreezeProbe reports whether an immutability probe is attached.
+	HasFreezeProbe() bool
 }
 
 // Entry is one setting's declaration: its key, governance, default and
@@ -57,6 +67,7 @@ type Entry[T any] struct {
 	verb     string
 	def      T
 	validate func(T) error
+	freeze   func(context.Context, pgx.Tx) (bool, string, error)
 }
 
 // Define declares a setting. `key` is `<module>.<name>`; the prefix is not
@@ -64,6 +75,29 @@ type Entry[T any] struct {
 // entry. `validate` may be nil when every value of T is admissible.
 func Define[T any](key, object, verb string, def T, validate func(T) error) *Entry[T] {
 	return &Entry[T]{key: key, object: object, verb: verb, def: def, validate: validate}
+}
+
+// WithFreeze attaches an immutability probe, supplied by the owning module so
+// this package never learns the domain predicate. Returns the entry for
+// declaration-site chaining.
+func (e *Entry[T]) WithFreeze(probe func(context.Context, pgx.Tx) (bool, string, error)) *Entry[T] {
+	e.freeze = probe
+	return e
+}
+
+// HasFreezeProbe reports whether a probe has been attached. A setting whose
+// freeze is injected across a module boundary fails OPEN when the wiring is
+// missing — it simply stays changeable — so the assembled catalog has to be
+// able to say whether the probe is really there.
+func (e *Entry[T]) HasFreezeProbe() bool { return e.freeze != nil }
+
+// Frozen runs the owning module's probe, if it declared one. An entry with no
+// probe is always changeable.
+func (e *Entry[T]) Frozen(ctx context.Context, tx pgx.Tx) (bool, string, error) {
+	if e.freeze == nil {
+		return false, "", nil
+	}
+	return e.freeze(ctx, tx)
 }
 
 // Key is the `<module>.<name>` storage key.
@@ -145,4 +179,22 @@ func (e InvalidValue) Error() string {
 // a setting by its key, so the key is what they must act on.
 func (e InvalidValue) FieldFault() (field, code, message string) {
 	return e.Setting, e.Code, e.Reason
+}
+
+// FrozenValue refuses a change to a setting that has become immutable. Like
+// InvalidValue it implements apperrors.FieldFault, so the refusal names the
+// setting and carries the owning module's reason on every surface — the
+// operator learns WHY it is locked, which a flat 409 would not tell them.
+type FrozenValue struct {
+	Setting string
+	Reason  string
+}
+
+func (e FrozenValue) Error() string {
+	return fmt.Sprintf("setting %s is no longer changeable: %s", e.Setting, e.Reason)
+}
+
+// FieldFault classifies the refusal as a 422 naming the setting.
+func (e FrozenValue) FieldFault() (field, code, message string) {
+	return e.Setting, "setting_frozen", e.Reason
 }

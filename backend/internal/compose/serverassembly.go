@@ -65,6 +65,12 @@ func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
 	// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
 	// read the auto-enrich posture (all roles), toggle it (admin/ops).
 	s.captureSettingsHandlers = captureSettingsHandlers{store: capture.NewSettings(NewSettingsStore(pool))}
+	// The installation's own identity and reporting basis (ADR-0090/A135):
+	// name, reporting zone, base currency — the last of which locks once a
+	// deal has converted against it (ADR-0085 §7).
+	s.installationSettingsHandlers = installationSettingsHandlers{
+		store: identity.NewInstallationSettings(pool, NewSettingsStore(pool)),
+	}
 	// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
 	// domain control, and the only way an operator corrects a shipped
 	// baseline that is wrong about one of their customers.

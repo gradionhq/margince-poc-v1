@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Building,
   Building2,
   ChevronDown,
   Coins,
@@ -71,6 +72,7 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
+import { InstallationSettingsCard } from "./installation-settings";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
 import { OverlayCard } from "./overlay";
@@ -115,6 +117,7 @@ const SETTINGS_TABS = [
   { id: "account", icon: Building2, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
   { id: "ai", icon: Sparkles, group: "you" },
+  { id: "installation", icon: Building, group: "org" },
   { id: "company", icon: Factory, group: "org" },
   { id: "users", icon: UsersRound, group: "org" },
   { id: "data", icon: Database, group: "org" },
@@ -138,6 +141,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       return <IdentityCard />;
     case "voice":
       return <VoiceDnaCard />;
+    case "installation":
+      return <InstallationSettingsCard />;
     case "company":
       return <CompanyContextCard />;
     case "users":
@@ -262,6 +267,13 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     // themselves on the overlay_connection grants, so a viewer without them
     // gets the honest read-only view instead of a dead link.
     overlay: true,
+    // Installation goes with users/privacy/audit on the role, not on an object
+    // grant: the three values it holds are readable by every seat — that is
+    // what lets any screen render amounts in the right currency — but the TAB
+    // exists to change them, and only admin/ops can. Unlike overlay there is
+    // no topbar affordance pointing here, so a rep given the tab would find
+    // three disabled fields and no reason to have come.
+    installation: isOrgAdmin,
   };
 }
 

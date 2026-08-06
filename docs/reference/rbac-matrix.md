@@ -70,6 +70,7 @@ the workspace but changes none of them.
 | `embedding_reindex` | -RU- | ---- | ---- | ---- | -RU- |
 | `fx_rate` | CRU- | ---- | ---- | ---- | CRU- |
 | `import_run` | CRUD | ---- | ---- | ---- | CRUD |
+| `installation_settings` | -RU- | -R-- | -R-- | -R-- | -RU- |
 | `lead` | CRUD | CRUD | CRUD | -R-- | CRUD |
 | `list` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `offer` | CRUD | CRUD | CRU- | -R-- | CRUD |

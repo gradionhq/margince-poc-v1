@@ -127,6 +127,16 @@ func (s *Store) SetRaw(ctx context.Context, key string, next json.RawMessage) er
 		if string(canonical) == string(next) {
 			return nil
 		}
+		// Probed only for a REAL change: re-asserting the value a frozen
+		// setting already holds is a no-op, and refusing it would make an
+		// idempotent PATCH fail for a caller changing something else.
+		frozen, why, err := def.Frozen(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("settings: probing %s: %w", key, err)
+		}
+		if frozen {
+			return FrozenValue{Setting: key, Reason: why}
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO setting (key, value) VALUES ($1, $2)
 			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
@@ -174,6 +184,23 @@ func Set[T any](ctx context.Context, s *Store, e *Entry[T], v T) error {
 		return fmt.Errorf("settings: encoding %s: %w", e.Key(), err)
 	}
 	return s.SetRaw(ctx, e.Key(), raw)
+}
+
+// Seed writes a bootstrap value, consumed exactly once (ADR-0061 §2): it
+// inserts only when no row exists, so a restart never overwrites a setting a
+// human has since changed. Runs inside the caller's bootstrap transaction and
+// takes no RBAC gate — bootstrap runs before any human exists, and the caller
+// IS the boot path.
+func Seed(ctx context.Context, tx pgx.Tx, def Definition, raw json.RawMessage) error {
+	if err := def.ValidateJSON(raw); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO setting (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+		def.Key(), raw); err != nil {
+		return fmt.Errorf("settings: seeding %s: %w", def.Key(), err)
+	}
+	return nil
 }
 
 // currentJSON reads the value inside an open transaction, falling back to the

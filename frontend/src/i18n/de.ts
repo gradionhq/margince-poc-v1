@@ -3416,6 +3416,22 @@ export const de = {
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 
+  "settings.tab.installation": "Installation",
+  "installationSettings.title": "Installation",
+  "installationSettings.sub":
+    "Wie diese Installation heißt und in welcher Zeitzone und Währung jede Auswertung berechnet wird.",
+  "installationSettings.name": "Name der Organisation",
+  "installationSettings.nameHint":
+    "Wird überall dort angezeigt, wo das Produkt Ihre Organisation benennt.",
+  "installationSettings.timezone": "Zeitzone für Auswertungen",
+  "installationSettings.timezoneHint":
+    "IANA-Zonenname (zum Beispiel Europe/Berlin). Periodengrenzen aller Auswertungen werden darin berechnet — unabhängig von Ihrer eigenen Anzeigezeitzone.",
+  "installationSettings.baseCurrency": "Basiswährung",
+  "installationSettings.baseCurrencyHint":
+    "ISO-4217-Code, in den alle Beträge für Auswertungen umgerechnet werden. Änderbar, bis der erste Deal dagegen umgerechnet wurde.",
+  "installationSettings.baseCurrencyLocked":
+    "Gesperrt: Es wurden bereits Deals gegen diese Währung umgerechnet — eine Änderung würde jede darauf aufbauende Auswertung neu bedeuten.",
+  "installationSettings.save": "Speichern",
   "captureSettings.title": "Erfassung",
   "captureSettings.sub":
     "Wie erfasste Unternehmen und Kontakte nach ihrer Erstellung angereichert werden.",

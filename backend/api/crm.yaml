@@ -5063,6 +5063,61 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /installation/settings:
+    get:
+      tags: [Identity]
+      operationId: getInstallationSettings
+      security: [ { cookieAuth: [] } ]
+      summary: The installation's own settings.
+      description: |
+        Reads the installation's identity and reporting basis (ADR-0090/A135): its name, the
+        IANA timezone every reporting period is computed in, and the ISO-4217 base currency
+        every money roll-up converts to. Every role may read them — a rep reading amounts
+        benefits from knowing which currency they are in — and only admin/ops may change them
+        (PATCH). Governed by the `installation_settings` RBAC object.
+
+        `base_currency_locked` reports whether the currency has stopped being changeable, and
+        `base_currency_locked_reason` says why, naming how many deals have already frozen a
+        conversion rate against it (ADR-0085 §7). A client renders the field read-only from
+        the flag rather than discovering the refusal by attempting a write.
+      responses:
+        '200':
+          description: The installation settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstallationSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Identity]
+      operationId: updateInstallationSettings
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Update the installation's settings (admin/ops).
+      description: |
+        Admin/ops-only, human session only — an agent never renames the organization or
+        re-bases its reporting currency. A sparse patch: an omitted field is left unchanged.
+
+        The base currency is refused with `422 setting_frozen` once any deal has frozen a
+        conversion rate against it, because changing it would re-mean every roll-up built on
+        those rates (ADR-0085 §7). Before that point it is freely changeable, which is the
+        case this serves: an installation that chose wrong in its configuration and noticed
+        in week one. Audit-only write (no event stream, EVT-NOEVT-3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateInstallationSettingsRequest' }
+      responses:
+        '200':
+          description: The updated installation settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstallationSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /capture/settings:
     get:
       tags: [Capture]
@@ -9711,6 +9766,46 @@ components:
         page: { $ref: '#/components/schemas/PageInfo' }
 
     # ---- capture settings (workspace-shared posture; CAP-PARAM-7, ADR-0072) ----
+    InstallationSettings:
+      type: object
+      description: |
+        The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
+        changed only by admin/ops.
+      required: [name, timezone, base_currency, base_currency_locked]
+      properties:
+        name:
+          type: string
+          description: The organization's display name.
+        timezone:
+          type: string
+          description: |
+            IANA zone name every reporting period boundary is computed in (not a user's own
+            display timezone, which is per-user).
+        base_currency:
+          type: string
+          description: ISO-4217 code every money roll-up converts to.
+        base_currency_locked:
+          type: boolean
+          description: |
+            True once a deal has frozen a conversion rate against the base currency, after
+            which it can no longer be changed (ADR-0085 §7).
+        base_currency_locked_reason:
+          type: string
+          description: |
+            Why the currency is locked, naming how many deals have already converted against
+            it. Absent when it is still changeable.
+    UpdateInstallationSettingsRequest:
+      type: object
+      description: A sparse installation-settings patch (admin/ops, human-only).
+      properties:
+        name: { type: string, description: Rename the organization. }
+        timezone: { type: string, description: The IANA reporting zone. }
+        base_currency:
+          type: string
+          description: |
+            ISO-4217 code. Refused with `setting_frozen` once any deal has frozen a conversion
+            rate against the current base.
+
     CaptureSettings:
       type: object
       description: |
@@ -13608,7 +13703,7 @@ components:
          automation, voice_profile, product, offer, signal, saved_view, custom_field,
          computed_field, quota, offer_template, overlay_connection, embedding_reindex,
          webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
-         channel_connection, import_run]
+         channel_connection, import_run, installation_settings]
 
     RbacAction:
       type: string

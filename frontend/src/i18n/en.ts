@@ -3399,6 +3399,22 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
+  "settings.tab.installation": "Installation",
+  "installationSettings.title": "Installation",
+  "installationSettings.sub":
+    "What this installation is called, and the zone and currency every report is computed in.",
+  "installationSettings.name": "Organization name",
+  "installationSettings.nameHint":
+    "Shown wherever the product names your organization.",
+  "installationSettings.timezone": "Reporting timezone",
+  "installationSettings.timezoneHint":
+    "IANA zone name (for example Europe/Berlin). Period boundaries in every report are computed in it — separate from your own display timezone.",
+  "installationSettings.baseCurrency": "Base currency",
+  "installationSettings.baseCurrencyHint":
+    "ISO-4217 code every amount converts to for roll-ups. Changeable until the first deal converts against it.",
+  "installationSettings.baseCurrencyLocked":
+    "Locked: deals have already converted against this currency, so changing it would re-mean every roll-up built on them.",
+  "installationSettings.save": "Save",
   "captureSettings.title": "Capture",
   "captureSettings.sub":
     "How captured companies and contacts are enriched after they are created.",

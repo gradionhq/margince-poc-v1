@@ -96,6 +96,12 @@ func TestEverySettingKeyIsPrefixedByItsOwningModule(t *testing.T) {
 			known[m.Name()] = true
 		}
 	}
+	// `installation` is the one prefix with no module directory of its own: it
+	// names the installation itself and identity owns the entries. Listed
+	// rather than inferred, so adding a second such prefix is a visible
+	// decision.
+	known["installation"] = true
+
 	for _, d := range compose.SettingsCatalogForTest() {
 		prefix, _, ok := strings.Cut(d.Key, ".")
 		if !ok {
@@ -123,6 +129,38 @@ func TestNoSettingKeyIsAlsoADeploymentConfigKey(t *testing.T) {
 			t.Errorf("%s is settable BOTH as a setting row and at runtime in margince.yaml: "+
 				"ADR-0061 §2 forbids a key existing in both surfaces — the effective "+
 				"value would depend on load order", d.Key)
+		}
+	}
+}
+
+// settingsWithInjectedFreeze names the settings whose immutability probe is
+// supplied across a module boundary, and so cannot be seen at the declaration
+// site. Each fails OPEN when the wiring is missing — the entry simply stays
+// changeable — which is precisely why the effect is asserted here rather than
+// trusted to compose.
+// gatekit:fixture the settings whose freeze probe crosses a module boundary, and what supplies it — expected wiring, not a waived cost
+var settingsWithInjectedFreeze = map[string]string{
+	"installation.base_currency": "deals.BaseCurrencyFrozen — once a deal has stamped a " +
+		"conversion rate, changing the base re-means every roll-up built on it (ADR-0085 §7)",
+}
+
+func TestEverySettingWithAnInjectedFreezeActuallyHasOne(t *testing.T) {
+	seen := map[string]bool{}
+	for _, d := range compose.SettingsCatalogForTest() {
+		why, wants := settingsWithInjectedFreeze[d.Key]
+		if !wants {
+			continue
+		}
+		seen[d.Key] = true
+		if !d.HasFreeze {
+			t.Errorf("%s carries no freeze probe after assembly; compose did not inject %s",
+				d.Key, why)
+		}
+	}
+	for key := range settingsWithInjectedFreeze {
+		if !seen[key] {
+			t.Errorf("%s is listed as needing an injected freeze but is not in the catalog: "+
+				"delete the entry here, or register the setting", key)
 		}
 	}
 }

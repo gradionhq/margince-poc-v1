@@ -11008,6 +11008,28 @@ type IngestVoiceCorpusSourceRequestKind string
 // IngestVoiceCorpusSourceRequestRegister defines model for IngestVoiceCorpusSourceRequest.Register.
 type IngestVoiceCorpusSourceRequestRegister string
 
+// InstallationSettings The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
+// changed only by admin/ops.
+type InstallationSettings struct {
+	// BaseCurrency ISO-4217 code every money roll-up converts to.
+	BaseCurrency string `json:"base_currency"`
+
+	// BaseCurrencyLocked True once a deal has frozen a conversion rate against the base currency, after
+	// which it can no longer be changed (ADR-0085 §7).
+	BaseCurrencyLocked bool `json:"base_currency_locked"`
+
+	// BaseCurrencyLockedReason Why the currency is locked, naming how many deals have already converted against
+	// it. Absent when it is still changeable.
+	BaseCurrencyLockedReason *string `json:"base_currency_locked_reason,omitempty"`
+
+	// Name The organization's display name.
+	Name string `json:"name"`
+
+	// Timezone IANA zone name every reporting period boundary is computed in (not a user's own
+	// display timezone, which is per-user).
+	Timezone string `json:"timezone"`
+}
+
 // InviteUserRequest Admin-supplied details for a new member. No password — the invite issues a set-password token.
 type InviteUserRequest struct {
 	DisplayName string                `json:"display_name"`
@@ -14669,6 +14691,19 @@ type UpdateDealRequestForecastCategory string
 
 // UpdateDealRequestStatus defines model for UpdateDealRequest.Status.
 type UpdateDealRequestStatus string
+
+// UpdateInstallationSettingsRequest A sparse installation-settings patch (admin/ops, human-only).
+type UpdateInstallationSettingsRequest struct {
+	// BaseCurrency ISO-4217 code. Refused with `setting_frozen` once any deal has frozen a conversion
+	// rate against the current base.
+	BaseCurrency *string `json:"base_currency,omitempty"`
+
+	// Name Rename the organization.
+	Name *string `json:"name,omitempty"`
+
+	// Timezone The IANA reporting zone.
+	Timezone *string `json:"timezone,omitempty"`
+}
 
 // UpdateLeadRequest Partial update. `status` may move only between `new`/`working` here. **Disqualifying is done
 // via DELETE /leads/{id}** (which sets status=disqualified AND archives — the invariant
@@ -18424,6 +18459,9 @@ type CreateFilteredExportJSONRequestBody = FilteredExportRequest
 
 // SetFxRateJSONRequestBody defines body for SetFxRate for application/json ContentType.
 type SetFxRateJSONRequestBody = SetFxRateRequest
+
+// UpdateInstallationSettingsJSONRequestBody defines body for UpdateInstallationSettings for application/json ContentType.
+type UpdateInstallationSettingsJSONRequestBody = UpdateInstallationSettingsRequest
 
 // CreateLeadJSONRequestBody defines body for CreateLead for application/json ContentType.
 type CreateLeadJSONRequestBody = CreateLeadRequest
@@ -24661,6 +24699,12 @@ type ServerInterface interface {
 	// Enqueue an async FX-rate refresh (stages 🟡 proposals).
 	// (POST /fx-rates/propose-refresh)
 	ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request)
+	// The installation's own settings.
+	// (GET /installation/settings)
+	GetInstallationSettings(w http.ResponseWriter, r *http.Request)
+	// Update the installation's settings (admin/ops).
+	// (PATCH /installation/settings)
+	UpdateInstallationSettings(w http.ResponseWriter, r *http.Request)
 	// List leads (their OWN list, distinct from contacts; cursor-paginated).
 	// (GET /leads)
 	ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams)
@@ -25915,6 +25959,18 @@ func (_ Unimplemented) SetFxRate(w http.ResponseWriter, r *http.Request) {
 // Enqueue an async FX-rate refresh (stages 🟡 proposals).
 // (POST /fx-rates/propose-refresh)
 func (_ Unimplemented) ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The installation's own settings.
+// (GET /installation/settings)
+func (_ Unimplemented) GetInstallationSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update the installation's settings (admin/ops).
+// (PATCH /installation/settings)
+func (_ Unimplemented) UpdateInstallationSettings(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -31910,6 +31966,46 @@ func (siw *ServerInterfaceWrapper) ProposeFxRateRefresh(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ProposeFxRateRefresh(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetInstallationSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetInstallationSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetInstallationSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateInstallationSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateInstallationSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateInstallationSettings(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -41661,6 +41757,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/fx-rates/propose-refresh", wrapper.ProposeFxRateRefresh)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/installation/settings", wrapper.GetInstallationSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/installation/settings", wrapper.UpdateInstallationSettings)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads", wrapper.ListLeads)

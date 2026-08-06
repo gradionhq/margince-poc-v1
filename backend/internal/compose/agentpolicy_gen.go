@@ -210,6 +210,7 @@ var agentPolicies = map[string]agentPolicy{
 	"PATCH /v1/custom-fields/{id}/options":                               {Op: "updateCustomFieldOptions", Access: "tool", Tool: "update_record", RecordType: "custom_field", Tier: "confirmation_required", Scope: "write"},
 	"PATCH /v1/data-subject-requests/{id}":                               {Op: "updateDataSubjectRequest", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/deals/{id}":                                               {Op: "updateDeal", Access: "tool", Tool: "update_record", RecordType: "deal", Tier: "auto_execute", Scope: "write"},
+	"PATCH /v1/installation/settings":                                    {Op: "updateInstallationSettings", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/leads/{id}":                                               {Op: "updateLead", Access: "tool", Tool: "update_record", RecordType: "lead", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/offers/{id}":                                              {Op: "updateOffer", Access: "tool", Tool: "update_record", RecordType: "offer", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/offers/{id}/line-items/{lineItemId}":                      {Op: "updateOfferLineItem", Access: "tool", Tool: "update_record", RecordType: "offer", Tier: "auto_execute", Scope: "write"},

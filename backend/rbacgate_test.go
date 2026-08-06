@@ -70,6 +70,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/capture:Retire":                        "sweep bookkeeping: retires a pending row the loop has finished with, same system-principal path as ClaimDue",
 	"internal/modules/capture:RetireExhausted":               "sweep retiring rows that exhausted their attempts",
 	"internal/modules/capture:StaleReviews":                  "sweep read: reviews past their window, for the age-out loop",
+	"internal/modules/identity:GetInstallation":              "reads the three installation settings through platform/settings.Store.Raw, which takes the object grant PER SETTING against the object each entry declares — and which THIS gate judges directly, since internal/platform/settings is one of its roots. Gating again here would re-check the same thing against a coarser object; the lock-state probe beside it reads no setting value, only whether a deal has converted",
 	"internal/modules/identity:Get":                          "onboarding wizard state, SELF-scoped: onboardingActor resolves the authenticated human and the query is keyed on user_id, so no object grant applies to your own checkpoint",
 	"internal/modules/identity:Put":                          "the write half of the same self-scoped wizard state; onboardingActor is the gate and the row is keyed on the acting user",
 	"internal/modules/overlay:BlockAutoMap":                  "same: only usermapservice.go calls it, behind requireUserMapAdmin",

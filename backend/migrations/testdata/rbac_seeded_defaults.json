@@ -67,6 +67,12 @@
         "read": true,
         "update": true
       },
+      "installation_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
       "lead": {
         "create": true,
         "delete": true,
@@ -246,6 +252,12 @@
         "read": false,
         "update": false
       },
+      "installation_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
       "lead": {
         "create": true,
         "delete": true,
@@ -422,6 +434,12 @@
       "import_run": {
         "create": true,
         "delete": true,
+        "read": true,
+        "update": true
+      },
+      "installation_settings": {
+        "create": false,
+        "delete": false,
         "read": true,
         "update": true
       },
@@ -604,6 +622,12 @@
         "read": false,
         "update": false
       },
+      "installation_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
       "lead": {
         "create": false,
         "delete": false,
@@ -781,6 +805,12 @@
         "create": false,
         "delete": false,
         "read": false,
+        "update": false
+      },
+      "installation_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
         "update": false
       },
       "lead": {

@@ -11,10 +11,13 @@ package compose
 import (
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 )
@@ -27,11 +30,21 @@ import (
 // asserts uniqueness and module-prefix ownership over exactly this list, so a
 // setting that is declared but never registered fails the same way a
 // misprefixed one does.
-func settingsDefinitions() []settings.Definition {
+var settingsDefinitions = sync.OnceValue(func() []settings.Definition {
+	// The one cross-module edge in the catalog: identity owns
+	// installation.base_currency because it owns the installation, but the
+	// predicate that freezes it — a deal having stamped a conversion rate —
+	// is the deals module's business, and identity may not read that table.
+	// Injected here, once, the way ADR-0054 requires; settingscatalog_test.go
+	// asserts it actually happened, because an unwired probe fails OPEN (the
+	// setting stays changeable) rather than loudly.
+	identity.BaseCurrency.WithFreeze(deals.BaseCurrencyFrozen)
+
 	var defs []settings.Definition
 	defs = append(defs, capture.Definitions()...)
+	defs = append(defs, identity.Definitions()...)
 	return defs
-}
+})
 
 // NewSettingsStore builds a store over the pool and the assembled catalog.
 // Exported because it is genuinely part of the composition surface: the
@@ -55,6 +68,7 @@ type SettingSpec struct {
 	Object     string
 	AuditVerb  string
 	DefaultErr error
+	HasFreeze  bool
 }
 
 // SettingsCatalogForTest flattens the assembled catalog for
@@ -66,6 +80,7 @@ func SettingsCatalogForTest() []SettingSpec {
 		_, err := d.DefaultJSON()
 		out = append(out, SettingSpec{
 			Key: d.Key(), Object: d.Object(), AuditVerb: d.AuditVerb(), DefaultErr: err,
+			HasFreeze: d.HasFreezeProbe(),
 		})
 	}
 	return out
