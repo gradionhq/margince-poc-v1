@@ -47,6 +47,10 @@ var (
 	errEmailTaken      = fmt.Errorf("%w: a member with this email already exists", apperrors.ErrConflict)
 	errNotDeactivated  = fmt.Errorf("%w: the member is not deactivated", apperrors.ErrConflict)
 	errLastActiveAdmin = fmt.Errorf("%w: the member is the only active administrator", apperrors.ErrConflict)
+	// A role key nobody defines is a 404 like a missing member, but it is a
+	// DIFFERENT 404: the admin mistyped a role, not a person. Wrapping keeps
+	// the status while letting the handler say which of the two happened.
+	errUnknownRole = fmt.Errorf("%w: no role with this key is defined", apperrors.ErrNotFound)
 )
 
 // InviteUserInput carries the admin-supplied details for a new member. No
@@ -80,7 +84,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 		var roleID ids.UUID
 		roleErr := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, in.Role).Scan(&roleID)
 		if errors.Is(roleErr, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
+			return errUnknownRole
 		}
 		if roleErr != nil {
 			return roleErr
@@ -396,7 +400,7 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 		var roleID ids.UUID
 		err := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, toRole).Scan(&roleID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
+			return errUnknownRole
 		}
 		if err != nil {
 			return err
