@@ -25,16 +25,31 @@ func TestSubscribeResetReceivesThePublishedWorkspace(t *testing.T) {
 	got := make(chan ids.UUID, 1)
 
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	ready := make(chan struct{})
+	// The result comes back on a channel and cleanup waits for it. Reporting
+	// from an unjoined goroutine races the test's own return, and Go turns that
+	// into an opaque "panic(nil) or runtime.Goexit" instead of the failure.
+	done := make(chan error, 1)
 	go func() {
 		log := slog.New(slog.NewTextHandler(io.Discard, nil))
-		if err := subscribeResetWithReady(runCtx, rdb, log, func(w ids.UUID) { got <- w }, ready); err != nil &&
-			!errors.Is(err, context.Canceled) {
+		done <- subscribeResetWithReady(runCtx, rdb, log, func(w ids.UUID) { got <- w }, ready)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 			t.Errorf("SubscribeReset: %v", err)
 		}
-	}()
-	<-ready
+	})
+
+	// Bounded: a SUBSCRIBE that never confirms would otherwise hang here until
+	// the suite timeout, which reads as a stuck run rather than a failure.
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatalf("the subscription ended before it was ready: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the subscription never became ready")
+	}
 
 	if err := PublishReset(ctx, rdb, ws); err != nil {
 		t.Fatalf("PublishReset: %v", err)

@@ -1366,7 +1366,9 @@ describe("ResetDataCard (danger zone)", () => {
 
     expect(
       await screen.findByText(
-        /Cleared 84 tables, 12 job rows, 12 event streams/,
+        // The whole line, not a prefix: dropping the trailing counters is
+        // exactly the regression this guards, and a prefix match would pass.
+        "Cleared 84 tables, 12 job rows, 12 event streams, 341 cache keys and 7 stored files.",
       ),
     ).toBeInTheDocument();
   });

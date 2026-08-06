@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -447,6 +448,12 @@ func TestResetPurgesTheSealedCredentialsItsSweepOrphans(t *testing.T) {
 // bound to the workspace being reset. vault_secret has no RLS to fall back on
 // — isolation here is the collecting query's job — so a co-tenant's sealed
 // credential surviving is the property that matters, not the count.
+//
+// The foreign ref is attached to a foreign connection ROW, not merely sealed in
+// the vault. A ref nothing references would be skipped by any implementation,
+// correct or not, so the test would pass against a collector that ignored
+// workspace_id entirely — proving nothing. Reachable-but-not-collected is the
+// only arrangement that can fail.
 func TestResetLeavesAnotherWorkspacesSealedCredential(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.Admin()
@@ -456,6 +463,20 @@ func TestResetLeavesAnotherWorkspacesSealedCredential(t *testing.T) {
 	theirRef, err := vault.Put(ctx, theirs, []byte("another tenant's token"))
 	if err != nil {
 		t.Fatalf("sealing the co-tenant's credential: %v", err)
+	}
+	// Seeded on an owner connection, because these rows belong to a workspace
+	// the admin context is not bound to — which is precisely what RLS refuses.
+	owner := resetOwnerConn(ctx, t)
+	if _, err := owner.Exec(ctx,
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other Tenant', $2, 'EUR')`,
+		theirs, "other-tenant-"+theirs.String()[:8]); err != nil {
+		t.Fatalf("seeding the co-tenant workspace: %v", err)
+	}
+	if _, err := owner.Exec(ctx,
+		`INSERT INTO incumbent_connection (id, workspace_id, incumbent, region, status, credential_ref)
+		 VALUES ($1, $2, 'hubspot', 'eu', 'active', $3)`,
+		ids.NewV7(), theirs, string(theirRef)); err != nil {
+		t.Fatalf("seeding the co-tenant's connection: %v", err)
 	}
 
 	h := dataResetHandlers{
@@ -472,6 +493,28 @@ func TestResetLeavesAnotherWorkspacesSealedCredential(t *testing.T) {
 	if _, err := vault.Get(ctx, theirs, theirRef); err != nil {
 		t.Errorf("a reset reached past its own tenant into another workspace's sealed credential: %v", err)
 	}
+}
+
+// resetOwnerConn opens a superuser connection for seeding rows that belong to
+// a workspace the test's own context is not bound to. The app role cannot write
+// them — FORCE RLS refuses — and that refusal is the property under test, so the
+// fixture has to come in over the role that bypasses it.
+func resetOwnerConn(ctx context.Context, t *testing.T) *pgx.Conn {
+	t.Helper()
+	dsn := os.Getenv("MARGINCE_TEST_DSN")
+	if dsn == "" {
+		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("owner connection: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(context.Background()); err != nil {
+			t.Errorf("closing the owner connection: %v", err)
+		}
+	})
+	return conn
 }
 
 // resetTestVault builds the local vault provider over the harness pool. The

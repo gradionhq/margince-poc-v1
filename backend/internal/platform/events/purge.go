@@ -26,11 +26,17 @@ const scanBatch = 500
 // these streams belongs to the workspace being reset — and O(1) instead of
 // scanning up to 131072 entries per stream.
 //
-// Re-creating the groups is not optional. DEL takes a stream's groups with it,
-// and a live subscriber would then log NOGROUP once a second forever; the
-// subscriber's own recovery covers the window between the two calls.
+// Re-creating the groups is not optional. Dropping a stream key takes its
+// groups with it, and a live subscriber would then log NOGROUP once a second
+// forever; the subscriber's own recovery covers the window between the two
+// calls.
+//
+// UNLINK rather than DEL, for the reason PurgeDedupe gives: a stream retains up
+// to its MAXLEN in entries, and DEL reclaims every one of them synchronously on
+// the command path. On a busy installation that stalls the Redis instance —
+// which a reset shares with whatever else is running against it.
 func PurgeStreams(ctx context.Context, rdb *redis.Client, groups []kevents.Group) (int, error) {
-	deleted, err := rdb.Del(ctx, kevents.Streams()...).Result()
+	deleted, err := rdb.Unlink(ctx, kevents.Streams()...).Result()
 	if err != nil {
 		return 0, fmt.Errorf("bus: purging streams: %w", err)
 	}

@@ -3,7 +3,11 @@
 
 package identity
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
+)
 
 func TestResetRateLimitsReopensASpentBucket(t *testing.T) {
 	h := NewHandlers(&Service{})
@@ -28,7 +32,16 @@ func TestResetRateLimitsReopensASpentBucket(t *testing.T) {
 func TestResetRateLimitsOnAHandlerSetWithoutBucketsIsANoOp(t *testing.T) {
 	var h Handlers
 	h.ResetRateLimits()
-	if h.loginFailures != nil || h.resetPerEmail != nil {
-		t.Fatal("a zero-value handler set grew limiters; this case exists precisely because it has none")
+	// All four, not a sample: ResetRateLimits iterates the whole set, so an edit
+	// that allocated only an unchecked bucket would slip past a partial check.
+	for name, bucket := range map[string]*ratelimit.Limiter{
+		"loginFailures": h.loginFailures,
+		"loginPerIP":    h.loginPerIP,
+		"resetPerEmail": h.resetPerEmail,
+		"resetPerIP":    h.resetPerIP,
+	} {
+		if bucket != nil {
+			t.Errorf("a zero-value handler set grew a %s limiter; this case exists precisely because it has none", name)
+		}
 	}
 }

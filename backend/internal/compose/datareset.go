@@ -134,7 +134,18 @@ func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, clear
 	if err != nil {
 		return counts, err
 	}
-	if err := h.purgeUnjoinableSurfaces(ctx, logger, wsID, &counts); err != nil {
+
+	// Everything from here runs detached from the request, under its own bound.
+	// The sweep is COMMITTED at this point, so these purges are no longer
+	// optional work the caller may abandon: a client that times out or
+	// disconnects now would otherwise cancel the object and credential purges
+	// and the announcement, leaving bytes, sealed secrets and stale caches
+	// behind for a reset the database already recorded as done. The deferred
+	// resume detaches for the same reason.
+	finishCtx, cancelFinish := context.WithTimeout(context.WithoutCancel(ctx), resetFinishTimeout)
+	defer cancelFinish()
+
+	if err := h.purgeUnjoinableSurfaces(finishCtx, logger, wsID, &counts); err != nil {
 		return counts, err
 	}
 	// Caches go last, once every surface really is clear: anything that dropped
@@ -151,7 +162,7 @@ func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, clear
 		// The deferred resume above answers the mirror-image question the other
 		// way for the mirror-image reason — that pause is this process's own
 		// doing, and lifting it is not part of the outcome the caller asked for.
-		if err := rt.SignalReset(ctx, wsID); err != nil {
+		if err := rt.SignalReset(finishCtx, wsID); err != nil {
 			return counts, err
 		}
 	}

@@ -137,10 +137,16 @@ func (s *Service) Disconnect(ctx context.Context) error {
 //
 // Idempotent by predicate: a workspace already native reports false and is not
 // written, so a caller need not ask the mode first.
+//
+// The GUC is read WITHOUT missing_ok. An unset app.workspace_id would otherwise
+// resolve to NULL, match no row, and return (false, nil) — indistinguishable
+// from a workspace that was already native, so a reset running outside a bound
+// transaction would report success having reverted nothing. The error is the
+// honest answer to a question this function cannot answer.
 func RevertToNative(ctx context.Context, tx pgx.Tx) (bool, error) {
 	tag, err := tx.Exec(ctx, `
 		UPDATE workspace SET x_sor_mode = 'native', x_incumbent = NULL
-		WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		WHERE id = current_setting('app.workspace_id')::uuid
 		  AND x_sor_mode <> 'native'`)
 	if err != nil {
 		return false, fmt.Errorf("overlay: flipping the workspace back to native mode: %w", err)

@@ -584,9 +584,16 @@ against records that no longer exist. The endpoint therefore also:
    drained. Whether it happened is recorded as `sor_mode_reverted` in the audit
    evidence and the completion log line.
 7. **Announces the reset** on the `gw:control:reset` Redis pub/sub channel, so
-   the api and the worker each drop the caches they hold (model results,
-   resolved SoR mode, auth lockout buckets). No HTTP call reaches the worker
-   process; this channel is the only path to it.
+   the api and the worker each drop the caches they hold — model results and
+   the resolved system-of-record mode. No HTTP call reaches the worker process;
+   this channel is the only path to it.
+
+   The announcement clears **caches and nothing else**. The channel carries no
+   signature, so anyone who can reach that Redis can publish on it, and a cache
+   drop costs a recomputation. The auth lockout buckets are deliberately not
+   reachable this way: they brake brute-force login and password-reset email
+   spam, so the process that ran the audited, gated reset clears its own and no
+   announcement clears anyone else's.
 
 The queues are resumed on every exit path, including a failure and a panic,
 on a context detached from the request — an operator whose client disconnects

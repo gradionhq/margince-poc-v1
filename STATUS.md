@@ -39,10 +39,12 @@ their refusal probe checks for, under production RLS).
 
 `backend/api/crm.yaml`'s `resetData` 200 body now declares `jobs_deleted`,
 `streams_purged`, `cache_keys_deleted`, `objects_deleted` and
-`drain_timed_out`, all required. The spec repo's `specs/contract/crm.yaml` is
-the source of truth (P3) and does not carry them yet — this is deliberate
-drift awaiting upstream reconciliation, not an accident. Nothing was edited in
-the spec repo from here.
+`drain_timed_out`, all required. `backend/api/crm.yaml` is this repository's
+authoritative contract and the build follows it; the spec repo's
+`specs/contract/crm.yaml` is the normative upstream and does not carry these
+fields yet, so the two disagree until someone reconciles the upstream contract
+to match (P3). Deliberate drift, not an accident — nothing was edited in the
+spec repo from here.
 
 Worth knowing when reconciling: the response schema is declared inline rather
 than by `$ref`, so oapi-codegen synthesizes no Go type for it and the
@@ -51,13 +53,13 @@ derived test (`backend/resetwireshape_test.go`) parses the contract and
 compares its `required` list against the struct's json tags, which is what
 keeps the two from drifting apart silently.
 
-## Open — the data reset has no end-to-end proof, by request
+## Open — the data reset has no end-to-end proof
 
 The reset now spans five stores (Postgres, `river_job`, Redis streams + keys,
 object storage, and every process's memory). Each surface has its own tests,
 and the orchestration has unit tests over fake purgers — but the test that
-proved they COMPOSE was reverted before merge at the requester's direction,
-so nothing exercises a real reset through HTTP against real infrastructure.
+proved they COMPOSE was reverted before merge, so nothing exercises a real
+reset through HTTP against real infrastructure.
 
 What it had covered, for whoever restores it: a queued job, a bus entry and a
 stored object all seeded, then gone after `POST /v1/admin/reset-data`; every

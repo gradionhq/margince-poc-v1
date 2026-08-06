@@ -35,12 +35,17 @@ func TestSubscriberSurvivesItsGroupBeingPurged(t *testing.T) {
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		if err := sub.Run(runCtx); err != nil && !errors.Is(err, context.Canceled) {
+	// The result comes back on a channel and cleanup waits for it. Reporting
+	// from an unjoined goroutine races the test's own return, and Go turns that
+	// into an opaque "panic(nil) or runtime.Goexit" instead of the failure.
+	done := make(chan error, 1)
+	go func() { done <- sub.Run(runCtx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 			t.Errorf("Run: %v", err)
 		}
-	}()
+	})
 
 	// Run calls ensureGroups exactly once, at startup, before entering its
 	// read loop. Proving one delivery here is the only race-free way to know

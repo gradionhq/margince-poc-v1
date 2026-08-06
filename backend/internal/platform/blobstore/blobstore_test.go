@@ -184,7 +184,7 @@ func TestDeletePrefixRejectsEmptyPrefix(t *testing.T) {
 		t.Errorf("deleted = %d, want 0", deleted)
 	}
 	if _, _, err := store.Get(ctx, key); err != nil {
-		t.Errorf("an object survived under an empty prefix... but Get failed: %v", err)
+		t.Errorf("the object did not survive the rejected empty prefix: %v", err)
 	}
 }
 
