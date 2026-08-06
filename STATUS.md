@@ -784,6 +784,70 @@ Phase 1 C remains open.
 `craft static` only, so the forbidigo bans on direct River registration and on
 `ClientFromContext` are held at `make check` and in CI, not before the push.
 
+## Session pickup — 2026-08-04 (the signal producers reach the account, PR #413)
+
+PR #392's two signal producers resolved an activity's account through a direct
+`activity_link` row. Capture files mail against the PERSON, so a real workspace
+has none: this database holds 2,943 captured emails, 1,256 person links and
+**zero** organization links. Both producers found nothing, the hourly job
+completed cleanly having done nothing, and the company page showed "Stage: Not
+assessed" with an empty Signals card for a full release. The tests were green
+because the fixtures hand-wrote the organization link that no connector emits.
+
+Fixed by giving both producers `activities.OrgReachSet` — the three-arm walk as
+a derived table — plus `signal_thread_scan.resolved_org_id` (migration **0180**,
+renumbered off 0179 which `feat/person-relationship-room` had already claimed in
+the shared dev database). After the fix: 416 conversations scanned, 188 signals
+written, and the page carries the contract-ending card the concept asked for.
+
+Two things only the live run could teach, both fixed here: the pass logged only
+when it raised something (so a dead producer looked like a quiet week), and
+River's one-minute default killed the first pass over the backlog, retried it
+twice and discarded it. The pass now stops itself with a margin and reports it.
+
+**A signal now carries the visibility of the correspondence behind it**
+(migration 0181, closes #424). The security review found that a derived signal
+inherited the ACCOUNT's visibility while its evidence came from mail readable
+only by whoever captured it — 53 such signals stood on the demo database,
+against the 2026-07-31 capture-privacy decision in `auth.rbac.ownerPrivateTables`.
+
+Founder call: the two producers are treated differently because they differ.
+The ghosted rule computes from metadata the account's readers could count
+themselves, so it stays workspace-shared and CITES its message rather than
+quoting the subject line. The extractor writes what messages SAY, so its
+findings inherit the conversation's readability — `bool_and` over the messages,
+since the model is shown all of them. `signal` gained `visibility`/`owner_id`
+mirroring person and organization; `SignalScopeClause` ANDs the arm and does not
+lift it for an unbounded human.
+
+Verified by re-running the producers from an empty table over the 2,943-email
+corpus: content-bearing signals readable workspace-wide on a shared account went
+53 → **0**, with the extracted signals still produced and owner-private to the
+mailbox owner.
+
+### Open — what this left behind
+
+- **#415** — the employment arm has no start date, so mail from someone's
+  previous job resolves to their current employer. Needs a writer for
+  `relationship.started_at` first; nothing populates it today (213 employment
+  rows, all NULL), so a time-bounded arm would resolve nothing at all.
+- **#406** — the `no_activity` trigger's last-touch scan carries the same direct
+  link assumption. Its candidate volume is deliberately tuned (200 per scan
+  batch), so widening what counts needs its own reasoning.
+- **#407** — the context graph's organization anchor, same assumption, where
+  reaching through employment interacts with the per-leg row cap.
+- **The brief still cannot cite a signal.** `orgbrief.FromView` builds from the
+  360, which carries only one *worst* signal with no id and no date
+  ([org360/signalfacts.go](backend/internal/compose/org360/signalfacts.go)).
+  Folding signals in needs a wider 360 shape (contract change), a signal
+  citation category in `knownRecords`, and a `promptVersion` bump. Until then
+  the brief's "Our read" can call a relationship active while the strip above
+  it says the contract is ending — which is what the page shows today.
+- **Every organization has `lifecycle = 'unknown'`**, so the ghosted rule's
+  "worth chasing" guard matches nothing: the walk resolves 165 accounts and 112
+  would fire, all filtered. That is the `lifecycle` column still having no
+  writer, not the walk.
+
 ## Session pickup — 2026-08-04 (the company page overhaul, PR #392, merged)
 
 **The page answers what an account is, where it stands, and what to do about

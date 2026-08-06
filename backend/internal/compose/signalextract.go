@@ -114,49 +114,6 @@ func (p extractPayload) events() []extractedEvent {
 	return *p.Events
 }
 
-// RunWorkspace reads every due thread in the workspace already bound in ctx,
-// and reports how many signals it raised.
-//
-// Each thread commits on its own: its signals and its watermark move together
-// or neither does, so a budget stop or a crash costs at most the thread in
-// flight, and that one is read again next pass.
-func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID) (int, error) {
-	now := x.now()
-	var due []settledThread
-	if err := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
-		found, err := dueThreads(ctx, tx, now, extractThreadCap)
-		due = found
-		return err
-	}); err != nil {
-		return 0, fmt.Errorf("signal extract: %w", err)
-	}
-
-	raised := 0
-	// One thread's failure is not the pass's. Returning on the first error left
-	// every conversation behind it unread, and dueThreads orders newest-first,
-	// so a thread that keeps failing keeps arriving at the head of the list and
-	// nothing after it is ever reached. Each thread is read on its own terms
-	// and the failures are reported together.
-	var failed []error
-	for _, thread := range due {
-		n, err := x.readThread(ctx, wsID, thread, now)
-		raised += n
-		if errors.Is(err, ai.ErrBudgetDeferred) {
-			// The budget is the WORKSPACE's, so this one does stop the pass:
-			// every thread behind it would buy the same refusal.
-			x.log.InfoContext(ctx, "signal extract: budget exhausted, stopping the pass", "raised", raised)
-			return raised, errors.Join(failed...)
-		}
-		if err != nil {
-			failed = append(failed, fmt.Errorf("reading conversation %q: %w", thread.Key, err))
-		}
-	}
-	if len(failed) > 0 {
-		return raised, fmt.Errorf("signal extract: %w", errors.Join(failed...))
-	}
-	return raised, nil
-}
-
 // readThread asks about one conversation and commits what it learned.
 //
 // The watermark advances even when the thread yields nothing, because "read
@@ -279,6 +236,11 @@ func recordExtractedEvent(
 		Evidence: []signals.DerivedEvidence{
 			{Snippet: event.Summary, ActivityID: cited},
 		},
+		// As shareable as the conversation it was read from, and no more.
+		// Everything this producer writes is drawn from what messages SAY, so a
+		// summary filed on a workspace-visible account would hand the whole
+		// workspace the contents of correspondence that answers to one person.
+		PrivateTo: thread.PrivateTo,
 		Audit: map[string]any{
 			paramKind:               event.Kind,
 			"thread_key":            thread.Key,
