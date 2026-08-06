@@ -20,11 +20,19 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// preservedWorkspaceColumns are the workspace columns a config reset leaves
-// alone: the primary key, the four values bootstrap takes from the deployment
+// preservedWorkspaceColumns are the workspace columns the restore does not
+// assign: the primary key, the four values bootstrap takes from the deployment
 // configuration, and the row's own lifecycle timestamps. A reset wipes an
 // installation's DATA — it does not re-create the installation, so its name,
 // currency, zone and age outlive it.
+//
+// updated_at is listed for a different reason than the rest. The reset really
+// does write this row, so trg_workspace_updated moves that column, and it
+// should: it records when the row was last written, which is now. It is here
+// because assigning it would take it from the trigger, not because the write
+// is meant to be invisible — a reset that left it untouched would report the
+// row as unwritten since before the reset, which is precisely the reading that
+// exposed this bug in the first place.
 //
 // Everything NOT listed here is configuration and is restored. That direction
 // is deliberate: a column added later is restored by default rather than

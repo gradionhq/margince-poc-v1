@@ -533,8 +533,9 @@ The reset itself is recorded as an `audit_log` row (action `reset_data`).
 
 The `workspace` row survives too — it carries the organization — but only its
 **installation identity** is preserved: the primary key, the name, slug, base
-currency and timezone bootstrap took from `margince.yaml`, and the row's
-timestamps. Every other column on it is a workspace-level **setting**, and each
+currency and timezone bootstrap took from `margince.yaml`, and `created_at`.
+(`updated_at` moves, as it does for any write — the reset did write the row.)
+Every other column on it is a workspace-level **setting**, and each
 one goes back to the default its migration declared (`capture_auto_enrich`, the
 overlay mode columns, and whatever is added next). Nothing here is a kept list:
 the columns are derived from the catalog, so a setting added later is restored

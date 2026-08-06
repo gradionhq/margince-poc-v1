@@ -17,6 +17,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -74,11 +75,13 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	ws := seedConfigWorkspace(t, pool, "settings")
 
 	// Move every setting off its default. The two overlay columns move
-	// together because x_overlay_iff_incumbent admits no other state.
-	if _, err := owner.Exec(ctx, `
+	// together because x_overlay_iff_incumbent admits no other state. The
+	// stamp this leaves is what the restore's own write has to move past.
+	var before time.Time
+	if err := owner.QueryRow(ctx, `
 		UPDATE workspace
 		   SET capture_auto_enrich = false, x_sor_mode = 'overlay', x_incumbent = 'hubspot'
-		 WHERE id = $1`, ws); err != nil {
+		 WHERE id = $1 RETURNING updated_at`, ws).Scan(&before); err != nil {
 		t.Fatalf("configuring the workspace away from its defaults: %v", err)
 	}
 
@@ -92,10 +95,11 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	var autoEnrich bool
 	var mode, name, currency, timezone string
 	var incumbent *string
+	var after time.Time
 	if err := owner.QueryRow(ctx, `
-		SELECT capture_auto_enrich, x_sor_mode, x_incumbent, name, base_currency, timezone
+		SELECT capture_auto_enrich, x_sor_mode, x_incumbent, name, base_currency, timezone, updated_at
 		  FROM workspace WHERE id = $1`, ws).
-		Scan(&autoEnrich, &mode, &incumbent, &name, &currency, &timezone); err != nil {
+		Scan(&autoEnrich, &mode, &incumbent, &name, &currency, &timezone, &after); err != nil {
 		t.Fatalf("reading the workspace back: %v", err)
 	}
 	if !autoEnrich {
@@ -110,6 +114,17 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	if currency != configBootstrap.BaseCurrency || timezone != configBootstrap.Timezone || name == "" {
 		t.Errorf("identity was rewritten: name=%q base_currency=%q timezone=%q — a reset wipes the data, not the installation",
 			name, currency, timezone)
+	}
+
+	// created_at is preserved and updated_at is not, and the difference is the
+	// point: the restore assigns neither, but it does WRITE the row, so the
+	// trigger moves the modification stamp. Pinned because the alternative
+	// reads like a tidier invariant ("a reset touches no timestamp") and is
+	// the exact appearance the unfixed bug had — a workspace row whose
+	// updated_at predates the reset is a row the reset never wrote.
+	if !after.After(before) {
+		t.Errorf("updated_at is %s after a reset of a row last written %s — the row was written, and the stamp that records that must move",
+			after, before)
 	}
 }
 

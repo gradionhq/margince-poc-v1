@@ -128,9 +128,10 @@ func (s *Service) Disconnect(ctx context.Context) error {
 // on and would otherwise leave the workspace claiming to read from an
 // incumbent it no longer has a connection to.
 //
-// The reset then runs identity.ResetWorkspaceConfig, which restores EVERY
-// setting on the workspace row to its declared default and so lands on these
-// two columns again. That ordering is required, not incidental: whether the
+// The reset then runs identity.ResetWorkspaceConfig, which restores every
+// non-preserved column on the workspace row to its declared default — these
+// two among them, so they are written again. That ordering is required, not
+// incidental: whether the
 // installation was in overlay mode is only knowable before something writes
 // the column, and only this call reports it.
 //
