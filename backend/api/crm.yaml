@@ -1011,6 +1011,15 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Sort'
         - $ref: '#/components/parameters/IncludeArchived'
+        - name: include_anchor
+          in: query
+          schema: { type: boolean, default: false }
+          description: |
+            Include this installation's own company. It is excluded by default because this list
+            answers "which companies are we selling to", and the company running the CRM is not one
+            of them (ADR-0082/A127). Modeled on `include_archived` (API-LIST-4): a class of rows
+            almost never wanted, never silently unreachable. Surfaces whose subject IS the workspace
+            — recording that a person works here, own-company project work — set it.
         - $ref: '#/components/parameters/CapturedByKind'
         - $ref: '#/components/parameters/AiWritten'
         - name: owner_id
@@ -10841,6 +10850,14 @@ components:
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
         display_name: { type: string }
+        is_anchor:
+          type: boolean
+          readOnly: true
+          description: |
+            True only for this installation's OWN company (ADR-0065/A111, amended by ADR-0082/A127).
+            It is one ordinary organization, reachable by id everywhere, but the surfaces that answer
+            *which companies are we selling to* exclude it unless `include_anchor` is set, and it
+            cannot be archived or merged. A caller that offers company actions should tell it apart.
         legal_name: { type: [string, 'null'] }
         industry: { type: [string, 'null'] }
         size_band:

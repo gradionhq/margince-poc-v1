@@ -283,7 +283,9 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 
 	if a.Domain != "" {
 		rows, err := tx.Query(ctx,
-			`SELECT organization_id FROM organization_domain WHERE domain = $1 AND archived_at IS NULL`, a.Domain)
+			`SELECT d.organization_id FROM organization_domain d
+			   JOIN organization o ON o.id = d.organization_id
+			  WHERE d.domain = $1 AND d.archived_at IS NULL AND NOT o.is_anchor`, a.Domain)
 		if err != nil {
 			return nil, fmt.Errorf("domain match: %w", err)
 		}
@@ -320,7 +322,11 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 	}
 	if a.Name != "" {
 		rows, err := tx.Query(ctx,
-			`SELECT id FROM organization WHERE lower(display_name) = lower($1) AND archived_at IS NULL`, a.Name)
+			// NOT is_anchor: the workspace's own company name appears in more of
+			// its correspondence than any customer's, so matching it would make
+			// nearly every message a signal about ourselves (ADR-0082/A127).
+			`SELECT id FROM organization
+			  WHERE lower(display_name) = lower($1) AND archived_at IS NULL AND NOT is_anchor`, a.Name)
 		if err != nil {
 			return nil, fmt.Errorf("name match: %w", err)
 		}

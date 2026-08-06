@@ -152,6 +152,10 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 	rows, err := tx.Query(ctx, `
 		SELECT id, display_name, coalesce(legal_name, '') FROM organization
 		 WHERE archived_at IS NULL
+		   -- The installation's own company is never a duplicate of a captured
+		   -- one: proposing that merge offers an action that would erase the
+		   -- workspace's identity (ADR-0082/A127).
+		   AND NOT is_anchor
 		   AND ($1::uuid IS NULL OR id <> $1)
 		   AND (`+strings.Join(arms, " OR ")+`)`, args...)
 	if err != nil {

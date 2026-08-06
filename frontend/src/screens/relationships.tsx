@@ -118,9 +118,13 @@ function dateRange(rel: Relationship, t: (key: MessageKey) => string): string {
 
 type Candidate = { id: string; name: string };
 
+// include_anchor: recording that a person works at the company running the CRM
+// is an ordinary, frequent fact. The list hides the own company by default
+// because it answers "which companies are we selling to"; this question is a
+// different one, so it opts back in (ADR-0082/A127).
 async function searchOrganizationCandidates(q: string): Promise<Candidate[]> {
   const { data, error } = await api.GET("/organizations", {
-    params: { query: { q, limit: 10 } },
+    params: { query: { q, limit: 10, include_anchor: true } },
   });
   if (error) {
     throwProblem(error);

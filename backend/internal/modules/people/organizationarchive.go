@@ -40,6 +40,9 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
+		if err := refuseIfAnchor(ctx, tx, id, "archived"); err != nil {
+			return err
+		}
 		if _, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return err
 		}
@@ -92,7 +95,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 const orgColumns = `id, workspace_id, display_name, legal_name, industry, size_band, owner_id,
 	address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
 	classification, lifecycle, relevance, parent_org_id, merged_into_id, logo_object_key, source, captured_by,
-	version, created_at, updated_at, archived_at`
+	version, created_at, updated_at, archived_at, is_anchor`
 
 // readOrganization resolves one organization row; active names the
 // custom-field columns to carry alongside the core ones — nil for

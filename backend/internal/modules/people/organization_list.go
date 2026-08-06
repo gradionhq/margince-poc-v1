@@ -31,10 +31,12 @@ const orgNameColumn = "display_name"
 // ListOrganizationsInput carries the organization list's contract
 // parameters.
 type ListOrganizationsInput struct {
-	Cursor  *string
-	Limit   *int
-	Query   *string
-	OwnerID *ids.UserID
+	// IncludeAnchor admits the installation's own company (ADR-0082/A127).
+	IncludeAnchor bool
+	Cursor        *string
+	Limit         *int
+	Query         *string
+	OwnerID       *ids.UserID
 	// Classification is RETIRED with the column (ADR-0079/A124) and reaches no
 	// wire parameter; Lifecycle and RelationshipType replace it.
 	Classification   *string
@@ -69,6 +71,7 @@ var organizationListFields = map[string]string{
 func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, storekit.Page, error) {
 	shared := listFilters{
 		IncludeArchived: in.IncludeArchived,
+		IncludeAnchor:   in.IncludeAnchor,
 		CapturedByKind:  in.CapturedByKind,
 		AiWritten:       in.AiWritten,
 		entity:          organizationEntity,

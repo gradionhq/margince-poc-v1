@@ -6947,6 +6947,13 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             display_name: string;
+            /**
+             * @description True only for this installation's OWN company (ADR-0065/A111, amended by ADR-0082/A127).
+             *     It is one ordinary organization, reachable by id everywhere, but the surfaces that answer
+             *     *which companies are we selling to* exclude it unless `include_anchor` is set, and it
+             *     cannot be archived or merged. A caller that offers company actions should tell it apart.
+             */
+            readonly is_anchor?: boolean;
             legal_name?: string | null;
             industry?: string | null;
             /** @enum {string|null} */
@@ -13473,6 +13480,14 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
+                /**
+                 * @description Include this installation's own company. It is excluded by default because this list
+                 *     answers "which companies are we selling to", and the company running the CRM is not one
+                 *     of them (ADR-0082/A127). Modeled on `include_archived` (API-LIST-4): a class of rows
+                 *     almost never wanted, never silently unreachable. Surfaces whose subject IS the workspace
+                 *     — recording that a person works here, own-company project work — set it.
+                 */
+                include_anchor?: boolean;
                 /**
                  * @description Filter by WHO created the record, matched on the `captured_by` prefix
                  *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
