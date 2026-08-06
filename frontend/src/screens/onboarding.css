@@ -1075,15 +1075,14 @@
 .capture-hero.done .backfill-h svg {
   color: var(--success);
 }
+/* The window choices wrap rather than overflow: three labelled radios plus the
+   control-label gap outgrow a narrow or zoomed column, and a horizontal
+   scrollbar is not an acceptable way to reach the third option. */
 .backfill-windows {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   margin: var(--space-3) 0;
-}
-.backfill-window {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
 }
 .backfill-estimate {
   margin-top: var(--space-3);
@@ -1240,11 +1239,6 @@
 }
 .dedupe-evidence tr[data-signal="collide"] td {
   color: var(--color-danger);
-}
-.dedupe-pick {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
 }
 .dedupe-actions {
   display: flex;

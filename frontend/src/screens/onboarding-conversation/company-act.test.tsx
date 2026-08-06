@@ -316,7 +316,7 @@ const REVIEW_STATE: ConversationState = {
 
 describe("the rail's review to-do list", () => {
   it("carries exactly as many items as the board's own section tallies add up to", async () => {
-    renderReview(REVIEW_STATE, REVIEW_FIELDS);
+    const { container } = renderReview(REVIEW_STATE, REVIEW_FIELDS);
 
     await screen.findByRole("heading", { level: 2, name: /Correct me/ });
     // The board's own nav names every outstanding field as its own
@@ -324,10 +324,10 @@ describe("the rail's review to-do list", () => {
     // above them is blocking-only now) — the same two-tier split the rail's
     // list makes, so the count of named fields is the one number both
     // surfaces must agree on.
-    const nav = document.querySelector(".ob-triage-nav") as HTMLElement;
+    const nav = container.querySelector(".ob-triage-nav") as HTMLElement;
     const boardTotal = nav.querySelectorAll(".ob-triage-nav-item").length;
 
-    const items = document.querySelectorAll(".ob-conv-attention li");
+    const items = container.querySelectorAll(".ob-conv-attention li");
     expect(items).toHaveLength(boardTotal);
     // The scenario's own arithmetic (0 blocking + 4 advisory in identity, 1
     // blocking in offer, 1 blocking + 2 advisory in customer, 0 in sales):
@@ -342,14 +342,14 @@ describe("the rail's review to-do list", () => {
   // `isRequired(field) && value === ""`). Two surfaces, one number: if
   // either drifts from `isRequired`/REQUIRED_FIELDS, this fails.
   it("counts exactly as many blocking rows as the nav's own blocking badges", async () => {
-    renderReview(REVIEW_STATE, REVIEW_FIELDS);
+    const { container } = renderReview(REVIEW_STATE, REVIEW_FIELDS);
     await screen.findByRole("heading", { level: 2, name: /Correct me/ });
 
-    const nav = document.querySelector(".ob-triage-nav") as HTMLElement;
+    const nav = container.querySelector(".ob-triage-nav") as HTMLElement;
     const boardBlocking = [
       ...nav.querySelectorAll(".ob-triage-nav-badge[data-blocking='true'] b"),
     ].reduce((sum, badge) => sum + Number(badge.textContent), 0);
-    const railBlocking = document.querySelectorAll(
+    const railBlocking = container.querySelectorAll(
       ".ob-conv-attention button[data-kind='blocks']",
     );
     expect(railBlocking).toHaveLength(boardBlocking);
@@ -360,7 +360,7 @@ describe("the rail's review to-do list", () => {
   });
 
   it("sorts the blocking rows before decisions, and decisions before the merely advisory ones", async () => {
-    renderReview(REVIEW_STATE, REVIEW_FIELDS, [
+    const { container } = renderReview(REVIEW_STATE, REVIEW_FIELDS, [
       {
         id: "clarify:register_vat:1",
         field: "register_vat",
@@ -371,7 +371,7 @@ describe("the rail's review to-do list", () => {
     await screen.findByText("needs a decision");
 
     const kinds = [
-      ...document.querySelectorAll(".ob-conv-attention button"),
+      ...container.querySelectorAll(".ob-conv-attention button"),
     ].map((button) => button.getAttribute("data-kind"));
     const lastBlocks = kinds.lastIndexOf("blocks");
     const decision = kinds.indexOf("decision");
@@ -386,7 +386,7 @@ describe("the rail's review to-do list", () => {
   });
 
   it("folds a still-open clarify decision into the same list, alongside the fields", async () => {
-    renderReview(REVIEW_STATE, REVIEW_FIELDS, [
+    const { container } = renderReview(REVIEW_STATE, REVIEW_FIELDS, [
       {
         id: "clarify:register_vat:1",
         field: "register_vat",
@@ -401,18 +401,18 @@ describe("the rail's review to-do list", () => {
     await screen.findByText("needs a decision");
 
     expect(
-      document.querySelectorAll(
+      container.querySelectorAll(
         ".ob-conv-attention button[data-kind='decision']",
       ),
     ).toHaveLength(1);
-    expect(document.querySelectorAll(".ob-conv-attention li")).toHaveLength(9);
+    expect(container.querySelectorAll(".ob-conv-attention li")).toHaveLength(9);
   });
 
   it("names the header whenever the list itself renders", async () => {
-    renderReview(REVIEW_STATE, REVIEW_FIELDS);
+    const { container } = renderReview(REVIEW_STATE, REVIEW_FIELDS);
     await screen.findByRole("heading", { level: 2, name: /Correct me/ });
 
-    const attention = document.querySelector(
+    const attention = container.querySelector(
       ".ob-conv-attention",
     ) as HTMLElement;
     expect(attention).not.toBeNull();
@@ -427,13 +427,13 @@ describe("the rail's review to-do list", () => {
     // Fill icp too (offer_summary is filled by the base fixture below): one
     // field, offer_summary, is left the ONLY thing that still blocks — the
     // one case that may ever paint the blocking colour.
-    renderReview(
+    const { container } = renderReview(
       REVIEW_STATE,
       REVIEW_FIELDS.concat([proposedField("icp", "Mid-market B2B", 0.9)]),
     );
     await screen.findByRole("heading", { level: 2, name: /Correct me/ });
     expect(
-      document.querySelectorAll(".ob-conv-attention [data-kind='blocks']"),
+      container.querySelectorAll(".ob-conv-attention [data-kind='blocks']"),
     ).toHaveLength(1);
 
     // Now fill offer_summary too: nothing left blocks, so the whole blocking

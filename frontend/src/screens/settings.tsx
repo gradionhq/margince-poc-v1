@@ -30,6 +30,7 @@ import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
   Badge,
   Button,
+  Checkbox,
   EmptyState,
   SectionHeader,
   Skeleton,
@@ -459,26 +460,21 @@ function PassportCard() {
           onChange={(event) => setLabel(event.target.value)}
         />
         {PASSPORT_SCOPES.map((scope) => (
-          <label
+          <Checkbox
             key={scope}
             className="t-caption"
-            style={{ display: "inline-flex", gap: 4 }}
-          >
-            <input
-              type="checkbox"
-              checked={scopes.has(scope)}
-              onChange={(event) => {
-                const next = new Set(scopes);
-                if (event.target.checked) {
-                  next.add(scope);
-                } else {
-                  next.delete(scope);
-                }
-                setScopes(next);
-              }}
-            />
-            {scope}
-          </label>
+            checked={scopes.has(scope)}
+            onChange={(event) => {
+              const next = new Set(scopes);
+              if (event.target.checked) {
+                next.add(scope);
+              } else {
+                next.delete(scope);
+              }
+              setScopes(next);
+            }}
+            label={scope}
+          />
         ))}
         <Button
           small

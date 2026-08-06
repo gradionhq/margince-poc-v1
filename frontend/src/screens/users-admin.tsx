@@ -8,6 +8,7 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -162,8 +163,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
-      <select
-        className="input"
+      <Select
         aria-label={t("users.roleLabel")}
         value={role}
         onChange={(e) => {
@@ -176,7 +176,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
             {t(`users.role.${r}`)}
           </option>
         ))}
-      </select>
+      </Select>
       <Button variant="primary" small type="submit" disabled={!canInvite}>
         <UserPlus aria-hidden /> {t("users.invite")}
       </Button>
@@ -280,8 +280,7 @@ function MemberRow({
       </Badge>
       {/* Controlled at "" so the label always resets — re-selecting the same
           role after a failed change still fires onChange. */}
-      <select
-        className="input"
+      <Select
         aria-label={t("users.setRoleFor", { name: member.display_name })}
         value=""
         disabled={pending}
@@ -298,7 +297,7 @@ function MemberRow({
             {t(`users.role.${r}`)}
           </option>
         ))}
-      </select>
+      </Select>
       {/* Only an ACTIVE member can redeem a link — redemption updates an active
           account and refuses otherwise — so offering one on a deactivated row
           would hand the admin a link that is dead on arrival. */}

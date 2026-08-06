@@ -170,7 +170,7 @@ function card(
 }
 
 const meta: Meta<typeof MirrorUserMapCard> = {
-  title: "screens/overlay-usermap",
+  title: "Screens/overlay-usermap",
   component: MirrorUserMapCard,
 };
 export default meta;

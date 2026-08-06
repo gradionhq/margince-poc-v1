@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useT } from "../i18n";
+import { Select } from "./atoms";
 
 // Shared between the tool console's passport filter and the OAuth consent
 // screen (Task 7) — extracted so the two surfaces cannot drift into
@@ -52,8 +53,7 @@ export function PassportSelect({
 }>) {
   const t = useT();
   return (
-    <select
-      className="input"
+    <Select
       aria-label={ariaLabel ?? t("passport.select")}
       value={value}
       onChange={(event) => onChange(event.target.value)}
@@ -66,6 +66,6 @@ export function PassportSelect({
           {option.label}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }

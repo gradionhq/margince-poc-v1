@@ -46,7 +46,7 @@ function center(routes: RouteMap) {
 }
 
 const meta: Meta<typeof PreferenceCenterScreen> = {
-  title: "screens/preferences",
+  title: "Screens/preferences",
   component: PreferenceCenterScreen,
 };
 export default meta;

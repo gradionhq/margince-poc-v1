@@ -15,7 +15,9 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Radio,
   SectionHeader,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -150,8 +152,7 @@ export function ManualCompanySetup() {
                 }
               />
             ) : (
-              <textarea
-                className="textarea"
+              <Textarea
                 rows={4}
                 value={String(form[field] ?? "")}
                 aria-label={coldFieldLabel(field, t)}
@@ -481,8 +482,7 @@ function CompanyField({
   const t = useT();
   const provenance = profile.fields?.find((item) => item.field === field);
   const control = MULTILINE_FIELDS.has(field) ? (
-    <textarea
-      className="textarea"
+    <Textarea
       rows={3}
       value={value}
       aria-label={coldFieldLabel(field, t)}
@@ -612,13 +612,16 @@ function ComparisonRow(
   const t = useT();
   const { item } = props;
   const conflict = item.classification === "human_conflict";
+  // The field this card is about, named once: it heads the card AND names the
+  // checkbox. A row of boxes that all announce the same words is a list a
+  // screen reader cannot tell apart, and picking the wrong change here is what
+  // gets written to the record.
+  const fieldLabel = coldFieldLabel(item.key.split("/").at(-2) ?? item.key, t);
   return (
     <article className={`company-context-comparison is-${item.classification}`}>
       <div className="company-context-comparison-title">
         <div>
-          <strong>
-            {coldFieldLabel(item.key.split("/").at(-2) ?? item.key, t)}
-          </strong>
+          <strong>{fieldLabel}</strong>
           <Badge>
             {t(`settings.companyClass.${item.classification}` as MessageKey)}
           </Badge>
@@ -628,7 +631,9 @@ function ComparisonRow(
             type="checkbox"
             checked={props.selected}
             onChange={props.onToggle}
-            aria-label={t("settings.companySelectChange")}
+            aria-label={t("settings.companySelectChange", {
+              field: fieldLabel,
+            })}
           />
         )}
       </div>
@@ -645,31 +650,26 @@ function ComparisonRow(
       {conflict && (
         <div className="company-context-resolutions">
           {(["keep_current", "accept_proposal"] as const).map((action) => (
-            <label key={action}>
-              <input
-                type="radio"
-                name={`resolution-${item.key}`}
-                checked={props.resolution?.action === action}
-                onChange={() => props.onResolve({ key: item.key, action })}
-              />
-              {t(`settings.companyResolution.${action}` as MessageKey)}
-            </label>
-          ))}
-          <label>
-            <input
-              type="radio"
+            <Radio
+              key={action}
               name={`resolution-${item.key}`}
-              checked={props.resolution?.action === "use_value"}
-              onChange={() =>
-                props.onResolve({
-                  key: item.key,
-                  action: "use_value",
-                  value: item.current_value ?? "",
-                })
-              }
+              checked={props.resolution?.action === action}
+              onChange={() => props.onResolve({ key: item.key, action })}
+              label={t(`settings.companyResolution.${action}` as MessageKey)}
             />
-            {t("settings.companyResolution.use_value")}
-          </label>
+          ))}
+          <Radio
+            name={`resolution-${item.key}`}
+            checked={props.resolution?.action === "use_value"}
+            onChange={() =>
+              props.onResolve({
+                key: item.key,
+                action: "use_value",
+                value: item.current_value ?? "",
+              })
+            }
+            label={t("settings.companyResolution.use_value")}
+          />
           {props.resolution?.action === "use_value" && (
             <TextInput
               value={props.resolution.value ?? ""}

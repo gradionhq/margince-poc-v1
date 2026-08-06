@@ -3,6 +3,8 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
   useEffect,
   useId,
   useRef,
@@ -135,6 +137,145 @@ export function SearchField(props: InputHTMLAttributes<HTMLInputElement>) {
         className={`input ${props.className ?? ""}`.trim()}
       />
     </span>
+  );
+}
+
+/**
+ * Select and Textarea carry no label of their own, exactly like TextInput: the
+ * label is composed outside them, by the `.field` wrapper a form uses or by a
+ * screen's own richer shell. What they own is the ONE spelling of the control's
+ * surface, so a dropdown in a create form and one in settings cannot drift.
+ *
+ * A `select` reads `.input` rather than a class of its own — the two controls
+ * are the same field on screen, and `select.input` in atoms.css adds only the
+ * pointer cursor a native dropdown needs.
+ */
+export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select {...props} className={`input ${props.className ?? ""}`.trim()} />
+  );
+}
+
+export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={`textarea ${props.className ?? ""}`.trim()}
+    />
+  );
+}
+
+/**
+ * Checkbox and Radio DO carry their label, and that is the difference from the
+ * fields above: for a tick the label is not a caption sitting nearby, it is the
+ * other half of the click target. Wrapping the input is what makes the words
+ * clickable and what gives the control its accessible name without an `id` to
+ * thread — which is why seventeen of the twenty hand-rolled sites already wrote
+ * this shape, each with its own wrapper class and its own idea of the gap.
+ *
+ * `label` is a ReactNode, not a string: a consent line carries emphasis and a
+ * settings toggle carries a help line under the name.
+ *
+ * `className` lands on the LABEL, not the input, because that is where every
+ * existing call site puts its layout — a row that needs `align-items:flex-start`
+ * for a two-line label says so there.
+ */
+type ToggleProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  label: ReactNode;
+};
+
+function Toggle({
+  kind,
+  label,
+  className,
+  ...rest
+}: ToggleProps & { kind: "checkbox" | "radio" }) {
+  return (
+    <label
+      className={["checkfield", className ?? ""].filter(Boolean).join(" ")}
+    >
+      <input type={kind} {...rest} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+export function Checkbox(props: ToggleProps) {
+  return <Toggle kind="checkbox" {...props} />;
+}
+
+export function Radio(props: ToggleProps) {
+  return <Toggle kind="radio" {...props} />;
+}
+
+/**
+ * What a Field hands its control: the id its label points at, the required
+ * state, and the hint to describe it by. Callers spread it whole rather than
+ * picking pieces, so a field that later grows a hint wires it up without the
+ * call site changing.
+ */
+export type FieldControl = Readonly<{
+  id: string;
+  required?: boolean;
+  "aria-describedby"?: string;
+}>;
+
+/**
+ * Field is the label-above-control row every form is built from.
+ *
+ * It owns the id. Before this, each call site minted its own — `${formId}-role`,
+ * `${headingId}-expiry`, a hardcoded "overlay-region" — and had to remember to
+ * repeat it in two places; a typo in either half silently unlabels the control,
+ * and nothing fails. `useId` removes the chance to get it wrong.
+ *
+ * The label is a real `<label>` with `htmlFor`, which is the other reason this
+ * exists: eleven call sites drew the same row with a `<span>` and pointed at it
+ * with `aria-labelledby`. That announces correctly but is not a label — clicking
+ * the words does not focus the control, and the browser's own form semantics
+ * never engage.
+ *
+ * The hint sits OUTSIDE the label deliberately. Inside, it would be swallowed
+ * into the control's accessible name, so a reader would hear the entire help
+ * text every time focus lands.
+ *
+ * `required` marks the label and the control from one prop. The asterisk is
+ * `aria-hidden` because the control's own `required` already announces the
+ * state — spelling it twice is how a field ends up read as "Role star required".
+ */
+export function Field({
+  label,
+  hint,
+  required,
+  className,
+  children,
+}: Readonly<{
+  // A node, not a string: a label is usually words, but a field whose value was
+  // read from somewhere carries its provenance in the label row — a confidence
+  // meter and a source chip beside the name.
+  label: ReactNode;
+  hint?: string;
+  required?: boolean;
+  // Layout the surrounding form owns — a width, a grid span, a screen's own
+  // field modifier. It lands on the wrapper, which is the only element a
+  // caller has any business positioning.
+  className?: string;
+  children: (control: FieldControl) => ReactNode;
+}>) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  return (
+    <div className={["field", className ?? ""].filter(Boolean).join(" ")}>
+      <label className="t-label" htmlFor={id}>
+        {label}
+        {required && <span aria-hidden> *</span>}
+      </label>
+      {children({ id, required, "aria-describedby": hintId })}
+      {hint && (
+        <p className="t-caption" id={hintId}>
+          {hint}
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -33,14 +33,14 @@ function render(ui: ReactNode) {
 
 async function fillValidForm() {
   await userEvent.type(
-    screen.getByLabelText("IMAP server"),
+    screen.getByLabelText("IMAP server *"),
     "mail.example.org",
   );
   await userEvent.type(
-    screen.getByLabelText("Email address"),
+    screen.getByLabelText("Email address *"),
     "lars@example.org",
   );
-  await userEvent.type(screen.getByLabelText("App password"), "app-password");
+  await userEvent.type(screen.getByLabelText("App password *"), "app-password");
 }
 
 afterEach(() => {
@@ -132,6 +132,6 @@ describe("ImapConnectForm", () => {
     await fillValidForm();
     await userEvent.click(screen.getByRole("button", { name: "Connect" }));
     await screen.findByText(/could not be reached/i);
-    expect(screen.getByLabelText("App password")).toHaveValue("");
+    expect(screen.getByLabelText("App password *")).toHaveValue("");
   });
 });

@@ -45,7 +45,7 @@ const hits = () =>
   });
 
 const meta: Meta<typeof SearchScreen> = {
-  title: "screens/search",
+  title: "Screens/search",
   component: SearchScreen,
 };
 export default meta;

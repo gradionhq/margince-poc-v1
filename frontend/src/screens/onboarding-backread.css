@@ -44,16 +44,12 @@
 }
 
 .ob-backread-window {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
   /* A finger target, not a text line. */
   min-height: 44px;
   padding: 0 var(--space-2);
   border-radius: var(--r-sm);
   font-size: 13.5px;
   color: var(--textContent);
-  cursor: pointer;
 }
 
 .ob-backread-window:hover {
