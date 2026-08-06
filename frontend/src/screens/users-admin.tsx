@@ -23,6 +23,12 @@ type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
 
 const ROLES: readonly Role[] = ["admin", "manager", "rep", "read_only", "ops"];
 
+// roleLabel names a held role key. The catalog covers the five system roles;
+// a workspace-defined key has no translation, so it reads as itself rather
+// than as a missing-translation marker — the admin still learns what is held.
+const roleLabel = (t: ReturnType<typeof useT>) => (key: string) =>
+  isOption(key, ROLES) ? t(`users.role.${key}`) : key;
+
 // Admin member management (org settings). Every user-management write is
 // admin-only server-side, so the whole card is admin-only here — an ops seat in
 // the Organization group would otherwise see controls that only 403. The roster
@@ -276,13 +282,18 @@ function MemberRow({
 
   // The role the select reads back. `roles` arrives only for an admin caller —
   // which this card always is — and normally holds exactly one key. No key (an
-  // unassigned seat) and several keys both leave the select on its placeholder:
-  // neither has a single current role to show, and picking one collapses the
-  // set to that one either way.
+  // unassigned seat) and several keys both leave the select on its placeholder,
+  // because neither has one current role to show.
+  const heldRoles = member.roles ?? [];
   const currentRole =
-    member.roles?.length === 1 && isOption(member.roles[0], ROLES)
-      ? member.roles[0]
-      : "";
+    heldRoles.length === 1 && isOption(heldRoles[0], ROLES) ? heldRoles[0] : "";
+  // A member holding SEVERAL roles is the case worth naming: any choice here
+  // replaces the whole set, so a neutral "Set role…" would let an admin strip
+  // privileges they never saw. The placeholder says what is held instead.
+  const placeholder =
+    heldRoles.length > 1
+      ? t("users.rolesHeld", { roles: heldRoles.map(roleLabel(t)).join(", ") })
+      : t("users.setRole");
   // While a change is in flight the select shows the role being applied — and
   // it stays in flight until the refreshed roster lands (see refresh), so the
   // row never renders the replaced role. A FAILED change leaves the select on
@@ -312,7 +323,7 @@ function MemberRow({
       >
         {/* Offered only when there is no single role to show — otherwise it
             would be a selectable option that does nothing. */}
-        {currentRole === "" && <option value="">{t("users.setRole")}</option>}
+        {currentRole === "" && <option value="">{placeholder}</option>}
         {ROLES.map((r) => (
           <option key={r} value={r}>
             {t(`users.role.${r}`)}

@@ -14,6 +14,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,12 @@ type ListUsersInput struct {
 	// the admin management view; the default active-only roster serves the
 	// share/assignee pickers. The server gates the widened view to admins.
 	IncludeInactive bool
+	// WithRoles reads each member's role keys. Admin-only, and the reason the
+	// read is optional at all: the pickers every other member uses this roster
+	// for never render a role, so they should not pay per row to fetch one.
+	// The wire mapping withholds the keys independently — this makes the
+	// non-admin page not even carry them out of the database.
+	WithRoles bool
 }
 
 type userRow struct {
@@ -44,9 +51,11 @@ type userRow struct {
 	DisplayName string
 	Status      string
 	IsAgent     bool
-	// Roles are the member's assigned system role keys. Read on every roster
-	// row, but only an admin's response carries them — the wire mapping is
-	// where that gate lives (see wireUserWithRoles).
+	// Roles are the member's assigned system role keys, read only when the
+	// caller asked for them (ListUsersInput.WithRoles) — otherwise empty,
+	// because the row never fetched them. The wire mapping withholds them
+	// again on its own (see wireUserWithRoles): the read decides what is paid
+	// for, the mapping decides what is disclosed.
 	Roles     []string
 	CreatedAt time.Time
 }
@@ -61,10 +70,27 @@ const roleKeys = `(SELECT COALESCE(array_agg(r.key ORDER BY r.key), '{}')
 	  FROM role_assignment ra JOIN role r ON r.id = ra.role_id
 	  WHERE ra.user_id = app_user.id)`
 
-const userColumns = `id, workspace_id, email, display_name, status, is_agent, ` + roleKeys + `, created_at`
+// noRoleKeys stands in for the aggregate on the reads that would only discard
+// it, so the scan target keeps its shape and the column list its length.
+const noRoleKeys = `'{}'::text[]`
+
+// userColumns is the roster SELECT list. wantRoles decides whether each row
+// pays for the per-row role lookup: only an admin's response carries the keys,
+// and the picker reads every other member makes would throw them away. The
+// choice is a bool decided by the handler, never request text — the WHERE
+// clauses below stay fixed and bind-parameterized, which is the invariant that
+// keeps this file free of built SQL.
+func userColumns(wantRoles bool) string {
+	if wantRoles {
+		return fmt.Sprintf(userColumnsTemplate, roleKeys)
+	}
+	return fmt.Sprintf(userColumnsTemplate, noRoleKeys)
+}
+
+const userColumnsTemplate = `id, workspace_id, email, display_name, status, is_agent, %s, created_at`
 
 const listUsersQuery = `
-	SELECT ` + userColumns + `
+	SELECT %s
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
 	  AND ($1::timestamptz IS NULL OR (created_at, id) > ($1, $2))
@@ -72,7 +98,7 @@ const listUsersQuery = `
 	LIMIT $3`
 
 const listUsersFilteredQuery = `
-	SELECT ` + userColumns + `
+	SELECT %s
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
 	  AND (display_name ILIKE $1 OR email ILIKE $1)
@@ -83,7 +109,7 @@ const listUsersFilteredQuery = `
 // The admin management roster: every non-archived member regardless of status,
 // so a deactivated member is visible to reactivate.
 const listUsersAllQuery = `
-	SELECT ` + userColumns + `
+	SELECT %s
 	FROM app_user
 	WHERE archived_at IS NULL
 	  AND ($1::timestamptz IS NULL OR (created_at, id) > ($1, $2))
@@ -91,7 +117,7 @@ const listUsersAllQuery = `
 	LIMIT $3`
 
 const listUsersAllFilteredQuery = `
-	SELECT ` + userColumns + `
+	SELECT %s
 	FROM app_user
 	WHERE archived_at IS NULL
 	  AND (display_name ILIKE $1 OR email ILIKE $1)
@@ -105,12 +131,14 @@ func scanUser(r pgx.Row) (userRow, error) {
 	return u, err
 }
 
-const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $1 AND archived_at IS NULL`
+const getUserQueryTemplate = `SELECT %s FROM app_user WHERE id = $1 AND archived_at IS NULL`
 
 // GetUser reads one member by id regardless of status (RLS-scoped to the
 // caller's workspace) — the read the admin write handlers return after a
-// mutation. ErrNotFound when absent or archived.
+// mutation, every one of them admin-only, so it always carries the role keys.
+// ErrNotFound when absent or archived.
 func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
+	getUserQuery := fmt.Sprintf(getUserQueryTemplate, userColumns(true))
 	var u userRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, userID))
@@ -133,9 +161,10 @@ func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, 
 	if in.IncludeInactive {
 		plain, filtered = listUsersAllQuery, listUsersAllFilteredQuery
 	}
+	columns := userColumns(in.WithRoles)
 	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
-		plain:     plain,
-		filtered:  filtered,
+		plain:     fmt.Sprintf(plain, columns),
+		filtered:  fmt.Sprintf(filtered, columns),
 		scan:      scanUser,
 		cursorKey: func(u userRow) (time.Time, ids.UUID) { return u.CreatedAt, u.ID },
 	})

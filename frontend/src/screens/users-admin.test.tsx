@@ -60,18 +60,26 @@ const ROSTER = {
   page: { next_cursor: null, has_more: false },
 };
 
+// Both helpers narrow by instance rather than asserting: a cast would let the
+// suite read `.value` off whatever the query happened to return, so a control
+// that stopped being a select would surface as a confusing undefined instead of
+// a named failure.
 function roleSelect(row: HTMLElement, name: string) {
-  return within(row).getByLabelText(
+  const control = within(row).getByLabelText(
     new RegExp(`set role for ${name}`, "i"),
-  ) as HTMLSelectElement;
+  );
+  if (!(control instanceof HTMLSelectElement)) {
+    throw new Error(`the role control for ${name} is not a select`);
+  }
+  return control;
 }
 
 function rowFor(name: string) {
   const row = screen.getByText(name).closest("li");
-  if (!row) {
+  if (!(row instanceof HTMLElement)) {
     throw new Error(`no member row rendered for ${name}`);
   }
-  return row as HTMLElement;
+  return row;
 }
 
 function backend(calls: { method: string; url: string; body?: unknown }[]) {
@@ -234,6 +242,44 @@ describe("UsersAdminCard", () => {
         "Set role…",
       ),
     ).toBeNull();
+  });
+
+  // Any choice replaces the whole set, so a member holding several roles must
+  // not read as a blank "Set role…" — that would let an admin strip privileges
+  // they were never shown.
+  it("names the roles a multi-role member holds", async () => {
+    const twoRoles = {
+      ...ROSTER,
+      data: ROSTER.data.map((u) =>
+        u.id === "u-none" ? { ...u, roles: ["manager", "ops"] } : u,
+      ),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        return jsonResponse(twoRoles);
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Nora None")).toBeTruthy());
+
+    const select = roleSelect(rowFor("Nora None"), "nora none");
+    expect(select.value).toBe("");
+    // Both held roles are named, under their display labels, and the copy says
+    // what picking one does.
+    const shown = within(select).getByText(/holds/i).textContent ?? "";
+    expect(shown).toContain("Manager");
+    expect(shown).toContain("Ops");
+    expect(shown).toMatch(/replaces them all/i);
   });
 
   it("sets a member's role through the role seam", async () => {

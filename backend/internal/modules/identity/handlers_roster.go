@@ -25,6 +25,7 @@ func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request, params crmco
 		Cursor:          params.Cursor,
 		Limit:           params.Limit,
 		IncludeInactive: includeInactive,
+		WithRoles:       isAdmin,
 	})
 	if err != nil {
 		httperr.Write(w, r, err)
