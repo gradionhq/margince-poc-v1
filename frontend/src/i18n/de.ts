@@ -103,6 +103,7 @@ export const de = {
   "agent.fixture": "Beispieldaten",
   "locale.name.en": "English",
   "locale.name.de": "Deutsch",
+  "locale.name.vi": "Tiếng Việt",
   "locale.switchLabel": "Sprache",
 
   "screen.pending":

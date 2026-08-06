@@ -8,6 +8,7 @@ import {
 } from "react";
 import { de } from "./de";
 import { en, type MessageKey } from "./en";
+import { vi } from "./vi";
 
 export type { MessageKey } from "./en";
 
@@ -22,7 +23,7 @@ export type { MessageKey } from "./en";
 // The catalog registry is the single source of truth for what we ship: the
 // Locale type, the switcher's list, and browser detection all derive from it,
 // so a new locale is added in exactly one place.
-export const catalogs = { en, de } satisfies Record<
+export const catalogs = { en, de, vi } satisfies Record<
   string,
   Record<MessageKey, string>
 >;
@@ -31,7 +32,7 @@ export type Locale = keyof typeof catalogs;
 
 // Display order for the switcher. `satisfies` proves each entry is a real
 // locale; i18n.test.ts proves the list is exhaustive.
-export const LOCALES = ["en", "de"] as const satisfies readonly Locale[];
+export const LOCALES = ["en", "de", "vi"] as const satisfies readonly Locale[];
 
 export const DEFAULT_LOCALE: Locale = "en";
 

@@ -83,6 +83,11 @@ describe("browser-language detection", () => {
     expect(detectLocale(["EN-GB"])).toBe("en");
   });
 
+  it("recognises Vietnamese, with or without a region", () => {
+    expect(detectLocale(["vi-VN"])).toBe("vi");
+    expect(detectLocale(["vi"])).toBe("vi");
+  });
+
   it("skips unsupported languages to the first one we ship", () => {
     expect(detectLocale(["fr-FR", "es", "en-US"])).toBe("en");
   });
