@@ -65,6 +65,7 @@ export function meFixture({
     teams: [],
     workspace_name: "Test Workspace",
     non_production: false,
+    admin_password_link: false,
     authorization: { seat_type: seat, objects },
   };
   return me;

@@ -284,7 +284,9 @@ func passwordResetOptions(deployCfg deployconfig.Config, publicBaseURL string, s
 		FromAddress: deployCfg.Email.FromAddress,
 	}
 	_, _ = fmt.Fprintln(stdout, "api password reset enabled (outbound email configured)")
-	return []compose.Option{compose.WithPasswordReset(m, publicBaseURL)}, nil
+	// The link base rides compose.WithPublicBaseURL, assembled with the base
+	// options — this option carries the transport alone.
+	return []compose.Option{compose.WithPasswordReset(m)}, nil
 }
 
 // blobstoreOptions wires the attachment endpoints (and their /readyz probe +

@@ -36,7 +36,7 @@ RUN GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux \
         go build -ldflags="-s -w" -o /bin/margince-migrate ./cmd/migrate
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
-FROM alpine:3.21
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata
 

@@ -47,7 +47,7 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	e := setupRevocationEnv(t, "reset-e2e")
 	ctx := e.wsOnlyCtx()
 	mail := &capturedMail{}
-	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test/")
+	h := NewHandlers(e.svc).WithPasswordReset(mail).WithPasswordLinkBase("https://crm.example.test/")
 	sent := make(chan struct{})
 	h.resetSendStarted = func() { close(sent) }
 
@@ -118,7 +118,7 @@ func TestPasswordResetRequestIsEnumerationResistant(t *testing.T) {
 	e := setupRevocationEnv(t, "reset-enum")
 	ctx := e.wsOnlyCtx()
 	mail := &capturedMail{}
-	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test")
+	h := NewHandlers(e.svc).WithPasswordReset(mail).WithPasswordLinkBase("https://crm.example.test")
 
 	sent := make(chan struct{})
 	h.resetSendStarted = func() { close(sent) }

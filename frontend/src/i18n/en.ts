@@ -2674,6 +2674,8 @@ export const en = {
   "auth.resetRateLimited":
     "Too many attempts. Wait a moment, then set your password again.",
   "auth.requestNewLink": "Request a new link",
+  "auth.askAdminForNewLink":
+    "Ask your administrator for a new set-password link.",
   "auth.resetDoneTitle": "Password updated",
   "auth.resetDoneBody":
     "Your password is changed and every other session is signed out. Sign in with the new password.",
@@ -3079,6 +3081,24 @@ export const en = {
   "users.role.rep": "Rep",
   "users.role.read_only": "Read-only",
   "users.role.ops": "Ops",
+  "users.link.action": "Get set-password link",
+  "users.link.title": "Set-password link for {name}",
+  "users.link.pending": "Creating the link…",
+  // Two sentences, no dash (VOICE-RULE-5).
+  "users.link.body":
+    "Send this link to the member over a channel you trust. It works once and is shown only now. Close this and you can create a new one from their row.",
+  "users.link.urlLabel": "Set-password link",
+  "users.link.copy": "Copy link",
+  "users.link.copied": "Copied",
+  "users.link.copyFailed":
+    "Could not copy automatically. Select the link and copy it.",
+  "users.link.expires": "Expires {when}.",
+  "users.link.failed":
+    "The member was created, but the link could not be. They cannot sign in until you send them one.",
+  "users.link.offline":
+    "Could not reach the server. Check your connection and try again.",
+  "users.link.retry": "Try again",
+  "users.link.done": "Done",
   "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
   "settings.companySub":

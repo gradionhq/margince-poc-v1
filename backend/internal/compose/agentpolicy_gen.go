@@ -324,6 +324,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/tags/{id}/apply":                                           {Op: "applyTag", Access: "tool", Tool: "update_record", RecordType: "tag", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/users":                                                     {Op: "inviteUser", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/users/{id}/deactivate":                                     {Op: "deactivateUser", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/users/{id}/password-link":                                  {Op: "issueUserPasswordLink", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/users/{id}/reactivate":                                     {Op: "reactivateUser", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/views":                                                     {Op: "createSavedView", Access: "tool", Tool: "create_record", RecordType: "saved_view", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/voice-profiles":                                            {Op: "createVoiceProfile", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
