@@ -20182,7 +20182,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Refused, with the reason distinguished by the problem `code`: `conflict` (a member with this email already exists), or `no_delivery_channel` (this installation has neither an outbound-email channel nor a public base URL, so neither the mailed link nor an admin-issued one could reach the member — an invite would create an ACTIVE account nobody could ever sign in as). */
+            /** @description Refused, with the reason distinguished by the problem `code`: `email_taken` (a member with this email already exists), or `no_delivery_channel` (this installation has neither an outbound-email channel nor a public base URL, so neither the mailed link nor an admin-issued one could reach the member — an invite would create an ACTIVE account nobody could ever sign in as). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20221,8 +20221,16 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            /** @description Refused — demoting this member would leave the organization with no active admin. */
+            /** @description Not found, with the reason distinguished by the problem `code`: `not_found` (no such member) or `unknown_role` (the member exists, but this organization defines no role with that key). Both are 404; a client that tells the operator which one it hit needs the code, not the prose. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Refused with `code: last_active_admin` — demoting this member would leave the organization with no active admin. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20262,7 +20270,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Refused — this is the last active admin; deactivating them would lock the organization out. */
+            /** @description Refused with `code: last_active_admin` — this is the last active admin; deactivating them would lock the organization out. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20297,6 +20305,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description Refused with `code: not_deactivated` — this member is suspended rather than deactivated. A suspension is held for its own reason (a lockout, say), and reactivating would clear it without that reason ever being resolved. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     issueUserPasswordLink: {

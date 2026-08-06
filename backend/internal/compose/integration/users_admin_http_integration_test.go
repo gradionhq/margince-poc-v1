@@ -96,12 +96,17 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	}
 	assertRoles(t, "change role", afterRole, "manager")
 
-	// A role nobody defines is still a 404: the refusal wording this endpoint
-	// adds is for ONE cause, and every other error must pass through with the
-	// status it already had.
-	if status := e.call(t, "PATCH", base+"/role", map[string]any{"role": "no-such-role"}, nil, nil); status != http.StatusNotFound {
+	// A role nobody defines is a 404, like a missing member — but a DIFFERENT
+	// one, and the code is what lets a client tell an admin which mistake they
+	// made instead of sending them to look for a member who is right there.
+	var unknownRole refusalWire
+	if status := e.call(t, "PATCH", base+"/role", map[string]any{"role": "no-such-role"}, nil, &unknownRole); status != http.StatusNotFound {
 		t.Fatalf("change role to an undefined role -> %d, want 404", status)
 	}
+	if unknownRole.Code != "unknown_role" {
+		t.Errorf("undefined role code = %q, want unknown_role — a bare not_found sends the admin hunting for the member", unknownRole.Code)
+	}
+	assertActionableRefusal(t, "an undefined role", unknownRole)
 
 	// Deactivate: the member drops from the active roster but is visible with include_inactive.
 	var afterOff userWire
@@ -142,8 +147,9 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	}
 	assertActionableRefusal(t, "reactivating a suspended member", suspended)
 
-	// The bootstrap admin is the only admin (the invited member is a rep):
-	// neither deactivating nor demoting them is allowed — it would lock the org.
+	// The bootstrap admin is the only admin (the invited member holds manager
+	// by now): neither deactivating nor demoting them is allowed — it would
+	// lock the organization out of user administration entirely.
 	var me struct {
 		User struct {
 			ID string `json:"id"`

@@ -14,7 +14,6 @@ package identity
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -51,79 +50,70 @@ type userRow struct {
 	DisplayName string
 	Status      string
 	IsAgent     bool
-	// Roles are the member's assigned system role keys, read only when the
-	// caller asked for them (ListUsersInput.WithRoles) — otherwise empty,
-	// because the row never fetched them. The wire mapping withholds them
-	// again on its own (see wireUserWithRoles): the read decides what is paid
-	// for, the mapping decides what is disclosed.
+	// Roles are the member's assigned system role keys. NIL means the read did
+	// not ask for them; EMPTY means it did and the member holds none. Keeping
+	// those apart is what stops a caller that forgot the flag from reporting
+	// "holds no role" — a false statement about someone's privileges — and it
+	// is why the SQL returns NULL rather than '{}' on the unread path.
 	Roles     []string
 	CreatedAt time.Time
 }
 
 // roleKeys aggregates the member's assigned role keys, sorted so a member
-// holding more than one reads the same way on every request. A member with no
-// assignment yields an empty array rather than NULL, so the scan target never
-// has to distinguish "none" from "unknown". It correlates to the UNALIASED
+// holding more than one reads the same way on every request. Only an admin's
+// response carries them, and the picker reads every other member makes would
+// throw them away, so $1 gates the lookup: the ELSE arm makes the whole
+// aggregate unevaluated work the row never does. It correlates to the UNALIASED
 // app_user of the enclosing SELECT — every userColumns query spells it that
 // way; an alias there would silently break the correlation.
-const roleKeys = `(SELECT COALESCE(array_agg(r.key ORDER BY r.key), '{}')
-	  FROM role_assignment ra JOIN role r ON r.id = ra.role_id
-	  WHERE ra.user_id = app_user.id)`
+const roleKeys = `CASE WHEN $1::boolean THEN
+	  (SELECT COALESCE(array_agg(r.key ORDER BY r.key), '{}')
+	     FROM role_assignment ra JOIN role r ON r.id = ra.role_id
+	     WHERE ra.user_id = app_user.id)
+	  ELSE NULL::text[] END`
 
-// noRoleKeys stands in for the aggregate on the reads that would only discard
-// it, so the scan target keeps its shape and the column list its length.
-const noRoleKeys = `'{}'::text[]`
+const userColumns = `id, workspace_id, email, display_name, status, is_agent, ` + roleKeys + `, created_at`
 
-// userColumns is the roster SELECT list. wantRoles decides whether each row
-// pays for the per-row role lookup: only an admin's response carries the keys,
-// and the picker reads every other member makes would throw them away. The
-// choice is a bool decided by the handler, never request text — the WHERE
-// clauses below stay fixed and bind-parameterized, which is the invariant that
-// keeps this file free of built SQL.
-func userColumns(wantRoles bool) string {
-	if wantRoles {
-		return fmt.Sprintf(userColumnsTemplate, roleKeys)
-	}
-	return fmt.Sprintf(userColumnsTemplate, noRoleKeys)
-}
-
-const userColumnsTemplate = `id, workspace_id, email, display_name, status, is_agent, %s, created_at`
-
+// $1 is the "read role keys?" flag on every user query below, so the aggregate
+// stays inside ONE fixed query string instead of two the caller picks between.
+// Postgres does not evaluate the untaken CASE arm, so a non-admin page costs
+// exactly what it did before this column existed. NULL (not read) is
+// deliberately not '{}' (read, holds none) — see userRow.Roles.
 const listUsersQuery = `
-	SELECT %s
+	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
-	  AND ($1::timestamptz IS NULL OR (created_at, id) > ($1, $2))
-	ORDER BY created_at, id
-	LIMIT $3`
-
-const listUsersFilteredQuery = `
-	SELECT %s
-	FROM app_user
-	WHERE archived_at IS NULL AND status = 'active'
-	  AND (display_name ILIKE $1 OR email ILIKE $1)
 	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
 	ORDER BY created_at, id
 	LIMIT $4`
+
+const listUsersFilteredQuery = `
+	SELECT ` + userColumns + `
+	FROM app_user
+	WHERE archived_at IS NULL AND status = 'active'
+	  AND (display_name ILIKE $2 OR email ILIKE $2)
+	  AND ($3::timestamptz IS NULL OR (created_at, id) > ($3, $4))
+	ORDER BY created_at, id
+	LIMIT $5`
 
 // The admin management roster: every non-archived member regardless of status,
 // so a deactivated member is visible to reactivate.
 const listUsersAllQuery = `
-	SELECT %s
+	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL
-	  AND ($1::timestamptz IS NULL OR (created_at, id) > ($1, $2))
-	ORDER BY created_at, id
-	LIMIT $3`
-
-const listUsersAllFilteredQuery = `
-	SELECT %s
-	FROM app_user
-	WHERE archived_at IS NULL
-	  AND (display_name ILIKE $1 OR email ILIKE $1)
 	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
 	ORDER BY created_at, id
 	LIMIT $4`
+
+const listUsersAllFilteredQuery = `
+	SELECT ` + userColumns + `
+	FROM app_user
+	WHERE archived_at IS NULL
+	  AND (display_name ILIKE $2 OR email ILIKE $2)
+	  AND ($3::timestamptz IS NULL OR (created_at, id) > ($3, $4))
+	ORDER BY created_at, id
+	LIMIT $5`
 
 func scanUser(r pgx.Row) (userRow, error) {
 	var u userRow
@@ -131,17 +121,17 @@ func scanUser(r pgx.Row) (userRow, error) {
 	return u, err
 }
 
-const getUserQueryTemplate = `SELECT %s FROM app_user WHERE id = $1 AND archived_at IS NULL`
+const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $2 AND archived_at IS NULL`
 
 // GetUser reads one member by id regardless of status (RLS-scoped to the
 // caller's workspace) — the read the admin write handlers return after a
-// mutation, every one of them admin-only, so it always carries the role keys.
-// ErrNotFound when absent or archived.
-func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
-	getUserQuery := fmt.Sprintf(getUserQueryTemplate, userColumns(true))
+// mutation. withRoles is the caller's explicit statement that it is entitled to
+// the role keys, so a future non-admin caller has to ask for them rather than
+// inherit them. ErrNotFound when absent or archived.
+func (s *Service) GetUser(ctx context.Context, userID ids.UserID, withRoles bool) (userRow, error) {
 	var u userRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, userID))
+		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, withRoles, userID))
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -161,10 +151,10 @@ func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, 
 	if in.IncludeInactive {
 		plain, filtered = listUsersAllQuery, listUsersAllFilteredQuery
 	}
-	columns := userColumns(in.WithRoles)
 	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
-		plain:     fmt.Sprintf(plain, columns),
-		filtered:  fmt.Sprintf(filtered, columns),
+		plain:     plain,
+		filtered:  filtered,
+		leadArgs:  []any{in.WithRoles},
 		scan:      scanUser,
 		cursorKey: func(u userRow) (time.Time, ids.UUID) { return u.CreatedAt, u.ID },
 	})
@@ -255,8 +245,13 @@ func decodeRosterCursor(token *string) (rosterCursor, error) {
 // fixed query strings (unfiltered + q-filtered), the row scanner, and the
 // keyset-cursor extractor.
 type rosterQuery[T userRow | teamRow] struct {
-	plain     string
-	filtered  string
+	plain    string
+	filtered string
+	// leadArgs bind BEFORE the pager's own cursor/limit args, so a row type
+	// that needs its own parameter — the user roster's "read role keys?" flag —
+	// declares it here and takes $1, leaving the pager's numbering identical
+	// for a list that declares none.
+	leadArgs  []any
 	scan      func(pgx.Row) (T, error)
 	cursorKey func(T) (time.Time, ids.UUID)
 }
@@ -282,9 +277,11 @@ func listRosterPage[T userRow | teamRow](
 		var rows pgx.Rows
 		var err error
 		if q != nil && *q != "" {
-			rows, err = tx.Query(ctx, spec.filtered, "%"+*q+"%", after.createdAt, after.id, limit+1)
+			args := append(append([]any{}, spec.leadArgs...), "%"+*q+"%", after.createdAt, after.id, limit+1)
+			rows, err = tx.Query(ctx, spec.filtered, args...)
 		} else {
-			rows, err = tx.Query(ctx, spec.plain, after.createdAt, after.id, limit+1)
+			args := append(append([]any{}, spec.leadArgs...), after.createdAt, after.id, limit+1)
+			rows, err = tx.Query(ctx, spec.plain, args...)
 		}
 		if err != nil {
 			return err

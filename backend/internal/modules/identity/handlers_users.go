@@ -66,7 +66,7 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 		Role:        string(req.Role),
 	})
 	if err != nil {
-		httperr.Write(w, r, conflictIf(err, errEmailTaken,
+		httperr.Write(w, r, conflictIf(err, errEmailTaken, "email_taken",
 			"a member with this email already exists in this organization; if they were "+
 				"deactivated, reactivate them from the roster instead of inviting again"))
 		return
@@ -86,9 +86,16 @@ func (h Handlers) ChangeUserRole(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	if err := h.svc.ChangeUserRole(r.Context(), actor, ids.UserID{UUID: ids.UUID(id)}, string(req.Role)); err != nil {
-		httperr.Write(w, r, conflictIf(err, errLastActiveAdmin,
+		err = conflictIf(err, errLastActiveAdmin, "last_active_admin",
 			"this member is the organization's only active administrator; give another "+
-				"member the admin role first, then change this one's"))
+				"member the admin role first, then change this one's")
+		// Both refusals here are 404s, and an admin who mistyped a role would
+		// otherwise be told the MEMBER was not found and go looking for the
+		// wrong thing.
+		err = refuseAs(err, errUnknownRole, http.StatusNotFound, "unknown_role",
+			"this organization defines no role with that key; the built-in roles are "+
+				"admin, manager, rep, read_only and ops")
+		httperr.Write(w, r, err)
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
@@ -113,7 +120,7 @@ func (h Handlers) DeactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 		UserID: ids.UserID{UUID: ids.UUID(id)},
 		Reason: req.Reason,
 	}); err != nil {
-		httperr.Write(w, r, conflictIf(err, errLastActiveAdmin,
+		httperr.Write(w, r, conflictIf(err, errLastActiveAdmin, "last_active_admin",
 			"this member is the organization's only active administrator; deactivating them "+
 				"would leave nobody able to manage users — give another member the admin role first"))
 		return
@@ -128,7 +135,7 @@ func (h Handlers) ReactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	if err := h.svc.ReactivateUser(r.Context(), actor, ids.UserID{UUID: ids.UUID(id)}); err != nil {
-		httperr.Write(w, r, conflictIf(err, errNotDeactivated,
+		httperr.Write(w, r, conflictIf(err, errNotDeactivated, "not_deactivated",
 			"this member is suspended, not deactivated; a suspension is cleared by resolving "+
 				"what caused it, and reactivating would hide that"))
 		return
@@ -210,11 +217,22 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 // worded here. Without this the whole surface answers the bare word "conflict",
 // which tells an admin neither what went wrong nor what to do — the sentinel's
 // own text is a log line, not advice.
-func conflictIf(err, cause error, detail string) error {
+//
+// code carries the same distinction to a CLIENT: detail is prose for a human,
+// and a UI that has to branch on which refusal it hit would otherwise be left
+// matching sentences.
+func conflictIf(err, cause error, code, detail string) error {
+	return refuseAs(err, cause, http.StatusConflict, code, detail)
+}
+
+// refuseAs is conflictIf's general form: two refusals on this surface share a
+// STATUS but not a meaning — an unknown member and an unknown role are both
+// 404 — so the status stays the caller's to state.
+func refuseAs(err, cause error, status int, code, detail string) error {
 	if !errors.Is(err, cause) {
 		return err
 	}
-	return &httperr.DetailedError{Status: http.StatusConflict, Code: "conflict", Detail: detail}
+	return &httperr.DetailedError{Status: status, Code: code, Detail: detail}
 }
 
 // tooManyPasswordLinksBy renders an issuance-ceiling refusal. The generic
@@ -264,7 +282,7 @@ func (h Handlers) actor(w http.ResponseWriter, r *http.Request) (Identity, bool)
 // and a member row that dropped them here would mean the field's presence
 // tracked the endpoint rather than the caller.
 func (h Handlers) writeUserByID(w http.ResponseWriter, r *http.Request, userID ids.UserID, status int) {
-	row, err := h.svc.GetUser(r.Context(), userID)
+	row, err := h.svc.GetUser(r.Context(), userID, true)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

@@ -24,6 +24,43 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// The roster read gates the role-key lookup on WithRoles, and the wire mapping
+// withholds the keys again for a non-admin. Those are two independent defences,
+// so the HTTP deny arm passes even with this one forced open — which is exactly
+// why the read needs its own test rather than borrowing that one's coverage.
+func TestRosterReadFetchesRoleKeysOnlyWhenAsked(t *testing.T) {
+	e := setupRevocationEnv(t, "roster-role-keys")
+
+	withheld, _, err := e.svc.ListUsers(e.wsCtx(e.admin), ListUsersInput{})
+	if err != nil {
+		t.Fatalf("list without roles: %v", err)
+	}
+	if len(withheld) == 0 {
+		t.Fatal("roster is empty; the assertions below would hold vacuously")
+	}
+	for _, u := range withheld {
+		// NIL, not empty: an empty list would claim the member holds no role,
+		// which is a different and false statement.
+		if u.Roles != nil {
+			t.Errorf("member %q carries roles %v on a read that did not ask for them", u.Email, u.Roles)
+		}
+	}
+
+	asked, _, err := e.svc.ListUsers(e.wsCtx(e.admin), ListUsersInput{WithRoles: true})
+	if err != nil {
+		t.Fatalf("list with roles: %v", err)
+	}
+	var adminRoles []string
+	for _, u := range asked {
+		if u.ID == e.admin.UserID.UUID {
+			adminRoles = u.Roles
+		}
+	}
+	if len(adminRoles) != 1 || adminRoles[0] != roleAdmin {
+		t.Errorf("bootstrap admin roles = %v, want [admin] once the read asks", adminRoles)
+	}
+}
+
 func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 	e := setupRevocationEnv(t, "invite-user")
 
@@ -37,7 +74,7 @@ func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 		t.Fatalf("invite returned userID=%v token-empty=%v; want both set", userID, rawToken == "")
 	}
 
-	member, err := e.svc.GetUser(e.wsCtx(e.admin), userID)
+	member, err := e.svc.GetUser(e.wsCtx(e.admin), userID, true)
 	if err != nil {
 		t.Fatalf("get invited member: %v", err)
 	}
@@ -149,7 +186,7 @@ func TestReactivateUserRestoresActiveAndEmits(t *testing.T) {
 		t.Fatalf("reactivate: %v", err)
 	}
 
-	member, err := e.svc.GetUser(e.wsCtx(e.admin), e.member.UserID)
+	member, err := e.svc.GetUser(e.wsCtx(e.admin), e.member.UserID, false)
 	if err != nil {
 		t.Fatalf("get reactivated member: %v", err)
 	}
