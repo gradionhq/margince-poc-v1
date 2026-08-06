@@ -6,6 +6,7 @@ import { EMPTY_DRAFT } from "../onboarding";
 import { rowFor } from "./company-review-state";
 
 type ProposalField = components["schemas"]["OnboardingCompanyProposalField"];
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 
 // rowFor is the one place the review board, the rail's to-do list, and the
 // narration's open-decision count all derive a field's state from — see the
@@ -144,5 +145,46 @@ describe("rowFor on a value with no measured confidence", () => {
     const row = rowFor("legal_name", chosenDraft(undefined), new Map(), stubT);
     expect(row.state).toBe("quoted");
     expect(row.evidence).toBeNull();
+  });
+});
+
+// The copy an empty legal row carries has to match the decision the human
+// actually faces. "Choose which company is yours" is a real instruction when
+// the imprint names several; on a one-company imprint it points at a picker
+// that is not on the screen.
+describe("rowFor's empty hint over the read's legal candidates", () => {
+  const pages: CompanySiteRead["pages"] = [
+    {
+      url: "https://gradion.test/impressum",
+      status: "fetched",
+      kind: "impressum",
+    },
+  ];
+  const candidate = {
+    name: "Gradion Co., Ltd.",
+    registered_address: "Bitexco Tower, Ho Chi Minh City",
+    source_url: "https://gradion.test/impressum",
+  };
+  // The human emptied the box the sole-entity fill had put a value in: the one
+  // way a field a candidate carries is still blank on that path.
+  const cleared: CompanyDraft = {
+    values: EMPTY_DRAFT.values,
+    grounded: {},
+    edited: new Set(["legal_name"]),
+  };
+
+  it("asks for the choice when the imprint names more than one company", () => {
+    const row = rowFor("legal_name", cleared, new Map(), stubT, pages, [
+      candidate,
+      { name: "Gradion Holding GmbH", source_url: candidate.source_url },
+    ]);
+    expect(row.emptyHintKey).toBe("ob.conv.triage.legalUnpicked");
+  });
+
+  it("asks for no choice at all when the imprint names one", () => {
+    const row = rowFor("legal_name", cleared, new Map(), stubT, pages, [
+      candidate,
+    ]);
+    expect(row.emptyHintKey).toBe("ob.conv.triage.emptyHint");
   });
 });

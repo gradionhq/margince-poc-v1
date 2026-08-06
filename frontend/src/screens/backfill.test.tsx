@@ -295,3 +295,63 @@ describe("honest capability and staleness", () => {
     expect(await screen.findByText(/only be widened/i)).toBeTruthy();
   });
 });
+
+// A failure the reader is shown as one generic sentence has to be readable
+// somewhere, or a report of it names nothing anyone can act on. These pin both
+// halves of that: what the screen says, and what the console keeps.
+describe("a failure nobody wrote for a reader", () => {
+  const transportFailure = new TypeError("ECONNREFUSED: connection refused");
+
+  it("shows the shared line and keeps the original failure on the console", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    installFetchStub({
+      "POST /connectors/gmail/backfill/preview": () =>
+        jsonResponse(previewOf(400)),
+      "POST /connectors/gmail/backfill": () => {
+        throw transportFailure;
+      },
+    });
+    render(<BackfillPanel provider="gmail" initial={{ state: "none" }} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Start the import/ }),
+    );
+
+    expect(
+      await screen.findByText("The request failed. No cause reported."),
+    ).toBeTruthy();
+    // The wording nobody wrote for a user stays off the screen entirely.
+    expect(screen.queryByText(/ECONNREFUSED/)).toBeNull();
+    // Once, and with the failure itself — a re-thrown copy or a message
+    // string would lose the stack the report is being read for.
+    await waitFor(() => expect(logged).toHaveBeenCalledTimes(1));
+    expect(logged).toHaveBeenCalledWith(transportFailure);
+    logged.mockRestore();
+  });
+
+  it("stays off the console for a failure the server already described", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    installFetchStub({
+      "POST /connectors/gmail/backfill/preview": () =>
+        jsonResponse(previewOf(400)),
+      "POST /connectors/gmail/backfill": () =>
+        jsonResponse(
+          { code: "quota_exhausted", detail: "This month's budget is spent." },
+          429,
+        ),
+    });
+    render(<BackfillPanel provider="gmail" initial={{ state: "none" }} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Start the import/ }),
+    );
+
+    // The reader can already read the cause, so a console copy would report
+    // the same failure twice and add nothing to it.
+    expect(
+      await screen.findByText("This month's budget is spent."),
+    ).toBeTruthy();
+    expect(logged).not.toHaveBeenCalled();
+    logged.mockRestore();
+  });
+});

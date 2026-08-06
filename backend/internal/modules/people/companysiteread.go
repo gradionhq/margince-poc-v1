@@ -132,6 +132,14 @@ func (s *Store) confirmCompanySiteReadTx(
 	if err := recordSiteReadConfirmation(ctx, tx, read, confirmation); err != nil {
 		return Company{}, err
 	}
+	// The logo lands AFTER the confirmation's own event, never before it. Its
+	// write publishes organization.updated, and the confirmation that mints the
+	// anchor publishes organization.created; the outbox ships a single entity's
+	// rows in insert order, so binding first would hand a consumer an update for
+	// an organization it has not been told about yet.
+	if err := bindSiteReadLogo(ctx, tx, read.ID, confirmation.organizationID); err != nil {
+		return Company{}, err
+	}
 	return readCompany(ctx, tx, confirmation.organizationID)
 }
 
@@ -183,9 +191,6 @@ func applySiteReadConfirmation(
 		return siteReadConfirmation{}, err
 	}
 	appliedFacts = append(appliedFacts, humanFacts...)
-	if err := bindSiteReadLogo(ctx, tx, read.ID, orgID); err != nil {
-		return siteReadConfirmation{}, err
-	}
 	return siteReadConfirmation{
 		organizationID: orgID,
 		created:        created,

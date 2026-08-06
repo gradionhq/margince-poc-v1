@@ -301,7 +301,15 @@ export function useViewerId(): string | undefined {
 }
 
 // RFC 7807 bodies carry the honest detail; surface it instead of a generic
-// failure so the error state names its cause.
+// failure so the error state names its cause. `null` says the body carried no
+// such text at all — a non-OK response the server sent no body with, or one
+// whose body was never RFC 7807 in the first place.
+//
+// That distinction is the whole reason this sits apart from problemMessage
+// below: "the server described this failure" and "the server said nothing a
+// reader can use" are different facts, and only the second may be answered
+// with catalog copy. A caller that cannot tell them apart either invents copy
+// over a real detail or shows a placeholder as though the server had spoken.
 //
 // A refusal overlay mode causes is a state, not a fault, but it is TWO
 // distinct states, not one: `unsupported_by_sor` is a WRITE the mirror
@@ -313,10 +321,10 @@ export function useViewerId(): string | undefined {
 // caller holding a translator gets copy naming which kind of refusal
 // happened. Callers without a translator — and every other problem code —
 // keep the server's own detail verbatim, exactly as before.
-export function problemMessage(
+function problemDetail(
   problem: unknown,
   t?: (key: MessageKey) => string,
-): string {
+): string | null {
   const code = problemCode(problem);
   if (t && code === "unsupported_by_sor") {
     return t("overlay.refused");
@@ -324,16 +332,30 @@ export function problemMessage(
   if (t && code === "unsupported_in_overlay_mode") {
     return t("overlay.filterUnsupported");
   }
-  if (problem && typeof problem === "object") {
-    const record = problem as Record<string, unknown>;
-    if (typeof record.detail === "string") {
-      return record.detail;
-    }
-    if (typeof record.title === "string") {
-      return record.title;
-    }
+  if (isRecord(problem)) {
+    // A field present but blank is the same fact as an absent one — it puts no
+    // words on the screen — so it falls through to the title, and then to the
+    // caller's own copy, instead of rendering an error state with nothing in it.
+    const detail = readableField(problem.detail);
+    const title = readableField(problem.title);
+    return detail ?? title;
   }
-  return "request failed";
+  return null;
+}
+
+function readableField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+export function problemMessage(
+  problem: unknown,
+  t?: (key: MessageKey) => string,
+): string {
+  // A body with no reader text still has to answer something here — this is
+  // also the message a ProblemError carries into a stack trace, where an empty
+  // string would name nothing. problemMessageOf is the reader's path and
+  // answers that same body with catalog copy in the reader's own language.
+  return problemDetail(problem, t) ?? "request failed";
 }
 
 // A create/update whose server error we want to keep STRUCTURED (not just its
@@ -399,6 +421,13 @@ export function problemCodeOf(error: unknown): string | null {
 // nobody wrote for a user, and often names our own internals, so it never
 // reaches the screen: the reader gets the shared failure line instead.
 //
+// A ProblemError whose body carried no detail or title is in the same
+// position: a 502 from a proxy, or a refusal the server answered with no body
+// at all, is a failure nobody phrased for a reader. It reads as the shared
+// line too rather than as the developer placeholder problemMessage falls back
+// to. A body that DOES carry text always keeps it — the server's own words
+// can never be replaced from here.
+//
 // A surface with better words for its own failure passes them as `fallback`:
 // the connector card saying it could not read the connectors beats the generic
 // line there. That is catalog copy the caller has already translated, which is
@@ -408,10 +437,28 @@ export function problemMessageOf(
   t: (key: MessageKey) => string,
   fallback?: string,
 ): string {
-  if (error instanceof ProblemError) {
-    return problemMessage(error.problem, t);
+  const detail =
+    error instanceof ProblemError ? problemDetail(error.problem, t) : null;
+  return detail ?? fallback ?? t("common.errorNoCause");
+}
+
+// The counterpart of that rule: the ONE place a failure the reader is NOT
+// shown reaches the console, so a production report of generic copy is still
+// diagnosable. A ProblemError is skipped — its detail is already on the screen
+// in the reader's own words, and logging it would report one failure twice
+// while adding nothing.
+//
+// Wired as a mutation's own `onError`, never as a render-time call or an
+// effect watching `isError`: react-query runs a mutation to completion
+// independently of whichever component started it, so this fires exactly once
+// per actual failure — including the one where the reader leaves mid-flight
+// and the component that would have hosted an effect is already unmounted when
+// the request settles. Queries need no such wiring; the shared query cache
+// reports every failure of theirs already (app/queryclient.ts, FE-PARAM-4).
+export function logUnexpectedError(error: unknown): void {
+  if (!(error instanceof ProblemError)) {
+    console.error(error);
   }
-  return fallback ?? t("common.errorNoCause");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

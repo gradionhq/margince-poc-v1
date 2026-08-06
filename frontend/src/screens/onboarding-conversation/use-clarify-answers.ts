@@ -62,13 +62,25 @@ const LEGAL_ENTITY_FIELD = "legal_name";
 
 // The candidate the human just picked, matched by the exact name the server
 // authorized — never a different entity, never a guess.
+//
+// A candidate the read could not name is no match either. The fill settles
+// nothing about legal_name for one, by design: a nameless candidate must not
+// unmark a name the human typed themselves. So routing the choice there
+// would record the clarify as answered while the very field it answers stays
+// as it was, and would fill address and registration number from an entity
+// nothing on screen identifies. It goes down the ordinary change path
+// instead, exactly as an authorized value with no candidate behind it does.
 function pickedLegalEntity(
   selection: OptionSelection,
   legalEntities: readonly LegalEntity[],
 ): LegalEntity | undefined {
-  return selection.field === LEGAL_ENTITY_FIELD
-    ? legalEntities.find((candidate) => candidate.name === selection.value)
-    : undefined;
+  if (selection.field !== LEGAL_ENTITY_FIELD) {
+    return undefined;
+  }
+  return legalEntities.find(
+    (candidate) =>
+      candidate.name === selection.value && candidate.name.trim() !== "",
+  );
 }
 
 // Where an authorized change lands: through the entity fill when the human
@@ -76,7 +88,8 @@ function pickedLegalEntity(
 // site's evidence, and down the ordinary change path otherwise.
 //
 // The fallback covers the two cases where no candidate can carry the value:
-// the read has none matching it, and a fill that throws. The choice is
+// the read has none this pick resolves to (see pickedLegalEntity, which
+// counts a nameless one as none), and a fill that throws. The choice is
 // already recorded server-side by the time this runs, so it has to reach the
 // draft either way — and a bug in the fill is a lesser, separate failure
 // that must never be reported as if the choice itself had failed, so it is

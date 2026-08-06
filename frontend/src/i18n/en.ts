@@ -2157,11 +2157,11 @@ export const en = {
     "Your imprint names more than one company. Choose which one is yours and I will fill this in.",
   // The omission notice on an empty row, once a read has actually run: the
   // field is named as withheld rather than left blank, and the reason is only
-  // ever what the read can support. `omittedGate` is the read's own sentence,
-  // quoted, so it never reads as our explanation of the cause.
+  // ever one the read can support for THAT field. The read's crawl-wide
+  // warnings belong to the coverage card, which states each under its own
+  // heading; beside a field they would name a cause the read never gave.
   "ob.conv.triage.omittedLabel": "Omitted, not guessed",
   "ob.conv.triage.omittedField": "{field}: {reason}",
-  "ob.conv.triage.omittedGate": "From the read: {detail}",
   "ob.conv.triage.mapLabel": "Jump to a section",
   "ob.conv.triage.sectionBlocking": "{count} needed to continue",
   "ob.conv.triage.sectionAdvisory": "{count} worth a check",
@@ -2298,9 +2298,9 @@ export const en = {
   "ob.conv.review.confirmVersionSkewStuck":
     "I checked again, but nothing has changed yet. Pressing Continue now would fail the same way, so have another look or check again in a moment.",
   "ob.conv.review.confirmNotReady":
-    "This read is not ready to confirm yet. Wait for it to finish, or start a fresh one.",
+    "This read has no draft to confirm yet, so Continue is on hold. Check again once it has finished, or start a fresh read.",
   "ob.conv.review.confirmCheckFailed":
-    "I could not check where this read stands, so nothing has moved on. Check again, or press Continue in a moment.",
+    "This read was already confirmed, but I could not load the company it created. Check again in a moment.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.results.continue": "Continue",
@@ -3159,6 +3159,8 @@ export const en = {
   "settings.companySaved": "Saved",
   "settings.companyRefreshUnavailable":
     "This website refresh is no longer available.",
+  "settings.companyRefreshUnreadable":
+    "We lost track of this website read. Start the refresh again.",
   "settings.companyRefreshStale":
     "The website proposal changed. Review the refreshed comparison before applying it.",
   "settings.companyRefreshReview": "Website comparison",

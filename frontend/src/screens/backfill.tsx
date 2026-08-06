@@ -8,6 +8,7 @@ import { formatDuration } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
+  logUnexpectedError,
   ProblemError,
   problemCode,
   problemMessageOf,
@@ -134,6 +135,11 @@ export function BackfillPanel({
     refetchInterval: (q) => (isLiveState(q.state.data?.state) ? 2500 : false),
   });
 
+  // Each of the three mutations logs its own unexpected failure: what the
+  // reader is shown for one is a single generic sentence, and a failure that
+  // is only ever generic on screen has to be readable somewhere or a report
+  // of it cannot be acted on. The status read needs no such wiring — the
+  // shared query cache already reports every query failure.
   const preview = useMutation({
     mutationFn: async (w: BackfillWindow) => {
       const { data, error } = await api.POST(
@@ -145,6 +151,7 @@ export function BackfillPanel({
       }
       return data;
     },
+    onError: logUnexpectedError,
   });
 
   const start = useMutation({
@@ -163,6 +170,7 @@ export function BackfillPanel({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
+    onError: logUnexpectedError,
   });
 
   const cancel = useMutation({
@@ -178,6 +186,7 @@ export function BackfillPanel({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
+    onError: logUnexpectedError,
   });
 
   const { unsupported, narrowing } = classifyBackfillErrors(

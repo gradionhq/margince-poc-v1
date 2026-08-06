@@ -189,6 +189,96 @@ func TestOnboardingReadResolvesTheLogoTheConfirmedAnchorWears(t *testing.T) {
 	}
 }
 
+func TestAdoptingTheParkedMarkLeavesTheCompanyItsOnlyReference(t *testing.T) {
+	// The confirmation HANDS the object over; it does not share it. Two rows
+	// naming one key would let the next resolve of this organization supersede
+	// that key and collect the bytes, while the confirmed dossier still pointed
+	// at an object nothing could serve.
+	e := integration.Setup(t)
+	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
+	args := readTheOnboardingSite(t, e, onboardingLogoWorker(e, site, blobstore.NewMemory()))
+	parked, _ := parkedLogo(t, e, args.SiteReadID)
+	if parked == nil {
+		t.Fatal("the read parked no mark; this case has nothing to hand over")
+	}
+	company := confirmTheAnchor(t, e, args)
+
+	left, leftOrigin := parkedLogo(t, e, args.SiteReadID)
+	if left != nil {
+		t.Fatalf("the confirmed dossier still names %q, want the company to hold the only reference", *left)
+	}
+	if leftOrigin != nil {
+		t.Fatalf("the confirmed dossier still names the asset URL %q it handed over", *leftOrigin)
+	}
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	boundKey, err := e.People.OrganizationLogoKey(ctx, company.OrganizationID)
+	if err != nil {
+		t.Fatalf("the confirmed anchor has no logo: %v", err)
+	}
+	if boundKey != *parked {
+		t.Fatalf("the anchor names %q, want the adopted object at %q", boundKey, *parked)
+	}
+
+	// A later resolve of the same company supersedes the adopted object and
+	// hands its key back for collection. Nothing may still be pointing at those
+	// bytes by the time the lane deletes them.
+	next := blobstore.WorkspaceKey(ids.From[ids.WorkspaceKind](e.WS), "organization_logo",
+		company.OrganizationID.String()+"/"+ids.NewV7().String())
+	written, superseded, err := e.People.SetOrganizationLogo(ctx, company.OrganizationID, next, seedURL+"/newer.png")
+	if err != nil {
+		t.Fatalf("re-resolve the anchor's logo: %v", err)
+	}
+	if !written {
+		t.Fatal("the re-resolve reported no change to a mark the site read captured")
+	}
+	if superseded == nil || *superseded != *parked {
+		t.Fatalf("superseded key = %v, want the adopted object at %q", superseded, *parked)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM site_read WHERE logo_object_key = $1`, *parked); n != 0 {
+		t.Fatalf("%d dossier row(s) still name the collected object at %q", n, *parked)
+	}
+}
+
+// publishedSeq answers the insert order the outbox will ship one organization's
+// two confirmation events in — the anchor's own creation, and the update the
+// adopted mark publishes.
+func publishedSeq(t *testing.T, e *integration.Env, orgID ids.OrganizationID) (created, mark int64) {
+	t.Helper()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(), `SELECT seq FROM event_outbox
+			WHERE envelope->>'type' = 'organization.created'
+			  AND envelope->'entity'->>'id' = $1`, orgID.String()).Scan(&created); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(), `SELECT seq FROM event_outbox
+			WHERE envelope->>'type' = 'organization.updated'
+			  AND envelope->'entity'->>'id' = $1
+			  AND envelope->'payload'->'changed_fields'->>'source_url' = $2`,
+			orgID.String(), touchIconURL).Scan(&mark)
+	}); err != nil {
+		t.Fatalf("reading the confirmation's published events: %v", err)
+	}
+	return created, mark
+}
+
+func TestConfirmingAnOnboardingReadPublishesTheAnchorBeforeItsMark(t *testing.T) {
+	// One confirmation publishes two events about one organization: the
+	// creation that mints the anchor, and the update the adopted logo writes.
+	// The relay ships an entity's rows in insert order, so the creation has to
+	// be the earlier one — an update arriving first describes a record the
+	// consumer has never been told exists, and the creation behind it carries
+	// no logo to repair the gap.
+	e := integration.Setup(t)
+	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
+	args := readTheOnboardingSite(t, e, onboardingLogoWorker(e, site, blobstore.NewMemory()))
+	company := confirmTheAnchor(t, e, args)
+
+	created, mark := publishedSeq(t, e, company.OrganizationID)
+	if created >= mark {
+		t.Fatalf("organization.created published at seq %d, the logo's organization.updated at %d — the anchor must come first", created, mark)
+	}
+}
+
 func TestConfirmingAnOnboardingReadSurvivesALogoThatNeverResolved(t *testing.T) {
 	// An air-gapped install, a site that declares nothing, an asset that will
 	// not answer: the company still has to come into being. A logo is polish on

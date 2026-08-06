@@ -222,6 +222,24 @@ function absoluteWebsite(raw: string): string {
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }
 
+// What the refresh area may say when the website read goes wrong. Only the
+// START failure speaks verbatim: that problem answers the URL the reader just
+// typed — the site is unreachable, robots refused it, the budget is spent —
+// and it is guidance they can act on. A status poll that fails answers a read
+// id nobody typed, so its detail is machinery talk and the catalog sentence is
+// the honest thing to show; the failure itself still reaches the console
+// through the shared query cache, which reports every query failure.
+function refreshProblem(
+  start: Readonly<{ isError: boolean; error: unknown }>,
+  poll: Readonly<{ isError: boolean; error: unknown }>,
+  t: ReturnType<typeof useT>,
+): string | null {
+  if (start.isError) {
+    return problemMessageOf(start.error, t);
+  }
+  return poll.isError ? t("settings.companyRefreshUnreadable") : null;
+}
+
 export function CompanyContextCard() {
   const t = useT();
   const queryClient = useQueryClient();
@@ -358,6 +376,8 @@ export function CompanyContextCard() {
     },
   });
 
+  const refreshFailure = refreshProblem(startRefresh, siteRead, t);
+
   if (capabilities.data && !capabilities.data.read_enabled) {
     return null;
   }
@@ -445,10 +465,8 @@ export function CompanyContextCard() {
                   </Button>
                 </div>
               </div>
-              {(startRefresh.isError || siteRead.isError) && (
-                <p className="company-context-error">
-                  {problemMessageOf(startRefresh.error ?? siteRead.error, t)}
-                </p>
+              {refreshFailure !== null && (
+                <p className="company-context-error">{refreshFailure}</p>
               )}
               {siteRead.data && (
                 <RefreshReview

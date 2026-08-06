@@ -2180,7 +2180,6 @@ export const de = {
     "Dein Impressum nennt mehr als ein Unternehmen. Wähl aus, welches deins ist, dann trage ich es ein.",
   "ob.conv.triage.omittedLabel": "Ausgelassen, nicht geraten",
   "ob.conv.triage.omittedField": "{field}: {reason}",
-  "ob.conv.triage.omittedGate": "Aus dem Lesevorgang: {detail}",
   "ob.conv.triage.mapLabel": "Zu einem Abschnitt springen",
   "ob.conv.triage.sectionBlocking": "{count} nötig, um fortzufahren",
   "ob.conv.triage.sectionAdvisory": "{count} prüfenswert",
@@ -2319,9 +2318,9 @@ export const de = {
   "ob.conv.review.confirmVersionSkewStuck":
     "Ich habe noch einmal geprüft, aber es hat sich noch nichts geändert. Weiter würde jetzt genauso fehlschlagen. Schau noch einmal nach oder prüfe es gleich erneut.",
   "ob.conv.review.confirmNotReady":
-    "Dieser Read ist noch nicht bereit zur Bestätigung. Warte, bis er fertig ist, oder starte einen neuen.",
+    "Dieser Read hat noch keinen Entwurf zum Bestätigen, deshalb ist Weiter vorerst gesperrt. Prüfe erneut, sobald er fertig ist, oder starte einen neuen Read.",
   "ob.conv.review.confirmCheckFailed":
-    "Ich konnte nicht prüfen, wie es um diesen Read steht, deshalb wurde nichts weitergeführt. Prüfe es erneut oder drücke gleich noch einmal Weiter.",
+    "Dieser Read wurde bereits bestätigt, aber ich konnte das damit angelegte Unternehmen nicht laden. Prüfe es gleich noch einmal.",
   "ob.conv.artifact.empty":
     "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
   "ob.conv.results.continue": "Weiter",
@@ -3181,6 +3180,8 @@ export const de = {
   "settings.companySaved": "Gespeichert",
   "settings.companyRefreshUnavailable":
     "Diese Website-Aktualisierung ist nicht mehr verfügbar.",
+  "settings.companyRefreshUnreadable":
+    "Wir haben den Stand dieses Website-Lesevorgangs verloren. Starte die Aktualisierung erneut.",
   "settings.companyRefreshStale":
     "Der Website-Vorschlag hat sich geändert. Prüfe den neuen Vergleich vor dem Übernehmen.",
   "settings.companyRefreshReview": "Website-Vergleich",

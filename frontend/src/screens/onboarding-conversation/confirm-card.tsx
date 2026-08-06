@@ -36,11 +36,7 @@ import {
 } from "../onboarding-facts";
 import { CoverageCard } from "../onboarding-live-panel";
 import type { ClarifyAnswer } from "./company-proposal";
-import {
-  evidencedFields,
-  isCompanyField,
-  legalFieldGap,
-} from "./company-proposal";
+import { evidencedFields, isCompanyField } from "./company-proposal";
 import {
   isWork,
   type ReviewRow,
@@ -220,47 +216,38 @@ function prosePreview(value: string): string {
  * surface's to discharge — a named omission, never a blank box the reader
  * has to tell apart from "not found" and "never looked".
  *
- * `reasonKey` is the row's own hint, already derived from what the crawl
- * actually saw; `gateWarning` is the read's verbatim sentence, present only
- * when there is one AND the field is one the legal gate governs. Attaching
- * a crawl-wide warning to a field the gate never touched would assert a
- * cause the read never gave.
+ * The reason is the row's own hint, derived from what the crawl actually saw
+ * for THIS field. The read's `warnings` are deliberately not part of it: they
+ * are crawl-wide sentences (an extraction caveat, the legal gate's
+ * abstention, a read that stopped early) and nothing on the wire ties one to
+ * a field, so quoting any of them here would assert a cause for this field
+ * that the read never gave — the very fabrication this notice exists to
+ * prevent. Every warning is still shown in full, under its own heading, by
+ * the CoverageCard at the foot of the board.
  */
-type Omission = Readonly<{
-  reasonKey: MessageKey;
-  gateWarning: string | null;
-}>;
-
-function omissionFor(
+function omissionReasonFor(
   row: ReviewRow,
   read: CompanySiteRead | null,
-): Omission | null {
+): MessageKey | null {
   // No read, no omission to state: an empty field on the manual path was
-  // never looked for, and saying it was not found would be the fabrication
-  // this notice exists to prevent.
+  // never looked for, and saying it was not found would be the same
+  // fabrication in the other direction.
   if (read === null || row.value.trim() !== "") {
     return null;
   }
-  const gated =
-    legalFieldGap(row.field, read.pages, read.legal_entities) !== null &&
-    read.warnings.length > 0;
-  return {
-    reasonKey: row.emptyHintKey,
-    gateWarning: gated ? read.warnings.join(" ") : null,
-  };
+  return row.emptyHintKey;
 }
 
 // The omission itself, in the dashed weight the tree already uses for
-// anything not yet real: the field named, the reason beside it, and the
-// read's own words kept in a line of their own so they read as the read's
-// account rather than ours.
+// anything not yet real: the field named, and beside it the one reason the
+// read can actually support for that field.
 function OmissionNotice({
   label,
-  omission,
+  reasonKey,
   t,
 }: Readonly<{
   label: string;
-  omission: Omission;
+  reasonKey: MessageKey;
   t: ReturnType<typeof useT>;
 }>) {
   return (
@@ -273,14 +260,9 @@ function OmissionNotice({
         <p>
           {t("ob.conv.triage.omittedField", {
             field: label,
-            reason: t(omission.reasonKey),
+            reason: t(reasonKey),
           })}
         </p>
-        {omission.gateWarning !== null && (
-          <p className="ob-triage-omitted-gate">
-            {t("ob.conv.triage.omittedGate", { detail: omission.gateWarning })}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -300,13 +282,13 @@ function OmissionNotice({
  */
 function FieldRow({
   row,
-  omission,
+  omissionReason,
   setField,
   defaultExpanded,
 }: Readonly<{
   row: ReviewRow;
   /** Null when the field carries a value, or when no read ever ran. */
-  omission: Omission | null;
+  omissionReason: MessageKey | null;
   setField: (field: CompanyFieldName, value: string) => void;
   defaultExpanded: boolean;
 }>) {
@@ -410,8 +392,8 @@ function FieldRow({
       </div>
       {/* Above the control, not below it: the reader learns the box is empty
           because nothing grounded it BEFORE deciding what to type in it. */}
-      {omission !== null && (
-        <OmissionNotice label={row.label} omission={omission} t={t} />
+      {omissionReason !== null && (
+        <OmissionNotice label={row.label} reasonKey={omissionReason} t={t} />
       )}
       {row.multiline ? (
         <textarea id={controlId} value={row.value} onChange={onChange} />
@@ -876,9 +858,12 @@ const PEOPLE_KEY = "people";
 
 // A person is evidence-or-omit like any other finding: the contract requires
 // a snippet and a source for every one the read reports, so this is never a
-// guess at whether they exist, only a defensive floor against an empty string.
+// guess at whether they exist, only a defensive floor against a quote with
+// nothing in it. Whitespace counts as nothing — a chip whose proof is three
+// spaces claims evidence it does not have.
 function personEvidence(person: SitePerson): Evidence | null {
-  return person.evidence_snippet === "" || person.evidence_url === ""
+  return person.evidence_snippet.trim() === "" ||
+    person.evidence_url.trim() === ""
     ? null
     : { snippet: person.evidence_snippet, source: person.evidence_url };
 }
@@ -1151,7 +1136,7 @@ function FieldGroupSection({
               )}
             <FieldRow
               row={row}
-              omission={omissionFor(row, read)}
+              omissionReason={omissionReasonFor(row, read)}
               setField={setField}
               defaultExpanded={group.openByDefault.has(row.field)}
             />

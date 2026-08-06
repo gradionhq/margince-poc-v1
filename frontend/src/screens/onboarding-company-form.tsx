@@ -335,9 +335,12 @@ function CompanyFormField({
   // chose from the read's candidates has the page it was printed on and, when
   // the read captured one, a verbatim quote — but nothing ever measured a
   // confidence for it, so no meter is drawn rather than a made-up band. Same
-  // for the quote: no snippet, no chip, never an empty one.
+  // for the quote: no snippet, no chip, never an empty one. A snippet of
+  // nothing but whitespace is no snippet — a chip drawn around it would claim
+  // proof the read never captured.
   const level = confidenceLevel(grounded?.confidence);
-  const quote = grounded?.evidence_snippet;
+  const snippet = grounded?.evidence_snippet;
+  const quote = snippet !== undefined && snippet.trim() !== "" ? snippet : null;
   // The design-system field shape (create.tsx RecordFormBody is the reference):
   // .field + .t-label + .input/.textarea. The trust adornments (confidence,
   // read-from-site, typed-by-you) ride the label; the evidence chip sits under
@@ -374,7 +377,7 @@ function CompanyFormField({
           onBlur={onBlur}
         />
       )}
-      {grounded && quote !== undefined && (
+      {grounded && quote !== null && (
         <EvidenceChip
           evidence={{
             snippet: quote,

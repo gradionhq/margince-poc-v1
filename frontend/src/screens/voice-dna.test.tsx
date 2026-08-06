@@ -186,3 +186,76 @@ describe("the Settings Voice DNA card with no profile yet", () => {
     expect(add.hasAttribute("disabled")).toBe(true);
   });
 });
+
+// A build is the longest-running act on this card and the one a reader is
+// likeliest to report as broken. What they can quote is one sentence, so the
+// failure behind it has to survive somewhere an operator can read it.
+describe("a build that fails", () => {
+  // `collecting` is the server's "too thin to build" verdict and disables the
+  // control; a provisional profile is the smallest fixture whose build button
+  // can actually be pressed.
+  const BUILDABLE: VoiceProfile = { ...PROFILE, maturity: "provisional" };
+
+  function stubBuild(build: () => Response) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const path = new URL(request.url).pathname.replace(/^\/v1/, "");
+        if (path === "/voice-profiles") {
+          return jsonResponse({ data: [BUILDABLE], page: emptyPage.page });
+        }
+        if (path === "/voice-profiles/vp-1/sources") {
+          return jsonResponse({ data: [SOURCE], summary: SUMMARY });
+        }
+        if (path === "/voice-profiles/vp-1/builds") {
+          return build();
+        }
+        return jsonResponse(emptyPage);
+      }),
+    );
+  }
+
+  async function pressRebuild() {
+    render(<VoiceDnaCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Rebuild Voice DNA/ }),
+    );
+  }
+
+  it("shows the shared line and keeps the original failure on the console", async () => {
+    const crash = new TypeError("Cannot read properties of undefined");
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    stubBuild(() => {
+      throw crash;
+    });
+
+    await pressRebuild();
+
+    expect(
+      await screen.findByText("The request failed. No cause reported."),
+    ).toBeTruthy();
+    // Our own internals never become the reader's sentence.
+    expect(screen.queryByText(/Cannot read properties/)).toBeNull();
+    // Once, and as the value that was thrown — sanitizing before logging
+    // would leave the same nothing on the console as on the screen.
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(logged).toHaveBeenCalledWith(crash);
+    logged.mockRestore();
+  });
+
+  it("stays off the console for a failure the server already described", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    stubBuild(() =>
+      jsonResponse(
+        { code: "budget_exhausted", detail: "The AI budget is spent." },
+        429,
+      ),
+    );
+
+    await pressRebuild();
+
+    expect(await screen.findByText("The AI budget is spent.")).toBeTruthy();
+    expect(logged).not.toHaveBeenCalled();
+    logged.mockRestore();
+  });
+});

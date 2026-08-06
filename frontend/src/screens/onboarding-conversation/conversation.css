@@ -2570,14 +2570,6 @@
   text-transform: uppercase;
 }
 
-/* The read's own sentence, set apart from our copy: it is what the read
-   reported, quoted, not our account of why the field is missing. */
-.ob-triage-omitted .ob-triage-omitted-gate {
-  margin-block-start: var(--space-1);
-  color: var(--textMeta);
-  font-size: 0.75rem;
-}
-
 /* Danger red is reserved for the ONE tier that actually stops confirm — the
    same rule the attention list above states — and this board is the single
    surface that renders both tiers at once: a required-and-empty row marked

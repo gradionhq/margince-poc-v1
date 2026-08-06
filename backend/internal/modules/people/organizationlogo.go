@@ -231,7 +231,8 @@ func (s *Store) DiscardSiteReadLogo(ctx context.Context, readID ids.UUID) (*stri
 // and the parked object is simply not adopted. That is also what keeps this
 // write from stranding bytes nothing could collect afterwards: this module owns
 // no object store, so it may adopt an object but must never drop the last
-// reference to one.
+// reference to one — an adoption MOVES the dossier's reference onto the record,
+// and a confirmation that adopts nothing leaves the dossier's where it is.
 func bindSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, orgID ids.OrganizationID) error {
 	var objectKey, originURL *string
 	if err := tx.QueryRow(ctx,
@@ -261,6 +262,17 @@ func bindSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, orgID ids
 	}
 	if tag.RowsAffected() == 0 {
 		return nil
+	}
+	// Handed over, not shared: the record is the object's one reference now.
+	// Two rows naming one key would let a later resolve of this organization
+	// supersede it, collect the bytes, and leave the dossier pointing at an
+	// object nothing can serve. The dossier keeps its reference only while
+	// NOTHING else holds it — that is what makes an unadopted mark findable,
+	// and the reason this clears only on the run that actually adopted.
+	if _, err := tx.Exec(ctx, `
+		UPDATE site_read SET logo_object_key = NULL, logo_origin = NULL, updated_at = now()
+		WHERE id = $1`, readID); err != nil {
+		return fmt.Errorf("hand the website read's logo to the company: %w", err)
 	}
 	// The site read is what captured this, never the human who confirmed the
 	// draft: provenance is written once and never re-derived, and a machine mark

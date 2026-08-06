@@ -203,24 +203,37 @@ describe("a field the read did not return", () => {
     ).toBeInTheDocument();
   });
 
-  it("asserts no cause when the read gave none", () => {
-    renderCard(read());
-
-    expect(screen.queryByText(/From the read:/)).toBeNull();
-  });
-
-  it("quotes the read's own sentence, and only for the fields that gate governs", () => {
+  it("hangs no crawl-wide warning on a field, and still gives the field its own reason", () => {
     renderCard(read({ warnings: [GATE_WARNING] }));
 
-    expect(row("legal_name")).toHaveTextContent(GATE_WARNING);
-    expect(row("registered_address")).toHaveTextContent(GATE_WARNING);
-    expect(row("register_vat")).toHaveTextContent(GATE_WARNING);
-    // history is empty too, but no legal page governs it: attaching a
-    // crawl-wide warning to it would invent a cause the read never gave.
+    // The warning is about the crawl, not about any one field: nothing on the
+    // wire ties it to legal_name rather than to register_vat or to a page
+    // neither of them came from. Quoting it beside a field would name a cause
+    // for that field the read never gave.
+    for (const field of ["legal_name", "registered_address", "register_vat"]) {
+      expect(row(field)).not.toHaveTextContent(GATE_WARNING);
+    }
     expect(row("history")).not.toHaveTextContent(GATE_WARNING);
-    expect(screen.getAllByText(`From the read: ${GATE_WARNING}`)).toHaveLength(
-      3,
+    // The reason the row CAN support is still there.
+    expect(row("legal_name")).toHaveTextContent(
+      "Not stated on your legal or imprint page.",
     );
+  });
+
+  it("still reports the warning in full, under the coverage card that owns it", async () => {
+    const user = userEvent.setup();
+    renderCard(read({ warnings: [GATE_WARNING] }));
+
+    // Nothing is swallowed by keeping it off the fields: the read's own
+    // account of what it could not settle sits below the board, one click
+    // into the card that exists to carry it, whole and under its own heading.
+    await user.click(
+      screen.getByRole("button", { name: /What I read, and what I skipped/ }),
+    );
+
+    const quoted = screen.getByText(GATE_WARNING);
+    expect(quoted.closest(".ob-triage-readmore")).not.toBeNull();
+    expect(quoted.closest(".ob-live-coverage")).toHaveTextContent("Warning");
   });
 
   it("claims no omission at all when no read ever ran", () => {
@@ -256,8 +269,12 @@ describe("the advisory tier beside the blocking one", () => {
     renderCard(read());
     expect(only(".ob-triage-row .confidence-low")).toBeInTheDocument();
 
-    expect(sheet.replace(/\s+/g, " ")).toContain(
-      ".ob-triage-row .confidence-low .dot { display: none; }",
+    // jsdom loads no stylesheet, so the rule is read off the file rather than
+    // off the element. Matched by its selector and its one declaration, in any
+    // spacing a formatter may choose: reindenting the sheet is not a change to
+    // what it does, and deleting the rule or the `display: none` still fails.
+    expect(sheet).toMatch(
+      /\.ob-triage-row\s+\.confidence-low\s+\.dot\s*\{[^}]*display\s*:\s*none\s*[;}]/,
     );
   });
 

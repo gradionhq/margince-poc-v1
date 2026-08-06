@@ -229,10 +229,14 @@ export function draftWithLegalEntity(
 // none of the trio — and without this the human is shown three blank fields
 // while the read is holding the answer, snippet and source URL included.
 //
-// Only the blanks: nobody chose this candidate, so it must not displace a
-// value the profile lane did ground, nor one the human typed. Handing
-// draftWithLegalEntity an entity stripped of the parts already answered says
-// that in the vocabulary that function already has.
+// Only the unanswered fields: nobody chose this candidate, so it must not
+// displace a value the profile lane did ground, nor one the human typed — nor
+// a field the human deliberately emptied, because clearing a box is an answer
+// and the empty box IS it. That last one needs saying separately: a cleared
+// field looks blank, and draftWithLegalEntity settles the legal name over a
+// human mark on purpose, which is right for a pick and wrong here, where
+// nobody picked anything. Handing that function an entity stripped of the
+// parts already answered says all of it in the vocabulary it already has.
 export function draftWithSoleLegalEntity(
   draft: CompanyDraft,
   entities: readonly LegalEntity[] | undefined,
@@ -241,15 +245,17 @@ export function draftWithSoleLegalEntity(
   if (entity === undefined || rest.length > 0) {
     return draft;
   }
-  const blank = (field: CompanyFieldName): boolean =>
-    draft.values[field].trim() === "";
+  const unanswered = (field: CompanyFieldName): boolean =>
+    draft.values[field].trim() === "" && !draft.edited.has(field);
   return draftWithLegalEntity(draft, {
     ...entity,
-    name: blank("legal_name") ? entity.name : "",
-    registered_address: blank("registered_address")
+    name: unanswered("legal_name") ? entity.name : "",
+    registered_address: unanswered("registered_address")
       ? entity.registered_address
       : undefined,
-    register_number: blank("register_vat") ? entity.register_number : undefined,
+    register_number: unanswered("register_vat")
+      ? entity.register_number
+      : undefined,
   });
 }
 
@@ -276,10 +282,14 @@ export type LegalFieldGap = "not-published" | "not-checked" | "unpicked";
 // Neither does a field on the manual path: with no crawl behind it there is
 // no "did not find" to report, only a blank the person has not filled yet.
 //
-// A candidate that carries the field outranks both: with several entities on
-// the site the read deliberately proposes none and waits for the human to
-// choose, and telling them meanwhile that the page does not state it would be
-// false — the page states it, for a company nobody has settled on yet.
+// A candidate that carries the field outranks both, because the page plainly
+// states it and "the page does not state it" would be false. What is left to
+// say then depends on how many companies stand on that page. Several: the read
+// deliberately proposes none and waits for the human to choose, which is the
+// choice "unpicked" names. Exactly one: there is no choice to make and
+// draftWithSoleLegalEntity already applied that block on sight, so a blank
+// that survives is the human's own clearing — the crawl has nothing to
+// explain, and "unpicked" would point at a decision that does not exist.
 export function legalFieldGap(
   field: CompanyFieldName,
   pages: readonly SiteReadPage[] | undefined,
@@ -288,8 +298,9 @@ export function legalFieldGap(
   if (!LEGAL_TRIO_FIELDS.has(field) || pages === undefined) {
     return null;
   }
-  if ((entities ?? []).some((entity) => entityCarries(entity, field))) {
-    return "unpicked";
+  const candidates = entities ?? [];
+  if (candidates.some((entity) => entityCarries(entity, field))) {
+    return candidates.length > 1 ? "unpicked" : null;
   }
   const sawLegalPage = pages.some(
     (page) => page.kind === "impressum" && page.status === "fetched",

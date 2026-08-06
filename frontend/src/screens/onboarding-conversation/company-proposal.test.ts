@@ -228,6 +228,51 @@ describe("draftWithSoleLegalEntity", () => {
       gradionEntity.registered_address,
     );
   });
+
+  it("leaves a legal name the human emptied empty, and still theirs", () => {
+    // Clearing a box is an answer, and an empty box is what it looks like.
+    // Refilling it here would overwrite a decision on the next snapshot or the
+    // next reload, since this runs again on both.
+    const cleared = changeDraftField(EMPTY_DRAFT, "legal_name", "");
+    const next = draftWithSoleLegalEntity(cleared, [gradionEntity]);
+    expect(next.values.legal_name).toBe("");
+    expect(next.edited.has("legal_name")).toBe(true);
+    expect(next.grounded.legal_name).toBeUndefined();
+  });
+
+  it("leaves an emptied address and registration number alone too", () => {
+    let cleared = changeDraftField(EMPTY_DRAFT, "registered_address", "");
+    cleared = changeDraftField(cleared, "register_vat", "");
+    const next = draftWithSoleLegalEntity(cleared, [gradionEntity]);
+    expect(next.values.registered_address).toBe("");
+    expect(next.values.register_vat).toBe("");
+    // The one field nobody touched still fills from the read.
+    expect(next.values.legal_name).toBe("Gradion Co., Ltd.");
+  });
+
+  it("still fills a field left untouched beside one the human emptied", () => {
+    const cleared = changeDraftField(EMPTY_DRAFT, "legal_name", "");
+    const next = draftWithSoleLegalEntity(cleared, [gradionEntity]);
+    expect(next.values.registered_address).toBe(
+      gradionEntity.registered_address,
+    );
+    expect(next.values.register_vat).toBe("0318 447 291");
+  });
+});
+
+// The sole-entity path respects an emptied field; an explicit pick still
+// settles the name over one the human typed. Two rules, one function, and the
+// difference between them is whether a human chose this candidate.
+describe("an explicit pick beside the automatic sole-entity fill", () => {
+  it("still settles the chosen name over a name the human emptied", () => {
+    const cleared = changeDraftField(EMPTY_DRAFT, "legal_name", "");
+    const next = draftWithLegalEntity(cleared, gradionEntity);
+    expect(next.values.legal_name).toBe("Gradion Co., Ltd.");
+    expect(next.edited.has("legal_name")).toBe(false);
+    expect(next.grounded.legal_name).toMatchObject({
+      source_url: gradionEntity.source_url,
+    });
+  });
 });
 
 // Why a legal-trio field is blank must be exactly what the read's own crawl
@@ -274,16 +319,52 @@ describe("legalFieldGap", () => {
     expect(legalFieldGap("registered_address", [blocked])).toBe("not-checked");
   });
 
+  const secondEntity: LegalEntity = {
+    name: "Gradion Holding GmbH",
+    registered_address: "Musterstraße 1, 10115 Berlin",
+    source_url: "https://gradion.com/legal-notice",
+  };
+
   it("never says the page is silent about something a candidate quotes from it", () => {
     // Several companies on one imprint: the read proposes none and waits. The
     // page DOES state the address, so "not stated" would be a false reason to
     // give for the blank the human is looking at.
+    const several = [gradionEntity, secondEntity];
     expect(
-      legalFieldGap("registered_address", [impressumFetched], [gradionEntity]),
+      legalFieldGap("registered_address", [impressumFetched], several),
     ).toBe("unpicked");
+    expect(legalFieldGap("legal_name", [impressumFetched], several)).toBe(
+      "unpicked",
+    );
+  });
+
+  it("names no choice to make when the imprint names only one company", () => {
+    // "unpicked" asks the human to choose between companies. With one there is
+    // nothing to choose and its block is applied on sight, so any blank left is
+    // the human's own clearing — and "not stated" would be false besides, since
+    // the candidate quotes the value straight off the page.
     expect(
       legalFieldGap("legal_name", [impressumFetched], [gradionEntity]),
-    ).toBe("unpicked");
+    ).toBeNull();
+    expect(
+      legalFieldGap("registered_address", [impressumFetched], [gradionEntity]),
+    ).toBeNull();
+  });
+
+  it("still names the honest gap for a field the several candidates all lack", () => {
+    // The choice is real, but it settles nothing about this field: none of the
+    // companies on the page states a registration number.
+    const nameOnly: LegalEntity = {
+      name: "Acme Holding GmbH",
+      source_url: "https://acme.example/impressum",
+    };
+    expect(
+      legalFieldGap(
+        "register_vat",
+        [impressumFetched],
+        [nameOnly, secondEntity],
+      ),
+    ).toBe("not-published");
   });
 
   it("still names the honest gap for a field none of the candidates carries", () => {

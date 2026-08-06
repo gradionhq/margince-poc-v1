@@ -285,6 +285,46 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
     expect(draftRef.current.values.registered_address).toBe("");
   });
 
+  // A candidate the read could not name is no candidate at all: the fill
+  // deliberately settles nothing about legal_name for one (it must never
+  // unmark a name the human typed themselves), so taking it would record the
+  // clarify as answered while the legal name it answers stays exactly as it
+  // was — and would fill address and registration number from an entity
+  // nothing on screen identifies.
+  it("treats a candidate with no usable name as no candidate, and lets the ordinary change path carry the choice", async () => {
+    stubAuthorizedReply();
+    const nameless: LegalEntity = {
+      name: "   ",
+      registered_address:
+        "Level 12, Bitexco Tower, District 1, Ho Chi Minh City",
+      register_number: "0318 447 291",
+      source_url: "https://gradion.com/legal-notice",
+    };
+    const namelessClarify: Clarify = {
+      id: "clarify:legal_name:2",
+      question: "Which legal entity is this installation for?",
+      field: "legal_name",
+      options: [{ value: nameless.name, label: "The entity on the imprint" }],
+    };
+    const { result, draftRef, applyChanges, applyLegalEntity } = setupHook(
+      [nameless],
+      namelessClarify,
+    );
+
+    act(() => {
+      result.current.answerClarify(namelessClarify.id, nameless.name);
+    });
+
+    await waitFor(() => expect(result.current.authorizing).toBe(false));
+    expect(applyLegalEntity).not.toHaveBeenCalled();
+    expect(applyChanges).toHaveBeenCalledWith([
+      expect.objectContaining({ field: "legal_name", value: nameless.name }),
+    ]);
+    // Nothing of the nameless candidate's own block reaches the draft.
+    expect(draftRef.current.values.registered_address).toBe("");
+    expect(draftRef.current.values.register_vat).toBe("");
+  });
+
   it("never triggers the entity fill for a clarify over a different field, even when the value happens to match a candidate's name", async () => {
     vi.stubGlobal(
       "fetch",
