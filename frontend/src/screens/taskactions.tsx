@@ -10,7 +10,7 @@ import type { components } from "../api/schema";
 import { Badge, Button, Modal, Skeleton } from "../design-system/atoms";
 import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import { RECORD_ZONE } from "./company360";
 import { EntityRef } from "./entityref";
 
@@ -40,7 +40,7 @@ export function useTaskUpdate(invalidateKeys: readonly QueryKey[]) {
         body: input.body,
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
     },
     onSuccess: (_data, input) => {
@@ -133,7 +133,7 @@ export function TaskDetailModal({
         params: { path: { id: activityId } },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       return data;
     },
@@ -146,7 +146,9 @@ export function TaskDetailModal({
       </h2>
       {query.isPending && <Skeleton width="100%" height={48} />}
       {query.isError && (
-        <p className="t-caption form-error">{query.error.message}</p>
+        <p className="t-caption form-error">
+          {problemMessageOf(query.error, t)}
+        </p>
       )}
       {task && (
         <div className="form-stack">

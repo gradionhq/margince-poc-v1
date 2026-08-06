@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, Card } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 
 type Moment = components["schemas"]["PersonMoment"];
 type Evidence = components["schemas"]["PersonMomentEvidence"];
@@ -73,7 +73,7 @@ function MomentCard({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     // Re-read rather than dropping the card locally: a dismissal can uncover a
@@ -148,7 +148,7 @@ function MomentCard({
             role="alert"
             style={{ margin: "var(--space-2) 0 0", color: "var(--danger)" }}
           >
-            {dismiss.error.message}
+            {problemMessageOf(dismiss.error, t)}
           </p>
         )}
       </div>

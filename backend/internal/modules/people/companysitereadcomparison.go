@@ -155,7 +155,7 @@ func classifySiteReadValue(key, kind, proposed, current, source string, found bo
 	comparison.CurrentValue = &current
 	comparison.CurrentSource = &source
 	switch {
-	case strings.TrimSpace(current) == strings.TrimSpace(proposed):
+	case samePrintedValue(current, proposed):
 		comparison.Classification = siteReadComparisonUnchanged
 	case source == companySourceHuman:
 		comparison.Classification = siteReadComparisonHumanConflict
@@ -167,4 +167,25 @@ func classifySiteReadValue(key, kind, proposed, current, source string, found bo
 
 func companyFactKey(fact CompanyFact) string {
 	return fact.Category + "/" + fact.Field + "/" + fact.ValueKey
+}
+
+// PrintedSiteReadValue is the ONE spelling of a value a website read found:
+// trimmed, with every run of internal whitespace collapsed to a single space.
+// A page lays an identity across a line break or a doubled space and a browser
+// shows one space, so the string a human is offered, picks and submits back is
+// the collapsed one — while the extraction holds the raw run.
+//
+// Exported because the option a human picks is built elsewhere (the clarify
+// question compose asks) and matched here. Offering one spelling and matching
+// another misses on exactly the entities whose printed name carries a run of
+// whitespace, and a miss files the page's own words as a human's assertion,
+// dropping the evidence the read grounded.
+func PrintedSiteReadValue(raw string) string {
+	return strings.Join(strings.Fields(raw), " ")
+}
+
+// samePrintedValue answers whether a submitted value is the value the read
+// found — same printed string, whatever whitespace the page set it in.
+func samePrintedValue(submitted, found string) bool {
+	return PrintedSiteReadValue(submitted) == PrintedSiteReadValue(found)
 }

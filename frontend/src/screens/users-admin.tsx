@@ -13,7 +13,7 @@ import {
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate, useMe } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
 import { isOption } from "../app/options";
 import { PasswordLinkModal, usePasswordLink } from "./users-password-link";
@@ -44,7 +44,7 @@ function useMembers(enabled: boolean) {
         params: { query: { include_inactive: true } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -124,7 +124,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         body: { email: email.trim(), display_name: name.trim(), role },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
       return data.id;
     },
@@ -140,7 +140,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         void passwordLink.mint(newUserId);
       }
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
 
   const canInvite =
@@ -232,7 +232,7 @@ function MemberRow({
     setError(null);
     return qc.invalidateQueries({ queryKey: ["users-admin"] });
   };
-  const onError = (e: Error) => setError(e.message);
+  const onError = (e: Error) => setError(problemMessageOf(e, t));
 
   const setRole = useMutation({
     mutationFn: async (role: Role) => {
@@ -241,7 +241,7 @@ function MemberRow({
         body: { role },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: refresh,
@@ -254,7 +254,7 @@ function MemberRow({
         params: { path: { id: member.id } },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
@@ -270,7 +270,7 @@ function MemberRow({
         params: { path: { id: member.id } },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: refresh,
@@ -360,7 +360,7 @@ function MemberRow({
         confirmLabel={t("users.deactivate")}
         confirmVariant="danger"
         pending={deactivate.isPending}
-        error={deactivate.error?.message}
+        error={deactivate.error ? problemMessageOf(deactivate.error, t) : null}
         onConfirm={() => deactivate.mutate()}
       >
         <p className="t-small">{t("users.deactivateConfirmBody")}</p>

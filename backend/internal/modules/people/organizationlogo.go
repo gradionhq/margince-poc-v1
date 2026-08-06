@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -117,6 +118,235 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 		return false, nil, err
 	}
 	return written, supersededKey, nil
+}
+
+// RecordSiteReadLogo parks a resolved mark on the dossier that found it, for a
+// read whose subject does not exist yet. An onboarding read is unbound by
+// construction — it reads the site to propose a company a human has not
+// confirmed into being — and the seed page's declarations are in hand only
+// while the crawl is, so a mark that is not parked here is a mark nothing can
+// resolve later.
+//
+// Only the attempt that currently HOLDS the read takes the reference: the read
+// must still be running AND still carry the lease the caller was handed at
+// BeginSiteRead (SiteReadClaim.ClaimedAt). Running alone is not enough, because
+// a reclaim puts a running row back into running under a NEW attempt: a stalled
+// worker resuming afterwards would overwrite the mark the current attempt just
+// parked and be handed that attempt's object back as superseded, so its caller
+// would delete the very bytes the dossier had adopted.
+//
+// Past the claim the row has also already answered for its mark: a read that
+// ended without a company had its parked object collected on the way to
+// terminal, and a read that ended with a report handed a human a draft whose
+// mark must not change while they review it. A park after either is a reference
+// nothing adopts and nothing collects, which is the one orphan this lane can no
+// longer find.
+//
+// It reports whether the dossier took the reference and hands back the key the
+// row named before, so the caller can reclaim bytes nothing references any more.
+// A refused park hands back none — the object stored for it is the caller's to
+// collect. Same contract as SetOrganizationLogo, for the same reason: each
+// attempt writes its own key, so two resolves of one read can never write the
+// same object.
+//
+// No auth.Require, the same rationale as BeginSiteRead: the worker is not a
+// human principal, the human's authority was checked when the read was started,
+// and the workspace-bound transaction still scopes the write to the job's
+// tenant. The reference on the dossier is operational, like every other worker
+// write to this row; the audited write on the RECORD happens when a
+// confirmation binds it.
+func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, claimedAt time.Time, objectKey, originURL string) (recorded bool, supersededKey *string, err error) {
+	if objectKey == "" || originURL == "" {
+		return false, nil, errors.New("people: a resolved logo needs both its storage key and the URL it was resolved from")
+	}
+	if claimedAt.IsZero() {
+		return false, nil, errors.New("people: parking a website read's mark needs the lease BeginSiteRead handed the attempt that resolved it")
+	}
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// RETURNING the pre-write key, exactly as SetOrganizationLogo does: the
+		// sub-select reads the statement's own snapshot, so it names the object
+		// this write supersedes rather than the one it just stored.
+		var previous *string
+		err := tx.QueryRow(ctx, `
+			UPDATE site_read SET logo_object_key = $2, logo_origin = $3, updated_at = now()
+			WHERE id = $1 AND status = 'running' AND started_at = $4
+			  AND organization_id IS NULL AND confirmed_at IS NULL
+			RETURNING (SELECT sr.logo_object_key FROM site_read sr WHERE sr.id = $1)`,
+			readID, objectKey, originURL, claimedAt.UTC()).Scan(&previous)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Bound, confirmed, no longer running, or running for somebody else:
+			// the read has answered for its mark without this one, and recording
+			// it now would name bytes no record adopts and no collection reaches.
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("record the website read's logo: %w", err)
+		}
+		recorded = true
+		supersededKey = supersededObject(previous, objectKey)
+		return nil
+	})
+	if err != nil {
+		return false, nil, err
+	}
+	return recorded, supersededKey, nil
+}
+
+// logoUnwornByAnyOrganization is the safety proof every drop of a parked
+// reference carries, in one spelling: the reference goes only while no
+// organization names the same key, so an object a company wears is never
+// reported as collectable. Keys carry their workspace prefix and RLS scopes the
+// check to that same tenant, so a foreign record's bytes cannot be described
+// here at all. It reads the `sr` alias its statements give site_read.
+const logoUnwornByAnyOrganization = `NOT EXISTS (
+		SELECT 1 FROM organization o WHERE o.logo_object_key = sr.logo_object_key)`
+
+// DiscardSiteReadLogo drops the mark parked on a read that can never hand it
+// over, and answers the storage key it dropped so the caller collects the
+// bytes — this module owns no object store, so reclaiming is something it can
+// only ever REPORT.
+//
+// A confirmation is the only thing that adopts a parked mark, and it accepts
+// none but a done or partial read. A read that ended without a dossier —
+// failed, or cancelled because the operator withdrew the setting that queued it
+// — therefore holds bytes no record will ever wear, and the reference on the
+// dossier is the only thing left that can still find them.
+//
+// No auth.Require, the same rationale as RecordSiteReadLogo: the worker is not
+// a human principal, and the parked reference is operational state on the
+// dossier row rather than a fact on a record.
+func (s *Store) DiscardSiteReadLogo(ctx context.Context, readID ids.UUID) (*string, error) {
+	var discarded *string
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// RETURNING the pre-write key, exactly as the two writes above do: the
+		// sub-select reads the statement's own snapshot, so it names the object
+		// this UPDATE just unreferenced.
+		err := tx.QueryRow(ctx, `
+			UPDATE site_read sr SET logo_object_key = NULL, logo_origin = NULL, updated_at = now()
+			WHERE sr.id = $1 AND sr.confirmed_at IS NULL AND sr.logo_object_key IS NOT NULL
+			  AND sr.status IN ('failed', 'cancelled')
+			  AND `+logoUnwornByAnyOrganization+`
+			RETURNING (SELECT parked.logo_object_key FROM site_read parked WHERE parked.id = $1)`,
+			readID).Scan(&discarded)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Nothing parked, a read that may still be confirmed, or bytes a
+			// record already wears: all three keep the object.
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("discard the website read's logo: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return discarded, nil
+}
+
+// bindSiteReadLogo gives the company a confirmation creates the mark its own
+// website read already resolved — the step that makes the anchor's face arrive
+// on the same terms as every other company's (A55). It runs inside the
+// confirmation's transaction, so the company and its logo commit together.
+//
+// Fill-empty, like every site-read field the confirmation applies: a mark the
+// record already wears — a person's own, or one an earlier read landed — stays,
+// and the parked object is not adopted. Adoption MOVES the dossier's reference
+// onto the record; a decline hands that reference back to the caller as a key
+// to collect, in the same transaction that declined, so the row and the report
+// can never disagree about who holds those bytes.
+//
+// It answers the unadopted key, never a deleted object: this module owns no
+// object store, so reclaiming is something it can only ever REPORT.
+func bindSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, orgID ids.OrganizationID, reclaim bool) (*string, error) {
+	// unadopted names what the confirmation leaves behind for its caller. It
+	// stays nil on every path that leaves nothing: no mark was parked, or the
+	// anchor took the one that was.
+	var unadopted *string
+	var objectKey, originURL *string
+	if err := tx.QueryRow(ctx,
+		`SELECT logo_object_key, logo_origin FROM site_read WHERE id = $1`, readID).
+		Scan(&objectKey, &originURL); err != nil {
+		return nil, fmt.Errorf("read the website read's logo: %w", err)
+	}
+	if objectKey == nil || *objectKey == "" || originURL == nil || *originURL == "" {
+		// The read resolved nothing usable — an air-gapped install, a site that
+		// declares no icon, an asset that would not decode. The record draws its
+		// deterministic monogram, which is a face rather than a gap.
+		return unadopted, nil
+	}
+	held, err := logoHeldByHuman(ctx, tx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		return releaseParkedSiteReadLogo(ctx, tx, readID, reclaim)
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE organization SET logo_object_key = $2, logo_origin = $3
+		WHERE id = $1 AND archived_at IS NULL AND logo_object_key IS NULL`,
+		orgID, *objectKey, *originURL)
+	if err != nil {
+		return nil, fmt.Errorf("bind the website read's logo: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// The record already wears a mark, or was archived under this
+		// confirmation: the same decline as a human-held field, and the same
+		// parked object left over.
+		return releaseParkedSiteReadLogo(ctx, tx, readID, reclaim)
+	}
+	// Handed over, not shared: the record is the object's one reference now.
+	// Two rows naming one key would let a later resolve of this organization
+	// supersede it, collect the bytes, and leave the dossier pointing at an
+	// object nothing can serve. The dossier keeps its reference only while
+	// NOTHING else holds it — that is what makes an unadopted mark findable,
+	// and the reason this clears only on the run that actually adopted.
+	if _, err := tx.Exec(ctx, `
+		UPDATE site_read SET logo_object_key = NULL, logo_origin = NULL, updated_at = now()
+		WHERE id = $1`, readID); err != nil {
+		return nil, fmt.Errorf("hand the website read's logo to the company: %w", err)
+	}
+	// The site read is what captured this, never the human who confirmed the
+	// draft: provenance is written once and never re-derived, and a machine mark
+	// recorded under a person's name would make the human-precedence guard
+	// refuse every later resolve for a logo nobody chose.
+	if err := recordLogoWrite(ctx, tx, orgID, *originURL, companySiteReadCapturedBy); err != nil {
+		return nil, err
+	}
+	return unadopted, nil
+}
+
+// releaseParkedSiteReadLogo drops the reference a confirmation declined to
+// adopt and answers the key it dropped, so the caller collects bytes no record
+// wears. The confirmation holds this dossier's row lock, so the drop and the
+// answer describe one state.
+//
+// A caller that owns no object store asks for no release and the reference
+// STAYS. The parked key embeds a per-attempt uuid nothing else recorded — it is
+// the object's last handle — so clearing it for a caller that cannot delete
+// would turn a findable orphan into an unfindable one. It is the confirm path's
+// spelling of the guard the worker keeps in front of DiscardSiteReadLogo.
+func releaseParkedSiteReadLogo(ctx context.Context, tx pgx.Tx, readID ids.UUID, reclaim bool) (*string, error) {
+	// released stays nil for the two outcomes that free nothing: a caller that
+	// cannot collect, and bytes a record already wears — the statement matches no
+	// row then, and the reference stays with the record.
+	var released *string
+	if !reclaim {
+		return released, nil
+	}
+	// RETURNING the pre-write key, exactly as the writes above do: the
+	// sub-select reads the statement's own snapshot, so it names the object this
+	// UPDATE just unreferenced.
+	err := tx.QueryRow(ctx, `
+		UPDATE site_read sr SET logo_object_key = NULL, logo_origin = NULL, updated_at = now()
+		WHERE sr.id = $1 AND sr.logo_object_key IS NOT NULL
+		  AND `+logoUnwornByAnyOrganization+`
+		RETURNING (SELECT parked.logo_object_key FROM site_read parked WHERE parked.id = $1)`,
+		readID).Scan(&released)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("release the website read's unadopted logo: %w", err)
+	}
+	return released, nil
 }
 
 // supersededObject names the object this write orphaned, or nil when it

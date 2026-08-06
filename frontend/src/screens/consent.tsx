@@ -14,7 +14,7 @@ import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { humanizeToken } from "./audit";
-import { problemMessage, QueryStates, throwProblem } from "./common";
+import { problemMessageOf, QueryStates, throwProblem } from "./common";
 import "./consent.css";
 
 // The Art. 7 proof log (G-4) + the double-opt-in redeem field (G-5) for the
@@ -37,7 +37,7 @@ function usePersonConsent(personId: string) {
         params: { path: { id: personId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -53,7 +53,7 @@ export function useConsentPurposes() {
     queryFn: async () => {
       const { data, error } = await api.GET("/consent-purposes");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -159,16 +159,17 @@ const STATE_TONE: Record<
   unknown: undefined,
 };
 
-// A mutation's own error, rendered verbatim rather than a generic failure —
-// a DOI-required purpose 422s here, and the human needs to see exactly why
-// the toggle didn't take.
+// A mutation's own refusal, in the server's words rather than a generic
+// failure — a DOI-required purpose 422s here, and the human needs to see
+// exactly why the toggle didn't take.
 function MutationError({ error }: Readonly<{ error: unknown }>) {
-  if (!(error instanceof Error)) {
+  const t = useT();
+  if (!error) {
     return null;
   }
   return (
     <p className="t-caption" style={{ color: "var(--danger)" }}>
-      {error.message}
+      {problemMessageOf(error, t)}
     </p>
   );
 }

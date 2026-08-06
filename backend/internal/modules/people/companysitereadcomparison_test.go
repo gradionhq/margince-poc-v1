@@ -9,10 +9,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -215,6 +217,134 @@ func TestResolveSiteReadConflictsRejectsInvalidResolutionValues(t *testing.T) {
 	}
 }
 
+// A reader who spots a wrong fact on the very first read has no anchor to be in
+// conflict with, so correcting one has to work with no company on file at all.
+func TestResolveSiteReadConflictsCorrectsAFactOnAFreshInstallation(t *testing.T) {
+	read := SiteRead{
+		Facts: []DeepReadFact{{
+			Category: "company", Field: "employee_range", Value: "11-50",
+			EvidenceSnippet: "A team of about 30.", SourceURL: "https://acme.test/about", Confidence: 0.7,
+		}},
+	}
+	corrected := "51-200"
+
+	resolved, err := resolveSiteReadConflicts(read, nil, ConfirmCompanySiteReadInput{
+		DisplayName:      "Acme",
+		Fields:           map[string]*string{},
+		SelectedFactKeys: []string{"company/employee_range/"},
+		Resolutions: []SiteReadResolution{
+			{Key: "company/employee_range/", Action: siteReadResolutionUse, Value: &corrected},
+		},
+	})
+	if err != nil {
+		t.Fatalf("correcting a fact nobody has asserted yet: %v", err)
+	}
+	if len(resolved.SelectedFactKeys) != 0 {
+		t.Fatalf("corrected fact still selected as the website stated it: %#v", resolved.SelectedFactKeys)
+	}
+	if len(resolved.humanFactEdits) != 1 || resolved.humanFactEdits[0].value != corrected {
+		t.Fatalf("human fact edits = %#v, want the corrected value", resolved.humanFactEdits)
+	}
+}
+
+// ADR-0065: an accepted value keeps the page's evidence. Submitting the read's
+// own value back is an acceptance however it is spelled, so it must not become
+// an evidence-less human assertion.
+func TestResolveSiteReadConflictsKeepsAnUnchangedValueOnItsWebsiteEvidence(t *testing.T) {
+	read := SiteRead{
+		Facts: []DeepReadFact{{
+			Category: "market", Field: "geographies", Value: "DACH", ValueKey: "dach",
+			EvidenceSnippet: "Serving customers across DACH.", SourceURL: "https://acme.test",
+		}},
+	}
+	unchanged := "  DACH  "
+
+	resolved, err := resolveSiteReadConflicts(read, nil, ConfirmCompanySiteReadInput{
+		DisplayName: "Acme", Fields: map[string]*string{},
+		Resolutions: []SiteReadResolution{
+			{Key: "market/geographies/dach", Action: siteReadResolutionUse, Value: &unchanged},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.humanFactEdits) != 0 {
+		t.Fatalf("an accepted value was laundered into a human assertion: %#v", resolved.humanFactEdits)
+	}
+	if !reflect.DeepEqual(resolved.SelectedFactKeys, []string{"market/geographies/dach"}) {
+		t.Fatalf("selected fact keys = %#v, want the accepted fact on its website evidence", resolved.SelectedFactKeys)
+	}
+}
+
+func TestResolveSiteReadConflictsStillRefusesKeysItCannotResolve(t *testing.T) {
+	read := SiteRead{
+		ProfileFields: []DeepReadField{{Field: fieldIndustry, Value: "Industrial automation"}},
+		Facts:         []DeepReadFact{{Category: "market", Field: "geographies", Value: "DACH", ValueKey: "dach"}},
+	}
+	value := "Something else"
+	cases := map[string]SiteReadResolution{
+		"key the draft never proposed":   {Key: "market/geographies/benelux", Action: siteReadResolutionUse, Value: &value},
+		"accepting an unconflicted fact": {Key: "market/geographies/dach", Action: siteReadResolutionAccept},
+		"keeping an unconflicted fact":   {Key: "market/geographies/dach", Action: siteReadResolutionKeep},
+		"profile field with no conflict": {Key: fieldIndustry, Action: siteReadResolutionUse, Value: &value},
+	}
+	for name, resolution := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := resolveSiteReadConflicts(read, nil, ConfirmCompanySiteReadInput{
+				DisplayName: "Acme", Fields: map[string]*string{},
+				Resolutions: []SiteReadResolution{resolution},
+			})
+			var invalid *InvalidSiteReadResolutionError
+			if !errors.As(err, &invalid) {
+				t.Fatalf("error = %v, want InvalidSiteReadResolutionError", err)
+			}
+		})
+	}
+}
+
+func TestValidateSiteReadConfirmationTellsEachRefusalApart(t *testing.T) {
+	confirmed := time.Unix(0, 0).UTC()
+	in := ConfirmCompanySiteReadInput{DraftVersion: 3, ProposalHash: "hash-3"}
+	cases := []struct {
+		name string
+		read SiteRead
+		want error
+	}{
+		{
+			name: "already confirmed",
+			read: SiteRead{Status: "done", DraftVersion: 3, ProposalHash: "hash-3", ConfirmedAt: &confirmed},
+			want: ErrSiteReadAlreadyConfirmed,
+		},
+		{
+			name: "still reading",
+			read: SiteRead{Status: "running", DraftVersion: 3, ProposalHash: "hash-3"},
+			want: ErrSiteReadNotConfirmable,
+		},
+		{
+			name: "draft moved",
+			read: SiteRead{Status: "done", DraftVersion: 4, ProposalHash: "hash-4"},
+			want: apperrors.ErrVersionSkew,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSiteReadConfirmation(tc.read, in)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("refusal = %v, want %v", err, tc.want)
+			}
+			for _, other := range []error{ErrSiteReadAlreadyConfirmed, ErrSiteReadNotConfirmable, apperrors.ErrVersionSkew} {
+				if !errors.Is(tc.want, other) && errors.Is(err, other) {
+					t.Fatalf("refusal %v also reads as %v, so a client cannot tell them apart", err, other)
+				}
+			}
+		})
+	}
+	if err := validateSiteReadConfirmation(
+		SiteRead{Status: "partial", DraftVersion: 3, ProposalHash: "hash-3"}, in); err != nil {
+		t.Fatalf("a partial read is confirmable: %v", err)
+	}
+}
+
 func TestSplitConfirmedProfileKeepsSelectedLegalEntityWebsiteGrounding(t *testing.T) {
 	legalName := "NFQ Solutions GmbH"
 	address := "Deliusstraße 7, 24114 Kiel, Germany"
@@ -246,6 +376,47 @@ func TestSplitConfirmedProfileKeepsSelectedLegalEntityWebsiteGrounding(t *testin
 	for _, field := range site {
 		if field.SourceURL != "https://gradion.com/de/imprint" || field.EvidenceSnippet == "" {
 			t.Fatalf("site field lost legal-page evidence: %#v", field)
+		}
+	}
+}
+
+func TestSplitConfirmedProfileGroundsAnEntityPrintedWithExtraWhitespace(t *testing.T) {
+	// What a human is offered is the printed value with its whitespace runs
+	// collapsed; the census keeps the run the page set. Reading the two
+	// literally would refuse the pick for exactly those entities and file the
+	// legal notice's own words as that human's assertion.
+	picked := "NFQ Solutions GmbH"
+	pickedAddress := "Deliusstraße 7, 24114 Kiel"
+	in := ConfirmCompanySiteReadInput{
+		DisplayName: "Gradion",
+		Fields: map[string]*string{
+			fieldLegalName:         &picked,
+			fieldRegisteredAddress: &pickedAddress,
+		},
+	}
+	entities := []SiteReadLegalEntity{
+		{Name: "Gradion Pte. Ltd.", SourceURL: "https://gradion.com/imprint"},
+		{
+			Name: "NFQ  Solutions GmbH", RegisteredAddress: "Deliusstraße 7,  24114 Kiel",
+			EvidenceSnippet: "NFQ Solutions GmbH, Deliusstraße 7",
+			SourceURL:       "https://gradion.com/de/imprint",
+		},
+	}
+
+	site, human := splitConfirmedProfile(nil, entities, in)
+	if len(human) != 1 || human[fieldDisplayName] == nil {
+		t.Fatalf("human fields = %#v, want only display_name — the pick is the page's own value", human)
+	}
+	if len(site) != 2 {
+		t.Fatalf("site fields = %#v, want the picked legal name and address grounded on the legal page", site)
+	}
+	for _, field := range site {
+		if field.SourceURL != "https://gradion.com/de/imprint" || field.EvidenceSnippet == "" {
+			t.Fatalf("site field lost legal-page evidence: %#v", field)
+		}
+		want := map[string]string{fieldLegalName: picked, fieldRegisteredAddress: pickedAddress}[field.Field]
+		if field.Value != want {
+			t.Fatalf("%s lands as %q, want the spelling the human was shown: %q", field.Field, field.Value, want)
 		}
 	}
 }

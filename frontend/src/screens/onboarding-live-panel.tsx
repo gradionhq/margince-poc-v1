@@ -73,6 +73,20 @@ export function DossierCard({
  */
 type CoverageKind = "warn" | "skip" | "fail";
 
+type StoppedReason = NonNullable<
+  components["schemas"]["CompanySiteRead"]["stopped_reason"]
+>;
+
+// Why the crawl ended early, in the reader's terms. The wire's vocabulary is
+// closed, so the mapping is exhaustive by type and a new member fails the
+// build here rather than rendering as a raw enum value.
+const STOPPED_REASON_COPY: Readonly<Record<StoppedReason, MessageKey>> = {
+  budget: "ob.live.stoppedBudget",
+  page_cap: "ob.live.stoppedPageCap",
+  byte_cap: "ob.live.stoppedByteCap",
+  deadline: "ob.live.stoppedDeadline",
+};
+
 type CoverageRow = Readonly<{
   id: string;
   kind: CoverageKind;
@@ -93,10 +107,22 @@ type CoverageRow = Readonly<{
 function coverageRows(
   pages: readonly SitePage[],
   warnings: readonly string[],
+  stoppedReason: StoppedReason | undefined,
   t: ReturnType<typeof useT>,
 ): CoverageRow[] {
   const rows: CoverageRow[] = [];
   let seq = 0;
+  // A read that ran out of budget covered the site as far as it was allowed,
+  // not as far as the site goes. Without this the page counts read as a whole
+  // site — the same "covered everything" impression a silent skip gives.
+  if (stoppedReason !== undefined && stoppedReason !== null) {
+    rows.push({
+      id: `stopped:${stoppedReason}`,
+      kind: "warn",
+      label: t("ob.live.coverageStopped"),
+      reason: t(STOPPED_REASON_COPY[stoppedReason]),
+    });
+  }
   for (const warning of warnings) {
     seq += 1;
     rows.push({
@@ -142,9 +168,15 @@ function coverageRows(
 export function CoverageCard({
   pages,
   warnings,
-}: Readonly<{ pages: readonly SitePage[]; warnings: readonly string[] }>) {
+  stoppedReason,
+}: Readonly<{
+  pages: readonly SitePage[];
+  warnings: readonly string[];
+  /** Why the crawl ended early; absent when it exhausted discovery. */
+  stoppedReason?: StoppedReason | null;
+}>) {
   const t = useT();
-  const rows = coverageRows(pages, warnings, t);
+  const rows = coverageRows(pages, warnings, stoppedReason ?? undefined, t);
   const read = pages.filter((page) => page.status === "fetched").length;
   const skipped = pages.filter((page) => page.status === "skipped").length;
   return (

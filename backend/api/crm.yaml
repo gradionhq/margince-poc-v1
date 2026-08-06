@@ -4804,10 +4804,12 @@ paths:
       summary: Confirm a selected onboarding draft into the anchor company atomically.
       description: |
         Applies only the submitted profile and selected fact keys. The draft version and proposal
-        hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
-        Every human-held collision requires an explicit keyed resolution. Unchanged values retain
-        website evidence, edits become human assertions, and published people remain separate
-        site-lead proposals rather than becoming contacts or company-context rows.
+        hash bind confirmation to the exact inspected proposal; a stale confirmation returns
+        `409 version_skew`, an already-decided one `409 already_confirmed`, and one whose read has
+        produced no draft `409 not_confirmable`. Every human-held collision requires an explicit
+        keyed resolution. Unchanged values retain website evidence, edits become human assertions,
+        and published people remain separate site-lead proposals rather than becoming contacts or
+        company-context rows.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -4824,7 +4826,15 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: >
+            The draft cannot be confirmed as submitted, and `code` says which of the three it is:
+            `already_confirmed` (this dossier was confirmed already — reload the company),
+            `not_confirmable` (the read has produced no draft yet — wait for it or start a new one),
+            or `version_skew` (the draft moved since it was reviewed — inspect it again).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   # ------------------ /connectors (per-provider OAuth capture) ---------------
@@ -14499,11 +14509,18 @@ components:
       type: object
       required: [key, action]
       properties:
-        key: { type: string }
+        key:
+          type: string
+          description: >
+            A human_conflict comparison key, or — for use_value only — any fact comparison key in
+            the draft. Any other key is refused.
         action: { type: string, enum: [keep_current, accept_proposal, use_value] }
         value:
           type: [string, 'null']
-          description: Required and non-blank only for use_value; forbidden for other actions.
+          description: >
+            Required and non-blank only for use_value; forbidden for other actions. A value equal
+            to the read's own proposed value is an acceptance and keeps the page's evidence; a
+            different one is the human's assertion and is stored with no website evidence.
 
     CompanySiteReadLegalEntity:
       type: object
@@ -14776,6 +14793,11 @@ components:
         status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
         status_detail: { type: [string, 'null'], description: 'Safe guidance only; never provider payload, prompt, SQL, or stack data.' }
         next_attempt_at: { type: [string, 'null'], format: date-time }
+        stopped_reason:
+          type: [string, 'null']
+          enum: [budget, page_cap, byte_cap, deadline, null]
+          x-enum-varnames: [CompanySiteReadStoppedReasonBudget, CompanySiteReadStoppedReasonPageCap, CompanySiteReadStoppedReasonByteCap, CompanySiteReadStoppedReasonDeadline, CompanySiteReadStoppedReasonNull]
+          description: 'Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.'
         phase: { type: [string, 'null'], enum: [crawling, extracting] }
         pages_read: { type: integer, minimum: 0 }
         pages:
@@ -14820,12 +14842,18 @@ components:
         profile: { $ref: '#/components/schemas/CompanyProfileInput' }
         selected_fact_keys:
           type: array
+          description: >
+            The proposed facts to keep, exactly as the read stated them. A fact the reader wants
+            to correct is left out of this list and sent as a use_value resolution instead.
           uniqueItems: true
           maxItems: 100
           items: { type: string }
         resolutions:
           type: array
-          description: Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+          description: >
+            Exactly one keyed resolution for every human_conflict comparison, plus an optional
+            use_value for any fact the read got wrong. Omitted is equivalent to an empty array for
+            existing clients and succeeds only when no human conflict exists.
           items: { $ref: '#/components/schemas/CompanySiteReadResolution' }
 
     EnrichCompanyRequest:

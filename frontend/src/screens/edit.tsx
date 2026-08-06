@@ -3,7 +3,12 @@ import { useId, useState } from "react";
 import type { Route } from "../app/router";
 import { Button, Modal } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { isVersionSkew, ProblemError, problemExistingId } from "./common";
+import {
+  isVersionSkew,
+  ProblemError,
+  problemExistingId,
+  problemMessageOf,
+} from "./common";
 import {
   type CreateField,
   type FormRow,
@@ -263,7 +268,7 @@ export function EditAction<Updated extends { id: string }>({
           mutation.isError
             ? skew
               ? t("edit.versionSkew")
-              : mutation.error.message
+              : problemMessageOf(mutation.error, t)
             : null
         }
         existing={existing}

@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ENTITY, type EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
-import { problemMessage } from "./common";
+import { throwProblem } from "./common";
 
 // A cross-record reference rendered as the target's display name plus a
 // backlink to its 360, resolved by id. Records point at each other by id
@@ -78,13 +78,13 @@ export function useRoster(kind: RosterKind, enabled: boolean) {
         const { data, error } = await api.GET("/users", {
           params: { query: { limit: 200 } },
         });
-        if (error) throw new Error(problemMessage(error));
+        if (error) throwProblem(error);
         return data.data;
       }
       const { data, error } = await api.GET("/teams", {
         params: { query: { limit: 200 } },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data.data;
     },
     enabled,
