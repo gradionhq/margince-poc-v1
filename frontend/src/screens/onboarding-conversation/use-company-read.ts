@@ -9,7 +9,10 @@ import type { CompanyDraft } from "../onboarding";
 import { changeDraftField, prefill } from "../onboarding";
 import { defaultSelectedFactKeys } from "../onboarding-facts";
 import type { ClarifyAnswer } from "./company-proposal";
-import { toMachineQuestion } from "./company-proposal";
+import {
+  draftWithSoleLegalEntity,
+  toMachineQuestion,
+} from "./company-proposal";
 import type {
   ConversationEvent,
   ConversationState,
@@ -159,7 +162,12 @@ export function useCompanyRead({
       prevSnapshot.current = next;
       if (next.draft_version > appliedReadVersion.current) {
         appliedReadVersion.current = next.draft_version;
-        setDraft((current) => prefill(current, next.profile_fields));
+        setDraft((current) =>
+          draftWithSoleLegalEntity(
+            prefill(current, next.profile_fields),
+            next.legal_entities,
+          ),
+        );
         setSelectedFactKeys(defaultSelectedFactKeys(next.facts));
       }
       // Progress first, outcome second: the flush inside a terminal diff
@@ -194,7 +202,10 @@ export function useCompanyRead({
     prevSnapshot.current = adoptedRead;
     appliedReadVersion.current = adoptedRead.draft_version;
     setDraft((current) => {
-      const prefilled = prefill(current, adoptedRead.profile_fields);
+      const prefilled = draftWithSoleLegalEntity(
+        prefill(current, adoptedRead.profile_fields),
+        adoptedRead.legal_entities,
+      );
       // The confirm contract requires the website; a draft persisted before
       // the composer wrote URLs into it (or wiped by an old client) heals
       // from the adopted read's own root - the one URL this read IS.

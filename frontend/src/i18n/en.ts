@@ -2140,15 +2140,21 @@ export const en = {
   "ob.conv.triage.stateEmpty": "empty",
   "ob.conv.triage.stateTyped": "typed by you",
   "ob.conv.triage.stateStored": "from your profile",
-  // A value the human settled by picking one of the read's candidates: it
-  // came off the site, but nothing ever scored it, so the word names who
-  // chose it rather than how sure anything is.
-  "ob.conv.triage.stateChosen": "chosen by you from the site",
+  // A value the entity census read off the legal notice — the one company the
+  // site names, or the candidate the human picked from several. Nothing ever
+  // scored it, so the word names WHERE it came from; "chosen by you" would be
+  // false on the sole-candidate path, where nobody was asked anything.
+  "ob.conv.triage.stateQuoted": "read from your legal notice",
   "ob.conv.triage.emptyHint": "Not found on your site. Yours to add.",
   "ob.conv.triage.legalNotPublished":
     "Not stated on your legal or imprint page. Yours to add.",
   "ob.conv.triage.legalNotChecked":
     "I did not find a legal or imprint page on your site to check. Yours to add.",
+  // Several companies stand on the one imprint. The value IS on the page, so
+  // saying it is not stated would be false; what is missing is the human's
+  // decision about which company this installation belongs to.
+  "ob.conv.triage.legalUnpicked":
+    "Your imprint names more than one company. Choose which one is yours and I will fill this in.",
   // The omission notice on an empty row, once a read has actually run: the
   // field is named as withheld rather than left blank, and the reason is only
   // ever what the read can support. `omittedGate` is the read's own sentence,
@@ -2466,6 +2472,17 @@ export const en = {
   "ob.live.peopleEmpty":
     "Nobody yet. I only propose a person when the page gives a name and a role.",
   "ob.live.coverageWarning": "Warning",
+  // A bounded read has to say it was bounded: the page counts beside it
+  // otherwise read as the whole site.
+  "ob.live.coverageStopped": "Stopped early",
+  "ob.live.stoppedPageCap":
+    "I reached the page limit for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedByteCap":
+    "I reached the size limit for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedBudget":
+    "I reached the budget for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedDeadline":
+    "I ran out of time for one read, so there is more of your site I did not open.",
   "ob.live.coverageSkipped": "Skipped",
   "ob.live.coverageFailed": "Could not read",
   "ob.live.coverageClean":

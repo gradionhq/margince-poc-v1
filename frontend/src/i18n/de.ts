@@ -2169,13 +2169,15 @@ export const de = {
   "ob.conv.triage.stateEmpty": "leer",
   "ob.conv.triage.stateTyped": "von dir eingetragen",
   "ob.conv.triage.stateStored": "aus deinem Profil",
-  "ob.conv.triage.stateChosen": "von dir auf der Website ausgewählt",
+  "ob.conv.triage.stateQuoted": "aus deinem Impressum gelesen",
   "ob.conv.triage.emptyHint":
     "Nicht auf deiner Website gefunden. Trag es ein, wenn es zählt.",
   "ob.conv.triage.legalNotPublished":
     "Nicht auf deinem Impressum angegeben. Trag es selbst ein.",
   "ob.conv.triage.legalNotChecked":
     "Ich habe kein Impressum auf deiner Website gefunden, das ich prüfen könnte. Trag es selbst ein.",
+  "ob.conv.triage.legalUnpicked":
+    "Dein Impressum nennt mehr als ein Unternehmen. Wähl aus, welches deins ist, dann trage ich es ein.",
   "ob.conv.triage.omittedLabel": "Ausgelassen, nicht geraten",
   "ob.conv.triage.omittedField": "{field}: {reason}",
   "ob.conv.triage.omittedGate": "Aus dem Lesevorgang: {detail}",
@@ -2493,6 +2495,15 @@ export const de = {
   "ob.live.peopleEmpty":
     "Noch niemand. Ich schlage eine Person nur vor, wenn die Seite Name und Rolle nennt.",
   "ob.live.coverageWarning": "Hinweis",
+  "ob.live.coverageStopped": "Vorzeitig beendet",
+  "ob.live.stoppedPageCap":
+    "Ich habe das Seitenlimit für einen Lesevorgang erreicht. Es gibt also mehr auf deiner Website, das ich nicht geöffnet habe.",
+  "ob.live.stoppedByteCap":
+    "Ich habe das Größenlimit für einen Lesevorgang erreicht. Es gibt also mehr auf deiner Website, das ich nicht geöffnet habe.",
+  "ob.live.stoppedBudget":
+    "Ich habe das Budget für einen Lesevorgang erreicht. Es gibt also mehr auf deiner Website, das ich nicht geöffnet habe.",
+  "ob.live.stoppedDeadline":
+    "Mir ist die Zeit für einen Lesevorgang ausgegangen. Es gibt also mehr auf deiner Website, das ich nicht geöffnet habe.",
   "ob.live.coverageSkipped": "Übersprungen",
   "ob.live.coverageFailed": "Nicht lesbar",
   "ob.live.coverageClean":

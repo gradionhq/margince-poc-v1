@@ -122,7 +122,7 @@ describe("rowFor on a value with no measured confidence", () => {
       new Map(),
       stubT,
     );
-    expect(row.state).toBe("chosen");
+    expect(row.state).toBe("quoted");
     // Not "low", not 0: an unmeasured value is not a weak one.
     expect(row.confidence).toBeNull();
   });
@@ -142,7 +142,7 @@ describe("rowFor on a value with no measured confidence", () => {
 
   it("shows no evidence line at all when the candidate printed no quote", () => {
     const row = rowFor("legal_name", chosenDraft(undefined), new Map(), stubT);
-    expect(row.state).toBe("chosen");
+    expect(row.state).toBe("quoted");
     expect(row.evidence).toBeNull();
   });
 });

@@ -330,9 +330,9 @@ describe("a value chosen from the read's own candidates", () => {
       within(legalName).getByRole("button", { name: /gradion.test/ }),
     ).toBeInTheDocument();
     // Not a band, not a zero: nothing graded this value, so the row says who
-    // chose it instead of how sure anything is.
+    // it came from instead of how sure anything is.
     expect(legalName.querySelector(".confidence")).toBeNull();
-    expect(legalName).toHaveTextContent("chosen by you from the site");
+    expect(legalName).toHaveTextContent("read from your legal notice");
   });
 
   it("shows no evidence line at all when the candidate printed no quote", async () => {
@@ -342,6 +342,6 @@ describe("a value chosen from the read's own candidates", () => {
     const legalName = row("legal_name");
     expect(legalName.querySelector(".evidence-chip")).toBeNull();
     expect(legalName.querySelector(".confidence")).toBeNull();
-    expect(legalName).toHaveTextContent("chosen by you from the site");
+    expect(legalName).toHaveTextContent("read from your legal notice");
   });
 });

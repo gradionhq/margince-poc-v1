@@ -221,6 +221,38 @@ export function draftWithLegalEntity(
   return { values, grounded, edited };
 }
 
+// One entity on the whole site is not a question, so nothing is asked and
+// nothing is guessed: the read printed a company off its own imprint, and its
+// block is a read-back value like any other. It is applied because the two
+// extraction lanes disagree about the same page — the census can quote
+// "ScaleCommerce GmbH, Horstweg 24" verbatim while the profile lane returns
+// none of the trio — and without this the human is shown three blank fields
+// while the read is holding the answer, snippet and source URL included.
+//
+// Only the blanks: nobody chose this candidate, so it must not displace a
+// value the profile lane did ground, nor one the human typed. Handing
+// draftWithLegalEntity an entity stripped of the parts already answered says
+// that in the vocabulary that function already has.
+export function draftWithSoleLegalEntity(
+  draft: CompanyDraft,
+  entities: readonly LegalEntity[] | undefined,
+): CompanyDraft {
+  const [entity, ...rest] = entities ?? [];
+  if (entity === undefined || rest.length > 0) {
+    return draft;
+  }
+  const blank = (field: CompanyFieldName): boolean =>
+    draft.values[field].trim() === "";
+  return draftWithLegalEntity(draft, {
+    ...entity,
+    name: blank("legal_name") ? entity.name : "",
+    registered_address: blank("registered_address")
+      ? entity.registered_address
+      : undefined,
+    register_number: blank("register_vat") ? entity.register_number : undefined,
+  });
+}
+
 // The three fields only a legal/imprint page can ground — the same trio
 // draftWithLegalEntity fills and the server's own legal gate governs. A
 // blank display_name or offer_summary carries no such page to have checked,
@@ -231,7 +263,7 @@ const LEGAL_TRIO_FIELDS: ReadonlySet<CompanyFieldName> = new Set([
   "register_vat",
 ]);
 
-export type LegalFieldGap = "not-published" | "not-checked";
+export type LegalFieldGap = "not-published" | "not-checked" | "unpicked";
 
 // Why one of the legal trio is blank, from what the read's own crawl
 // actually saw — never a guess. "not-published" only fires once a page the
@@ -243,15 +275,34 @@ export type LegalFieldGap = "not-published" | "not-checked";
 // outside the trio, or one that already carries a value, has no gap to name.
 // Neither does a field on the manual path: with no crawl behind it there is
 // no "did not find" to report, only a blank the person has not filled yet.
+//
+// A candidate that carries the field outranks both: with several entities on
+// the site the read deliberately proposes none and waits for the human to
+// choose, and telling them meanwhile that the page does not state it would be
+// false — the page states it, for a company nobody has settled on yet.
 export function legalFieldGap(
   field: CompanyFieldName,
   pages: readonly SiteReadPage[] | undefined,
+  entities?: readonly LegalEntity[],
 ): LegalFieldGap | null {
   if (!LEGAL_TRIO_FIELDS.has(field) || pages === undefined) {
     return null;
+  }
+  if ((entities ?? []).some((entity) => entityCarries(entity, field))) {
+    return "unpicked";
   }
   const sawLegalPage = pages.some(
     (page) => page.kind === "impressum" && page.status === "fetched",
   );
   return sawLegalPage ? "not-published" : "not-checked";
+}
+
+function entityCarries(entity: LegalEntity, field: CompanyFieldName): boolean {
+  const carried =
+    field === "legal_name"
+      ? entity.name
+      : field === "registered_address"
+        ? entity.registered_address
+        : entity.register_number;
+  return carried !== undefined && carried.trim() !== "";
 }

@@ -45,10 +45,12 @@ type CompanySiteRead = components["schemas"]["CompanySiteRead"];
  * - `required` / `empty`: no value; required is the blocking kind.
  * - `typed`: the human wrote it this session: human truth, no meter.
  * - `stored`: carried in from the existing profile untouched (member path).
- * - `chosen`: the human settled it by picking one of the read's own
- *   candidates. It came off a page and keeps that page's quote when the read
- *   captured one, but nothing measured a confidence for it, so it is banded
- *   nowhere — an unmeasured value must not read as a weak or a strong one.
+ * - `quoted`: the value came off the site's own legal notice, through the
+ *   entity census rather than the graded extraction lane — either as the one
+ *   company the site names, or as the candidate the human picked from
+ *   several. It keeps that page's quote when the read captured one, but
+ *   nothing measured a confidence for it, so it is banded nowhere: an
+ *   unmeasured value must not read as a weak or a strong one.
  * - `high` / `med` / `low`: site-grounded and measured, banded by the shared
  *   confidenceLevel thresholds, never a hand-written label beside a number.
  */
@@ -57,7 +59,7 @@ export type RowState =
   | "empty"
   | "typed"
   | "stored"
-  | "chosen"
+  | "quoted"
   | "high"
   | "med"
   | "low";
@@ -86,7 +88,7 @@ export const STATE_RANK: Readonly<Record<RowState, number>> = {
   high: 4,
   typed: 5,
   stored: 5,
-  chosen: 5,
+  quoted: 5,
 };
 
 /** A row that still wants a decision or a value, as opposed to a skim row. */
@@ -114,8 +116,12 @@ export function reviewFields(): readonly CompanyFieldName[] {
 function emptyHintFor(
   field: CompanyFieldName,
   pages: CompanySiteRead["pages"] | undefined,
+  entities: CompanySiteRead["legal_entities"] | undefined,
 ): MessageKey {
-  const gap = legalFieldGap(field, pages);
+  const gap = legalFieldGap(field, pages, entities);
+  if (gap === "unpicked") {
+    return "ob.conv.triage.legalUnpicked";
+  }
   if (gap === "not-published") {
     return "ob.conv.triage.legalNotPublished";
   }
@@ -131,6 +137,7 @@ export function rowFor(
   byName: ReadonlyMap<string, ProposalField>,
   t: ReturnType<typeof useT>,
   pages?: CompanySiteRead["pages"],
+  entities?: CompanySiteRead["legal_entities"],
 ): ReviewRow {
   const value = draft.values[field];
   const base = {
@@ -145,7 +152,7 @@ export function rowFor(
       state: isRequired(field) ? "required" : "empty",
       evidence: null,
       confidence: null,
-      emptyHintKey: emptyHintFor(field, pages),
+      emptyHintKey: emptyHintFor(field, pages, entities),
     };
   }
   if (draft.edited.has(field)) {
@@ -199,7 +206,7 @@ export function rowFor(
   if (confidence === undefined) {
     return {
       ...base,
-      state: "chosen",
+      state: "quoted",
       evidence,
       confidence: null,
       emptyHintKey: "ob.conv.triage.emptyHint",

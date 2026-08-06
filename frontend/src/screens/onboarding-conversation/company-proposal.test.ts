@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../../api/schema";
 import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
-import { draftWithLegalEntity, legalFieldGap } from "./company-proposal";
+import {
+  draftWithLegalEntity,
+  draftWithSoleLegalEntity,
+  legalFieldGap,
+} from "./company-proposal";
 
 type LegalEntity = components["schemas"]["CompanySiteReadLegalEntity"];
 type SiteReadPage = components["schemas"]["CompanySiteReadPage"];
@@ -180,6 +184,52 @@ describe("draftWithLegalEntity settling the chosen name", () => {
   });
 });
 
+// One entity on the site is not a question. The census can quote a company
+// off the imprint while the profile lane returns none of the trio, and the
+// human must not be shown three blanks while the read holds the answer.
+describe("draftWithSoleLegalEntity", () => {
+  it("fills the blanks the profile lane left, from the only company on the site", () => {
+    const next = draftWithSoleLegalEntity(EMPTY_DRAFT, [gradionEntity]);
+    expect(next.values.legal_name).toBe("Gradion Co., Ltd.");
+    expect(next.values.register_vat).toBe("0318 447 291");
+    expect(next.grounded.legal_name).toMatchObject({
+      source_url: gradionEntity.source_url,
+      evidence_snippet: gradionEntity.evidence_snippet,
+    });
+    expect(next.grounded.legal_name?.confidence).toBeUndefined();
+    expect(next.edited.has("legal_name")).toBe(false);
+  });
+
+  it("asks rather than guesses when the site names more than one company", () => {
+    const second: LegalEntity = {
+      name: "Gradion Holding GmbH",
+      registered_address: "Musterstraße 1, 10115 Berlin",
+      source_url: "https://gradion.com/legal-notice",
+    };
+    const next = draftWithSoleLegalEntity(EMPTY_DRAFT, [gradionEntity, second]);
+    expect(next).toBe(EMPTY_DRAFT);
+  });
+
+  it("leaves a read with no legal entities exactly as it was", () => {
+    expect(draftWithSoleLegalEntity(EMPTY_DRAFT, [])).toBe(EMPTY_DRAFT);
+    expect(draftWithSoleLegalEntity(EMPTY_DRAFT, undefined)).toBe(EMPTY_DRAFT);
+  });
+
+  it("never displaces a value already standing, whoever put it there", () => {
+    // Nobody chose this candidate, so it fills gaps and settles nothing: a
+    // name the profile lane grounded, or one the human typed, both outrank it.
+    const typed = changeDraftField(EMPTY_DRAFT, "legal_name", "Gradion GmbH");
+    const next = draftWithSoleLegalEntity(typed, [gradionEntity]);
+    expect(next.values.legal_name).toBe("Gradion GmbH");
+    expect(next.edited.has("legal_name")).toBe(true);
+    expect(next.grounded.legal_name).toBeUndefined();
+    // The blanks beside it still fill.
+    expect(next.values.registered_address).toBe(
+      gradionEntity.registered_address,
+    );
+  });
+});
+
 // Why a legal-trio field is blank must be exactly what the read's own crawl
 // saw: a genuine "the imprint said nothing" only follows a legal page that
 // actually loaded; anything short of that is an honest "I never had a page
@@ -222,6 +272,28 @@ describe("legalFieldGap", () => {
       reason: "robots",
     };
     expect(legalFieldGap("registered_address", [blocked])).toBe("not-checked");
+  });
+
+  it("never says the page is silent about something a candidate quotes from it", () => {
+    // Several companies on one imprint: the read proposes none and waits. The
+    // page DOES state the address, so "not stated" would be a false reason to
+    // give for the blank the human is looking at.
+    expect(
+      legalFieldGap("registered_address", [impressumFetched], [gradionEntity]),
+    ).toBe("unpicked");
+    expect(
+      legalFieldGap("legal_name", [impressumFetched], [gradionEntity]),
+    ).toBe("unpicked");
+  });
+
+  it("still names the honest gap for a field none of the candidates carries", () => {
+    const nameOnly: LegalEntity = {
+      name: "Acme Holding GmbH",
+      source_url: "https://acme.example/impressum",
+    };
+    expect(
+      legalFieldGap("registered_address", [impressumFetched], [nameOnly]),
+    ).toBe("not-published");
   });
 
   it("names no gap at all for a field no legal page could ever have settled", () => {

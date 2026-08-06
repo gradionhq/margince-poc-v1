@@ -124,7 +124,7 @@ const STATE_WORD: Readonly<Record<RowState, MessageKey>> = {
   empty: "ob.conv.triage.stateEmpty",
   typed: "ob.conv.triage.stateTyped",
   stored: "ob.conv.triage.stateStored",
-  chosen: "ob.conv.triage.stateChosen",
+  quoted: "ob.conv.triage.stateQuoted",
   high: "confidence.high",
   med: "confidence.med",
   low: "confidence.low",
@@ -143,12 +143,12 @@ function isOutstandingUnbanded(state: RowState): state is "required" | "empty" {
   return state === "required" || state === "empty";
 }
 
-/** The settled half of the same split: `typed`, `stored` and `chosen` all
+/** The settled half of the same split: `typed`, `stored` and `quoted` all
  * have a value and no confidence to grade, so `isBand` skips them too. */
 function isSettledUnbanded(
   state: RowState,
-): state is "typed" | "stored" | "chosen" {
-  return state === "typed" || state === "stored" || state === "chosen";
+): state is "typed" | "stored" | "quoted" {
+  return state === "typed" || state === "stored" || state === "quoted";
 }
 
 // The mark a row with no gradable value carries: an icon shaped, not
@@ -178,15 +178,15 @@ function OutstandingMark({
 // (ProvenanceTag's fixed human/agent/connector vocabulary covers it —
 // "typed by you"), but neither `stored` nor `chosen` has an entry in that
 // vocabulary at all. A row a human typed, a row still carrying an untouched
-// profile value, and a row whose value the human picked off the site's own
-// legal notice are three different truths; saying "typed by you" over the
+// profile value, and a row quoted off the site's own legal notice are three
+// different truths; saying "typed by you" over the
 // last two would be wrong, not just imprecise, so each gets its own quiet
 // label instead, reusing the exact words the expanded row already says.
 function ProvenanceMark({
   state,
   t,
 }: Readonly<{
-  state: "typed" | "stored" | "chosen";
+  state: "typed" | "stored" | "quoted";
   t: ReturnType<typeof useT>;
 }>) {
   if (state === "typed") {
@@ -242,7 +242,8 @@ function omissionFor(
     return null;
   }
   const gated =
-    legalFieldGap(row.field, read.pages) !== null && read.warnings.length > 0;
+    legalFieldGap(row.field, read.pages, read.legal_entities) !== null &&
+    read.warnings.length > 0;
   return {
     reasonKey: row.emptyHintKey,
     gateWarning: gated ? read.warnings.join(" ") : null,
@@ -1308,7 +1309,16 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
   );
   const groups = reviewGroups().map((group) => {
     const rows = group.fields
-      .map((field) => rowFor(field, props.draft, byName, t, props.read?.pages))
+      .map((field) =>
+        rowFor(
+          field,
+          props.draft,
+          byName,
+          t,
+          props.read?.pages,
+          props.read?.legal_entities,
+        ),
+      )
       .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]);
     return { ...group, rows };
   });
@@ -1445,6 +1455,7 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
           <CoverageCard
             pages={props.read.pages}
             warnings={props.read.warnings}
+            stoppedReason={props.read.stopped_reason}
           />
         </div>
       )}
