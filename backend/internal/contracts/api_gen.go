@@ -9654,14 +9654,23 @@ type CompanyProfile struct {
 
 // CompanyProfileField defines model for CompanyProfileField.
 type CompanyProfileField struct {
-	CapturedBy      *string                   `json:"captured_by,omitempty"`
-	Confidence      *float32                  `json:"confidence,omitempty"`
-	EvidenceSnippet *string                   `json:"evidence_snippet,omitempty"`
-	Field           CompanyProfileFieldField  `json:"field"`
-	Source          CompanyProfileFieldSource `json:"source"`
-	SourceUrl       *string                   `json:"source_url,omitempty"`
-	UpdatedAt       time.Time                 `json:"updated_at"`
-	Value           string                    `json:"value"`
+	CapturedBy      *string                  `json:"captured_by,omitempty"`
+	Confidence      *float32                 `json:"confidence,omitempty"`
+	EvidenceSnippet *string                  `json:"evidence_snippet,omitempty"`
+	Field           CompanyProfileFieldField `json:"field"`
+
+	// RetrievedAt When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim — "is this still true?" is a different question from "when did we learn it?".
+	RetrievedAt *time.Time                `json:"retrieved_at,omitempty"`
+	Source      CompanyProfileFieldSource `json:"source"`
+	SourceUrl   *string                   `json:"source_url,omitempty"`
+	UpdatedAt   time.Time                 `json:"updated_at"`
+	Value       string                    `json:"value"`
+
+	// VerifiedAt When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by: a verification without an actor describes a confirmation nobody made.
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+
+	// VerifiedBy The human who confirmed the claim. Server-stamped, never accepted from a request body.
+	VerifiedBy *string `json:"verified_by,omitempty"`
 }
 
 // CompanyProfileFieldField defines model for CompanyProfileField.Field.
@@ -11852,6 +11861,9 @@ type Organization struct {
 	// Lifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
 	Lifecycle *OrganizationLifecycle `json:"lifecycle,omitempty"`
 
+	// LinkedinUrl Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A first-class validated column rather than a governed custom field, because it bears identity semantics — matching, dedupe, enrichment — that a custom field cannot express. Unique among live rows in a workspace.
+	LinkedinUrl *string `json:"linkedin_url,omitempty"`
+
 	// LogoUrl Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
 	// path for this record, cookie-authenticated and same-origin. The key is ABSENT
 	// entirely (not null) when no logo resolved, which is the common case and never an
@@ -11888,7 +11900,10 @@ type Organization struct {
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
-	Version              *RowVersion            `json:"version,omitempty"`
+	Version *RowVersion `json:"version,omitempty"`
+
+	// WebsiteUrl The company's readable website, DERIVED from its primary domain row — there is deliberately no website column, because a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write; set the primary domain instead.
+	WebsiteUrl           *string                `json:"website_url,omitempty"`
 	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
@@ -12371,15 +12386,24 @@ type OrganizationFact struct {
 	Field           OrganizationFactField    `json:"field"`
 
 	// Id The stored row, so a brief sentence written from this fact can cite something the reader can open. Without it a fact-derived claim had to cite the organization, which told the reader where to look but not at what.
-	Id        *openapi_types.UUID    `json:"id,omitempty"`
-	Source    OrganizationFactSource `json:"source"`
-	SourceUrl *string                `json:"source_url,omitempty"`
+	Id *openapi_types.UUID `json:"id,omitempty"`
+
+	// RetrievedAt When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim — "is this still true?" is a different question from "when did we learn it?".
+	RetrievedAt *time.Time             `json:"retrieved_at,omitempty"`
+	Source      OrganizationFactSource `json:"source"`
+	SourceUrl   *string                `json:"source_url,omitempty"`
 
 	// SuspectReason Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor picks the field from a closed per-page menu and the category follows the field, so a phone number on a contact page can land as `location` and a register number as `employee_range` — the row is well-formed and still wrong. Computed at read from the value's shape; it never gates the fact, because a heuristic that hid data would be worse than one that flags it.
 	SuspectReason *OrganizationFactSuspectReason `json:"suspect_reason,omitempty"`
 	UpdatedAt     time.Time                      `json:"updated_at"`
 	Value         string                         `json:"value"`
 	ValueKey      string                         `json:"value_key"`
+
+	// VerifiedAt When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by: a verification without an actor describes a confirmation nobody made.
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+
+	// VerifiedBy The human who confirmed the claim. Server-stamped, never accepted from a request body.
+	VerifiedBy *string `json:"verified_by,omitempty"`
 }
 
 // OrganizationFactCategory defines model for OrganizationFact.Category.
@@ -14740,9 +14764,12 @@ type UpdateOrganizationRequest struct {
 	LegalName *string                    `json:"legal_name,omitempty"`
 
 	// Lifecycle Where the account stands with us (ADR-0079/A124). Absent = untouched.
-	Lifecycle   *UpdateOrganizationRequestLifecycle `json:"lifecycle,omitempty"`
-	OwnerId     *openapi_types.UUID                 `json:"owner_id,omitempty"`
-	ParentOrgId *openapi_types.UUID                 `json:"parent_org_id,omitempty"`
+	Lifecycle *UpdateOrganizationRequestLifecycle `json:"lifecycle,omitempty"`
+
+	// LinkedinUrl Canonical LinkedIn company URL. Null clears it. website_url is derived from the primary domain and is refused here.
+	LinkedinUrl *string             `json:"linkedin_url,omitempty"`
+	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
+	ParentOrgId *openapi_types.UUID `json:"parent_org_id,omitempty"`
 
 	// RelationshipTypes Replace-set of what the company is to us (add new, archive removed), the same shape as `domains`. Absent = untouched; an empty array clears every type. Removing `partner` while the org still has a `partner` extension row is refused with 422 — the invariant binds both ways, and an invariant nothing enforces is a comment.
 	RelationshipTypes    *[]UpdateOrganizationRequestRelationshipTypes `json:"relationship_types,omitempty"`
@@ -21588,6 +21615,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "lifecycle")
 	}
 
+	if raw, found := object["linkedin_url"]; found {
+		err = json.Unmarshal(raw, &a.LinkedinUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'linkedin_url': %w", err)
+		}
+		delete(object, "linkedin_url")
+	}
+
 	if raw, found := object["logo_url"]; found {
 		err = json.Unmarshal(raw, &a.LogoUrl)
 		if err != nil {
@@ -21682,6 +21717,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'version': %w", err)
 		}
 		delete(object, "version")
+	}
+
+	if raw, found := object["website_url"]; found {
+		err = json.Unmarshal(raw, &a.WebsiteUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'website_url': %w", err)
+		}
+		delete(object, "website_url")
 	}
 
 	if raw, found := object["workspace_id"]; found {
@@ -21787,6 +21830,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.LinkedinUrl != nil {
+		object["linkedin_url"], err = json.Marshal(a.LinkedinUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'linkedin_url': %w", err)
+		}
+	}
+
 	if a.LogoUrl != nil {
 		object["logo_url"], err = json.Marshal(a.LogoUrl)
 		if err != nil {
@@ -21864,6 +21914,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		object["version"], err = json.Marshal(a.Version)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'version': %w", err)
+		}
+	}
+
+	if a.WebsiteUrl != nil {
+		object["website_url"], err = json.Marshal(a.WebsiteUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'website_url': %w", err)
 		}
 	}
 
@@ -23551,6 +23608,14 @@ func (a *UpdateOrganizationRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "lifecycle")
 	}
 
+	if raw, found := object["linkedin_url"]; found {
+		err = json.Unmarshal(raw, &a.LinkedinUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'linkedin_url': %w", err)
+		}
+		delete(object, "linkedin_url")
+	}
+
 	if raw, found := object["owner_id"]; found {
 		err = json.Unmarshal(raw, &a.OwnerId)
 		if err != nil {
@@ -23641,6 +23706,13 @@ func (a UpdateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		object["lifecycle"], err = json.Marshal(a.Lifecycle)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'lifecycle': %w", err)
+		}
+	}
+
+	if a.LinkedinUrl != nil {
+		object["linkedin_url"], err = json.Marshal(a.LinkedinUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'linkedin_url': %w", err)
 		}
 	}
 
