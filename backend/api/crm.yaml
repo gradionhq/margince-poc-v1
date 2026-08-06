@@ -7528,6 +7528,7 @@ paths:
         regenerate (no AI context available) still works and returns `ai_generated=false`. The
         produced draft still cannot leave without the send gate, which is human-only too.
         HUMAN-ONLY: an agent principal is refused (403 `permission_denied`); no tool serves this verb.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
