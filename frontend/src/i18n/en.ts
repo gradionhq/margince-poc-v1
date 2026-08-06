@@ -3121,6 +3121,7 @@ export const en = {
   "users.invite": "Invite",
   "users.setRole": "Set role…",
   "users.setRoleFor": "Set role for {name}",
+  "users.rolesHeld": "Holds {roles}. Choosing one replaces them all",
   "users.deactivate": "Deactivate",
   "users.reactivate": "Reactivate",
   "users.status.active": "Active",

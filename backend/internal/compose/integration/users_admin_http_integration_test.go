@@ -20,6 +20,10 @@ type userWire struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
+	// A pointer so an absent field stays distinguishable from an empty one:
+	// absent means the caller was not admitted to the role keys, empty means
+	// the member holds none.
+	Roles *[]string `json:"roles"`
 }
 
 type userListWire struct {
@@ -40,14 +44,17 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if invited.ID == "" || invited.Email != "newbie@acme.test" || invited.Status != "active" {
 		t.Fatalf("invited member = %+v, want active, lowercased email", invited)
 	}
+	assertRoles(t, "invite", invited, "rep")
 	base := "/v1/users/" + invited.ID
 
-	// A duplicate email refuses.
+	// A duplicate email refuses, and says so in words.
+	var dupe refusalWire
 	if status := e.call(t, "POST", "/v1/users", map[string]any{
 		"email": "newbie@acme.test", "display_name": "Dupe", "role": "rep",
-	}, nil, nil); status != http.StatusConflict {
+	}, nil, &dupe); status != http.StatusConflict {
 		t.Fatalf("duplicate invite -> %d, want 409", status)
 	}
+	assertActionableRefusal(t, "duplicate invite", dupe)
 
 	// Malformed input is refused before any member is created.
 	if status := e.call(t, "POST", "/v1/users", map[string]any{
@@ -74,11 +81,26 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if !containsUser(roster.Data, invited.ID) {
 		t.Fatalf("active roster missing the invited member %s", invited.ID)
 	}
+	// An admin's roster carries every member's role keys — the admin card reads
+	// the current role off them.
+	for _, u := range roster.Data {
+		if u.Roles == nil {
+			t.Errorf("roster member %q has no roles field; an admin caller must see it", u.Email)
+		}
+	}
 
-	// Change role.
+	// Change role. The response reports the role now held, not the one replaced.
 	var afterRole userWire
 	if status := e.call(t, "PATCH", base+"/role", map[string]any{"role": "manager"}, nil, &afterRole); status != http.StatusOK {
 		t.Fatalf("change role -> %d, want 200", status)
+	}
+	assertRoles(t, "change role", afterRole, "manager")
+
+	// A role nobody defines is still a 404: the refusal wording this endpoint
+	// adds is for ONE cause, and every other error must pass through with the
+	// status it already had.
+	if status := e.call(t, "PATCH", base+"/role", map[string]any{"role": "no-such-role"}, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("change role to an undefined role -> %d, want 404", status)
 	}
 
 	// Deactivate: the member drops from the active roster but is visible with include_inactive.
@@ -109,6 +131,17 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 		t.Fatalf("reactivated member status = %q, want active", afterOn.Status)
 	}
 
+	// A SUSPENDED member is not merely deactivated — the hold was placed for a
+	// different reason (e.g. lockout), so reactivating would quietly clear it.
+	// The refusal has to explain that, or an admin reads it as a broken button.
+	seedInWorkspace(t, e, wsID(t, e, e.slug),
+		stmt(`UPDATE app_user SET status = 'suspended' WHERE id = $1::uuid`, invited.ID))
+	var suspended refusalWire
+	if status := e.call(t, "POST", base+"/reactivate", nil, nil, &suspended); status != http.StatusConflict {
+		t.Fatalf("reactivating a suspended member -> %d, want 409", status)
+	}
+	assertActionableRefusal(t, "reactivating a suspended member", suspended)
+
 	// The bootstrap admin is the only admin (the invited member is a rep):
 	// neither deactivating nor demoting them is allowed — it would lock the org.
 	var me struct {
@@ -119,11 +152,56 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("GET /me -> %d, want 200", status)
 	}
-	if status := e.call(t, "POST", "/v1/users/"+me.User.ID+"/deactivate", nil, nil, nil); status != http.StatusConflict {
+	var offLast, demoteLast refusalWire
+	if status := e.call(t, "POST", "/v1/users/"+me.User.ID+"/deactivate", nil, nil, &offLast); status != http.StatusConflict {
 		t.Fatalf("deactivating the last admin -> %d, want 409", status)
 	}
-	if status := e.call(t, "PATCH", "/v1/users/"+me.User.ID+"/role", map[string]any{"role": "rep"}, nil, nil); status != http.StatusConflict {
+	assertActionableRefusal(t, "deactivating the last admin", offLast)
+	if status := e.call(t, "PATCH", "/v1/users/"+me.User.ID+"/role", map[string]any{"role": "rep"}, nil, &demoteLast); status != http.StatusConflict {
 		t.Fatalf("demoting the last admin -> %d, want 409", status)
+	}
+	assertActionableRefusal(t, "demoting the last admin", demoteLast)
+}
+
+type refusalWire struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
+}
+
+// assertActionableRefusal holds this surface's 409s to the bar the repo sets for
+// every error: say what went wrong AND what to do. The refusals here reached the
+// operator as the bare word "conflict" — a status slug rendered as if it were a
+// message — so the check is that a detail exists, reads as a sentence, and is
+// not just the code again.
+func assertActionableRefusal(t *testing.T, what string, got refusalWire) {
+	t.Helper()
+	if got.Detail == "" {
+		t.Errorf("%s: refusal carries no detail; the operator is shown only %q", what, got.Code)
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(got.Detail), got.Code) {
+		t.Errorf("%s: detail = %q, which is just the code — it names neither the cause nor the fix", what, got.Detail)
+	}
+	if len(strings.Fields(got.Detail)) < 5 {
+		t.Errorf("%s: detail = %q is too terse to tell an admin what to do next", what, got.Detail)
+	}
+}
+
+// assertRoles checks the member response reports exactly the role keys the
+// admin surface renders a current role from.
+func assertRoles(t *testing.T, what string, got userWire, want ...string) {
+	t.Helper()
+	if got.Roles == nil {
+		t.Fatalf("%s: roles absent from an admin's response; want %v", what, want)
+	}
+	if len(*got.Roles) != len(want) {
+		t.Fatalf("%s: roles = %v, want %v", what, *got.Roles, want)
+	}
+	for i, key := range want {
+		if (*got.Roles)[i] != key {
+			t.Errorf("%s: roles = %v, want %v", what, *got.Roles, want)
+			return
+		}
 	}
 }
 

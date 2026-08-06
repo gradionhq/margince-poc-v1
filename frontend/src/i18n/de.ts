@@ -3138,6 +3138,7 @@ export const de = {
   "users.invite": "Einladen",
   "users.setRole": "Rolle setzen…",
   "users.setRoleFor": "Rolle für {name} setzen",
+  "users.rolesHeld": "Hat {roles}. Eine auszuwählen ersetzt alle",
   "users.deactivate": "Deaktivieren",
   "users.reactivate": "Reaktivieren",
   "users.status.active": "Aktiv",
