@@ -8,9 +8,15 @@
 -- contract); the read is admin/ops-only too — the banner/card that
 -- consumes it is itself ops-gated in the SPA, so manager/rep/read_only
 -- have no legitimate consumer and get no grant at all.
-
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,embedding_reindex}',
-  '{"create":false,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key IN ('admin','ops')
-  AND NOT permissions->'objects' ? 'embedding_reindex';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,embedding_reindex}',
+      '{"create":false,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'embedding_reindex';
+  END LOOP;
+END $$;

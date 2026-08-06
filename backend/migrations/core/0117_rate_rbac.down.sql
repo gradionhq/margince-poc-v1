@@ -2,7 +2,15 @@
 -- where absent), so the down removes them only from admin/ops. Scoping the
 -- removal to the roles the up wrote keeps rollback from erasing an fx_rate /
 -- ai_model_rate grant this migration did not create.
-UPDATE role SET permissions = permissions #- '{objects,fx_rate}'
-  WHERE is_system AND key IN ('admin','ops');
-UPDATE role SET permissions = permissions #- '{objects,ai_model_rate}'
-  WHERE is_system AND key IN ('admin','ops');
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = permissions #- '{objects,fx_rate}'
+      WHERE is_system AND key IN ('admin','ops');
+
+    UPDATE role SET permissions = permissions #- '{objects,ai_model_rate}'
+      WHERE is_system AND key IN ('admin','ops');
+  END LOOP;
+END $$;

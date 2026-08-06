@@ -5,14 +5,21 @@
 -- target reshapes what the system measures reps/teams against, so
 -- creating/changing/archiving a quota is admin/ops-owned while every role
 -- may read it (a rep needs to see their own attainment against it).
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,quota}',
+      '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'quota';
 
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,quota}',
-  '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-WHERE is_system AND key IN ('admin','ops')
-  AND NOT permissions->'objects' ? 'quota';
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,quota}',
-  '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key IN ('manager','rep','read_only')
-  AND NOT permissions->'objects' ? 'quota';
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,quota}',
+      '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
+    WHERE is_system AND key IN ('manager','rep','read_only')
+      AND NOT permissions->'objects' ? 'quota';
+  END LOOP;
+END $$;

@@ -4,9 +4,15 @@
 -- custom_field (admin/ops-owned CRUD), computed_field is read-only for
 -- EVERY role, admin/ops included — RD-AC-7: no runtime formula-authoring
 -- surface exists, so there is no write to grant.
-
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,computed_field}',
-  '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key IN ('admin','ops','manager','rep','read_only')
-  AND NOT permissions->'objects' ? 'computed_field';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,computed_field}',
+      '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops','manager','rep','read_only')
+      AND NOT permissions->'objects' ? 'computed_field';
+  END LOOP;
+END $$;

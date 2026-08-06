@@ -9,9 +9,15 @@
 -- workspace-wide bulk mutation of the estate (the flip's importer runs
 -- through it), so every verb is admin/ops-only; other roles hold no
 -- grant at all — a rep neither starts nor reads migration runs.
-
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,import_run}',
-  '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-WHERE is_system AND key IN ('admin','ops')
-  AND NOT permissions->'objects' ? 'import_run';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,import_run}',
+      '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'import_run';
+  END LOOP;
+END $$;

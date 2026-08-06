@@ -28,11 +28,18 @@
 -- prefixes are the exact strings handlers_clock.go generates, and a task a
 -- human already completed keeps its done state rather than being archived out
 -- from under a finished piece of work.
-UPDATE activity
-   SET archived_at = now()
- WHERE kind = 'task'
-   AND source = 'system'
-   AND archived_at IS NULL
-   AND is_done = false
-   AND (subject LIKE 'Check in — no activity since %'
-     OR subject LIKE 'Time for a check-in — last touched %');
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE activity
+       SET archived_at = now()
+     WHERE kind = 'task'
+       AND source = 'system'
+       AND archived_at IS NULL
+       AND is_done = false
+       AND (subject LIKE 'Check in — no activity since %'
+         OR subject LIKE 'Time for a check-in — last touched %');
+  END LOOP;
+END $$;

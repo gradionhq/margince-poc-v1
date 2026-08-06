@@ -25,7 +25,14 @@
 -- catalog-default display NAME move. `name` is only relabeled when it
 -- still carries the pre-migration catalog default, so a human-renamed
 -- instance keeps whatever the author called it.
-UPDATE automation
-   SET key  = 'assign_lead_owner',
-       name = CASE WHEN name = 'Route new leads' THEN 'Assign new leads an owner' ELSE name END
- WHERE key = 'route_lead';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE automation
+       SET key  = 'assign_lead_owner',
+           name = CASE WHEN name = 'Route new leads' THEN 'Assign new leads an owner' ELSE name END
+     WHERE key = 'route_lead';
+  END LOOP;
+END $$;

@@ -19,21 +19,31 @@ ALTER TABLE voice_profile
     REFERENCES team (workspace_id, id) ON DELETE RESTRICT;
 
 ALTER TABLE voice_profile DROP CONSTRAINT voice_profile_status_check;
-UPDATE voice_profile
-SET status = 'collecting'
-WHERE status = 'building';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE voice_profile
+    SET status = 'collecting'
+    WHERE status = 'building';
 
--- The old contract admitted team scope without a team identifier. There is no
--- faithful team mapping to invent during an upgrade, so quarantine those live
--- rows instead of widening private style material to workspace visibility.
-UPDATE voice_profile
-SET scope = 'workspace', owner_id = NULL, archived_at = coalesce(archived_at, now())
-WHERE scope = 'team';
 
-UPDATE voice_profile SET owner_id = NULL WHERE scope = 'workspace';
-UPDATE voice_profile
-SET scope = 'workspace', archived_at = coalesce(archived_at, now())
-WHERE scope = 'user' AND owner_id IS NULL;
+    -- The old contract admitted team scope without a team identifier. There is no
+    -- faithful team mapping to invent during an upgrade, so quarantine those live
+    -- rows instead of widening private style material to workspace visibility.
+    UPDATE voice_profile
+    SET scope = 'workspace', owner_id = NULL, archived_at = coalesce(archived_at, now())
+    WHERE scope = 'team';
+
+    UPDATE voice_profile SET owner_id = NULL WHERE scope = 'workspace';
+
+    UPDATE voice_profile
+    SET scope = 'workspace', archived_at = coalesce(archived_at, now())
+    WHERE scope = 'user' AND owner_id IS NULL;
+  END LOOP;
+END $$;
+
 
 ALTER TABLE voice_profile
   ALTER COLUMN status SET DEFAULT 'collecting',
@@ -66,30 +76,38 @@ ALTER TABLE voice_corpus_source
   DROP CONSTRAINT voice_corpus_source_register_check,
   DROP CONSTRAINT voice_corpus_source_weight_check;
 
-UPDATE voice_corpus_source
-SET content_hash = 'sha256:' || encode(sha256(convert_to(content, 'UTF8')), 'hex'),
-    occurred_at = created_at,
-    exclusion_reason = CASE WHEN excluded THEN 'owner_excluded' ELSE NULL END,
-    kind = CASE kind
-      WHEN 'post' THEN 'linkedin'
-      WHEN 'longform' THEN 'document'
-      WHEN 'voice_memo' THEN 'other'
-      WHEN 'chat' THEN 'other'
-      ELSE kind
-    END,
-    register = CASE register
-      WHEN 'spoken' THEN 'spoken'
-      WHEN 'formal' THEN 'long_form'
-      WHEN 'casual' THEN 'general'
-      WHEN 'written' THEN CASE kind
-        WHEN 'email' THEN 'email'
-        WHEN 'post' THEN 'social'
-        WHEN 'longform' THEN 'long_form'
-        ELSE 'general'
-      END
-      ELSE 'general'
-    END,
-    weight = least(weight, 2.0);
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE voice_corpus_source
+    SET content_hash = 'sha256:' || encode(sha256(convert_to(content, 'UTF8')), 'hex'),
+        occurred_at = created_at,
+        exclusion_reason = CASE WHEN excluded THEN 'owner_excluded' ELSE NULL END,
+        kind = CASE kind
+          WHEN 'post' THEN 'linkedin'
+          WHEN 'longform' THEN 'document'
+          WHEN 'voice_memo' THEN 'other'
+          WHEN 'chat' THEN 'other'
+          ELSE kind
+        END,
+        register = CASE register
+          WHEN 'spoken' THEN 'spoken'
+          WHEN 'formal' THEN 'long_form'
+          WHEN 'casual' THEN 'general'
+          WHEN 'written' THEN CASE kind
+            WHEN 'email' THEN 'email'
+            WHEN 'post' THEN 'social'
+            WHEN 'longform' THEN 'long_form'
+            ELSE 'general'
+          END
+          ELSE 'general'
+        END,
+        weight = least(weight, 2.0);
+  END LOOP;
+END $$;
+
 
 ALTER TABLE voice_corpus_source
   ALTER COLUMN content_hash SET NOT NULL,
@@ -192,45 +210,53 @@ CREATE TABLE voice_profile_version (
 -- A previously built artifact is already the user's last known-good version.
 -- Ratification must make that history explicit rather than treating the next
 -- build as version N+1 with a missing predecessor.
-UPDATE voice_profile p
-SET active_source_hash = (
-      SELECT md5(coalesce(string_agg(s.content_hash, ',' ORDER BY s.source_ref), ''))
-      FROM voice_corpus_source s
-      WHERE s.voice_profile_id = p.id AND NOT s.excluded
-    ),
-    last_built_at = coalesce(p.updated_at, p.created_at)
-WHERE p.profile_version >= 1;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE voice_profile p
+    SET active_source_hash = (
+          SELECT md5(coalesce(string_agg(s.content_hash, ',' ORDER BY s.source_ref), ''))
+          FROM voice_corpus_source s
+          WHERE s.voice_profile_id = p.id AND NOT s.excluded
+        ),
+        last_built_at = coalesce(p.updated_at, p.created_at)
+    WHERE p.profile_version >= 1;
 
-INSERT INTO voice_profile_version
-  (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
-   profile_json, stats_json, source_hash, source_count, reason, predecessor_version,
-   model_provider, model_name, builder_version, activation_policy_version,
-   evaluation_json, review_reasons, activated_at, source, captured_by, updated_at)
-SELECT p.workspace_id, p.id, p.profile_version, 'active', p.voice_profile_md,
-       jsonb_build_object('document', p.voice_profile_md), '{}'::jsonb,
-       p.active_source_hash,
-       (SELECT count(*)::integer FROM voice_corpus_source s
-        WHERE s.voice_profile_id = p.id AND NOT s.excluded),
-       'manual', NULL, 'legacy', coalesce(p.model_ref, 'legacy-unrecorded'),
-       'pre-adr-0066', 'legacy',
-       jsonb_build_object(
-         'held_out_prompts', 5,
-         'repeats_per_prompt', 3,
-         'active_median_voice_score', NULL,
-         'candidate_median_voice_score', 1,
-         'anti_ai_hard_failures', 0,
-         'structured_output_valid', true,
-         'corpus_citations_valid', true,
-         'identity_word_jaccard', 1,
-         'signature_set_jaccard', 1,
-         'removed_avoid_rules', 0,
-         'removed_register_rules', 0,
-         'classification', 'routine',
-         'passed', true
-       ),
-       '{}'::text[], p.last_built_at, p.source, p.captured_by, p.last_built_at
-FROM voice_profile p
-WHERE p.profile_version >= 1;
+    INSERT INTO voice_profile_version
+      (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
+       profile_json, stats_json, source_hash, source_count, reason, predecessor_version,
+       model_provider, model_name, builder_version, activation_policy_version,
+       evaluation_json, review_reasons, activated_at, source, captured_by, updated_at)
+    SELECT p.workspace_id, p.id, p.profile_version, 'active', p.voice_profile_md,
+           jsonb_build_object('document', p.voice_profile_md), '{}'::jsonb,
+           p.active_source_hash,
+           (SELECT count(*)::integer FROM voice_corpus_source s
+            WHERE s.voice_profile_id = p.id AND NOT s.excluded),
+           'manual', NULL, 'legacy', coalesce(p.model_ref, 'legacy-unrecorded'),
+           'pre-adr-0066', 'legacy',
+           jsonb_build_object(
+             'held_out_prompts', 5,
+             'repeats_per_prompt', 3,
+             'active_median_voice_score', NULL,
+             'candidate_median_voice_score', 1,
+             'anti_ai_hard_failures', 0,
+             'structured_output_valid', true,
+             'corpus_citations_valid', true,
+             'identity_word_jaccard', 1,
+             'signature_set_jaccard', 1,
+             'removed_avoid_rules', 0,
+             'removed_register_rules', 0,
+             'classification', 'routine',
+             'passed', true
+           ),
+           '{}'::text[], p.last_built_at, p.source, p.captured_by, p.last_built_at
+    FROM voice_profile p
+    WHERE p.profile_version >= 1;
+  END LOOP;
+END $$;
+
 
 CREATE UNIQUE INDEX voice_profile_version_one_active
   ON voice_profile_version(workspace_id, voice_profile_id) WHERE status = 'active';

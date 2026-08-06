@@ -10,16 +10,33 @@
 -- Deleting them is the honest reverse: the down migration drops the project
 -- table itself further below, so a row pointing at a project cannot outlive
 -- it either way.
-DELETE FROM custom_field       WHERE object      = 'project';
-DELETE FROM field_provenance   WHERE object_type = 'project';
-DELETE FROM embedding          WHERE entity_type = 'project';
-DELETE FROM attachment         WHERE entity_type = 'project';
-DELETE FROM record_grant       WHERE record_type = 'project';
-DELETE FROM taggable           WHERE entity_type = 'project';
-DELETE FROM list_member        WHERE entity_type = 'project';
-DELETE FROM list               WHERE entity_type = 'project';
-DELETE FROM activity_link      WHERE entity_type = 'project';
-DELETE FROM relationship       WHERE kind        = 'project_stakeholder';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM custom_field       WHERE object      = 'project';
+
+    DELETE FROM field_provenance   WHERE object_type = 'project';
+
+    DELETE FROM embedding          WHERE entity_type = 'project';
+
+    DELETE FROM attachment         WHERE entity_type = 'project';
+
+    DELETE FROM record_grant       WHERE record_type = 'project';
+
+    DELETE FROM taggable           WHERE entity_type = 'project';
+
+    DELETE FROM list_member        WHERE entity_type = 'project';
+
+    DELETE FROM list               WHERE entity_type = 'project';
+
+    DELETE FROM activity_link      WHERE entity_type = 'project';
+
+    DELETE FROM relationship       WHERE kind        = 'project_stakeholder';
+  END LOOP;
+END $$;
+
 
 ALTER TABLE custom_field DROP CONSTRAINT custom_field_object_check;
 ALTER TABLE custom_field ADD CONSTRAINT custom_field_object_check

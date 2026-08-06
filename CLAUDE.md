@@ -349,6 +349,37 @@ scope clauses in `platform/auth`): object denial →
 `apperrors.ErrPermissionDenied` (403), row-scope miss →
 `apperrors.ErrNotFound` (404, existence-hiding).
 
+## A migration that writes tenant DATA binds the workspace first
+
+Schema DDL is free, but the moment a migration writes ROWS to a tenant table it
+must bind `app.workspace_id` — every one of them carries FORCE row-level
+security with deny-on-unset semantics (`0014_rls.up.sql`), and FORCE binds the
+table owner, which is exactly the role migrations run as. An unbound
+`UPDATE`/`INSERT`/`DELETE` matches **zero rows and reports success**, so the
+migration records itself as applied and the data change is silently gone. The
+shape, in every migration that needs it:
+
+```sql
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    -- the write goes here
+  END LOOP;
+END $$;
+```
+
+`workspace` itself is outside RLS, which is what lets the loop enumerate it, and
+`set_config`'s third argument keeps the binding transaction-local. **Nothing
+about this is visible in development**: the dev owner is the Postgres
+container's `POSTGRES_USER`, a superuser, and a superuser bypasses RLS — so an
+unbound write works on every developer's machine and does nothing in
+production. Two gates hold the line, and both must stay honest:
+`TestTenantWritesInMigrationsAreWorkspaceScoped` (unit, reads every migration)
+and the RBAC upgrade replay in the integration lane, which migrates as a
+deliberately NON-SUPERUSER owner (`migrations/migrationrole_integration_test.go`).
+
 ## Craftsmanship
 
 Match the spec's `specs/quality/craftsmanship.md` (anti-tell catalog T1–T11). The rule

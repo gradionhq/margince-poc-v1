@@ -13,14 +13,22 @@ ALTER TABLE organization_profile_field
     'register_vat','industry','history'
   ));
 
-UPDATE organization_profile_field
-SET source = CASE source
-  WHEN 'manual' THEN 'human'
-  WHEN 'coldstart' THEN 'site_read'
-  WHEN 'deepread' THEN 'site_read'
-  WHEN 'enrich' THEN 'connector'
-  ELSE source
-END;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization_profile_field
+    SET source = CASE source
+      WHEN 'manual' THEN 'human'
+      WHEN 'coldstart' THEN 'site_read'
+      WHEN 'deepread' THEN 'site_read'
+      WHEN 'enrich' THEN 'connector'
+      ELSE source
+    END;
+  END LOOP;
+END $$;
+
 ALTER TABLE organization_profile_field ALTER COLUMN source SET DEFAULT 'site_read';
 ALTER TABLE organization_profile_field
   ADD CONSTRAINT organization_profile_field_source_check
@@ -64,14 +72,22 @@ ALTER TABLE organization_fact ADD CONSTRAINT org_fact_value_key_cardinality CHEC
   (category IN ('offering','market','signal') AND value_key <> '')
 );
 
-UPDATE organization_fact
-SET source = CASE source
-  WHEN 'manual' THEN 'human'
-  WHEN 'coldstart' THEN 'site_read'
-  WHEN 'deepread' THEN 'site_read'
-  WHEN 'enrich' THEN 'connector'
-  ELSE source
-END;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization_fact
+    SET source = CASE source
+      WHEN 'manual' THEN 'human'
+      WHEN 'coldstart' THEN 'site_read'
+      WHEN 'deepread' THEN 'site_read'
+      WHEN 'enrich' THEN 'connector'
+      ELSE source
+    END;
+  END LOOP;
+END $$;
+
 ALTER TABLE organization_fact ALTER COLUMN source SET DEFAULT 'site_read';
 ALTER TABLE organization_fact
   ADD CONSTRAINT organization_fact_source_check

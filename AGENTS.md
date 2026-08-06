@@ -318,6 +318,30 @@ scope clauses in `platform/auth`): object denial →
 `apperrors.ErrPermissionDenied` (403), row-scope miss →
 `apperrors.ErrNotFound` (404, existence-hiding).
 
+## A migration that writes tenant DATA binds the workspace first
+
+DDL is free; writing ROWS to a tenant table is not. Tenant tables carry FORCE
+row-level security with deny-on-unset semantics, and FORCE binds the table owner
+— the role migrations run as — so an unbound `UPDATE`/`INSERT`/`DELETE` matches
+**zero rows and reports success**. The migration then records itself as applied
+with its data change silently gone, and development never sees it because the dev
+owner is a superuser and bypasses RLS. Wrap every such write:
+
+```sql
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    -- the write goes here
+  END LOOP;
+END $$;
+```
+
+Two gates hold it: `TestTenantWritesInMigrationsAreWorkspaceScoped` (unit) and
+the RBAC upgrade replay, which migrates as a NON-SUPERUSER owner. Full account in
+[CLAUDE.md](CLAUDE.md).
+
 ## Craftsmanship
 
 Match the spec's `specs/quality/craftsmanship.md` (anti-tell catalog T1–T11). The rule

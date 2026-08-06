@@ -16,39 +16,45 @@
 -- Posture: lists and tags are everyday organizational surfaces — admin, ops and
 -- manager work them fully; a rep creates and uses them but archiving stays with
 -- manager and above; read_only reads.
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,list}',
+      '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops','manager')
+      AND NOT permissions->'objects' ? 'list';
 
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,list}',
-  '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-WHERE is_system AND key IN ('admin','ops','manager')
-  AND NOT permissions->'objects' ? 'list';
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,list}',
+      '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE is_system AND key = 'rep'
+      AND NOT permissions->'objects' ? 'list';
 
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,list}',
-  '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key = 'rep'
-  AND NOT permissions->'objects' ? 'list';
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,list}',
+      '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
+    WHERE is_system AND key = 'read_only'
+      AND NOT permissions->'objects' ? 'list';
 
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,list}',
-  '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key = 'read_only'
-  AND NOT permissions->'objects' ? 'list';
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,tag}',
+      '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops','manager')
+      AND NOT permissions->'objects' ? 'tag';
 
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,tag}',
-  '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-WHERE is_system AND key IN ('admin','ops','manager')
-  AND NOT permissions->'objects' ? 'tag';
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,tag}',
+      '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE is_system AND key = 'rep'
+      AND NOT permissions->'objects' ? 'tag';
 
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,tag}',
-  '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key = 'rep'
-  AND NOT permissions->'objects' ? 'tag';
-
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,tag}',
-  '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key = 'read_only'
-  AND NOT permissions->'objects' ? 'tag';
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,tag}',
+      '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
+    WHERE is_system AND key = 'read_only'
+      AND NOT permissions->'objects' ? 'tag';
+  END LOOP;
+END $$;

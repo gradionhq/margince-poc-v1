@@ -11,15 +11,21 @@
 -- method — so delete is FALSE for every role, closing the grant against any
 -- future generic delete path (the same no-delete stance mirrored in the code
 -- seed, identity/internal/policy).
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,fx_rate}',
+      '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'fx_rate';
 
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,fx_rate}',
-  '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key IN ('admin','ops')
-  AND NOT permissions->'objects' ? 'fx_rate';
-
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,ai_model_rate}',
-  '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key IN ('admin','ops')
-  AND NOT permissions->'objects' ? 'ai_model_rate';
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,ai_model_rate}',
+      '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'ai_model_rate';
+  END LOOP;
+END $$;

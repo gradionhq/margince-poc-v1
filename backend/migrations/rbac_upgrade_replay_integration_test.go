@@ -97,6 +97,14 @@ func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 	conn := connect(t, ownerDSN)
 	resetSchema(t, conn)
 
+	// Migrations run as a NON-SUPERUSER owner, the posture a deployed
+	// installation's migration role has. Applying them as this suite's ordinary
+	// owner instead would prove far less than it appears to: that role is the
+	// container's superuser, so it bypasses the row-level security every tenant
+	// backfill has to satisfy, and a backfill that reaches nothing in production
+	// would pass here. See migrationrole_integration_test.go.
+	migrator := asMigrator(t, conn)
+
 	core, custom := loadNamespaces(t)
 	installs := readReplayInstalls(t)
 	want := readSeededDefaults(t)
@@ -106,7 +114,7 @@ func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 		Name:       core.Name,
 		Migrations: core.Migrations[:prefixThrough(t, core, installs.LegacyCoreVersion)],
 	}
-	if _, err := dbmigrate.Up(ctx, conn, legacy); err != nil {
+	if _, err := dbmigrate.Up(ctx, migrator, legacy); err != nil {
 		t.Fatalf("applying core through %s: %v", installs.LegacyCoreVersion, err)
 	}
 
@@ -115,7 +123,7 @@ func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 	// Upgrade it to head — core AND custom, because two backfills live in the
 	// fork-owned namespace and an assertion that modelled the split would be
 	// modelling the wrong thing.
-	if _, err := dbmigrate.Up(ctx, conn, core, custom); err != nil {
+	if _, err := dbmigrate.Up(ctx, migrator, core, custom); err != nil {
 		t.Fatalf("upgrading to head: %v", err)
 	}
 

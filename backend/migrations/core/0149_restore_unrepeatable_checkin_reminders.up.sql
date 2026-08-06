@@ -43,38 +43,45 @@
 -- version cannot serve at all: the activity table carries
 -- set_updated_at_bump_version(), so 0148's own UPDATE bumped both on every
 -- row it touched.
-UPDATE activity a
-   SET archived_at = NULL
- WHERE a.kind = 'task'
-   AND a.source = 'system'
-   AND a.archived_at IS NOT NULL
-   AND a.is_done = false
-   AND (a.subject LIKE 'Check in — no activity since %'
-     OR a.subject LIKE 'Time for a check-in — last touched %')
-   -- 0148's own work, to the microsecond, and nothing archived before it.
-   AND a.archived_at = (
-         SELECT applied_at FROM schema_migrations_core WHERE version = '0148')
-   AND (
-         -- The automation that mints THIS task's wording is not running, so
-         -- nothing will ever mint it again.
-         --
-         -- Paired per subject, not per workspace: the two automations write
-         -- different tasks (no_activity_reminder says "Check in — no activity
-         -- since …", check_in_cadence says "Time for a check-in — last touched
-         -- …"), and a workspace can run one and have paused the other. Asking
-         -- only whether EITHER is enabled would leave the paused one's tasks
-         -- archived with nothing to bring them back — the same permanence this
-         -- migration exists to undo, one automation further in.
-         NOT EXISTS (
-               SELECT 1 FROM automation au
-                WHERE au.workspace_id = a.workspace_id
-                  AND au.enabled
-                  AND au.archived_at IS NULL
-                  AND au.key = CASE
-                        WHEN a.subject LIKE 'Check in — no activity since %'
-                          THEN 'no_activity_reminder'
-                        ELSE 'check_in_cadence'
-                      END)
-         -- Or a person had made it theirs, and a re-mint is not the same row.
-         OR a.assignee_id IS NOT NULL
-         OR a.remind_at IS NOT NULL);
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE activity a
+       SET archived_at = NULL
+     WHERE a.kind = 'task'
+       AND a.source = 'system'
+       AND a.archived_at IS NOT NULL
+       AND a.is_done = false
+       AND (a.subject LIKE 'Check in — no activity since %'
+         OR a.subject LIKE 'Time for a check-in — last touched %')
+       -- 0148's own work, to the microsecond, and nothing archived before it.
+       AND a.archived_at = (
+             SELECT applied_at FROM schema_migrations_core WHERE version = '0148')
+       AND (
+             -- The automation that mints THIS task's wording is not running, so
+             -- nothing will ever mint it again.
+             --
+             -- Paired per subject, not per workspace: the two automations write
+             -- different tasks (no_activity_reminder says "Check in — no activity
+             -- since …", check_in_cadence says "Time for a check-in — last touched
+             -- …"), and a workspace can run one and have paused the other. Asking
+             -- only whether EITHER is enabled would leave the paused one's tasks
+             -- archived with nothing to bring them back — the same permanence this
+             -- migration exists to undo, one automation further in.
+             NOT EXISTS (
+                   SELECT 1 FROM automation au
+                    WHERE au.workspace_id = a.workspace_id
+                      AND au.enabled
+                      AND au.archived_at IS NULL
+                      AND au.key = CASE
+                            WHEN a.subject LIKE 'Check in — no activity since %'
+                              THEN 'no_activity_reminder'
+                            ELSE 'check_in_cadence'
+                          END)
+             -- Or a person had made it theirs, and a re-mint is not the same row.
+             OR a.assignee_id IS NOT NULL
+             OR a.remind_at IS NOT NULL);
+  END LOOP;
+END $$;

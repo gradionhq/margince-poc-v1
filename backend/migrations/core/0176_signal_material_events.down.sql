@@ -15,8 +15,16 @@ ALTER TABLE signal DROP COLUMN IF EXISTS fingerprint;
 ALTER TABLE signal NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE signal DISABLE ROW LEVEL SECURITY;
 
-DELETE FROM signal WHERE kind IN
-  ('contract_ended','new_opportunity','commitment_made','ghosted_thread');
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM signal WHERE kind IN
+      ('contract_ended','new_opportunity','commitment_made','ghosted_thread');
+  END LOOP;
+END $$;
+
 
 ALTER TABLE signal ENABLE ROW LEVEL SECURITY;
 ALTER TABLE signal FORCE ROW LEVEL SECURITY;

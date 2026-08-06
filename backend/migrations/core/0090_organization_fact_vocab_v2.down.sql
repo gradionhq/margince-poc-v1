@@ -2,7 +2,15 @@
 -- (company/location, signal/technology) must be removed first or the
 -- narrowed constraints refuse to attach — the guard DELETE makes the down
 -- migration honest instead of leaving it to fail midway.
-DELETE FROM organization_fact WHERE field IN ('location','technology');
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM organization_fact WHERE field IN ('location','technology');
+  END LOOP;
+END $$;
+
 
 ALTER TABLE organization_fact DROP CONSTRAINT org_fact_field_vocab;
 ALTER TABLE organization_fact ADD CONSTRAINT org_fact_field_vocab CHECK (

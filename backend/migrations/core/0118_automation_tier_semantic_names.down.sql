@@ -4,8 +4,17 @@ ALTER TABLE automation DROP CONSTRAINT IF EXISTS automation_tier_check;
 
 ALTER TABLE automation ALTER COLUMN tier SET DEFAULT 'green';
 
-UPDATE automation SET tier = 'green'  WHERE tier = 'auto_execute';
-UPDATE automation SET tier = 'yellow' WHERE tier = 'confirmation_required';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE automation SET tier = 'green'  WHERE tier = 'auto_execute';
+
+    UPDATE automation SET tier = 'yellow' WHERE tier = 'confirmation_required';
+  END LOOP;
+END $$;
+
 
 ALTER TABLE automation
   ADD CONSTRAINT automation_tier_check CHECK (tier IN ('green', 'yellow'));

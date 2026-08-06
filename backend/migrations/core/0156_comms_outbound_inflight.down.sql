@@ -18,12 +18,20 @@
 -- The sentence is a COPY of comms.unknownOutcomeReason, not a reference: SQL
 -- cannot read a Go constant, and the operator has to be told the same thing here
 -- as the send path tells them, because it is the same fact about the same row.
-UPDATE comms_outbound
-   SET status = 'parked',
-       reason = 'the provider never confirmed whether this message was delivered, '
-             || 'and it will not be retried: a second attempt could deliver it twice with nothing able to tell. '
-             || 'Check the conversation and send again if it did not arrive'
- WHERE status = 'pending' AND inflight_at IS NOT NULL;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE comms_outbound
+       SET status = 'parked',
+           reason = 'the provider never confirmed whether this message was delivered, '
+                 || 'and it will not be retried: a second attempt could deliver it twice with nothing able to tell. '
+                 || 'Check the conversation and send again if it did not arrive'
+     WHERE status = 'pending' AND inflight_at IS NOT NULL;
+  END LOOP;
+END $$;
+
 
 ALTER TABLE comms_outbound DROP CONSTRAINT comms_outbound_inflight_is_channel;
 

@@ -13,24 +13,32 @@ ALTER TABLE voice_corpus_source
   DROP CONSTRAINT voice_corpus_source_kind_check,
   DROP CONSTRAINT voice_corpus_source_origin_check;
 
-UPDATE voice_corpus_source
-SET kind = CASE kind
-      WHEN 'linkedin' THEN 'post'
-      WHEN 'document' THEN 'longform'
-      WHEN 'proposal' THEN 'longform'
-      WHEN 'other' THEN 'longform'
-      ELSE kind
-    END,
-    register = CASE register
-      WHEN 'spoken' THEN 'spoken'
-      WHEN 'social' THEN 'written'
-      WHEN 'long_form' THEN 'formal'
-      WHEN 'email' THEN 'written'
-      ELSE 'casual'
-    END,
-    weight = greatest(weight, 0.1),
-    excluded = excluded OR content IS NULL,
-    content = coalesce(content, '');
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE voice_corpus_source
+    SET kind = CASE kind
+          WHEN 'linkedin' THEN 'post'
+          WHEN 'document' THEN 'longform'
+          WHEN 'proposal' THEN 'longform'
+          WHEN 'other' THEN 'longform'
+          ELSE kind
+        END,
+        register = CASE register
+          WHEN 'spoken' THEN 'spoken'
+          WHEN 'social' THEN 'written'
+          WHEN 'long_form' THEN 'formal'
+          WHEN 'email' THEN 'written'
+          ELSE 'casual'
+        END,
+        weight = greatest(weight, 0.1),
+        excluded = excluded OR content IS NULL,
+        content = coalesce(content, '');
+  END LOOP;
+END $$;
+
 
 ALTER TABLE voice_corpus_source
   ALTER COLUMN content SET NOT NULL,
@@ -57,7 +65,15 @@ ALTER TABLE voice_profile
   DROP CONSTRAINT voice_profile_scope_owner_check,
   DROP CONSTRAINT voice_profile_status_check,
   DROP CONSTRAINT voice_profile_owner_fkey;
-UPDATE voice_profile SET status = 'building' WHERE status = 'collecting';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE voice_profile SET status = 'building' WHERE status = 'collecting';
+  END LOOP;
+END $$;
+
 ALTER TABLE voice_profile
   ALTER COLUMN status SET DEFAULT 'building',
   ADD CONSTRAINT voice_profile_status_check CHECK (status IN ('building','ready','stale')),

@@ -10,7 +10,15 @@
 ALTER TABLE activity_participant NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE activity_participant DISABLE ROW LEVEL SECURITY;
 
-DELETE FROM activity_participant WHERE role = 'bcc';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM activity_participant WHERE role = 'bcc';
+  END LOOP;
+END $$;
+
 
 ALTER TABLE activity_participant ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_participant FORCE ROW LEVEL SECURITY;

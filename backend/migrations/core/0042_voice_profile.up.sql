@@ -81,18 +81,27 @@ CREATE POLICY voice_corpus_source_tenant_isolation ON voice_corpus_source
 -- the code-side seed). Posture: a voice is personal working material —
 -- reps create and maintain their own (no delete, like their records);
 -- managers/admin/ops carry delete for team hygiene.
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,voice_profile}',
-  '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-WHERE is_system AND key IN ('admin','ops','manager')
-  AND NOT permissions->'objects' ? 'voice_profile';
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,voice_profile}',
-  '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key = 'rep'
-  AND NOT permissions->'objects' ? 'voice_profile';
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,voice_profile}',
-  '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key = 'read_only'
-  AND NOT permissions->'objects' ? 'voice_profile';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,voice_profile}',
+      '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
+    WHERE is_system AND key IN ('admin','ops','manager')
+      AND NOT permissions->'objects' ? 'voice_profile';
+
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,voice_profile}',
+      '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE is_system AND key = 'rep'
+      AND NOT permissions->'objects' ? 'voice_profile';
+
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,voice_profile}',
+      '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
+    WHERE is_system AND key = 'read_only'
+      AND NOT permissions->'objects' ? 'voice_profile';
+  END LOOP;
+END $$;
