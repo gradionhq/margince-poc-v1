@@ -17,9 +17,21 @@
 -- index does not count it either. Clearing it changes no behaviour and lets the
 -- constraint below describe the rule going forward instead of failing on
 -- history nobody can now repair.
+-- The migration role is NOSUPERUSER NOBYPASSRLS (scripts/deploy/db-bootstrap.sql),
+-- so FORCE RLS binds it like any other role and this UPDATE would match zero
+-- rows with no workspace GUC set — leaving the retired anchors in place and
+-- failing the CHECK below on exactly the installations that need the repair.
+-- The cleanup crosses every workspace by design, so it runs with the policy
+-- lifted and puts it back immediately.
+ALTER TABLE organization NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE organization DISABLE ROW LEVEL SECURITY;
+
 UPDATE organization
    SET is_anchor = false
  WHERE is_anchor AND (archived_at IS NOT NULL OR merged_into_id IS NOT NULL);
+
+ALTER TABLE organization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organization FORCE ROW LEVEL SECURITY;
 
 ALTER TABLE organization
   DROP CONSTRAINT IF EXISTS organization_anchor_is_permanent;
