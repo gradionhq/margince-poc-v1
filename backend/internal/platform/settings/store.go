@@ -217,3 +217,12 @@ func currentJSON(ctx context.Context, tx pgx.Tx, def Definition) (json.RawMessag
 	}
 	return raw, nil
 }
+
+// SeedValue is the typed form of Seed, for a caller holding the entry.
+func SeedValue[T any](ctx context.Context, tx pgx.Tx, e *Entry[T], v T) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("settings: encoding seed for %s: %w", e.Key(), err)
+	}
+	return Seed(ctx, tx, e, raw)
+}

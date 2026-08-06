@@ -183,19 +183,32 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 		t.Fatalf("the base currency was refused before any deal converted: %v", err)
 	}
 
-	// A deal with a frozen rate against the base.
+	// A deal with a frozen rate against the base. Its pipeline and stage are
+	// seeded explicitly rather than selected from the fixture: an
+	// INSERT..SELECT that matches nothing SUCCEEDS, so a missing fixture would
+	// leave this test asserting a freeze that never had a deal to fire on —
+	// passing or failing for the wrong reason either way.
+	pipeline := e.seed(t, `
+		INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, $2, 'Freeze fixture', false)`)
+	stage := e.seed(t, `
+		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, probability)
+		VALUES ($1, $2, $3, 'Won', 1, 100)`, pipeline)
+	e.seed(t, `
+		INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, source, captured_by,
+		                  amount_minor, fx_rate_to_base, status)
+		VALUES ($1, $2, 'Converted deal', $3, $4, 'seed', 'system:test', 100000, 1.0850000000, 'won')`,
+		pipeline, stage)
+
+	// Prove the fixture landed before trusting what the probe says about it.
+	var converted int
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO deal (workspace_id, name, pipeline_id, stage_id, source, captured_by,
-			                  amount_minor, fx_rate_to_base, status)
-			SELECT $1, 'Converted deal', p.id, s.id, 'seed', 'system:test', 100000, 1.0850000000, 'won'
-			  FROM pipeline p
-			  JOIN stage s ON s.pipeline_id = p.id
-			 WHERE p.workspace_id = $1
-			 LIMIT 1`, e.WS)
-		return err
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM deal WHERE fx_rate_to_base IS NOT NULL`).Scan(&converted)
 	}); err != nil {
-		t.Fatalf("seeding a converted deal: %v", err)
+		t.Fatal(err)
+	}
+	if converted != 1 {
+		t.Fatalf("%d deals carry a frozen rate, want 1 — the fixture did not land, so the freeze below would prove nothing", converted)
 	}
 
 	// The read now reports it locked, WITH the reason — that is what lets the
