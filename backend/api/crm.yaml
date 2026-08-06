@@ -6330,7 +6330,8 @@ paths:
       description: |
         The workspace member roster: id + display name + email + seat/status. Any authenticated member
         may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
-        archived users. Row-scoped by workspace RLS.
+        archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
+        who is the only one who can act on it.
       x-mcp-tool: { verb: search_records, record_type: app_user, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
@@ -13312,6 +13313,15 @@ components:
         timezone: { type: string, default: UTC, description: IANA name. }
         status: { type: string, enum: [active, suspended, deactivated], default: active }
         is_agent: { type: boolean, default: false, description: First-party Agent Runner identity vs a human seat. }
+        roles:
+          type: array
+          items: { type: string }
+          description: >
+            This member's assigned system role keys. Present ONLY for an admin caller — the roster
+            is readable by every authenticated member (it feeds the share/assignee pickers), and a
+            rep has no business enumerating who holds `admin`. Normally exactly one key:
+            `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients
+            that render a single current role must still handle the empty and multi-key cases.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }

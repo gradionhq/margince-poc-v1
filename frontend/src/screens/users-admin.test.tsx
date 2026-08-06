@@ -24,6 +24,9 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// `roles` rides the roster only for an admin caller, which this card always is.
+// Nora holds none — an unassigned seat is reachable and has no current role to
+// show.
 const ROSTER = {
   data: [
     {
@@ -33,6 +36,7 @@ const ROSTER = {
       display_name: "Ada Active",
       status: "active",
       is_agent: false,
+      roles: ["admin"],
     },
     {
       id: "u-off",
@@ -41,10 +45,34 @@ const ROSTER = {
       display_name: "Otto Off",
       status: "deactivated",
       is_agent: false,
+      roles: ["read_only"],
+    },
+    {
+      id: "u-none",
+      workspace_id: "ws-1",
+      email: "nora@acme.test",
+      display_name: "Nora None",
+      status: "active",
+      is_agent: false,
+      roles: [],
     },
   ],
   page: { next_cursor: null, has_more: false },
 };
+
+function roleSelect(row: HTMLElement, name: string) {
+  return within(row).getByLabelText(
+    new RegExp(`set role for ${name}`, "i"),
+  ) as HTMLSelectElement;
+}
+
+function rowFor(name: string) {
+  const row = screen.getByText(name).closest("li");
+  if (!row) {
+    throw new Error(`no member row rendered for ${name}`);
+  }
+  return row as HTMLElement;
+}
 
 function backend(calls: { method: string; url: string; body?: unknown }[]) {
   // openapi-fetch calls fetch(request) with a Request object, so read the
@@ -182,6 +210,32 @@ describe("UsersAdminCard", () => {
     );
   });
 
+  it("reads back each member's current role", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    expect(roleSelect(rowFor("Ada Active"), "ada active").value).toBe("admin");
+    expect(roleSelect(rowFor("Otto Off"), "otto off").value).toBe("read_only");
+  });
+
+  it("offers the placeholder to a member holding no role", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Nora None")).toBeTruthy());
+
+    const select = roleSelect(rowFor("Nora None"), "nora none");
+    expect(select.value).toBe("");
+    expect(within(select).getByText("Set role…")).toBeTruthy();
+    // A member who already has a role gets no such option: it would be
+    // selectable and do nothing.
+    expect(
+      within(roleSelect(rowFor("Ada Active"), "ada active")).queryByText(
+        "Set role…",
+      ),
+    ).toBeNull();
+  });
+
   it("sets a member's role through the role seam", async () => {
     const calls: { method: string; url: string; body?: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
@@ -258,6 +312,10 @@ describe("UsersAdminCard", () => {
 
     await waitFor(() => expect(within(active).getByRole("alert")).toBeTruthy());
     expect(screen.getByText(/leave no admin/i)).toBeTruthy();
+    // The refused change left the role untouched, so the select must read the
+    // role the member still holds — anything else would claim a change the
+    // server rejected, and would make re-picking "rep" a silent no-op.
+    expect(roleSelect(active, "ada active").value).toBe("admin");
   });
 
   it("surfaces a failed invite as an inline error", async () => {

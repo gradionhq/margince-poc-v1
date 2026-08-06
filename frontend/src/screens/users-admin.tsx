@@ -269,6 +269,21 @@ function MemberRow({
   const pending =
     setRole.isPending || deactivate.isPending || reactivate.isPending;
 
+  // The role the select reads back. `roles` arrives only for an admin caller —
+  // which this card always is — and normally holds exactly one key. No key (an
+  // unassigned seat) and several keys both leave the select on its placeholder:
+  // neither has a single current role to show, and picking one collapses the
+  // set to that one either way.
+  const currentRole =
+    member.roles?.length === 1 && isOption(member.roles[0], ROLES)
+      ? member.roles[0]
+      : "";
+  // While a change is in flight the select shows the role being applied, so the
+  // row never snaps back to the old one under the operator. A FAILED change
+  // leaves it on the current role, which is what keeps a retry live: re-picking
+  // the same target still fires onChange.
+  const inFlightRole = setRole.isPending ? setRole.variables : undefined;
+
   return (
     <li className="users-row">
       <span className="users-who">
@@ -278,11 +293,9 @@ function MemberRow({
       <Badge tone={member.status === "active" ? "success" : "warn"}>
         {t(`users.status.${member.status}`)}
       </Badge>
-      {/* Controlled at "" so the label always resets — re-selecting the same
-          role after a failed change still fires onChange. */}
       <Select
         aria-label={t("users.setRoleFor", { name: member.display_name })}
-        value=""
+        value={inFlightRole ?? currentRole}
         disabled={pending}
         onChange={(e) => {
           const value = e.target.value;
@@ -291,7 +304,9 @@ function MemberRow({
           }
         }}
       >
-        <option value="">{t("users.setRole")}</option>
+        {/* Offered only when there is no single role to show — otherwise it
+            would be a selectable option that does nothing. */}
+        {currentRole === "" && <option value="">{t("users.setRole")}</option>}
         {ROLES.map((r) => (
           <option key={r} value={r}>
             {t(`users.role.${r}`)}

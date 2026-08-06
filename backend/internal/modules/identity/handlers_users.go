@@ -237,14 +237,17 @@ func (h Handlers) actor(w http.ResponseWriter, r *http.Request) (Identity, bool)
 }
 
 // writeUserByID reads the member back (any status) and writes it — the shared
-// tail of every admin write, so the client always sees the resulting row.
+// tail of every admin write, so the client always sees the resulting row. Every
+// caller is admin-only (the service methods re-check it), so the row carries
+// its role keys: a role change that answered without them would leave the
+// client rendering the role it just replaced.
 func (h Handlers) writeUserByID(w http.ResponseWriter, r *http.Request, userID ids.UserID, status int) {
 	row, err := h.svc.GetUser(r.Context(), userID)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, status, wireUser(row))
+	httperr.WriteJSON(w, status, wireUserWithRoles(row))
 }
 
 // sendInvite mails the single-use set-password link when a mailer is wired.

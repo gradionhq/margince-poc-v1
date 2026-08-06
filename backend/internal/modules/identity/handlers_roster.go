@@ -15,14 +15,11 @@ import (
 
 // ListUsers serves one keyset page of the workspace member roster.
 func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request, params crmcontracts.ListUsersParams) {
+	actor, hasActor := identityFrom(r.Context())
+	isAdmin := hasActor && actor.hasRole(roleAdmin)
 	// The widened admin management view is honored only for an admin caller;
 	// everyone else gets the active-only roster the share/assignee pickers use.
-	includeInactive := false
-	if params.IncludeInactive != nil && *params.IncludeInactive {
-		if actor, ok := identityFrom(r.Context()); ok && actor.hasRole("admin") {
-			includeInactive = true
-		}
-	}
+	includeInactive := isAdmin && params.IncludeInactive != nil && *params.IncludeInactive
 	rows, page, err := h.svc.ListUsers(r.Context(), ListUsersInput{
 		Q:               params.Q,
 		Cursor:          params.Cursor,
@@ -33,9 +30,16 @@ func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request, params crmco
 		httperr.Write(w, r, err)
 		return
 	}
+	// Role keys ride the admin's roster only — an admin is the only caller who
+	// can change a role, and the pickers every other member reads this for have
+	// no use for who holds `admin`.
+	wire := wireUser
+	if isAdmin {
+		wire = wireUserWithRoles
+	}
 	data := make([]crmcontracts.User, 0, len(rows))
 	for _, u := range rows {
-		data = append(data, wireUser(u))
+		data = append(data, wire(u))
 	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.UserListResponse{Data: data, Page: pageInfo(page)})
 }
@@ -72,7 +76,9 @@ func pageInfo(p storekit.Page) crmcontracts.PageInfo {
 
 // wireUser maps a roster row to the contract User. workspace_id is
 // required on User; no credential column ever leaves the store — userRow
-// carries none, so none can leak here.
+// carries none, so none can leak here. Role keys are deliberately absent:
+// the roster answers every authenticated member, and only wireUserWithRoles
+// adds them.
 func wireUser(u userRow) crmcontracts.User {
 	created := u.CreatedAt
 	return crmcontracts.User{
@@ -84,6 +90,17 @@ func wireUser(u userRow) crmcontracts.User {
 		IsAgent:     u.IsAgent,
 		CreatedAt:   &created,
 	}
+}
+
+// wireUserWithRoles is the admin view of a member: wireUser plus the role
+// keys the admin card renders and acts on. Splitting it from wireUser makes
+// the disclosure gate structural — a caller that has not been checked for
+// admin cannot reach the roles by forgetting a flag.
+func wireUserWithRoles(u userRow) crmcontracts.User {
+	wire := wireUser(u)
+	roles := u.Roles
+	wire.Roles = &roles
+	return wire
 }
 
 // wireTeam maps a roster row to the contract Team, setting the optional

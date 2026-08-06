@@ -44,10 +44,22 @@ type userRow struct {
 	DisplayName string
 	Status      string
 	IsAgent     bool
-	CreatedAt   time.Time
+	// Roles are the member's assigned system role keys. Read on every roster
+	// row, but only an admin's response carries them — the wire mapping is
+	// where that gate lives (see wireUserWithRoles).
+	Roles     []string
+	CreatedAt time.Time
 }
 
-const userColumns = `id, workspace_id, email, display_name, status, is_agent, created_at`
+// roleKeys aggregates the member's assigned role keys, sorted so a member
+// holding more than one reads the same way on every request. A member with no
+// assignment yields an empty array rather than NULL, so the scan target never
+// has to distinguish "none" from "unknown".
+const roleKeys = `(SELECT COALESCE(array_agg(r.key ORDER BY r.key), '{}')
+	  FROM role_assignment ra JOIN role r ON r.id = ra.role_id
+	  WHERE ra.user_id = app_user.id)`
+
+const userColumns = `id, workspace_id, email, display_name, status, is_agent, ` + roleKeys + `, created_at`
 
 const listUsersQuery = `
 	SELECT ` + userColumns + `
@@ -87,7 +99,7 @@ const listUsersAllFilteredQuery = `
 
 func scanUser(r pgx.Row) (userRow, error) {
 	var u userRow
-	err := r.Scan(&u.ID, &u.WorkspaceID, &u.Email, &u.DisplayName, &u.Status, &u.IsAgent, &u.CreatedAt)
+	err := r.Scan(&u.ID, &u.WorkspaceID, &u.Email, &u.DisplayName, &u.Status, &u.IsAgent, &u.Roles, &u.CreatedAt)
 	return u, err
 }
 

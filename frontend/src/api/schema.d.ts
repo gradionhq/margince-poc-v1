@@ -3893,7 +3893,8 @@ export interface paths {
          * List workspace members (roster) — cursor-paginated. Read-only.
          * @description The workspace member roster: id + display name + email + seat/status. Any authenticated member
          *     may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
-         *     archived users. Row-scoped by workspace RLS.
+         *     archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
+         *     who is the only one who can act on it.
          */
         get: operations["listUsers"];
         put?: never;
@@ -9409,6 +9410,8 @@ export interface components {
              * @default false
              */
             is_agent: boolean;
+            /** @description This member's assigned system role keys. Present ONLY for an admin caller — the roster is readable by every authenticated member (it feeds the share/assignee pickers), and a rep has no business enumerating who holds `admin`. Normally exactly one key: `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients that render a single current role must still handle the empty and multi-key cases. */
+            roles?: string[];
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */

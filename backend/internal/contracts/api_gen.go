@@ -14872,8 +14872,11 @@ type User struct {
 	Id          openapi_types.UUID  `json:"id"`
 
 	// IsAgent First-party Agent Runner identity vs a human seat.
-	IsAgent bool       `json:"is_agent"`
-	Status  UserStatus `json:"status"`
+	IsAgent bool `json:"is_agent"`
+
+	// Roles This member's assigned system role keys. Present ONLY for an admin caller — the roster is readable by every authenticated member (it feeds the share/assignee pickers), and a rep has no business enumerating who holds `admin`. Normally exactly one key: `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients that render a single current role must still handle the empty and multi-key cases.
+	Roles  *[]string  `json:"roles,omitempty"`
+	Status UserStatus `json:"status"`
 
 	// Timezone IANA name.
 	Timezone    *string            `json:"timezone,omitempty"`

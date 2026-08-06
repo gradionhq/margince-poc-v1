@@ -59,6 +59,71 @@ func TestWireUser(t *testing.T) {
 	}
 }
 
+// The roster answers every authenticated member, so the shared mapping must
+// withhold the role keys even when the row it is given carries them — that
+// omission is the whole disclosure gate, and a row read for an admin is the
+// same row read for a rep.
+func TestWireUserWithholdsRoleKeys(t *testing.T) {
+	got := wireUser(userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "ada@example.com",
+		DisplayName: "Ada Admin",
+		Status:      "active",
+		Roles:       []string{"admin"},
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	})
+
+	if got.Roles != nil {
+		t.Errorf("Roles = %v, want nil — a non-admin roster must not disclose who holds a role", *got.Roles)
+	}
+}
+
+func TestWireUserWithRolesCarriesTheRoleKeys(t *testing.T) {
+	row := userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "ada@example.com",
+		DisplayName: "Ada Admin",
+		Status:      "active",
+		Roles:       []string{"admin"},
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	}
+	got := wireUserWithRoles(row)
+
+	if got.Roles == nil {
+		t.Fatal("Roles = nil, want the member's role keys — the admin card renders the current role from them")
+	}
+	if len(*got.Roles) != 1 || (*got.Roles)[0] != "admin" {
+		t.Errorf("Roles = %v, want [admin]", *got.Roles)
+	}
+	// Everything else is the shared mapping; only the role keys are added.
+	if got.DisplayName != row.DisplayName || string(got.Status) != row.Status {
+		t.Errorf("got %q/%q, want %q/%q", got.DisplayName, got.Status, row.DisplayName, row.Status)
+	}
+}
+
+// An unassigned seat has no role, and the admin card distinguishes that from
+// "not disclosed" — so it must arrive as an empty list, never as an absent one.
+func TestWireUserWithRolesKeepsAnUnassignedSeatDistinctFromAWithheldOne(t *testing.T) {
+	got := wireUserWithRoles(userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "nora@example.com",
+		DisplayName: "Nora None",
+		Status:      "active",
+		Roles:       []string{},
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	})
+
+	if got.Roles == nil {
+		t.Fatal("Roles = nil, want an empty list — absent means withheld, not unassigned")
+	}
+	if len(*got.Roles) != 0 {
+		t.Errorf("Roles = %v, want empty", *got.Roles)
+	}
+}
+
 func TestWireTeam(t *testing.T) {
 	id := ids.NewV7()
 	ws := ids.NewV7()

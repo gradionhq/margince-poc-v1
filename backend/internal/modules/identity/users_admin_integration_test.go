@@ -44,6 +44,12 @@ func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 	if member.Status != "active" || member.Email != "newbie@acme.test" {
 		t.Fatalf("invited member = %+v; want active + lowercased email", member)
 	}
+	// The member read carries the assigned role keys — the admin card renders
+	// the current role from them, so the aggregate must survive the round trip
+	// and not merely be correct in the assignment table.
+	if len(member.Roles) != 1 || member.Roles[0] != "rep" {
+		t.Errorf("invited member Roles = %v, want [rep]", member.Roles)
+	}
 
 	var role string
 	if err := e.owner.QueryRow(context.Background(),
