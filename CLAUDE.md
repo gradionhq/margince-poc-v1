@@ -326,7 +326,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 
 - `internal/contracts/api_gen.go`, `internal/compose/stubs_gen.go` —
   generated (`make gen`); the drift gate fails a hand edit.
-- `migrations/core/*` that have shipped — additive migrations only.
+- `migrations/core/*` that have shipped — additive migrations only. An applied
+  version never re-runs, so editing one changes what FRESH installations get
+  while every deployed database keeps the old behaviour: the two diverge
+  silently. The tenant-scope sweep (see the migration-write rule below) is the
+  one authorized exception in this tree's history, and it only holds because it
+  shipped WITH additive repair migrations (core `0190`,
+  custom `20260806120000`) that reach the already-deployed databases. Editing
+  history without that second half is how an installation ends up permanently
+  missing a backfill nobody can see is missing.
 - RLS policies and the `database.WithWorkspaceTx` GUC contract — every
   tenant query goes through it; there is no raw-pool path for tenant data.
 - `internal/shared/apperrors` — the fixed sentinel registry; extend only
