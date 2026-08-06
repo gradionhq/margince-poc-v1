@@ -32,6 +32,7 @@ const idle: PasswordLinkState = { pending: false, link: null, error: null };
 // points — the roster row and the post-invite flow — go through it, so the
 // invite has no privileged shortcut that could drift from what the row does.
 export function usePasswordLink() {
+  const t = useT();
   const [state, setState] = useState<PasswordLinkState>(idle);
   // The member the open dialog belongs to. A response is accepted only while it
   // still matches: close mid-flight, or open another member's dialog, and the
@@ -44,25 +45,45 @@ export function usePasswordLink() {
     setState(idle);
   }, []);
 
-  const mint = useCallback(async (userId: string) => {
-    awaiting.current = userId;
-    setState({ pending: true, link: null, error: null });
-    const { data, error } = await api.POST("/users/{id}/password-link", {
-      params: { path: { id: userId } },
-    });
-    if (awaiting.current !== userId) {
-      return;
-    }
-    if (error) {
-      setState({ pending: false, link: null, error: problemMessage(error) });
-      return;
-    }
-    setState({
-      pending: false,
-      error: null,
-      link: { url: data.set_password_url, expiresAt: data.expires_at },
-    });
-  }, []);
+  const mint = useCallback(
+    async (userId: string) => {
+      awaiting.current = userId;
+      setState({ pending: true, link: null, error: null });
+      try {
+        const { data, error } = await api.POST("/users/{id}/password-link", {
+          params: { path: { id: userId } },
+        });
+        if (awaiting.current !== userId) {
+          return;
+        }
+        setState(
+          error
+            ? { pending: false, link: null, error: problemMessage(error) }
+            : {
+                pending: false,
+                error: null,
+                link: {
+                  url: data.set_password_url,
+                  expiresAt: data.expires_at,
+                },
+              },
+        );
+      } catch {
+        // An HTTP refusal arrives as `error` above; only a transport failure
+        // rejects. Without this the rejection escapes and the dialog sits on
+        // "Creating the link…" for good — the admin cannot tell a dead network
+        // from a slow server, and has no way to retry.
+        if (awaiting.current === userId) {
+          setState({
+            pending: false,
+            link: null,
+            error: t("users.link.offline"),
+          });
+        }
+      }
+    },
+    [t],
+  );
 
   return { state, mint, clear };
 }

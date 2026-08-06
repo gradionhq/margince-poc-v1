@@ -222,6 +222,40 @@ describe("admin-issued set-password link", () => {
     ).toBeTruthy();
   });
 
+  it("recovers from a transport failure instead of hanging on pending", async () => {
+    // An HTTP refusal arrives as `error`; only a network failure rejects. An
+    // uncaught rejection leaves the dialog on "Creating the link…" forever,
+    // with no way to tell a dead connection from a slow server.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+            admin_password_link: true,
+          });
+        }
+        if (req.url.includes("/password-link")) {
+          throw new TypeError("Failed to fetch");
+        }
+        return jsonResponse(ROSTER);
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /get set-password link/i }),
+    );
+    expect(await screen.findByText(/could not reach the server/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
+    expect(screen.queryByText(/creating the link/i)).toBeNull();
+  });
+
   it("keeps a failed mint visible with a retry rather than reporting success", async () => {
     vi.stubGlobal(
       "fetch",

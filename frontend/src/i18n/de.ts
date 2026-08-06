@@ -3131,6 +3131,8 @@ export const de = {
   "users.link.expires": "Gültig bis {when}.",
   "users.link.failed":
     "Das Mitglied wurde angelegt, der Link jedoch nicht. Ohne Link kann es sich nicht anmelden.",
+  "users.link.offline":
+    "Server nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
   "users.link.retry": "Erneut versuchen",
   "users.link.done": "Fertig",
   "settings.companyKicker": "Firmenwissen",

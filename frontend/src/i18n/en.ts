@@ -3095,6 +3095,8 @@ export const en = {
   "users.link.expires": "Expires {when}.",
   "users.link.failed":
     "The member was created, but the link could not be. They cannot sign in until you send them one.",
+  "users.link.offline":
+    "Could not reach the server. Check your connection and try again.",
   "users.link.retry": "Try again",
   "users.link.done": "Done",
   "settings.companyKicker": "Company intelligence",
