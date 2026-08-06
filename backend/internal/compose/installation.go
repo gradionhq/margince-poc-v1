@@ -87,7 +87,7 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 // created, rather than re-derived from the configuration. That is deliberate:
 // identity applies its own defaults when the config omits a currency or zone,
 // and deriving them a second time here would duplicate that defaulting and
-// drift from it. It also makes this path identical to 0190's backfill, so an
+// drift from it. It also makes this path identical to 0191's backfill, so an
 // installation bootstrapped after the migration and one migrated into it hold
 // the same values by construction.
 func seedInstallationSettings(ctx context.Context, tx pgx.Tx) error {

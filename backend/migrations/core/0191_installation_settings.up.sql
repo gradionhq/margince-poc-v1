@@ -8,7 +8,7 @@
 -- the reason this ships with a surface rather than only a store.
 --
 -- Note what this migration proves about ADR-0090's claim. Adding a SETTING now
--- costs no DDL — that is the point of 0189. Adding a new RBAC OBJECT still
+-- costs no DDL — that is the point of 0190. Adding a new RBAC OBJECT still
 -- costs a policy backfill, exactly as 0121 paid it, because the closed object
 -- set is seeded per installation. Settings that reuse an existing object are
 -- free; this one introduces its own.
@@ -33,7 +33,7 @@ WHERE is_system AND key IN ('manager', 'rep', 'read_only')
 
 -- Carry the live installation's values across.
 --
--- Unlike 0189's toggle, these are written UNCONDITIONALLY rather than only
+-- Unlike 0190's toggle, these are written UNCONDITIONALLY rather than only
 -- when they differ from the registered default. The defaults here are
 -- placeholders — "" for the name, EUR for the currency — not the value any
 -- real installation is running on, so falling back to them would silently

@@ -1,8 +1,8 @@
--- Reverse of 0190. The `workspace` columns were never dropped, so the values
+-- Reverse of 0191. The `workspace` columns were never dropped, so the values
 -- are still there and the setting rows are the copy — deleting them restores
 -- the previous source of truth exactly.
 --
--- Any change an operator made through the settings surface while 0190 was
+-- Any change an operator made through the settings surface while 0191 was
 -- applied is lost by this down: it lives only in the setting row, because the
 -- column stopped being written. That is stated rather than worked around — a
 -- down migration that wrote values BACK onto the columns would silently

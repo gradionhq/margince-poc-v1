@@ -72,17 +72,21 @@ func TestInstallationSettingsReadWriteAndGate(t *testing.T) {
 	rep := e.installationSettingsCtx(principal.ObjectGrant{Read: true})
 	none := e.installationSettingsCtx(principal.ObjectGrant{})
 
-	// The migration carried the live workspace's values across, so a read
-	// answers with them rather than with the registered defaults.
+	// A read answers with the installation's own values rather than the
+	// registered defaults. In this fixture they come from BOOTSTRAP seeding
+	// (ADR-0090 §8) — migrations run against an empty database here, so 0191's
+	// backfill has no workspace row to copy from. That split is the point: an
+	// installation created after the migration and one migrated into it must
+	// both end up with real values, by two different paths.
 	got, err := store.GetInstallation(rep)
 	if err != nil {
 		t.Fatalf("a read grant could not read the installation settings: %v", err)
 	}
 	if got.Name == "" {
-		t.Error("name came back empty; 0190 should have carried the workspace's own name across")
+		t.Error("name came back empty — bootstrap did not seed it from the organization row (ADR-0090 §8)")
 	}
 	if got.Timezone == "" || got.BaseCurrency == "" {
-		t.Errorf("timezone=%q currency=%q — both should have been carried across by 0190",
+		t.Errorf("timezone=%q currency=%q — both should have been seeded at bootstrap",
 			got.Timezone, got.BaseCurrency)
 	}
 	if got.BaseCurrencyLocked {
