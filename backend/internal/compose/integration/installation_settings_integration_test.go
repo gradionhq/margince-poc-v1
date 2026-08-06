@@ -72,21 +72,18 @@ func TestInstallationSettingsReadWriteAndGate(t *testing.T) {
 	rep := e.installationSettingsCtx(principal.ObjectGrant{Read: true})
 	none := e.installationSettingsCtx(principal.ObjectGrant{})
 
-	// A read answers with the installation's own values rather than the
-	// registered defaults. In this fixture they come from BOOTSTRAP seeding
-	// (ADR-0090 §8) — migrations run against an empty database here, so 0191's
-	// backfill has no workspace row to copy from. That split is the point: an
-	// installation created after the migration and one migrated into it must
-	// both end up with real values, by two different paths.
+	// This harness inserts its workspace directly rather than bootstrapping,
+	// so no setting row exists: the read must answer with the REGISTERED
+	// DEFAULTS. That is the state every installation is in before anyone
+	// writes a setting, and the path that lets a new setting ship without
+	// backfilling anything. (That bootstrap seeds real values instead is
+	// proven where bootstrap actually runs — installation_integration_test.go.)
 	got, err := store.GetInstallation(rep)
 	if err != nil {
 		t.Fatalf("a read grant could not read the installation settings: %v", err)
 	}
-	if got.Name == "" {
-		t.Error("name came back empty — bootstrap did not seed it from the organization row (ADR-0090 §8)")
-	}
-	if got.Timezone == "" || got.BaseCurrency == "" {
-		t.Errorf("timezone=%q currency=%q — both should have been seeded at bootstrap",
+	if got.Timezone != "UTC" || got.BaseCurrency != "EUR" {
+		t.Errorf("unset settings read as timezone=%q currency=%q, want the registered defaults UTC/EUR",
 			got.Timezone, got.BaseCurrency)
 	}
 	if got.BaseCurrencyLocked {
@@ -195,8 +192,8 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 	pipeline := e.seed(t, `
 		INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, $2, 'Freeze fixture', false)`)
 	stage := e.seed(t, `
-		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, probability)
-		VALUES ($1, $2, $3, 'Won', 1, 100)`, pipeline)
+		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, $3, 'Won', 1, 'won', 100)`, pipeline)
 	e.seed(t, `
 		INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, source, captured_by,
 		                  amount_minor, fx_rate_to_base, status)
