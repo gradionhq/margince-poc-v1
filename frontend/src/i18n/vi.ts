@@ -4,6 +4,16 @@ import type { MessageKey } from "./en";
 // i18n.test.ts proves every value differs from its English counterpart
 // except the allowlisted brand names, endonyms and other strings that are
 // correct in English on purpose.
+//
+// Two terminology rules a later batch must not drift from, because nothing
+// automated can catch a synonym:
+//   - The tenant a reader belongs to is "tổ chức" throughout. English copy
+//     still says "workspace" in places, but A107 makes the installation and
+//     the organization one thing, so a second Vietnamese noun for it would
+//     read as a second concept the product does not have.
+//   - "tổ chức" is never the registered legal entity — that sense is
+//     "pháp nhân" (onboarding's legal-block copy). The two senses share no
+//     string in this catalog and must stay that way.
 export const vi = {
   "app.title": "Design token Margince",
   "app.subtitle":
@@ -248,7 +258,7 @@ export const vi = {
   "partner.organization": "Tổ chức",
   "partner.role": "Vai trò đối tác",
   "partner.certStatus": "Trạng thái chứng nhận",
-  "partner.marginTier": "Bậc chiết khấu",
+  "partner.marginTier": "Bậc biên lợi nhuận",
   "partner.stage": "Giai đoạn quan hệ",
   "partner.nextStep": "Bước tiếp theo",
   "partner.nextStepDue": "Hạn bước tiếp theo",
@@ -317,13 +327,13 @@ export const vi = {
   "overlay.filterUnsupported":
     "Bộ lọc hay cách sắp xếp này không dùng được khi đang đọc từ HubSpot — hãy bỏ đi rồi thử lại.",
   "overlay.emptyOwnerHint":
-    "Danh sách trống ở đây thường có nghĩa là email HubSpot của người phụ trách không khớp người dùng nào trong workspace, chứ không phải portal HubSpot trống.",
+    "Danh sách trống ở đây thường có nghĩa là email HubSpot của người phụ trách không khớp người dùng nào trong tổ chức, chứ không phải portal HubSpot trống.",
   "overlay.partialWriteBack":
     "Chỉ những trường HubSpot chấp nhận mới được ghi ngược lại — mọi thứ khác ở đây, kể cả trường tuỳ chỉnh và người phụ trách, hoàn toàn không được áp dụng; giá trị hiện tại bên HubSpot vẫn giữ nguyên.",
 
   "overlay.title": "Bản sao HubSpot",
   "overlay.sub":
-    "Kết nối CRM đang dùng của workspace để bản ghi được đọc từ bản sao của CRM đó thay vì các bảng gốc.",
+    "Kết nối CRM đang dùng của tổ chức để bản ghi được đọc từ bản sao của CRM đó thay vì các bảng gốc.",
   "overlay.loading": "Đang tải kết nối tới CRM đang dùng…",
   "overlay.notConfigured":
     "Chế độ Overlay chưa được cấu hình trên bản triển khai này.",
@@ -339,8 +349,8 @@ export const vi = {
     "Được niêm phong vào kho khoá; không hiển thị lại lần nào nữa.",
   "overlay.connect": "Kết nối HubSpot",
   "overlay.reconnect": "Kết nối lại",
-  "overlay.connectConfirmTitle": "Kết nối HubSpot cho cả workspace?",
-  "overlay.reconnectConfirmTitle": "Kết nối lại HubSpot cho cả workspace?",
+  "overlay.connectConfirmTitle": "Kết nối HubSpot cho cả tổ chức?",
+  "overlay.reconnectConfirmTitle": "Kết nối lại HubSpot cho cả tổ chức?",
   "overlay.connectConfirmBody":
     "Thao tác này chuyển ngay phần đọc dữ liệu của mọi người dùng sang bản sao HubSpot, và bản ghi trở thành chỉ đọc ở bất cứ đâu bản sao không phục vụ được lượt ghi. Việc này ảnh hưởng toàn bộ bản cài đặt, không chỉ phiên của riêng bạn.",
   "overlay.statusActive": "Đã kết nối",
@@ -374,21 +384,21 @@ export const vi = {
   "overlay.disconnect": "Ngắt kết nối",
   "overlay.disconnectTitle": "Ngắt kết nối HubSpot?",
   "overlay.disconnectBody":
-    "Thao tác này xoá sạch dữ liệu đã sao và chuyển workspace về dùng bản ghi gốc. Nhật ký kiểm toán vẫn được giữ.",
+    "Thao tác này xoá sạch dữ liệu đã sao và chuyển tổ chức về dùng bản ghi gốc. Nhật ký kiểm toán vẫn được giữ.",
 
   "overlay.userMap.title": "Ánh xạ người dùng của bản sao",
   "overlay.userMap.sub":
-    "Mỗi người dùng workspace tương ứng với người dùng {principal} nào. Ánh xạ này quyết định toàn bộ những gì họ thấy trong bản sao.",
+    "Mỗi người dùng của tổ chức tương ứng với người dùng {principal} nào. Ánh xạ này quyết định toàn bộ những gì họ thấy trong bản sao.",
   "overlay.userMap.cost":
     "Người dùng không có ánh xạ sẽ không thấy bản ghi đã sao nào — danh sách của họ trả về trống.",
   "overlay.userMap.loading": "Đang tải ánh xạ người dùng…",
   "overlay.userMap.loadFailed": "Không tải được ánh xạ người dùng.",
   "overlay.userMap.adminOnly": "Bạn không có quyền xem ai đã được ánh xạ.",
   "overlay.userMap.notOverlay":
-    "Workspace này đọc từ các bảng gốc, nên không có gì để ánh xạ.",
+    "Tổ chức này đọc từ các bảng gốc, nên không có gì để ánh xạ.",
   "overlay.userMap.notConfigured":
     "Chế độ Overlay chưa được cấu hình trên bản triển khai này.",
-  "overlay.userMap.empty": "Workspace này không có người dùng nào để ánh xạ.",
+  "overlay.userMap.empty": "Tổ chức này không có người dùng nào để ánh xạ.",
   "overlay.userMap.view": "Nhóm theo",
   "overlay.userMap.viewByUser": "Theo người dùng",
   "overlay.userMap.viewByOwner": "Theo người dùng {principal}",
@@ -451,7 +461,7 @@ export const vi = {
   "consent.doiIssued": "Token dùng một lần (chỉ hiện một lần):",
   "consent.doiExpires": "Hết hạn",
   "consent.noRecord": "chưa ghi nhận",
-  "consent.noPurposes": "Workspace này chưa theo dõi mục đích chấp thuận nào.",
+  "consent.noPurposes": "Tổ chức này chưa theo dõi mục đích chấp thuận nào.",
   "consent.defaultDeny":
     "Việc gửi ra mặc định bị từ chối theo từng mục đích: một lượt gửi bị chặn trừ khi có sự chấp thuận đang hiệu lực và có bằng chứng cho đúng mục đích đó. Chấp thuận cho một mục đích không bao giờ cho phép một mục đích khác.",
   "consent.proofLog": "Nhật ký bằng chứng",
@@ -511,7 +521,7 @@ export const vi = {
   "co.strip.engagement.active": "Đang trao đổi",
   "co.strip.engagement.waiting_on_them": "Đang chờ họ",
   "co.strip.engagement.waiting_on_us": "Đang chờ bên mình",
-  "co.strip.engagement.dormant": "Đã lặng đi",
+  "co.strip.engagement.dormant": "Đã im ắng",
   "co.strip.lastBoth": "Họ viết {inbound} · bên mình viết {outbound}",
   "co.strip.never": "chưa bao giờ",
   "co.strip.openDeals": "{count} đang mở",
@@ -644,7 +654,7 @@ export const vi = {
   "co.brief.cite.person.many": "{count} contact",
   "co.brief.cite.organization.many": "{count} tài khoản",
   "co.brief.cite.fact.many": "{count} dữ kiện",
-  "approval.kind.advance_deal": "Chuyển deal tiến lên",
+  "approval.kind.advance_deal": "Chuyển giai đoạn của deal",
   "approval.kind.close_date_correction": "Sửa ngày chốt",
   "approval.kind.deal_follow_up": "Thêm việc theo dõi cho deal",
   "approval.kind.promote_lead": "Chuyển đổi một lead",
@@ -730,7 +740,7 @@ export const vi = {
     "Tệp bạn cần là Connections.csv — kho lưu trữ xuất ra còn cả chục tệp khác.",
   "linkedinImport.choose": "Chọn tệp Connections.csv",
   "linkedinImport.noMatchesYet":
-    "Chưa có kết quả khớp nào, điều này là bình thường với một workspace mới: các kết nối của bạn được đối chiếu với những contact mà CRM đã biết, và số đó tăng dần khi thư của bạn được đọc. Việc này chạy lại mỗi giờ, nên kết quả khớp sẽ xuất hiện khi CRM đầy dần lên.",
+    "Chưa có kết quả khớp nào, điều này là bình thường với một tổ chức mới: các kết nối của bạn được đối chiếu với những contact mà CRM đã biết, và số đó tăng dần khi thư của bạn được đọc. Việc này chạy lại mỗi giờ, nên kết quả khớp sẽ xuất hiện khi CRM đầy dần lên.",
   "linkedinImport.working": "Đang đọc bản xuất của bạn…",
   "linkedinImport.imported": "Kết nối đã nhập",
   "linkedinImport.confirmed": "Đã khớp với một contact",
@@ -791,7 +801,7 @@ export const vi = {
   "co.profile.title": "Hồ sơ công ty",
   "co.reach.window": "Tình trạng liên hệ trong 90 ngày qua",
   "co.reach.answered": "Đã hồi đáp",
-  "co.reach.silent": "Chưa hồi đáp",
+  "co.reach.silent": "Chưa có hồi đáp",
   "co.reach.untried": "Chưa tiếp cận",
   "co.role.set": "Đặt vai trò",
   "co.role.setOn": "{name} giữ vai trò gì trong deal này?",
@@ -1078,7 +1088,7 @@ export const vi = {
     "{shown} trong {count} deal đạt ngưỡng — phần đầu ngắn gọn và trung thực.",
   "home.quietRun":
     "Sáng nay không có gì vượt ngưỡng. Không bịa ra việc gấp — hãy tận hưởng sự yên tĩnh.",
-  "home.act": "Xong",
+  "home.act": "Đánh dấu xong",
   "home.dismiss": "Bỏ qua",
   "home.actedState": "đã xử lý",
   "home.dismissedState": "đã bỏ qua",
@@ -1314,7 +1324,7 @@ export const vi = {
     "Lượt gửi ra ngoài và thay đổi bản ghi được xếp vào hộp phê duyệt trước.",
   "ai.connect": "Kết nối một Agent",
   "ai.connectDetail":
-    "Hãy tạo một passport trong Cài đặt rồi trỏ bất kỳ Agent hỗ trợ MCP nào vào workspace của bạn. Agent chỉ đọc được những gì bạn thấy được.",
+    "Hãy tạo một passport trong Cài đặt rồi trỏ bất kỳ Agent hỗ trợ MCP nào vào tổ chức của bạn. Agent chỉ đọc được những gì bạn thấy được.",
   "ai.paletteHint": "Hỏi từ bất cứ đâu bằng",
 
   "settings.identity": "Bạn",
@@ -1384,7 +1394,7 @@ export const vi = {
   "settings.dangerZoneSub":
     "chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này",
   "settings.resetDataDesc":
-    "Đưa bản cài đặt này về trạng thái khởi động lần đầu. Dữ liệu nghiệp vụ và cấu hình workspace bị xoá sạch; tổ chức cùng người dùng của nó được giữ lại và vẫn đang đăng nhập.",
+    "Đưa bản cài đặt này về trạng thái khởi động lần đầu. Dữ liệu nghiệp vụ và cấu hình của tổ chức bị xoá sạch; tổ chức cùng người dùng của nó được giữ lại và vẫn đang đăng nhập.",
   "settings.resetDataButton": "Xoá sạch dữ liệu…",
   "settings.resetDataConfirmTitle": "Xoá sạch toàn bộ dữ liệu?",
   "settings.resetDataConfirmBody":
@@ -1441,7 +1451,7 @@ export const vi = {
   "privacy.dueAt": "Hạn",
   "privacy.openRequest": "Mở yêu cầu",
   "privacy.erasureNeedsPerson":
-    "Một yêu cầu xoá dữ liệu phải nêu đích danh một người trong workspace này — thực hiện nó sẽ xoá bản ghi đó. Chủ thể dạng văn bản tự do thì không xoá được.",
+    "Một yêu cầu xoá dữ liệu phải nêu đích danh một người trong tổ chức này — thực hiện nó sẽ xoá bản ghi đó. Chủ thể dạng văn bản tự do thì không xoá được.",
   "privacy.accessManual":
     "Yêu cầu truy cập dữ liệu được thực hiện thủ công: hãy ghi lại những gì bạn đã gửi vào phần kết luận. Hệ thống này không tự tập hợp hay xuất dữ liệu thay bạn.",
   "privacy.fulfilErasureTitle": "Thực hiện yêu cầu xoá dữ liệu",
@@ -1942,7 +1952,7 @@ export const vi = {
   // place: replacing the token goes through PATCH, never a disconnect.
   "connectors.provTelegram": "Telegram",
   "connectors.telegramTitle": "Bot Telegram",
-  "connectors.telegramSub": "Một bot nhận và gửi tin nhắn cho cả workspace.",
+  "connectors.telegramSub": "Một bot nhận và gửi tin nhắn cho cả tổ chức.",
   "connectors.telegramNotConfigured":
     "Các kênh nhắn tin chưa được cấu hình trên bản triển khai này.",
   "connectors.telegramConnectCta": "Kết nối một bot Telegram",
@@ -2711,11 +2721,11 @@ export const vi = {
   "client.sender": "Người gửi",
   "client.lookup": "Tra cứu",
   "client.open360": "Mở màn hình 360",
-  "client.unknown": "Chưa có trong workspace của bạn.",
+  "client.unknown": "Chưa có trong tổ chức của bạn.",
   "client.unknownDetail":
     "Người gửi này không khớp contact nào bạn xem được. Không có gì được lấy từ nơi khác.",
   "client.createLead": "Ghi nhận thành lead",
-  "client.isolation": "chỉ nói chuyện với workspace CỦA BẠN",
+  "client.isolation": "chỉ nói chuyện với tổ chức CỦA BẠN",
   "client.attribution":
     "Mọi lượt ghi nhận đều được quy trách và kiểm toán được.",
 
@@ -3313,7 +3323,7 @@ export const vi = {
   "quotas.target": "Mục tiêu",
   "quotas.gap": "Khoảng cách tới mục tiêu",
   "quotas.baseCurrencyNote":
-    "Số liệu tính theo tiền tệ gốc của workspace ({currency}).",
+    "Số liệu tính theo tiền tệ gốc của tổ chức ({currency}).",
   "quotas.pace.ahead":
     "Vượt tiến độ — đã đạt {pct}% trong khi kỳ đã trôi {pace}%.",
   "quotas.pace.behind":
@@ -3452,7 +3462,7 @@ export const vi = {
   "embedreindex.estimateCost": "Chi phí ước tính:",
   "embedreindex.estimateQualityHeuristic":
     "Ước tính theo kinh nghiệm — mức sàn cho khối lượng khi chưa có số liệu, không phải chi tiêu đã quan sát được.",
-  "embedreindex.utilizationTitle": "Ảnh hưởng hạn mức theo từng workspace",
+  "embedreindex.utilizationTitle": "Ảnh hưởng hạn mức theo từng tổ chức",
   "embedreindex.impact.normal": "bình thường",
   "embedreindex.impact.degraded": "sẽ chuyển sang chế độ tiết kiệm",
   "embedreindex.impact.queued": "sẽ bị xếp hàng",
@@ -3519,7 +3529,7 @@ export const vi = {
   "person.enriched.save": "Lưu bản sửa",
   "person.enriched.cancel": "Huỷ",
   "person.graph.loading": "Đang đọc mạng lưới quanh contact này…",
-  "person.graph.routeTitle": "Đường vào thân thiết nhất",
+  "person.graph.routeTitle": "Đường tiếp cận thân thiết nhất",
   "person.graph.routeDirect": "{name} đã có trao đổi với họ.",
   "person.graph.routeVia": "{name} có trao đổi với {through} ở cùng công ty.",
   "person.graph.noRoute":
