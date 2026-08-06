@@ -2620,10 +2620,11 @@ export interface paths {
          *     and PUT /company is the human's confirmation. That reasoning presupposes someone at the screen,
          *     and on the agent path there is nobody: the EGRESS effect is the same one POST /coldstart performs
          *     — an outbound GET to a caller-chosen host, with the caller's path and query, from the server's
-         *     own address — and the call CREATES the organization, so no record-shaped agent verb has a target
-         *     for it. HUMAN-ONLY on both counts: an agent principal is refused (403 `permission_denied`), with
-         *     no staging path. An agent that needs outward-looking research on an organization that already
-         *     exists spends the same `enrich` cap on POST /organizations/{id}/enrich.
+         *     own address — and the organization does not exist yet, so no record-shaped agent verb has a
+         *     target for it; the fields feed the form whose confirmation creates it. HUMAN-ONLY on both
+         *     counts: an agent principal is refused (403 `permission_denied`), with no staging path. An agent
+         *     that needs outward-looking research on an organization that already exists spends the same
+         *     `enrich` cap on POST /organizations/{id}/enrich.
          *
          *     Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
          *     non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
