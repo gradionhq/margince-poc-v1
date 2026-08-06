@@ -107,9 +107,18 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 		t.Fatalf("seeding workspace B: %v", err)
 	}
 	wsB := wsID(t, e, "fable-other")
+	// B's member holds a role whose key exists in NO other workspace, so if the
+	// role aggregate ever escaped its tenant the string would be unmistakable in
+	// A's response. role/role_assignment are FORCE-RLS deny-on-unset, and every
+	// roster read runs inside WithWorkspaceTx — this is what proves it rather
+	// than asserting it.
+	eve := ids.NewV7()
 	seedInWorkspace(
 		t, e, wsB,
-		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'eve@other.example', 'Eve Other')`, ids.NewV7(), wsB),
+		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'eve@other.example', 'Eve Other')`, eve, wsB),
+		stmt(`INSERT INTO role (workspace_id, key, name) VALUES ($1, 'other-tenant-only', 'Other Tenant Only')`, wsB),
+		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id)
+		      SELECT $1, r.id, $2 FROM role r WHERE r.key = 'other-tenant-only'`, wsB, eve),
 	)
 
 	// (e) No session → 401, before we lean on the authenticated reads.
@@ -143,6 +152,18 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	for _, u := range users.Data {
 		if u.WorkspaceID != wsA.String() {
 			t.Errorf("user %q workspace_id = %q, want %q", u.Email, u.WorkspaceID, wsA)
+		}
+	}
+	// The role aggregate is tenant-scoped too, not just the member rows: B's
+	// uniquely-keyed role must appear nowhere in A's page.
+	for _, u := range users.Data {
+		if u.Roles == nil {
+			continue
+		}
+		for _, key := range *u.Roles {
+			if key == "other-tenant-only" {
+				t.Errorf("cross-tenant leak: %q carries workspace B's role key", u.Email)
+			}
 		}
 	}
 
