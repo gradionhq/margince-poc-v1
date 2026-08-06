@@ -38,10 +38,13 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	gate := auth.NewGate(identitySvc)
 	// This registry admits REST calls; it never INVOKES a tool — a REST enrich
 	// runs scrapeHandlers, not the tool — so the enricher here supplies only the
-	// spec's cap and tier. Hence the address of the parameter rather than the
-	// live server: nothing reads through it. The MCP transport invokes tools
-	// through srv.toolRegistry, which holds the server itself.
-	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send, companyEnricher{srv: &srv})
+	// spec's cap and tier, and the ZERO value supplies those. Deliberately not
+	// the address of this by-value parameter: that would be a second reference
+	// to a pre-option copy, the exact shape the wrap-order note below warns
+	// about, and it would read as if something ran through it. The MCP
+	// transport invokes tools through srv.toolRegistry, which holds the live
+	// server.
+	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send, companyEnricher{})
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode

@@ -4325,10 +4325,12 @@ paths:
         paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
         EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
         (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
-        NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
-        A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
-        that is honest grounding, not fabrication, and it still stages 🟡.
-      x-agent-access: human-only   # onboarding: creates the organization, so there is no record to target
+        NOTHING is written to real records — the read-back stages a proposal the user accepts via
+        /approvals. A `self_description` field is "grounded" in the user's own words
+        (source_kind=self_description) — that is honest grounding, not fabrication, and it stages
+        the same way. HUMAN-ONLY: this call CREATES the organization, so there is no record for a
+        record-shaped agent verb to target; an agent principal is refused (403 `permission_denied`).
+      x-agent-access: human-only
       requestBody:
         required: true
         content:
@@ -7518,15 +7520,14 @@ paths:
       operationId: regenerateOffer
       summary: Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
       description: |
-        The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
-        sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
+        Copies the sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
         `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
         mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
         also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
         `diff_from_previous` line-item summary versus the prior revision; a mechanical
         regenerate (no AI context available) still works and returns `ai_generated=false`. The
-        produced draft still cannot leave without the 🟡 send gate.
-      x-agent-access: human-only   # no tool
+        produced draft still cannot leave without the send gate, which is human-only too.
+        HUMAN-ONLY: an agent principal is refused (403 `permission_denied`); no tool serves this verb.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:

@@ -3,12 +3,13 @@
 
 package compose
 
-// The lifecycle tools reach their owning module's entry point directly rather
-// than through the datasource seam, which is what makes a tool and its REST
-// route one behaviour — and what takes them off the path of the REST-only
-// overlay write guard. So the obligation that guard carries has to be
-// re-derived on the tool path, from the same two sets, not maintained as a list
-// here.
+// A record write the overlay provider cannot serve must refuse in overlay mode
+// on EVERY transport, and the two transports reach it differently: REST passes
+// through overlaywrite.go's middleware, while a tool that calls its owning
+// module directly — which is what makes a tool and its route one behaviour —
+// never touches a router. So the obligation is re-derived here for the tool
+// path, from the same two sets the middleware reads, rather than from a list
+// somebody has to remember to extend.
 
 import (
 	"context"
@@ -20,55 +21,79 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// lifecycleToolVerbs are the verbs whose tools bypass the provider by calling a
-// module store directly (RegisterLifecycleTools). Adding a fourth without
-// deciding its overlay answer is exactly what this gate is for.
-var lifecycleToolVerbs = []string{"relink_activity", "disqualify_lead", "advance_project_phase"}
+// unservableRecordWriteVerbs derives the set: a verb that writes a record
+// (overlayRecordWriteTools) and has no seam verb the overlay provider can serve
+// (overlayWriteVerbs) is refused for a mirrored type wherever it is reached.
+func unservableRecordWriteVerbs() map[string]bool {
+	verbs := map[string]bool{}
+	for verb := range overlayRecordWriteTools {
+		if _, servable := overlayWriteVerbs[verb]; !servable {
+			verbs[verb] = true
+		}
+	}
+	return verbs
+}
 
-// TestEveryUnservableRecordWriteVerbIsGuardedOnItsToolPath: a lifecycle verb
-// the overlay provider cannot serve must refuse on the TOOL path too. REST
-// refuses it in middleware; a tool that committed to the empty native table
-// instead would be the silent divergence AC-OV-2 forbids.
-func TestEveryUnservableRecordWriteVerbIsGuardedOnItsToolPath(t *testing.T) {
-	needsGuard := map[string]bool{}
-	for _, verb := range lifecycleToolVerbs {
-		if _, servable := overlayWriteVerbs[verb]; servable {
+// TestEveryUnservableRecordWriteVerbRefusesOnItsToolPath: each derived verb is
+// registered as a tool, and reaching it in overlay mode answers the declared
+// refusal — either because its seam carries a guard (disqualify_lead) or
+// because it rides the Dispatcher, which refuses for it.
+//
+// The integration pin (compose/integration/overlay_toolsurface) drives these
+// against a real overlay workspace; what this one holds is that the SET is
+// derived, so a verb added to overlayRecordWriteTools without a seam the
+// provider serves cannot slip past by not being listed anywhere.
+func TestEveryUnservableRecordWriteVerbRefusesOnItsToolPath(t *testing.T) {
+	derived := unservableRecordWriteVerbs()
+	if len(derived) == 0 {
+		t.Fatal("no unservable record-write verb resolved — this gate asserted nothing")
+	}
+
+	registry := NewRegistry(nil, SendPath{})
+	for verb := range derived {
+		if _, registered := registry.Spec(verb); !registered {
+			t.Errorf("%s is an unservable record write with no registered tool — either it is not a "+
+				"tool verb at all (drop it from overlayRecordWriteTools) or its tool is missing", verb)
 			continue
 		}
-		if overlayRecordWriteTools[verb] {
-			needsGuard[verb] = true
-		}
-	}
-	if len(needsGuard) == 0 {
-		t.Fatal("no lifecycle verb resolved as an unservable record write — this gate asserted nothing")
-	}
-	// One guard per verb that needs one. A verb the derivation adds without a
-	// wrapper here fails below rather than shipping unguarded.
-	guarded := map[string]func(overlayModeChecker) error{
-		"disqualify_lead": func(mode overlayModeChecker) error {
-			_, err := nativeOnlyDisqualifier(mode, refusingDisqualifier{}).DisqualifyLead(context.Background(), ids.NewV7())
-			return err
-		},
-	}
-	for verb := range needsGuard {
-		call, wired := guarded[verb]
-		if !wired {
-			t.Errorf("%s is a record write the overlay provider cannot serve, and its tool calls the module "+
-				"store directly — wrap its seam in a native-only guard (nativeonlytools.go) so the tool "+
-				"refuses where the REST route already does", verb)
-			continue
-		}
-		if err := call(overlayMode()); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-			t.Errorf("%s in overlay mode = %v, want ErrUnsupportedBySoR", verb, err)
-		}
-		if err := call(nativeMode()); !errors.Is(err, errSeamReached) {
-			t.Errorf("%s in native mode = %v, want the seam reached", verb, err)
+		if !overlayGuardedToolVerbs[verb] {
+			t.Errorf("%s writes a record the overlay provider cannot serve, so an overlay workspace must "+
+				"meet a declared refusal on the TOOL path too. Say which mechanism refuses it in "+
+				"overlayGuardedToolVerbs, and drive it in the integration pin (nativeOnlyAgentTools).", verb)
 		}
 	}
 }
 
-// errSeamReached proves the guard let the call THROUGH in native mode — a
-// guard that refused both ways would pass a one-sided assertion.
+// overlayGuardedToolVerbs records, for each derived verb, that its tool path has
+// a refusal and which mechanism provides it. Two mechanisms exist and the
+// distinction is load-bearing: a tool that rides the Dispatcher inherits the
+// provider's own refusal, while one that calls a module store directly needs a
+// guard at its seam — the second kind is the one that silently wrote to an
+// empty native table before.
+var overlayGuardedToolVerbs = map[string]bool{
+	// Dispatcher-routed: the overlay provider declares the write unsupported.
+	"advance_deal": true, "merge_records": true, "promote_lead": true,
+	// Seam-guarded: the tool calls people.Store directly, so nativeOnlyDisqualifier
+	// carries the refusal the REST middleware makes for the route.
+	"disqualify_lead": true,
+}
+
+// TestTheDisqualifyGuardRefusesInOverlayAndPassesInNative: the one seam guard,
+// exercised on both sides — a guard that refused in either mode would satisfy a
+// one-sided assertion while breaking every native workspace.
+func TestTheDisqualifyGuardRefusesInOverlayAndPassesInNative(t *testing.T) {
+	guard := nativeOnlyDisqualifier(overlayMode(), refusingDisqualifier{})
+	if _, err := guard.DisqualifyLead(context.Background(), ids.NewV7()); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Errorf("overlay mode = %v, want ErrUnsupportedBySoR", err)
+	}
+
+	guard = nativeOnlyDisqualifier(nativeMode(), refusingDisqualifier{})
+	if _, err := guard.DisqualifyLead(context.Background(), ids.NewV7()); !errors.Is(err, errSeamReached) {
+		t.Errorf("native mode = %v, want the seam reached", err)
+	}
+}
+
+// errSeamReached proves the guard let the call THROUGH in native mode.
 var errSeamReached = errors.New("seam reached")
 
 type refusingDisqualifier struct{}

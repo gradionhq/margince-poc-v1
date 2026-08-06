@@ -133,7 +133,7 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 		// a tier mismatch is a resolver nobody wired.
 		reason := "declares a dynamic tier with no resolvable tool"
 		if !registered {
-			reason = "declares an agent tool no registry serves"
+			reason = "declares an agent tool the registry does not serve"
 		}
 		httperr.Write(w, r, fmt.Errorf(
 			"agent gate: %s %s: %w", pol.Op, reason, apperrors.ErrPermissionDenied))
