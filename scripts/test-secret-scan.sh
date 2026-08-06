@@ -19,10 +19,11 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-if ! command -v gitleaks >/dev/null 2>&1; then
-	echo "test-secret-scan: gitleaks is not installed (see: make secret-scan)" >&2
-	exit 1
-fi
+# The same pinned, checksum-verified scanner the gate itself runs — testing a
+# different binary than the one under test would prove nothing about the gate.
+# shellcheck source=scripts/gitleaks-pin.sh
+. "$root/scripts/gitleaks-pin.sh"
+gitleaks="$(gitleaks_bin)"
 
 work="$(mktemp -d)"
 backups="$(mktemp -d)"
@@ -50,7 +51,7 @@ expect() {
 	# without testing anything.
 	cp "$file" "$backups/orig"
 	printf '\nconst plantedToken = "%s"\n' "$token" >>"$file"
-	if gitleaks dir "$work" --config "$root/.gitleaks.toml" --redact --no-banner >/dev/null 2>&1; then
+	if "$gitleaks" dir "$work" --config "$root/.gitleaks.toml" --redact --no-banner >/dev/null 2>&1; then
 		got="missed"
 	else
 		got="caught"

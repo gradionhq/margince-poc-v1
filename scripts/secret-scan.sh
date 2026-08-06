@@ -13,17 +13,15 @@
 # secret-scan job, so `make secret-scan` locally is the bar the PR will face.
 set -euo pipefail
 
-readonly PINNED_VERSION="8.30.1"
-
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-if ! command -v gitleaks >/dev/null 2>&1; then
-	echo "secret-scan: gitleaks is not installed." >&2
-	echo "  macOS:  brew install gitleaks" >&2
-	echo "  else:   https://github.com/gitleaks/gitleaks/releases (CI pins v${PINNED_VERSION})" >&2
-	exit 1
-fi
+# The scanner is pinned and checksum-verified, never whatever is on PATH: a
+# scan's verdict is a function of its rule set, so a different version is a
+# different gate and local would stop predicting CI.
+# shellcheck source=scripts/gitleaks-pin.sh
+. "$root/scripts/gitleaks-pin.sh"
+gitleaks="$(gitleaks_bin)"
 
 export_dir="$(mktemp -d)"
 trap 'rm -rf "$export_dir"' EXIT
@@ -33,7 +31,7 @@ git archive HEAD | tar -x -C "$export_dir"
 # public and CI logs are public with it, so a real leak must not be echoed into
 # a permanent build log by the tool that caught it. Open the named line to see
 # the value.
-if ! gitleaks dir "$export_dir" \
+if ! "$gitleaks" dir "$export_dir" \
 	--config "$root/.gitleaks.toml" \
 	--redact \
 	--no-banner; then

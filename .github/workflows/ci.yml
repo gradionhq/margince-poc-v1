@@ -332,26 +332,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      # Version AND checksum pinned, like every other tool that reads this
-      # repo: a re-cut release tag must not be able to swap the scanner. The
-      # official action is deliberately not used — it needs a paid licence key
-      # for organization repositories, and this gate must stay free of one.
-      - name: Install gitleaks (pinned)
-        working-directory: .
-        env:
-          GITLEAKS_VERSION: 8.30.1
-          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-        run: |
-          # --proto/--proto-redir '=https': the release URL redirects to a CDN,
-          # and a redirect to plain http would fetch the scanner over a
-          # tamperable channel. The checksum below would still catch a swap,
-          # but the download refuses to leave TLS in the first place.
-          curl -fsSL --proto '=https' --proto-redir '=https' -o gitleaks.tar.gz \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
-          tar xzf gitleaks.tar.gz gitleaks
-          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
-          rm -f gitleaks gitleaks.tar.gz
+      # No install step: scripts/gitleaks-pin.sh fetches the version- and
+      # checksum-pinned binary itself, so this job runs the scanner an engineer
+      # runs, resolved by the same code. The official gitleaks action is
+      # deliberately not used — it needs a paid licence key for organization
+      # repositories, and this gate must stay free of one.
       - name: secret scan
         working-directory: .
         run: make secret-scan
