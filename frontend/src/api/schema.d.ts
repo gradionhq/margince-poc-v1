@@ -2908,6 +2908,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspace/email-domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspace's own email domains.
+         * @description The domains this installation treats as its own (capture.md CAP-DDL-1). A message whose
+         *     participants are ALL on one of these — subdomains included — produces zero rows
+         *     (ADR-0082/A127, formulas §20).
+         *
+         *     `verified` reports whether a human vouched for the domain. Only a verified domain, or one
+         *     the installation's own company claims, suppresses storage; a row a connected mailbox
+         *     contributed is a candidate until an administrator confirms it. A mailbox proves whose
+         *     mailbox it is, never whose domain it is.
+         */
+        get: operations["listWorkspaceEmailDomains"];
+        put?: never;
+        /**
+         * Register one of the workspace's own email domains.
+         * @description Adds a domain, or confirms one a connected mailbox already contributed. An administrator
+         *     adding a domain IS the human vouching for it, so the row is stored verified and takes
+         *     effect on the next captured message.
+         *
+         *     Registering a domain is NOT retroactive, and its effect is NOT reversible: mail already
+         *     captured stays, and every connector advances its watermark past a message this
+         *     suppresses, so a message dropped under a domain entered by mistake is not offered again.
+         *     Idempotent on the folded domain.
+         */
+        post: operations["createWorkspaceEmailDomain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspace/email-domains/{domain}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The domain, as listed. Compared in its folded form. */
+                domain: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop treating a domain as the workspace's own.
+         * @description Removes the domain. Mail among its addresses is captured again from the next message on;
+         *     nothing already suppressed comes back. Removing a domain the installation's own company
+         *     claims has no effect on its own — that claim is read from the company profile, and is
+         *     changed there.
+         */
+        delete: operations["deleteWorkspaceEmailDomain"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connectors/{provider}/connect": {
         parameters: {
             query?: never;
@@ -5917,6 +5981,40 @@ export interface components {
             readonly created_at?: string;
             /** Format: date-time */
             readonly updated_at?: string;
+        };
+        WorkspaceEmailDomain: {
+            /** @description The domain, IDNA-folded and lowercased. Covers its subdomains. */
+            domain: string;
+            /**
+             * @description Who contributed the row. `mailbox` was observed from a connected account and is a
+             *     candidate; `admin` was entered by a human.
+             * @enum {string}
+             */
+            source: "admin" | "mailbox";
+            /**
+             * @description Whether a human vouched for this domain. Only a verified domain — or one the
+             *     installation's own company claims — suppresses storage.
+             */
+            verified: boolean;
+            /** Format: date-time */
+            created_at?: string;
+        };
+        WorkspaceEmailDomainListResponse: {
+            data: components["schemas"]["WorkspaceEmailDomain"][];
+            /**
+             * @description The domains the installation's own company claims, read from the company profile.
+             *     They suppress storage whether or not they appear in `data`, and are changed on the
+             *     company page rather than here — listed so the surface can show what is already in
+             *     force without implying it can be removed from this screen.
+             */
+            anchor_domains?: string[];
+        };
+        CreateWorkspaceEmailDomainRequest: {
+            /**
+             * @description A bare domain — no scheme, no path, no `@`. Folded before storage, so one domain
+             *     cannot be registered twice under two spellings.
+             */
+            domain: string;
         };
         CaptureConnectionListResponse: {
             data: components["schemas"]["CaptureConnection"][];
@@ -18388,6 +18486,78 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listWorkspaceEmailDomains: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's own email domains. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceEmailDomainListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWorkspaceEmailDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceEmailDomainRequest"];
+            };
+        };
+        responses: {
+            /** @description The registered domain. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceEmailDomain"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteWorkspaceEmailDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The domain, as listed. Compared in its folded form. */
+                domain: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed (or never registered). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     connectConnector: {

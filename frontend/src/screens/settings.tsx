@@ -75,6 +75,7 @@ import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
+import { OwnDomainsCard } from "./own-domains";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { RatesScreen } from "./rates";
 import { UsersAdminCard } from "./users-admin";
@@ -176,6 +177,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <ConnectorsCard />
           <CaptureSettingsCard />
+          <OwnDomainsCard />
           <ConsumerMailDomainsCard />
           <LinkedInImportCard />
           {/* No review queue here: a match a human must judge is a proposal,

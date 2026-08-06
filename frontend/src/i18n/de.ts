@@ -3384,6 +3384,22 @@ export const de = {
   "captureSettings.adminOnly":
     "Nur ein Administrator oder Ops kann dies ändern.",
 
+  "ownDomains.title": "Eigene E-Mail-Domains",
+  "ownDomains.sub":
+    "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert — auch nicht für Sie.",
+  "ownDomains.irreversible":
+    "Eine Domain hier einzutragen wirkt ab der nächsten Nachricht und lässt sich nicht rückgängig machen: Was einmal übersprungen wurde, liefert kein Postfach ein zweites Mal. Bereits erfasste E-Mails bleiben.",
+  "ownDomains.fromCompany": "Aus dem Unternehmensprofil — dort zu ändern:",
+  "ownDomains.empty":
+    "Keine weiteren Domains eingetragen. Tragen Sie eine ein, wenn Ihr Unternehmen unter mehr als einer Domain schreibt.",
+  "ownDomains.confirmed": "bestätigt",
+  "ownDomains.candidate":
+    "aus einem verbundenen Postfach — noch nicht bestätigt",
+  "ownDomains.add": "Hinzufügen",
+  "ownDomains.addLabel": "Eigene Domain hinzufügen",
+  "ownDomains.placeholder": "beispiel.de",
+  "ownDomains.remove": "{domain} entfernen",
+
   "webhooks.title": "Webhooks",
   "webhooks.sub":
     "Ausgehende Abonnements, die signierte HTTP-POSTs für ausgewählte Ereignisse empfangen.",
