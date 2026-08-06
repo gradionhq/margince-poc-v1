@@ -47,11 +47,28 @@ type AutoEnrichStore struct {
 func NewAutoEnrichStore(pool *pgxpool.Pool) *AutoEnrichStore { return &AutoEnrichStore{pool: pool} }
 
 // ListDueOrgs returns up to limit captured organizations that need a dossier,
-// newest first (ADR-0072): a domain-named org (name_source='domain' — the
-// auto-created/domain-derived kind, never a human-named or already-enriched
-// company) with a live primary domain, no non-failed site read yet, and either
+// newest first (ADR-0072): with a live primary domain, no dossier, and either
 // no cursor row or a due one under the attempt bound. RLS scopes it to the
 // current workspace.
+//
+// name_source='domain' IS the sweep's population. ADR-0072 gives a dossier to
+// every surviving AUTO-CREATED company, and a domain-derived name is what marks
+// the company nobody has named: capture minted it from a mail domain, and no
+// human, dossier or signature has since said what it is called. A company a
+// person named is out of scope by that same rule — including the installation's
+// OWN company, deliberately. The anchor is created human-named by the
+// confirmation of a deep read a person inspected field by field, and a later
+// refresh of it compares every proposal against confirmed truth and asks the
+// human to resolve each conflict (ADR-0065 §8), while this lane applies what it
+// finds directly. Offering the anchor here would write machine values onto the
+// one company the installation IS, outside the comparison that exists for it.
+//
+// The site-read clause excludes a company whose dossier exists or is still
+// coming. A read that ended with NO dossier is not one: a failure, and a
+// cancellation — the operator had auto-enrich off when the worker claimed the
+// read. Reading a cancellation as a dossier would make turning the setting back
+// on a permanent no-op for every company whose read it stopped, which is the
+// opposite of the self-healing this sweep is for.
 func (s *AutoEnrichStore) ListDueOrgs(ctx context.Context, limit int) ([]DueOrg, error) {
 	var out []DueOrg
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -65,7 +82,8 @@ func (s *AutoEnrichStore) ListDueOrgs(ctx context.Context, limit int) ([]DueOrg,
 			  AND o.name_source = 'domain'
 			  AND NOT EXISTS (
 				SELECT 1 FROM site_read sr
-				WHERE sr.organization_id = o.id AND sr.status <> 'failed')
+				WHERE sr.organization_id = o.id
+				  AND sr.status NOT IN ('failed', 'cancelled'))
 			  AND (
 				s.organization_id IS NULL
 				OR (s.next_attempt_at IS NOT NULL AND s.next_attempt_at <= now()

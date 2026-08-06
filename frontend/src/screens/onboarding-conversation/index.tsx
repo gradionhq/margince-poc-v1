@@ -7,7 +7,7 @@ import type { components } from "../../api/schema";
 import { navigate, useRoute } from "../../app/router";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
-import { problemMessage } from "../common";
+import { throwProblem } from "../common";
 import { EMPTY_DRAFT, pickBuiltVersion, useCompany } from "../onboarding";
 import { CompanyAct } from "./company-act";
 import { ConnectAct } from "./connect-act";
@@ -49,7 +49,7 @@ export async function loadWizardState(): Promise<OnboardingState | null> {
     if (response.status === 404) {
       return null;
     }
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }
@@ -59,7 +59,7 @@ export async function loadWizardState(): Promise<OnboardingState | null> {
 async function probeVoice(): Promise<VoiceRestoreProbe> {
   const list = await api.GET("/voice-profiles");
   if (list.error) {
-    throw new Error(problemMessage(list.error));
+    throwProblem(list.error);
   }
   const profileId = list.data.data[0]?.id;
   if (profileId === undefined) {
@@ -74,10 +74,10 @@ async function probeVoice(): Promise<VoiceRestoreProbe> {
     }),
   ]);
   if (versions.error) {
-    throw new Error(problemMessage(versions.error));
+    throwProblem(versions.error);
   }
   if (sources.error) {
-    throw new Error(problemMessage(sources.error));
+    throwProblem(sources.error);
   }
   return {
     built: pickBuiltVersion(versions.data.data) !== null,
@@ -199,7 +199,7 @@ function useRestore(
         if (response.status === 404) {
           return null;
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

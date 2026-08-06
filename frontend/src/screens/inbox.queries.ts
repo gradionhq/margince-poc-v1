@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { problemMessage, type QueryLike } from "./common";
+import { type QueryLike, throwProblem } from "./common";
 
 // The approvals query-hook family, split out of inbox.tsx (which had grown
 // past ~690 lines). The Decided view is an Option-1 client-side partition:
@@ -42,7 +42,7 @@ async function fetchAllApprovals(
       },
     });
     if (error) {
-      throw new Error(problemMessage(error));
+      throwProblem(error);
     }
     all.push(...data.data);
     cursor = data.page?.has_more ? (data.page.next_cursor ?? null) : null;

@@ -116,6 +116,27 @@ describe("CoverageCard", () => {
     expect(screen.getByText("no reason recorded")).toBeTruthy();
   });
 
+  it("says the read was cut short, so the page counts cannot read as the whole site", async () => {
+    render(
+      <CoverageCard pages={pages} warnings={[]} stoppedReason="page_cap" />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Review/ }));
+
+    expect(screen.getByText("Stopped early")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "I reached the page limit for one read, so there is more of your site I did not open.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("claims no early stop for a read that simply ran out of site to open", async () => {
+    render(<CoverageCard pages={pages} warnings={[]} />);
+    await userEvent.click(screen.getByRole("button", { name: /Review/ }));
+
+    expect(screen.queryByText("Stopped early")).toBeNull();
+  });
+
   it("marks each gap with its own kind, so a skip is not painted as a failure", async () => {
     render(<CoverageCard pages={pages} warnings={["Sitemap was empty"]} />);
     await userEvent.click(screen.getByRole("button", { name: /Review/ }));

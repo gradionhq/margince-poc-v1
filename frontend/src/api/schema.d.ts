@@ -2874,10 +2874,12 @@ export interface paths {
         /**
          * Confirm a selected onboarding draft into the anchor company atomically.
          * @description Applies only the submitted profile and selected fact keys. The draft version and proposal
-         *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
-         *     Every human-held collision requires an explicit keyed resolution. Unchanged values retain
-         *     website evidence, edits become human assertions, and published people remain separate
-         *     site-lead proposals rather than becoming contacts or company-context rows.
+         *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns
+         *     `409 version_skew`, an already-decided one `409 already_confirmed`, and one whose read has
+         *     produced no draft `409 not_confirmable`. Every human-held collision requires an explicit
+         *     keyed resolution. Unchanged values retain website evidence, edits become human assertions,
+         *     and published people remain separate site-lead proposals rather than becoming contacts or
+         *     company-context rows.
          */
         post: operations["confirmCompanySiteRead"];
         delete?: never;
@@ -10375,10 +10377,11 @@ export interface components {
             proposed_value: string;
         };
         CompanySiteReadResolution: {
+            /** @description A human_conflict comparison key, or — for use_value only — any fact comparison key in the draft. Any other key is refused. */
             key: string;
             /** @enum {string} */
             action: "keep_current" | "accept_proposal" | "use_value";
-            /** @description Required and non-blank only for use_value; forbidden for other actions. */
+            /** @description Required and non-blank only for use_value; forbidden for other actions. A value equal to the read's own proposed value is an acceptance and keeps the page's evidence; a different one is the human's assertion and is stored with no website evidence. */
             value?: string | null;
         };
         CompanySiteReadLegalEntity: {
@@ -10602,6 +10605,11 @@ export interface components {
             status_detail: string | null;
             /** Format: date-time */
             next_attempt_at: string | null;
+            /**
+             * @description Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+             * @enum {string|null}
+             */
+            stopped_reason?: "budget" | "page_cap" | "byte_cap" | "deadline" | null;
             /** @enum {string|null} */
             phase?: "crawling" | "extracting" | null;
             pages_read?: number;
@@ -10626,8 +10634,9 @@ export interface components {
             draft_version: number;
             proposal_hash: string;
             profile: components["schemas"]["CompanyProfileInput"];
+            /** @description The proposed facts to keep, exactly as the read stated them. A fact the reader wants to correct is left out of this list and sent as a use_value resolution instead. */
             selected_fact_keys: string[];
-            /** @description Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists. */
+            /** @description Exactly one keyed resolution for every human_conflict comparison, plus an optional use_value for any fact the read got wrong. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists. */
             resolutions?: components["schemas"]["CompanySiteReadResolution"][];
         };
         /** @description Optional override. With no body the org's own domain is read. */
@@ -18378,7 +18387,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            /** @description The draft cannot be confirmed as submitted, and `code` says which of the three it is: `already_confirmed` (this dossier was confirmed already — reload the company), `not_confirmable` (the read has produced no draft yet — wait for it or start a new one), or `version_skew` (the draft moved since it was reviewed — inspect it again). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             422: components["responses"]["ValidationError"];
         };
     };

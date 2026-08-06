@@ -1662,6 +1662,33 @@ func (e CompanySiteReadStatusCode) Valid() bool {
 	}
 }
 
+// Defines values for CompanySiteReadStoppedReason.
+const (
+	CompanySiteReadStoppedReasonBudget   CompanySiteReadStoppedReason = "budget"
+	CompanySiteReadStoppedReasonByteCap  CompanySiteReadStoppedReason = "byte_cap"
+	CompanySiteReadStoppedReasonDeadline CompanySiteReadStoppedReason = "deadline"
+	CompanySiteReadStoppedReasonNull     CompanySiteReadStoppedReason = "<nil>"
+	CompanySiteReadStoppedReasonPageCap  CompanySiteReadStoppedReason = "page_cap"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadStoppedReason enum.
+func (e CompanySiteReadStoppedReason) Valid() bool {
+	switch e {
+	case CompanySiteReadStoppedReasonBudget:
+		return true
+	case CompanySiteReadStoppedReasonByteCap:
+		return true
+	case CompanySiteReadStoppedReasonDeadline:
+		return true
+	case CompanySiteReadStoppedReasonNull:
+		return true
+	case CompanySiteReadStoppedReasonPageCap:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanySiteReadTargetKind.
 const (
 	CompanySiteReadTargetKindOnboarding CompanySiteReadTargetKind = "onboarding"
@@ -9705,10 +9732,13 @@ type CompanySiteRead struct {
 	StatusCode     *CompanySiteReadStatusCode    `json:"status_code"`
 
 	// StatusDetail Safe guidance only; never provider payload, prompt, SQL, or stack data.
-	StatusDetail *string                   `json:"status_detail"`
-	TargetKind   CompanySiteReadTargetKind `json:"target_kind"`
-	UpdatedAt    time.Time                 `json:"updated_at"`
-	Warnings     []string                  `json:"warnings"`
+	StatusDetail *string `json:"status_detail"`
+
+	// StoppedReason Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+	StoppedReason *CompanySiteReadStoppedReason `json:"stopped_reason,omitempty"`
+	TargetKind    CompanySiteReadTargetKind     `json:"target_kind"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
+	Warnings      []string                      `json:"warnings"`
 }
 
 // CompanySiteReadPhase defines model for CompanySiteRead.Phase.
@@ -9719,6 +9749,9 @@ type CompanySiteReadStatus string
 
 // CompanySiteReadStatusCode defines model for CompanySiteRead.StatusCode.
 type CompanySiteReadStatusCode string
+
+// CompanySiteReadStoppedReason Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+type CompanySiteReadStoppedReason string
 
 // CompanySiteReadTargetKind defines model for CompanySiteRead.TargetKind.
 type CompanySiteReadTargetKind string
@@ -9842,9 +9875,11 @@ type CompanySiteReadPersonDisposition string
 // CompanySiteReadResolution defines model for CompanySiteReadResolution.
 type CompanySiteReadResolution struct {
 	Action CompanySiteReadResolutionAction `json:"action"`
-	Key    string                          `json:"key"`
 
-	// Value Required and non-blank only for use_value; forbidden for other actions.
+	// Key A human_conflict comparison key, or — for use_value only — any fact comparison key in the draft. Any other key is refused.
+	Key string `json:"key"`
+
+	// Value Required and non-blank only for use_value; forbidden for other actions. A value equal to the read's own proposed value is an acceptance and keeps the page's evidence; a different one is the human's assertion and is stored with no website evidence.
 	Value *string `json:"value,omitempty"`
 }
 
@@ -9902,9 +9937,11 @@ type ConfirmCompanySiteReadRequest struct {
 	Profile      CompanyProfileInput `json:"profile"`
 	ProposalHash string              `json:"proposal_hash"`
 
-	// Resolutions Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
-	Resolutions      *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
-	SelectedFactKeys []string                     `json:"selected_fact_keys"`
+	// Resolutions Exactly one keyed resolution for every human_conflict comparison, plus an optional use_value for any fact the read got wrong. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+	Resolutions *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
+
+	// SelectedFactKeys The proposed facts to keep, exactly as the read stated them. A fact the reader wants to correct is left out of this list and sent as a use_value resolution instead.
+	SelectedFactKeys []string `json:"selected_fact_keys"`
 }
 
 // ConnectChannelRequest defines model for ConnectChannelRequest.

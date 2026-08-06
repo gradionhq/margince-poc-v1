@@ -8,12 +8,14 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import type { Dispatch } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
 import { LocaleProvider } from "../../i18n";
 import { installFetchStub, jsonResponse, type RouteMap } from "../story-utils";
 import { CompanyAct } from "./company-act";
 import type {
+  ConversationEvent,
   ConversationQuestion,
   ConversationState,
 } from "./conversation-machine";
@@ -314,11 +316,17 @@ const REVIEW_STATE: ConversationState = {
   pendingQuestion: null,
 };
 
+// Every case below waits on the guide's own sentence rather than the board's
+// heading. The heading arrives with the read-only fallback proposal, which is
+// a render or two BEFORE the draft is prefilled from the read — so a board
+// waited for that way can still be showing every field empty and everything
+// blocking. The sentence is rendered from `blockingCount` itself, the number
+// each case is about, so it cannot read as settled before the board is.
 describe("the rail's review to-do list", () => {
   it("carries exactly as many items as the board's own section tallies add up to", async () => {
     const { container } = renderReview(REVIEW_STATE, REVIEW_FIELDS);
 
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/2 fields block confirm/);
     // The board's own nav names every outstanding field as its own
     // `.ob-triage-nav-item`, blocking and advisory alike (only the badge
     // above them is blocking-only now) — the same two-tier split the rail's
@@ -343,7 +351,7 @@ describe("the rail's review to-do list", () => {
   // either drifts from `isRequired`/REQUIRED_FIELDS, this fails.
   it("counts exactly as many blocking rows as the nav's own blocking badges", async () => {
     const { container } = renderReview(REVIEW_STATE, REVIEW_FIELDS);
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/2 fields block confirm/);
 
     const nav = container.querySelector(".ob-triage-nav") as HTMLElement;
     const boardBlocking = [
@@ -368,7 +376,12 @@ describe("the rail's review to-do list", () => {
         options: [],
       },
     ]);
+    // Two waits, because two things have to have landed: the decision item
+    // proves the REAL proposal is in (the fallback carries no open question),
+    // and "3" proves the draft is prefilled — 2 blocking fields plus the one
+    // decision. Before the prefill the same sentence would read 4.
     await screen.findByText("needs a decision");
+    await screen.findByText(/3 fields block confirm/);
 
     const kinds = [
       ...container.querySelectorAll(".ob-conv-attention button"),
@@ -397,8 +410,10 @@ describe("the rail's review to-do list", () => {
     // The board itself renders from the same proposal fetch and settles
     // first via the read-only fallback (no open questions yet); waiting for
     // the decision button itself is waiting for the REAL proposal, the one
-    // that actually carries the still-open clarify.
+    // that actually carries the still-open clarify — and then for the count
+    // that says the draft is prefilled too.
     await screen.findByText("needs a decision");
+    await screen.findByText(/3 fields block confirm/);
 
     expect(
       container.querySelectorAll(
@@ -410,7 +425,7 @@ describe("the rail's review to-do list", () => {
 
   it("names the header whenever the list itself renders", async () => {
     const { container } = renderReview(REVIEW_STATE, REVIEW_FIELDS);
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/2 fields block confirm/);
 
     const attention = container.querySelector(
       ".ob-conv-attention",
@@ -431,7 +446,7 @@ describe("the rail's review to-do list", () => {
       REVIEW_STATE,
       REVIEW_FIELDS.concat([proposedField("icp", "Mid-market B2B", 0.9)]),
     );
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/1 field blocks confirm/);
     expect(
       container.querySelectorAll(".ob-conv-attention [data-kind='blocks']"),
     ).toHaveLength(1);
@@ -446,7 +461,7 @@ describe("the rail's review to-do list", () => {
         proposedField("offer_summary", "Revenue software", 0.9),
       ]),
     );
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/Nothing blocks you/);
     expect(
       document.querySelectorAll(".ob-conv-attention [data-kind='blocks']"),
     ).toHaveLength(0);
@@ -455,7 +470,7 @@ describe("the rail's review to-do list", () => {
 
   it("puts exactly the required-and-empty fields in the blocking group, nothing else", async () => {
     renderReview(REVIEW_STATE, REVIEW_FIELDS);
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    await screen.findByText(/2 fields block confirm/);
 
     const blockingGroup = screen
       .getByText("Needed before you can continue")
@@ -483,10 +498,85 @@ describe("the rail's review to-do list", () => {
       proposedField("desired_outcomes", "Faster ramp", 0.9),
     ]);
     renderReview(REVIEW_STATE, allSettled);
-    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+    // The clean sentence IS the assertion's own state: nothing blocking and
+    // nothing advisory. Before the prefill the guide is still counting gaps.
+    await screen.findByText(/looks clean/);
 
     expect(document.querySelector(".ob-conv-attention")).toBeNull();
-    expect(screen.getByText(/looks clean/)).toBeInTheDocument();
+  });
+});
+
+// The dossier's entity cards and the clarify's candidate list ask the same
+// question of the same candidates, so a pick has to settle the same way on
+// both: the chosen name wins over a name typed earlier, because that name
+// standing above this candidate's address and registration number would put
+// two companies on one card. The bug this guards was the dossier keeping the
+// typed name while silently taking the rest of the block from the candidate.
+describe("the dossier's legal-entity picker", () => {
+  const GRADION_LTD = {
+    name: "Gradion Co., Ltd.",
+    registered_address: "Level 12, Bitexco Tower, Ho Chi Minh City",
+    register_number: "0318 447 291",
+    evidence_snippet: "Gradion Co., Ltd. · 0318 447 291",
+    source_url: "https://gradion.com/legal-notice",
+  };
+
+  it("settles the chosen name over one the human typed earlier", async () => {
+    // A read that reached the AI budget ceiling keeps the evidence it already
+    // collected but never becomes confirmable, so no review scene takes the
+    // surface — the dossier stays, with its "edit fields directly" escape
+    // hatch and the entity cards behind it.
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
+        jsonResponse({
+          ...REVIEW_READ,
+          status: "deferred",
+          status_code: "budget_deferred",
+          legal_entities: [
+            GRADION_LTD,
+            {
+              name: "Gradion Holding GmbH",
+              source_url: "https://gradion.com/legal-notice",
+            },
+          ],
+        }),
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse({ title: "not ready", code: "not_found" }, 404),
+    });
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <LocaleProvider initial="en">
+          <CompanyAct
+            state={REVIEW_STATE}
+            dispatch={vi.fn()}
+            profile={null}
+            persist={vi.fn(async () => true)}
+          />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit fields directly" }),
+    );
+    const legalName = screen.getByLabelText(/Registered legal name/);
+    fireEvent.change(legalName, { target: { value: "Gradion, roughly" } });
+
+    const card = screen.getByRole("button", { name: /Gradion Co\., Ltd\./ });
+    fireEvent.click(card);
+
+    expect(legalName).toHaveValue("Gradion Co., Ltd.");
+    // The picker marks a card chosen by comparing the card to legal_name, so
+    // a pick that left the typed name standing also denied the very click it
+    // had just honoured everywhere else.
+    expect(card).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(/Registered address/)).toHaveValue(
+      GRADION_LTD.registered_address,
+    );
   });
 });
 
@@ -559,8 +649,8 @@ describe("arriving at the review scene", () => {
 });
 
 // A confirm submits every required field filled and nothing else in the
-// server's way — the shape a version-skew or conflict rejection is actually
-// interesting to react to.
+// server's way — the shape in which one of the three documented 409s is
+// actually interesting to react to.
 const CONFIRM_FIELDS: readonly FieldFixture[] = [
   proposedField("display_name", "Acme Inc", 0.95),
   proposedField("offer_summary", "CRM software", 0.9),
@@ -568,6 +658,43 @@ const CONFIRM_FIELDS: readonly FieldFixture[] = [
 ];
 
 const CONFIRM_PATH = `POST /company/site-reads/${REVIEW_READ_ID}/confirm`;
+
+// The read having moved on to a new draft while the review sat on the old
+// one: the version pair a confirm quotes is exactly this pair, so a proposal
+// still answering for the previous draft is the stale one.
+const MOVED_DRAFT = { draft_version: 2, proposal_hash: "proposal-2" } as const;
+
+// The sentence a refused confirm reads as, one per code the server documents
+// for this operation (crm.yaml, confirmCompanySiteRead): the read has no
+// draft to confirm, and the read was confirmed already but the company it
+// created could not be loaded.
+const NOT_READY_NOTICE =
+  "This read has no draft to confirm yet, so Continue is on hold. Check again once it has finished, or start a fresh read.";
+const CHECK_FAILED_NOTICE =
+  "This read was already confirmed, but I could not load the company it created. Check again in a moment.";
+
+// The review, rendered from the one state every rejection case starts in:
+// only the stubbed routes and the code the confirm comes back with differ.
+function renderConfirmReview(
+  dispatch: Dispatch<ConversationEvent> = vi.fn(),
+): void {
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <LocaleProvider initial="en">
+        <CompanyAct
+          state={REVIEW_STATE}
+          dispatch={dispatch}
+          profile={null}
+          persist={vi.fn(async () => true)}
+        />
+      </LocaleProvider>
+    </QueryClientProvider>,
+  );
+}
 
 describe("recovering from a rejected confirm", () => {
   it("blocks a retry until the refetched proposal actually changed, never the one the server just rejected", async () => {
@@ -795,18 +922,14 @@ describe("recovering from a rejected confirm", () => {
     await vi.waitFor(() => expect(continueButton).toBeEnabled());
   });
 
-  it("only treats a bare conflict as an already-confirmed race once THIS read's own status says confirmed", async () => {
+  it("holds Continue back on a read the server refuses as not confirmable, and probes nothing to work that out", async () => {
     let readCalls = 0;
     let getCompanyCalls = 0;
     installFetchStub({
       [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
         readCalls += 1;
-        // The confirm attempt races a read that has NOT actually confirmed
-        // (still "ready") — a bare conflict here means "not confirmable
-        // yet", never "already landed".
         return jsonResponse({
           ...REVIEW_READ,
-          status: "ready",
           profile_fields: CONFIRM_FIELDS.map(toColdField),
         });
       },
@@ -824,38 +947,388 @@ describe("recovering from a rejected confirm", () => {
         });
       },
       [CONFIRM_PATH]: () =>
-        jsonResponse({ title: "conflict", code: "conflict" }, 409),
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
     });
-    render(
-      <QueryClientProvider
-        client={
-          new QueryClient({ defaultOptions: { queries: { retry: false } } })
-        }
-      >
-        <LocaleProvider initial="en">
-          <CompanyAct
-            state={REVIEW_STATE}
-            dispatch={vi.fn()}
-            profile={null}
-            persist={vi.fn(async () => true)}
-          />
-        </LocaleProvider>
-      </QueryClientProvider>,
-    );
+    renderConfirmReview();
 
     const continueButton = await screen.findByRole("button", {
       name: /Continue/,
     });
     fireEvent.click(continueButton);
 
-    // The "not ready" notice, from this read's own re-fetched status — never
-    // a silent forward-advance onto the other company's stale data.
-    await screen.findByText(
-      "This read is not ready to confirm yet. Wait for it to finish, or start a fresh one.",
-    );
-    expect(readCalls).toBeGreaterThan(1);
-    // GET /company is never even worth consulting once the read's own
-    // status already answers the question.
+    await screen.findByText(NOT_READY_NOTICE);
+    // The same submission the server just refused would be refused the same
+    // way, so Continue is exactly the route this notice takes away — the
+    // re-check it offers instead is the only one that can end differently.
+    expect(continueButton).toBeDisabled();
+    // The server's own code named this refusal, so nothing is re-derived
+    // from a second look at the read or at the company.
+    expect(readCalls).toBe(1);
     expect(getCompanyCalls).toBe(0);
+  });
+
+  it("re-arms Continue only once a re-check finds the read confirmable again", async () => {
+    let readCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        // The review was built from a confirmable snapshot; the first
+        // re-check finds the read deferred (still nothing to confirm), the
+        // second finds it confirmable again.
+        return jsonResponse({
+          ...REVIEW_READ,
+          status: readCalls === 2 ? "deferred" : "ready",
+          status_code: readCalls === 2 ? "budget_deferred" : null,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse(reviewProposal(CONFIRM_FIELDS)),
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
+    });
+    renderConfirmReview();
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await screen.findByText(NOT_READY_NOTICE);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(readCalls).toBe(2));
+    // The re-check landed a read that still has nothing to confirm, so the
+    // block stands: re-arming here would send the identical submission back
+    // into the identical 409.
+    await vi.waitFor(() => expect(retry).toBeEnabled());
+    expect(continueButton).toBeDisabled();
+
+    fireEvent.click(retry);
+    // This one found the read confirmable, which is the only thing that ever
+    // lifts the block — and the notice that named the block goes with it.
+    await vi.waitFor(() => expect(continueButton).toBeEnabled());
+    expect(screen.queryByText(NOT_READY_NOTICE)).toBeNull();
+  });
+
+  it("never re-arms Continue on a re-check that itself failed", async () => {
+    let readCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        return readCalls > 1
+          ? Promise.reject(new Error("site-read endpoint unreachable"))
+          : Promise.resolve(
+              jsonResponse({
+                ...REVIEW_READ,
+                profile_fields: CONFIRM_FIELDS.map(toColdField),
+              }),
+            );
+      },
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse(reviewProposal(CONFIRM_FIELDS)),
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
+    });
+    renderConfirmReview();
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await screen.findByText(NOT_READY_NOTICE);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(readCalls).toBeGreaterThan(1));
+    await vi.waitFor(() => expect(retry).toBeEnabled());
+    // A failed re-check leaves the last good snapshot standing — the very
+    // "ready" one the server already refused — so a guard reading that
+    // snapshot alone would re-arm onto the identical rejection. Only a
+    // refetch that actually landed can lift the block.
+    expect(continueButton).toBeDisabled();
+    expect(screen.getByText(NOT_READY_NOTICE)).toBeInTheDocument();
+  });
+
+  // The re-check refreshes the read AND the proposal because the confirm
+  // sends both — the read the server has to call confirmable, and the version
+  // pair that press quotes. The read moving on is exactly what the reader is
+  // waiting for here, and it is what leaves the proposal's own pair behind.
+  //
+  // First, the moved read with a proposal half that FAILED: react-query serves
+  // its last good proposal through a failure, so a block lifted on the read
+  // alone re-arms Continue onto the pair from before the read moved — a
+  // version_skew 409 earned on the very next press, and a second avoidable
+  // recovery for the reader to sit through.
+  it("never re-arms Continue on a re-check whose proposal half failed, however ready the read comes back", async () => {
+    let proposalCalls = 0;
+    let readCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        return jsonResponse({
+          ...REVIEW_READ,
+          ...(readCalls > 1 ? MOVED_DRAFT : {}),
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () => {
+        proposalCalls += 1;
+        return proposalCalls > 1
+          ? Promise.reject(new Error("proposal endpoint unreachable"))
+          : Promise.resolve(jsonResponse(reviewProposal(CONFIRM_FIELDS)));
+      },
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
+    });
+    renderConfirmReview();
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await screen.findByText(NOT_READY_NOTICE);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(1));
+    await vi.waitFor(() => expect(retry).toBeEnabled());
+
+    // The read came back ready, so half the re-check succeeded — and the half
+    // that failed is the one the next press would quote. The block stands, and
+    // the retry that can still end it stays where the reader can press it.
+    expect(continueButton).toBeDisabled();
+    expect(screen.getByText(NOT_READY_NOTICE)).toBeInTheDocument();
+  });
+
+  // The same moved read, with a proposal half that SUCCEEDED and answered for
+  // the draft the read has since left behind. A check that asks only whether
+  // the request came back cannot tell this from a current one — and this is
+  // the likelier of the two, because the proposal answers off its own join
+  // and so trails the read rather than failing with it.
+  it("never re-arms Continue on a proposal that answered for a draft the read has moved past", async () => {
+    let proposalCalls = 0;
+    let readCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        return jsonResponse({
+          ...REVIEW_READ,
+          ...(readCalls > 1 ? MOVED_DRAFT : {}),
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () => {
+        proposalCalls += 1;
+        return jsonResponse(reviewProposal(CONFIRM_FIELDS));
+      },
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
+    });
+    renderConfirmReview();
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await screen.findByText(NOT_READY_NOTICE);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(1));
+    await vi.waitFor(() => expect(retry).toBeEnabled());
+
+    // Both halves landed, and the read is confirmable again. The pair the next
+    // press would quote still names the draft the read has moved past, so
+    // releasing here would trade this refusal for a version_skew on the very
+    // next press.
+    expect(continueButton).toBeDisabled();
+    expect(screen.getByText(NOT_READY_NOTICE)).toBeInTheDocument();
+  });
+
+  // The one case with no pair to compare: with no proposal ever served, the
+  // confirm quotes the refreshed read's own version pair (the mutation's
+  // `proposalFromRead` fallback), which cannot be behind the read it was just
+  // taken from. Holding the block here would leave the reader pressing a
+  // re-check that can never release, on a read the server calls confirmable.
+  it("re-arms Continue when the proposal endpoint has never answered at all", async () => {
+    let readCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        return jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () =>
+        Promise.reject(new Error("proposal endpoint unreachable")),
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
+    });
+    renderConfirmReview();
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await screen.findByText(NOT_READY_NOTICE);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(readCalls).toBeGreaterThan(1));
+    await vi.waitFor(() => expect(continueButton).toBeEnabled());
+    expect(screen.queryByText(NOT_READY_NOTICE)).toBeNull();
+  });
+
+  it("walks the reader on to the company an already-confirmed read created, with no second look at the read", async () => {
+    let readCalls = 0;
+    const dispatch = vi.fn();
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        return jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse(reviewProposal(CONFIRM_FIELDS)),
+      "GET /company": () =>
+        jsonResponse({
+          display_name: "Acme Inc",
+          offer_summary: "CRM software",
+          icp: "Mid-market B2B",
+        }),
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "already_confirmed" }, 409),
+    });
+    renderConfirmReview(dispatch);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+
+    await vi.waitFor(() =>
+      expect(dispatch).toHaveBeenCalledWith({ type: "COMPANY_CONFIRMED" }),
+    );
+    // The server said this read was confirmed, so the only thing left to do
+    // is load what that confirmation created: nothing re-fetches the read to
+    // establish which 409 this was.
+    expect(readCalls).toBe(1);
+    expect(screen.queryByText(CHECK_FAILED_NOTICE)).toBeNull();
+  });
+
+  // The already-confirmed recovery is the one that runs with no notice on
+  // screen — its whole answer is the company lookup, which either exits the
+  // review or ends in the "checkFailed" notice. Continue must be out of reach
+  // for exactly that window: the server has settled this read, so a second
+  // press earns the identical 409 and starts a second lookup racing the first,
+  // and the generic save banner must not report a save that went through.
+  it("puts Continue out of reach while the already-confirmed recovery is still loading the company", async () => {
+    let confirmCalls = 0;
+    const gate: { release: (() => void) | null } = { release: null };
+    const dispatch = vi.fn();
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
+        jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        }),
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse(reviewProposal(CONFIRM_FIELDS)),
+      // Held open deliberately, so the in-flight window is observable here
+      // rather than racing a mocked fetch that settles first.
+      "GET /company": async () => {
+        await new Promise<void>((resolve) => {
+          gate.release = resolve;
+        });
+        return jsonResponse({
+          display_name: "Acme Inc",
+          offer_summary: "CRM software",
+          icp: "Mid-market B2B",
+        });
+      },
+      [CONFIRM_PATH]: () => {
+        confirmCalls += 1;
+        return jsonResponse(
+          { title: "conflict", code: "already_confirmed" },
+          409,
+        );
+      },
+    });
+    renderConfirmReview(dispatch);
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await vi.waitFor(() => expect(gate.release).not.toBeNull());
+
+    expect(continueButton).toBeDisabled();
+    // Nothing on screen calls this a failed save: the confirmation landed, and
+    // the only thing outstanding is the profile it created.
+    expect(screen.queryAllByText(/I could not save that yet/)).toHaveLength(0);
+
+    gate.release?.();
+    await vi.waitFor(() =>
+      expect(dispatch).toHaveBeenCalledWith({ type: "COMPANY_CONFIRMED" }),
+    );
+    // One confirm, one lookup: the reader was never able to start a second of
+    // either while the first was still running.
+    expect(confirmCalls).toBe(1);
+  });
+
+  // The one step of the already-confirmed recovery that can still fail is
+  // loading the company itself, and a failure there is exactly as stuck as
+  // the loop the recovery exists to close: the confirm attempt cleared its
+  // own block on the way in, so a reader left with no notice at all presses
+  // the same button and earns the same 409. Say what actually happened,
+  // never walk the reader forward on a profile that never arrived, and leave
+  // a way forward on screen.
+  it("admits the company never loaded after an already-confirmed read, and offers the load again", async () => {
+    let companyCalls = 0;
+    const dispatch = vi.fn();
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
+        jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        }),
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse(reviewProposal(CONFIRM_FIELDS)),
+      "GET /company": () => {
+        companyCalls += 1;
+        // The one probe that could move the reader forward fails first: a
+        // problem body, so the profile never arrives.
+        return companyCalls > 1
+          ? jsonResponse({
+              display_name: "Acme Inc",
+              offer_summary: "CRM software",
+              icp: "Mid-market B2B",
+            })
+          : jsonResponse(
+              { title: "backend unavailable", code: "internal" },
+              503,
+            );
+      },
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "already_confirmed" }, 409),
+    });
+    renderConfirmReview(dispatch);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+
+    await screen.findByText(CHECK_FAILED_NOTICE);
+    // The reader was never walked forward onto a profile that never arrived,
+    // and the read was never accused of being unconfirmable either — the
+    // server said the opposite.
+    expect(dispatch).not.toHaveBeenCalledWith({ type: "COMPANY_CONFIRMED" });
+    expect(screen.queryByText(NOT_READY_NOTICE)).toBeNull();
+
+    // The notice's own retry is the route forward — the same load, run
+    // again, with the probe answering this time.
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await vi.waitFor(() =>
+      expect(dispatch).toHaveBeenCalledWith({ type: "COMPANY_CONFIRMED" }),
+    );
   });
 });

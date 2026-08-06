@@ -3,6 +3,7 @@ import {
   Check,
   ChevronRight,
   Circle,
+  FileQuestion,
   Sparkles,
 } from "lucide-react";
 import type { ChangeEvent } from "react";
@@ -119,6 +120,7 @@ const STATE_WORD: Readonly<Record<RowState, MessageKey>> = {
   empty: "ob.conv.triage.stateEmpty",
   typed: "ob.conv.triage.stateTyped",
   stored: "ob.conv.triage.stateStored",
+  quoted: "ob.conv.triage.stateQuoted",
   high: "confidence.high",
   med: "confidence.med",
   low: "confidence.low",
@@ -137,10 +139,12 @@ function isOutstandingUnbanded(state: RowState): state is "required" | "empty" {
   return state === "required" || state === "empty";
 }
 
-/** The settled half of the same split: `typed` and `stored` both have a
- * value and no confidence to grade, so `isBand` skips them too. */
-function isSettledUnbanded(state: RowState): state is "typed" | "stored" {
-  return state === "typed" || state === "stored";
+/** The settled half of the same split: `typed`, `stored` and `quoted` all
+ * have a value and no confidence to grade, so `isBand` skips them too. */
+function isSettledUnbanded(
+  state: RowState,
+): state is "typed" | "stored" | "quoted" {
+  return state === "typed" || state === "stored" || state === "quoted";
 }
 
 // The mark a row with no gradable value carries: an icon shaped, not
@@ -168,20 +172,24 @@ function OutstandingMark({
 
 // isWork's complement, the settled half: `typed` already has a word
 // (ProvenanceTag's fixed human/agent/connector vocabulary covers it —
-// "typed by you"), but `stored` has no entry in that vocabulary at all. A
-// row a human typed and a row still carrying an untouched profile value are
-// different truths; saying "typed by you" over the second would be wrong,
-// not just imprecise, so it gets its own quiet label instead, reusing the
-// exact words the expanded row already says for the same state.
+// "typed by you"), but neither `stored` nor `chosen` has an entry in that
+// vocabulary at all. A row a human typed, a row still carrying an untouched
+// profile value, and a row quoted off the site's own legal notice are three
+// different truths; saying "typed by you" over the
+// last two would be wrong, not just imprecise, so each gets its own quiet
+// label instead, reusing the exact words the expanded row already says.
 function ProvenanceMark({
   state,
   t,
-}: Readonly<{ state: "typed" | "stored"; t: ReturnType<typeof useT> }>) {
+}: Readonly<{
+  state: "typed" | "stored" | "quoted";
+  t: ReturnType<typeof useT>;
+}>) {
   if (state === "typed") {
     return <ProvenanceTag provenance={{ kind: "human", self: true }} />;
   }
   return (
-    <span className="ob-triage-row-provenance">{t(STATE_WORD.stored)}</span>
+    <span className="ob-triage-row-provenance">{t(STATE_WORD[state])}</span>
   );
 }
 
@@ -197,6 +205,59 @@ function prosePreview(value: string): string {
   }
   const cut = value.lastIndexOf(" ", PROSE_PREVIEW_CHARS);
   return `${value.slice(0, cut > 0 ? cut : PROSE_PREVIEW_CHARS).trimEnd()}…`;
+}
+
+/**
+ * The omission notice: what the board owes a reader for a field the read
+ * looked for and came back without.
+ *
+ * The backend drops a field that fails the evidence assertion rather than
+ * shipping it with a reason attached (ai-operational-spec: omission is the
+ * safe failure), so the wire carries silence and the honesty is this
+ * surface's to discharge — a named omission, never a blank box the reader
+ * has to tell apart from "not found" and "never looked".
+ *
+ * Which is also its limit: the notice is stated ONLY where the read accounts
+ * for the field itself (`row.omissionReasonKey`, the legal trio's gap read
+ * off the crawl's own pages and candidates). Everywhere else silence is all
+ * there is, and a box asserting "not found on your site" over it would be the
+ * fabrication this notice exists to prevent — so those rows carry no notice
+ * at all and read as what they are: empty, and fillable right here.
+ *
+ * The read's `warnings` are deliberately no part of a reason either: they are
+ * crawl-wide sentences (an extraction caveat, the legal gate's abstention, a
+ * read that stopped early) and nothing on the wire ties one to a field. Every
+ * warning is shown in full, under its own heading, by the CoverageCard at the
+ * foot of the board.
+ *
+ * In the dashed weight the tree already uses for anything not yet real: the
+ * field named, and beside it the one reason the read can support for it.
+ */
+function OmissionNotice({
+  label,
+  reasonKey,
+  t,
+}: Readonly<{
+  label: string;
+  reasonKey: MessageKey;
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <div className="ob-triage-omitted">
+      <FileQuestion aria-hidden />
+      <div className="ob-triage-omitted-body">
+        <p className="ob-triage-omitted-label">
+          {t("ob.conv.triage.omittedLabel")}
+        </p>
+        <p>
+          {t("ob.conv.triage.omittedField", {
+            field: label,
+            reason: t(reasonKey),
+          })}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -318,16 +379,29 @@ function FieldRow({
           {t("ob.conv.review.showLess")}
         </button>
       </div>
+      {/* Above the control, not below it: the reader learns why the box is
+          empty BEFORE deciding what to type in it. */}
+      {row.omissionReasonKey !== null && (
+        <OmissionNotice
+          label={row.label}
+          reasonKey={row.omissionReasonKey}
+          t={t}
+        />
+      )}
       {row.multiline ? (
         <textarea id={controlId} value={row.value} onChange={onChange} />
       ) : (
         <input id={controlId} value={row.value} onChange={onChange} />
       )}
       {/* Only the evidence pair below the control: the label's state word
-          already says "typed by you", so the human tag would say it twice. */}
-      {row.evidence !== null && isBand(row.state) && (
+          already says "typed by you", so the human tag would say it twice.
+          The quote and the meter are separate claims — a value the human
+          picked off the legal notice carries the page's own words but no
+          measured score, so it shows the quote and NO meter rather than a
+          band nothing graded. */}
+      {row.evidence !== null && (
         <span className="ob-triage-row-proof">
-          <ConfidenceMeter level={row.state} />
+          {isBand(row.state) && <ConfidenceMeter level={row.state} />}
           <EvidenceChip evidence={row.evidence} collapsed />
         </span>
       )}
@@ -736,8 +810,12 @@ function CompanyIdentityCard({
   return (
     <div className="ob-company-card">
       {/* The contract carries no logo/favicon field for a company; the
-          monogram is the floor, not a fallback for a missing fetch. */}
-      <Avatar name={name} size="lg" />
+          monogram is the floor, not a fallback for a missing fetch. Tinted,
+          because the floor is a DETERMINISTIC mark: the same company draws
+          the same colour here, in the organizations list and on the
+          connections graph, and a neutral chip would make the one company
+          this whole surface is about the only anonymous one. */}
+      <Avatar name={name} tinted size="lg" />
       <div className="ob-company-card-body">
         <h3>{name}</h3>
         {facts.length > 0 && (
@@ -773,9 +851,12 @@ const PEOPLE_KEY = "people";
 
 // A person is evidence-or-omit like any other finding: the contract requires
 // a snippet and a source for every one the read reports, so this is never a
-// guess at whether they exist, only a defensive floor against an empty string.
+// guess at whether they exist, only a defensive floor against a quote with
+// nothing in it. Whitespace counts as nothing — a chip whose proof is three
+// spaces claims evidence it does not have.
 function personEvidence(person: SitePerson): Evidence | null {
-  return person.evidence_snippet === "" || person.evidence_url === ""
+  return person.evidence_snippet.trim() === "" ||
+    person.evidence_url.trim() === ""
     ? null
     : { snippet: person.evidence_snippet, source: person.evidence_url };
 }
@@ -1062,7 +1143,7 @@ function GroupBody({
   group,
   rowByField,
   setField,
-  people,
+  read,
   facts,
   factSelection,
   locale,
@@ -1071,15 +1152,17 @@ function GroupBody({
   group: FrozenGroup;
   rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
   setField: (field: CompanyFieldName, value: string) => void;
-  people: readonly SitePerson[] | null;
+  /** Null on a proposal-only render, where there is no people section: "no
+   * people found" would be a guess rather than a finding. */
+  read: CompanySiteRead | null;
   facts: readonly SiteFact[];
   factSelection: FactSelection;
   locale: string;
   t: ReturnType<typeof useT>;
 }>) {
   if (group.key === PEOPLE_KEY) {
-    return people === null ? null : (
-      <PeopleGroupSection people={people} t={t} />
+    return read === null ? null : (
+      <PeopleGroupSection people={read.people} t={t} />
     );
   }
   if (group.key === FACTS_KEY) {
@@ -1198,7 +1281,16 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
   );
   const groups = reviewGroups().map((group) => {
     const rows = group.fields
-      .map((field) => rowFor(field, props.draft, byName, t, props.read?.pages))
+      .map((field) =>
+        rowFor(
+          field,
+          props.draft,
+          byName,
+          t,
+          props.read?.pages,
+          props.read?.legal_entities,
+        ),
+      )
       .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]);
     return { ...group, rows };
   });
@@ -1311,7 +1403,7 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
               group={group}
               rowByField={rowByField}
               setField={props.setField}
-              people={props.read?.people ?? null}
+              read={props.read ?? null}
               facts={facts}
               factSelection={factSelection}
               locale={locale}
@@ -1335,6 +1427,7 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
           <CoverageCard
             pages={props.read.pages}
             warnings={props.read.warnings}
+            stoppedReason={props.read.stopped_reason}
           />
         </div>
       )}

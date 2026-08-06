@@ -15,7 +15,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { ScopeChips } from "../design-system/passportselect";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 
 // The other half of the passport story, and the half nothing on this screen
 // used to tell. A human mints a passport; a client that connects over MCP is
@@ -356,7 +356,7 @@ export function ConnectedAgentsCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/passports");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -368,7 +368,7 @@ export function ConnectedAgentsCard() {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -434,9 +434,7 @@ export function ConnectedAgentsCard() {
         confirmVariant="danger"
         onConfirm={() => confirmId && disconnect.mutate(confirmId)}
         pending={disconnect.isPending}
-        error={
-          disconnect.error instanceof Error ? disconnect.error.message : null
-        }
+        error={disconnect.error ? problemMessageOf(disconnect.error, t) : null}
       >
         <p>{t("agents.disconnectConfirm")}</p>
       </ConfirmModal>

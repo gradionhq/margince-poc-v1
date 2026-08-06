@@ -12,6 +12,7 @@ package people
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -26,6 +27,13 @@ type SiteReadClaim struct {
 	TargetKind     string
 	SeedURL        string
 	RequestedBy    string
+	// ClaimedAt is the lease this attempt holds: the started_at its own CAS
+	// stamped, which is the value the reclaim predicate reads to decide the
+	// read is abandoned. Every claim stamps a fresh one and a reclaim can only
+	// happen once the previous lease has lapsed, so the lease is per-attempt
+	// identity — how a write reserved for the CURRENT holder tells an attempt
+	// that still holds the read from one whose read was handed on.
+	ClaimedAt time.Time
 }
 
 // FinishSiteReadInput is the worker's completed crawl report.

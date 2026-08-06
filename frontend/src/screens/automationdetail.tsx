@@ -17,7 +17,7 @@ import { AutonomyDot } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { LoadMoreButton, problemMessage, QueryStates } from "./common";
+import { LoadMoreButton, QueryStates, throwProblem } from "./common";
 
 // The human surface for the two already-live, human-only automation ops
 // (listAutomationRuns / previewAutomation). Co-located with automations.tsx
@@ -192,7 +192,7 @@ export function AutomationRuns({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -297,7 +297,7 @@ export function AutomationPreview({
         body: { window_days: Number(windowDays) },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

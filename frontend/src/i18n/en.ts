@@ -291,9 +291,21 @@ export const en = {
   "rel.kind.coSellWith": "Co-sell with",
 
   "common.error": "Couldn't load this view.",
+  // What a failure that carries no server problem is allowed to say. A rejected
+  // fetch and a bug in our own code both report in wording nobody authored for
+  // a reader, so the screen states the fact it can stand behind and stops.
+  "common.errorNoCause": "The request failed. No cause reported.",
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
   "common.saving": "Saving…",
+
+  // The app-level boundary's fallback. It says what happened and what to do
+  // next, and nothing about the error itself: a render throw carries our own
+  // internals, which the reader can neither read nor act on. Two sentences,
+  // no dash (VOICE-RULE-5).
+  "app.errorTitle": "This view stopped working.",
+  "app.errorBody": "Try it again. If it keeps failing, reload the page.",
+  "app.errorRetry": "Try again",
 
   "list.search": "Search",
   "list.sort": "Sort",
@@ -2132,11 +2144,32 @@ export const en = {
   "ob.conv.triage.stateEmpty": "empty",
   "ob.conv.triage.stateTyped": "typed by you",
   "ob.conv.triage.stateStored": "from your profile",
-  "ob.conv.triage.emptyHint": "Not found on your site. Yours to add.",
+  // A value the entity census read off the legal notice — the one company the
+  // site names, or the candidate the human picked from several. Nothing ever
+  // scored it, so the word names WHERE it came from; "chosen by you" would be
+  // false on the sole-candidate path, where nobody was asked anything.
+  "ob.conv.triage.stateQuoted": "read from your legal notice",
+  // Where a value would stand on an empty row. It says only that the row is
+  // empty: the same line serves the manual path, where nothing ever read the
+  // site, and a read-backed board, where the wire says nothing about why any
+  // one field came back missing. Naming a cause here would invent one.
+  "ob.conv.triage.emptyHint": "Nothing here yet. Yours to add.",
   "ob.conv.triage.legalNotPublished":
     "Not stated on your legal or imprint page. Yours to add.",
   "ob.conv.triage.legalNotChecked":
     "I did not find a legal or imprint page on your site to check. Yours to add.",
+  // Several companies stand on the one imprint. The value IS on the page, so
+  // saying it is not stated would be false; what is missing is the human's
+  // decision about which company this installation belongs to.
+  "ob.conv.triage.legalUnpicked":
+    "Your imprint names more than one company. Choose which one is yours and I will fill this in.",
+  // The omission notice on an empty row, once a read has actually run: the
+  // field is named as withheld rather than left blank, and the reason is only
+  // ever one the read can support for THAT field. The read's crawl-wide
+  // warnings belong to the coverage card, which states each under its own
+  // heading; beside a field they would name a cause the read never gave.
+  "ob.conv.triage.omittedLabel": "Omitted, not guessed",
+  "ob.conv.triage.omittedField": "{field}: {reason}",
   "ob.conv.triage.mapLabel": "Jump to a section",
   "ob.conv.triage.sectionBlocking": "{count} needed to continue",
   "ob.conv.triage.sectionAdvisory": "{count} worth a check",
@@ -2273,7 +2306,9 @@ export const en = {
   "ob.conv.review.confirmVersionSkewStuck":
     "I checked again, but nothing has changed yet. Pressing Continue now would fail the same way, so have another look or check again in a moment.",
   "ob.conv.review.confirmNotReady":
-    "This read is not ready to confirm yet. Wait for it to finish, or start a fresh one.",
+    "This read has no draft to confirm yet, so Continue is on hold. Check again once it has finished, or start a fresh read.",
+  "ob.conv.review.confirmCheckFailed":
+    "This read was already confirmed, but I could not load the company it created. Check again in a moment.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.results.continue": "Continue",
@@ -2445,6 +2480,17 @@ export const en = {
   "ob.live.peopleEmpty":
     "Nobody yet. I only propose a person when the page gives a name and a role.",
   "ob.live.coverageWarning": "Warning",
+  // A bounded read has to say it was bounded: the page counts beside it
+  // otherwise read as the whole site.
+  "ob.live.coverageStopped": "Stopped early",
+  "ob.live.stoppedPageCap":
+    "I reached the page limit for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedByteCap":
+    "I reached the size limit for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedBudget":
+    "I reached the budget for one read, so there is more of your site I did not open.",
+  "ob.live.stoppedDeadline":
+    "I ran out of time for one read, so there is more of your site I did not open.",
   "ob.live.coverageSkipped": "Skipped",
   "ob.live.coverageFailed": "Could not read",
   "ob.live.coverageClean":
@@ -3122,6 +3168,8 @@ export const en = {
   "settings.companySaved": "Saved",
   "settings.companyRefreshUnavailable":
     "This website refresh is no longer available.",
+  "settings.companyRefreshUnreadable":
+    "We lost track of this website read. Start the refresh again.",
   "settings.companyRefreshStale":
     "The website proposal changed. Review the refreshed comparison before applying it.",
   "settings.companyRefreshReview": "Website comparison",

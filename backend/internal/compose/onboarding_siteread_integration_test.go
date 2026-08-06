@@ -170,6 +170,23 @@ func TestOnboardingSiteReadTransportStartsPollsAndConfirmsTheDraft(t *testing.T)
 		t.Fatalf("confirm → %d %s, want 200", confirmRec.Code, confirmRec.Body.String())
 	}
 
+	// The reader who double-clicks, or the second tab, must be told WHICH 409
+	// this is — the work is done and the answer is to go look at the company,
+	// not to retry or to re-inspect a draft that moved.
+	replay := onboardingPOST(human, t,
+		"/v1/company/site-reads/"+ready.ID.String()+"/confirm", confirmBody)
+	replayRec := httptest.NewRecorder()
+	engine.confirmCompanySiteRead(replayRec, replay, openapi_types.UUID(ready.ID))
+	var replayProblem struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(replayRec.Body.Bytes(), &replayProblem); err != nil {
+		t.Fatal(err)
+	}
+	if replayRec.Code != http.StatusConflict || replayProblem.Code != "already_confirmed" {
+		t.Fatalf("replayed confirm → %d %q, want 409 already_confirmed", replayRec.Code, replayProblem.Code)
+	}
+
 	confirmedRec := httptest.NewRecorder()
 	confirmedPoll := httptest.NewRequest(http.MethodGet,
 		"/v1/company/site-reads/"+ready.ID.String(), nil).WithContext(human)
@@ -294,7 +311,7 @@ func TestOnboardingSiteReadConfirmsSelectedDataAndKeepsPeopleSeparate(t *testing
 
 	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
 	offer, editedICP, website := "Employee onboarding software", "B2B RevOps teams with 50–500 employees", seedURL
-	company, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
+	company, _, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName: "Acme", Website: &website,
 		Fields:           map[string]*string{"offer_summary": &offer, "icp": &editedICP},
@@ -340,12 +357,76 @@ func TestOnboardingSiteReadConfirmsSelectedDataAndKeepsPeopleSeparate(t *testing
 		t.Fatalf("dossier bound to %s, want anchor %s", confirmedOrg, company.OrganizationID)
 	}
 
-	_, err = e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
+	_, _, err = e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName: "Acme", Fields: map[string]*string{"offer_summary": &offer, "icp": &editedICP},
 	}, nil)
-	if !errors.Is(err, apperrors.ErrConflict) {
-		t.Fatalf("replayed confirmation = %v, want conflict", err)
+	if !errors.Is(err, people.ErrSiteReadAlreadyConfirmed) {
+		t.Fatalf("replayed confirmation = %v, want the already-confirmed refusal", err)
+	}
+}
+
+// A reader who sees the read got a fact wrong can only untick it: the selection
+// list takes a fact or drops it, and there is nowhere to say what is true. On a
+// fresh installation nothing is in conflict with the wrong fact either, so the
+// correction has to work with no anchor on file.
+//
+// What it must NOT do is launder the untouched facts alongside it (ADR-0065):
+// accepting what the page said keeps the page's evidence.
+func TestCorrectingAFactAtColdStartStoresItAsTheHumansOwnAssertion(t *testing.T) {
+	e := integration.Setup(t)
+	human := e.As(e.Rep1, nil, integration.AdminPerms)
+	ready := onboardingDraft(t, e)
+	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
+
+	accepted, wrong := ready.Facts[0], ready.Facts[1]
+	corrected := "ClickHouse — data platform"
+	offer, icp := "Employee onboarding software", "Growing RevOps teams"
+	company, _, err := e.People.ConfirmCompanySiteRead(human, people.ConfirmCompanySiteReadInput{
+		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
+		DisplayName:      "Acme",
+		Fields:           map[string]*string{"offer_summary": &offer, "icp": &icp},
+		SelectedFactKeys: []string{people.SiteReadFactKey(accepted), people.SiteReadFactKey(wrong)},
+		Resolutions: []people.SiteReadResolution{
+			{Key: people.SiteReadFactKey(wrong), Action: "use_value", Value: &corrected},
+		},
+	}, engine.stageOnboardingPeople)
+	if err != nil {
+		t.Fatalf("correcting a fact at cold start: %v", err)
+	}
+
+	stored := map[string]people.CompanyFact{}
+	for _, fact := range company.Facts {
+		stored[fact.Category+"/"+fact.Field] = fact
+	}
+	if len(stored) != 2 {
+		t.Fatalf("confirmed facts = %+v, want the accepted one and the corrected one", company.Facts)
+	}
+	kept := stored[accepted.Category+"/"+accepted.Field]
+	if kept.Source != "site_read" || kept.EvidenceSnippet == "" || kept.SourceURL == "" {
+		t.Fatalf("an accepted fact lost its website evidence: %+v", kept)
+	}
+	fixed := stored[wrong.Category+"/"+wrong.Field]
+	if fixed.Value != corrected || fixed.Source != "human" {
+		t.Fatalf("corrected fact = %+v, want the human's value as a human assertion", fixed)
+	}
+	if fixed.EvidenceSnippet != "" || fixed.SourceURL != "" {
+		t.Fatalf("a human assertion was given website evidence it never had: %+v", fixed)
+	}
+	if fixed.CapturedBy != "human:"+e.Rep1.String() {
+		t.Fatalf("corrected fact captured_by = %q, want the confirming human", fixed.CapturedBy)
+	}
+
+	var dossierLinks int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM organization_fact
+			WHERE organization_id = $1 AND source = 'human' AND site_read_id IS NOT NULL`,
+			company.OrganizationID).Scan(&dossierLinks)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if dossierLinks != 0 {
+		t.Fatalf("%d human fact(s) point at the dossier they contradict", dossierLinks)
 	}
 }
 
@@ -390,7 +471,7 @@ func TestCompanySiteReadRefreshRequiresConflictDecisionsAndPreservesProvenance(t
 			"registered_address": &proposedAddress,
 		},
 	}
-	if _, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople); err == nil {
+	if _, _, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople); err == nil {
 		t.Fatal("refresh committed without resolving its human conflicts")
 	} else {
 		var invalid *people.InvalidSiteReadResolutionError
@@ -413,7 +494,7 @@ func TestCompanySiteReadRefreshRequiresConflictDecisionsAndPreservesProvenance(t
 		{Key: "icp", Action: "accept_proposal"},
 		{Key: "registered_address", Action: "accept_proposal"},
 	}
-	confirmed, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople)
+	confirmed, _, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople)
 	if err != nil {
 		t.Fatalf("confirm resolved refresh: %v", err)
 	}
@@ -452,7 +533,7 @@ func TestOnboardingConfirmationRollsBackWhenSeparatePeopleCannotStage(t *testing
 	stageFailure := func(context.Context, pgx.Tx, ids.OrganizationID, people.SiteRead, []people.SiteReadPerson) ([]ids.UUID, error) {
 		return nil, errors.New("approval store unavailable")
 	}
-	_, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
+	_, _, err := e.People.ConfirmCompanySiteRead(e.As(e.Rep1, nil, integration.AdminPerms), people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName: "Acme", Fields: map[string]*string{"offer_summary": &offer, "icp": &icp},
 	}, stageFailure)
@@ -540,7 +621,7 @@ func TestConfirmingAReadThatNamedNobodySucceeds(t *testing.T) {
 
 	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
 	website := seedURL
-	company, err := e.People.ConfirmCompanySiteRead(ctx, people.ConfirmCompanySiteReadInput{
+	company, _, err := e.People.ConfirmCompanySiteRead(ctx, people.ConfirmCompanySiteReadInput{
 		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
 		DisplayName: "Acme", Website: &website,
 	}, engine.stageOnboardingPeople)

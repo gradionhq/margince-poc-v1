@@ -1,10 +1,14 @@
 /** @vitest-environment jsdom */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
-import { EMPTY_DRAFT } from "../onboarding";
+import { createQueryClient } from "../../app/queryclient";
+import { translate } from "../../i18n";
+import type { CompanyDraft } from "../onboarding";
+import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
+import type { SuggestedCompanyChange } from "../onboarding-read";
 import { draftWithLegalEntity } from "./company-proposal";
 import { useClarifyAnswers } from "./use-clarify-answers";
 
@@ -44,15 +48,24 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// The application's OWN client: a failure this hook does not describe to the
+// reader is reported by the client's mutation sink and by nothing else
+// (app/queryclient.ts, FE-PARAM-4), so the cases below can only count those
+// reports honestly against the same wiring the browser runs.
 function wrapper({ children }: Readonly<{ children: ReactNode }>) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={createQueryClient()}>
+      {children}
+    </QueryClientProvider>
+  );
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // Unconditionally, not at the end of the case that installed a spy: a case
+  // that fails its assertion never reaches its own teardown, and a leaked
+  // console spy would silently answer the next case's question for it.
+  vi.restoreAllMocks();
 });
 
 // One reply shape covers every test: only legal_name ever comes back
@@ -90,16 +103,30 @@ function stubAuthorizedReply() {
   );
 }
 
+// Both collaborators are the REAL ones the company act wires in: the
+// ordinary change path is a changeDraftField loop over the authorized
+// changes, and an entity pick goes through draftWithLegalEntity.
+// Stubbing either would leave the one thing these tests are about — which
+// path a decision takes, and what provenance it leaves behind — unexercised.
 function setupHook(
   legalEntities: readonly LegalEntity[],
   clarify: Clarify = entityClarify,
   applyLegalEntityOverride?: (entity: LegalEntity) => void,
+  startingDraft: CompanyDraft = EMPTY_DRAFT,
 ) {
   const proposalRef: { current: Proposal } = {
     current: { ready: true, open_questions: [clarify] },
   };
-  const draftRef = { current: EMPTY_DRAFT };
-  const applyChanges = vi.fn();
+  const draftRef = { current: startingDraft };
+  const applyChanges = vi.fn((changes: readonly SuggestedCompanyChange[]) => {
+    for (const change of changes) {
+      draftRef.current = changeDraftField(
+        draftRef.current,
+        change.field,
+        change.value,
+      );
+    }
+  });
   const applyLegalEntity = vi.fn(
     applyLegalEntityOverride ??
       ((entity: LegalEntity) => {
@@ -165,12 +192,78 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
     });
   });
 
+  // One decision, one provenance. The pick settles three fields at once and
+  // the server authorizes only the name; sending that name down the ordinary
+  // change path is what used to stamp it as something the human typed, so a
+  // single click left the address and registration number reading as the
+  // site's evidence and the name beside them reading as hand-entered.
+  it("leaves every field the one pick settled with the same provenance, the authorized name included", async () => {
+    stubAuthorizedReply();
+    const { result, draftRef } = setupHook([gradionEntity]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() =>
+      expect(draftRef.current.values.legal_name).toBe(gradionEntity.name),
+    );
+    for (const field of [
+      "legal_name",
+      "registered_address",
+      "register_vat",
+    ] as const) {
+      expect(draftRef.current.grounded[field]).toMatchObject({
+        source_kind: "url",
+        source_url: gradionEntity.source_url,
+      });
+      // The human chose among the read's own candidates rather than writing
+      // a value, so nothing here is theirs to have asserted.
+      expect(draftRef.current.edited.has(field)).toBe(false);
+    }
+  });
+
+  // Answering the question is the decision ABOUT the legal name, so it wins
+  // over a name typed earlier — otherwise the click reads as ignored, and
+  // the details it does fill would describe a different company than the
+  // name left standing above them.
+  it("settles the name the human just chose over one they typed earlier, and stops calling it their own", async () => {
+    stubAuthorizedReply();
+    const typed = changeDraftField(
+      EMPTY_DRAFT,
+      "legal_name",
+      "Gradion, roughly",
+    );
+    const { result, draftRef } = setupHook(
+      [gradionEntity],
+      entityClarify,
+      undefined,
+      typed,
+    );
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() =>
+      expect(draftRef.current.values.legal_name).toBe(gradionEntity.name),
+    );
+    expect(draftRef.current.edited.has("legal_name")).toBe(false);
+    expect(draftRef.current.values.registered_address).toBe(
+      gradionEntity.registered_address,
+    );
+  });
+
   it("still records the answer, with no leaked exception message, if the entity fill itself throws", async () => {
     stubAuthorizedReply();
     const throwing = () => {
       throw new TypeError("Cannot read properties of undefined (reading 'x')");
     };
-    const { result } = setupHook([gradionEntity], entityClarify, throwing);
+    const { result, draftRef } = setupHook(
+      [gradionEntity],
+      entityClarify,
+      throwing,
+    );
 
     act(() => {
       result.current.answerClarify(entityClarify.id, gradionEntity.name);
@@ -184,6 +277,76 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
     expect(result.current.answers).toContainEqual(
       expect.objectContaining({ clarifyId: entityClarify.id }),
     );
+    // The choice is on record server-side either way, so it still has to
+    // reach the draft: the ordinary change path carries it when the
+    // grounded one cannot.
+    expect(draftRef.current.values.legal_name).toBe(gradionEntity.name);
+  });
+
+  // The option a human clicks is a normalized copy of the candidate's name
+  // (the server trims and collapses it before offering it), while the read
+  // still carries the name as the page printed it. The server matches the two
+  // trimmed when it decides whether the confirmed legal block keeps the site's
+  // provenance, so a client comparing them raw calls "picked" absent: address
+  // and registration number stay unfilled, and the name the human chose off
+  // the page ends up marked as one they typed.
+  it("fills from the candidate the server would call picked, whitespace and all", async () => {
+    stubAuthorizedReply();
+    const padded: LegalEntity = {
+      ...gradionEntity,
+      name: `  ${gradionEntity.name}\n`,
+    };
+    const { result, draftRef, applyLegalEntity } = setupHook([padded]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(applyLegalEntity).toHaveBeenCalledWith(padded));
+    expect(draftRef.current.values.registered_address).toBe(
+      padded.registered_address,
+    );
+    expect(draftRef.current.values.register_vat).toBe(padded.register_number);
+    expect(draftRef.current.edited.has("legal_name")).toBe(false);
+  });
+
+  // Whitespace INSIDE the name, which trimming cannot reach: the option was
+  // built by collapsing every run of it to one space, so the two strings only
+  // ever meet under that same rule. Compared trimmed alone, this pick loses
+  // the address, the registration number and the imprint's provenance with
+  // them, and the chosen name is stamped as one the human typed.
+  it("fills from a candidate whose printed name carries doubled whitespace of its own", async () => {
+    stubAuthorizedReply();
+    const doubled: LegalEntity = {
+      ...gradionEntity,
+      name: "Gradion  Co.,\tLtd.",
+    };
+    const doubledClarify: Clarify = {
+      ...entityClarify,
+      options: [
+        { value: "Gradion Co., Ltd.", label: "Gradion Co., Ltd." },
+        { value: "Some Other GmbH", label: "Some Other GmbH" },
+      ],
+    };
+    const { result, draftRef, applyLegalEntity } = setupHook(
+      [doubled],
+      doubledClarify,
+    );
+
+    act(() => {
+      result.current.answerClarify(doubledClarify.id, "Gradion Co., Ltd.");
+    });
+
+    await waitFor(() => expect(applyLegalEntity).toHaveBeenCalledWith(doubled));
+    expect(draftRef.current.values.registered_address).toBe(
+      doubled.registered_address,
+    );
+    expect(draftRef.current.values.register_vat).toBe(doubled.register_number);
+    expect(draftRef.current.grounded.registered_address).toMatchObject({
+      source_kind: "url",
+      source_url: doubled.source_url,
+    });
+    expect(draftRef.current.edited.has("legal_name")).toBe(false);
   });
 
   it("never fills anything when no candidate on the read matches the authorized value", async () => {
@@ -197,6 +360,46 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
     await waitFor(() => expect(result.current.authorizing).toBe(false));
     expect(applyLegalEntity).not.toHaveBeenCalled();
     expect(draftRef.current.values.registered_address).toBe("");
+  });
+
+  // A candidate the read could not name is no candidate at all: the fill
+  // deliberately settles nothing about legal_name for one (it must never
+  // unmark a name the human typed themselves), so taking it would record the
+  // clarify as answered while the legal name it answers stays exactly as it
+  // was — and would fill address and registration number from an entity
+  // nothing on screen identifies.
+  it("treats a candidate with no usable name as no candidate, and lets the ordinary change path carry the choice", async () => {
+    stubAuthorizedReply();
+    const nameless: LegalEntity = {
+      name: "   ",
+      registered_address:
+        "Level 12, Bitexco Tower, District 1, Ho Chi Minh City",
+      register_number: "0318 447 291",
+      source_url: "https://gradion.com/legal-notice",
+    };
+    const namelessClarify: Clarify = {
+      id: "clarify:legal_name:2",
+      question: "Which legal entity is this installation for?",
+      field: "legal_name",
+      options: [{ value: nameless.name, label: "The entity on the imprint" }],
+    };
+    const { result, draftRef, applyChanges, applyLegalEntity } = setupHook(
+      [nameless],
+      namelessClarify,
+    );
+
+    act(() => {
+      result.current.answerClarify(namelessClarify.id, nameless.name);
+    });
+
+    await waitFor(() => expect(result.current.authorizing).toBe(false));
+    expect(applyLegalEntity).not.toHaveBeenCalled();
+    expect(applyChanges).toHaveBeenCalledWith([
+      expect.objectContaining({ field: "legal_name", value: nameless.name }),
+    ]);
+    // Nothing of the nameless candidate's own block reaches the draft.
+    expect(draftRef.current.values.registered_address).toBe("");
+    expect(draftRef.current.values.register_vat).toBe("");
   });
 
   it("never triggers the entity fill for a clarify over a different field, even when the value happens to match a candidate's name", async () => {
@@ -247,19 +450,23 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
 });
 
 describe("useClarifyAnswers — honest failures", () => {
-  // The request path (mutationFn) already wraps a server problem in
-  // problemMessage before it becomes the shown detail; anything that
-  // reaches onError WITHOUT going through that wrap (a client-side bug, a
-  // network layer throwing something unexpected) must never hand its raw
-  // .message to the reader.
-  it("never surfaces a raw exception message when something unexpected breaks the round trip", async () => {
+  // The request path (mutationFn) carries the server's own problem body, so
+  // the detail the reader sees is a sentence composed for them. Anything
+  // reaching onError WITHOUT that body (a client-side bug, a network layer
+  // throwing something unexpected) must never hand its raw .message over.
+  it("shows the server's own words when the authorization is refused", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => {
-        throw new TypeError(
-          "Cannot read properties of undefined (reading 'x')",
-        );
-      }),
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            code: "validation_error",
+            title: "invalid_selection",
+            detail: "That option no longer matches the dossier.",
+          },
+          422,
+        ),
+      ),
     );
     const { result } = setupHook([]);
 
@@ -268,6 +475,78 @@ describe("useClarifyAnswers — honest failures", () => {
     });
 
     await waitFor(() => expect(result.current.failure).not.toBeNull());
+    expect(result.current.failure).toEqual({
+      kind: "request",
+      detail: "That option no longer matches the dossier.",
+    });
+  });
+
+  it("falls back to the shared line when the refusal carried no words for a reader", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ status: 502 }, 502)),
+    );
+    const { result } = setupHook([]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+    // Catalog copy in the reader's own language — never the placeholder a
+    // problem body with no detail carries into a stack trace.
+    expect(result.current.failure).toEqual({
+      kind: "request",
+      detail: translate("en", "common.errorNoCause"),
+    });
+  });
+
+  it("never surfaces a raw exception message when something unexpected breaks the round trip, and reports it exactly once", async () => {
+    const crash = new TypeError("Cannot read properties of undefined");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw crash;
+      }),
+    );
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = setupHook([]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
     expect(result.current.failure).toEqual({ kind: "unconfirmed" });
+    // The reader is told the choice did not stick; the thing that actually
+    // broke is kept once, by the client's own sink, so an operator reading
+    // the console sees one failure rather than two spellings of it.
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledWith(crash);
+  });
+
+  it("keeps nothing at all for a refusal the reader can already read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          { title: "conflict", detail: "That option is no longer open." },
+          409,
+        ),
+      ),
+    );
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = setupHook([]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+    expect(result.current.failure).toEqual({
+      kind: "request",
+      detail: "That option is no longer open.",
+    });
+    expect(errorLog).not.toHaveBeenCalled();
   });
 });

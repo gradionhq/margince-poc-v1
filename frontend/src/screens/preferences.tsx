@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import { Button, EmptyState, Skeleton } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import {
   type Draft,
   dirtyKeys,
@@ -69,7 +69,7 @@ function explainPublicError(
   if (error instanceof LinkInvalidError) {
     return t("prefs.invalidLink");
   }
-  return error instanceof Error ? error.message : t("common.error");
+  return problemMessageOf(error, t);
 }
 
 function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
@@ -92,7 +92,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
         if (response.status === 429) {
           throw new RateLimitedError();
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -151,7 +151,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -192,7 +192,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
         if (response.status === 429) {
           throw new RateLimitedError();
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

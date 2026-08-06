@@ -4,7 +4,7 @@ import type {
   CompanyFieldName,
   CompanyForm,
 } from "../onboarding";
-import { REQUIRED_FIELDS } from "../onboarding";
+import { provenanceOf, REQUIRED_FIELDS } from "../onboarding";
 import type { ConversationQuestion } from "./conversation-machine";
 
 // Pure mappings between the server's proposal/clarify payloads and the
@@ -165,39 +165,137 @@ export function resolutionsFromAnswers(
   return resolutions;
 }
 
-// Choosing an entity fills one intact legal block and keeps its website
-// provenance (the read grounded it; the human only chose which block). Two
-// things this never does: overwrite a field the human already typed into
-// (their edit wins, unconditionally), and invent a value for a detail this
-// particular candidate does not carry — an absent field is left exactly as
-// it was, never blanked. Mirrors the classic coordinator's entity pick so
-// both shells stamp provenance alike.
+// The one whitespace rule an option value is built with: trimmed, then every
+// run of whitespace collapsed to a single space. The server normalizes each
+// printed candidate this way before offering it (compose's clarify option
+// builder), so a clicked value is a normalized copy of a name the read still
+// carries exactly as the page printed it.
+function collapseWhitespace(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+// The candidate an option value names, matched through that same rule on both
+// sides — anything less calls a name with doubled or internal whitespace a
+// candidate nobody offered, and every detail hanging off the candidate (its
+// address, registration number, quote and page) goes missing with it.
+//
+// A candidate the read could not name matches nothing, whatever was clicked:
+// the entity fill settles nothing about legal_name for one, by design, so
+// treating it as picked would fill address and registration number from an
+// entity nothing on screen identifies.
+//
+// Nor does an ambiguous one. Two candidates can print the same name and carry
+// different registrations, and the option names only the name — so taking the
+// first would hang one company's address and register number off another
+// company's identity, the mixture this block exists to prevent. The
+// confirmation refuses the same case for the same reason: it grounds a legal
+// block only when the details match one and only one stored entity.
+export function legalEntityForOption(
+  entities: readonly LegalEntity[],
+  optionValue: string,
+): LegalEntity | undefined {
+  const picked = collapseWhitespace(optionValue);
+  if (picked === "") {
+    return undefined;
+  }
+  const named = entities.filter(
+    (candidate) => collapseWhitespace(candidate.name) === picked,
+  );
+  return named.length === 1 ? named[0] : undefined;
+}
+
+// Evidence-or-omit for a candidate: the read's verbatim quote when it captured
+// one, and otherwise nothing at all. A value is never its own evidence.
+function quotedEvidence(entity: LegalEntity): string | undefined {
+  const snippet = entity.evidence_snippet;
+  return snippet !== undefined && snippet.trim() !== "" ? snippet : undefined;
+}
+
+// Choosing an entity fills one intact legal block. There is one such gesture,
+// wherever it is offered — the clarify's candidate list and the dossier's
+// entity cards ask the same question of the same candidates — so it settles
+// one way: the chosen name follows the pick even over a name the human typed
+// earlier, because their old text standing beside this candidate's address and
+// registration number would describe two companies at once. The details that
+// ride along were never what was asked, so an edit there still wins, and a
+// detail this candidate does not carry is left exactly as it was, never
+// blanked.
+//
+// The block keeps the candidate's own provenance, and only what the candidate
+// actually has: the page it was printed on, plus the verbatim quote when the
+// read captured one. No confidence — see FieldGrounding.
 export function draftWithLegalEntity(
   draft: CompanyDraft,
   entity: LegalEntity,
 ): CompanyDraft {
+  const edited = new Set(draft.edited);
+  if (entity.name.trim() !== "") {
+    // The human mark goes with the value: they selected what the read had
+    // already grounded instead of authoring anything. A candidate with no
+    // name settles nothing about legal_name, and dropping the mark there
+    // would leave the human's own text looking site-sourced.
+    edited.delete("legal_name");
+  }
   const grounded = { ...draft.grounded };
   const values = { ...draft.values };
+  const snippet = quotedEvidence(entity);
   const candidates: ReadonlyArray<[ColdField["field"], string | undefined]> = [
     ["legal_name", entity.name],
     ["registered_address", entity.registered_address],
     ["register_vat", entity.register_number],
   ];
   for (const [field, value] of candidates) {
-    if (draft.edited.has(field) || value === undefined || value.trim() === "") {
+    if (edited.has(field) || value === undefined || value.trim() === "") {
       continue;
     }
     values[field] = value;
     grounded[field] = {
       field,
       value,
-      evidence_snippet: entity.evidence_snippet ?? value,
+      evidence_snippet: snippet,
       source_kind: "url",
       source_url: entity.source_url,
-      confidence: 1,
     };
   }
-  return { values, grounded, edited: draft.edited };
+  return { values, grounded, edited };
+}
+
+// One entity on the whole site is not a question, so nothing is asked and
+// nothing is guessed: the read printed a company off its own imprint, and its
+// block is a read-back value like any other. It is applied because the two
+// extraction lanes disagree about the same page — the census can quote
+// "ScaleCommerce GmbH, Horstweg 24" verbatim while the profile lane returns
+// none of the trio — and without this the human is shown three blank fields
+// while the read is holding the answer, snippet and source URL included.
+//
+// Only the unanswered fields: nobody chose this candidate, so it must not
+// displace a value the profile lane did ground, nor one the human typed — nor
+// a field the human deliberately emptied, because clearing a box is an answer
+// and the empty box IS it. That last one needs saying separately: a cleared
+// field looks blank, and draftWithLegalEntity settles the legal name over a
+// human mark on purpose, which is right for a pick and wrong here, where
+// nobody picked anything. Handing that function an entity stripped of the
+// parts already answered says all of it in the vocabulary it already has.
+export function draftWithSoleLegalEntity(
+  draft: CompanyDraft,
+  entities: readonly LegalEntity[] | undefined,
+): CompanyDraft {
+  const [entity, ...rest] = entities ?? [];
+  if (entity === undefined || rest.length > 0) {
+    return draft;
+  }
+  const unanswered = (field: CompanyFieldName): boolean =>
+    draft.values[field].trim() === "" && !draft.edited.has(field);
+  return draftWithLegalEntity(draft, {
+    ...entity,
+    name: unanswered("legal_name") ? entity.name : "",
+    registered_address: unanswered("registered_address")
+      ? entity.registered_address
+      : undefined,
+    register_number: unanswered("register_vat")
+      ? entity.register_number
+      : undefined,
+  });
 }
 
 // The three fields only a legal/imprint page can ground — the same trio
@@ -210,7 +308,7 @@ const LEGAL_TRIO_FIELDS: ReadonlySet<CompanyFieldName> = new Set([
   "register_vat",
 ]);
 
-export type LegalFieldGap = "not-published" | "not-checked";
+export type LegalFieldGap = "not-published" | "not-checked" | "unpicked";
 
 // Why one of the legal trio is blank, from what the read's own crawl
 // actually saw — never a guess. "not-published" only fires once a page the
@@ -220,15 +318,65 @@ export type LegalFieldGap = "not-published" | "not-checked";
 // "not-checked" — the honest admission that nothing was there TO read, as
 // opposed to a claim that the site was searched and came up empty. A field
 // outside the trio, or one that already carries a value, has no gap to name.
+// Neither does a field on the manual path: with no crawl behind it there is
+// no "did not find" to report, only a blank the person has not filled yet.
+//
+// A candidate that carries the field outranks both, because the page plainly
+// states it and "the page does not state it" would be false. What is left to
+// say then depends on how many companies stand on that page, and on whether
+// this draft has already answered which one is ours. Several, unanswered: the
+// read deliberately proposes none and waits for the human to choose, which is
+// the choice "unpicked" names. Otherwise — one company on the page, or a
+// choice already made — there is no choice left to point at, and naming one
+// would send a reader back to a decision they have already taken.
 export function legalFieldGap(
   field: CompanyFieldName,
   pages: readonly SiteReadPage[] | undefined,
+  draft: CompanyDraft,
+  entities?: readonly LegalEntity[],
 ): LegalFieldGap | null {
-  if (!LEGAL_TRIO_FIELDS.has(field)) {
+  if (!LEGAL_TRIO_FIELDS.has(field) || pages === undefined) {
     return null;
   }
-  const sawLegalPage = (pages ?? []).some(
+  const candidates = entities ?? [];
+  if (candidates.some((entity) => entityCarries(entity, field))) {
+    return candidates.length > 1 && !legalBlockChosen(draft)
+      ? "unpicked"
+      : null;
+  }
+  const sawLegalPage = pages.some(
     (page) => page.kind === "impressum" && page.status === "fetched",
   );
   return sawLegalPage ? "not-published" : "not-checked";
+}
+
+// Whether this draft has already settled which candidate is ours. The census
+// lane is the only one that grounds a value nothing measured — the graded
+// extraction lane always carries a confidence (ColdStartField) — so an
+// ungraded grounding anywhere in the legal trio IS a candidate's block sitting
+// in the draft, which only a pick (or a one-company imprint) puts there.
+//
+// Asked of the whole block rather than the field in hand, because that is what
+// survives what the reader does next: clearing a box drops the grounding of
+// that field alone (changeDraftField), so the rest of the block still names
+// the entity the choice landed on — including when the cleared box is the very
+// name it was picked by.
+function legalBlockChosen(draft: CompanyDraft): boolean {
+  for (const field of LEGAL_TRIO_FIELDS) {
+    const grounding = provenanceOf(draft, field);
+    if (grounding !== null && grounding.confidence === undefined) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function entityCarries(entity: LegalEntity, field: CompanyFieldName): boolean {
+  const carried =
+    field === "legal_name"
+      ? entity.name
+      : field === "registered_address"
+        ? entity.registered_address
+        : entity.register_number;
+  return carried !== undefined && carried.trim() !== "";
 }
