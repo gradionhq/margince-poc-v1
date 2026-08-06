@@ -34,26 +34,30 @@ const idle: PasswordLinkState = { pending: false, link: null, error: null };
 export function usePasswordLink() {
   const t = useT();
   const [state, setState] = useState<PasswordLinkState>(idle);
-  // The member the open dialog belongs to. A response is accepted only while it
-  // still matches: close mid-flight, or open another member's dialog, and the
-  // in-flight credential is dropped on arrival instead of landing in state
-  // nobody is looking at.
-  const awaiting = useRef<string | null>(null);
+  // Which request the open dialog is waiting for. A response is accepted only
+  // while it is still the latest: close mid-flight, open another member, or
+  // reopen the SAME member, and the earlier credential is dropped on arrival
+  // instead of landing in state nobody is looking at. It counts requests rather
+  // than naming the member, because reopening one member makes two requests
+  // whose member id is identical — the older one would otherwise still look
+  // current and could clear the newer link or report its own stale failure.
+  const latest = useRef(0);
 
   const clear = useCallback(() => {
-    awaiting.current = null;
+    latest.current += 1;
     setState(idle);
   }, []);
 
   const mint = useCallback(
     async (userId: string) => {
-      awaiting.current = userId;
+      latest.current += 1;
+      const request = latest.current;
       setState({ pending: true, link: null, error: null });
       try {
         const { data, error } = await api.POST("/users/{id}/password-link", {
           params: { path: { id: userId } },
         });
-        if (awaiting.current !== userId) {
+        if (latest.current !== request) {
           return;
         }
         setState(
@@ -73,7 +77,7 @@ export function usePasswordLink() {
         // rejects. Without this the rejection escapes and the dialog sits on
         // "Creating the link…" for good — the admin cannot tell a dead network
         // from a slow server, and has no way to retry.
-        if (awaiting.current === userId) {
+        if (latest.current === request) {
           setState({
             pending: false,
             link: null,

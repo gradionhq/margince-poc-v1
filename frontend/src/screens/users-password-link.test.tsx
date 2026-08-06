@@ -256,6 +256,67 @@ describe("admin-issued set-password link", () => {
     expect(screen.queryByText(/creating the link/i)).toBeNull();
   });
 
+  it("does not let an earlier request for the same member clobber a later one", async () => {
+    // Reopening the SAME member makes two requests whose member id is
+    // identical, so keying acceptance on the id alone would let the first one's
+    // outcome land on the second's dialog — clearing a valid link, or reporting
+    // an offline error that never happened to the request being shown.
+    let call = 0;
+    let releaseFirst: () => void = () => {};
+    const firstFailed = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+            admin_password_link: true,
+          });
+        }
+        if (req.url.includes("/password-link")) {
+          call += 1;
+          if (call === 1) {
+            // Loses the race: rejects only after the second request is issued.
+            await firstFailed;
+            throw new TypeError("Failed to fetch");
+          }
+          return jsonResponse(
+            { set_password_url: LINK_URL, expires_at: "2026-08-12T09:00:00Z" },
+            201,
+          );
+        }
+        return jsonResponse(ROSTER);
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    const open = () =>
+      userEvent.click(
+        screen.getByRole("button", { name: /get set-password link/i }),
+      );
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: /done/i }));
+    await open();
+    const field =
+      await screen.findByLabelText<HTMLInputElement>("Set-password link");
+    expect(field.value).toBe(LINK_URL);
+
+    // The stale failure lands now. It must change nothing.
+    releaseFirst();
+    await waitFor(() => expect(call).toBe(2));
+    expect(screen.queryByText(/could not reach the server/i)).toBeNull();
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Set-password link").value,
+    ).toBe(LINK_URL);
+  });
+
   it("keeps a failed mint visible with a retry rather than reporting success", async () => {
     vi.stubGlobal(
       "fetch",
