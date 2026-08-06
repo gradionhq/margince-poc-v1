@@ -18,9 +18,13 @@ import { vi } from "./vi";
 // language we don't ship. An explicit `initial` (later fed from /v1/me)
 // always wins; the switch flips it locally after mount.
 
-// The catalog registry is the single source of truth for what we ship: the
-// Locale type, the switcher's list, and browser detection all derive from it,
-// so a new locale is added in exactly one place.
+// The catalog registry is what we ship. The `Locale` type and `translate`
+// derive from it, so neither is edited when a locale arrives. `LOCALES` below
+// does NOT derive: it is written out because it also fixes display order, and
+// everything downstream of it — the switcher and browser detection — matches
+// against that written list. Membership is proved by `satisfies` at compile
+// time, but only i18n.test.ts proves the list is COMPLETE, so a locale added
+// to the registry alone typechecks clean and fails there.
 export const catalogs = { en, de, vi } satisfies Record<
   string,
   Record<MessageKey, string>
