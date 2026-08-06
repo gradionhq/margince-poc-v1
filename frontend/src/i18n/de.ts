@@ -615,6 +615,7 @@ export const de = {
   "co.owner.notInRoster": "Aktuell zugeordnet (nicht mehr in der Nutzerliste)",
   "co.pulse.unowned": "Nicht zugewiesen",
   "co.since.first": "Du öffnest diesen Account zum ersten Mal.",
+  "co.away.title": "Seit deinem letzten Besuch",
   "co.partial":
     "Teile dieser Seite konnten nicht geladen werden; sie zeigt möglicherweise nicht alles zu diesem Account.",
   "evidence.explain": 'Herkunft von "{value}"',

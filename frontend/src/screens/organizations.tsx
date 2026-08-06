@@ -61,8 +61,10 @@ import {
   PeopleCard,
   RECORD_ZONE,
   SignalsCard,
+  SinceLastVisitStrip,
   StateStrip,
   type SuggestionAction,
+  SuggestionsSection,
   TagsCard,
   useAcknowledgeOrganizationView,
   useOrganization360,
@@ -2199,59 +2201,59 @@ function CompanyPage({
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
       )}
-      {/* The strip leads, before any prose: where the account stands, whose
-          move it is, and what work is open. Three readings a rep can act on
-          without reading a sentence — and the one that replaced a number
-          nobody could scale. */}
+      {/* The overview's reading order is the rep's own: the state strip,
+          then what happened while they were away, then their plate — the
+          open tasks and the account's suggestions — and only then the prose
+          brief. What a reader acts on comes before what they read. */}
       {tab === "overview" && view && (
-        <StateStrip
-          view={view}
-          lifecycleLabel={(value) =>
-            t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
-          }
-          relationshipLabels={(values) =>
-            values
-              .map((value) =>
-                t(
-                  RELATIONSHIP_TYPE_LABELS[
-                    value as keyof typeof RELATIONSHIP_TYPE_LABELS
-                  ],
-                ),
-              )
-              .join(" · ")
-          }
-        />
-      )}
-      {/* Then the brief: what this account looks like right now, before the
-          cards that report it field by field. It absorbed the standalone
-          "since your last visit" block, because two cards each claiming to
-          say what the state is made the reader arbitrate between them. */}
-      {tab === "overview" && view && (
-        <AccountBrief
-          orgId={org.id}
-          view={view}
-          enabled={!overlay}
-          onOpenRecord={openCitation}
-          onPerform={(action) =>
-            performSuggestion(action, {
-              compose: setReplyToActivityId,
-              logTask: () => setTaskFormOpen(true),
-            })
-          }
-        />
-      )}
-      {tab === "overview" && view && (
-        <NextSteps
-          view={view}
-          onOpenTask={(step) => setOpenTaskId(step.activity_id)}
-          renderAction={(step) => (
-            <TaskQuickActions
-              activityId={step.activity_id}
-              dueAt={step.due_at}
-              update={taskUpdate}
-            />
-          )}
-        />
+        <>
+          <StateStrip
+            view={view}
+            lifecycleLabel={(value) =>
+              t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
+            }
+            relationshipLabels={(values) =>
+              values
+                .map((value) =>
+                  t(
+                    RELATIONSHIP_TYPE_LABELS[
+                      value as keyof typeof RELATIONSHIP_TYPE_LABELS
+                    ],
+                  ),
+                )
+                .join(" · ")
+            }
+          />
+          <SinceLastVisitStrip view={view} />
+          <NextSteps
+            view={view}
+            onOpenTask={(step) => setOpenTaskId(step.activity_id)}
+            renderAction={(step) => (
+              <TaskQuickActions
+                activityId={step.activity_id}
+                dueAt={step.due_at}
+                update={taskUpdate}
+              />
+            )}
+          />
+          <SuggestionsSection
+            orgId={org.id}
+            view={view}
+            onOpenRecord={openCitation}
+            onPerform={(action) =>
+              performSuggestion(action, {
+                compose: setReplyToActivityId,
+                logTask: () => setTaskFormOpen(true),
+              })
+            }
+          />
+          <AccountBrief
+            orgId={org.id}
+            view={view}
+            enabled={!overlay}
+            onOpenRecord={openCitation}
+          />
+        </>
       )}
       {/* The composer, anchored on the message a draft_reply suggestion named.
           It is the same modal the timeline's own Reply opens — the advice

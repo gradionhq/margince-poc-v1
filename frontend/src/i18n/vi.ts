@@ -619,6 +619,7 @@ export const vi = {
     "Người phụ trách hiện tại (không còn trong danh sách người dùng)",
   "co.pulse.unowned": "Chưa giao",
   "co.since.first": "Bạn đang mở tài khoản này lần đầu.",
+  "co.away.title": "Kể từ lần truy cập trước của bạn",
   "co.partial":
     "Một phần trang này không tải được, nên có thể chưa hiển thị hết mọi thứ của tài khoản này.",
   "evidence.explain": 'Nguồn của "{value}"',

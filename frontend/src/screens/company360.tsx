@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Sparkles } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -1394,16 +1395,14 @@ export function AccountBrief({
   view,
   enabled,
   onOpenRecord,
-  onPerform,
 }: Readonly<{
   orgId: string;
   // The 360 the page already holds. The brief itself is written server-side;
-  // this is for the two things it cannot write — what to DO next, and whether
-  // any of the account was withheld from this reader.
+  // this is for the one thing it cannot write — whether any of the account
+  // was withheld from this reader.
   view?: Organization360;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
-  onPerform?: (action: SuggestionAction) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1486,51 +1485,59 @@ export function AccountBrief({
           {problemMessageOf(rewrite.error, t)}
         </p>
       )}
-      {/* What to do about it, in the same block that said what it is. These
-          were two cards — one describing the account, one advising on it —
-          so the reader carried the reading from the first into the second
-          themselves. */}
-      {view && (
-        <SuggestionsSection
-          orgId={orgId}
-          view={view}
-          onOpenRecord={onOpenRecord}
-          onPerform={onPerform}
-        />
-      )}
       <BriefFooter view={view} />
     </section>
   );
 }
 
-// BriefFooter is the reading's own caveats: what moved while the reader was
-// away, and whether any of the account was withheld from them. Split out
-// because it answers questions ABOUT the brief rather than being part of it.
+// BriefFooter is the reading's own caveat: whether any of the account was
+// withheld from this reader. Named once, about the whole reading, rather
+// than as a refusal beside each line the reader did not get.
 function BriefFooter({ view }: Readonly<{ view?: Organization360 }>) {
   const t = useT();
-  const since = sinceLastVisit(view);
   return (
     <p className="co-prep-foot">
-      {/* Never both: on a first open the server counts every activity as new,
-          and "14 new items" beside "you are opening this account for the first
-          time" is the page contradicting itself. */}
-      {firstVisit(view) && (
-        <span className="t-caption">{t("co.since.first")}</span>
-      )}
-      {!firstVisit(view) && since > 0 && (
-        <span className="t-caption">
-          {t(
-            since === 1 ? "co.read.newActivityOne" : "co.read.newActivityMany",
-            { count: since },
-          )}
-        </span>
-      )}
-      {/* Withheld sections are named once, about the whole reading, rather
-          than as a refusal beside each line the reader did not get. */}
       {(view?.sections_omitted?.length ?? 0) > 0 && (
         <span className="t-caption">{t("co.prep.withheld")}</span>
       )}
     </p>
+  );
+}
+
+/**
+ * SinceLastVisitStrip opens the overview with what happened here while the
+ * reader was away. The count is the account working without them — the one
+ * reading that answers "why open this record" — so it leads the page instead
+ * of trailing the brief as a caption.
+ */
+export function SinceLastVisitStrip({
+  view,
+}: Readonly<{ view?: Organization360 }>) {
+  const t = useT();
+  const since = sinceLastVisit(view);
+  const first = firstVisit(view);
+  // A counted zero is not news, and a withheld count is not a claim this
+  // page can make — both render nothing rather than an empty banner.
+  if (!first && since === 0) {
+    return null;
+  }
+  return (
+    <section className="co-away" aria-label={t("co.away.title")}>
+      <Sparkles aria-hidden size={13} />
+      {/* Never both: on a first open the server counts every activity as new,
+          and "14 new items" beside "you are opening this account for the first
+          time" is the page contradicting itself. */}
+      <span>
+        {first
+          ? t("co.since.first")
+          : t(
+              since === 1
+                ? "co.read.newActivityOne"
+                : "co.read.newActivityMany",
+              { count: since },
+            )}
+      </span>
+    </section>
   );
 }
 

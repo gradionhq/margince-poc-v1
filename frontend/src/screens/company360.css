@@ -267,10 +267,29 @@
   margin-top: var(--space-3);
 }
 
-/* The brief's two footers: what moved since the reader was last here (or that
-   there is no "away" to compare against, plus the withheld-sections caveat),
-   and who wrote the card and when. Both are runs of separate spans, so they
-   need a gap or they run together. */
+/* What moved while the reader was away, first on the page. The tint is the
+   AI-authorship indigo at whisper volume: the strip reports work the account
+   did without them, and that provenance is the point of it. */
+.co-away {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.55rem 0.8rem;
+  margin-block-end: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--ai) 22%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--aiLight);
+  color: var(--textPrimary);
+  font-size: 0.85rem;
+}
+.co-away svg {
+  color: var(--ai);
+  flex: none;
+}
+
+/* The brief's two footers: the withheld-sections caveat, and who wrote the
+   card and when. Both are runs of separate spans, so they need a gap or they
+   run together. */
 .co-prep-foot,
 .co-brief-meta {
   display: flex;

@@ -610,6 +610,7 @@ export const en = {
   "co.owner.notInRoster": "Current owner (no longer in the user list)",
   "co.pulse.unowned": "Unassigned",
   "co.since.first": "You are opening this account for the first time.",
+  "co.away.title": "Since your last visit",
   "co.partial":
     "Some of this page could not be loaded, so it may not show everything on this account.",
   "evidence.explain": 'Where "{value}" came from',
