@@ -67,15 +67,25 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		"intro_path_to":            fmt.Sprintf(`{"organization_id":%q}`, anchor),
 		"at_risk_relationships":    `{}`,
 		"list_pipelines":           `{}`,
-		// The record writes the overlay provider cannot serve. disqualify_lead
-		// is refused by a guard at its seam (its tool calls the people store
-		// directly); the other three ride the Dispatcher and are refused by the
-		// provider itself — a difference in mechanism, not in the answer owed,
-		// which is why both kinds are driven here.
+		// A WRITE, and the one whose tool calls its module store directly — so
+		// it needs a decorator (nativeOnlyDisqualifier) where the other
+		// unservable writes inherit the provider's own refusal.
 		"disqualify_lead": fmt.Sprintf(`{"lead_id":%q}`, anchor),
-		"promote_lead":    fmt.Sprintf(`{"lead_id":%q,"trigger":"inbound_reply"}`, anchor),
-		"merge_records":   fmt.Sprintf(`{"record_type":"person","source_id":%q,"target_id":%q}`, anchor, ids.NewV7()),
-		"advance_deal":    fmt.Sprintf(`{"deal_id":%q,"to_stage_id":%q}`, anchor, anchor),
+	}
+}
+
+// providerRefusedRecordWrites are the record writes the overlay provider
+// declares unsupported outright, reached through the Dispatcher rather than a
+// decorator: no nativeOnly… guard names them, and the refusal is the provider's.
+// Derived-set gate: compose's
+// TestEveryUnservableRecordWriteVerbIsARegisteredToolTheOverlayPinDrives reads
+// this fixture and disqualify_lead's above, and fails when a verb that owes an
+// overlay refusal appears in neither.
+func providerRefusedRecordWrites(anchor ids.UUID) map[string]string {
+	return map[string]string{
+		"promote_lead":  fmt.Sprintf(`{"lead_id":%q,"trigger":"inbound_reply"}`, anchor),
+		"merge_records": fmt.Sprintf(`{"record_type":"person","source_id":%q,"target_id":%q}`, anchor, ids.NewV7()),
+		"advance_deal":  fmt.Sprintf(`{"deal_id":%q,"to_stage_id":%q}`, anchor, anchor),
 	}
 }
 
@@ -117,7 +127,8 @@ func TestOverlayAgentToolsRefuseRatherThanAnswerFromNativeTables(t *testing.T) {
 	// nothing to do with system-of-record mode.
 	ctx := overlayActorCtxWith(ws, user, nativeToolReaderPerms())
 
-	for name, args := range nativeOnlyAgentTools(ids.NewV7()) {
+	anchor := ids.NewV7()
+	for name, args := range mergedFixtures(nativeOnlyAgentTools(anchor), providerRefusedRecordWrites(anchor)) {
 		t.Run(name, func(t *testing.T) {
 			if _, ok := registry.Spec(name); !ok {
 				t.Fatalf("%s is not registered — this pin no longer covers it", name)
@@ -358,6 +369,17 @@ func seedNativeModeWorkspaceForFlip(t *testing.T) (ws, user ids.UUID) {
 // serve a native workspace. Such a call may fail on its own terms (bad
 // arguments, a missing anchor record) but never with the unsupported-by-SoR
 // sentinel, which means "this system of record cannot do this at all".
+// mergedFixtures joins the two pins into the one set both halves drive.
+func mergedFixtures(sets ...map[string]string) map[string]string {
+	all := map[string]string{}
+	for _, set := range sets {
+		for name, args := range set {
+			all[name] = args
+		}
+	}
+	return all
+}
+
 func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	e := Setup(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
@@ -374,7 +396,8 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 		"disqualify_lead": true, "promote_lead": true, "merge_records": true, "advance_deal": true,
 	}
 
-	for name, args := range nativeOnlyAgentTools(ids.NewV7()) {
+	anchor := ids.NewV7()
+	for name, args := range mergedFixtures(nativeOnlyAgentTools(anchor), providerRefusedRecordWrites(anchor)) {
 		t.Run(name, func(t *testing.T) {
 			_, err := registry.Invoke(ctx, name, json.RawMessage(args))
 			if errors.Is(err, apperrors.ErrUnsupportedBySoR) {

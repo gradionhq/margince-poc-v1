@@ -73,12 +73,21 @@ func TestEveryUnservableRecordWriteVerbIsARegisteredToolTheOverlayPinDrives(t *t
 func overlayPinnedToolVerbs(t *testing.T) map[string]bool {
 	t.Helper()
 	const pin = "integration/overlay_toolsurface_integration_test.go"
-	verbs, err := quotedMapKeys(pin, "func nativeOnlyAgentTools(")
-	if err != nil {
-		t.Fatalf("reading %s: %v", pin, err)
-	}
-	if len(verbs) == 0 {
-		t.Fatalf("%s drives no tools — the pin this gate defers to is empty", pin)
+	// Two fixtures, because the two refusal mechanisms are different facts:
+	// nativeOnlyAgentTools are decorator-guarded, providerRefusedRecordWrites
+	// inherit the provider's own refusal. The same suite drives both.
+	verbs := map[string]bool{}
+	for _, fixture := range []string{"func nativeOnlyAgentTools(", "func providerRefusedRecordWrites("} {
+		found, err := quotedMapKeys(pin, fixture)
+		if err != nil {
+			t.Fatalf("reading %s: %v", pin, err)
+		}
+		if len(found) == 0 {
+			t.Fatalf("%s's %s drives no tools — a pin this gate defers to is empty", pin, fixture)
+		}
+		for verb := range found {
+			verbs[verb] = true
+		}
 	}
 	return verbs
 }
