@@ -120,6 +120,15 @@ func TestResetDataClearsQueueBusAndObjects(t *testing.T) {
 	if err := store.Put(t.Context(), objectKey, strings.NewReader("bytes"), 5, "text/plain"); err != nil {
 		t.Fatalf("seeding an object: %v", err)
 	}
+	// A second, unrelated tenant's object — the reset must never reach past its
+	// own workspace prefix to find it. Without this, a purge scoped to an empty
+	// prefix or to any prefix that happens to include the probe above would
+	// look identical to a correctly scoped one.
+	otherWS := ids.New[ids.WorkspaceKind]()
+	otherKey := blobstore.WorkspaceKey(otherWS, "attachment", "probe")
+	if err := store.Put(t.Context(), otherKey, strings.NewReader("bytes"), 5, "text/plain"); err != nil {
+		t.Fatalf("seeding another workspace's object: %v", err)
+	}
 
 	var out resetResponse
 	if code := e.call(t, "POST", "/v1/admin/reset-data", anyMap{"confirmation": "Fable E2E"}, nil, &out); code != 200 {
@@ -143,6 +152,18 @@ func TestResetDataClearsQueueBusAndObjects(t *testing.T) {
 	}
 	if _, _, err := store.Get(t.Context(), objectKey); !errors.Is(err, blobstore.ErrNotFound) {
 		t.Errorf("the object outlived the row that named it: %v", err)
+	}
+	// A reset clears its own tenant's objects and no one else's: the other
+	// workspace's object must read back exactly as seeded.
+	if r, obj, err := store.Get(t.Context(), otherKey); err != nil {
+		t.Errorf("reset crossed a tenant boundary: another workspace's object was deleted: %v", err)
+	} else {
+		if cerr := r.Close(); cerr != nil {
+			t.Errorf("closing the other workspace's object: %v", cerr)
+		}
+		if obj.Size != 5 {
+			t.Errorf("reset crossed a tenant boundary: another workspace's object changed size to %d", obj.Size)
+		}
 	}
 	// The groups must be back, or every subscriber in the process is wedged on
 	// NOGROUP — the failure a stream DEL causes and nothing else would report.
