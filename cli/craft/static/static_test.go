@@ -299,6 +299,21 @@ func TestLongFunc_aClosedBlockFollowedByCodeIsACodeLine(t *testing.T) {
 	}
 }
 
+// Two comments on one line are still only comments. Judging each comment
+// against the raw line text would read its neighbour as code and charge the
+// line for prose nobody has to execute.
+func TestLongFunc_adjacentCommentsOnOneLineAreNotCode(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package p\n\nvar x int\n\nfunc run() {\n")
+	for range 90 {
+		b.WriteString("\t/* why */ // and the rest of the why\n")
+	}
+	b.WriteString("\tx++\n}\n")
+	if got := counts(lintSource(t, "p.go", b.String()), "long-func"); got != 0 {
+		t.Fatalf("90 lines carrying two comments each: long-func = %d, want 0 — neither is code", got)
+	}
+}
+
 func TestLargeFile_testFilesGetTheRelaxedCeiling(t *testing.T) {
 	src := "package p\n" + strings.Repeat("// filler\n", 600)
 	if got := counts(lintSource(t, "p.go", src), "large-file"); got != 1 {

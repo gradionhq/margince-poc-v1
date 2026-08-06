@@ -4,6 +4,7 @@
 package static
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -191,48 +192,49 @@ func newFileContext(path string, src []byte, domainMarker string) (*fileContext,
 	return fc, true
 }
 
-// markCommentOnlyLines records every line whose only content is a comment.
+// markCommentOnlyLines records every line whose only content is comments.
 //
 // It works from the source rather than the AST alone because that is what makes
 // the distinction the length checks need: a comment on its own line is prose, a
 // comment following code is an annotation on a line that still costs a reader a
-// statement. `x++ // why` is therefore code, and only the whitespace-prefixed
-// case is discounted — including every line a block comment spans, unless code
-// resumes after it closes.
+// statement. The verdict therefore belongs to the LINE, not to each comment on
+// it — a line is prose when erasing every comment span it carries leaves nothing
+// but whitespace. `x++ // why` keeps its `x++` and stays code, `/* a */ // rest`
+// erases to nothing and is prose, a block comment's interior erases whole, and
+// each of its boundaries is decided by what that boundary line has left.
 func (fc *fileContext) markCommentOnlyLines(src []byte) {
-	lines := strings.Split(string(src), "\n")
-	lineText := func(n int) string {
-		if n < 1 || n > len(lines) {
-			return ""
-		}
-		return lines[n-1]
-	}
+	lines := bytes.Split(src, []byte("\n"))
+	residue := map[int][]byte{}
 	for _, group := range fc.file.Comments {
 		for _, c := range group.List {
 			start, end := fc.fset.Position(c.Slash), fc.fset.Position(c.End())
-			opensClean := strings.TrimSpace(lineText(start.Line)[:start.Column-1]) == ""
-			endsClean := strings.TrimSpace(lineText(end.Line)[end.Column-1:]) == ""
-
-			// Three independent questions, and no early exit between them: code on
-			// one boundary says nothing about the other, or about the interior.
-			// `x++ /*` keeps its own line as code while the prose below it and the
-			// closing `*/` are still prose.
-			for n := start.Line + 1; n < end.Line; n++ {
-				fc.commentOnly[n] = true // interior: nothing but the comment can be here
-			}
-			if start.Line == end.Line {
-				// One line, so it is prose only if the comment is the whole of it.
-				if opensClean && endsClean {
-					fc.commentOnly[start.Line] = true
+			for n := start.Line; n <= end.Line; n++ {
+				if n < 1 || n > len(lines) {
+					continue
 				}
-				continue
+				line, seen := residue[n]
+				if !seen {
+					line = bytes.Clone(lines[n-1])
+					residue[n] = line
+				}
+				// Columns are 1-based byte offsets into the line; a comment covers this
+				// line entirely except where it opens or closes on it.
+				from, to := 0, len(line)
+				if n == start.Line {
+					from = min(start.Column-1, len(line))
+				}
+				if n == end.Line {
+					to = min(end.Column-1, len(line))
+				}
+				for i := from; i < to; i++ {
+					line[i] = ' '
+				}
 			}
-			if opensClean {
-				fc.commentOnly[start.Line] = true
-			}
-			if endsClean {
-				fc.commentOnly[end.Line] = true
-			}
+		}
+	}
+	for n, line := range residue {
+		if len(bytes.TrimSpace(line)) == 0 {
+			fc.commentOnly[n] = true
 		}
 	}
 }
