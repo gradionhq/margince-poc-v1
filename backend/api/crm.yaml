@@ -4853,15 +4853,17 @@ paths:
               schema: { $ref: '#/components/schemas/CaptureConnectionListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
-  /workspace/email-domains:
+  /capture/email-domains:
     get:
-      tags: [Connectors]
+      tags: [Capture]
       operationId: listWorkspaceEmailDomains
       summary: The workspace's own email domains.
       description: |
         The domains this installation treats as its own (capture.md CAP-DDL-1). A message whose
         participants are ALL on one of these — subdomains included — produces zero rows
         (ADR-0082/A127, formulas §20).
+
+        Every human role may read the list; only admin/ops may change it.
 
         `verified` reports whether a human vouched for the domain. Only a verified domain, or one
         the installation's own company claims, suppresses storage; a row a connected mailbox
@@ -4878,7 +4880,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
-      tags: [Connectors]
+      tags: [Capture]
       operationId: createWorkspaceEmailDomain
       summary: Register one of the workspace's own email domains.
       description: |
@@ -4907,7 +4909,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
-  /workspace/email-domains/{domain}:
+  /capture/email-domains/{domain}:
     parameters:
       - name: domain
         in: path
@@ -4915,7 +4917,7 @@ paths:
         description: The domain, as listed. Compared in its folded form.
         schema: { type: string, maxLength: 253 }
     delete:
-      tags: [Connectors]
+      tags: [Capture]
       operationId: deleteWorkspaceEmailDomain
       summary: Stop treating a domain as the workspace's own.
       description: |

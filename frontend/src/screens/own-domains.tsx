@@ -17,9 +17,7 @@ function useOwnDomains() {
   return useQuery({
     queryKey: ["workspace-email-domains"],
     queryFn: async () => {
-      const { data, error, response } = await api.GET(
-        "/workspace/email-domains",
-      );
+      const { data, error, response } = await api.GET("/capture/email-domains");
       if (error || !response.ok) {
         throw new Error(problemMessage(error));
       }
@@ -32,7 +30,7 @@ function useAddOwnDomain() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (domain: string) => {
-      const { data, error } = await api.POST("/workspace/email-domains", {
+      const { data, error } = await api.POST("/capture/email-domains", {
         body: { domain },
       });
       if (error) {
@@ -50,7 +48,7 @@ function useRemoveOwnDomain() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (domain: string) => {
-      const { error } = await api.DELETE("/workspace/email-domains/{domain}", {
+      const { error } = await api.DELETE("/capture/email-domains/{domain}", {
         params: { path: { domain } },
       });
       if (error) {

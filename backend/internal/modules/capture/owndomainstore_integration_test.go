@@ -182,7 +182,13 @@ func TestAValueThatIsNotADomainIsRefused(t *testing.T) {
 	ctx, pool := ownDomainWorkspace(t)
 	store := capture.NewOwnDomainStore(pool)
 
-	for _, bad := range []string{"", "   ", "rep@acme.com", "https://acme.com", "acme", "a b.com"} {
+	// The public suffixes are the dangerous half: they pass every shape check —
+	// they have a dot and no stray characters — and each would make every
+	// company beneath it internal, silently and unrecoverably.
+	for _, bad := range []string{
+		"", "   ", "rep@acme.com", "https://acme.com", "acme", "a b.com",
+		"com", "co.uk", "com.br", "de",
+	} {
 		if _, err := store.Add(ctx, bad); err == nil {
 			t.Errorf("Add(%q) was accepted, want a refusal naming the problem", bad)
 		}
@@ -193,25 +199,64 @@ func TestAValueThatIsNotADomainIsRefused(t *testing.T) {
 	}
 }
 
-// Without the capture-settings grant the surface is closed, whichever verb.
-func TestOwnDomainsRefuseACallerWithoutTheGrant(t *testing.T) {
+// A rep may SEE which domains suppress mail — they are the ones who notice a
+// thread missing — and may not change them. The read/update split is the actual
+// control, so it is asserted against a rep-shaped grant rather than a principal
+// holding nothing at all.
+func TestARepReadsTheDomainsAndCannotChangeThem(t *testing.T) {
 	ctx, pool := ownDomainWorkspace(t)
 	ws, _ := principal.WorkspaceID(ctx)
-	ungranted := principal.WithActor(principal.WithWorkspaceID(context.Background(), ws),
+	rep := principal.WithActor(principal.WithWorkspaceID(context.Background(), ws),
 		principal.Principal{
-			Type:        principal.PrincipalHuman,
-			ID:          "human:" + ids.NewV7().String(),
-			Permissions: principal.Permissions{RoleKeys: []string{"rep"}, RowScope: principal.RowScopeOwn},
+			Type: principal.PrincipalHuman,
+			ID:   "human:" + ids.NewV7().String(),
+			Permissions: principal.Permissions{
+				RoleKeys: []string{"rep"},
+				Objects: map[string]principal.ObjectGrant{
+					"capture_settings": {Read: true},
+				},
+				RowScope: principal.RowScopeOwn,
+			},
 		})
 	store := capture.NewOwnDomainStore(pool)
 
-	if _, err := store.List(ungranted); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Errorf("List without the grant: got %v, want permission denied", err)
+	if _, err := store.List(rep); err != nil {
+		t.Errorf("a rep must be able to read the set: %v", err)
 	}
-	if _, err := store.Add(ungranted, "acme.com"); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Errorf("Add without the grant: got %v, want permission denied", err)
+	if _, err := store.Add(rep, "acme.com"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Add as a rep: got %v, want permission denied", err)
 	}
-	if err := store.Remove(ungranted, "acme.com"); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Errorf("Remove without the grant: got %v, want permission denied", err)
+	if err := store.Remove(rep, "acme.com"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Remove as a rep: got %v, want permission denied", err)
+	}
+	// "@" normalizes to nothing. The grant is still what decides.
+	if err := store.Remove(rep, "@"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Remove(\"@\") as a rep: got %v, want permission denied", err)
+	}
+}
+
+// One workspace's removal leaves another's identical row alone. The DELETE
+// carries no workspace predicate and relies entirely on RLS, so the isolation
+// is asserted rather than assumed.
+func TestRemovingADomainLeavesAnotherWorkspacesAlone(t *testing.T) {
+	first, pool := ownDomainWorkspace(t)
+	second, _ := ownDomainWorkspace(t)
+	store := capture.NewOwnDomainStore(pool)
+
+	for _, ctx := range []context.Context{first, second} {
+		if _, err := store.Add(ctx, "shared.example"); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+	}
+	if err := store.Remove(first, "shared.example"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	list, err := store.List(second)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list.Domains) != 1 || list.Domains[0].Domain != "shared.example" {
+		t.Errorf("the other workspace's set = %+v, want its own row untouched", list.Domains)
 	}
 }

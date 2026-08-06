@@ -247,6 +247,18 @@ func (stubs) RemoveConsumerMailDomain(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "RemoveConsumerMailDomain")
 }
 
+func (stubs) ListWorkspaceEmailDomains(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListWorkspaceEmailDomains")
+}
+
+func (stubs) CreateWorkspaceEmailDomain(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateWorkspaceEmailDomain")
+}
+
+func (stubs) DeleteWorkspaceEmailDomain(w nethttp.ResponseWriter, r *nethttp.Request, domain string) {
+	httperr.NotImplemented(w, r, "DeleteWorkspaceEmailDomain")
+}
+
 func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCaptureSettings")
 }
@@ -1237,16 +1249,4 @@ func (stubs) ReplayWebhookDelivery(w nethttp.ResponseWriter, r *nethttp.Request,
 
 func (stubs) RotateWebhookSecret(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "RotateWebhookSecret")
-}
-
-func (stubs) ListWorkspaceEmailDomains(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "ListWorkspaceEmailDomains")
-}
-
-func (stubs) CreateWorkspaceEmailDomain(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "CreateWorkspaceEmailDomain")
-}
-
-func (stubs) DeleteWorkspaceEmailDomain(w nethttp.ResponseWriter, r *nethttp.Request, domain string) {
-	httperr.NotImplemented(w, r, "DeleteWorkspaceEmailDomain")
 }

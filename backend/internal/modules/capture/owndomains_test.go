@@ -145,3 +145,32 @@ func TestAnAccountLabelYieldsItsDomainInEitherShape(t *testing.T) {
 		t.Errorf("unparseable label gave domain %q, want none", got)
 	}
 }
+
+// A public suffix never enters the set, whichever writer supplied it.
+//
+// The three writers are the admin surface, the mailbox seed, and the company's
+// own registered domains — and the last comes from a website field filled in at
+// cold start, which the admin surface's validation never sees. A `co.uk` in the
+// set would make every company beneath it internal and stop the workspace
+// keeping their correspondence, with no way to recover what was skipped.
+func TestAPublicSuffixIsNeverPartOfTheOwnDomainSet(t *testing.T) {
+	own := NewInternalDomains([]string{"com", "co.uk", "com.br", "de", "acme.co.uk"})
+
+	for _, address := range []string{
+		"someone@bbc.co.uk",
+		"someone@example.com",
+		"someone@loja.com.br",
+		"someone@beispiel.de",
+	} {
+		if own.Covers(address) {
+			t.Errorf("Covers(%q) = true — a public suffix must never make a stranger internal", address)
+		}
+	}
+	// The real registration beside them still counts.
+	if !own.Covers("rep@acme.co.uk") {
+		t.Error("a domain someone actually registers must still be covered")
+	}
+	if len(own.Domains()) != 1 {
+		t.Errorf("set = %v, want only the ownable domain", own.Domains())
+	}
+}

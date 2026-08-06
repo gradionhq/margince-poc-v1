@@ -2908,7 +2908,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workspace/email-domains": {
+    "/capture/email-domains": {
         parameters: {
             query?: never;
             header?: never;
@@ -2920,6 +2920,8 @@ export interface paths {
          * @description The domains this installation treats as its own (capture.md CAP-DDL-1). A message whose
          *     participants are ALL on one of these — subdomains included — produces zero rows
          *     (ADR-0082/A127, formulas §20).
+         *
+         *     Every human role may read the list; only admin/ops may change it.
          *
          *     `verified` reports whether a human vouched for the domain. Only a verified domain, or one
          *     the installation's own company claims, suppresses storage; a row a connected mailbox
@@ -2946,7 +2948,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workspace/email-domains/{domain}": {
+    "/capture/email-domains/{domain}": {
         parameters: {
             query?: never;
             header?: never;

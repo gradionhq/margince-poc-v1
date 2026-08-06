@@ -60,6 +60,12 @@ func (h ownDomainHandlers) CreateWorkspaceEmailDomain(w http.ResponseWriter, r *
 		httperr.Write(w, r, httperr.Validation("body", "invalid_json", "request body is not valid JSON"))
 		return
 	}
+	// Vetted here so a bad domain answers 422 naming what is wrong with it,
+	// rather than reaching the store and surfacing as an opaque fault.
+	if _, err := capture.ValidOwnDomain(req.Domain); err != nil {
+		httperr.Write(w, r, httperr.Validation("domain", "invalid_domain", err.Error()))
+		return
+	}
 	domain, err := h.store.Add(r.Context(), req.Domain)
 	if err != nil {
 		httperr.Write(w, r, err)

@@ -197,8 +197,13 @@ var (
 			// the harness admin fixture can exercise the rate editors.
 			"fx_rate":       {Create: true, Read: true, Update: true, Delete: true},
 			"ai_model_rate": {Create: true, Read: true, Update: true, Delete: true},
-			"project":       {Create: true, Read: true, Update: true, Delete: true},
-			"relationship":  {Create: true, Read: true, Update: true, Delete: true},
+			// capture_settings is admin/ops-only for update and readable by
+			// everyone (the same real seed). It gates the workspace's own-domain
+			// set — including the company-domain change that feeds it, since
+			// that decides whose mail is stored at all.
+			"capture_settings": {Read: true, Update: true},
+			"project":          {Create: true, Read: true, Update: true, Delete: true},
+			"relationship":     {Create: true, Read: true, Update: true, Delete: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
