@@ -410,6 +410,22 @@ describe("TopBar (§2b contextual truth)", () => {
     ).toBeTruthy();
   });
 
+  it("hands focus back to the avatar when Escape closes it", async () => {
+    render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
+    const avatar = screen.getByRole("button", { name: "Account" });
+    await userEvent.click(avatar);
+    // Standing on a row, the way a keyboard user arrives at one.
+    const language = screen.getByRole("button", { name: "Switch to German" });
+    language.focus();
+    expect(document.activeElement).toBe(language);
+
+    await userEvent.keyboard("{Escape}");
+    // Not document.body: dismissing unmounts the focused row, and focus left on
+    // the body restarts the next Tab at the top of the page, having lost the top
+    // bar the user was standing in.
+    expect(document.activeElement).toBe(avatar);
+  });
+
   it("stays open while a preference is being changed", async () => {
     render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
     await userEvent.click(screen.getByRole("button", { name: "Account" }));

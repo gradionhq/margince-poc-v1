@@ -534,6 +534,30 @@ function AccountMenu({
   const t = useT();
   const me = useMe();
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  /**
+   * Close, and put focus back where it can be used.
+   *
+   * Dismissing the menu unmounts whatever row was focused, and an unmounted
+   * focus owner leaves the document focused on `<body>` — from there a keyboard
+   * user's next Tab starts at the top of the page, having lost the top bar they
+   * were standing in. The avatar is where they came from, so it is where they go
+   * back to.
+   *
+   * Only when the menu actually HELD focus, which is the difference between
+   * restoring focus and stealing it: an outside click usually lands on something
+   * focusable of its own (a field, a rail link), and pulling focus onto the avatar
+   * after it would undo what the click just did.
+   */
+  const dismiss = useCallback(() => {
+    const held = menu.current?.contains(document.activeElement) ?? false;
+    setOpen(false);
+    if (held) {
+      trigger.current?.focus();
+    }
+  }, []);
 
   const identity = me.data?.user;
   const label = identity?.display_name || identity?.email || "";
@@ -555,10 +579,10 @@ function AccountMenu({
     }
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
+        dismiss();
       }
     };
-    const onClick = () => setOpen(false);
+    const onClick = () => dismiss();
     document.addEventListener("keydown", onKey);
     const timer = window.setTimeout(
       () => document.addEventListener("click", onClick),
@@ -569,13 +593,14 @@ function AccountMenu({
       window.clearTimeout(timer);
       document.removeEventListener("click", onClick);
     };
-  }, [open]);
+  }, [open, dismiss]);
 
   return (
     <div className="account">
       <button
         type="button"
         className="user"
+        ref={trigger}
         aria-label={t("shell.accountAria")}
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -583,7 +608,7 @@ function AccountMenu({
         {initials ?? <Settings size={15} aria-hidden />}
       </button>
       {open && (
-        <div className="accountmenu">
+        <div className="accountmenu" ref={menu}>
           <a href="#/settings">
             <Settings size={15} aria-hidden />
             {t("nav.settings")}
