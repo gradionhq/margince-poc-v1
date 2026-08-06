@@ -291,6 +291,7 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/capture:activity_participant": "the connector principal is the ONLY place the mailbox owner is known (capture_connection is per-user-per-provider); by the time any other module sees the activity its captured_by reads connector:gmail and the human behind it is unrecoverable, so the participant rows commit in the same ingest transaction as the activity they describe",
 	"internal/modules/capture:lead":                 "the connector sink materializes inbound leads in the same transaction as their raw_capture original",
 	"internal/modules/capture:workspace":            "capture settings toggle the workspace's own capture_auto_enrich config column (CAP-PARAM-7, ADR-0072) — a single-column workspace-config write, audit-only, the same shape overlay's x_sor_mode flip uses",
+	"internal/modules/deals:workspace":              "the base currency is the one workspace column the rate sheet is defined against, and the deal is where its immutability is decided: every closed deal freezes fx_rate_to_base AGAINST it, so the guard that refuses a change is a count of frozen deal rows (AAD-PARAM-N-2, ADR-0085/A130). Moving the write to identity would put the refusal in a module that cannot see what makes it necessary. A single-column workspace-config write, audit-only, the same shape as capture's auto-enrich toggle",
 
 	// deals' archive purges the archived deal's collection memberships in
 	// the same transaction — a dangling list/tag row would resurrect the

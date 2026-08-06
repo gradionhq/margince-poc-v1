@@ -9418,6 +9418,14 @@ type BackfillStatusState string
 // BackfillStatusWindow defines model for BackfillStatus.Window.
 type BackfillStatusWindow string
 
+// BaseCurrencyResponse defines model for BaseCurrencyResponse.
+type BaseCurrencyResponse struct {
+	BaseCurrency string `json:"base_currency"`
+
+	// Locked True once at least one deal has frozen a conversion rate against this base, after which it can never change. Rendered so the surface can state the constraint before a user attempts the edit rather than only refusing it.
+	Locked bool `json:"locked"`
+}
+
 // BriefSnoozeRequest Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
 type BriefSnoozeRequest struct {
 	// SnoozedUntil When the item re-surfaces; must be in the future.
@@ -11044,7 +11052,9 @@ type FxRate struct {
 
 // FxRateListResponse defines model for FxRateListResponse.
 type FxRateListResponse struct {
-	Data []FxRate `json:"data"`
+	// BaseCurrency The workspace's base currency — every rate in `data` converts TO this (AAD-PARAM-N-1, ADR-0085). Served from the workspace itself rather than inferred from the first rate row, so a workspace that has entered no rates can still state its own base.
+	BaseCurrency *string  `json:"base_currency,omitempty"`
+	Data         []FxRate `json:"data"`
 }
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
@@ -14313,6 +14323,12 @@ type SetAiModelRateRequest struct {
 	// OutputPerMtok USD per 1M output tokens.
 	OutputPerMtok string `json:"output_per_mtok"`
 	Provider      string `json:"provider"`
+}
+
+// SetBaseCurrencyRequest defines model for SetBaseCurrencyRequest.
+type SetBaseCurrencyRequest struct {
+	// BaseCurrency The 3-letter ISO-4217 code to adopt as the workspace base.
+	BaseCurrency string `json:"base_currency"`
 }
 
 // SetFxRateRequest defines model for SetFxRateRequest.
@@ -18671,6 +18687,9 @@ type CreateFilteredExportJSONRequestBody = FilteredExportRequest
 
 // SetFxRateJSONRequestBody defines body for SetFxRate for application/json ContentType.
 type SetFxRateJSONRequestBody = SetFxRateRequest
+
+// SetBaseCurrencyJSONRequestBody defines body for SetBaseCurrency for application/json ContentType.
+type SetBaseCurrencyJSONRequestBody = SetBaseCurrencyRequest
 
 // CreateLeadJSONRequestBody defines body for CreateLead for application/json ContentType.
 type CreateLeadJSONRequestBody = CreateLeadRequest
@@ -24956,6 +24975,9 @@ type ServerInterface interface {
 	// Set an FX rate effective today or later (append-forward).
 	// (POST /fx-rates)
 	SetFxRate(w http.ResponseWriter, r *http.Request)
+	// Change the workspace base currency, while no deal has frozen a rate against it.
+	// (PUT /fx-rates/base-currency)
+	SetBaseCurrency(w http.ResponseWriter, r *http.Request)
 	// Enqueue an async FX-rate refresh (stages 🟡 proposals).
 	// (POST /fx-rates/propose-refresh)
 	ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request)
@@ -26219,6 +26241,12 @@ func (_ Unimplemented) ListFxRates(w http.ResponseWriter, r *http.Request, param
 // Set an FX rate effective today or later (append-forward).
 // (POST /fx-rates)
 func (_ Unimplemented) SetFxRate(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Change the workspace base currency, while no deal has frozen a rate against it.
+// (PUT /fx-rates/base-currency)
+func (_ Unimplemented) SetBaseCurrency(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -32224,6 +32252,26 @@ func (siw *ServerInterfaceWrapper) SetFxRate(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetFxRate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetBaseCurrency operation middleware
+func (siw *ServerInterfaceWrapper) SetBaseCurrency(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetBaseCurrency(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -42412,6 +42460,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/fx-rates", wrapper.SetFxRate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/fx-rates/base-currency", wrapper.SetBaseCurrency)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/fx-rates/propose-refresh", wrapper.ProposeFxRateRefresh)

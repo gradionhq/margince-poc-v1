@@ -79,13 +79,13 @@ func (s *Store) writeFact(
 
 		p := storekit.NewPatch()
 		if in.Value != nil {
-			p.Set("value", before.Value, *in.Value)
+			p.Set(auditKeyValue, before.Value, *in.Value)
 		}
 		// The extraction's snippet, source and confidence stay put; the before
 		// image carries them into the audit trail (PO-AC-N-2).
-		p.Set("source", before.Source, "human")
-		p.Set("verified_at", before.VerifiedAt, now)
-		p.Set("verified_by", before.VerifiedBy, actor.UserID)
+		p.Set(auditKeySource, before.Source, sourceHuman)
+		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
+		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
 
 		if err := p.ApplyGuarded(ctx, tx, "organization_fact", before.ID, in.IfVersion); err != nil {
 			return err
@@ -122,10 +122,10 @@ type factRow struct {
 
 func (r factRow) auditImage() map[string]any {
 	return map[string]any{
-		"value": r.Value, "source": r.Source,
+		auditKeyValue: r.Value, auditKeySource: r.Source,
 		"evidence_snippet": r.EvidenceSnippet, "source_url": r.SourceURL,
-		"confidence":  r.Confidence,
-		"verified_at": r.VerifiedAt, "verified_by": r.VerifiedBy,
+		auditKeyConfidence: r.Confidence,
+		auditKeyVerifiedAt: r.VerifiedAt, auditKeyVerifiedBy: r.VerifiedBy,
 	}
 }
 

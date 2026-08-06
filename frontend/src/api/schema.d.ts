@@ -5634,6 +5634,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/fx-rates/base-currency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change the workspace base currency, while no deal has frozen a rate against it.
+         * @description AAD-PARAM-N-2 / AAD-AC-N-2..N-5. Every closed deal freezes a conversion rate
+         *     AGAINST the base currency, so changing it afterwards would silently reinterpret
+         *     what those deals were worth — a financial claim the product has no authority to
+         *     restate. The change is therefore accepted only while no frozen rate exists, and
+         *     refused after with `base_currency_locked`, which carries how many rows block it
+         *     so the refusal explains itself instead of merely denying. Governed by the same
+         *     grant as the rate sheet: one authority over the currency substrate, not two.
+         */
+        put: operations["setBaseCurrency"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fx-rates/propose-refresh": {
         parameters: {
             query?: never;
@@ -5804,6 +5830,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        SetBaseCurrencyRequest: {
+            /** @description The 3-letter ISO-4217 code to adopt as the workspace base. */
+            base_currency: string;
+        };
+        BaseCurrencyResponse: {
+            base_currency: string;
+            /** @description True once at least one deal has frozen a conversion rate against this base, after which it can never change. Rendered so the surface can state the constraint before a user attempts the edit rather than only refusing it. */
+            locked: boolean;
+        };
         /** @description A human correction. The canonical store changes; the machine's proposal and its evidence survive in history (PO-AC-N-1/N-2). */
         UpdateOrganizationProfileFieldRequest: {
             /** @description The corrected value. Where this field maps to a column on `organization`, the COLUMN is what changes — a correction the header ignores is not a correction (PO-AC-N-1). */
@@ -5829,6 +5864,8 @@ export interface components {
             effective_date: string;
         };
         FxRateListResponse: {
+            /** @description The workspace's base currency — every rate in `data` converts TO this (AAD-PARAM-N-1, ADR-0085). Served from the workspace itself rather than inferred from the first rate row, so a workspace that has entered no rates can still state its own base. */
+            readonly base_currency?: string;
             data: components["schemas"]["FxRate"][];
         };
         SetFxRateRequest: {
@@ -23877,6 +23914,42 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    setBaseCurrency: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetBaseCurrencyRequest"];
+            };
+        };
+        responses: {
+            /** @description The workspace base currency after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseCurrencyResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description A deal has already frozen a conversion rate against the current base currency, so it can no longer change (`code: base_currency_locked`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             422: components["responses"]["ValidationError"];
         };
     };
