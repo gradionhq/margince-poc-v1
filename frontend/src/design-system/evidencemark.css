@@ -22,6 +22,19 @@
 .evmark-trigger:hover {
   text-decoration-color: var(--accent);
 }
+
+/* The glyph rides after the value, in the AI-authorship indigo the rest of
+   the product uses for the same claim. Never the only signal: the dotted
+   underline carries the mark for a reader who cannot see the colour, and the
+   shape carries it for one who cannot see either. */
+.evmark-glyph {
+  color: var(--ai);
+  margin-inline-start: 0.25em;
+  vertical-align: 0.05em;
+}
+.evmark-trigger:hover .evmark-glyph {
+  color: var(--accent);
+}
 .evmark-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

@@ -51,6 +51,25 @@ describe("evidence mark", () => {
     expect(panel.querySelector("blockquote")).toBeTruthy();
   });
 
+  it("carries the glyph on a derived value and nothing on a typed one", () => {
+    const derived = show(
+      <EvidenceMark
+        value="Fleet retrofits without downtime"
+        source={{ provenance: { kind: "agent", agent: "capture" } }}
+      />,
+    );
+    // Scannable, not merely discoverable: the underline answers "was this
+    // derived" only for a reader who already hovers, and a column of values
+    // gives nobody a reason to.
+    expect(derived.container.querySelector(".evmark-glyph")).toBeTruthy();
+
+    cleanup();
+    const typed = show(
+      <EvidenceMark value="Brandt Automotive GmbH" source={undefined} />,
+    );
+    expect(typed.container.querySelector(".evmark-glyph")).toBeNull();
+  });
+
   it("leaves a human-typed value unmarked", () => {
     show(<EvidenceMark value="Brandt Automotive GmbH" source={undefined} />);
     expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy();
