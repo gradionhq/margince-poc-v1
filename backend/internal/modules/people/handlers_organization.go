@@ -196,3 +196,91 @@ func enumArg[T ~string](v *T) *string {
 	s := string(*v)
 	return &s
 }
+
+// UpdateOrganizationProfileField serves the profile-field correction. The
+// canonical value moves with it where the field has a column (PO-AC-N-1) —
+// a correction the header ignores is not a correction.
+func (h Handlers) UpdateOrganizationProfileField(w http.ResponseWriter, r *http.Request,
+	id crmcontracts.Id, field crmcontracts.ProfileFieldKey,
+	_ crmcontracts.UpdateOrganizationProfileFieldParams,
+) {
+	var req crmcontracts.UpdateOrganizationProfileFieldRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	out, err := h.store.UpdateOrganizationProfileField(r.Context(),
+		pathID[ids.OrganizationKind](id), string(field),
+		ProfileFieldWriteInput{Value: &req.Value, IfVersion: ifVersion})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, out)
+}
+
+// ConfirmOrganizationProfileField records that a human agreed with the claim
+// as it stands — the same write minus the value change (PO-AC-N-3).
+func (h Handlers) ConfirmOrganizationProfileField(w http.ResponseWriter, r *http.Request,
+	id crmcontracts.Id, field crmcontracts.ProfileFieldKey,
+	_ crmcontracts.ConfirmOrganizationProfileFieldParams,
+) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	out, err := h.store.ConfirmOrganizationProfileField(r.Context(),
+		pathID[ids.OrganizationKind](id), string(field),
+		ProfileFieldWriteInput{IfVersion: ifVersion})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, out)
+}
+
+// UpdateOrganizationFact corrects an extracted fact. A fact has no canonical
+// column — it lives only in the sidecar — so the correction is the row itself.
+func (h Handlers) UpdateOrganizationFact(w http.ResponseWriter, r *http.Request,
+	id crmcontracts.Id, factKey crmcontracts.FactKey,
+	_ crmcontracts.UpdateOrganizationFactParams,
+) {
+	var req crmcontracts.UpdateOrganizationFactRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	out, err := h.store.UpdateOrganizationFact(r.Context(),
+		pathID[ids.OrganizationKind](id), factKey,
+		FactWriteInput{Value: &req.Value, IfVersion: ifVersion})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, out)
+}
+
+// ConfirmOrganizationFact records human agreement with an extracted fact.
+func (h Handlers) ConfirmOrganizationFact(w http.ResponseWriter, r *http.Request,
+	id crmcontracts.Id, factKey crmcontracts.FactKey,
+	_ crmcontracts.ConfirmOrganizationFactParams,
+) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	out, err := h.store.ConfirmOrganizationFact(r.Context(),
+		pathID[ids.OrganizationKind](id), factKey,
+		FactWriteInput{IfVersion: ifVersion})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, out)
+}

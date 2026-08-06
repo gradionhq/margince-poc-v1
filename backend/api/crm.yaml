@@ -9248,6 +9248,136 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
 
 # =============================================================================
+  /organizations/{id}/profile-fields/{field}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/ProfileFieldKey'
+    patch:
+      tags: [Organizations]
+      operationId: updateOrganizationProfileField
+      summary: Correct a profile field — the canonical value changes, the machine's proposal survives.
+      description: |
+        DOSS-WIRE-4 / PO-AC-N-1. Where the field maps to a column on `organization`, THE COLUMN IS
+        WHAT CHANGES; the sidecar keeps the machine's proposal, excerpt, source URL and confidence in
+        history rather than overwriting them (PO-AC-N-2). A correction that changed only the sidecar
+        would be a lie about having been accepted. Provenance flips to `human` with the acting
+        principal and the timestamp; the whole thing commits as one mutation with its audit entry and
+        its outboxed event.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrganizationProfileFieldRequest' }
+      responses:
+        '200':
+          description: The corrected profile field.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfileField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/profile-fields/{field}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/ProfileFieldKey'
+    post:
+      tags: [Organizations]
+      operationId: confirmOrganizationProfileField
+      summary: Confirm a profile field without changing its value.
+      description: |
+        The same act as a correction, minus the value change (PO-AC-N-3): `verified_at` and
+        `verified_by` are stamped and the field moves from extracted to confirmed. Version-guarded
+        like the correction, so two readers confirming a field one of them has since corrected do not
+        silently overwrite each other.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The confirmed profile field.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfileField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/facts/{factKey}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/FactKey'
+    patch:
+      tags: [Organizations]
+      operationId: updateOrganizationFact
+      summary: Correct an extracted fact.
+      description: |
+        DOSS-WIRE-4. The correction path the fact store never had — without it the page can render a
+        "confirmed" state nothing is able to produce. Same guarantees as the profile-field
+        correction: canonical value first, machine proposal preserved in history, provenance flipped
+        to `human`, one transaction carrying the row, the audit entry and the event.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrganizationFactRequest' }
+      responses:
+        '200':
+          description: The corrected fact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationFact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/facts/{factKey}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/FactKey'
+    post:
+      tags: [Organizations]
+      operationId: confirmOrganizationFact
+      summary: Confirm an extracted fact without changing its value.
+      description: |
+        Stamps `verified_at` + `verified_by` and moves the fact from extracted to confirmed
+        (PO-AC-N-3). Version-guarded.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The confirmed fact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationFact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
 components:
 
   securitySchemes:
@@ -9278,6 +9408,23 @@ components:
 
   # --------------------------- shared parameters ----------------------------
   parameters:
+    ProfileFieldKey:
+      name: field
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history]
+      description: The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries.
+    FactKey:
+      name: factKey
+      in: path
+      required: true
+      schema: { type: string }
+      description: |
+        One fact's identity within its organization, spelled `<field>:<value_key>` (e.g.
+        `named_customer:acme-inc`). A fact is multi-valued, so `field` alone does not name a row and
+        `value_key` alone is only unique within a field.
     CaptureProvider:
       name: provider
       in: path
@@ -9538,6 +9685,25 @@ components:
 
   # ------------------------------- schemas ----------------------------------
   schemas:
+    UpdateOrganizationProfileFieldRequest:
+      type: object
+      description: 'A human correction. The canonical store changes; the machine''s proposal and its evidence survive in history (PO-AC-N-1/N-2).'
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          description: >-
+            The corrected value. Where this field maps to a column on `organization`,
+            the COLUMN is what changes — a correction the header ignores is not a
+            correction (PO-AC-N-1).
+
+    UpdateOrganizationFactRequest:
+      type: object
+      description: The correction path the fact store never had — without it the page can render a confirmed state nothing is able to produce.
+      required: [value]
+      properties:
+        value: { type: string, minLength: 1 }
 
     # ---- rates & costs (admin/ops-only effective-dated price sheets) ----
     RefreshAccepted:
@@ -10746,20 +10912,12 @@ components:
       properties:
         linkedin_url:
           type: [string, 'null']
-          description: >-
-            Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A first-class
-            validated column rather than a governed custom field, because it bears
-            identity semantics — matching, dedupe, enrichment — that a custom field
-            cannot express. Unique among live rows in a workspace.
+          description: Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A validated column rather than a governed custom field, because it bears identity semantics — matching, dedupe, enrichment — a custom field cannot express. Unique among live rows.
           pattern: '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
         website_url:
           type: [string, 'null']
           readOnly: true
-          description: >-
-            The company's readable website, DERIVED from its primary domain row —
-            there is deliberately no website column, because a second store for a
-            fact organization_domain already owns is the duplication ADR-0085
-            closes. Not accepted on write; set the primary domain instead.
+          description: The company's readable website, DERIVED from its primary domain row. There is deliberately no website column — a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write.
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
         display_name: { type: string }
@@ -10871,9 +11029,7 @@ components:
       properties:
         linkedin_url:
           type: [string, 'null']
-          description: >-
-            Canonical LinkedIn company URL. Null clears it. website_url is derived
-            from the primary domain and is refused here.
+          description: Canonical LinkedIn company URL. Null clears it. website_url is derived and refused here.
           pattern: '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
@@ -14395,17 +14551,11 @@ components:
         retrieved_at:
           type: [string, 'null']
           format: date-time
-          description: >-
-            When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct
-            from captured_at, which is when we first recorded the claim — "is this
-            still true?" is a different question from "when did we learn it?".
+          description: When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
         verified_at:
           type: [string, 'null']
           format: date-time
-          description: >-
-            When a human last confirmed this claim (PO-DDL-N-2). Paired with
-            verified_by: a verification without an actor describes a confirmation
-            nobody made.
+          description: When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
         verified_by:
           type: [string, 'null']
           readOnly: true
@@ -14426,17 +14576,11 @@ components:
         retrieved_at:
           type: [string, 'null']
           format: date-time
-          description: >-
-            When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct
-            from captured_at, which is when we first recorded the claim — "is this
-            still true?" is a different question from "when did we learn it?".
+          description: When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
         verified_at:
           type: [string, 'null']
           format: date-time
-          description: >-
-            When a human last confirmed this claim (PO-DDL-N-2). Paired with
-            verified_by: a verification without an actor describes a confirmation
-            nobody made.
+          description: When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
         verified_by:
           type: [string, 'null']
           readOnly: true
