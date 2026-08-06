@@ -9353,6 +9353,43 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /fx-rates/base-currency:
+    put:
+      tags: [Rates]
+      operationId: setBaseCurrency
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Change the workspace base currency, while no deal has frozen a rate against it.
+      description: |
+        AAD-PARAM-N-2 / AAD-AC-N-2..N-5. Every closed deal freezes a conversion rate
+        AGAINST the base currency, so changing it afterwards would silently reinterpret
+        what those deals were worth — a financial claim the product has no authority to
+        restate. The change is therefore accepted only while no frozen rate exists, and
+        refused after with `base_currency_locked`, which carries how many rows block it
+        so the refusal explains itself instead of merely denying. Governed by the same
+        grant as the rate sheet: one authority over the currency substrate, not two.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetBaseCurrencyRequest' }
+      responses:
+        '200':
+          description: The workspace base currency after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BaseCurrencyResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: >-
+            A deal has already frozen a conversion rate against the current base currency,
+            so it can no longer change (`code: base_currency_locked`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /fx-rates/propose-refresh:
     post:
       tags: [Rates]
@@ -9833,6 +9870,28 @@ components:
 
   # ------------------------------- schemas ----------------------------------
   schemas:
+    SetBaseCurrencyRequest:
+      type: object
+      required: [base_currency]
+      properties:
+        base_currency:
+          type: string
+          pattern: '^[A-Za-z]{3}$'
+          description: The 3-letter ISO-4217 code to adopt as the workspace base.
+
+    BaseCurrencyResponse:
+      type: object
+      required: [base_currency, locked]
+      properties:
+        base_currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+        locked:
+          type: boolean
+          description: >-
+            True once at least one deal has frozen a conversion rate against this base,
+            after which it can never change. Rendered so the surface can state the
+            constraint before a user attempts the edit rather than only refusing it.
     UpdateOrganizationProfileFieldRequest:
       type: object
       description: 'A human correction. The canonical store changes; the machine''s proposal and its evidence survive in history (PO-AC-N-1/N-2).'
@@ -9873,6 +9932,15 @@ components:
       type: object
       required: [data]
       properties:
+        base_currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          readOnly: true
+          description: >-
+            The workspace's base currency — every rate in `data` converts TO this
+            (AAD-PARAM-N-1, ADR-0085). Served from the workspace itself rather than
+            inferred from the first rate row, so a workspace that has entered no rates
+            can still state its own base.
         data: { type: array, items: { $ref: '#/components/schemas/FxRate' } }
     SetFxRateRequest:
       type: object

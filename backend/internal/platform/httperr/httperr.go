@@ -55,6 +55,7 @@ var mapping = []struct {
 	{apperrors.ErrIncumbentAlreadyConnected, http.StatusConflict, "incumbent_already_connected"},
 	{apperrors.ErrOverlayFlipBlocked, http.StatusConflict, "overlay_flip_blocked"},
 	{apperrors.ErrIncumbentBudgetExhausted, http.StatusServiceUnavailable, "incumbent_budget_exhausted"},
+	{apperrors.ErrBaseCurrencyLocked, http.StatusConflict, "base_currency_locked"},
 }
 
 // clientInputValidation maps the typed errors that mean "the CALLER got the

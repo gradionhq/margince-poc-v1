@@ -31,16 +31,28 @@ import (
 // column at all and lives only in the sidecar.
 func canonicalOrgColumn(field string) (string, bool) {
 	switch field {
-	case "display_name":
-		return "display_name", true
-	case "legal_name":
-		return "legal_name", true
-	case "industry":
-		return "industry", true
+	case fieldDisplayName:
+		return fieldDisplayName, true
+	case fieldLegalName:
+		return fieldLegalName, true
+	case fieldIndustry:
+		return fieldIndustry, true
 	default:
 		return "", false
 	}
 }
+
+// Audit-image keys the two evidence sidecars share. A correction's before
+// image is the machine's whole claim, so both files write the same shape and
+// the spelling lives in one place.
+const (
+	auditKeyValue           = "value"
+	auditKeyEvidenceSnippet = "evidence_snippet"
+	auditKeyConfidence      = "confidence"
+	auditKeyVerifiedAt      = "verified_at"
+	auditKeyVerifiedBy      = "verified_by"
+	sourceHuman             = "human"
+)
 
 // ProfileFieldWriteInput carries a correction. Value is nil for a confirmation,
 // which is the same act without a value change (PO-AC-N-3).
@@ -110,15 +122,15 @@ func (s *Store) writeProfileField(
 
 		p := storekit.NewPatch()
 		if in.Value != nil {
-			p.Set("value", before.Value, *in.Value)
+			p.Set(auditKeyValue, before.Value, *in.Value)
 		}
 		// The machine's proposal is NOT overwritten: evidence_snippet,
 		// source_url and confidence stay exactly as extracted, and the before
 		// image below carries them into the audit trail (PO-AC-N-2). What
 		// changes is who now stands behind the value.
-		p.Set("source", before.Source, string(crmcontracts.CompanyProfileFieldSourceHuman))
-		p.Set("verified_at", before.VerifiedAt, now)
-		p.Set("verified_by", before.VerifiedBy, actor.UserID)
+		p.Set(auditKeySource, before.Source, string(crmcontracts.CompanyProfileFieldSourceHuman))
+		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
+		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
 
 		if err := p.ApplyGuarded(ctx, tx, "organization_profile_field", before.ID, in.IfVersion); err != nil {
 			return err
@@ -184,10 +196,10 @@ type profileFieldRow struct {
 
 func (r profileFieldRow) auditImage() map[string]any {
 	return map[string]any{
-		"value": r.Value, "source": r.Source,
+		auditKeyValue: r.Value, auditKeySource: r.Source,
 		"evidence_snippet": r.EvidenceSnippet, "source_url": r.SourceURL,
-		"confidence":  r.Confidence,
-		"verified_at": r.VerifiedAt, "verified_by": r.VerifiedBy,
+		auditKeyConfidence: r.Confidence,
+		auditKeyVerifiedAt: r.VerifiedAt, auditKeyVerifiedBy: r.VerifiedBy,
 	}
 }
 

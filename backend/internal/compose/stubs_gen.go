@@ -483,6 +483,10 @@ func (stubs) SetFxRate(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "SetFxRate")
 }
 
+func (stubs) SetBaseCurrency(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "SetBaseCurrency")
+}
+
 func (stubs) ProposeFxRateRefresh(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ProposeFxRateRefresh")
 }
