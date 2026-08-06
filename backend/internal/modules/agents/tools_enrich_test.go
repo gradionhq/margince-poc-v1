@@ -10,12 +10,105 @@ package agents
 // should have travelled at all.
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
+
+// stubOrgProvider answers one organization record, so the staging path can be
+// driven without a database. It embeds the package's probe provider so only the
+// method StageInfo actually reaches — Read — is spelled here; any other call is
+// the probe's loud failure rather than a silent zero value.
+type stubOrgProvider struct {
+	seamProbeProvider
+	rec datasource.Record
+}
+
+func (p stubOrgProvider) Read(context.Context, datasource.EntityRef) (datasource.Record, error) {
+	return p.rec, nil
+}
+
+func orgRecord(id ids.UUID, authoritative bool) datasource.Record {
+	return datasource.Record{
+		Ref:       datasource.EntityRef{Type: datasource.EntityOrganization, ID: id},
+		Fields:    json.RawMessage(`{"name":"Acme"}`),
+		Version:   4,
+		Freshness: datasource.FreshnessInfo{Authoritative: authoritative},
+	}
+}
+
+// What a human is asked to approve must say what will be read and from where —
+// an approval whose summary omits the target is a decision made blind.
+func TestEnrichStagesTheReadItIsAboutToPerform(t *testing.T) {
+	id := ids.NewV7()
+	tool := enrichCompany{p: stubOrgProvider{rec: orgRecord(id, true)}}
+
+	info, err := tool.StageInfo(context.Background(),
+		json.RawMessage(`{"organization_id":"`+id.String()+`","url":"https://acme.test/about","depth":"site"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.TargetType != string(datasource.EntityOrganization) || info.TargetID != id {
+		t.Fatalf("staged against %s/%s, want the organization", info.TargetType, info.TargetID)
+	}
+	if info.TargetVersion == nil || *info.TargetVersion != 4 {
+		t.Fatalf("target version = %v, want the version the read returned", info.TargetVersion)
+	}
+	if !strings.Contains(info.Summary, "https://acme.test/about") || !strings.Contains(info.Summary, "site") {
+		t.Fatalf("summary = %q, want the URL and depth the call will actually use", info.Summary)
+	}
+
+	info, err = tool.StageInfo(context.Background(), json.RawMessage(`{"organization_id":"`+id.String()+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(info.Summary, "its own domain") {
+		t.Fatalf("summary = %q, want the default target named", info.Summary)
+	}
+}
+
+// A mirror-held organization cannot be released, so staging one mints an
+// approval no human could ever act on.
+func TestEnrichRefusesToStageAMirrorHeldOrganization(t *testing.T) {
+	id := ids.NewV7()
+	tool := enrichCompany{p: stubOrgProvider{rec: orgRecord(id, false)}}
+
+	_, err := tool.StageInfo(context.Background(), json.RawMessage(`{"organization_id":"`+id.String()+`"}`))
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("err = %v, want ErrUnsupportedBySoR", err)
+	}
+}
+
+type recordingEnricher struct {
+	url, depth string
+}
+
+func (e *recordingEnricher) EnrichCompany(_ context.Context, _ ids.UUID, url, depth string) (json.RawMessage, error) {
+	e.url, e.depth = url, depth
+	return json.RawMessage(`{}`), nil
+}
+
+func TestEnrichHandlePassesTheAdmittedArgumentsThrough(t *testing.T) {
+	seam := &recordingEnricher{}
+	tool := enrichCompany{enricher: seam}
+
+	if _, err := tool.Handle(context.Background(),
+		json.RawMessage(`{"organization_id":"`+ids.NewV7().String()+`","url":"https://acme.test"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if seam.url != "https://acme.test" {
+		t.Fatalf("seam saw url %q", seam.url)
+	}
+	if seam.depth != enrichDepthPage {
+		t.Fatalf("seam saw depth %q, want the default %q applied before the fetch", seam.depth, enrichDepthPage)
+	}
+}
 
 func TestReadEnrichArgsDefaultsTheDepthAndRefusesAnUnservedOne(t *testing.T) {
 	id := ids.NewV7().String()

@@ -15,12 +15,100 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// seamNotReached fails the test if the tool passed arguments through that it
-// should have refused: a refusal that happens AFTER the write is not a refusal.
+// errLifecycleSeamReached fails a test whose tool passed arguments through that
+// it should have refused: a refusal that happens AFTER the write is not one.
 var errLifecycleSeamReached = errors.New("the seam was reached")
+
+// stubRecordProvider answers one record, so the staging paths run without a
+// database. It embeds the probe provider, so any method beyond Read fails
+// loudly instead of answering a zero value.
+type stubRecordProvider struct {
+	seamProbeProvider
+	rec datasource.Record
+}
+
+func (p stubRecordProvider) Read(context.Context, datasource.EntityRef) (datasource.Record, error) {
+	return p.rec, nil
+}
+
+func stagedRecord(entity datasource.EntityType, id ids.UUID, authoritative bool) datasource.Record {
+	return datasource.Record{
+		Ref:       datasource.EntityRef{Type: entity, ID: id},
+		Fields:    json.RawMessage(`{"name":"Acme"}`),
+		Version:   11,
+		Freshness: datasource.FreshnessInfo{Authoritative: authoritative},
+	}
+}
+
+// A staged row is what a human decides from, so it must pin the version the
+// decision was made against and name the record in words.
+func TestConfirmFirstLifecycleToolsStageAgainstTheRecordTheyRead(t *testing.T) {
+	leadID, projectID := ids.NewV7(), ids.NewV7()
+	cases := []struct {
+		name       string
+		info       func() (StageInfo, error)
+		wantTarget string
+		wantID     ids.UUID
+	}{
+		{
+			name: "disqualify_lead",
+			info: func() (StageInfo, error) {
+				tool := disqualifyLead{p: stubRecordProvider{rec: stagedRecord(datasource.EntityLead, leadID, true)}}
+				return tool.StageInfo(context.Background(), json.RawMessage(`{"lead_id":"`+leadID.String()+`"}`))
+			},
+			wantTarget: string(datasource.EntityLead), wantID: leadID,
+		},
+		{
+			name: "advance_project_phase",
+			info: func() (StageInfo, error) {
+				tool := advanceProjectPhase{p: stubRecordProvider{rec: stagedRecord(datasource.EntityProject, projectID, true)}}
+				return tool.StageInfo(context.Background(),
+					json.RawMessage(`{"project_id":"`+projectID.String()+`","to_phase":"delivering"}`))
+			},
+			wantTarget: string(datasource.EntityProject), wantID: projectID,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info, err := tc.info()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.TargetType != tc.wantTarget || info.TargetID != tc.wantID {
+				t.Fatalf("staged against %s/%s, want %s/%s", info.TargetType, info.TargetID, tc.wantTarget, tc.wantID)
+			}
+			if info.TargetVersion == nil || *info.TargetVersion != 11 {
+				t.Fatalf("target version = %v, want the version the read returned", info.TargetVersion)
+			}
+			if info.Summary == "" {
+				t.Fatal("an empty summary asks a human to decide an unnamed thing")
+			}
+		})
+	}
+}
+
+// An approval against a mirror-held record could never be released, so staging
+// one mints an authority object nobody can act on.
+func TestConfirmFirstLifecycleToolsRefuseToStageAMirrorHeldRecord(t *testing.T) {
+	leadID, projectID := ids.NewV7(), ids.NewV7()
+
+	lead := disqualifyLead{p: stubRecordProvider{rec: stagedRecord(datasource.EntityLead, leadID, false)}}
+	if _, err := lead.StageInfo(context.Background(),
+		json.RawMessage(`{"lead_id":"`+leadID.String()+`"}`)); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Errorf("disqualify_lead err = %v, want ErrUnsupportedBySoR", err)
+	}
+
+	project := advanceProjectPhase{p: stubRecordProvider{rec: stagedRecord(datasource.EntityProject, projectID, false)}}
+	if _, err := project.StageInfo(context.Background(),
+		json.RawMessage(`{"project_id":"`+projectID.String()+`","to_phase":"closed","reason":"done"}`)); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Errorf("advance_project_phase err = %v, want ErrUnsupportedBySoR", err)
+	}
+}
 
 type recordingRelinker struct{ entityType string }
 
@@ -47,6 +135,34 @@ func (a *recordingAdvancer) AdvanceProjectPhase(
 ) (json.RawMessage, error) {
 	a.ifVersion = ifVersion
 	return json.RawMessage(`{}`), nil
+}
+
+// recordingDisqualifier captures the id Handle passed to the store.
+type recordingDisqualifier struct{ id ids.UUID }
+
+func (d *recordingDisqualifier) DisqualifyLead(_ context.Context, id ids.UUID) (json.RawMessage, error) {
+	d.id = id
+	return json.RawMessage(`{}`), nil
+}
+
+// The tool decodes and hands off — the lead's own gates are the store's. What
+// is worth pinning is that it hands off the id it was given and refuses a body
+// that names no lead, rather than passing a zero id to a delete.
+func TestDisqualifyLeadHandsTheNamedLeadToTheStore(t *testing.T) {
+	seam := &recordingDisqualifier{}
+	tool := disqualifyLead{disqualifier: seam}
+	id := ids.NewV7()
+
+	if _, err := tool.Handle(context.Background(), json.RawMessage(`{"lead_id":"`+id.String()+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if seam.id != id {
+		t.Fatalf("store saw lead %s, want %s", seam.id, id)
+	}
+
+	if _, err := tool.Handle(context.Background(), json.RawMessage(`{"lead_id":"not-a-uuid"}`)); err == nil {
+		t.Fatal("a malformed lead_id was accepted")
+	}
 }
 
 func TestRelinkActivityRefusesATargetTypeTheStoreWouldNotAccept(t *testing.T) {
