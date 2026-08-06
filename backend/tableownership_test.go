@@ -151,6 +151,14 @@ var tableOwners = map[string]string{
 	// status. It is a connection, so it sits with capture_connection under the
 	// ONE connector.Sink rather than with the identities it delivers.
 	"channel_connection": "internal/modules/capture",
+	// The installation-settings table (ADR-0090/A135). Owned by the platform
+	// mechanism rather than by any module, which is the point: a setting's
+	// MEANING belongs to the module that declares its entry, but no module
+	// owns the row shape — platform/settings is the one writer, and a module
+	// reaching this table directly would be re-implementing the governance
+	// (validator, freeze probe, per-entry audit verb) the entry already
+	// carries. The unusual owner is therefore the invariant, not an exception.
+	"setting": "internal/platform/settings",
 	// search
 	"embedding":           "internal/modules/search",
 	"embed_store_binding": "internal/modules/search",
@@ -290,7 +298,6 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/capture:activity_link":        "the connector sink links the materialized activity in the same ingest transaction",
 	"internal/modules/capture:activity_participant": "the connector principal is the ONLY place the mailbox owner is known (capture_connection is per-user-per-provider); by the time any other module sees the activity its captured_by reads connector:gmail and the human behind it is unrecoverable, so the participant rows commit in the same ingest transaction as the activity they describe",
 	"internal/modules/capture:lead":                 "the connector sink materializes inbound leads in the same transaction as their raw_capture original",
-	"internal/modules/capture:workspace":            "capture settings toggle the workspace's own capture_auto_enrich config column (CAP-PARAM-7, ADR-0072) — a single-column workspace-config write, audit-only, the same shape overlay's x_sor_mode flip uses",
 
 	// deals' archive purges the archived deal's collection memberships in
 	// the same transaction — a dangling list/tag row would resurrect the
@@ -442,7 +449,7 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 	t.Helper()
 	writes := map[string][]tableWrite{} // owning dir → writes
 	fset := token.NewFileSet()
-	for _, root := range []string{"internal/modules", "internal/compose"} {
+	for _, root := range []string{"internal/modules", "internal/compose", settingsStoreDir} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") ||

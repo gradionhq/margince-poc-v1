@@ -99,7 +99,7 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 		// while production asked the question with the wrong authority.
 		authority:  identity.NewService(e.Pool),
 		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
-		settings:   capture.NewSettings(e.Pool),
+		settings:   capture.NewSettings(NewSettingsStore(e.Pool)),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, svc
 }

@@ -223,14 +223,27 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/comms:ClearInFlight":   "the retraction half of MarkInFlight, same posture: it nulls that timestamp once the provider gave a definite answer. Both are timestamps about this system's own transport attempt, not tenant data",
 })
 
-// storeEntryPointScope proves the gate's single root: every file in the module
-// that declares an entry point of this shape lives under internal/modules, or is
-// ratified below.
+// storeEntryPointScope proves the gate's roots: every file that declares an
+// entry point of this shape lives under one of them, or is ratified below.
+//
+// internal/platform/settings is here rather than in the exempt set because the
+// gate CAN judge it and does: the settings store is a real governed write path
+// (ADR-0090/A135), its entry points take auth.Require against the object each
+// setting declares, and the `setting` table carries no RLS beneath them — so
+// the object gate is the only control and is exactly what this gate exists to
+// check. Ratifying it as "outside the gate's business" would have hidden the
+// one store whose gate has no backstop.
 var storeEntryPointScope = gatekit.Scope{
-	Roots:   []string{modulesDir},
+	Roots:   []string{modulesDir, settingsStoreDir},
 	Subject: declaresStoreEntryPoint,
 	Exempt:  entryPointsOutsideModules,
 }
+
+// settingsStoreDir is the platform tier this gate reaches into. It is one
+// package, named explicitly rather than by widening to all of
+// internal/platform: the rest of that tier owns no domain rows, and sweeping
+// it in would mean waiving files this gate has not judged.
+const settingsStoreDir = "internal/platform/settings"
 
 // entryPointsOutsideModules ratifies the files that hold this entry-point shape
 // outside internal/modules. Each says what the methods are; none says they are
