@@ -167,3 +167,79 @@ func TestOllamaStreamReadsJSONLines(t *testing.T) {
 		t.Fatalf("stream mismatch: %q", got.String())
 	}
 }
+
+// num_ctx bounds prompt AND completion together; num_predict bounds only the
+// completion. Left unsaid, Ollama uses a 4096 default, so a long page plus a
+// large output budget cannot both fit — and the model stops mid-generation
+// rather than refusing. On a reasoning model the cut lands inside the thinking,
+// so the reply arrives well-formed with an EMPTY content field and a
+// schema-carrying task fails as "unparseable reply". That reads as a bad model
+// and is really a window too small for what was asked.
+func TestOllamaSizesContextWindowToPromptPlusOutputBudget(t *testing.T) {
+	options := func(t *testing.T, req model.Request) ollamaOptions {
+		t.Helper()
+		var received []byte
+		client := newOllamaForTest(t, func(w http.ResponseWriter, r *http.Request) {
+			received = readBody(t, r.Body)
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"message": map[string]string{"content": "{}"}, "done": true,
+			}); err != nil {
+				t.Errorf("encoding fixture response: %v", err)
+			}
+		})
+		if _, err := client.Complete(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		var wire struct {
+			Options ollamaOptions `json:"options"`
+		}
+		if err := json.Unmarshal(received, &wire); err != nil {
+			t.Fatalf("wire not JSON: %v", err)
+		}
+		return wire.Options
+	}
+
+	// The shape that produced the empty reply in the field: a crawled page as
+	// the prompt and a large output budget behind it.
+	page := strings.Repeat("Gradion Pte. Ltd. 77 High Street, Singapore. ", 400)
+	big := options(t, model.Request{
+		System:         "You extract company facts from ONE page.",
+		Messages:       []model.Message{{Role: "user", Content: page}},
+		MaxTokens:      8192,
+		ResponseSchema: []byte(`{"type":"object","properties":{"facts":{"type":"array"}}}`),
+	})
+	if big.NumPredict != 8192 {
+		t.Fatalf("num_predict not forwarded: %d", big.NumPredict)
+	}
+	// The invariant: the window holds the prompt AND everything we authorised
+	// the model to generate. Asserted as a relation over the request rather
+	// than a fixed number, so it keeps holding if the estimate is retuned.
+	promptTokens := (len(page) + len("You extract company facts from ONE page.")) / 4
+	if big.NumCtx < promptTokens+big.NumPredict {
+		t.Fatalf(
+			"num_ctx %d cannot hold prompt (~%d tok) plus num_predict %d — the model will stop mid-generation",
+			big.NumCtx, promptTokens, big.NumPredict,
+		)
+	}
+	// And it must beat the server default it is there to replace, or the field
+	// buys nothing.
+	if big.NumCtx <= ollamaDefaultContext {
+		t.Fatalf("num_ctx %d is no better than Ollama's %d default", big.NumCtx, ollamaDefaultContext)
+	}
+
+	// A short request must not come out WORSE than saying nothing: the default
+	// is a floor, never a ceiling to compute down to.
+	small := options(t, model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if small.NumCtx < ollamaDefaultContext {
+		t.Fatalf("num_ctx %d below Ollama's own %d default", small.NumCtx, ollamaDefaultContext)
+	}
+	// A request naming no output budget must not send `num_predict: 0`, which
+	// Ollama reads as "generate nothing".
+	encoded, err := json.Marshal(small)
+	if err != nil {
+		t.Fatalf("marshal options: %v", err)
+	}
+	if strings.Contains(string(encoded), `"num_predict":0`) {
+		t.Fatalf("num_predict: 0 sent for a request with no output budget: %s", encoded)
+	}
+}
