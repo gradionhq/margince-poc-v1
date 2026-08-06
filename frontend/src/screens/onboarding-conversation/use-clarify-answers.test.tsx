@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
+import { translate } from "../../i18n";
 import type { CompanyDraft } from "../onboarding";
 import { changeDraftField, EMPTY_DRAFT } from "../onboarding";
 import type { SuggestedCompanyChange } from "../onboarding-read";
@@ -272,6 +273,33 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
     expect(draftRef.current.values.legal_name).toBe(gradionEntity.name);
   });
 
+  // The option a human clicks is a normalized copy of the candidate's name
+  // (the server trims and collapses it before offering it), while the read
+  // still carries the name as the page printed it. The server matches the two
+  // trimmed when it decides whether the confirmed legal block keeps the site's
+  // provenance, so a client comparing them raw calls "picked" absent: address
+  // and registration number stay unfilled, and the name the human chose off
+  // the page ends up marked as one they typed.
+  it("fills from the candidate the server would call picked, whitespace and all", async () => {
+    stubAuthorizedReply();
+    const padded: LegalEntity = {
+      ...gradionEntity,
+      name: `  ${gradionEntity.name}\n`,
+    };
+    const { result, draftRef, applyLegalEntity } = setupHook([padded]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(applyLegalEntity).toHaveBeenCalledWith(padded));
+    expect(draftRef.current.values.registered_address).toBe(
+      padded.registered_address,
+    );
+    expect(draftRef.current.values.register_vat).toBe(padded.register_number);
+    expect(draftRef.current.edited.has("legal_name")).toBe(false);
+  });
+
   it("never fills anything when no candidate on the read matches the authorized value", async () => {
     stubAuthorizedReply();
     const { result, draftRef, applyLegalEntity } = setupHook([]);
@@ -373,11 +401,57 @@ describe("useClarifyAnswers — the legal-entity fill", () => {
 });
 
 describe("useClarifyAnswers — honest failures", () => {
-  // The request path (mutationFn) already wraps a server problem in
-  // problemMessage before it becomes the shown detail; anything that
-  // reaches onError WITHOUT going through that wrap (a client-side bug, a
-  // network layer throwing something unexpected) must never hand its raw
-  // .message to the reader.
+  // The request path (mutationFn) carries the server's own problem body, so
+  // the detail the reader sees is a sentence composed for them. Anything
+  // reaching onError WITHOUT that body (a client-side bug, a network layer
+  // throwing something unexpected) must never hand its raw .message over.
+  it("shows the server's own words when the authorization is refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            code: "validation_error",
+            title: "invalid_selection",
+            detail: "That option no longer matches the dossier.",
+          },
+          422,
+        ),
+      ),
+    );
+    const { result } = setupHook([]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+    expect(result.current.failure).toEqual({
+      kind: "request",
+      detail: "That option no longer matches the dossier.",
+    });
+  });
+
+  it("falls back to the shared line when the refusal carried no words for a reader", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ status: 502 }, 502)),
+    );
+    const { result } = setupHook([]);
+
+    act(() => {
+      result.current.answerClarify(entityClarify.id, gradionEntity.name);
+    });
+
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+    // Catalog copy in the reader's own language — never the placeholder a
+    // problem body with no detail carries into a stack trace.
+    expect(result.current.failure).toEqual({
+      kind: "request",
+      detail: translate("en", "common.errorNoCause"),
+    });
+  });
+
   it("never surfaces a raw exception message when something unexpected breaks the round trip", async () => {
     vi.stubGlobal(
       "fetch",

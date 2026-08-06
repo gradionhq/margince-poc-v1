@@ -35,6 +35,11 @@ const t = (key: Parameters<typeof translate>[1]) => translate("en", key);
 afterEach(() => {
   cleanup();
   window.location.hash = "";
+  // Unconditionally, not at the end of the case that installed a spy: a case
+  // that fails its assertion never reaches its own teardown, and a leaked
+  // console spy silences the rest of the file — which looks exactly like a
+  // suite that passes.
+  vi.restoreAllMocks();
 });
 
 function render(ui: ReactNode) {
@@ -390,7 +395,6 @@ describe("logUnexpectedError", () => {
     // the only reason anyone opens the console for this.
     expect(logged).toHaveBeenCalledTimes(1);
     expect(logged).toHaveBeenCalledWith(bug);
-    logged.mockRestore();
   });
 
   it("stays silent for a failure the reader can already read", () => {
@@ -399,7 +403,6 @@ describe("logUnexpectedError", () => {
     logUnexpectedError(new ProblemError({ detail: "no seat" }));
 
     expect(logged).not.toHaveBeenCalled();
-    logged.mockRestore();
   });
 });
 

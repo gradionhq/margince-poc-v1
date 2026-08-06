@@ -1045,6 +1045,49 @@ describe("recovering from a rejected confirm", () => {
     expect(screen.getByText(NOT_READY_NOTICE)).toBeInTheDocument();
   });
 
+  // The re-check refreshes the read AND the proposal because the confirm
+  // sends both — the read the server has to call confirmable, and the version
+  // pair that press quotes. react-query holds the last good proposal through a
+  // failed refetch, so a block lifted on the read alone re-arms Continue onto
+  // the pair from before the read moved: a version_skew 409 earned on the very
+  // next press, and a second avoidable recovery for the reader to sit through.
+  it("never re-arms Continue on a re-check whose proposal half failed, however ready the read comes back", async () => {
+    let proposalCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
+        jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        }),
+      "GET /onboarding/company/proposal": () => {
+        proposalCalls += 1;
+        return proposalCalls > 1
+          ? Promise.reject(new Error("proposal endpoint unreachable"))
+          : Promise.resolve(jsonResponse(reviewProposal(CONFIRM_FIELDS)));
+      },
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "not_confirmable" }, 409),
+    });
+    renderConfirmReview();
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await screen.findByText(NOT_READY_NOTICE);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(1));
+    await vi.waitFor(() => expect(retry).toBeEnabled());
+
+    // The read came back ready, so half the re-check succeeded — and the half
+    // that failed is the one the next press would quote. The block stands, and
+    // the retry that can still end it stays where the reader can press it.
+    expect(continueButton).toBeDisabled();
+    expect(screen.getByText(NOT_READY_NOTICE)).toBeInTheDocument();
+  });
+
   it("walks the reader on to the company an already-confirmed read created, with no second look at the read", async () => {
     let readCalls = 0;
     const dispatch = vi.fn();
@@ -1079,6 +1122,66 @@ describe("recovering from a rejected confirm", () => {
     // establish which 409 this was.
     expect(readCalls).toBe(1);
     expect(screen.queryByText(CHECK_FAILED_NOTICE)).toBeNull();
+  });
+
+  // The already-confirmed recovery is the one that runs with no notice on
+  // screen — its whole answer is the company lookup, which either exits the
+  // review or ends in the "checkFailed" notice. Continue must be out of reach
+  // for exactly that window: the server has settled this read, so a second
+  // press earns the identical 409 and starts a second lookup racing the first,
+  // and the generic save banner must not report a save that went through.
+  it("puts Continue out of reach while the already-confirmed recovery is still loading the company", async () => {
+    let confirmCalls = 0;
+    const gate: { release: (() => void) | null } = { release: null };
+    const dispatch = vi.fn();
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
+        jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        }),
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse(reviewProposal(CONFIRM_FIELDS)),
+      // Held open deliberately, so the in-flight window is observable here
+      // rather than racing a mocked fetch that settles first.
+      "GET /company": async () => {
+        await new Promise<void>((resolve) => {
+          gate.release = resolve;
+        });
+        return jsonResponse({
+          display_name: "Acme Inc",
+          offer_summary: "CRM software",
+          icp: "Mid-market B2B",
+        });
+      },
+      [CONFIRM_PATH]: () => {
+        confirmCalls += 1;
+        return jsonResponse(
+          { title: "conflict", code: "already_confirmed" },
+          409,
+        );
+      },
+    });
+    renderConfirmReview(dispatch);
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+    await vi.waitFor(() => expect(gate.release).not.toBeNull());
+
+    expect(continueButton).toBeDisabled();
+    // Nothing on screen calls this a failed save: the confirmation landed, and
+    // the only thing outstanding is the profile it created.
+    expect(screen.queryAllByText(/I could not save that yet/)).toHaveLength(0);
+
+    gate.release?.();
+    await vi.waitFor(() =>
+      expect(dispatch).toHaveBeenCalledWith({ type: "COMPANY_CONFIRMED" }),
+    );
+    // One confirm, one lookup: the reader was never able to start a second of
+    // either while the first was still running.
+    expect(confirmCalls).toBe(1);
   });
 
   // The one step of the already-confirmed recovery that can still fail is

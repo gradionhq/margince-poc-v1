@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useLocale } from "../../i18n";
-import { problemMessage } from "../common";
+import type { MessageKey } from "../../i18n/en";
+import { ProblemError, problemMessageOf, throwProblem } from "../common";
 import type { CompanyDraft } from "../onboarding";
 import { changeDraftField, prefill } from "../onboarding";
 import { defaultSelectedFactKeys } from "../onboarding-facts";
@@ -35,23 +36,28 @@ type ReadTerminal = Readonly<{
   status: "ready" | "partial";
 }>;
 
-// The one failure `startRead`'s mutationFn may report verbatim: an RFC 7807
-// detail/title already run through problemMessage. A network TypeError (the
-// fetch itself never reached the server) throws unclassified and is never
-// wrapped in this — safeStartError below is what keeps that distinction
-// alive for every reader of `startRead.error`.
-class ReadStartError extends Error {}
+// The one failure `startRead`'s mutationFn may report verbatim: the
+// site-reads endpoint's own RFC 7807 body, carried whole so the reader path
+// below can read its detail. A network TypeError (the fetch itself never
+// reached the server) throws unclassified and is never wrapped in this —
+// safeStartError below is what keeps that distinction alive for every reader
+// of `startRead.error`.
+class ReadStartError extends ProblemError {}
 
 /**
  * `startRead.error` narrowed to what is safe to show: the server's own
  * guidance when the failure is a classified `ReadStartError`, and nothing —
  * logged instead — for anything else. `ob.gate.startFailed` already reads
- * correctly with an empty `{detail}`, so an unclassified failure still gets
- * an honest, catalog-only sentence rather than a raw exception message.
+ * correctly with an empty `{detail}`, so a failure the server never described
+ * still gets an honest, catalog-only sentence rather than a raw exception
+ * message.
  */
-export function safeStartError(error: unknown): string {
+export function safeStartError(
+  error: unknown,
+  t: (key: MessageKey) => string,
+): string {
   if (error instanceof ReadStartError) {
-    return error.message;
+    return problemMessageOf(error, t, "");
   }
   if (error !== null && error !== undefined) {
     console.error("company site-read start failed unexpectedly", error);
@@ -227,7 +233,7 @@ export function useCompanyRead({
         body: { url },
       });
       if (error) {
-        throw new ReadStartError(problemMessage(error));
+        throw new ReadStartError(error);
       }
       return data;
     },
@@ -270,7 +276,7 @@ export function useCompanyRead({
         params: { path: { readId: readId ?? "" } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -329,7 +335,7 @@ export function useCompanyRead({
         params: { query: { locale } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

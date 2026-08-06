@@ -17,6 +17,7 @@ import {
   provenanceOf,
   SALES_FIELDS,
 } from "../onboarding";
+import type { LegalFieldGap } from "./company-proposal";
 import { legalFieldGap } from "./company-proposal";
 
 // Where a field on the review board stands, and the ONE place that derives
@@ -77,6 +78,15 @@ export type ReviewRow = {
    * legal trio names WHY it's empty when the crawl can say — see
    * `legalFieldGap`. Only meaningful when `value` is blank. */
   emptyHintKey: MessageKey;
+  /** Why the read came back without this field, when the read itself accounts
+   * for it, and null when nothing does. The board states an omission only on
+   * this: it is a claim about what the crawl DID, and the only per-field
+   * evidence on the wire is the legal trio's own pages and candidates. For
+   * every other field the wire carries silence, and silence has causes this
+   * surface cannot tell apart — a crawl that stopped early, an extraction that
+   * abstained, a value the read proposed and the human then cleared. Only
+   * meaningful when `value` is blank. */
+  omissionReasonKey: MessageKey | null;
 };
 
 /** Lower sorts first: the work goes to the top, the settled to the bottom. */
@@ -109,26 +119,30 @@ export function reviewFields(): readonly CompanyFieldName[] {
   ];
 }
 
-// Why an empty field's collapsed row says what it says: the legal trio can
-// name the gap from the crawl's own pages (see `legalFieldGap`); every other
-// field falls back to the generic hint, since nothing in the read speaks to
-// why they, specifically, are blank.
-function emptyHintFor(
+// What a row with no value says for itself, when the read can say anything
+// about it at all: the legal trio's gap, named from the crawl's own pages
+// (see `legalFieldGap`). Null for every other field, and for every field on
+// the manual path — the read speaks to why THOSE are blank nowhere, and a
+// sentence about a crawl is not something to fall back on.
+const GAP_REASON: Readonly<Record<LegalFieldGap, MessageKey>> = {
+  unpicked: "ob.conv.triage.legalUnpicked",
+  "not-published": "ob.conv.triage.legalNotPublished",
+  "not-checked": "ob.conv.triage.legalNotChecked",
+};
+
+// The placeholder an empty row shows where its value would be. It stands in
+// for a value, so it claims nothing about what was looked for: a field with a
+// read-derived gap prints that gap, and every other one prints the plain
+// "still empty" line, whether or not a read ever ran.
+const GENERIC_EMPTY_HINT: MessageKey = "ob.conv.triage.emptyHint";
+
+function gapReasonFor(
   field: CompanyFieldName,
   pages: CompanySiteRead["pages"] | undefined,
   entities: CompanySiteRead["legal_entities"] | undefined,
-): MessageKey {
+): MessageKey | null {
   const gap = legalFieldGap(field, pages, entities);
-  if (gap === "unpicked") {
-    return "ob.conv.triage.legalUnpicked";
-  }
-  if (gap === "not-published") {
-    return "ob.conv.triage.legalNotPublished";
-  }
-  if (gap === "not-checked") {
-    return "ob.conv.triage.legalNotChecked";
-  }
-  return "ob.conv.triage.emptyHint";
+  return gap === null ? null : GAP_REASON[gap];
 }
 
 export function rowFor(
@@ -140,19 +154,26 @@ export function rowFor(
   entities?: CompanySiteRead["legal_entities"],
 ): ReviewRow {
   const value = draft.values[field];
+  // The empty-state pair carried by every branch, so a row that HAS a value
+  // never leaves either one half-set: it has no empty state to describe and
+  // nothing to call omitted.
   const base = {
     field,
     label: coldFieldLabel(field, t),
     value,
     multiline: isMultilineField(field),
+    emptyHintKey: GENERIC_EMPTY_HINT,
+    omissionReasonKey: null,
   };
   if (value.trim() === "") {
+    const reason = gapReasonFor(field, pages, entities);
     return {
       ...base,
       state: isRequired(field) ? "required" : "empty",
       evidence: null,
       confidence: null,
-      emptyHintKey: emptyHintFor(field, pages, entities),
+      emptyHintKey: reason ?? GENERIC_EMPTY_HINT,
+      omissionReasonKey: reason,
     };
   }
   if (draft.edited.has(field)) {
@@ -161,7 +182,6 @@ export function rowFor(
       state: "typed",
       evidence: null,
       confidence: null,
-      emptyHintKey: "ob.conv.triage.emptyHint",
     };
   }
   // Grounding precedence: the draft's CURRENT provenance (an entity pick
@@ -192,7 +212,6 @@ export function rowFor(
       state: "stored",
       evidence: null,
       confidence: null,
-      emptyHintKey: "ob.conv.triage.emptyHint",
     };
   }
   const snippet = provenance.evidence_snippet;
@@ -209,7 +228,6 @@ export function rowFor(
       state: "quoted",
       evidence,
       confidence: null,
-      emptyHintKey: "ob.conv.triage.emptyHint",
     };
   }
   return {
@@ -217,6 +235,5 @@ export function rowFor(
     state: confidenceLevel(confidence) ?? "low",
     evidence,
     confidence,
-    emptyHintKey: "ob.conv.triage.emptyHint",
   };
 }

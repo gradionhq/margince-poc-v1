@@ -186,5 +186,29 @@ describe("rowFor's empty hint over the read's legal candidates", () => {
       candidate,
     ]);
     expect(row.emptyHintKey).toBe("ob.conv.triage.emptyHint");
+    // The generic hint is a placeholder where a value would stand, never a
+    // reason: with no gap to name, the row has no omission to state either.
+    expect(row.omissionReasonKey).toBeNull();
+  });
+
+  // The gap is the ONLY thing the read accounts for per field. A blank offer
+  // summary on the same read has no page and no candidate that speaks to it,
+  // so the row carries a reason for nobody to state.
+  it("carries no omission reason for a field outside the legal trio", () => {
+    const row = rowFor("offer_summary", cleared, new Map(), stubT, pages, [
+      candidate,
+    ]);
+    expect(row.state).toBe("required");
+    expect(row.omissionReasonKey).toBeNull();
+    expect(row.emptyHintKey).toBe("ob.conv.triage.emptyHint");
+  });
+
+  it("carries the gap as the row's own omission reason when the read can name one", () => {
+    const row = rowFor("register_vat", cleared, new Map(), stubT, pages, [
+      candidate,
+    ]);
+    // The read fetched the imprint and no candidate carries a register
+    // number: the page states none, which is a fact about this field.
+    expect(row.omissionReasonKey).toBe("ob.conv.triage.legalNotPublished");
   });
 });

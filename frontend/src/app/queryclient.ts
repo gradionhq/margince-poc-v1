@@ -1,5 +1,5 @@
-import { QueryCache, QueryClient } from "@tanstack/react-query";
-import { ProblemError } from "../screens/common";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
+import { logUnexpectedError, ProblemError } from "../screens/common";
 
 // The data layer's parameters (architecture/frontend, FE-PARAM-1..4). The
 // library's defaults are not this product's: they hold nothing back from the
@@ -69,5 +69,16 @@ export function createQueryClient(): QueryClient {
       },
     },
     queryCache: new QueryCache({ onError: reportQueryError }),
+    // FE-PARAM-4 for the other half of the data layer. A mutation has no
+    // shared cache entry a screen sits on, so nothing observes its failure
+    // unless something is wired to — and wiring that per mutation is how the
+    // next one written loses it: the failure the reader is shown as one
+    // generic sentence would then exist nowhere at all.
+    //
+    // logUnexpectedError rather than the unconditional report the query half
+    // makes: a server problem is already on the screen in the reader's own
+    // words, and a refusal a form renders field by field is a routine answer
+    // to a mutation, not a fault anyone should open a console for.
+    mutationCache: new MutationCache({ onError: logUnexpectedError }),
   });
 }

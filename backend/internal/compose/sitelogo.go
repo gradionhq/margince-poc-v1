@@ -337,6 +337,10 @@ func (w *siteDeepReadWorker) recordOrganizationLogo(ctx context.Context, readID 
 // that does not exist yet. The confirmation binds it as it creates the anchor,
 // under the same human-precedence rule an organization write obeys; a read
 // nobody confirms simply never hands it over.
+//
+// A dossier that has moved on refuses the reference, and the bytes stored for it
+// are collected right here: an object no row names is one nothing can find to
+// collect later, so the attempt that stored it is the last chance it gets.
 func (w *siteDeepReadWorker) recordDossierLogo(ctx context.Context, readID ids.UUID, key string, logo resolvedLogo, attempts []logoAttempt) {
 	recorded, superseded, err := w.people.RecordSiteReadLogo(ctx, readID, key, logo.SourceURL)
 	if err != nil {
@@ -348,7 +352,7 @@ func (w *siteDeepReadWorker) recordDossierLogo(ctx context.Context, readID ids.U
 	}
 	if !recorded {
 		w.reclaimLogoObject(ctx, readID, &key)
-		w.log.InfoContext(ctx, "resolved logo left unused: the website read already has its company",
+		w.log.InfoContext(ctx, "resolved logo left unused: the website read is past taking one — it has its company, or it has already reported",
 			"read", readID.String(), "source", logo.SourceURL)
 		return
 	}

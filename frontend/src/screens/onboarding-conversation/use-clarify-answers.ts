@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
-import type { Locale } from "../../i18n";
-import { problemMessage } from "../common";
+import { type Locale, useT } from "../../i18n";
+import { ProblemError, problemMessageOf } from "../common";
 import type { CompanyDraft } from "../onboarding";
 import { onboardingDraftPayload } from "../onboarding";
 import type { SuggestedCompanyChange } from "../onboarding-read";
@@ -48,20 +48,29 @@ export type ClarifyFailure =
   | { kind: "request"; detail: string }
   | { kind: "unconfirmed" };
 
-// The one error mutationFn is allowed to throw with a message safe to show
-// verbatim (problemMessage already stripped it of anything internal). Any
-// OTHER exception — a bug in this hook's own onSuccess handling included —
-// is never trusted with a raw .message: onError below treats it the same
-// as an unconfirmed choice rather than surfacing whatever it happened to
-// say.
-class ClarifyRequestError extends Error {}
+// The one error mutationFn is allowed to throw whose words may reach the
+// reader: it carries the messages endpoint's own RFC 7807 body, so the shown
+// detail is a sentence the server composed. Any OTHER exception — a bug in
+// this hook's own onSuccess handling included — is never trusted with a raw
+// .message: onError below treats it the same as an unconfirmed choice rather
+// than surfacing whatever it happened to say.
+class ClarifyRequestError extends ProblemError {}
 
 // The one field name the legal-entity clarify always answers; only an
 // authorized change to THIS field ever triggers the entity-detail fill.
 const LEGAL_ENTITY_FIELD = "legal_name";
 
-// The candidate the human just picked, matched by the exact name the server
+// The candidate the human just picked, matched by the name the server
 // authorized — never a different entity, never a guess.
+//
+// Matched the way the SERVER matches the same pair when it decides whether a
+// confirmed legal block keeps the site's provenance (people's
+// selectedLegalEntityFields: trimmed on both sides): the option value a human
+// can click is a normalized copy of the candidate's name, so a stored name
+// carrying incidental whitespace is one the server counts as picked. Compared
+// raw, the client alone would call it absent — and the pick it then routes
+// down the ordinary change path leaves address and registration number
+// unfilled and the chosen name reading as hand-entered.
 //
 // A candidate the read could not name is no match either. The fill settles
 // nothing about legal_name for one, by design: a nameless candidate must not
@@ -74,13 +83,11 @@ function pickedLegalEntity(
   selection: OptionSelection,
   legalEntities: readonly LegalEntity[],
 ): LegalEntity | undefined {
-  if (selection.field !== LEGAL_ENTITY_FIELD) {
+  const picked = selection.value.trim();
+  if (selection.field !== LEGAL_ENTITY_FIELD || picked === "") {
     return undefined;
   }
-  return legalEntities.find(
-    (candidate) =>
-      candidate.name === selection.value && candidate.name.trim() !== "",
-  );
+  return legalEntities.find((candidate) => candidate.name.trim() === picked);
 }
 
 // Where an authorized change lands: through the entity fill when the human
@@ -141,6 +148,7 @@ export function useClarifyAnswers({
   applyChanges,
   applyLegalEntity,
 }: UseClarifyAnswersArgs) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [answers, setAnswers] = useState<ClarifyAnswer[]>([]);
   const [failure, setFailure] = useState<ClarifyFailure | null>(null);
@@ -168,7 +176,7 @@ export function useClarifyAnswers({
         },
       });
       if (error) {
-        throw new ClarifyRequestError(problemMessage(error));
+        throw new ClarifyRequestError(error);
       }
       return data;
     },
@@ -201,7 +209,7 @@ export function useClarifyAnswers({
     onError: (error, selection) => {
       rollback(selection.clarifyId);
       if (error instanceof ClarifyRequestError) {
-        setFailure({ kind: "request", detail: error.message });
+        setFailure({ kind: "request", detail: problemMessageOf(error, t) });
         return;
       }
       // Never a raw exception message: whatever actually broke belongs in

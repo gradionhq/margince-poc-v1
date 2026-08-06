@@ -2175,7 +2175,7 @@ export const de = {
   "ob.conv.triage.stateStored": "aus deinem Profil",
   "ob.conv.triage.stateQuoted": "aus deinem Impressum gelesen",
   "ob.conv.triage.emptyHint":
-    "Nicht auf deiner Website gefunden. Trag es ein, wenn es zählt.",
+    "Hier steht noch nichts. Trag es ein, wenn es zählt.",
   "ob.conv.triage.legalNotPublished":
     "Nicht auf deinem Impressum angegeben. Trag es selbst ein.",
   "ob.conv.triage.legalNotChecked":

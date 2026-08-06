@@ -10,7 +10,7 @@ import {
   type WorkbenchStep,
 } from "../../design-system/margince-workbench";
 import { useLocale, useT } from "../../i18n";
-import { problemMessage, useMe } from "../common";
+import { throwProblem, useMe } from "../common";
 import {
   configuredModelLabel,
   configuredModelSummary,
@@ -36,7 +36,7 @@ export function useConfiguredModel(): string {
     queryFn: async (): Promise<AiProfile> => {
       const { data, error } = await api.GET("/ai/profile");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -55,7 +55,7 @@ function useConfiguredModelSummary(): string {
     queryFn: async (): Promise<AiProfile> => {
       const { data, error } = await api.GET("/ai/profile");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

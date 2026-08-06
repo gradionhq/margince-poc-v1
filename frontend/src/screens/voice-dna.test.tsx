@@ -188,8 +188,9 @@ describe("the Settings Voice DNA card with no profile yet", () => {
 });
 
 // A build is the longest-running act on this card and the one a reader is
-// likeliest to report as broken. What they can quote is one sentence, so the
-// failure behind it has to survive somewhere an operator can read it.
+// likeliest to report as broken, so what the card says about a failed one is
+// the sentence that gets quoted. Keeping the failure itself readable on the
+// console belongs to the client's mutation sink (app/queryclient.test).
 describe("a build that fails", () => {
   // `collecting` is the server's "too thin to build" verdict and disables the
   // control; a provisional profile is the smallest fixture whose build button
@@ -222,11 +223,9 @@ describe("a build that fails", () => {
     );
   }
 
-  it("shows the shared line and keeps the original failure on the console", async () => {
-    const crash = new TypeError("Cannot read properties of undefined");
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("shows the shared line and never our own internals", async () => {
     stubBuild(() => {
-      throw crash;
+      throw new TypeError("Cannot read properties of undefined");
     });
 
     await pressRebuild();
@@ -236,15 +235,9 @@ describe("a build that fails", () => {
     ).toBeTruthy();
     // Our own internals never become the reader's sentence.
     expect(screen.queryByText(/Cannot read properties/)).toBeNull();
-    // Once, and as the value that was thrown — sanitizing before logging
-    // would leave the same nothing on the console as on the screen.
-    expect(logged).toHaveBeenCalledTimes(1);
-    expect(logged).toHaveBeenCalledWith(crash);
-    logged.mockRestore();
   });
 
-  it("stays off the console for a failure the server already described", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("shows the server's own cause when the server composed one", async () => {
     stubBuild(() =>
       jsonResponse(
         { code: "budget_exhausted", detail: "The AI budget is spent." },
@@ -255,7 +248,5 @@ describe("a build that fails", () => {
     await pressRebuild();
 
     expect(await screen.findByText("The AI budget is spent.")).toBeTruthy();
-    expect(logged).not.toHaveBeenCalled();
-    logged.mockRestore();
   });
 });

@@ -2,6 +2,7 @@ import type { Dispatch } from "react";
 import { useEffect, useState } from "react";
 import { navigate } from "../../app/router";
 import { useT } from "../../i18n";
+import { problemMessageOf } from "../common";
 import { EMPTY_DRAFT } from "../onboarding";
 import { BuildScene } from "../onboarding-build-scene";
 import {
@@ -214,7 +215,9 @@ export function ConnectAct({
           onLinkedinConnect={connectLinkedin}
           onLinkedinSkip={() => dispatch({ type: "LINKEDIN_SKIPPED" })}
           linkedinPending={linkedin.isPending}
-          linkedinError={linkedin.isError ? linkedin.error.message : null}
+          linkedinError={
+            linkedin.isError ? problemMessageOf(linkedin.error, t) : null
+          }
           onEnter={
             state.phase === "cn.done" ? () => setEntering(true) : undefined
           }

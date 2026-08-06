@@ -448,13 +448,14 @@ export function problemMessageOf(
 // in the reader's own words, and logging it would report one failure twice
 // while adding nothing.
 //
-// Wired as a mutation's own `onError`, never as a render-time call or an
-// effect watching `isError`: react-query runs a mutation to completion
-// independently of whichever component started it, so this fires exactly once
-// per actual failure — including the one where the reader leaves mid-flight
-// and the component that would have hosted an effect is already unmounted when
-// the request settles. Queries need no such wiring; the shared query cache
-// reports every failure of theirs already (app/queryclient.ts, FE-PARAM-4).
+// Wired ONCE, as the client's mutation-cache sink (app/queryclient.ts,
+// FE-PARAM-4), never per mutation and never as a render-time call or an effect
+// watching `isError`. The cache observes every mutation the application runs,
+// so no screen has to remember this and none can lose it; and because
+// react-query runs a mutation to completion independently of whichever
+// component started it, the sink fires exactly once per actual failure —
+// including the one where the reader leaves mid-flight and the component that
+// would have hosted an effect is already unmounted when the request settles.
 export function logUnexpectedError(error: unknown): void {
   if (!(error instanceof ProblemError)) {
     console.error(error);

@@ -2149,7 +2149,11 @@ export const en = {
   // scored it, so the word names WHERE it came from; "chosen by you" would be
   // false on the sole-candidate path, where nobody was asked anything.
   "ob.conv.triage.stateQuoted": "read from your legal notice",
-  "ob.conv.triage.emptyHint": "Not found on your site. Yours to add.",
+  // Where a value would stand on an empty row. It says only that the row is
+  // empty: the same line serves the manual path, where nothing ever read the
+  // site, and a read-backed board, where the wire says nothing about why any
+  // one field came back missing. Naming a cause here would invent one.
+  "ob.conv.triage.emptyHint": "Nothing here yet. Yours to add.",
   "ob.conv.triage.legalNotPublished":
     "Not stated on your legal or imprint page. Yours to add.",
   "ob.conv.triage.legalNotChecked":

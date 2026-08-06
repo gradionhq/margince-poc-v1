@@ -9,7 +9,7 @@ import { Button, Radio, Skeleton } from "../design-system/atoms";
 import { formatMoney, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { ProblemError, problemMessageOf, throwProblem } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import { errorClassKey } from "./connector-status";
 import "./onboarding-backread.css";
 
@@ -83,25 +83,12 @@ function isLive(state: BackfillStatus["state"] | undefined): boolean {
 // a read started here lands there too rather than on a second cache entry.
 const statusQueryKey = (provider: Provider) => ["backfill-status", provider];
 
-// The one place a raw (non-`ProblemError`) mutation failure reaches the
-// console. Wired as each mutation's own `onError`, not a render-time call or
-// an effect watching `isError`/`error`: react-query runs a mutation to
-// completion independently of whatever component started it, so this fires
-// exactly once per actual failure — including the one where the reader
-// leaves mid-flight and the component that would have hosted an effect is
-// already unmounted by the time the request settles.
-function logUnexpectedError(error: unknown): void {
-  if (!(error instanceof ProblemError)) {
-    console.error(error);
-  }
-}
-
 // The template-ready `{detail}` value for a mutation that may or may not
 // have failed — `null` while it hasn't, the failure's reader-safe text once it
 // has. Pulled out of the component itself so each of the three mutations'
-// error handling reads as one call, not a ternary. Logging the raw failure is
-// `useUnexpectedErrorLog`'s job, not this function's: this one only derives
-// text, so it stays safe to call from render as many times as render runs.
+// error handling reads as one call, not a ternary. It only derives text, so it
+// stays safe to call from render as many times as render runs; keeping the raw
+// failure readable is the client's mutation sink's job (app/queryclient.ts).
 function safeDetail(
   isError: boolean,
   error: unknown,
@@ -166,7 +153,6 @@ export function OnboardingBackread({
       }
       return data;
     },
-    onError: logUnexpectedError,
   });
 
   const start = useMutation({
@@ -185,7 +171,6 @@ export function OnboardingBackread({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
-    onError: logUnexpectedError,
   });
 
   const cancel = useMutation({
@@ -201,7 +186,6 @@ export function OnboardingBackread({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
-    onError: logUnexpectedError,
   });
 
   // The scope loads itself for whichever window is selected: the first thing a

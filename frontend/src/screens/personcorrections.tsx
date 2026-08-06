@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, Card, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 
 type Person360 = components["schemas"]["Person360"];
 type ProfileField = components["schemas"]["PersonProfileField"];
@@ -86,7 +86,7 @@ function EnrichedField({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -187,7 +187,7 @@ function EnrichedField({
           role="alert"
           style={{ margin: "var(--space-2) 0 0", color: "var(--danger)" }}
         >
-          {record.error.message}
+          {problemMessageOf(record.error, t)}
         </p>
       )}
     </div>

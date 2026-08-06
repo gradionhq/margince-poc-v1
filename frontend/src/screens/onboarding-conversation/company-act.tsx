@@ -6,7 +6,13 @@ import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { useLocale, useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
-import { coldFieldLabel, problemCodeOf, throwProblem, useMe } from "../common";
+import {
+  coldFieldLabel,
+  problemCodeOf,
+  problemMessageOf,
+  throwProblem,
+  useMe,
+} from "../common";
 import type { CompanyDraft } from "../onboarding";
 import {
   changeDraftField,
@@ -405,14 +411,21 @@ export function CompanyAct({
   // reports as confirmable proves it has. A refetch that FAILED proves
   // nothing — react-query keeps the last good snapshot, which is the very
   // one the server just refused — so the block stands, exactly as it does
-  // for a snapshot that comes back unconfirmable again. The proposal rides
-  // along because the confirm quotes its draft version and hash: refetching
-  // only the read would re-arm Continue onto a proposal from before the read
-  // moved.
+  // for a snapshot that comes back unconfirmable again.
+  //
+  // Both halves have to land, on the same terms, because the confirm sends
+  // both: a read the server calls confirmable AND the version pair that press
+  // would quote. The proposal is the pair's source whenever it has one, and
+  // react-query holds its last good snapshot through a failure, so lifting on
+  // the read alone re-arms Continue onto a pair from before the read moved —
+  // a version_skew earned on the next press rather than avoided. The proposal
+  // endpoint having never answered at all is the one exception, and not a
+  // stale pair: the confirm then quotes the refreshed read's own version pair
+  // (see the mutation body's `proposalFromRead` fallback).
   const recheckReadiness = useCallback(() => {
     setAwaitingReadinessCheck(true);
     void Promise.allSettled([siteRead.refetch(), proposal.refetch()]).then(
-      ([readOutcome]) => {
+      ([readOutcome, proposalOutcome]) => {
         setAwaitingReadinessCheck(false);
         const refreshed =
           readOutcome.status === "fulfilled" && !readOutcome.value.isError
@@ -420,8 +433,13 @@ export function CompanyAct({
             : undefined;
         const confirmable =
           refreshed?.status === "ready" || refreshed?.status === "partial";
-        setNotReadyBlocked(!confirmable);
-        if (confirmable) {
+        const pairIsFresh =
+          proposalOutcome.status === "fulfilled" &&
+          (!proposalOutcome.value.isError ||
+            proposalOutcome.value.data === undefined);
+        const released = confirmable && pairIsFresh;
+        setNotReadyBlocked(!released);
+        if (released) {
           // The reader ran this check themselves and it released the block,
           // so the sentence naming that block has stopped being true —
           // leaving it up would be a false statement, not reassurance.
@@ -527,10 +545,13 @@ export function CompanyAct({
   // an identical press cannot change: the proposal it rejected for version
   // skew (see refreshAfterSkew for the three outcomes that decide when
   // `skewBlocked` clears) or a read it says has no draft to confirm (see
-  // recheckReadiness). A "checkFailed" notice deliberately leaves Continue
-  // armed: that load may simply have been unlucky, and pressing again is a
-  // fair thing to do.
-  const confirmBlocked = skewBlocked || notReadyBlocked;
+  // recheckReadiness). Nor while the `already_confirmed` recovery is still
+  // loading the company that confirmation created: the server has settled
+  // this read, so a press there earns the same 409 and starts a second
+  // lookup racing the first. A SETTLED "checkFailed" deliberately leaves
+  // Continue armed: that load may simply have been unlucky, and pressing
+  // again is a fair thing to do.
+  const confirmBlocked = skewBlocked || notReadyBlocked || awaitingCompanyLoad;
 
   // The gate's own field is the ONE place a website address is typed — the
   // rail takes no free text, so there is no second entry point to keep in
@@ -558,7 +579,7 @@ export function CompanyAct({
   const gateNotice = gateNoticeFor({
     state,
     read,
-    startError: startRead.isError ? safeStartError(startRead.error) : null,
+    startError: startRead.isError ? safeStartError(startRead.error, t) : null,
     translate: t,
     failedWithDetail: (detail) => t("ob.gate.startFailed", { detail }),
     pausedWithDetail: (detail) => t("ob.gate.readPaused", { detail }),
@@ -762,8 +783,14 @@ export function CompanyAct({
   // useful: `confirmNotice` covers version_skew (a fresh fetch is already in
   // flight; the thread's own alert says so) and the other two documented
   // 409s, so this stays null for those rather than doubling the message.
+  // `already_confirmed` is the one refusal that carries no notice while it
+  // resolves — its whole recovery is the company lookup — and that lookup
+  // ends either in the review's exit or in the "checkFailed" notice, so a
+  // failure banner over it would report a save that in fact went through.
   const confirmBannerMessage =
-    confirm.isError && confirmNotice === null ? confirm.error.message : null;
+    confirm.isError && confirmNotice === null && !awaitingCompanyLoad
+      ? problemMessageOf(confirm.error, t)
+      : null;
   // The action each resolved-409 notice offers, or none. A "skew" notice
   // earns one only once its automatic refresh has already run and left the
   // block standing (`skewStuck`) — before that there is nothing left to ask
@@ -968,7 +995,7 @@ export function CompanyAct({
           {startRead.isError && (
             <p className="mw-send-error" role="alert">
               {t("ob.gate.startFailed", {
-                detail: safeStartError(startRead.error),
+                detail: safeStartError(startRead.error, t),
               })}
             </p>
           )}

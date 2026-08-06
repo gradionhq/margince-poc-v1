@@ -11,12 +11,7 @@ import {
   Textarea,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import {
-  logUnexpectedError,
-  problemMessageOf,
-  QueryGate,
-  throwProblem,
-} from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { ensureProfileId, useVoiceProfile } from "./voice-profile";
 import { ActiveVoiceInsights, VoiceHistory } from "./voice-versions";
 import "./voice-dna.css";
@@ -46,21 +41,20 @@ function useVoiceSources(profileId: string) {
 }
 
 // What every mutation on this card does with a failure, spelled once: state it
-// in words written for the reader, and put the raw one on the console when it
-// is not a server problem. Without the second half a save, a removal, an add
-// or a build that broke shows one generic sentence and leaves no trace at all
-// — the failure would be unreadable exactly where it is least explained.
+// in words written for the reader. Keeping the raw failure readable is the
+// client's mutation sink's job (app/queryclient.ts), so a save, a removal, an
+// add or a build that broke is diagnosable without every mutation here saying
+// so for itself.
 //
 // The parameter is `unknown` rather than react-query's default `Error`
 // because what a rejected promise carries is not ours to assume: a thrown
-// string reaches here just as a TypeError does, and problemMessageOf and
-// logUnexpectedError both take it as it comes.
+// string reaches here just as a TypeError does, and problemMessageOf takes it
+// as it comes.
 function reportFailure(
   setError: (message: string) => void,
   t: ReturnType<typeof useT>,
 ): (error: unknown) => void {
   return (error: unknown) => {
-    logUnexpectedError(error);
     setError(problemMessageOf(error, t));
   };
 }

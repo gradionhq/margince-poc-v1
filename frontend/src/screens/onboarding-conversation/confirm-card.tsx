@@ -208,7 +208,8 @@ function prosePreview(value: string): string {
 }
 
 /**
- * What the board owes a reader for a field the read came back without.
+ * The omission notice: what the board owes a reader for a field the read
+ * looked for and came back without.
  *
  * The backend drops a field that fails the evidence assertion rather than
  * shipping it with a reason attached (ai-operational-spec: omission is the
@@ -216,31 +217,22 @@ function prosePreview(value: string): string {
  * surface's to discharge — a named omission, never a blank box the reader
  * has to tell apart from "not found" and "never looked".
  *
- * The reason is the row's own hint, derived from what the crawl actually saw
- * for THIS field. The read's `warnings` are deliberately not part of it: they
- * are crawl-wide sentences (an extraction caveat, the legal gate's
- * abstention, a read that stopped early) and nothing on the wire ties one to
- * a field, so quoting any of them here would assert a cause for this field
- * that the read never gave — the very fabrication this notice exists to
- * prevent. Every warning is still shown in full, under its own heading, by
- * the CoverageCard at the foot of the board.
+ * Which is also its limit: the notice is stated ONLY where the read accounts
+ * for the field itself (`row.omissionReasonKey`, the legal trio's gap read
+ * off the crawl's own pages and candidates). Everywhere else silence is all
+ * there is, and a box asserting "not found on your site" over it would be the
+ * fabrication this notice exists to prevent — so those rows carry no notice
+ * at all and read as what they are: empty, and fillable right here.
+ *
+ * The read's `warnings` are deliberately no part of a reason either: they are
+ * crawl-wide sentences (an extraction caveat, the legal gate's abstention, a
+ * read that stopped early) and nothing on the wire ties one to a field. Every
+ * warning is shown in full, under its own heading, by the CoverageCard at the
+ * foot of the board.
+ *
+ * In the dashed weight the tree already uses for anything not yet real: the
+ * field named, and beside it the one reason the read can support for it.
  */
-function omissionReasonFor(
-  row: ReviewRow,
-  read: CompanySiteRead | null,
-): MessageKey | null {
-  // No read, no omission to state: an empty field on the manual path was
-  // never looked for, and saying it was not found would be the same
-  // fabrication in the other direction.
-  if (read === null || row.value.trim() !== "") {
-    return null;
-  }
-  return row.emptyHintKey;
-}
-
-// The omission itself, in the dashed weight the tree already uses for
-// anything not yet real: the field named, and beside it the one reason the
-// read can actually support for that field.
 function OmissionNotice({
   label,
   reasonKey,
@@ -282,13 +274,10 @@ function OmissionNotice({
  */
 function FieldRow({
   row,
-  omissionReason,
   setField,
   defaultExpanded,
 }: Readonly<{
   row: ReviewRow;
-  /** Null when the field carries a value, or when no read ever ran. */
-  omissionReason: MessageKey | null;
   setField: (field: CompanyFieldName, value: string) => void;
   defaultExpanded: boolean;
 }>) {
@@ -390,10 +379,14 @@ function FieldRow({
           {t("ob.conv.review.showLess")}
         </button>
       </div>
-      {/* Above the control, not below it: the reader learns the box is empty
-          because nothing grounded it BEFORE deciding what to type in it. */}
-      {omissionReason !== null && (
-        <OmissionNotice label={row.label} reasonKey={omissionReason} t={t} />
+      {/* Above the control, not below it: the reader learns why the box is
+          empty BEFORE deciding what to type in it. */}
+      {row.omissionReasonKey !== null && (
+        <OmissionNotice
+          label={row.label}
+          reasonKey={row.omissionReasonKey}
+          t={t}
+        />
       )}
       {row.multiline ? (
         <textarea id={controlId} value={row.value} onChange={onChange} />
@@ -1095,15 +1088,11 @@ function FactsGroupSection({
 function FieldGroupSection({
   group,
   rowByField,
-  read,
   setField,
   t,
 }: Readonly<{
   group: FrozenGroup;
   rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
-  /** The read behind the board, or null when none ran — the one thing that
-   * decides whether an empty row is an omission or simply unfilled. */
-  read: CompanySiteRead | null;
   setField: (field: CompanyFieldName, value: string) => void;
   t: ReturnType<typeof useT>;
 }>) {
@@ -1136,7 +1125,6 @@ function FieldGroupSection({
               )}
             <FieldRow
               row={row}
-              omissionReason={omissionReasonFor(row, read)}
               setField={setField}
               defaultExpanded={group.openByDefault.has(row.field)}
             />
@@ -1164,8 +1152,8 @@ function GroupBody({
   group: FrozenGroup;
   rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
   setField: (field: CompanyFieldName, value: string) => void;
-  /** Null on a proposal-only render: no people section, and no field on the
-   * board can be called omitted, because nothing went looking. */
+  /** Null on a proposal-only render, where there is no people section: "no
+   * people found" would be a guess rather than a finding. */
   read: CompanySiteRead | null;
   facts: readonly SiteFact[];
   factSelection: FactSelection;
@@ -1191,7 +1179,6 @@ function GroupBody({
     <FieldGroupSection
       group={group}
       rowByField={rowByField}
-      read={read}
       setField={setField}
       t={t}
     />

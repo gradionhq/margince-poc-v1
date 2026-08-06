@@ -244,6 +244,43 @@ describe("a field the read did not return", () => {
     // something anyone looked for yet.
     expect(row("legal_name")).toBeInTheDocument();
   });
+
+  // The notice is a claim about what the crawl DID, and the wire accounts for
+  // exactly one group of fields: the legal trio, through the pages and
+  // candidates the read reports. For every other blank field it carries
+  // silence — which covers a crawl that stopped early, an extraction that
+  // abstained, and a value the read proposed that the human then cleared. A
+  // box over that silence would name a cause the read never gave, which is
+  // the one thing the notice exists to prevent.
+  it("names as omitted only the fields the read itself accounts for", () => {
+    renderCard(read());
+
+    const omitted = [...document.querySelectorAll(".ob-triage-omitted")].map(
+      (notice) => notice.closest("li")?.id,
+    );
+    expect(omitted.sort()).toEqual([
+      "ob-triage-row-legal_name",
+      "ob-triage-row-register_vat",
+      "ob-triage-row-registered_address",
+    ]);
+  });
+
+  it("leaves a field the read has no account of as plainly empty, and fillable", async () => {
+    const user = userEvent.setup();
+    renderCard(read());
+
+    // Nothing in the read speaks to why the offer summary, specifically, came
+    // back missing, so the row states nothing about the site at all.
+    const offer = row("offer_summary");
+    expect(offer.querySelector(".ob-triage-omitted")).toBeNull();
+    expect(within(offer).getByRole("textbox")).toHaveValue("");
+
+    // Collapsed, the placeholder standing in for the value says only that the
+    // row is empty — the same line the manual path shows, where nothing ever
+    // read a site to have missed it.
+    await user.click(within(offer).getByRole("button", { name: "Show less" }));
+    expect(offer).toHaveTextContent("Nothing here yet. Yours to add.");
+  });
 });
 
 describe("the identity card's mark", () => {

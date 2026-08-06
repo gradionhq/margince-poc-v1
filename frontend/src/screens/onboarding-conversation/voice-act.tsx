@@ -2,6 +2,7 @@ import type { ChangeEvent, Dispatch, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { useT } from "../../i18n";
+import { problemMessageOf } from "../common";
 import { VOICE_MIN_WORDS } from "../onboarding";
 import type {
   ConversationEvent,
@@ -326,7 +327,9 @@ function VoiceSurface({
         onSkip={() => dispatch({ type: "VOICE_SKIPPED" })}
         canBuild={canBuild}
         startPending={build.start.isPending}
-        startError={build.start.isError ? build.start.error.message : null}
+        startError={
+          build.start.isError ? problemMessageOf(build.start.error, t) : null
+        }
       />
     );
   }

@@ -296,19 +296,16 @@ describe("honest capability and staleness", () => {
   });
 });
 
-// A failure the reader is shown as one generic sentence has to be readable
-// somewhere, or a report of it names nothing anyone can act on. These pin both
-// halves of that: what the screen says, and what the console keeps.
+// What the panel PUTS ON THE SCREEN for a failure, which is the half a reader
+// ever sees. Keeping the same failure readable on the console belongs to the
+// client's mutation sink and is pinned once against it (app/queryclient.test).
 describe("a failure nobody wrote for a reader", () => {
-  const transportFailure = new TypeError("ECONNREFUSED: connection refused");
-
-  it("shows the shared line and keeps the original failure on the console", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("shows the shared line and never the transport wording", async () => {
     installFetchStub({
       "POST /connectors/gmail/backfill/preview": () =>
         jsonResponse(previewOf(400)),
       "POST /connectors/gmail/backfill": () => {
-        throw transportFailure;
+        throw new TypeError("ECONNREFUSED: connection refused");
       },
     });
     render(<BackfillPanel provider="gmail" initial={{ state: "none" }} />);
@@ -322,15 +319,9 @@ describe("a failure nobody wrote for a reader", () => {
     ).toBeTruthy();
     // The wording nobody wrote for a user stays off the screen entirely.
     expect(screen.queryByText(/ECONNREFUSED/)).toBeNull();
-    // Once, and with the failure itself — a re-thrown copy or a message
-    // string would lose the stack the report is being read for.
-    await waitFor(() => expect(logged).toHaveBeenCalledTimes(1));
-    expect(logged).toHaveBeenCalledWith(transportFailure);
-    logged.mockRestore();
   });
 
-  it("stays off the console for a failure the server already described", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("shows the server's own cause when the server composed one", async () => {
     installFetchStub({
       "POST /connectors/gmail/backfill/preview": () =>
         jsonResponse(previewOf(400)),
@@ -346,12 +337,8 @@ describe("a failure nobody wrote for a reader", () => {
       await screen.findByRole("button", { name: /Start the import/ }),
     );
 
-    // The reader can already read the cause, so a console copy would report
-    // the same failure twice and add nothing to it.
     expect(
       await screen.findByText("This month's budget is spent."),
     ).toBeTruthy();
-    expect(logged).not.toHaveBeenCalled();
-    logged.mockRestore();
   });
 });

@@ -1,3 +1,4 @@
+import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProblemError } from "../screens/common";
 import { createQueryClient, retryQuery } from "./queryclient";
@@ -65,5 +66,42 @@ describe("the query client defaults", () => {
 
     expect(reported).toHaveBeenCalledTimes(1);
     expect(reported.mock.calls[0]?.[1]).toBeInstanceOf(Error);
+  });
+});
+
+// A mutation is the half of the data layer nothing observes on its own: its
+// result lives on the hook instance that started it, so a failure the reader
+// is shown as one generic sentence leaves no trace anywhere unless the client
+// itself keeps one. These pin that the client does, for every mutation the
+// application runs rather than for the ones a screen remembered to wire.
+describe("the mutation failure sink", () => {
+  function failWith(client: QueryClient, error: unknown): Promise<unknown> {
+    return new MutationObserver(client, {
+      mutationFn: () => Promise.reject(error),
+    }).mutate();
+  }
+
+  it("keeps a failure nobody wrote for a reader, once and as it was thrown", async () => {
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    const crash = new TypeError("Cannot read properties of undefined");
+
+    await expect(failWith(createQueryClient(), crash)).rejects.toThrow(crash);
+
+    // The value itself: a message string would drop the stack the console is
+    // being read for.
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(reported).toHaveBeenCalledWith(crash);
+  });
+
+  it("stays silent for a failure the server already described", async () => {
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      failWith(createQueryClient(), new ProblemError({ detail: "no seat" })),
+    ).rejects.toThrow("no seat");
+
+    // The reader can already read that cause; a console copy would report the
+    // same failure twice and add nothing to it.
+    expect(reported).not.toHaveBeenCalled();
   });
 });

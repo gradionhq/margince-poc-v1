@@ -126,11 +126,20 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 // while the crawl is, so a mark that is not parked here is a mark nothing can
 // resolve later.
 //
-// It reports whether the dossier took the reference — a read already bound or
-// confirmed has moved on without it — and hands back the key the row named
-// before, so the caller can reclaim bytes nothing references any more. Same
-// contract as SetOrganizationLogo, for the same reason: each attempt writes its
-// own key, so two resolves of one read can never write the same object.
+// Only a read a worker still HOLDS takes the reference — running, the state
+// BeginSiteRead's claim puts the row in. Past that the row has already answered
+// for its mark: a read that ended without a company had its parked object
+// collected on the way to terminal, and a read that ended with a report handed a
+// human a draft whose mark must not change while they review it. A park after
+// either is a reference nothing adopts and nothing collects, which is the one
+// orphan this lane can no longer find.
+//
+// It reports whether the dossier took the reference and hands back the key the
+// row named before, so the caller can reclaim bytes nothing references any more.
+// A refused park hands back none — the object stored for it is the caller's to
+// collect. Same contract as SetOrganizationLogo, for the same reason: each
+// attempt writes its own key, so two resolves of one read can never write the
+// same object.
 //
 // No auth.Require, the same rationale as BeginSiteRead: the worker is not a
 // human principal, the human's authority was checked when the read was started,
@@ -149,13 +158,13 @@ func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, objectK
 		var previous *string
 		err := tx.QueryRow(ctx, `
 			UPDATE site_read SET logo_object_key = $2, logo_origin = $3, updated_at = now()
-			WHERE id = $1 AND organization_id IS NULL AND confirmed_at IS NULL
+			WHERE id = $1 AND status = 'running' AND organization_id IS NULL AND confirmed_at IS NULL
 			RETURNING (SELECT sr.logo_object_key FROM site_read sr WHERE sr.id = $1)`,
 			readID, objectKey, originURL).Scan(&previous)
 		if errors.Is(err, pgx.ErrNoRows) {
-			// The read is bound or confirmed already. Its company was decided
-			// without this mark, and overwriting the reference now would name
-			// bytes no record will ever adopt.
+			// Bound, confirmed, or no longer running: the read has answered for
+			// its mark without this one, and recording it now would name bytes no
+			// record adopts and no collection reaches.
 			return nil
 		}
 		if err != nil {

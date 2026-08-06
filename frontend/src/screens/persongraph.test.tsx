@@ -23,13 +23,13 @@ function renderPanel() {
   );
 }
 
-function stub(body: unknown) {
+function stub(body: unknown, status = 200) {
   vi.stubGlobal(
     "fetch",
     vi.fn(
       async () =>
         new Response(JSON.stringify(body), {
-          status: 200,
+          status,
           headers: { "content-type": "application/json" },
         }),
     ),
@@ -139,5 +139,39 @@ describe("PersonGraphPanel", () => {
         ),
       ).toBeTruthy(),
     );
+  });
+
+  // A refusal the server phrased for a reader is the reader's answer, and it
+  // only survives the read because the failure carries the problem body rather
+  // than a copy of its text on a plain Error — the message of one of those is
+  // indistinguishable from a JavaScript bug's, so nothing may show it.
+  it("says the server's own cause when the read is refused", async () => {
+    stub(
+      {
+        code: "permission_denied",
+        detail: "You do not have the grant for this network.",
+      },
+      403,
+    );
+    renderPanel();
+
+    expect(
+      await screen.findByText("You do not have the grant for this network."),
+    ).toBeTruthy();
+  });
+
+  it("falls back to the shared line for a failure nobody phrased", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.reject(new TypeError("ECONNREFUSED: connection refused")),
+      ),
+    );
+    renderPanel();
+
+    expect(
+      await screen.findByText("The request failed. No cause reported."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/ECONNREFUSED/)).toBeNull();
   });
 });

@@ -16,7 +16,9 @@ package compose
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -373,6 +375,132 @@ func TestAFailedReadKeepsTheBytesACompanyIsAlreadyWearing(t *testing.T) {
 	// unreachable by anything that could collect them later.
 	if left, _ := parkedLogo(t, e, args.SiteReadID); left == nil || *left != *key {
 		t.Fatalf("the dossier now names %v, want the key the company shares at %q", left, *key)
+	}
+}
+
+// recordingBlobstore remembers what the lane stored and what it collected. A
+// resolve mints its key from a fresh uuid, so this is the only way a case can
+// name bytes whose key the attempt that stored them never handed to anybody.
+type recordingBlobstore struct {
+	blobstore.Store
+	mu      sync.Mutex
+	stored  []string
+	deleted map[string]bool
+}
+
+func newRecordingBlobstore() *recordingBlobstore {
+	return &recordingBlobstore{Store: blobstore.NewMemory(), deleted: map[string]bool{}}
+}
+
+func (b *recordingBlobstore) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
+	if err := b.Store.Put(ctx, key, r, size, contentType); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.stored = append(b.stored, key)
+	return nil
+}
+
+func (b *recordingBlobstore) Delete(ctx context.Context, key string) error {
+	if err := b.Store.Delete(ctx, key); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.deleted[key] = true
+	return nil
+}
+
+// account answers what the lane stored, and which of it was never collected.
+func (b *recordingBlobstore) account() (stored, outstanding []string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	stored = append(stored, b.stored...)
+	for _, key := range stored {
+		if !b.deleted[key] {
+			outstanding = append(outstanding, key)
+		}
+	}
+	return stored, outstanding
+}
+
+// endedOnboardingRead starts an unbound dossier, claims it the way the worker
+// does, and closes it — the row a resolve still in flight comes back to when the
+// reclaim window (BeginSiteRead) has handed the read to another attempt.
+func endedOnboardingRead(t *testing.T, e *integration.Env, status string) SiteDeepReadArgs {
+	t.Helper()
+	read, _, err := e.People.StartOnboardingSiteRead(
+		e.As(e.Rep1, nil, integration.AdminPerms), seedURL, "human:"+e.Rep1.String(), nil)
+	if err != nil {
+		t.Fatalf("start the onboarding read: %v", err)
+	}
+	args := SiteDeepReadArgs{Workspace: e.WS, SiteReadID: read.ID, RequestedBy: read.RequestedBy}
+	workerCtx := deepReadWorkerCtx(context.Background(), args)
+	if _, err := e.People.BeginSiteRead(workerCtx, read.ID, 10*time.Minute); err != nil {
+		t.Fatalf("claim the onboarding read: %v", err)
+	}
+	if err := e.People.FinishSiteRead(workerCtx, read.ID, people.FinishSiteReadInput{Status: status}); err != nil {
+		t.Fatalf("end the onboarding read as %s: %v", status, err)
+	}
+	return args
+}
+
+func TestADossierThatEndedRefusesALateParkedMark(t *testing.T) {
+	// Whatever the read ended as, its mark is settled. A read that ended without
+	// a company already had its parked object collected on the way to terminal,
+	// and nothing runs that collection twice; a read that ended with a report is
+	// a draft under review, whose face must not change underneath the reviewer.
+	// Taking the reference either way records bytes nothing adopts and nothing
+	// finds again.
+	for _, status := range []string{"failed", "cancelled", "done", "partial"} {
+		t.Run(status, func(t *testing.T) {
+			e := integration.Setup(t)
+			args := endedOnboardingRead(t, e, status)
+			workerCtx := deepReadWorkerCtx(context.Background(), args)
+			late := siteReadLogoKey(ids.From[ids.WorkspaceKind](e.WS), args.SiteReadID)
+			recorded, superseded, err := e.People.RecordSiteReadLogo(workerCtx, args.SiteReadID, late, touchIconURL)
+			if err != nil {
+				t.Fatalf("parking a mark on a %s read: %v", status, err)
+			}
+			if recorded {
+				t.Fatalf("the %s dossier took the reference; nothing would ever adopt or collect it", status)
+			}
+			if superseded != nil {
+				t.Fatalf("the refused park named %q as superseded, having superseded nothing", *superseded)
+			}
+			if key, origin := parkedLogo(t, e, args.SiteReadID); key != nil || origin != nil {
+				t.Fatalf("the %s dossier now names key %v origin %v", status, key, origin)
+			}
+		})
+	}
+}
+
+func TestAResolveThatLandsAfterTheReadEndedCollectsItsOwnBytes(t *testing.T) {
+	// Bytes first, row second — so a refused park leaves an object no row names,
+	// and a per-attempt key nobody else was ever told. The attempt that stored it
+	// is the last thing that can still find it, which is why the collection
+	// happens there rather than being left to a sweep that has nothing to sweep.
+	e := integration.Setup(t)
+	site := &assetSite{assets: map[string][]byte{touchIconURL: logoFixture(t, 512, 512)}}
+	blob := newRecordingBlobstore()
+	w := onboardingLogoWorker(e, site, blob)
+	args := endedOnboardingRead(t, e, "failed")
+
+	// The claim a stalled attempt still holds: unbound, seeded from the page it
+	// crawled before the dossier was closed under it.
+	w.resolveLogo(deepReadWorkerCtx(context.Background(), args), args,
+		people.SiteReadClaim{TargetKind: people.TargetKindOnboarding, SeedURL: seedURL}, declaringCrawl())
+
+	stored, outstanding := blob.account()
+	if len(stored) == 0 {
+		t.Fatal("the late resolve stored nothing; this case has no bytes to account for")
+	}
+	if len(outstanding) != 0 {
+		t.Fatalf("the refused resolve left %v stored; no row names those bytes and nothing can find them again", outstanding)
+	}
+	if key, origin := parkedLogo(t, e, args.SiteReadID); key != nil || origin != nil {
+		t.Fatalf("the failed dossier took the late mark: key %v origin %v", key, origin)
 	}
 }
 

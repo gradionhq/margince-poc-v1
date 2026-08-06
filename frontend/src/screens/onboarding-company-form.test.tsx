@@ -7,7 +7,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocaleProvider } from "../i18n";
+import { LocaleProvider, translate } from "../i18n";
 import type { CompanyDraft } from "./onboarding";
 import { EMPTY_DRAFT } from "./onboarding";
 import { CompanyStep } from "./onboarding-company-form";
@@ -54,6 +54,11 @@ function renderForm(snippet: string | undefined) {
   );
 }
 
+// The grounding label is asserted through its catalog key, not the sentence
+// the en catalog happens to hold today: the wording belongs to the catalog,
+// and what these tests are about is that the label renders at all.
+const groundingLabel = translate("en", "ob.readFromSite");
+
 afterEach(cleanup);
 
 describe("a grounded field's evidence chip", () => {
@@ -72,13 +77,13 @@ describe("a grounded field's evidence chip", () => {
     expect(document.querySelectorAll(".evidence-chip")).toHaveLength(0);
     // The grounding itself is still real and still says so: only the quote it
     // does not have is withheld.
-    expect(screen.getByText("read from site")).toBeInTheDocument();
+    expect(screen.getByText(groundingLabel)).toBeInTheDocument();
   });
 
   it("treats a quote of nothing but whitespace as no quote", () => {
     renderForm("   ");
 
     expect(document.querySelectorAll(".evidence-chip")).toHaveLength(0);
-    expect(screen.getByText("read from site")).toBeInTheDocument();
+    expect(screen.getByText(groundingLabel)).toBeInTheDocument();
   });
 });
