@@ -39,14 +39,9 @@ function LocaleList({
 }>) {
   const t = useT();
   const items = useRef<(HTMLButtonElement | null)[]>([]);
-  // The list opens on the current language, so the reader is told where they
-  // already are before they move. i18n.test.ts proves LOCALES covers every
-  // catalog, so the current locale is listed; a list that lost an entry would
-  // otherwise open with focus on nothing at all, which is the one outcome this
-  // component exists to prevent — so an unlisted current falls to the top row.
-  const [active, setActive] = useState(() =>
-    Math.max(LOCALES.indexOf(current), 0),
-  );
+  // The list opens on the language already in force, so the reader is told
+  // where they are before they are asked to move.
+  const [active, setActive] = useState(() => LOCALES.indexOf(current));
 
   useEffect(() => {
     items.current[active]?.focus();
@@ -84,9 +79,9 @@ function LocaleList({
           type="button"
           role="menuitemradio"
           aria-checked={option === current}
-          // A roving tabstop: one Tab reaches the list, one Tab leaves it, and
-          // the arrows move within it. Tab through every language would make
-          // the menu a wall rather than a choice.
+          // One tabstop for the whole list, riding the focused row: Tab leaves
+          // the menu and the arrows move within it. A tabstop per language
+          // would turn a three-item choice into a three-stop wall.
           tabIndex={index === active ? 0 : -1}
           ref={(node) => {
             items.current[index] = node;

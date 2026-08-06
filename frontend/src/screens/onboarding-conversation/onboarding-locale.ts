@@ -30,10 +30,10 @@ function isPrompted(locale: Locale): locale is Locale & OnboardingLocale {
 
 export function onboardingLocale(locale: Locale): OnboardingLocale {
   // The contract makes this field REQUIRED, enumerates only the prompted
-  // languages, and declares NO default — omitting it is not an option and the
-  // server will not fill it in, so the fallback is the UI's to choose. It
-  // chooses "en" because that is DEFAULT_LOCALE (A100), which is what a reader
-  // outside the prompted set already meets everywhere else in the app; a
-  // different choice here would put onboarding in a language nothing else uses.
+  // languages, and declares NO default — so it cannot be left off, and the
+  // fallback is the UI's own choice rather than something inherited. It
+  // chooses "en" because that is DEFAULT_LOCALE: the one language this app
+  // already falls back to whenever it cannot serve the reader's own (A100).
+  // Choosing separately here would give the product two floors instead of one.
   return isPrompted(locale) ? locale : "en";
 }
