@@ -22,6 +22,13 @@ import (
 // missing object on Get is ErrNotFound).
 var ErrNotFound = errors.New("blobstore: object not found")
 
+// ErrInvalidPrefix reports a DeletePrefix prefix that cannot bound a sweep to
+// one tenant: an empty prefix addresses every object in the store, and a
+// prefix that does not end at the "/" separator can match into a sibling
+// tenant whose id happens to extend it (e.g. "ws-a" also matches
+// "ws-abc/..."). Callers errors.Is against it.
+var ErrInvalidPrefix = errors.New("blobstore: prefix must end with '/' and be non-empty")
+
 // Store is the object-bytes seam. Keys are opaque to the store and are
 // derived by the caller through WorkspaceKey so that tenant isolation is a
 // property of the key, never of the store.
@@ -37,6 +44,21 @@ type Store interface {
 	// Delete removes the object at key. It is idempotent: deleting a key
 	// with no object is not an error, so a crash-retry is safe.
 	Delete(ctx context.Context, key string) error
+
+	// DeletePrefix removes every object whose key starts with prefix,
+	// returning how many were deleted. It exists for the tenant-wide sweep a
+	// data reset performs: the rows that named these objects are gone, so the
+	// bytes must go with them rather than outliving their only reference.
+	// Idempotent, like Delete — a prefix with no objects reports zero.
+	//
+	// prefix MUST be non-empty and end with "/" — keys are
+	// <workspace>/<kind>/<id> (see WorkspaceKey), and every legitimate
+	// prefix delete ends at that separator. An implementation rejects any
+	// other prefix with ErrInvalidPrefix before touching storage: without
+	// the boundary, an empty prefix sweeps the whole store and a
+	// truncated one (e.g. "ws-a" instead of "ws-a/") can match into a
+	// sibling tenant (e.g. "ws-abc/...").
+	DeletePrefix(ctx context.Context, prefix string) (int, error)
 
 	// Health reports whether the backing store is reachable, feeding the
 	// /readyz probe. A nil error means ready.

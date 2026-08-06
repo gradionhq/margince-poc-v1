@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
-import type { components } from "../api/schema";
+import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { useCan, useCanWrite, useHoldsWriteGrant } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
@@ -772,6 +772,12 @@ function CustomFieldsLinkCard() {
 // client-side: the input just has to be non-empty to enable the confirm
 // button, and the server is the sole judge of whether the typed text actually
 // matches (a mismatch comes back as a 422, surfaced verbatim in the dialog).
+// The full reset response — derived from the generated operation type
+// (T6: no `as`, no hand-duplicated field list) so a wire change that adds or
+// renames a counter fails typecheck here instead of silently going unshown.
+type ResetSummary =
+  operations["resetData"]["responses"][200]["content"]["application/json"];
+
 function ResetDataCard() {
   const t = useT();
   const me = useMe();
@@ -779,10 +785,18 @@ function ResetDataCard() {
   const workspaceName = me.data?.workspace_name ?? "";
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
+  // What the last reset actually cleared — null until one has run, so the
+  // danger zone stays quiet on first render rather than implying a result
+  // nobody triggered.
+  const [summary, setSummary] = useState<ResetSummary | null>(null);
   const queryClient = useQueryClient();
 
   const reset = useMutation({
     mutationFn: async () => {
+      // The summary always describes the latest attempt, never a prior one:
+      // clearing here means a retry's error can never leave a previous
+      // success sitting on screen, and an in-flight retry shows no summary.
+      setSummary(null);
       const { data, error } = await api.POST("/admin/reset-data", {
         body: { confirmation: typed },
       });
@@ -791,9 +805,10 @@ function ResetDataCard() {
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setOpen(false);
       setTyped("");
+      setSummary(data ?? null);
       // A reset wipes every domain table for the workspace — every cached
       // list/detail query is stale, not just the ones this card knows about.
       queryClient.invalidateQueries();
@@ -822,6 +837,30 @@ function ResetDataCard() {
       >
         {t("settings.resetDataButton")}
       </Button>
+      {summary && (
+        <p
+          className="t-caption"
+          role="status"
+          style={{ marginTop: "var(--space-2)" }}
+        >
+          {t("settings.resetDataResult", {
+            tables: summary.tables_cleared,
+            jobs: summary.jobs_deleted,
+            streams: summary.streams_purged,
+            keys: summary.cache_keys_deleted,
+            objects: summary.objects_deleted,
+          })}
+        </p>
+      )}
+      {summary?.drain_timed_out && (
+        <p
+          className="t-caption"
+          role="alert"
+          style={{ color: "var(--warning)", marginTop: "var(--space-1)" }}
+        >
+          {t("settings.resetDataDrainWarning")}
+        </p>
+      )}
       <ConfirmModal
         open={open}
         onClose={() => {

@@ -1397,6 +1397,10 @@ export const de = {
     "Gib zur Bestätigung den Namen deiner Organisation ein. Dies kann nicht rückgängig gemacht werden.",
   "settings.resetDataConfirmName": "Gib diesen Organisationsnamen ein:",
   "settings.resetDataConfirmLabel": "Organisationsname bestätigen",
+  "settings.resetDataResult":
+    "{tables} Tabellen, {jobs} Job-Einträge, {streams} Event-Streams, {keys} Cache-Schlüssel und {objects} gespeicherte Dateien gelöscht.",
+  "settings.resetDataDrainWarning":
+    "Beim Start des Zurücksetzens lief noch ein Hintergrund-Job. Er schlägt gegen die gelöschten Daten fehl — unkritisch, aber es erscheint ein Fehler im Log.",
   "settings.audit": "Audit-Log",
   "audit.you": "Du",
   "audit.teammate": "Ein Teammitglied",
