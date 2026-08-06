@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // runDebugSubcommand dispatches the DB-less debug loops — `worker siteread …`
@@ -83,6 +84,16 @@ func closeBus(rdb *redis.Client, logger *slog.Logger) {
 	}
 }
 
+// resetFlush builds the cache-drop callback for a reset announcement. The
+// worker holds no Server, so its flush is exactly the caches this role built.
+func resetFlush(path compose.ModelPath) func(ids.UUID) {
+	return func(ws ids.UUID) {
+		if path.InvalidateCache != nil {
+			path.InvalidateCache(ids.From[ids.WorkspaceKind](ws))
+		}
+	}
+}
+
 // workerLanes is what the event lanes leave behind for the job runner, which
 // schedules against the SAME instances those lanes consume into: one governed
 // registry and one brain per role, ONE deliverer across both outbound-webhook
@@ -127,6 +138,7 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 	startProjectionLanes(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
+	startResetLane(laneCtx, rdb, modelPath, lanes.background, logger)
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)
 	if err != nil {
@@ -153,6 +165,26 @@ func startWorkflowLane(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Clien
 	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
+}
+
+// startResetLane subscribes this role to the reset control channel. The
+// worker holds its own copies of every in-process cache, and no HTTP call
+// reaches this process. The reset channel is the only path by which a reset
+// performed in the api invalidates what this role cached.
+//
+// Unlike the lanes above, this is not an events.md consumer group: pub/sub,
+// no envelope, no dedupe wrapper, no consumer group to reclaim from.
+func startResetLane(ctx context.Context, rdb *redis.Client, modelPath compose.ModelPath, background *sync.WaitGroup, logger *slog.Logger) {
+	flush := resetFlush(modelPath)
+	background.Go(func() {
+		// The filter is ctx.Err() rather than the returned error, so a shutdown
+		// cancellation is the ONLY quiet case — the dead-subscription sentinel
+		// stays loud, because nothing will flush this role's caches again
+		// until it restarts.
+		if err := events.SubscribeReset(ctx, rdb, logger, flush); err != nil && ctx.Err() == nil {
+			logger.Error("data reset: the control channel stopped; this process serves stale caches until it restarts", "err", err)
+		}
+	})
 }
 
 // startRunnerLane builds the Surface-B runner and starts the subscriber that
