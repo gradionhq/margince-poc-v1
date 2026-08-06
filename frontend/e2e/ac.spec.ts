@@ -16,7 +16,10 @@ async function animationsSettled(page: Page) {
   await page.waitForFunction(() =>
     document
       .getAnimations()
-      .filter((animation) => animation.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY)
+      .filter(
+        (animation) =>
+          animation.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY,
+      )
       .every((animation) => animation.playState === "finished"),
   );
 }
@@ -131,8 +134,16 @@ test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
 }) => {
   await page.goto("/#/home");
   await expect(page.locator('nav.rail a[aria-label="Kontakte"]')).toBeVisible();
+  // The language control is a preference, so it lives in the account menu
+  // rather than in the top bar: reaching it takes opening that menu.
+  await page.getByRole("button", { name: "Konto" }).click();
   await page.getByRole("button", { name: "Auf Englisch umschalten" }).click();
   await expect(page.locator('nav.rail a[aria-label="Contacts"]')).toBeVisible();
+  // The menu stays open across the switch, and comes back in the new locale —
+  // the same row now offers the way back.
+  await expect(
+    page.getByRole("button", { name: "Switch to German" }),
+  ).toBeVisible();
 });
 
 test("AC-pipeline-7: board↔table swaps views preserving the deal set", async ({
@@ -643,7 +654,9 @@ test.describe("§3.8: 390px mobile", () => {
     page,
   }) => {
     await page.goto("/#/inbox");
-    await expect(page.getByText("E-Mail senden", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("E-Mail senden", { exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Übernehmen" }).click();
   });
 });
