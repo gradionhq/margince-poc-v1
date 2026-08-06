@@ -7,6 +7,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -64,6 +66,13 @@ func (m *mailBatchConnector) Sync(ctx context.Context, _ connector.Auth, _ conne
 		// is precisely what the attestation must not be derivable from.
 		msg = msg.AttestSentByOwner(m.sent[msg.ID()])
 		if _, err := sink.Upsert(ctx, msg.ToRecord("gmail", raw)); err != nil {
+			// A skip is an outcome, not a fault: the writer decided this
+			// message produces no rows. Every real connector counts it and
+			// carries on, and a fake that failed the whole sync instead would
+			// make the harness disagree with the thing it stands in for.
+			if errors.Is(err, connector.ErrSkip) {
+				continue
+			}
 			return nil, err
 		}
 	}
@@ -189,11 +198,67 @@ func newCaptureEnv(t *testing.T) captureEnv {
 		}
 	}
 
-	// The anchor sync seeds the mailbox's own domain as internal — every tier
-	// below depends on the workspace knowing which domain is its own.
+	// The installation's own company, as cold start leaves it: a human confirmed
+	// this domain is ours. It is what lets the mailbox seed below count as
+	// verified — a connected mailbox alone proves whose mailbox it is, never
+	// whose domain it is (ADR-0082/A127 §2).
+	if err := database.WithWorkspaceTx(wsCtx, e.Pool, func(tx pgx.Tx) error {
+		orgID := ids.NewV7()
+		if _, err := tx.Exec(wsCtx, `
+			INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
+			VALUES ($1, $2, 'Our Company', true, 'manual', 'human:test')`, orgID, e.WS); err != nil {
+			return err
+		}
+		_, err := tx.Exec(wsCtx, `
+			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+			VALUES ($1, $2, 'myco.example', true, 'manual', 'human:test')`, e.WS, orgID)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the anchor company: %v", err)
+	}
+
+	// The first sync records the mailbox's domain as a candidate. The row is
+	// deliberately unverified: what makes a domain ours is the company's own
+	// claim, asked at read time, so nothing here freezes an answer that could
+	// later be wrong.
 	sync(t)
-	if n := countRows(t, e, `SELECT count(*) FROM workspace_email_domain WHERE domain = 'myco.example'`); n != 1 {
-		t.Fatalf("workspace domain seeded %d times, want 1", n)
+	var seeded, verified bool
+	if err := database.WithWorkspaceTx(wsCtx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(wsCtx, `
+			SELECT true, verified FROM workspace_email_domain WHERE domain = 'myco.example'`).
+			Scan(&seeded, &verified)
+	}); err != nil {
+		t.Fatalf("reading the seeded own domain: %v", err)
+	}
+	if !seeded {
+		t.Fatal("the connected mailbox's domain must be recorded as a candidate")
+	}
+	if verified {
+		t.Fatal("a mailbox must not verify its own domain — the company's claim does that")
 	}
 	return captureEnv{e: e, sync: sync, syncSent: syncSent}
+}
+
+// emailCC builds a message that copies a third party — the introduction shape:
+// a colleague writes, an outsider is on Cc, and the message is correspondence
+// because of that outsider.
+func emailCC(from, fromName, to, cc, msgID string) []byte {
+	lines := []string{
+		fmt.Sprintf("From: %s <%s>", fromName, from),
+		"To: " + to,
+		"Cc: " + cc,
+		"Subject: intro",
+		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
+		"Message-ID: <" + msgID + ">",
+		"Content-Type: text/plain", "", "hello", "",
+	}
+	return []byte(strings.Join(lines, "\r\n"))
+}
+
+// AccountLabel names the mailbox this fake authenticates as, exactly as the
+// real mail connectors do — the registry seeds the workspace's own domain from
+// it before pulling a single message, so a fake without it would leave every
+// tier below testing against an empty own-domain set.
+func (m *mailBatchConnector) AccountLabel(connector.Auth) (string, error) {
+	return captureOwner, nil
 }

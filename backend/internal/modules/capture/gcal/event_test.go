@@ -5,6 +5,7 @@ package gcal
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -76,19 +77,33 @@ func TestParseEventMapsMeetingActivity(t *testing.T) {
 	}
 }
 
-func TestSkipReasonAllInternalYieldsZeroRows(t *testing.T) {
-	// Owner + two colleagues on the same domain: an internal meeting → skip.
+func TestAMeetingInsideTheOwnersDomainIsDroppedByTheFloor(t *testing.T) {
+	// The floor: what the owner's own domain alone proves internal is dropped
+	// here, without consulting any registry. The workspace's registered domains
+	// are wider and are applied by the writer, which can only widen this — an
+	// internal meeting stored while that set is empty would be readable by the
+	// whole workspace.
 	raw := eventJSON(t, "evt-3", "confirmed", "Standup", "2026-07-16T09:00:00Z",
 		gcalOwner, gcalOwner, "peer@myco.com", "boss@myco.com")
-	m := mustParse(t, raw)
-	reason, skip := m.SkipReason()
-	if !skip || reason != "all-internal attendees" {
-		t.Fatalf("all-internal meeting: got (%q, skip=%v), want all-internal skip", reason, skip)
+	reason, skip := mustParse(t, raw).SkipReason()
+	if !skip || reason != "no party outside the owner's domain" {
+		t.Fatalf("got (%q, skip=%v), want the owner-domain floor to drop it", reason, skip)
+	}
+}
+
+func TestAnEventReportsEveryPartyIncludingTheExternalOnes(t *testing.T) {
+	raw := eventJSON(t, "evt-3b", "confirmed", "Demo", "2026-07-16T09:00:00Z",
+		gcalOwner, "client@acme.com")
+	want := []string{gcalOwner, "client@acme.com"}
+	if got := mustParse(t, raw).ToRecord("gcal", raw).Addresses; !slices.Equal(got, want) {
+		t.Errorf("Addresses = %v, want %v", got, want)
 	}
 }
 
 func TestSkipReasonSoloEventSkips(t *testing.T) {
-	// A personal block with no attendees is not a captured touch.
+	// A personal block naming nobody but the owner is not a captured touch.
+	// Distinct from the internal rule: this asks whether there was a second
+	// party at all, which needs no knowledge of any domain.
 	raw := eventJSON(t, "evt-4", "confirmed", "Focus time", "2026-07-16T09:00:00Z", gcalOwner)
 	if _, skip := mustParse(t, raw).SkipReason(); !skip {
 		t.Fatal("a solo event (no attendees) must skip")

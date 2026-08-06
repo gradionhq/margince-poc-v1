@@ -5,10 +5,10 @@ package capture
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"sort"
 	"strings"
 	"sync"
@@ -177,6 +177,25 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 		return err
 	}
 
+	// The own-domain set is seeded BEFORE a single message is pulled, and this
+	// ordering is the whole control rather than a detail of it. Seeding from
+	// what the sync RETURNS means the first sync of a newly connected mailbox
+	// — the one carrying the bounded backfill, the largest batch this system
+	// ever ingests — runs against an empty set and captures every internal
+	// message in it. A rule that only holds from the second sync onward is not
+	// a confidentiality control (ADR-0082/A127 §2).
+	if err := r.seedOwnDomainFromAccount(runCtx, c, auth); err != nil {
+		// Recorded like every other fault in this function before it returns:
+		// the state machine classifies and backs off, and the sidecar gets its
+		// line. A bare return would stop the mailbox with its health still
+		// reading healthy — silently, which is the one way a capture failure
+		// must never look.
+		if recErr := r.recordSyncFailure(runCtx, connectionID, err); recErr != nil {
+			return errors.Join(err, recErr)
+		}
+		return err
+	}
+
 	next, syncErr := c.Sync(runCtx, auth, connector.Cursor(cursor), r.sink)
 	if syncErr != nil {
 		// A transient failure never kills the connection (ADR-0063): the
@@ -204,7 +223,8 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 }
 
 // commitSyncCursor advances a connection's watermark to what the sync just
-// returned, and seeds the mailbox's own domain from it, in one transaction.
+// returned. The own-domain seed happens BEFORE the pull, not here — a set
+// learned from a completed sync does not cover that sync.
 //
 // generation is the fence: it is the value SyncOnce read before the pull, and a
 // lifecycle change since then has moved it. superseded=true says the write
@@ -228,35 +248,59 @@ func (r *Registry) commitSyncCursor(ctx context.Context, connectionID ids.UUID, 
 			superseded = true
 			return nil
 		}
-		return r.seedInternalDomain(ctx, tx, cur)
+		return nil
 	})
 	return superseded, err
 }
 
-// seedInternalDomain records the synced mailbox's own domain as a workspace
-// email domain (ADR-0063's colleagues gate) — the connector wrote its
-// mailbox identity into the cursor, and mail among addresses on this domain
-// must never auto-create customers. Free-mail domains never seed: a
-// gmail.com mailbox does not make gmail.com internal.
-func (r *Registry) seedInternalDomain(ctx context.Context, tx pgx.Tx, cursor []byte) error {
-	var identity struct {
-		Email string `json:"email"`
-	}
-	if len(cursor) == 0 {
+// seedOwnDomainFromAccount registers the connected mailbox's own domain before
+// any message is read, from the connector's account label.
+//
+// A mailbox label — however well the provider attests it — says whose mailbox
+// this is, NOT whose domain it is. A contractor, or anyone whose mail lives at
+// a customer's or a partner's company, connects a perfectly genuine account on
+// a domain the workspace does not own; treating that as internal would silently
+// stop the workspace storing its correspondence with that very company.
+//
+// So a seed is only ever a CANDIDATE. What makes a domain count as ours is the
+// installation's own company claiming it, or an administrator saying so — and
+// that is asked at read time, never stamped onto the row here.
+//
+// A connector that cannot name its account seeds nothing and syncs normally —
+// the set stays admin-fed for it, which is a smaller failure than refusing to
+// capture.
+func (r *Registry) seedOwnDomainFromAccount(ctx context.Context, c connector.Connector, auth connector.Auth) error {
+	labeler, ok := c.(connector.AccountLabeler)
+	if !ok {
 		return nil
 	}
-	if err := json.Unmarshal(cursor, &identity); err != nil {
-		// A cursor that is not a JSON identity object simply seeds nothing —
-		// the gate stays admin-fed for that connector, never a sync fault.
-		return nil //nolint:nilerr // deliberate: an identity-less cursor is a no-op, not an error
-	}
-	_, domain, found := strings.Cut(strings.ToLower(strings.TrimSpace(identity.Email)), "@")
-	if !found || domain == "" {
+	label, err := labeler.AccountLabel(auth)
+	if err != nil {
+		// Not fatal — the label is display-grade and providers return it
+		// inconsistently, so losing a whole mailbox to a missing string would be
+		// worse than syncing without the seed. It is not silent either: this is
+		// the confidentiality control's own input, and an operator seeing
+		// internal mail captured needs this line to know why.
+		slog.WarnContext(ctx, "capture: could not read the connected account's label — its domain was not registered as internal",
+			"connector", c.Descriptor().Name, "error", err)
 		return nil
 	}
-	// A gmail.com mailbox does not make gmail.com internal. Read on this
-	// transaction like every other consumer-mail check, so a workspace that has
-	// corrected its list is obeyed here too.
+	if strings.TrimSpace(label) == "" {
+		return nil
+	}
+	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		return seedDomainOfAddressTx(ctx, tx, label)
+	})
+}
+
+// seedDomainOfAddressTx records one mailbox's domain as a candidate own-domain.
+func seedDomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string) error {
+	domain := domainOfAddress(bareAddress(address))
+	if domain == "" {
+		return nil
+	}
+	// A gmail.com mailbox does not make gmail.com internal — every colleague at
+	// every other company shares it.
 	consumerMail, err := MatcherTx(ctx, tx)
 	if err != nil {
 		return err
@@ -264,10 +308,15 @@ func (r *Registry) seedInternalDomain(ctx context.Context, tx pgx.Tx, cursor []b
 	if consumerMail.IsConsumer(domain) {
 		return nil
 	}
+	// Recorded unverified, always. Whether the domain is OURS is not a fact
+	// about this mailbox and is not frozen here — it is derived at read time
+	// from what the own company currently claims (trustedOwnDomainsTx). Writing
+	// the answer down would mean a domain that stopped being ours went on
+	// suppressing mail forever.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO workspace_email_domain (workspace_id, domain)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1)
-		ON CONFLICT DO NOTHING`, domain); err != nil {
+		INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'mailbox', false)
+		ON CONFLICT (workspace_id, domain) DO NOTHING`, domain); err != nil {
 		return fmt.Errorf("capture: seeding workspace email domain: %w", err)
 	}
 	return nil
@@ -336,4 +385,18 @@ func (r *Registry) connector(name string) (connector.Connector, error) {
 		return nil, fmt.Errorf("capture: connector %q is not compiled in: %w", name, apperrors.ErrNotFound)
 	}
 	return c, nil
+}
+
+// bareAddress strips a display name off an account label. The label is
+// display-grade, and providers return both shapes — "rep@acme.com" and
+// "Rep <rep@acme.com>". Taking the text after the last "@" of the second form
+// yields "acme.com>", which matches no domain anyone registered, so the gate
+// would quietly never fire. An unparseable label is returned as it came: it is
+// then judged as an address, which is what it was before this.
+func bareAddress(label string) string {
+	parsed, err := mail.ParseAddress(strings.TrimSpace(label))
+	if err != nil {
+		return label
+	}
+	return parsed.Address
 }
