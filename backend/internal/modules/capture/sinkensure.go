@@ -87,7 +87,8 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 		s.ensureChannelCounterparty(ctx, rec, ref, decision)
 		return
 	}
-	cp := rec.Counterparty
+	// The party the ladder judged — see counterpartyDecision.subject.
+	cp := decision.subject
 	outcome, err := s.ensurer.EnsureCounterparty(ctx, EnsureRequest{
 		Email:       cp.Email,
 		DisplayName: cp.DisplayName,
@@ -121,6 +122,11 @@ type counterpartyDecision struct {
 	// other by a provider identity — so which one a record belongs to is
 	// decided once, here, and not re-derived from the record downstream.
 	channel bool
+	// subject is the party this decision is ABOUT, which is the message's
+	// counterparty except where a colleague's message named an external one
+	// (ladderSubjectTx). Carried rather than re-derived so the post-commit
+	// create acts on exactly what the ladder judged.
+	subject connector.Counterparty
 }
 
 // decideCounterparty runs the tiered creation gate (ADR-0072 §1) and records
@@ -138,20 +144,36 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	if counterpartyShapeOf(cp) == shapeChannel {
 		return s.decideChannelCounterparty(ctx), nil
 	}
-	row, decision, ok, err := s.derivationStart(ctx, tx, rec, activityID)
-	if err != nil || !ok {
-		return counterpartyDecision{}, err
-	}
-
-	// T0 internal own-domain: colleagues, not customers. Creates nothing, and
-	// records nothing — an internal address is not a disposition anyone reviews.
-	internal, err := s.internalDomainTx(ctx, tx, cp.Domain)
+	// T0 internal own-domain: colleagues, not customers. Whom the ladder is
+	// ABOUT is settled before anything else, because the disposition ledger and
+	// every tier below are keyed on that address.
+	//
+	// When the derived counterparty is a colleague the message is not
+	// necessarily chatter: a colleague writing to a prospect with the prospect
+	// copied is the introduction this business runs on. The ladder then judges
+	// the EXTERNAL party, which is the one a record could honestly be created
+	// for. The message's author is untouched — who wrote a message and whom it
+	// might create a record for are two questions, and answering the second
+	// with the first records the prospect as the author of the colleague's mail
+	// and can report a reply they never sent (ADR-0082 §3).
+	//
+	// A wholly internal message reaches this only when the workspace registered
+	// its domain after that message was captured; the writer drops such mail
+	// outright now (sink.go). Creating nothing is still the right answer.
+	subject, err := s.ladderSubjectTx(ctx, tx, rec)
 	if err != nil {
 		return counterpartyDecision{}, err
 	}
-	if internal {
+	if subject.Email == "" {
 		return counterpartyDecision{}, nil
 	}
+	cp = subject
+
+	row, decision, ok, err := s.derivationStart(ctx, tx, rec, subject, activityID)
+	if err != nil || !ok {
+		return counterpartyDecision{}, err
+	}
+	decision.subject = subject
 	// T1 correspondence-positive: the workspace has provably written to this
 	// address, so it is a counterparty by demonstrated intent. Asked of EVERY
 	// sender, not only those a suppression rule matched — since T4 defers the
@@ -261,8 +283,7 @@ func (s *Sink) deferAmbiguous(ctx context.Context, tx pgx.Tx, rec connector.Norm
 // The ACTIVITY still stands — refusing the derivation is the honest answer,
 // where failing the capture would throw away a message we successfully read — so
 // the fault is recorded for the nightly reconcile and creation is skipped.
-func (s *Sink) derivationStart(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, activityID ids.UUID) (dispositionRow, counterpartyDecision, bool, error) {
-	cp := rec.Counterparty
+func (s *Sink) derivationStart(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, cp connector.Counterparty, activityID ids.UUID) (dispositionRow, counterpartyDecision, bool, error) {
 	if s.ensurer == nil || cp.Email == "" {
 		return dispositionRow{}, counterpartyDecision{}, false, nil
 	}

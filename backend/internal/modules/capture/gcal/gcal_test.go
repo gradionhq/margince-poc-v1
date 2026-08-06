@@ -207,8 +207,16 @@ func TestSyncSkipsAllInternalMeetings(t *testing.T) {
 	if _, err := c.Sync(context.Background(), authBytes(t), nil, sink); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	if len(sink.recs) != 1 || sink.recs[0].NaturalKey.SourceID != "external" {
-		t.Fatalf("an all-internal meeting must produce zero rows; got %+v", sink.recs)
+	// Both events reach the sink now: whether the internal one produces rows is
+	// the writer's decision, taken against the workspace's registered domains
+	// (ADR-0082/A127). What this connector owes is the full party list on each.
+	if len(sink.recs) != 2 {
+		t.Fatalf("both events must reach the writer; got %d", len(sink.recs))
+	}
+	for _, rec := range sink.recs {
+		if len(rec.Addresses) == 0 {
+			t.Errorf("%s reached the writer with no addresses — it cannot judge what it cannot see", rec.NaturalKey.SourceID)
+		}
 	}
 }
 
@@ -237,7 +245,7 @@ func TestSyncUnreadableCursorStopsWithoutBackfill(t *testing.T) {
 	}
 }
 
-func TestNormalizeSkipsCancelledAndInternal(t *testing.T) {
+func TestNormalizeSkipsCancelledAndSolo(t *testing.T) {
 	c := New(fakeOAuth{}, &fakeAPI{})
 	c.owner = gcalOwner
 
@@ -246,9 +254,15 @@ func TestNormalizeSkipsCancelledAndInternal(t *testing.T) {
 		t.Fatalf("want ErrSkip for a cancelled event, got %v", err)
 	}
 
+	solo := eventJSON(t, "s1", "confirmed", "Focus time", "2026-07-16T09:00:00Z", gcalOwner)
+	if _, err := c.Normalize(context.Background(), solo); !errors.Is(err, connector.ErrSkip) {
+		t.Fatalf("want ErrSkip for an event naming nobody but the owner, got %v", err)
+	}
+
+	// An internal meeting is NOT skipped here: it goes to the writer whole.
 	internal := eventJSON(t, "i1", "confirmed", "1:1", "2026-07-16T09:00:00Z", gcalOwner, gcalOwner, "peer@myco.com")
-	if _, err := c.Normalize(context.Background(), internal); !errors.Is(err, connector.ErrSkip) {
-		t.Fatalf("want ErrSkip for an all-internal event, got %v", err)
+	if _, err := c.Normalize(context.Background(), internal); err != nil {
+		t.Fatalf("an internal meeting must reach the writer, got %v", err)
 	}
 
 	keep := eventJSON(t, "k1", "confirmed", "Demo", "2026-07-16T11:00:00Z", gcalOwner, "client@acme.com")

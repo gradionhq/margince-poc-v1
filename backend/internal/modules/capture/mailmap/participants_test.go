@@ -157,3 +157,92 @@ func TestParticipantsOfReadsTheSamePartiesAsCapture(t *testing.T) {
 		}
 	}
 }
+
+// Bcc survives only on the sender's own copy, and where it survives it is a
+// real party: a colleague who blind-copied a customer wrote to a customer, and
+// the internal-vs-external decision has to see that (ADR-0082/A127 §3).
+func TestParseRecordsABlindCopiedPartyUnderItsOwnRole(t *testing.T) {
+	raw := crlf(
+		"From: me@myco.com",
+		"To: bob@target.com",
+		"Bcc: quiet@partner.example",
+		"Subject: Pricing",
+		"Date: Wed, 04 Jun 2026 09:00:00 +0000",
+		"Message-ID: <bcc1@myco.com>",
+		"Content-Type: text/plain; charset=utf-8",
+		"",
+		"Body.",
+		"",
+	)
+	msg, err := Parse(raw, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	role, found := roleOf(msg.participants, "quiet@partner.example")
+	if !found {
+		t.Fatal("a blind-copied party must be recorded — dropping them hides a party from the internal decision")
+	}
+	if role != connector.ParticipantRoleBCC {
+		t.Errorf("role = %q, want %q: recording them as an open recipient misstates who was addressed", role, connector.ParticipantRoleBCC)
+	}
+}
+
+// The internal decision is about the WHOLE message, so the address set includes
+// both ends of the exchange — unlike the participant rows, which deliberately
+// exclude them.
+func TestAddressesNamesEveryPartyIncludingBothEnds(t *testing.T) {
+	raw := crlf(
+		"From: bob@target.com",
+		"To: me@myco.com, colleague@myco.com",
+		"Cc: sam@target.com",
+		"Bcc: quiet@partner.example",
+		"Subject: Pricing",
+		"Date: Wed, 04 Jun 2026 09:00:00 +0000",
+		"Message-ID: <addr1@target.com>",
+		"Content-Type: text/plain; charset=utf-8",
+		"",
+		"Body.",
+		"",
+	)
+	msg, err := Parse(raw, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := []string{
+		"bob@target.com", "me@myco.com", "colleague@myco.com",
+		"sam@target.com", "quiet@partner.example",
+	}
+	got := msg.Addresses()
+	if len(got) != len(want) {
+		t.Fatalf("Addresses = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Addresses = %v, want %v", got, want)
+		}
+	}
+}
+
+// A message the parser could read but whose parties it could not is reported
+// with the addresses it did find. Reporting none would read to the writer as
+// "nobody", and the writer keeps a message it cannot judge.
+func TestAddressesOfAMessageWithNoReadableRecipientsIsNotSilentlyEmpty(t *testing.T) {
+	raw := crlf(
+		"From: bob@target.com",
+		"To: undisclosed-recipients:;",
+		"Subject: Announcement",
+		"Date: Wed, 04 Jun 2026 09:00:00 +0000",
+		"Message-ID: <undisclosed@target.com>",
+		"Content-Type: text/plain; charset=utf-8",
+		"",
+		"Body.",
+		"",
+	)
+	msg, err := Parse(raw, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := msg.Addresses(); len(got) != 1 || got[0] != "bob@target.com" {
+		t.Errorf("Addresses = %v, want just the readable sender", got)
+	}
+}

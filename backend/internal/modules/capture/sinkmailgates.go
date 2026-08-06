@@ -18,6 +18,43 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
+// The breadcrumb action and reason for a message dropped as internal. The
+// reason is the `internal_only` value the capture.skipped event carries
+// (event-bus EVT-SEM-10); the row names the natural key and nothing else — an
+// address, subject or body in the operational ledger would re-create in
+// `system_log` exactly the disclosure the drop exists to prevent.
+const (
+	actionCaptureInternalDropped = "capture_internal_dropped"
+	reasonInternalOnly           = "internal_only"
+)
+
+// internalOnlyTx reports whether every party to this record is on one of the
+// workspace's own mail domains — the zero-rows condition (ADR-0082/A127,
+// formulas §20).
+//
+// Only mail- and meeting-shaped records are judged. A channel record (Telegram,
+// WhatsApp) names no mail addresses, and a lead is not correspondence at all;
+// both are captured unchanged rather than being measured against a rule that
+// cannot describe them.
+//
+// A record that enumerates no addresses is NOT internal. A connector reporting
+// an empty set is saying it could not read the parties, which is a different
+// statement from "there were none", and the direction to fail in is toward
+// keeping the message.
+func (s *Sink) internalOnlyTx(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord) (bool, error) {
+	if _, ok := rec.Fields.(ActivityFields); !ok {
+		return false, nil
+	}
+	if len(rec.Addresses) == 0 {
+		return false, nil
+	}
+	own, err := ownDomainsTx(ctx, tx)
+	if err != nil {
+		return false, err
+	}
+	return own.AllInternal(rec.Addresses), nil
+}
+
 // internalDomainTx reports whether domain is one of the workspace's own mail
 // domains (the colleagues gate). Runs on the capture transaction: the tier
 // ladder decides and records atomically with the activity it is about.

@@ -104,6 +104,11 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	var dedupeFields json.RawMessage
 	var activityCreated bool
 	var decision counterpartyDecision
+	// internalOnly is set INSIDE the transaction and read after it commits.
+	// The skip has to commit — its breadcrumb is the proof that a message
+	// produced no rows, and returning ErrSkip from inside the callback would
+	// roll that proof back along with everything else (ADR-0082 §1).
+	var internalOnly bool
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// A channel record's account id IS personal data, and THIS transaction is
 		// the one that makes it durable — so the erasure is excluded here, under
@@ -112,6 +117,21 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		if err := s.refuseErasedChannelAccount(ctx, tx, rec.Counterparty); err != nil {
 			return err
 		}
+
+		// The internal gate runs BEFORE the raw store, which is the whole point:
+		// raw capture is append-once evidence, so a message that gets that far
+		// has been kept whatever happens next. Colleague correspondence is not
+		// evidence of a customer relationship — it is two employees talking, and
+		// the CRM was never asked to hold it.
+		skip, err := s.internalOnlyTx(ctx, tx, rec)
+		if err != nil {
+			return err
+		}
+		if skip {
+			internalOnly = true
+			return s.logBreadcrumbTx(ctx, tx, actionCaptureInternalDropped, rec, reasonInternalOnly)
+		}
+
 		if err := storeRawCapture(ctx, tx, rec); err != nil {
 			return err
 		}
@@ -131,6 +151,14 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	})
 	if err != nil {
 		return datasource.EntityRef{}, err
+	}
+	if internalOnly {
+		// The breadcrumb is committed; only now does the connector learn the
+		// message was dropped. ErrSkip is counted by every sync loop and fails
+		// none of them, so the watermark advances past the message exactly as it
+		// does for any other skip — which is what makes the classification
+		// irreversible, and why the own-domain set is admin-visible (ADR-0082 §4).
+		return datasource.EntityRef{}, fmt.Errorf("%w: all participants are on the workspace's own domains", connector.ErrSkip)
 	}
 	if activityCreated {
 		// The tier ladder already decided, and recorded its decision, inside

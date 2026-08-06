@@ -5,6 +5,7 @@ package gcal
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -76,19 +77,38 @@ func TestParseEventMapsMeetingActivity(t *testing.T) {
 	}
 }
 
-func TestSkipReasonAllInternalYieldsZeroRows(t *testing.T) {
-	// Owner + two colleagues on the same domain: an internal meeting → skip.
+func TestAnInternalMeetingIsReportedWholeForTheWriterToJudge(t *testing.T) {
+	// Owner + two colleagues on the same domain. This package no longer decides
+	// internal-vs-external — it cannot, since that is a question about the
+	// workspace's registered domains and a connector holds no database handle.
+	// Its obligation is to report every party, so the writer can decide over the
+	// full set (ADR-0082/A127). Zero rows for this event is proven where the
+	// decision now lives, in the capture writer's own tests.
 	raw := eventJSON(t, "evt-3", "confirmed", "Standup", "2026-07-16T09:00:00Z",
 		gcalOwner, gcalOwner, "peer@myco.com", "boss@myco.com")
 	m := mustParse(t, raw)
-	reason, skip := m.SkipReason()
-	if !skip || reason != "all-internal attendees" {
-		t.Fatalf("all-internal meeting: got (%q, skip=%v), want all-internal skip", reason, skip)
+	if _, skip := m.SkipReason(); skip {
+		t.Fatal("an internal meeting must reach the writer, not be dropped here")
+	}
+	want := []string{gcalOwner, "peer@myco.com", "boss@myco.com"}
+	if got := m.ToRecord("gcal", raw).Addresses; !slices.Equal(got, want) {
+		t.Errorf("Addresses = %v, want %v (organizer, attendees and the owner, deduplicated)", got, want)
+	}
+}
+
+func TestAnEventReportsEveryPartyIncludingTheExternalOnes(t *testing.T) {
+	raw := eventJSON(t, "evt-3b", "confirmed", "Demo", "2026-07-16T09:00:00Z",
+		gcalOwner, "client@acme.com")
+	want := []string{gcalOwner, "client@acme.com"}
+	if got := mustParse(t, raw).ToRecord("gcal", raw).Addresses; !slices.Equal(got, want) {
+		t.Errorf("Addresses = %v, want %v", got, want)
 	}
 }
 
 func TestSkipReasonSoloEventSkips(t *testing.T) {
-	// A personal block with no attendees is not a captured touch.
+	// A personal block naming nobody but the owner is not a captured touch.
+	// Distinct from the internal rule: this asks whether there was a second
+	// party at all, which needs no knowledge of any domain.
 	raw := eventJSON(t, "evt-4", "confirmed", "Focus time", "2026-07-16T09:00:00Z", gcalOwner)
 	if _, skip := mustParse(t, raw).SkipReason(); !skip {
 		t.Fatal("a solo event (no attendees) must skip")

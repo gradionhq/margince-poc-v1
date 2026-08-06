@@ -7,6 +7,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -64,6 +65,13 @@ func (m *mailBatchConnector) Sync(ctx context.Context, _ connector.Auth, _ conne
 		// is precisely what the attestation must not be derivable from.
 		msg = msg.AttestSentByOwner(m.sent[msg.ID()])
 		if _, err := sink.Upsert(ctx, msg.ToRecord("gmail", raw)); err != nil {
+			// A skip is an outcome, not a fault: the writer decided this
+			// message produces no rows. Every real connector counts it and
+			// carries on, and a fake that failed the whole sync instead would
+			// make the harness disagree with the thing it stands in for.
+			if errors.Is(err, connector.ErrSkip) {
+				continue
+			}
 			return nil, err
 		}
 	}
@@ -196,4 +204,20 @@ func newCaptureEnv(t *testing.T) captureEnv {
 		t.Fatalf("workspace domain seeded %d times, want 1", n)
 	}
 	return captureEnv{e: e, sync: sync, syncSent: syncSent}
+}
+
+// emailCC builds a message that copies a third party — the introduction shape:
+// a colleague writes, an outsider is on Cc, and the message is correspondence
+// because of that outsider.
+func emailCC(from, fromName, to, cc, msgID string) []byte {
+	lines := []string{
+		fmt.Sprintf("From: %s <%s>", fromName, from),
+		"To: " + to,
+		"Cc: " + cc,
+		"Subject: intro",
+		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
+		"Message-ID: <" + msgID + ">",
+		"Content-Type: text/plain", "", "hello", "",
+	}
+	return []byte(strings.Join(lines, "\r\n"))
 }
