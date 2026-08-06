@@ -20,6 +20,10 @@ type userWire struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
+	// A pointer so an absent field stays distinguishable from an empty one:
+	// absent means the caller was not admitted to the role keys, empty means
+	// the member holds none.
+	Roles *[]string `json:"roles"`
 }
 
 type userListWire struct {
@@ -40,6 +44,7 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if invited.ID == "" || invited.Email != "newbie@acme.test" || invited.Status != "active" {
 		t.Fatalf("invited member = %+v, want active, lowercased email", invited)
 	}
+	assertRoles(t, "invite", invited, "rep")
 	base := "/v1/users/" + invited.ID
 
 	// A duplicate email refuses.
@@ -74,12 +79,20 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if !containsUser(roster.Data, invited.ID) {
 		t.Fatalf("active roster missing the invited member %s", invited.ID)
 	}
+	// An admin's roster carries every member's role keys — the admin card reads
+	// the current role off them.
+	for _, u := range roster.Data {
+		if u.Roles == nil {
+			t.Errorf("roster member %q has no roles field; an admin caller must see it", u.Email)
+		}
+	}
 
-	// Change role.
+	// Change role. The response reports the role now held, not the one replaced.
 	var afterRole userWire
 	if status := e.call(t, "PATCH", base+"/role", map[string]any{"role": "manager"}, nil, &afterRole); status != http.StatusOK {
 		t.Fatalf("change role -> %d, want 200", status)
 	}
+	assertRoles(t, "change role", afterRole, "manager")
 
 	// Deactivate: the member drops from the active roster but is visible with include_inactive.
 	var afterOff userWire
@@ -124,6 +137,24 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	}
 	if status := e.call(t, "PATCH", "/v1/users/"+me.User.ID+"/role", map[string]any{"role": "rep"}, nil, nil); status != http.StatusConflict {
 		t.Fatalf("demoting the last admin -> %d, want 409", status)
+	}
+}
+
+// assertRoles checks the member response reports exactly the role keys the
+// admin surface renders a current role from.
+func assertRoles(t *testing.T, what string, got userWire, want ...string) {
+	t.Helper()
+	if got.Roles == nil {
+		t.Fatalf("%s: roles absent from an admin's response; want %v", what, want)
+	}
+	if len(*got.Roles) != len(want) {
+		t.Fatalf("%s: roles = %v, want %v", what, *got.Roles, want)
+	}
+	for i, key := range want {
+		if (*got.Roles)[i] != key {
+			t.Errorf("%s: roles = %v, want %v", what, *got.Roles, want)
+			return
+		}
 	}
 }
 

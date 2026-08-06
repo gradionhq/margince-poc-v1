@@ -30,13 +30,7 @@ func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request, params crmco
 		httperr.Write(w, r, err)
 		return
 	}
-	// Role keys ride the admin's roster only — an admin is the only caller who
-	// can change a role, and the pickers every other member reads this for have
-	// no use for who holds `admin`.
-	wire := wireUser
-	if isAdmin {
-		wire = wireUserWithRoles
-	}
+	wire := rosterUserMapping(isAdmin)
 	data := make([]crmcontracts.User, 0, len(rows))
 	for _, u := range rows {
 		data = append(data, wire(u))
@@ -90,6 +84,18 @@ func wireUser(u userRow) crmcontracts.User {
 		IsAgent:     u.IsAgent,
 		CreatedAt:   &created,
 	}
+}
+
+// rosterUserMapping picks the User mapping this caller may see. Role keys ride
+// the admin's roster only — an admin is the only caller who can act on a role,
+// and the share/assignee pickers every other member reads this roster for have
+// no use for who holds `admin`. Named rather than inlined so the disclosure
+// decision is one testable thing instead of a branch inside a loop.
+func rosterUserMapping(isAdmin bool) func(userRow) crmcontracts.User {
+	if isAdmin {
+		return wireUserWithRoles
+	}
+	return wireUser
 }
 
 // wireUserWithRoles is the admin view of a member: wireUser plus the role

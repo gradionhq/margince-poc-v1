@@ -124,6 +124,27 @@ func TestWireUserWithRolesKeepsAnUnassignedSeatDistinctFromAWithheldOne(t *testi
 	}
 }
 
+// The roster serves both callers off the same rows, so which mapping the
+// caller gets IS the disclosure gate.
+func TestRosterUserMappingDisclosesRoleKeysOnlyToAnAdmin(t *testing.T) {
+	row := userRow{
+		ID:          ids.NewV7(),
+		WorkspaceID: ids.NewV7(),
+		Email:       "ada@example.com",
+		DisplayName: "Ada Admin",
+		Status:      "active",
+		Roles:       []string{"admin"},
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	}
+
+	if got := rosterUserMapping(false)(row); got.Roles != nil {
+		t.Errorf("non-admin roster Roles = %v, want nil", *got.Roles)
+	}
+	if got := rosterUserMapping(true)(row); got.Roles == nil {
+		t.Error("admin roster Roles = nil, want the member's role keys")
+	}
+}
+
 func TestWireTeam(t *testing.T) {
 	id := ids.NewV7()
 	ws := ids.NewV7()
