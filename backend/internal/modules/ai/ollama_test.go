@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -165,5 +166,148 @@ func TestOllamaStreamReadsJSONLines(t *testing.T) {
 	}
 	if got.String() != "local" {
 		t.Fatalf("stream mismatch: %q", got.String())
+	}
+}
+
+// num_ctx bounds prompt AND completion together; num_predict bounds only the
+// completion. Left unsaid, Ollama uses a 4096 default, so a long page and a
+// large output budget cannot both fit — and the model stops mid-generation
+// rather than refusing. On a reasoning model the cut lands inside the thinking,
+// so the reply arrives well-formed with an EMPTY content field.
+//
+// Ground truth here is the wire Ollama actually received, never the estimator's
+// own arithmetic: an assertion that recomputed the estimate would still hold if
+// the estimate itself regressed.
+func TestOllamaSizesContextWindowToPromptPlusOutputBudget(t *testing.T) {
+	sent := func(t *testing.T, req model.Request) (map[string]json.RawMessage, ollamaOptions, int) {
+		t.Helper()
+		var received []byte
+		client := newOllamaForTest(t, func(w http.ResponseWriter, r *http.Request) {
+			received = readBody(t, r.Body)
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"message": map[string]string{"content": "{}"}, "done": true,
+			}); err != nil {
+				t.Errorf("encoding fixture response: %v", err)
+			}
+		})
+		if _, err := client.Complete(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		var raw struct {
+			Options map[string]json.RawMessage `json:"options"`
+		}
+		if err := json.Unmarshal(received, &raw); err != nil {
+			t.Fatalf("wire not JSON: %v", err)
+		}
+		var opts ollamaOptions
+		encoded, err := json.Marshal(raw.Options)
+		if err != nil {
+			t.Fatalf("re-encode options: %v", err)
+		}
+		if err := json.Unmarshal(encoded, &opts); err != nil {
+			t.Fatalf("options not decodable: %v", err)
+		}
+		return raw.Options, opts, len(received)
+	}
+
+	page := strings.Repeat("Gradion Pte. Ltd. 77 High Street, Singapore. ", 400)
+	schema := []byte(`{"type":"object","properties":{"facts":{"type":"array"}}}`)
+
+	for _, tc := range []struct {
+		name string
+		req  model.Request
+	}{
+		{"long page with a budget", model.Request{
+			System:         "You extract company facts from ONE page.",
+			Messages:       []model.Message{{Role: "user", Content: page}},
+			MaxTokens:      8192,
+			ResponseSchema: schema,
+		}},
+		{"long page with no budget named", model.Request{
+			Messages: []model.Message{{Role: "user", Content: page}},
+		}},
+		{"long page with tools", model.Request{
+			Messages: []model.Message{{Role: "user", Content: page}},
+			Tools: []model.ToolDef{{
+				Name: "lookup", Description: strings.Repeat("finds a record. ", 200),
+				InputSchema: schema,
+			}},
+			MaxTokens: 2048,
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, opts, wireBytes := sent(t, tc.req)
+			// The window must hold everything actually sent plus everything the
+			// model was authorised to generate. wireBytes is the whole payload,
+			// so it over-counts the JSON scaffolding — which only makes this a
+			// stricter floor than the prompt alone.
+			if floor := wireBytes/4 + opts.NumPredict; opts.NumCtx < floor {
+				t.Fatalf(
+					"num_ctx %d cannot hold the %d-byte payload (~%d tok) plus num_predict %d — the model stops mid-generation",
+					opts.NumCtx, wireBytes, wireBytes/4, opts.NumPredict,
+				)
+			}
+			if opts.NumPredict <= 0 {
+				t.Fatalf("num_predict %d — a request with no stated budget must still get one", opts.NumPredict)
+			}
+			if _, present := raw["num_ctx"]; !present {
+				t.Fatalf("num_ctx absent from the wire: %v", raw)
+			}
+			if opts.NumCtx%ollamaContextBucket != 0 {
+				t.Fatalf("num_ctx %d is not a bucket multiple — a per-request value reloads the runner", opts.NumCtx)
+			}
+			if opts.NumCtx < ollamaContextFloor || opts.NumCtx > ollamaMaxContext {
+				t.Fatalf("num_ctx %d outside [%d,%d]", opts.NumCtx, ollamaContextFloor, ollamaMaxContext)
+			}
+		})
+	}
+
+	// A short request must not come out worse than saying nothing at all.
+	_, small, _ := sent(t, model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if small.NumCtx != ollamaContextFloor {
+		t.Fatalf("num_ctx %d for a two-byte prompt, want the %d floor", small.NumCtx, ollamaContextFloor)
+	}
+
+	// The window tracks the prompt rather than sitting at a constant: a bigger
+	// page must buy a bigger window, which a flat default would not.
+	_, grown, _ := sent(t, model.Request{
+		Messages:  []model.Message{{Role: "user", Content: strings.Repeat(page, 4)}},
+		MaxTokens: 2048,
+	})
+	_, base, _ := sent(t, model.Request{
+		Messages:  []model.Message{{Role: "user", Content: page}},
+		MaxTokens: 2048,
+	})
+	if grown.NumCtx <= base.NumCtx {
+		t.Fatalf("num_ctx did not grow with the prompt: %d then %d", base.NumCtx, grown.NumCtx)
+	}
+
+	// An absurd budget must clamp rather than wrap. Unclamped, `prompt/4 +
+	// maxTokens` overflows and the bucket arithmetic lands on a SMALL window —
+	// the model would be handed a huge num_predict against a tiny context and
+	// truncate immediately, which is the opposite of what the number says.
+	_, absurd, _ := sent(t, model.Request{
+		Messages:  []model.Message{{Role: "user", Content: "hi"}},
+		MaxTokens: math.MaxInt32,
+	})
+	if absurd.NumCtx != ollamaMaxContext {
+		t.Fatalf("num_ctx %d for an absurd budget, want the %d cap", absurd.NumCtx, ollamaMaxContext)
+	}
+	if absurd.NumPredict > absurd.NumCtx {
+		t.Fatalf(
+			"num_predict %d exceeds num_ctx %d — the budget promises more than the window can hold",
+			absurd.NumPredict, absurd.NumCtx,
+		)
+	}
+
+	// Prompt length is chosen by whoever published the page, so the window it
+	// can ask for is capped: past the ceiling the prompt truncates, rather than
+	// a remote party sizing the host's KV-cache allocation.
+	_, hostile, _ := sent(t, model.Request{
+		Messages:  []model.Message{{Role: "user", Content: strings.Repeat("a", 4<<20)}},
+		MaxTokens: 8192,
+	})
+	if hostile.NumCtx != ollamaMaxContext {
+		t.Fatalf("num_ctx %d for a 4MiB prompt, want the %d cap", hostile.NumCtx, ollamaMaxContext)
 	}
 }
