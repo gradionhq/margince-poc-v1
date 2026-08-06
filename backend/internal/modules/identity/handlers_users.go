@@ -130,9 +130,14 @@ func (h Handlers) ReactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	if err := h.svc.ReactivateUser(r.Context(), actor, ids.UserID{UUID: ids.UUID(id)}); err != nil {
+		// Two states reach this and they need opposite actions, so the refusal
+		// names both rather than guessing: an INVITED member has simply never
+		// set a password, and a SUSPENDED one is held for a reason that
+		// reactivating would quietly clear.
 		httperr.Write(w, r, conflictIf(err, errNotDeactivated, "not_deactivated",
-			"this member is suspended, not deactivated; a suspension is cleared by resolving "+
-				"what caused it, and reactivating would hide that"))
+			"only a deactivated member can be reactivated, and this one is not; an invited "+
+				"member is still waiting to set their password, and a suspended member needs "+
+				"whatever caused the suspension resolved instead"))
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)

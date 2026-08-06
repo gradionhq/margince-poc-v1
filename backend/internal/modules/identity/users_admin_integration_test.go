@@ -76,6 +76,40 @@ func TestRosterReadFetchesRoleKeysOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+// The reactivate refusal enumerates the states it can be reached from, and its
+// contract description does the same. Both are only true for a KNOWN status set:
+// 'active' returns early as a no-op and 'deactivated' is the happy path, so
+// every other value lands in that refusal and is described by it. A new status
+// added without revisiting the copy would make both quietly wrong — this test
+// exists because exactly that had already happened (0055 added 'invited' while
+// the refusal still said "this member is suspended").
+func TestReactivateRefusalNamesEveryStateItCanBeReachedFrom(t *testing.T) {
+	e := setupRevocationEnv(t, "reactivate-states")
+
+	var check string
+	if err := e.owner.QueryRow(context.Background(), `
+		SELECT pg_get_constraintdef(c.oid)
+		FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid
+		WHERE t.relname = 'app_user' AND c.contype = 'c'
+		  AND pg_get_constraintdef(c.oid) LIKE '%status%'`).Scan(&check); err != nil {
+		t.Fatalf("reading the app_user status constraint: %v", err)
+	}
+	// The statuses the refusal and the contract account for. Anything else in
+	// the constraint reaches that refusal wearing someone else's description.
+	known := []string{"invited", "active", "suspended", "deactivated"}
+	for _, status := range known {
+		if !strings.Contains(check, "'"+status+"'") {
+			t.Errorf("status %q is no longer admitted by %s", status, check)
+		}
+	}
+	if got := strings.Count(check, "'"); got != len(known)*2 {
+		t.Errorf("app_user.status admits a value beyond %v: %s\n"+
+			"the reactivate refusal names the states it can be reached from, and its "+
+			"contract description repeats them — both need updating with the new state",
+			known, check)
+	}
+}
+
 func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 	e := setupRevocationEnv(t, "invite-user")
 

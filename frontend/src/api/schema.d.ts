@@ -20313,7 +20313,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Refused with `code: not_deactivated` — this member is suspended rather than deactivated. A suspension is held for its own reason (a lockout, say), and reactivating would clear it without that reason ever being resolved. */
+            /** @description Refused with `code: not_deactivated` — only a deactivated member can be reactivated, and this one is in some other state. Both reachable states need a different action, not this one: an `invited` member has never set a password, and a `suspended` member is held for a reason that reactivating would clear without it ever being resolved. (An `active` member is a no-op and answers 200, not this.) */
             409: {
                 headers: {
                     [name: string]: unknown;

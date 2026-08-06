@@ -173,6 +173,20 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	}
 	assertActionableRefusal(t, "reactivating a suspended member", suspended)
 
+	// An INVITED member reaches the same refusal, and it must not describe them
+	// as suspended — they are simply waiting to set a password, which is a
+	// different problem with a different fix.
+	seedInWorkspace(t, e, wsID(t, e, e.slug),
+		stmt(`UPDATE app_user SET status = 'invited' WHERE id = $1::uuid`, invited.ID))
+	var stillInvited refusalWire
+	if status := e.call(t, "POST", base+"/reactivate", nil, nil, &stillInvited); status != http.StatusConflict {
+		t.Fatalf("reactivating an invited member -> %d, want 409", status)
+	}
+	assertActionableRefusal(t, "reactivating an invited member", stillInvited)
+	if strings.Contains(stillInvited.Detail, "is suspended") {
+		t.Errorf("an invited member is told %q — that names the wrong state and the wrong fix", stillInvited.Detail)
+	}
+
 	// The bootstrap admin is the only admin (the invited member holds manager
 	// by now): neither deactivating nor demoting them is allowed — it would
 	// lock the organization out of user administration entirely.
