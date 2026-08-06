@@ -376,6 +376,41 @@ func TestResetReturnsAnOverlayWorkspaceToNativeMode(t *testing.T) {
 	}
 }
 
+// TestResetRestoresWorkspaceLevelSettings is the general case behind the
+// overlay one above: the mode columns are not the only configuration living on
+// the workspace row, and the sweep reaches none of it. The sweep's target list
+// is derived from the tables carrying a workspace_id column; workspace keys on
+// id, so it is not excluded from that list, it is not a candidate for it.
+//
+// capture_auto_enrich (CAP-PARAM-7) is the second setting on the row today and
+// stands in for every one added after it: an operator who wiped the
+// installation would otherwise find yesterday's settings still applied to a
+// database with nothing in it.
+func TestResetRestoresWorkspaceLevelSettings(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+	e.WsExec(t, `UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, e.WS)
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	var autoEnrich bool
+	if err := e.Pool.QueryRow(ctx,
+		`SELECT capture_auto_enrich FROM workspace WHERE id = $1`, e.WS).Scan(&autoEnrich); err != nil {
+		t.Fatalf("reading the setting back: %v", err)
+	}
+	if !autoEnrich {
+		t.Error("capture_auto_enrich = false after a reset, want true (its declared default) — a workspace-level setting outlived the wipe")
+	}
+}
+
 // TestResetLeavesANativeWorkspaceAlone: the flip is conditional, so a native
 // installation's reset claims no mode change in its evidence.
 func TestResetLeavesANativeWorkspaceAlone(t *testing.T) {
