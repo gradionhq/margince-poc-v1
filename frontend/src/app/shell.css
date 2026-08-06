@@ -635,12 +635,17 @@
   display: none;
 }
 
-/* ===== account menu ===== */
-.topbar .account {
+/* ===== top-bar menus: the account avatar and the language control =====
+   One rule for both, not a copy each: they sit side by side in the same row,
+   where two popups a few pixels apart reads as a mistake rather than as two
+   components. */
+.topbar .account,
+.topbar .localemenu {
   position: relative;
   flex: none;
 }
-.topbar .accountmenu {
+.topbar .accountmenu,
+.topbar .localelist {
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
@@ -688,12 +693,14 @@
 /* The end state, immediately — a menu that renders nothing under reduced motion
    is broken, not accessible. */
 @media (prefers-reduced-motion: reduce) {
-  .topbar .accountmenu {
+  .topbar .accountmenu,
+  .topbar .accountmenu .localelist {
     animation: none;
   }
 }
 .topbar .accountmenu a,
-.topbar .accountmenu button {
+.topbar .accountmenu button,
+.topbar .localelist button {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -708,8 +715,14 @@
   text-decoration: none;
   cursor: pointer;
 }
+/* The language rows carry a tick for the current locale, pushed to the far
+   end so the names stay left-aligned with each other. */
+.topbar .localelist button {
+  justify-content: space-between;
+}
 .topbar .accountmenu a:hover,
-.topbar .accountmenu button:hover {
+.topbar .accountmenu button:hover,
+.topbar .localelist button:hover {
   background: var(--bgHover);
   color: var(--textPrimary);
 }
@@ -730,6 +743,31 @@
   border: 0;
   margin: var(--space-1) 0;
   background: var(--borderSubtle);
+}
+/* The language control is a ROW of this menu rather than a control beside it: its
+   own wrapper is a flex item of the popover's column, and the trigger fills it so
+   it lines up with Settings, Theme and Sign out. Everything else it needs — the
+   row chrome, the hover, the focus ring — it already inherits from the rules
+   above, because the trigger is a button inside `.accountmenu`. */
+.topbar .accountmenu .localemenu {
+  display: flex;
+}
+.topbar .accountmenu .menurow {
+  flex: 1;
+}
+/* The list is a SUBMENU here, so it opens beside the account menu. Left of it,
+   because the account menu is itself pinned to the right edge of the bar; and
+   `top: -5px` cancels the popover's own padding so the first language sits level
+   with the row that opened it. Under the row — where the top bar's rule puts it —
+   it would cover Theme and Sign out. */
+.topbar .accountmenu .localelist {
+  right: calc(100% + 6px);
+  top: -5px;
+  /* Same gesture as the account menu's own entry, mirrored: this one grows out of
+     the row on its right edge. */
+  animation: accountmenu-in 0.14s var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1))
+    both;
+  transform-origin: top right;
 }
 /* A preference row states the setting on the left and what it is currently set to
    on the right; the accessible name carries what clicking does. */

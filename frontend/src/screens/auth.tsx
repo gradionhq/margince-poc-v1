@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import {
   type FormEvent,
+  Fragment,
   type ReactNode,
   useEffect,
   useId,
@@ -23,7 +24,7 @@ import {
   ProviderMark,
   providerBrandName,
 } from "../design-system/provider-mark";
-import { useLocale, useT } from "../i18n";
+import { LOCALES, localeNameKey, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AuthExperience, type AuthPhase, PhoneDisclosure } from "./auth-core";
 import { problemMessageOf, throwProblem } from "./common";
@@ -349,29 +350,30 @@ function usePageTitle(title: string) {
 
 // LocaleFooter is the one footer utility that actually works today (§3.3
 // honesty: no Privacy/Help links exist yet, so none render). Language
-// names are proper nouns, deliberately not translated.
+// names are proper nouns, deliberately not translated — which is exactly why
+// each carries its own `lang` below: three languages sit in a document
+// declared to be in one, and a screen reader would otherwise read "Tiếng
+// Việt" with the phonemes of whichever locale is currently on. Same WCAG
+// 3.1.1 rule LocaleProvider keeps for the document; our locale codes are BCP
+// 47 language subtags, so the code IS the value `lang` wants.
 function LocaleFooter() {
   const t = useT();
   const { locale, setLocale } = useLocale();
   return (
     <div className="auth-footer">
-      <button
-        type="button"
-        className="auth-link"
-        aria-pressed={locale === "de"}
-        onClick={() => setLocale("de")}
-      >
-        {t("auth.langDeutsch")}
-      </button>
-      <span aria-hidden>·</span>
-      <button
-        type="button"
-        className="auth-link"
-        aria-pressed={locale === "en"}
-        onClick={() => setLocale("en")}
-      >
-        {t("auth.langEnglish")}
-      </button>
+      {LOCALES.map((option, index) => (
+        <Fragment key={option}>
+          {index > 0 && <span aria-hidden>·</span>}
+          <button
+            type="button"
+            className="auth-link"
+            aria-pressed={option === locale}
+            onClick={() => setLocale(option)}
+          >
+            <span lang={option}>{t(localeNameKey(option))}</span>
+          </button>
+        </Fragment>
+      ))}
     </div>
   );
 }

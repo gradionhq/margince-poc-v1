@@ -134,18 +134,63 @@ test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
 }) => {
   await page.goto("/#/home");
   await expect(page.locator('nav.rail a[aria-label="Kontakte"]')).toBeVisible();
-  // The language control is a preference, so it lives in the account menu
-  // rather than in the top bar: reaching it takes opening that menu.
+  // The language control is a preference, so it lives in the account menu rather
+  // than in the top bar: reaching it takes opening that menu, and the language
+  // itself is a list of the three shipped locales rather than a toggle.
   await page.getByRole("button", { name: "Konto" }).click();
-  await page
-    .getByRole("button", { name: "Sprache: Auf Englisch umschalten" })
-    .click();
+  await page.getByRole("button", { name: "Sprache: Deutsch" }).click();
+  await page.getByRole("menuitemradio", { name: "English" }).click();
   await expect(page.locator('nav.rail a[aria-label="Contacts"]')).toBeVisible();
-  // The menu stays open across the switch, and comes back in the new locale —
-  // the same row now offers the way back.
+  // The account menu is still open, and its language row now reads the locale
+  // that was just chosen.
   await expect(
-    page.getByRole("button", { name: "Language: Switch to German" }),
+    page.getByRole("button", { name: "Language: English" }),
   ).toBeVisible();
+});
+
+/**
+ * Where the language menu's focus contract is actually testable.
+ *
+ * The jsdom suite (`src/app/localemenu.test.tsx`) asserts the same restoration,
+ * but jsdom does not move `document.activeElement` when the focused node is
+ * detached — so a menu that closed WITHOUT handing focus back would still read
+ * as focused there. Only a browser blanks the selection to `<body>`, which is
+ * exactly the stranding these two tests exist to catch: this menu is the only
+ * in-app control for changing language, so its reader is the one least able to
+ * recover from being dropped at the top of the document.
+ */
+test("features/10 §7: Escape closes the language menu back onto its trigger", async ({
+  page,
+}) => {
+  await page.goto("/#/home");
+  // The language row lives in the account menu, so the trigger is reached through
+  // it — and Escape then closes ONE layer: the language list, not the menu around
+  // it, whose own row is where focus has to land.
+  await page.getByRole("button", { name: "Konto" }).click();
+  const trigger = page.getByRole("button", { name: "Sprache: Deutsch" });
+  await trigger.click();
+  const menu = page.getByRole("menu", { name: "Sprache" });
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test("features/10 §7: Tab closes the language menu and carries on", async ({
+  page,
+}) => {
+  await page.goto("/#/home");
+  await page.getByRole("button", { name: "Konto" }).click();
+  const trigger = page.getByRole("button", { name: "Sprache: Deutsch" });
+  await trigger.click();
+  const menu = page.getByRole("menu", { name: "Sprache" });
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(menu).toHaveCount(0);
+  // Tab says the reader is leaving, so focus must land on the next control —
+  // neither back on the trigger they just left nor nowhere at all.
+  await expect(trigger).not.toBeFocused();
+  await expect(page.locator("body")).not.toBeFocused();
 });
 
 test("AC-pipeline-7: board↔table swaps views preserving the deal set", async ({

@@ -99,7 +99,6 @@ export const en = {
   "shell.collapse": "Collapse sidebar",
   "shell.expand": "Expand sidebar",
   "shell.accountAria": "Account",
-  "shell.language": "Language",
   "shell.theme": "Theme",
   "shell.views": "Views",
   "shell.more": "More",
@@ -109,12 +108,10 @@ export const en = {
   "agent.exampleRouting": "Local + cloud",
   "agent.exampleCost": "€2.41 today",
   "agent.fixture": "Example data",
-  "locale.toEnglish": "Switch to English",
-  "locale.toGerman": "Switch to German",
-  // A language is named in its own language, in both catalogs — that is how a
-  // reader who cannot read the current one finds theirs.
-  "locale.nameEnglish": "English",
-  "locale.nameGerman": "Deutsch",
+  "locale.name.en": "English",
+  "locale.name.de": "Deutsch",
+  "locale.name.vi": "Tiếng Việt",
+  "locale.switchLabel": "Language",
 
   "screen.pending":
     "Not built yet — this surface arrives with its build ticket.",
@@ -2745,8 +2742,6 @@ export const en = {
   "auth.resetDoneBody":
     "Your password is changed and every other session is signed out. Sign in with the new password.",
   "auth.backToLogin": "Back to sign in",
-  "auth.langDeutsch": "Deutsch",
-  "auth.langEnglish": "English",
   "auth.signOut": "Sign out",
 
   "client.back": "Back to Margince",

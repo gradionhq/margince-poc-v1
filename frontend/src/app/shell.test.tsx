@@ -381,9 +381,7 @@ describe("TopBar (§2b contextual truth)", () => {
   it("keeps language, theme and sign-out in the account menu, in that order", async () => {
     render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
     // Closed, none of them is reachable — that is the point of moving them.
-    expect(
-      screen.queryByRole("button", { name: "Language: Switch to German" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Language: / })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Account" }));
     const menu = screen
       .getByRole("button", { name: "Account" })
@@ -401,11 +399,9 @@ describe("TopBar (§2b contextual truth)", () => {
     expect(rows[1]?.startsWith("Language")).toBe(true);
     expect(rows[2]?.startsWith("Theme")).toBe(true);
     expect(rows[3]).toBe("Sign out");
-    // Each preference row states what it is set to now and is NAMED by what
-    // activating it does — the two halves a menu item needs.
-    const language = screen.getByRole("button", {
-      name: "Language: Switch to German",
-    });
+    // Each preference row names the setting and states what it is set to — the
+    // two halves a menu item needs.
+    const language = screen.getByRole("button", { name: "Language: English" });
     expect(language.textContent).toContain("English");
     expect(
       screen.getByRole("button", {
@@ -414,14 +410,32 @@ describe("TopBar (§2b contextual truth)", () => {
     ).toBeTruthy();
   });
 
+  // The language row opens a submenu INSIDE this popover, and both dismissals
+  // listen on the document. Without an owner for the keystroke one Escape would
+  // collapse both layers at once, leaving the reader two steps from where they
+  // were — and the language list is the one control a reader who cannot read the
+  // current locale needs most.
+  it("closes one layer per Escape when the language list is open", async () => {
+    render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Language: / }));
+    expect(screen.getByRole("menu", { name: "Language" })).toBeTruthy();
+
+    await userEvent.keyboard("{Escape}");
+    // The list is gone and the menu it belongs to is still open.
+    expect(screen.queryByRole("menu", { name: "Language" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Language: / })).toBeTruthy();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: /^Language: / })).toBeNull();
+  });
+
   it("hands focus back to the avatar when Escape closes it", async () => {
     render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
     const avatar = screen.getByRole("button", { name: "Account" });
     await userEvent.click(avatar);
     // Standing on a row, the way a keyboard user arrives at one.
-    const language = screen.getByRole("button", {
-      name: "Language: Switch to German",
-    });
+    const language = screen.getByRole("button", { name: /^Language: / });
     language.focus();
     expect(document.activeElement).toBe(language);
 

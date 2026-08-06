@@ -1,6 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Languages,
   LogOut,
   Menu,
   Moon,
@@ -21,13 +20,14 @@ import {
 } from "react";
 import type { components } from "../api/schema";
 import { MarginceCoreScene } from "../design-system/margince-core";
-import { useLocale, useT } from "../i18n";
+import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useLogout, useMe } from "../screens/common";
 import { useEntityName } from "../screens/entityref";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
+import { LocaleMenu } from "./localemenu";
 import {
   BADGE_SCREENS,
   MOBILE_PRIMARY,
@@ -473,43 +473,29 @@ export function TopBar({
   );
 }
 
-// The two preference rows: language, then theme, each stating what it is set to
-// now. The name carries BOTH halves — the visible label, then the action
-// ("Language: Switch to German") — and each half is load-bearing. A menu item has
-// to say what activating it does, or the name describes a state rather than a
-// control; and WCAG 2.5.3 (Label in Name) requires the visible label to be part of
-// the name, or a speech-input user who says the word they can read ("Language")
-// activates nothing.
+// The two preference rows: language, then theme, each naming the setting and
+// stating what it is set to. Both halves of the name are load-bearing — a menu
+// item has to say what activating it does, or the name describes a state rather
+// than a control, and WCAG 2.5.3 (Label in Name) requires the visible label to be
+// part of the name, or a speech-input user who says the word they can read
+// ("Language") activates nothing.
 //
-// Both keep the menu OPEN: they stop the click from reaching the document
+// Both keep the account menu OPEN: they stop the click from reaching the document
 // listener that dismisses it. Changing a preference is a thing you may want to do
 // twice, or undo immediately, and a menu that closed under you took the theme
 // you just picked out of view along with the control that picked it. Settings and
 // sign-out leave the menu on purpose — they leave the screen.
 function MenuPreferences() {
   const t = useT();
-  const { locale, setLocale } = useLocale();
   const [theme, toggleTheme] = useTheme();
-  const german = locale === "de";
   const light = theme === "light";
   return (
     <>
-      <button
-        type="button"
-        aria-label={`${t("shell.language")}: ${
-          german ? t("locale.toEnglish") : t("locale.toGerman")
-        }`}
-        onClick={(event) => {
-          event.stopPropagation();
-          setLocale(german ? "en" : "de");
-        }}
-      >
-        <Languages size={15} aria-hidden />
-        {t("shell.language")}
-        <span className="menuvalue">
-          {german ? t("locale.nameGerman") : t("locale.nameEnglish")}
-        </span>
-      </button>
+      {/* Language is a menu of its own, not a toggle — three locales ship, and a
+          toggle cannot say where the next click lands. It brings its own list,
+          its own keyboard movement and its own focus handling (localemenu.tsx);
+          what it takes from here is the row's chrome. */}
+      <LocaleMenu className="menurow" />
       <button
         type="button"
         aria-label={`${t("shell.theme")}: ${
@@ -584,9 +570,23 @@ function AccountMenu({
       return;
     }
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        dismiss();
+      if (event.key !== "Escape") {
+        return;
       }
+      // One keystroke closes one layer. The language row opens a submenu inside
+      // this popover, and both dismissals listen on the document, so without this
+      // a single Escape would collapse the submenu AND the menu around it —
+      // leaving the reader two layers away from where they were. The submenu
+      // announces itself through the trigger it expanded; when one is open it owns
+      // Escape, and the second press reaches here.
+      if (
+        menu.current?.querySelector(
+          '[aria-haspopup="menu"][aria-expanded="true"]',
+        )
+      ) {
+        return;
+      }
+      dismiss();
     };
     const onClick = () => dismiss();
     document.addEventListener("keydown", onKey);

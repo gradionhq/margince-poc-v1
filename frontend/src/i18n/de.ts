@@ -101,7 +101,6 @@ export const de = {
   "shell.collapse": "Seitenleiste einklappen",
   "shell.expand": "Seitenleiste ausklappen",
   "shell.accountAria": "Konto",
-  "shell.language": "Sprache",
   "shell.theme": "Design",
   "shell.views": "Ansichten",
   "shell.more": "Mehr",
@@ -111,12 +110,10 @@ export const de = {
   "agent.exampleRouting": "Lokal + Cloud",
   "agent.exampleCost": "€2,41 heute",
   "agent.fixture": "Beispieldaten",
-  "locale.toEnglish": "Auf Englisch umschalten",
-  "locale.toGerman": "Auf Deutsch umschalten",
-  // Eine Sprache steht in ihrer eigenen Sprache, in beiden Katalogen — so
-  // findet jemand seine, der die aktuelle nicht lesen kann.
-  "locale.nameEnglish": "English",
-  "locale.nameGerman": "Deutsch",
+  "locale.name.en": "English",
+  "locale.name.de": "Deutsch",
+  "locale.name.vi": "Tiếng Việt",
+  "locale.switchLabel": "Sprache",
 
   "screen.pending":
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
@@ -2750,8 +2747,6 @@ export const de = {
   "auth.resetDoneBody":
     "Dein Passwort ist geändert und alle anderen Sitzungen sind beendet. Melde dich mit dem neuen Passwort an.",
   "auth.backToLogin": "Zurück zur Anmeldung",
-  "auth.langDeutsch": "Deutsch",
-  "auth.langEnglish": "English",
   "auth.signOut": "Abmelden",
 
   "client.back": "Zurück zu Margince",
