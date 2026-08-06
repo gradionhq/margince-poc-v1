@@ -18,6 +18,11 @@
   cursor: help;
   text-decoration: underline dotted var(--borderStrong);
   text-underline-offset: 3px;
+  /* A button centres its content and sets its own line-height. Both are
+     wrong for a mark that sits inside a sentence: a wrapping value would
+     centre its lines against the prose around it. */
+  text-align: inherit;
+  line-height: inherit;
 }
 .evmark-trigger:hover {
   text-decoration-color: var(--accent);
@@ -30,7 +35,10 @@
 .evmark-glyph {
   color: var(--ai);
   margin-inline-start: 0.25em;
-  vertical-align: 0.05em;
+  /* Inline, so it rides the last line of a wrapping value instead of
+     dropping onto a line of its own under it. */
+  display: inline;
+  vertical-align: -0.1em;
 }
 .evmark-trigger:hover .evmark-glyph {
   color: var(--accent);
