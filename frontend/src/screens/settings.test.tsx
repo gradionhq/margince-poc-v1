@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -1315,6 +1316,75 @@ describe("ResetDataCard (danger zone)", () => {
         "The typed confirmation does not match the organization name.",
       ),
     ).toBeTruthy();
+  });
+
+  // The full response (Task 8's five extra counters) — an admin who triggers a
+  // reset that now spans tables, jobs, streams, cache keys and blob storage
+  // learns what actually happened, not just that the button worked.
+  const fullResetBody = {
+    status: "reset",
+    tables_cleared: 84,
+    jobs_cancelled: 12,
+    streams_purged: 12,
+    cache_keys_deleted: 341,
+    objects_deleted: 7,
+    drain_timed_out: false,
+  };
+
+  // Fixed precondition for every summary test below: admin + non_production,
+  // on the Data tab that hosts the card.
+  function renderSettingsAsAdmin(opts: { resetResponse: unknown }) {
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({
+        roles: ["admin"],
+        nonProduction: true,
+        resetBody: opts.resetResponse,
+      }),
+    );
+    return render(<SettingsScreen tab="data" />);
+  }
+
+  // Opens the confirm dialog, types the confirmation, and submits — the same
+  // three steps every summary test needs before it can see a result.
+  async function confirmReset(orgName: string) {
+    await userEvent.click(
+      await screen.findByRole("button", { name: /reset data/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByRole("textbox");
+    await userEvent.type(input, orgName);
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /reset data/i }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  }
+
+  it("reports what the reset cleared", async () => {
+    renderSettingsAsAdmin({ resetResponse: fullResetBody });
+    await confirmReset("Acme Inc");
+
+    expect(
+      await screen.findByText(
+        /Cleared 84 tables, 12 queued jobs, 12 event streams/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("warns when a job was still running at drain time", async () => {
+    renderSettingsAsAdmin({
+      resetResponse: { ...fullResetBody, drain_timed_out: true },
+    });
+    await confirmReset("Acme Inc");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /background job was still running/,
+    );
+  });
+
+  it("shows no summary before a reset has run", () => {
+    renderSettingsAsAdmin({ resetResponse: fullResetBody });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
 
