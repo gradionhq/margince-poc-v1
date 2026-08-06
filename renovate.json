@@ -12,6 +12,7 @@
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
   "lockFileMaintenance": {
+    "description": "Refreshes transitive packages, which have no manifest range for Renovate to raise. The repo-wide minimumReleaseAge does NOT apply here — Renovate delegates resolution to pnpm. The age floor is enforced instead by pnpm 11's supply-chain policy at install time, which fails CI on a too-fresh entry and so blocks automerge.",
     "enabled": true,
     "schedule": ["after 2am and before 6am on monday"]
   },
