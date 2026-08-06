@@ -66,7 +66,9 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 		Role:        string(req.Role),
 	})
 	if err != nil {
-		httperr.Write(w, r, err)
+		httperr.Write(w, r, conflictIf(err, errEmailTaken,
+			"a member with this email already exists in this organization; if they were "+
+				"deactivated, reactivate them from the roster instead of inviting again"))
 		return
 	}
 	h.sendInvite(r, email.String(), rawToken)
@@ -84,7 +86,9 @@ func (h Handlers) ChangeUserRole(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	if err := h.svc.ChangeUserRole(r.Context(), actor, ids.UserID{UUID: ids.UUID(id)}, string(req.Role)); err != nil {
-		httperr.Write(w, r, err)
+		httperr.Write(w, r, conflictIf(err, errLastActiveAdmin,
+			"this member is the organization's only active administrator; give another "+
+				"member the admin role first, then change this one's"))
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
@@ -109,7 +113,9 @@ func (h Handlers) DeactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 		UserID: ids.UserID{UUID: ids.UUID(id)},
 		Reason: req.Reason,
 	}); err != nil {
-		httperr.Write(w, r, err)
+		httperr.Write(w, r, conflictIf(err, errLastActiveAdmin,
+			"this member is the organization's only active administrator; deactivating them "+
+				"would leave nobody able to manage users — give another member the admin role first"))
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
@@ -122,7 +128,9 @@ func (h Handlers) ReactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	if err := h.svc.ReactivateUser(r.Context(), actor, ids.UserID{UUID: ids.UUID(id)}); err != nil {
-		httperr.Write(w, r, err)
+		httperr.Write(w, r, conflictIf(err, errNotDeactivated,
+			"this member is suspended, not deactivated; a suspension is cleared by resolving "+
+				"what caused it, and reactivating would hide that"))
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
@@ -194,6 +202,19 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 		SetPasswordUrl: passwordLink(h.passwordLinkBaseURL, rawToken),
 		ExpiresAt:      expiresAt,
 	})
+}
+
+// conflictIf renders cause as a 409 the operator can act on when err is that
+// cause, and returns err untouched otherwise. The service says WHICH refusal
+// happened; the handler knows which verb was attempted, so the next step is
+// worded here. Without this the whole surface answers the bare word "conflict",
+// which tells an admin neither what went wrong nor what to do — the sentinel's
+// own text is a log line, not advice.
+func conflictIf(err, cause error, detail string) error {
+	if !errors.Is(err, cause) {
+		return err
+	}
+	return &httperr.DetailedError{Status: http.StatusConflict, Code: "conflict", Detail: detail}
 }
 
 // tooManyPasswordLinksBy renders an issuance-ceiling refusal. The generic
