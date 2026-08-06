@@ -9,14 +9,11 @@ import { problemMessage } from "./common";
 // with no outbound email, an invited member is created active with no password
 // and no way to be told one — this is how the admin gets a link to hand over.
 //
-// The link is a LIVE account-takeover credential, so `clear()` drops it and
-// `mint()` refuses to write one back once the dialog it belonged to has closed.
-// That is why this is hand-rolled state rather than a react-query mutation: a
-// mutation keeps its result in a cache the dialog does not own, and firing one
-// from a mount effect breaks outright under StrictMode's double mount — the
-// observer is torn down and the request's result never reattaches, so the
-// dialog hangs on "Creating the link…" forever. The request belongs to the
-// admin's click, not to a component mounting.
+// The link is a LIVE account-takeover credential, so it lives in state this
+// screen owns and nowhere else: `clear()` drops it with the dialog, and a
+// response that arrives after its dialog closed is discarded rather than
+// written back. That is what a shared query cache could not give it, and why
+// the request belongs to the admin's click rather than to a mount.
 //
 // A dismissed link is not recoverable, and need not be — the roster row mints
 // a fresh one.

@@ -44,6 +44,22 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, httperr.Validation("display_name", "length", "a display name of 1–255 characters is required"))
 		return
 	}
+	// An invite creates an ACTIVE member with no password whose only way in is
+	// the set-password token. With no mail channel AND no public base URL there
+	// is nothing to send it over and no link to build, so the member would be
+	// created unreachable and the 201 would be a lie — the exact silent failure
+	// the admin-issued link exists to remove, surviving in the one posture that
+	// link cannot serve. Refuse instead, and name the operator's missing
+	// setting (ADR-0061 Amendment 1).
+	if h.resetMailer == nil && h.passwordLinkBaseURL == "" {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict, Code: "no_delivery_channel",
+			Detail: "this installation can neither email a set-password link nor build one, " +
+				"so an invited member could never sign in; ask the operator to configure " +
+				"outbound email or a public base URL",
+		})
+		return
+	}
 	userID, rawToken, err := h.svc.InviteUser(r.Context(), actor, InviteUserInput{
 		Email:       email.String(),
 		DisplayName: name,
@@ -142,15 +158,24 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	target := ids.UserID{UUID: ids.UUID(id)}
-	// The two budgets count different things, so they are spent differently.
-	// The ACTOR's counts every attempt, so probing costs an attacker the same
-	// as succeeding. The TARGET's counts only links actually minted, because
-	// what it bounds is supersession: a refused attempt invalidates nothing, so
-	// charging a mistyped id or an inactive member against the person named
-	// would let five typos lock a member out of a link they never had.
-	if !h.passwordLinkPerActor.Allow(actor.UserID.String()) ||
-		h.passwordLinkPerTarget.Blocked(target.String()) {
-		httperr.Write(w, r, tooManyPasswordLinks())
+	// Both ceilings count the attempt, atomically, before the mint. Splitting
+	// the check from the charge around a database round-trip would let racing
+	// requests all observe room and all supersede — turning the control that
+	// bounds denial-of-recovery into one that a concurrent caller walks past.
+	// The cost is that a refusal is charged too; a mistyped id charges a key
+	// nobody holds, and a repeatedly-refused inactive member cannot use a link
+	// until they are reactivated anyway.
+	if !h.passwordLinkPerActor.Allow(actor.UserID.String()) {
+		httperr.Write(w, r, tooManyPasswordLinksBy("you have issued too many set-password links in the "+
+			"last hour; wait, or ask another administrator to issue this one"))
+		return
+	}
+	if !h.passwordLinkPerTarget.Allow(target.String()) {
+		// Deliberately NOT "ask another administrator": every admin shares this
+		// member's ceiling, so that advice would send the operator down a path
+		// guaranteed to refuse.
+		httperr.Write(w, r, tooManyPasswordLinksBy("too many set-password links have been issued for "+
+			"this member in the last hour; wait before issuing another"))
 		return
 	}
 	rawToken, expiresAt, err := h.svc.IssuePasswordLink(r.Context(), actor, target)
@@ -165,25 +190,19 @@ func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, 
 		httperr.Write(w, r, err)
 		return
 	}
-	// Charged only now: this is the mint that superseded the member's previous
-	// link, and supersession is what the per-target ceiling exists to bound.
-	h.passwordLinkPerTarget.Record(target.String())
 	httperr.WriteJSON(w, http.StatusCreated, crmcontracts.IssuePasswordLinkResponse{
 		SetPasswordUrl: passwordLink(h.passwordLinkBaseURL, rawToken),
 		ExpiresAt:      expiresAt,
 	})
 }
 
-// tooManyPasswordLinks is the issuance ceiling's refusal. The generic budget
-// sentinel renders as "budget exceeded", which tells an admin neither what
-// happened nor what to do. It deliberately does NOT claim an earlier link is
-// still valid: the actor's ceiling can be reached without any link having been
-// minted for this member.
-func tooManyPasswordLinks() error {
+// tooManyPasswordLinksBy renders an issuance-ceiling refusal. The generic
+// budget sentinel reads "budget exceeded", which tells an admin neither what
+// happened nor what to do, and the two ceilings need different advice: one is
+// spent by the caller, the other is shared across every administrator.
+func tooManyPasswordLinksBy(detail string) error {
 	return &httperr.DetailedError{
-		Status: http.StatusTooManyRequests, Code: "rate_limited",
-		Detail: "too many set-password links issued recently; wait and try again, " +
-			"or ask another administrator to issue this one",
+		Status: http.StatusTooManyRequests, Code: "rate_limited", Detail: detail,
 	}
 }
 

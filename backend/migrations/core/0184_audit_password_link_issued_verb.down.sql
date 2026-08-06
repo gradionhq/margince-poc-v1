@@ -1,18 +1,18 @@
--- A clean rollback or an honest failure — never schema-versus-ledger drift.
--- audit_log is append-only, so once an admin has issued a set-password link
--- the verb cannot be removed from the CHECK without the existing row
--- violating it (and deleting the row to force the rollback through would
--- break the ledger — worse here than elsewhere, because that row is the
--- accountability record for an account-takeover-capable operation).
--- So: if any `password_link_issued` row exists, refuse the rollback before
--- touching the constraint; otherwise narrow the vocabulary back to 0173's set.
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM audit_log WHERE action = 'password_link_issued') THEN
-    RAISE EXCEPTION 'cannot roll back 0184: audit_log holds password_link_issued rows and is append-only — the verb cannot be removed from audit_log_action_check';
-  END IF;
-END $$;
-
+-- Narrow the vocabulary back to 0173's set.
+--
+-- There is no pre-flight probe for existing `password_link_issued` rows, and
+-- that is deliberate rather than an omission. `audit_log` carries FORCE ROW
+-- LEVEL SECURITY with deny-on-unset, and the migration role is neither
+-- superuser nor BYPASSRLS, so a `SELECT … FROM audit_log` here binds no
+-- workspace and returns nothing whatever the table holds — a guard that reads
+-- as a safety net while never firing is worse than none.
+--
+-- The real guard is the re-added constraint itself: `ADD CONSTRAINT` validates
+-- every existing row, so a ledger holding this verb fails the rollback and the
+-- transaction rolls back with the schema intact. `audit_log` is append-only, so
+-- that refusal is the correct outcome — the verb cannot be removed while rows
+-- use it, and deleting those rows to force the rollback through would destroy
+-- the accountability record for an account-takeover-capable operation.
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_action_check;
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check
   CHECK (action IN ('create','update','archive','merge','promote','restore','export','erase',

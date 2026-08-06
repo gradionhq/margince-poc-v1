@@ -192,3 +192,22 @@ func TestTheServiceRefusesAReadSeatAdminOnItsOwn(t *testing.T) {
 		t.Fatalf("read-seat admin = %v, want ErrSeatTierInsufficient", err)
 	}
 }
+
+func TestInviteIsRefusedWhenNothingCouldDeliverTheCredential(t *testing.T) {
+	// An invite creates an active member whose only way in is the set-password
+	// token. With no mailer and no base URL there is neither a channel to send
+	// it over nor a link to build, so a 201 would create an account nobody can
+	// ever sign in as — the original defect, in the one posture the
+	// admin-issued link cannot serve.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/users",
+		strings.NewReader(`{"email":"nobody@acme.test","display_name":"No Body","role":"rep"}`))
+	admin := Identity{UserID: ids.UserID{UUID: ids.NewV7()}, Roles: []string{"admin"}, SeatType: "full"}
+	NewHandlers(&Service{}).InviteUser(rec, req.WithContext(withIdentity(req.Context(), admin)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("invite with no delivery channel = %d, want 409: %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "no_delivery_channel") {
+		t.Errorf("refusal body = %s, want the no_delivery_channel code", rec.Body)
+	}
+}

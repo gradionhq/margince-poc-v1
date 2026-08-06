@@ -150,8 +150,9 @@ Point liveness at `/healthz` and readiness at `/readyz`.
 - **Outbound mail needs the worker** — the api only stages sends; `cmd/worker`
   transmits them.
 - **Admin lockout break-glass:** `margince-migrate reset-password --dsn <owner>
-  --email <admin-email>` (reads the new password from stdin). This is for
-  **lockout**, not for onboarding.
+  --email <admin-email>` (reads the new password from stdin). It will also set
+  a password on a member who has none, so it *can* onboard — but it needs the
+  owner DSN and a shell, so prefer the set-password link below for that.
 - **Onboarding without outbound mail:** an invited member is created active with
   no password, so on an installation with no mail channel the invite alone
   leaves an account nobody can sign in as. Settings → Users & roles then offers a

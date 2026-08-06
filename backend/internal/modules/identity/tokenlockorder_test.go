@@ -16,15 +16,13 @@ package identity
 // must reach the token row first. That is what this file checks, by reading the
 // SQL each function actually issues and comparing positions.
 //
-// It is a source check rather than a concurrency test, deliberately. A
-// two-goroutine race test for this passed just as happily against the
-// deadlocking order — the window is too narrow to hit reliably — so it asserted
-// nothing while reading as though it did.
+// It is a source check rather than a concurrency test: the interleaving that
+// deadlocks is too narrow to hit reliably, so a race test here reports nothing
+// while reading as though it proves something.
 //
-// The population is DERIVED from the package rather than listed. An earlier cut
-// named two functions by hand and missed `IssuePasswordLink`, which owns the
-// transaction and is the likeliest place a future edit would add a member lock:
-// the guard stayed green exactly where it mattered most.
+// The population is DERIVED from the package, and bodies resolve through calls,
+// because the shape being guarded spans functions — one mints while its callee
+// supersedes — and any hand-kept list omits whichever path is added next.
 
 import (
 	"os"
@@ -43,7 +41,9 @@ var (
 	// The clauses that take a row lock on an EXISTING row. An INSERT is absent
 	// on purpose: it creates a row rather than contending for one, so a mint
 	// for a brand-new member is not part of the cycle.
-	rowLockClauses   = regexp.MustCompile(`FOR UPDATE|FOR NO KEY UPDATE|FOR SHARE|FOR KEY SHARE`)
+	rowLockClauses = regexp.MustCompile(`FOR UPDATE|FOR NO KEY UPDATE|FOR SHARE|FOR KEY SHARE`)
+	// The table a statement's row lock actually falls on.
+	primaryTable     = regexp.MustCompile(`(?i)\b(?:FROM|UPDATE|INSERT INTO)\s+(\w+)`)
 	updatesOrDeletes = func(sql, table string) bool {
 		return strings.Contains(sql, "UPDATE "+table) || strings.Contains(sql, "DELETE FROM "+table)
 	}
@@ -51,11 +51,20 @@ var (
 
 // locksRow reports whether one statement takes a row lock on the named table,
 // either by an explicit clause or by being an UPDATE/DELETE against it.
+//
+// A FOR-clause is attributed to the statement's OWN target rather than to any
+// table it happens to mention: `SELECT … FROM auth_token … FOR UPDATE` locks a
+// token even when the WHERE names a member column, and reading it as a member
+// lock would misreport the one function whose order is already correct.
 func locksRow(sql, table string) bool {
-	if !strings.Contains(sql, table) {
+	if updatesOrDeletes(sql, table) {
+		return true
+	}
+	if !rowLockClauses.MatchString(sql) {
 		return false
 	}
-	return rowLockClauses.MatchString(sql) || updatesOrDeletes(sql, table)
+	target := primaryTable.FindStringSubmatch(sql)
+	return target != nil && target[1] == table
 }
 
 type identityFunc struct {
@@ -132,9 +141,40 @@ func TestTokenPathsReachTheTokenRowBeforeTheMemberRow(t *testing.T) {
 	}
 }
 
+// reachableBody returns fn's source plus that of every package function it
+// calls, transitively. A body read in isolation misses the common shape here:
+// the function that mints is not always the one that supersedes or takes the
+// lock, so neither half alone would identify the path.
+func reachableBody(fn identityFunc, byName map[string]identityFunc, seen map[string]bool) string {
+	if seen[fn.name] {
+		return ""
+	}
+	seen[fn.name] = true
+	text := fn.body
+	for name, callee := range byName {
+		// Word-bounded: a plain substring makes canIssuePasswordLink look like
+		// a caller of IssuePasswordLink, dragging unrelated bodies in and
+		// reporting the wrong function.
+		if name == fn.name {
+			continue
+		}
+		callsCallee := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\(`)
+		if callsCallee.MatchString(fn.body) {
+			text += reachableBody(callee, byName, seen)
+		}
+	}
+	return text
+}
+
 func TestTokenSupersedersSerializeOnTheMember(t *testing.T) {
+	funcs := packageFuncs(t)
+	byName := make(map[string]identityFunc, len(funcs))
+	for _, fn := range funcs {
+		byName[fn.name] = fn
+	}
 	checked := 0
-	for _, fn := range packageFuncs(t) {
+	for _, fn := range funcs {
+		fn.body = reachableBody(fn, byName, map[string]bool{})
 		// Superseding-then-inserting is the shape that needs serializing: two
 		// racers at READ COMMITTED each miss the other's uncommitted insert and
 		// both leave a live token. A mint that supersedes nothing (a brand-new
@@ -145,7 +185,10 @@ func TestTokenSupersedersSerializeOnTheMember(t *testing.T) {
 			continue
 		}
 		checked++
-		if !strings.Contains(fn.body, "lockMemberForTokenIssue") {
+		// The open paren matters: a bare name match is satisfied by a doc
+		// comment mentioning the helper, which would pass a path that never
+		// calls it.
+		if !strings.Contains(fn.body, "lockMemberForTokenIssue(") {
 			t.Errorf(
 				"%s:%s supersedes and re-mints a member's token without "+
 					"lockMemberForTokenIssue — two issuers racing would both leave a live "+

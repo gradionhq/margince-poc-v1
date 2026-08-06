@@ -6169,7 +6169,12 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: A member with this email already exists.
+          description: >-
+            Refused, with the reason distinguished by the problem `code`:
+            `conflict` (a member with this email already exists), or
+            `no_delivery_channel` (this installation has neither an outbound-email channel nor a
+            public base URL, so neither the mailed link nor an admin-issued one could reach the
+            member — an invite would create an ACTIVE account nobody could ever sign in as).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
