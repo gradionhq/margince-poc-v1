@@ -253,11 +253,9 @@ func (r *Registry) commitSyncCursor(ctx context.Context, connectionID ids.UUID, 
 // a domain the workspace does not own; treating that as internal would silently
 // stop the workspace storing its correspondence with that very company.
 //
-// So a seed is a CANDIDATE. It is recorded verified only when it matches a
-// domain of the installation's own company — the anchor organization, whose
-// domain a human confirmed at cold start, and the only statement in the system
-// about who "we" are. Everything else waits for an administrator and suppresses
-// nothing meanwhile.
+// So a seed is only ever a CANDIDATE. What makes a domain count as ours is the
+// installation's own company claiming it, or an administrator saying so — and
+// that is asked at read time, never stamped onto the row here.
 //
 // A connector that cannot name its account seeds nothing and syncs normally —
 // the set stays admin-fed for it, which is a smaller failure than refusing to
@@ -286,8 +284,7 @@ func (r *Registry) seedOwnDomainFromAccount(ctx context.Context, c connector.Con
 	})
 }
 
-// seedDomainOfAddressTx records one mailbox's domain as a candidate own-domain,
-// verified only if the installation's own company already claims it.
+// seedDomainOfAddressTx records one mailbox's domain as a candidate own-domain.
 func seedDomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string) error {
 	domain := domainOfAddress(address)
 	if domain == "" {
@@ -302,49 +299,18 @@ func seedDomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string) error
 	if consumerMail.IsConsumer(domain) {
 		return nil
 	}
-	verified, err := anchorClaimsDomainTx(ctx, tx, domain)
-	if err != nil {
-		return err
-	}
-	// A row already confirmed by a human is never downgraded by a later sync.
+	// Recorded unverified, always. Whether the domain is OURS is not a fact
+	// about this mailbox and is not frozen here — it is derived at read time
+	// from what the own company currently claims (trustedOwnDomainsTx). Writing
+	// the answer down would mean a domain that stopped being ours went on
+	// suppressing mail forever.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'mailbox', $2)
-		ON CONFLICT (workspace_id, domain) DO UPDATE SET verified = workspace_email_domain.verified OR EXCLUDED.verified`,
-		domain, verified); err != nil {
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'mailbox', false)
+		ON CONFLICT (workspace_id, domain) DO NOTHING`, domain); err != nil {
 		return fmt.Errorf("capture: seeding workspace email domain: %w", err)
 	}
 	return nil
-}
-
-// anchorClaimsDomainTx reports whether the installation's own company registers
-// this domain, or a parent of it.
-//
-// A read of another module's table, which reads are free to be: the fact needed
-// here is "did a human say this domain is ours", and the anchor organization is
-// the only place that answer lives. Writing there would be a different matter.
-func anchorClaimsDomainTx(ctx context.Context, tx pgx.Tx, domain string) (bool, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT d.domain
-		  FROM organization_domain d
-		  JOIN organization o ON o.id = d.organization_id
-		 WHERE o.is_anchor AND o.archived_at IS NULL AND d.archived_at IS NULL`)
-	if err != nil {
-		return false, fmt.Errorf("capture: reading the anchor company's domains: %w", err)
-	}
-	defer rows.Close()
-	var claimed []string
-	for rows.Next() {
-		var d string
-		if err := rows.Scan(&d); err != nil {
-			return false, fmt.Errorf("capture: reading the anchor company's domains: %w", err)
-		}
-		claimed = append(claimed, d)
-	}
-	if err := rows.Err(); err != nil {
-		return false, fmt.Errorf("capture: reading the anchor company's domains: %w", err)
-	}
-	return NewInternalDomains(claimed).CoversDomain(domain), nil
 }
 
 // resolveCredential turns a stored connection's credential into the opaque

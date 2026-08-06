@@ -149,25 +149,40 @@ func (d InternalDomains) External(addresses []string) []string {
 	return out
 }
 
-// ownDomainsTx reads every registered own domain, confirmed or merely observed.
-// This is the set for decisions that only affect whether a COLLEAGUE becomes a
-// contact — getting that wrong costs a junk record, which a human can see and
-// undo.
+// anchorDomains is what the installation's own company currently claims. It is
+// a READ of another module's table, which reads are free to be: the question is
+// "does a human say this domain is ours", and the anchor organization is the
+// only place that answer lives.
+const anchorDomains = `
+	SELECT d.domain
+	  FROM organization_domain d
+	  JOIN organization o ON o.id = d.organization_id
+	 WHERE o.is_anchor AND o.archived_at IS NULL AND d.archived_at IS NULL`
+
+// ownDomainsTx reads every domain that might be ours — the company's own, plus
+// every candidate a connected mailbox contributed. This is the set for
+// decisions that only affect whether a COLLEAGUE becomes a contact; getting
+// that wrong costs a junk record, which a human can see and undo.
 func ownDomainsTx(ctx context.Context, tx pgx.Tx) (InternalDomains, error) {
-	return queryDomains(ctx, tx, `SELECT domain FROM workspace_email_domain`)
+	return queryDomains(ctx, tx, `SELECT domain FROM workspace_email_domain UNION `+anchorDomains)
 }
 
-// trustedOwnDomainsTx reads only the domains someone vouched for — a provider's
-// authenticated identity or an administrator.
+// trustedOwnDomainsTx reads only the domains a human vouched for: those the own
+// company claims, and those an administrator confirmed.
 //
 // Storing a message or not is a stronger consequence than creating a contact or
-// not, so it takes the stronger evidence. An unverified row comes from a label
-// the connecting human typed, and acting on that would let anyone who can reach
-// the connect endpoint name a domain they do not own and silently stop the
-// workspace keeping correspondence with it — irreversibly, since every
-// connector advances past a skipped message.
+// not, so it takes the stronger evidence. A mailbox on its own is not evidence
+// — it proves whose mailbox it is, never whose domain it is, and a contractor's
+// genuine account at a customer's company would otherwise suppress that
+// customer's correspondence workspace-wide.
+//
+// Asked fresh every time rather than stamped on the row when the mailbox was
+// seen. A company that corrects a mistyped domain, or changes it, stops
+// suppressing the old one immediately — a cached answer would go on hiding mail
+// for a domain nobody claims any more, and nothing would ever revoke it.
 func trustedOwnDomainsTx(ctx context.Context, tx pgx.Tx) (InternalDomains, error) {
-	return queryDomains(ctx, tx, `SELECT domain FROM workspace_email_domain WHERE verified`)
+	return queryDomains(ctx, tx,
+		`SELECT domain FROM workspace_email_domain WHERE verified UNION `+anchorDomains)
 }
 
 func queryDomains(ctx context.Context, tx pgx.Tx, query string) (InternalDomains, error) {

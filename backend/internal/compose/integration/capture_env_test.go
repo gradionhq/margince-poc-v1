@@ -217,9 +217,10 @@ func newCaptureEnv(t *testing.T) captureEnv {
 		t.Fatalf("seeding the anchor company: %v", err)
 	}
 
-	// The first sync seeds the mailbox's own domain — every tier below depends
-	// on the workspace knowing which domain is its own, and the drop depends on
-	// the anchor having vouched for it.
+	// The first sync records the mailbox's domain as a candidate. The row is
+	// deliberately unverified: what makes a domain ours is the company's own
+	// claim, asked at read time, so nothing here freezes an answer that could
+	// later be wrong.
 	sync(t)
 	var seeded, verified bool
 	if err := database.WithWorkspaceTx(wsCtx, e.Pool, func(tx pgx.Tx) error {
@@ -229,8 +230,11 @@ func newCaptureEnv(t *testing.T) captureEnv {
 	}); err != nil {
 		t.Fatalf("reading the seeded own domain: %v", err)
 	}
-	if !seeded || !verified {
-		t.Fatalf("own domain seeded=%v verified=%v, want both — the anchor claims this domain", seeded, verified)
+	if !seeded {
+		t.Fatal("the connected mailbox's domain must be recorded as a candidate")
+	}
+	if verified {
+		t.Fatal("a mailbox must not verify its own domain — the company's claim does that")
 	}
 	return captureEnv{e: e, sync: sync, syncSent: syncSent}
 }

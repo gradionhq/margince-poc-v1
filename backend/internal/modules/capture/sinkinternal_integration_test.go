@@ -44,11 +44,22 @@ func bootstrapInternalMailWorkspace(t *testing.T, ownDomains ...string) (context
 		wsUUID, slug); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}
-	for _, d := range ownDomains {
-		if _, err := owner.Exec(ctx,
-			`INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
-			 VALUES ($1, $2, 'admin', true)`, wsUUID, d); err != nil {
-			t.Fatalf("registering own domain %s: %v", d, err)
+	if len(ownDomains) > 0 {
+		// Registered the way cold start does it: the installation's own company
+		// claims these domains. That claim, not a row in the capture registry,
+		// is what makes them count.
+		orgID := ids.NewV7()
+		if _, err := owner.Exec(ctx, `
+			INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
+			VALUES ($1, $2, 'Our Company', true, 'manual', 'human:test')`, orgID, wsUUID); err != nil {
+			t.Fatalf("seeding the anchor company: %v", err)
+		}
+		for i, d := range ownDomains {
+			if _, err := owner.Exec(ctx, `
+				INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+				VALUES ($1, $2, $3, $4, 'manual', 'human:test')`, wsUUID, orgID, d, i == 0); err != nil {
+				t.Fatalf("registering own domain %s: %v", d, err)
+			}
 		}
 	}
 	return mailSinkContext(ctx, wsUUID), pool
@@ -313,5 +324,37 @@ func TestAnUnverifiedOwnDomainSuppressesNothing(t *testing.T) {
 	}
 	if activities, _, _, _ := countsFor(ctx, t, pool, "unverified-1"); activities != 1 {
 		t.Errorf("activity rows = %d, want 1 — only a vouched-for domain governs the drop", activities)
+	}
+}
+
+// A domain the own company stops claiming stops suppressing mail.
+//
+// Whether a domain is ours is derived, not remembered. Stamping the answer onto
+// the registry row when a mailbox was first seen would leave a corrected typo —
+// or a company that changed its domain — hiding correspondence with an address
+// nobody claims any more, with nothing in the system able to revoke it.
+func TestADomainTheCompanyNoLongerClaimsStopsSuppressingMail(t *testing.T) {
+	ctx, pool := bootstrapInternalMailWorkspace(t, "acme.com")
+	sink := capture.NewSink(pool)
+
+	if _, err := sink.Upsert(ctx, mailRecord("revoke-1", "boss@acme.com",
+		"boss@acme.com", "rep@acme.com")); !isSkip(err) {
+		t.Fatalf("while the company claims acme.com the message is dropped: got %v", err)
+	}
+
+	// The company corrects itself: acme.com was never theirs.
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE organization_domain SET domain = 'acmecorp.com'`)
+		return err
+	}); err != nil {
+		t.Fatalf("correcting the company's domain: %v", err)
+	}
+
+	if _, err := sink.Upsert(ctx, mailRecord("revoke-2", "boss@acme.com",
+		"boss@acme.com", "rep@acme.com")); err != nil {
+		t.Fatalf("once the company no longer claims acme.com the mail must be kept: %v", err)
+	}
+	if activities, _, _, _ := countsFor(ctx, t, pool, "revoke-2"); activities != 1 {
+		t.Errorf("activity rows = %d, want 1 — the claim was withdrawn, so the drop must stop", activities)
 	}
 }
