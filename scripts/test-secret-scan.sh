@@ -39,7 +39,7 @@ failures=0
 # <path>, scan, then restore the file so each case is judged alone.
 expect() {
 	local want="$1" target="$2" why="$3" file="$work/$2" got
-	if [ ! -f "$file" ]; then
+	if [[ ! -f "$file" ]]; then
 		printf '  FAIL  %s does not exist in the committed tree\n' "$target"
 		failures=$((failures + 1))
 		return
@@ -57,7 +57,7 @@ expect() {
 	fi
 	cp "$backups/orig" "$file"
 
-	if [ "$got" = "$want" ]; then
+	if [[ "$got" == "$want" ]]; then
 		printf '  ok    %-6s  %s\n' "$got" "$target"
 	else
 		printf '  FAIL  want %s, got %s — %s: %s\n' "$want" "$got" "$target" "$why"
@@ -86,7 +86,7 @@ expect caught "frontend/src/screens/onboarding-conversation/connect-scene.tsx" \
 expect missed "backend/internal/shared/ports/websearch/sourcepolicy_test.go" \
 	"test fixtures are exempt by design"
 
-if [ "$failures" -ne 0 ]; then
+if [[ "$failures" -ne 0 ]]; then
 	echo "test-secret-scan: FAIL ($failures)" >&2
 	exit 1
 fi
