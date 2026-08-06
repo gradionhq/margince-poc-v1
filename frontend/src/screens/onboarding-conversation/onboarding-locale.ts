@@ -11,12 +11,21 @@ import type { Locale } from "../../i18n";
 export type OnboardingLocale =
   components["schemas"]["OnboardingCompanyMessageRequest"]["locale"];
 
-// Widening the enum upstream fails to compile here until this list follows,
-// which is how the reconciliation stays honest rather than drifting silently.
-const PROMPTED = ["en", "de"] as const satisfies readonly OnboardingLocale[];
+// The prompted languages are spelled as a map KEYED BY the contract enum, not
+// as a list drawn from it, because only the map carries the guarantee that
+// matters here. `satisfies Record<OnboardingLocale, true>` rejects a missing
+// key as loudly as an unknown one, so the day the prompt library gains a
+// language and the enum widens, this file stops compiling until the map
+// follows. A `readonly OnboardingLocale[]` list cannot say that — a subset
+// satisfies it happily, and the new language would keep falling back to
+// English forever with nothing failing.
+const PROMPTED = { en: true, de: true } satisfies Record<
+  OnboardingLocale,
+  true
+>;
 
 function isPrompted(locale: Locale): locale is Locale & OnboardingLocale {
-  return PROMPTED.some((prompted) => prompted === locale);
+  return Object.hasOwn(PROMPTED, locale);
 }
 
 export function onboardingLocale(locale: Locale): OnboardingLocale {
