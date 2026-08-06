@@ -146,10 +146,33 @@ func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.R
 			httperr.Write(w, r, httperr.Validation("resolutions", "invalid", invalid.Reason))
 			return
 		}
-		httperr.Write(w, r, err)
+		httperr.Write(w, r, siteReadConfirmationRefusal(err))
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, toContractCompany(company))
+}
+
+// siteReadConfirmationRefusal gives each way a confirmation can be refused its
+// own contract code. All three are 409s and a client branches on the machine
+// code alone (frontend.md), so sharing one code between them would leave it
+// unable to tell "somebody already finished onboarding" from "this read has no
+// draft yet" without refetching and re-deriving which it was. The third, a
+// draft that moved under the reader, already has version_skew from the shared
+// registry and is left to it.
+func siteReadConfirmationRefusal(err error) error {
+	switch {
+	case errors.Is(err, people.ErrSiteReadAlreadyConfirmed):
+		return &httperr.DetailedError{
+			Status: http.StatusConflict, Code: "already_confirmed",
+			Detail: "This website read was already confirmed. Open the company profile to see what it created.",
+		}
+	case errors.Is(err, people.ErrSiteReadNotConfirmable):
+		return &httperr.DetailedError{
+			Status: http.StatusConflict, Code: "not_confirmable",
+			Detail: "This website read has no draft to confirm. Wait for it to finish, or start a new read.",
+		}
+	}
+	return err
 }
 
 func (e *deepReadEngine) stageOnboardingPeople(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, read people.SiteRead, found []people.SiteReadPerson) ([]ids.UUID, error) {

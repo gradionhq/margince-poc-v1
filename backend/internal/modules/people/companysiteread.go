@@ -25,6 +25,22 @@ const (
 	eventKeyCapturedBy        = "captured_by"
 )
 
+// The confirm path refuses a dossier for two distinct reasons that are not the
+// same news to a caller, so each carries its own error. They stay module-owned
+// rather than joining the shared sentinel registry (which interfaces.md §0
+// fixes) because they mean nothing outside this operation; the transport turns
+// each into its own contract code, the way capture's backfill refusals and
+// search's live-reindex refusal already do.
+
+// ErrSiteReadAlreadyConfirmed refuses a dossier whose decision is already made:
+// replaying it would confirm the same draft twice.
+var ErrSiteReadAlreadyConfirmed = errors.New("people: the website read was already confirmed")
+
+// ErrSiteReadNotConfirmable refuses a dossier that has no draft to confirm —
+// still reading, or ended without one. Nothing was decided and the caller may
+// try again once the read reaches a terminal state.
+var ErrSiteReadNotConfirmable = errors.New("people: the website read is not ready to confirm")
+
 // ConfirmCompanySiteReadInput is the inspected onboarding draft plus the
 // human's selected profile and fact subset.
 type ConfirmCompanySiteReadInput struct {
@@ -121,10 +137,10 @@ func (s *Store) confirmCompanySiteReadTx(
 
 func validateSiteReadConfirmation(read SiteRead, in ConfirmCompanySiteReadInput) error {
 	if read.ConfirmedAt != nil {
-		return fmt.Errorf("the website read was already confirmed: %w", apperrors.ErrConflict)
+		return ErrSiteReadAlreadyConfirmed
 	}
 	if read.Status != "done" && read.Status != "partial" {
-		return fmt.Errorf("the website read is %s, not ready to confirm: %w", read.Status, apperrors.ErrConflict)
+		return fmt.Errorf("its status is %s: %w", read.Status, ErrSiteReadNotConfirmable)
 	}
 	if read.DraftVersion != in.DraftVersion || read.ProposalHash != in.ProposalHash {
 		return fmt.Errorf("the website draft changed since it was reviewed: %w", apperrors.ErrVersionSkew)

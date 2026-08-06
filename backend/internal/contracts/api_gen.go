@@ -9403,9 +9403,11 @@ type CompanySiteReadPersonDisposition string
 // CompanySiteReadResolution defines model for CompanySiteReadResolution.
 type CompanySiteReadResolution struct {
 	Action CompanySiteReadResolutionAction `json:"action"`
-	Key    string                          `json:"key"`
 
-	// Value Required and non-blank only for use_value; forbidden for other actions.
+	// Key A human_conflict comparison key, or — for use_value only — any fact comparison key in the draft. Any other key is refused.
+	Key string `json:"key"`
+
+	// Value Required and non-blank only for use_value; forbidden for other actions. A value equal to the read's own proposed value is an acceptance and keeps the page's evidence; a different one is the human's assertion and is stored with no website evidence.
 	Value *string `json:"value,omitempty"`
 }
 
@@ -9463,9 +9465,11 @@ type ConfirmCompanySiteReadRequest struct {
 	Profile      CompanyProfileInput `json:"profile"`
 	ProposalHash string              `json:"proposal_hash"`
 
-	// Resolutions Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
-	Resolutions      *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
-	SelectedFactKeys []string                     `json:"selected_fact_keys"`
+	// Resolutions Exactly one keyed resolution for every human_conflict comparison, plus an optional use_value for any fact the read got wrong. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+	Resolutions *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
+
+	// SelectedFactKeys The proposed facts to keep, exactly as the read stated them. A fact the reader wants to correct is left out of this list and sent as a use_value resolution instead.
+	SelectedFactKeys []string `json:"selected_fact_keys"`
 }
 
 // ConnectChannelRequest defines model for ConnectChannelRequest.

@@ -4,10 +4,16 @@
 package compose
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // The legal census only reaches a human through this projection: the
@@ -86,5 +92,70 @@ func TestCompanySiteReadSaysWhyTheCrawlStopped(t *testing.T) {
 	exhausted := companySiteRead(people.SiteRead{SeedURL: seedURL, Status: "done"}, nil, nil)
 	if exhausted.StoppedReason != nil {
 		t.Errorf("a read that exhausted discovery stopped for no reason: %q", *exhausted.StoppedReason)
+	}
+}
+
+// Three different things went wrong and three different things put them right,
+// but all three answer 409 — so the code is the only thing the client can steer
+// on. One code shared between two of them sends it back to the server to work
+// out which it was.
+func TestConfirmingASiteReadGivesEachRefusalItsOwnCode(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{
+			name: "already confirmed",
+			err:  fmt.Errorf("confirm company site read: %w", people.ErrSiteReadAlreadyConfirmed),
+			code: "already_confirmed",
+		},
+		{
+			name: "no draft to confirm yet",
+			err:  fmt.Errorf("confirm company site read: %w", people.ErrSiteReadNotConfirmable),
+			code: "not_confirmable",
+		},
+		{
+			name: "draft moved since it was reviewed",
+			err:  fmt.Errorf("the website draft changed since it was reviewed: %w", apperrors.ErrVersionSkew),
+			code: "version_skew",
+		},
+	}
+	answered := map[string]string{}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/v1/company/site-reads/x/confirm", nil)
+			httperr.Write(recorder, request, siteReadConfirmationRefusal(tc.err))
+
+			var problem struct {
+				Code   string `json:"code"`
+				Detail string `json:"detail"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &problem); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.Code != http.StatusConflict || problem.Code != tc.code {
+				t.Fatalf("refusal → %d %q, want 409 %q", recorder.Code, problem.Code, tc.code)
+			}
+			if problem.Detail == "" {
+				t.Fatal("the refusal says nothing about what happened or what to do")
+			}
+			if previous, taken := answered[problem.Code]; taken {
+				t.Fatalf("%q answers both %q and %q", problem.Code, previous, tc.name)
+			}
+			answered[problem.Code] = tc.name
+		})
+	}
+}
+
+// The refusal switch names two errors; it is not a place every other error goes
+// to lose the mapping it already had.
+func TestConfirmingASiteReadLeavesUnrelatedErrorsAlone(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/company/site-reads/x/confirm", nil)
+	httperr.Write(recorder, request, siteReadConfirmationRefusal(apperrors.ErrNotFound))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("a dossier that does not exist → %d, want 404", recorder.Code)
 	}
 }
