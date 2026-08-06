@@ -77,22 +77,17 @@ func TestParseEventMapsMeetingActivity(t *testing.T) {
 	}
 }
 
-func TestAnInternalMeetingIsReportedWholeForTheWriterToJudge(t *testing.T) {
-	// Owner + two colleagues on the same domain. This package no longer decides
-	// internal-vs-external — it cannot, since that is a question about the
-	// workspace's registered domains and a connector holds no database handle.
-	// Its obligation is to report every party, so the writer can decide over the
-	// full set (ADR-0082/A127). Zero rows for this event is proven where the
-	// decision now lives, in the capture writer's own tests.
+func TestAMeetingInsideTheOwnersDomainIsDroppedByTheFloor(t *testing.T) {
+	// The floor: what the owner's own domain alone proves internal is dropped
+	// here, without consulting any registry. The workspace's registered domains
+	// are wider and are applied by the writer, which can only widen this — an
+	// internal meeting stored while that set is empty would be readable by the
+	// whole workspace.
 	raw := eventJSON(t, "evt-3", "confirmed", "Standup", "2026-07-16T09:00:00Z",
 		gcalOwner, gcalOwner, "peer@myco.com", "boss@myco.com")
-	m := mustParse(t, raw)
-	if _, skip := m.SkipReason(); skip {
-		t.Fatal("an internal meeting must reach the writer, not be dropped here")
-	}
-	want := []string{gcalOwner, "peer@myco.com", "boss@myco.com"}
-	if got := m.ToRecord("gcal", raw).Addresses; !slices.Equal(got, want) {
-		t.Errorf("Addresses = %v, want %v (organizer, attendees and the owner, deduplicated)", got, want)
+	reason, skip := mustParse(t, raw).SkipReason()
+	if !skip || reason != "no party outside the owner's domain" {
+		t.Fatalf("got (%q, skip=%v), want the owner-domain floor to drop it", reason, skip)
 	}
 }
 

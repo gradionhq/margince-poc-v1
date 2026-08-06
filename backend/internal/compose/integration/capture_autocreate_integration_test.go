@@ -192,10 +192,9 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
 	t.Run("a wholly internal message stores nothing at all", func(t *testing.T) {
-		// Colleague to colleague. This used to keep the activity and suppress
-		// only the records, which put the subject and body on a link-less row
-		// — and a link-less activity is readable by the whole workspace. The
-		// message now produces no rows whatsoever (ADR-0082/A127).
+		// Colleague to colleague produces no rows whatsoever. Suppressing only
+		// the records would leave the subject and body on a link-less activity,
+		// which is readable by the whole workspace (ADR-0082/A127).
 		sync(t, email("carol@myco.example", "Carol Colleague", captureOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
@@ -226,9 +225,8 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 			t.Fatal("the colleague who wrote it is still not a contact")
 		}
 		// The outsider is a first-time sender, so the ladder defers them for a
-		// verdict rather than creating on sight (ADR-0072 T4) — the deferral is
-		// itself the proof that the ladder is about THEM and not the colleague,
-		// which is what the substitution had to achieve.
+		// verdict rather than creating on sight (ADR-0072 T4). The deferral row
+		// names who the ladder is about, which is the claim under test.
 		if n := countRows(t, e, `
 			SELECT count(*) FROM capture_pending_counterparty
 			WHERE email = 'buyer@outside.example'`); n != 1 {

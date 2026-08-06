@@ -221,3 +221,15 @@ func emailCC(from, fromName, to, cc, msgID string) []byte {
 	}
 	return []byte(strings.Join(lines, "\r\n"))
 }
+
+// AccountLabel names the mailbox this fake authenticates as, exactly as the
+// real mail connectors do — the registry seeds the workspace's own domain from
+// it before pulling a single message, so a fake without it would leave every
+// tier below testing against an empty own-domain set.
+func (m *mailBatchConnector) AccountLabel(connector.Auth) (string, error) {
+	return captureOwner, nil
+}
+
+// AccountLabelIsProviderAttested marks the label as vouched for, which is what
+// the OAuth connectors this fake stands in for can claim.
+func (m *mailBatchConnector) AccountLabelIsProviderAttested() {}

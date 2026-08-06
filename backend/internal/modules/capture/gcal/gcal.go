@@ -45,9 +45,10 @@ type Connector struct {
 func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api: api} }
 
 var (
-	_ connector.Connector      = (*Connector)(nil)
-	_ connector.GrantedScoper  = (*Connector)(nil)
-	_ connector.AccountLabeler = (*Connector)(nil)
+	_ connector.Connector              = (*Connector)(nil)
+	_ connector.GrantedScoper          = (*Connector)(nil)
+	_ connector.AccountLabeler         = (*Connector)(nil)
+	_ connector.AttestedAccountLabeler = (*Connector)(nil)
 )
 
 // GrantedScopes reports the Google scopes this calendar connection actually
@@ -145,8 +146,8 @@ func (c *Connector) selectEvents(ctx context.Context, access, start string) ([][
 }
 
 // captureOne parses, drops, or upserts one raw event — the same discipline the
-// mail connectors use. A parse failure or a deliberate skip (cancelled,
-// all-internal) is a no-op; only a real Sink write fault returns a non-nil
+// mail connectors use. A parse failure or a deliberate skip (cancelled, solo,
+// or inside the owner's domain) is a no-op; only a real Sink write fault returns a non-nil
 // error (which stops the pull). It is a package function (no receiver) so a
 // pull holds no shared state.
 func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner string) error {
@@ -169,7 +170,7 @@ func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner stri
 // Normalize maps ONE raw Calendar event resource to its meeting activity. Pure
 // — no I/O — so the mapping is the test-guarded surface; it returns an
 // ErrSkip-wrapped error for an event this connector intentionally drops
-// (cancelled, or all attendees internal).
+// (cancelled, naming nobody but the owner, or wholly inside the owner's domain).
 func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]connector.NormalizedRecord, error) {
 	m, err := parseEvent(raw, c.owner)
 	if err != nil {
@@ -219,3 +220,8 @@ func marshalCursor(syncToken string) connector.Cursor {
 	b, _ := json.Marshal(cursorState{SyncToken: syncToken}) //nolint:errchkjson // string-only struct never errors
 	return b
 }
+
+// AccountLabelIsProviderAttested marks this connector's account label as the
+// provider's own answer to "who authorized this", read from the OAuth identity
+// rather than from anything the connecting human typed.
+func (c *Connector) AccountLabelIsProviderAttested() {}

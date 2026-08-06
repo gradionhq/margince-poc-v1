@@ -52,10 +52,11 @@ type Connector struct {
 func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api: api} }
 
 var (
-	_ connector.Connector      = (*Connector)(nil)
-	_ connector.Watcher        = (*Connector)(nil)
-	_ connector.AccountLabeler = (*Connector)(nil)
-	_ connector.GrantedScoper  = (*Connector)(nil)
+	_ connector.Connector              = (*Connector)(nil)
+	_ connector.Watcher                = (*Connector)(nil)
+	_ connector.AccountLabeler         = (*Connector)(nil)
+	_ connector.AttestedAccountLabeler = (*Connector)(nil)
+	_ connector.GrantedScoper          = (*Connector)(nil)
 )
 
 // authState is the persisted credential bundle (the opaque connector.Auth).
@@ -359,3 +360,8 @@ func scopeStrings(scopes []principal.Scope) []string {
 	}
 	return out
 }
+
+// AccountLabelIsProviderAttested marks this connector's account label as the
+// provider's own answer to "who authorized this", read from the OAuth identity
+// rather than from anything the connecting human typed.
+func (c *Connector) AccountLabelIsProviderAttested() {}

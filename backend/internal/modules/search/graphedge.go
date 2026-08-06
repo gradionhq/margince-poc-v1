@@ -86,7 +86,7 @@ func (e InteractionEdge) StrengthOf(now time.Time) relstrength.Score {
 // colleague who is only ever copied has one-directional traffic, so the
 // reciprocity term floors them well below someone in a real exchange. They
 // appear, ranked where they belong, instead of vanishing.
-const interactionRoles = `('from','to','cc','attendee','organizer')`
+const interactionRoles = `('from','to','cc','bcc','attendee','organizer')`
 
 // RecomputeEdgesForActivities re-folds every (user, person) pair reachable
 // from the named activities, from the base tables.

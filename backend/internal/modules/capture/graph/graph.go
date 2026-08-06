@@ -60,10 +60,11 @@ func New(oauth OAuth, api API) *Connector {
 }
 
 var (
-	_ connector.Connector      = (*Connector)(nil)
-	_ connector.Backfiller     = (*Connector)(nil)
-	_ connector.GrantedScoper  = (*Connector)(nil)
-	_ connector.AccountLabeler = (*Connector)(nil)
+	_ connector.Connector              = (*Connector)(nil)
+	_ connector.Backfiller             = (*Connector)(nil)
+	_ connector.GrantedScoper          = (*Connector)(nil)
+	_ connector.AccountLabeler         = (*Connector)(nil)
+	_ connector.AttestedAccountLabeler = (*Connector)(nil)
 )
 
 // authState is the persisted credential bundle (the opaque connector.Auth).
@@ -338,3 +339,8 @@ func scopeStrings(scopes []principal.Scope) []string {
 	}
 	return out
 }
+
+// AccountLabelIsProviderAttested marks this connector's account label as the
+// provider's own answer to "who authorized this", read from the OAuth identity
+// rather than from anything the connecting human typed.
+func (c *Connector) AccountLabelIsProviderAttested() {}

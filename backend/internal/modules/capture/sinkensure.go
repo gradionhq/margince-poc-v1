@@ -186,7 +186,7 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	decision.create = corresponded
 
 	// T2 transactional / ESP infrastructure, which T1 outranks.
-	suppressed, err := s.registrySuppresses(ctx, tx, rec, row, corresponded)
+	suppressed, err := s.registrySuppresses(ctx, tx, rec, cp, row, corresponded)
 	if err != nil {
 		return counterpartyDecision{}, err
 	}

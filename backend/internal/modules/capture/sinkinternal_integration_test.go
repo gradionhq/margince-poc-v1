@@ -17,6 +17,7 @@ package capture_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -88,7 +89,7 @@ func mailRecord(sourceID string, counterparty string, addresses ...string) conne
 		Raw:        []byte("From: " + counterparty + "\r\nSubject: Salary review\r\n\r\nBody."),
 		Counterparty: connector.Counterparty{
 			Email:     counterparty,
-			Domain:    capture.DomainOfAddress(counterparty),
+			Domain:    counterparty[strings.LastIndex(counterparty, "@")+1:],
 			Direction: connector.DirectionInbound,
 		},
 		Addresses: addresses,
@@ -187,13 +188,14 @@ func TestAnAllInternalMessageLeavesNoRowInAnyTable(t *testing.T) {
 	}
 }
 
-// CAP-AC1.3a — the introduction. A colleague writes and copies a prospect: the
-// message is captured, and it is the PROSPECT the ladder is about.
+// CAP-AC1.3a, storage half — a colleague's message copying a prospect is
+// captured, and the colleague remains its author.
 //
-// This is the case the naive fix breaks. Rewriting the counterparty to the
-// external party would have recorded the prospect as the author of the
-// colleague's mail and could report a reply the prospect never sent.
-func TestAColleaguesMessageCopyingAProspectIsCapturedAndNamesTheProspect(t *testing.T) {
+// Authorship is asserted because it drives reply detection: a party substituted
+// into it would be reported as having written mail they did not. Which party
+// the creation ladder is ABOUT is the other half, and needs a wired ensurer —
+// it is asserted in compose's capture_autocreate_integration_test.go.
+func TestAColleaguesMessageCopyingAProspectIsCapturedAndKeepsItsAuthor(t *testing.T) {
 	ctx, pool := bootstrapInternalMailWorkspace(t, "acme.com")
 	sink := capture.NewSink(pool)
 
@@ -283,3 +285,32 @@ func TestMailAmongSubdomainsOfARegisteredDomainIsInternal(t *testing.T) {
 // isSkip reports whether err is the intentional-skip signal every connector
 // sync loop counts without failing.
 func isSkip(err error) bool { return errors.Is(err, connector.ErrSkip) }
+
+// A domain nobody vouched for governs no drop.
+//
+// The IMAP connect endpoint takes a username as free text and proves it against
+// a host the same caller supplies, so its account label is self-declared. If an
+// unverified label could suppress storage, anyone able to reach that endpoint
+// could name a domain they do not own and silently stop the workspace keeping
+// correspondence with it — irreversibly, since every connector advances past a
+// skipped message.
+func TestAnUnverifiedOwnDomainSuppressesNothing(t *testing.T) {
+	ctx, pool := bootstrapInternalMailWorkspace(t)
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'acme.com', 'mailbox', false)`)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding an unverified domain: %v", err)
+	}
+	sink := capture.NewSink(pool)
+
+	if _, err := sink.Upsert(ctx, mailRecord("unverified-1", "boss@acme.com",
+		"boss@acme.com", "rep@acme.com")); err != nil {
+		t.Fatalf("an unverified domain must not suppress storage: %v", err)
+	}
+	if activities, _, _, _ := countsFor(ctx, t, pool, "unverified-1"); activities != 1 {
+		t.Errorf("activity rows = %d, want 1 — only a vouched-for domain governs the drop", activities)
+	}
+}

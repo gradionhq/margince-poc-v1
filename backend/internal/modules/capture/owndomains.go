@@ -4,10 +4,8 @@
 package capture
 
 // The internal-vs-external decision (ADR-0082/A127, formulas §20), in one
-// place for mail and calendar alike. The rule that was correct for calendar
-// and absent for mail is how colleague correspondence came to be captured and
-// read by the whole workspace; there is one implementation now, and both
-// channels ask it the same question.
+// place for mail and calendar alike. One implementation, because a rule that
+// holds in one channel and not the other is not a confidentiality control.
 
 import (
 	"context"
@@ -18,13 +16,13 @@ import (
 	"golang.org/x/net/idna"
 )
 
-// NormalizeDomain folds a mail domain to the one form the own-domain set is
+// normalizeDomain folds a mail domain to the one form the own-domain set is
 // compared in: lowercased, trailing dot stripped, IDNA-encoded. A domain that
 // fails IDNA is returned lowercased rather than dropped — the caller is deciding
 // whether to KEEP a message, and discarding an unreadable domain here would
 // silently turn a parse failure into "internal", which is the one answer that
 // loses correspondence rather than keeping it.
-func NormalizeDomain(domain string) string {
+func normalizeDomain(domain string) string {
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	domain = strings.TrimSuffix(domain, ".")
 	if domain == "" {
@@ -37,16 +35,16 @@ func NormalizeDomain(domain string) string {
 	return ascii
 }
 
-// DomainOfAddress returns the normalized domain of a mail address, or "" when
+// domainOfAddress returns the normalized domain of a mail address, or "" when
 // the address carries none that can be read. An address with no readable domain
 // is not internal (see InternalDomains.Covers).
-func DomainOfAddress(address string) string {
+func domainOfAddress(address string) string {
 	address = strings.TrimSpace(address)
 	at := strings.LastIndex(address, "@")
 	if at < 0 || at == len(address)-1 {
 		return ""
 	}
-	return NormalizeDomain(address[at+1:])
+	return normalizeDomain(address[at+1:])
 }
 
 // InternalDomains is the workspace's own mail domains, normalized once so a
@@ -60,7 +58,7 @@ func NewInternalDomains(raw []string) InternalDomains {
 	seen := make(map[string]bool, len(raw))
 	out := make([]string, 0, len(raw))
 	for _, d := range raw {
-		n := NormalizeDomain(d)
+		n := normalizeDomain(d)
 		if n == "" || seen[n] {
 			continue
 		}
@@ -77,7 +75,7 @@ func NewInternalDomains(raw []string) InternalDomains {
 // named no domain of its own is making no claim about what its people's mail
 // is, and inventing one from a connected mailbox would be right in some
 // workspaces and wrong in the rest.
-func (d InternalDomains) Empty() bool { return len(d.domains) == 0 }
+func (d InternalDomains) empty() bool { return len(d.domains) == 0 }
 
 // Covers reports whether address belongs to one of the workspace's own domains.
 //
@@ -89,7 +87,12 @@ func (d InternalDomains) Empty() bool { return len(d.domains) == 0 }
 //
 // An address with no readable domain is NOT covered, so the message is kept.
 func (d InternalDomains) Covers(address string) bool {
-	domain := DomainOfAddress(address)
+	return d.CoversDomain(domainOfAddress(address))
+}
+
+// CoversDomain is Covers for a domain already separated from its address.
+func (d InternalDomains) CoversDomain(domain string) bool {
+	domain = normalizeDomain(domain)
 	if domain == "" {
 		return false
 	}
@@ -110,7 +113,7 @@ func (d InternalDomains) Covers(address string) bool {
 // external, which is what keeps the intro motion working — a colleague writing
 // to a prospect with the prospect copied is correspondence, not chatter.
 func (d InternalDomains) AllInternal(addresses []string) bool {
-	if d.Empty() {
+	if d.empty() {
 		return false
 	}
 	judged := 0
@@ -146,11 +149,29 @@ func (d InternalDomains) External(addresses []string) []string {
 	return out
 }
 
-// ownDomainsTx reads the workspace's registered mail domains on the capture
-// transaction, so the internal decision and the write it governs see one
-// consistent set.
+// ownDomainsTx reads every registered own domain, confirmed or merely observed.
+// This is the set for decisions that only affect whether a COLLEAGUE becomes a
+// contact — getting that wrong costs a junk record, which a human can see and
+// undo.
 func ownDomainsTx(ctx context.Context, tx pgx.Tx) (InternalDomains, error) {
-	rows, err := tx.Query(ctx, `SELECT domain FROM workspace_email_domain`)
+	return queryDomains(ctx, tx, `SELECT domain FROM workspace_email_domain`)
+}
+
+// trustedOwnDomainsTx reads only the domains someone vouched for — a provider's
+// authenticated identity or an administrator.
+//
+// Storing a message or not is a stronger consequence than creating a contact or
+// not, so it takes the stronger evidence. An unverified row comes from a label
+// the connecting human typed, and acting on that would let anyone who can reach
+// the connect endpoint name a domain they do not own and silently stop the
+// workspace keeping correspondence with it — irreversibly, since every
+// connector advances past a skipped message.
+func trustedOwnDomainsTx(ctx context.Context, tx pgx.Tx) (InternalDomains, error) {
+	return queryDomains(ctx, tx, `SELECT domain FROM workspace_email_domain WHERE verified`)
+}
+
+func queryDomains(ctx context.Context, tx pgx.Tx, query string) (InternalDomains, error) {
+	rows, err := tx.Query(ctx, query)
 	if err != nil {
 		return InternalDomains{}, fmt.Errorf("capture: reading the own-domain set: %w", err)
 	}

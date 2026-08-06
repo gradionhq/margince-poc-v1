@@ -7,9 +7,9 @@ package capture
 //
 // Its own file because it answers a question the ladder itself does not: the
 // tiers below decide WHETHER to create a record, and this decides FOR WHOM.
-// Collapsing the two is what made a colleague's introduction create nothing,
-// and what would have made the naive repair record a prospect as the author of
-// a colleague's mail.
+// The two are separate from the message's AUTHOR, which is never changed here —
+// authorship drives reply detection, so a party substituted into it would be
+// reported as having written mail they did not.
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func (s *Sink) ladderSubjectTx(ctx context.Context, tx pgx.Tx, rec connector.Nor
 		// position, not a name, and inventing one from the local part would put
 		// a guess where provenance belongs. Enrichment names them properly.
 		DisplayName: "",
-		Domain:      DomainOfAddress(stand),
+		Domain:      domainOfAddress(stand),
 		Direction:   cp.Direction,
 		// The owner attestation and the unsubscribe header belong to the
 		// message's real counterparty, not to a party standing in for them:

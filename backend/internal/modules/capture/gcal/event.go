@@ -56,9 +56,9 @@ type eventActor struct {
 
 // meeting is the pure, classified result of reading one calendar event against
 // the connected mailbox owner — everything the mapping needs, with no provider
-// handle. The owner's own email domain is the internal-vs-external signal
-// (formulas §20, owner-domain subset: the multi-domain workspace_email_domain
-// registry, CAP-DDL-1, is a separate slice).
+// handle. The owner's own domain gives the internal floor; the workspace's
+// registered domains (CAP-DDL-1) are the authority and are applied by the
+// writer, over the full party set this reports.
 type meeting struct {
 	id           string
 	subject      string
@@ -66,6 +66,7 @@ type meeting struct {
 	occurredAt   time.Time
 	cancelled    bool
 	organizerDom string
+	hasExternal  bool // any party outside the OWNER's own domain — the floor, see SkipReason
 	// addresses is every party the event names — organizer and attendees,
 	// the owner included. The internal-vs-external decision is taken over this
 	// set by the capture writer against the workspace's registered domains
@@ -87,7 +88,7 @@ func parseEvent(raw []byte, owner string) (meeting, error) {
 	}
 
 	ownerDom := domainOf(owner)
-	attendeeEmails, _ := classifyAttendees(ev.Attendees, ownerDom)
+	attendeeEmails, external := classifyAttendees(ev.Attendees, ownerDom)
 	organizerDom := domainOf(ev.Organizer.Email)
 
 	return meeting{
@@ -99,6 +100,7 @@ func parseEvent(raw []byte, owner string) (meeting, error) {
 		organizerDom: organizerDom,
 		// The organizer counts as a party: an externally-organized meeting is a
 		// customer touch even when the owner is the only listed attendee.
+		hasExternal:  external > 0 || (organizerDom != "" && organizerDom != ownerDom),
 		addresses:    eventAddresses(ev, owner),
 		participants: meetingParties(ev, strings.ToLower(strings.TrimSpace(owner))),
 	}, nil
@@ -153,14 +155,11 @@ func meetingParties(ev rawEvent, ownerLower string) []connector.MessageParticipa
 // should be captured: a cancelled event and one with no stable id are dropped
 // (nothing to key on / nothing to log).
 //
-// The all-internal rule (formulas §20) is deliberately NOT here any more. It
-// used to be decided from the owner's single domain, which is a different and
-// smaller set than the workspace's registered own domains: it missed a second
-// company domain entirely, and on a consumer mailbox it called every attendee
-// at the same provider a colleague. One rule now serves mail and calendar
-// alike, applied by the capture writer over the registry (ADR-0082/A127) —
-// which is also the only place that can read it, since a connector holds no
-// database handle by design.
+// The owner's domain is a FLOOR here, not the authority. The workspace's
+// registered domains decide internal-vs-external for mail and calendar alike
+// (formulas §20, ADR-0082/A127), and only the capture writer can read them —
+// a connector holds no database handle by design. This drops what the owner's
+// own domain alone proves internal; the writer widens that, never narrows it.
 func (m meeting) SkipReason() (string, bool) {
 	if m.id == "" {
 		return "no event id", true
@@ -170,11 +169,19 @@ func (m meeting) SkipReason() (string, bool) {
 	}
 	// An event naming nobody but the owner is a block in their own calendar —
 	// focus time, a reminder, a flight. Nobody was met, so there is no
-	// interaction to log. This is a different rule from internal-vs-external
-	// and survives here because it needs no knowledge of any domain: it asks
-	// whether there was a second party at all, not whose side they were on.
+	// interaction to log. This asks whether there was a second party at all,
+	// not whose side they were on, so it needs no knowledge of any domain.
 	if len(m.addresses) <= 1 {
 		return "no party besides the owner", true
+	}
+	// The owner-domain floor. The workspace's registered domains are the
+	// authority (formulas §20) and the writer applies them over the full party
+	// set, which is wider than this — but that set can be empty or incomplete,
+	// and an internal meeting stored while it is would be readable by the whole
+	// workspace. This drops what the owner's own domain alone can prove
+	// internal; the writer widens it, never narrows it.
+	if !m.hasExternal {
+		return "no party outside the owner's domain", true
 	}
 	return "", false
 }

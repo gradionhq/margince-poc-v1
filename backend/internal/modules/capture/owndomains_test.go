@@ -72,7 +72,7 @@ func TestAllInternalNeedsEveryPartyAndOneOutsiderIsEnoughToKeepTheMessage(t *tes
 // about its people's mail, and inventing one would be wrong in most workspaces.
 func TestAnEmptyOwnDomainSetMakesNothingInternal(t *testing.T) {
 	own := NewInternalDomains(nil)
-	if !own.Empty() {
+	if !own.empty() {
 		t.Fatal("a set built from nothing must report empty")
 	}
 	if own.AllInternal([]string{"rep@acme.com", "boss@acme.com"}) {
