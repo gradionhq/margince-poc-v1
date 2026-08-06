@@ -17,10 +17,10 @@ import (
 
 func TestMeResponseCarriesNonProduction(t *testing.T) {
 	id := Identity{Roles: []string{"admin"}}
-	if got := meResponse(id, crmcontracts.Native, true); !got.NonProduction {
+	if got := NewHandlers(&Service{}).WithNonProduction(true).meResponse(id, crmcontracts.Native); !got.NonProduction {
 		t.Fatal("want NonProduction true")
 	}
-	if meResponse(id, crmcontracts.Native, false).NonProduction {
+	if NewHandlers(&Service{}).meResponse(id, crmcontracts.Native).NonProduction {
 		t.Fatal("want NonProduction false")
 	}
 }

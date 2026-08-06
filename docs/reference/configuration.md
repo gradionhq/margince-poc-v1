@@ -1,20 +1,21 @@
 # Configuration reference
 
-Four process-role binaries live under `backend/cmd/`. Configuration is
+Three process-role binaries live under `backend/cmd/`. Configuration is
 flags; where a flag has an environment fallback it is listed. An empty
 required value is a boot error, as is an invalid `--log-level` /
 `--log-format`.
 
-## Common log flags (api, worker, mcp)
+## Common log flags (api, worker)
 
 | Flag | Env | Default | Values |
 |---|---|---|---|
 | `--log-level` | `MARGINCE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--log-format` | `MARGINCE_LOG_FORMAT` | `text` | `text` (slog text), `json` |
 
-api and worker log to stdout; mcp logs to **stderr** (stdout is the
-stdio protocol channel). Log lines carry the per-request
-`correlation_id` via the correlation slog wrapper.
+Both roles log to stdout, and their log lines carry the per-request
+`correlation_id` via the correlation slog wrapper. `cmd/migrate` takes neither
+flag: it writes confirmations to stdout and failures to stderr, with no
+configurable logger.
 
 ## cmd/api — the HTTP process role
 
@@ -296,7 +297,7 @@ api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
 | `--runner-interval` | — | `30s` | Surface-B scheduler tick — the River periodic schedule of the `agent_scheduler` dispatcher, which enqueues one `agent_scheduler_workspace` job per live workspace. It paces the fan-out, not an agent's own schedule: the catalog's daily due hour decides when a brief runs |
 | `--retention-interval` | — | `24h` | retention evaluator pass interval — the River periodic schedule of the `privacy_retention` dispatcher, which enqueues one `privacy_retention_workspace` job per workspace |
-| `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
+| `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al.) — the River periodic schedule of the `time_scan` dispatcher, which enqueues one `time_scan_workspace` job per live workspace |
 | `--close-date-interval` | — | `24h` | close-date hygiene sweep interval (INV-CLOSE-PAST) |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets; unset = the delivery worker stays off (no `cg:webhooks` consumer, no retry sweep) |
 | `--webhook-retry-interval` | — | `30s` | how often the outbound-webhook retry dispatcher fans one due-retry pass out per live workspace (worker role only) |
@@ -415,11 +416,17 @@ runs the background sync.
 | `--gmail-push-audience` / `--gmail-push-service-account` | `MARGINCE_GMAIL_PUSH_AUDIENCE` / `…_SERVICE_ACCOUNT` | api | OIDC audience + signing service-account email; set both and the push webhook also verifies Google's OIDC token |
 | `--gmail-jwks-url` | `MARGINCE_GMAIL_JWKS_URL` | api | override Google's OIDC JWKS URL; test/dev only |
 
-## Object storage (api, worker) — attachments
+## Object storage (api, worker) — attachments and company logos
 
 Env-only, shared by both roles; secrets never appear on the command line
 (argv is world-readable). Leave `MARGINCE_BLOBSTORE_ENDPOINT` unset and the
 `/attachments` endpoints answer 501; set it to enable them.
+Company logos ride the same store. With none configured the resolve lane
+returns before fetching, so no logo object is ever written and
+`GET /organizations/{id}/logo` answers 404 — every company renders its
+deterministic monogram instead. (The 501 on that route is the narrower case: a
+record that already names an object on a deployment whose store has since gone
+away.)
 If attachment rows already exist (uploaded while a store was configured) but
 the erasing process has none, Art. 17 erasure **fails and rolls back** rather
 than stranding the bytes — it stays retryable until a store is configured. The bucket is created on first connect,
@@ -427,7 +434,7 @@ and the store tolerates a still-starting backend with a bounded retry.
 
 | Env | Default | Meaning |
 |---|---|---|
-| `MARGINCE_BLOBSTORE_ENDPOINT` | — | S3/MinIO `host:port`; set to enable attachments |
+| `MARGINCE_BLOBSTORE_ENDPOINT` | — | S3/MinIO `host:port`; set to enable attachments and company logos |
 | `MARGINCE_BLOBSTORE_ACCESS_KEY` | — | access key |
 | `MARGINCE_BLOBSTORE_SECRET_KEY` | — | secret key |
 | `MARGINCE_BLOBSTORE_BUCKET` | — | bucket name (created on first connect) |
@@ -488,7 +495,7 @@ migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, **owner** role. For the db verbs it must name a maintenance database (`postgres`): `CREATE`/`DROP DATABASE` cannot run inside the database being dropped |
 | `--steps` | — | `1` | migrations to revert (`down` only) |
-| `--email` | — | — | user email (`reset-password` only): the operator break-glass — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured |
+| `--email` | — | — | user email (`reset-password` only): the operator break-glass — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured. It covers **lockout and operator-led recovery**, not routine member provisioning: an admin without a database credential onboards members from Settings → Users & roles, where an installation with no outbound email offers a per-member "Get set-password link" to deliver out of band (ADR-0061 Amendment 1) |
 | `--name` | — | — | database name (`recreate-db`, `drop-db`, `db-exists` only): the integration lane's clone-per-package admin — drop-if-exists + create, drop-if-exists, or print `true`/`false`; the drops are `WITH (FORCE)`, so a lingering session dies rather than flaking the teardown. Runs on the same owner DSN the migrations and tests use, so the lane needs no host psql and an overridden `MARGINCE_TEST_DSN` targets one cluster throughout. A name (or template) over the server's identifier limit (63 bytes stock) is rejected, never silently truncated onto a different database |
 | `--template` | — | — | template database to copy (`recreate-db` only): `CREATE DATABASE … TEMPLATE`, a fast file copy |
 
@@ -672,10 +679,14 @@ from search until re-embedded, never served as if current.
 
 Two operator gotchas, verified against current vendor docs:
 
-1. **`openai_compatible`'s embeddings lane 404s on OpenRouter, Groq, and
-   DeepSeek** — they serve chat only. Bind `embeddings:` to a vendor that
-   has the lane (OpenAI, Mistral, a Gemini-compat layer, Together) or a
-   local model (ollama `bge-m3`).
+1. **Not every `openai_compatible` vendor serves the embeddings lane.**
+   OpenRouter does — `/v1/embeddings`, with the catalog at
+   `GET /api/v1/embeddings/models` — while chat-only vendors such as Groq
+   and DeepSeek 404. Bind `embeddings:` to a vendor that has the lane
+   (`gemini`, `openai`, Mistral, OpenRouter) or a local model (ollama
+   `bge-m3`). On `openai_compatible` the adapter deliberately never sends
+   `dimensions`, so the configured width must EQUAL the model's native
+   width; a binding that returns another width fails loudly.
 2. **Vendor `-latest` model aliases drift and some are being deprecated**
    (e.g. Mistral). Pin an explicit versioned id, or resolve via the
    vendor's `/models` endpoint, rather than hardcoding an alias.

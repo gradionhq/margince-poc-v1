@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-parity sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -238,12 +238,17 @@ fe-uat:
 		pnpm exec playwright install chromium >/dev/null 2>&1 && \
 		node scripts/fe-uat.mjs $(ARGS)
 
-## craft-static — the deterministic code-craftsmanship gate (ADR-0045) over the
-## whole backend, strict: BLOCKER and MAJOR findings both fail it. The pre-push
-## hook (.githooks/pre-push) runs the same bar diff-scoped; this target is the
-## full manual sweep, and it is green — the backlog was cleared to arm it.
+## craft-static — the deterministic code-craftsmanship gate (ADR-0045) over
+## every hand-written Go tree, strict: BLOCKER and MAJOR findings both fail it.
+## The pre-push hook (.githooks/pre-push) runs the same bar diff-scoped; this
+## target is the full manual sweep, and it is green — the backlog was cleared
+## to arm it. extensions/ and fixtures/ are their own Go modules, so `./...`
+## never reaches them and the bar has to name them: a first-party unit ships
+## the same product, and the fixture is the worked example a unit author copies.
 craft-static:
 	go run -C cli/craft . static --strict --root ../../backend
+	go run -C cli/craft . static --strict --root ../../extensions
+	go run -C cli/craft . static --strict --root ../../fixtures
 
 ## craft-residue — fail if any unresolved CRAFT-FIX/CRAFT-DISPUTE marker was
 ## left in the backend tree (the review-loop residue check, ADR-0045). The CI
@@ -325,9 +330,30 @@ SBOM_DIR     := sboms
 SYFT_IMAGE   ?= anchore/syft@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026 # v1.50.0
 GRANT_IMAGE  ?= anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237 # v0.6.8
 COSIGN_IMAGE ?= gcr.io/projectsigstore/cosign@sha256:c77247c92f4dfea851c70555738226498393e34e2f9ca83cb959e51c230e4ad7 # v2.4.3
+# Per-format validators (sbom-validate). No single tool covers all three, so:
+# cyclonedx-cli is the first-party CycloneDX validator and bundles its own spec
+# schemas (1.7 support landed in v0.30.0, so the pin must stay >= that). SPDX 2.x
+# uses pyspdxtools (the canonical spdx/tools-python validator, structural AND
+# semantic) from the pinned Python image + the hash-pinned deps in
+# $(SBOM_SCHEMA_DIR); no maintained SPDX validator image exists to digest-pin
+# directly. SPDX 3.0 has no usable semantic validator (see that dir's README) and
+# validates structurally against the pinned schema with a generic JSON-schema CLI.
+# Bump tag and digest together, same as above.
+CYCLONEDX_IMAGE   ?= cyclonedx/cyclonedx-cli@sha256:252c2e26f468c25fea1e63ecde1bc3198ad6e9dbb57f5ed3236bddcb2281b3a7 # v0.33.1
+JSONSCHEMA_IMAGE  ?= ghcr.io/sourcemeta/jsonschema@sha256:a8931de12c23cb07a40318a9549beecf9ace73ac1af219ab61123ab46d3f1284 # v16.5.0
+SBOM_PYTHON_IMAGE ?= python@sha256:646fb0bca3dd3ea1bcc6feb72c17ed16eed6e10cffc732fcc1478bd3e7f02d7b # 3.12-slim
 DOCKER_SBOM  := docker run --rm -v "$(CURDIR)":/src -w /src
+# The validators only read; mount the tree read-only so a swapped image cannot
+# touch the working copy it validates — the same "the tools that read the repo
+# are pinned" posture this section already takes, one step further. pyspdxtools
+# installs into the container's own layer, not /src, so read-only holds there too.
+# linux/amd64 matches CI and fixes which wheel hashes the pinned deps resolve to.
+DOCKER_SBOM_RO := docker run --rm -v "$(CURDIR)":/src:ro -w /src
 SYFT         ?= $(DOCKER_SBOM) $(SYFT_IMAGE)
 GRANT        ?= $(DOCKER_SBOM) $(GRANT_IMAGE)
+CYCLONEDX    ?= $(DOCKER_SBOM_RO) $(CYCLONEDX_IMAGE)
+JSONSCHEMA   ?= $(DOCKER_SBOM_RO) $(JSONSCHEMA_IMAGE)
+PYSPDX       ?= $(DOCKER_SBOM_RO) --platform=linux/amd64 $(SBOM_PYTHON_IMAGE)
 # cosign's image defaults to uid 65532, which owns neither the bind-mounted
 # sboms/ dir nor a writable HOME — run it as the invoking user so the *.cosign.bundle
 # files it writes (mode 0600) are owned by that user and stay readable to whatever
@@ -337,7 +363,9 @@ GRANT        ?= $(DOCKER_SBOM) $(GRANT_IMAGE)
 COSIGN_HOME  := .tmp/cosign-home
 COSIGN       ?= $(DOCKER_SBOM) -u $(shell id -u):$(shell id -g) -e HOME=/src/$(COSIGN_HOME) -e SIGSTORE_ID_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN $(COSIGN_IMAGE)
 # Scan a clean export of committed HEAD, so host state (node_modules, .env, IDE
-# files) never leaks into the SBOM and .gitignore stays the single authority.
+# files) never leaks into the SBOM and the committed content of HEAD is the
+# single authority on what is scanned. Not .gitignore: it does not remove a file
+# already tracked in HEAD, and `git add -f` can commit an ignored one.
 SBOM_SRC     := .tmp/sbom-src
 # A release build (HEAD exactly on a tag) reads as the tag alone — the tag maps
 # to one commit, so the revision is implicit. An unreleased build pins the full
@@ -347,6 +375,10 @@ SBOM_SRC     := .tmp/sbom-src
 # revision travels inside each SBOM, so cosign's signature covers it.
 SBOM_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse HEAD 2>/dev/null || echo unknown)")
 SBOM_FILES   := $(SBOM_DIR)/margince.cdx.json $(SBOM_DIR)/margince.spdx221.json $(SBOM_DIR)/margince.spdx300.json
+# Pinned validation inputs the SPDX validators consume: the SPDX 3.0 JSON schema
+# and the hash-pinned pyspdxtools dependency set (see the directory README).
+# Committed, so validation is reproducible and the inputs cannot move under the gate.
+SBOM_SCHEMA_DIR := sbom-schemas
 
 ## sbom — generate the source-tree SBOMs (CycloneDX + SPDX 2.2.1 + SPDX 3.0)
 ## from a clean export of HEAD, license-enriched. Signing is separate: make sbom-sign (CI).
@@ -361,8 +393,27 @@ sbom:
 	    -o spdx-json@2.2=$(SBOM_DIR)/margince.spdx221.json \
 	    -o spdx-json@3.0=$(SBOM_DIR)/margince.spdx300.json
 	@$(MAKE) sbom-normalize
+	@$(MAKE) sbom-supplement
 	@$(MAKE) sbom-parity
+	@$(MAKE) sbom-validate
 	@echo "wrote $(SBOM_FILES)"
+
+## sbom-supplement — fill in licenses syft cannot resolve. syft leaves GitHub
+## Actions unlicensed (anchore/syft#4209) and passes PyPI's ambiguous "BSD"
+## through for a couple of build-tooling deps, so the license gate would deny
+## them though their real licenses are permissive. This curated purl->SPDX map
+## (key = purl without version, so every pinned action version matches) sets the
+## license on the CycloneDX doc the gate reads and on the SPDX 2.2 doc, so both
+## license-bearing SBOMs agree; syft v1.50 emits no per-package license in SPDX
+## 3.0, so there is nothing to supplement there. SonarSource's action is left
+## unset on purpose — it is LGPL-3.0-only and ignored in .grant.yaml, not shipped.
+## Idempotent; keep the map in step with the workflows and the SPDX-tools deps.
+sbom-supplement:
+	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
+	@set -e; cdx=$(SBOM_DIR)/margince.cdx.json; s22=$(SBOM_DIR)/margince.spdx221.json; \
+	  map='{"pkg:github/actions/checkout":"MIT","pkg:github/actions/cache":"MIT","pkg:github/actions/setup-go":"MIT","pkg:github/actions/setup-node":"MIT","pkg:github/actions/upload-artifact":"MIT","pkg:github/actions/download-artifact":"MIT","pkg:github/dorny/paths-filter":"MIT","pkg:github/pnpm/action-setup":"MIT","pkg:pypi/ply":"BSD-3-Clause","pkg:pypi/semantic-version":"BSD-2-Clause"}'; \
+	  jq --argjson m "$$map" '.components |= map(((.purl // "") | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then .licenses = [{"license": {"id": $$m[$$k]}}] else . end)' "$$cdx" > "$$cdx.tmp" && mv "$$cdx.tmp" "$$cdx"; \
+	  jq --argjson m "$$map" '.packages |= map((([.externalRefs[]? | select(.referenceType == "purl") | .referenceLocator] | (.[0] // "")) | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then (.licenseConcluded = $$m[$$k] | .licenseDeclared = $$m[$$k]) else . end)' "$$s22" > "$$s22.tmp" && mv "$$s22.tmp" "$$s22"
 
 ## sbom-normalize — reconcile syft's three writers so all three SBOMs describe one
 ## tree, the invariant the constellation dist gate enforces. syft scans the export
@@ -403,14 +454,40 @@ sbom-parity:
 	    echo "FAIL: SBOM file sets differ — see the diff above"; exit 1; \
 	  fi
 
+## sbom-validate — conformance gate: each SBOM must validate against its own format,
+## so a syft bump, a config change, or a normalization filter that emitted a malformed
+## document fails here rather than being signed and shipped. sbom-parity proves the
+## three agree with each other; this proves each is a valid document of its format.
+## CycloneDX goes through the first-party cyclonedx-cli (bundles the spec schema);
+## --fail-on-errors is load-bearing — without it the CLI prints "BOM is not valid" but
+## still exits 0. SPDX 2.2.1 goes through pyspdxtools, which validates structure AND SPDX
+## semantics (e.g. dataLicense must be CC0-1.0, at least one creator) and exits non-zero
+## on an invalid document, so the recipe gates on its exit status and prints its report
+## for context on failure. SPDX 3.0 has no usable semantic validator yet
+## ($(SBOM_SCHEMA_DIR)/README.md records the finding) and validates structurally against
+## the pinned schema. `make sbom` runs this after parity; CI runs `make sbom`, so every
+## SBOM CI run is gated, and sbom-sign re-runs it so only valid bytes are signed.
+sbom-validate:
+	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
+	@echo "validating $(SBOM_DIR)/margince.cdx.json (CycloneDX)"
+	@$(CYCLONEDX) validate --input-file $(SBOM_DIR)/margince.cdx.json --fail-on-errors
+	@echo "validating $(SBOM_DIR)/margince.spdx221.json (SPDX 2.2.1, pyspdxtools)"
+	@$(PYSPDX) bash -c '\
+	  pip install --require-hashes --quiet --no-cache-dir --disable-pip-version-check -r $(SBOM_SCHEMA_DIR)/spdx-tools-requirements.txt \
+	    || { echo "FAIL: could not install the pinned SPDX validator"; exit 1; }; \
+	  if ! pyspdxtools -i $(SBOM_DIR)/margince.spdx221.json; then echo "FAIL: $(SBOM_DIR)/margince.spdx221.json is not a valid SPDX 2.2.1 document"; exit 1; fi'
+	@echo "validating $(SBOM_DIR)/margince.spdx300.json (SPDX 3.0.1 schema)"
+	@$(JSONSCHEMA) validate $(SBOM_SCHEMA_DIR)/spdx-3.0.1.schema.json $(SBOM_DIR)/margince.spdx300.json
+	@echo "OK: three SBOMs valid against their formats"
+
 ## sbom-sign — keyless-sign each generated SBOM with cosign (writes *.cosign.bundle; needs an OIDC token).
-## Depends on sbom-parity, not sbom: the signature must cover normalized, mutually
-## agreeing bytes, but re-running generation here is wrong — in CI signing is a
-## separate job (holding id-token: write) that consumes the generation job's
-## artifact, and running the syft scan under that token is the isolation the SBOM
-## workflow forbids. Parity re-checks the existing files cheaply and refuses to sign
-## a stale or un-normalized set.
-sbom-sign: sbom-parity
+## Depends on parity + validate, not sbom: the signature must cover normalized,
+## mutually agreeing, schema-valid bytes, but re-running generation here is wrong — in
+## CI signing is a separate job (holding id-token: write) that consumes the generation
+## job's artifact, and running the syft scan under that token is the isolation the SBOM
+## workflow forbids. Both gates re-check the existing files cheaply and refuse to sign a
+## stale, un-normalized, or malformed set.
+sbom-sign: sbom-parity sbom-validate
 	@mkdir -p $(COSIGN_HOME)
 	@for f in $(SBOM_FILES); do \
 	  echo "signing $$f"; \

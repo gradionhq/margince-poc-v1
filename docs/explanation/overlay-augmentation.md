@@ -229,15 +229,16 @@ consumer of the workspace's HubSpot quota — is **not** reflected on this surfa
 shared across processes (a follow-up: the per-process meter is a documented branch-1 limitation, not
 shared accounting).
 
-**Current wiring limitation, stated plainly:** the compose-wired `overlay.Provider` behind the api's
-per-workspace dispatch currently constructs its `FreshnessReader` with no live incumbent client bound
-(`overlay.NewFreshnessReader(nil, …)`) — the per-workspace credential→adapter wiring that would let a
-force-fresh read actually reach HubSpot is not yet connected on that path. A `nil` incumbent is the same
-honest degrade path as a shed band: the read falls back to the mirror rather than failing or faking
-authority. So today, force-fresh reads reached through the compose-assembled dispatcher answer from the
-mirror unconditionally; the meter, the shed-band logic, and the `mirror.budget_degraded` event are all
-implemented and unit-tested against a real incumbent, they are just not yet reachable end-to-end from an
-HTTP request.
+**How the live read is bound, and when it degrades.** A process-wide dispatcher cannot hold an
+incumbent client at construction — each workspace has its own vaulted region and token — so
+`FreshnessReader` takes a **per-request resolver** that builds an adapter from *that* workspace's
+credential (`compose/overlay.go`, `NewOverlayProvider`). The api role wires a vault-backed resolver; a
+role with no vault resolves to nothing and force-fresh degrades to the mirror honestly, the same path a
+shed band takes — never a faked authority claim.
+
+The remaining honest limitation is **accounting, not reachability**: the reconcile poller runs in a
+separate process with its own in-memory meter, so `GET /overlay/budget` reports only the api process's
+own consumption.
 
 ## Connection lifecycle, and who may touch it
 
@@ -300,9 +301,11 @@ is a silent gap — both are the honest, currently-vacuous state of a branch tha
 
 Stated explicitly so this page is not read as describing more than was built:
 
-- **Write-back** (editing a record in Margince and pushing it to HubSpot) is the entire next branch —
-  every write verb on the overlay provider (`Create`, `Update`, `AdvanceDeal`, `Archive`, `Merge`,
-  `PromoteLead`) returns `ErrUnsupportedBySoR` today, by design, not by omission.
+- **Write-back is incumbent-first, and partial by design.** `Update` and `Archive` project the
+  canonical write onto the incumbent below the seam, write incumbent-first, and re-mirror the
+  incumbent's returned state — with the audit + outbox governance half committed alongside the mirror
+  write (`writeaudit.go`) and the AC-OV-4 drift check in the adapter. `Create`, `Merge`, `PromoteLead`
+  and `AdvanceDeal` still return `ErrUnsupportedBySoR` — declared, not omitted.
 - **The visibility SLO / 2×SLO fail-closed floor / budget-reserved refresh slice** is a compliance-floor
   guarantee reserved for the next visibility increment — branch 1 ships the visibility *contract* (the
   deny-join, fail-closed-on-absence, the inline owner projection) but not the freshness-tiered
@@ -341,9 +344,12 @@ never modified at any step.
   visibility projection, and user map (tombstoned) while native data, the audit spine, and the
   pre-flip export survive. A disconnect **mid-flip** (snapshot sealed, workspace still overlay) is
   refused rather than tearing the estate down under a running import.
-- **Reversibility is reconstruction, not rollback**: `compose.ReconstructFromBundle` rebuilds a clean
-  native instance from the pre-flip bundle's mirror snapshot with zero incumbent calls. There is no
-  native→overlay reverse path.
+- **Reversibility is reconstruction, not rollback**: the pre-flip bundle's mirror snapshot rebuilds a
+  clean native instance with zero incumbent calls. There is no native→overlay reverse path, and no
+  HTTP surface for the rebuild today — the reconstruction path is package-internal, reached only by
+  the OVA-AC-6(d) lane's `compose.ReconstructForTest`, since the `/import/*` wire is unminted
+  (IEM-GAP-2). Recovery is an operator procedure, not a button. See
+  [how-to/flip-an-overlay-to-native.md](../how-to/flip-an-overlay-to-native.md).
 - In overlay mode the export bundle carries the mirror snapshot (under the caller's mirror-visibility
   deny-join) and its manifest documents `canonical_data_resides_in` — the AC-OV-9 honest-scope
   disclosure.
@@ -353,7 +359,9 @@ never modified at any step.
 | | |
 |---|---|
 | The outer (frozen) and inner seams | `internal/shared/ports/datasource/`, `internal/modules/overlay/incumbent.go` |
-| `overlay.Provider`, the mirror store, ingest, reconcile, teardown, budget meter | `internal/modules/overlay/{provider,mirrorstore,backfill,reconcile,teardown,budgetmeter,freshness}.go` |
+| `overlay.Provider`, the mirror store, ingest, reconcile, teardown, freshness | `internal/modules/overlay/{provider,provider_writes,mirrorstore,backfill,reconcile,teardown,freshness}.go` |
+| The incumbent API budget meter | `internal/platform/overlaybudget/meter.go` |
+| The overlay→native cutover | `internal/compose/flip*.go`, `export.go`, `exportbundle.go` |
 | Visibility deny-join + owner projection | `internal/modules/overlay/visibility.go` |
 | The HubSpot adapter (the first `incumbent.Incumbent` implementation) | `internal/modules/overlay/hubspot/` |
 | Connection lifecycle + RBAC policy | `internal/modules/overlay/connection.go`, `internal/modules/identity/internal/policy/policy.go` |

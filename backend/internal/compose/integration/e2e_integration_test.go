@@ -102,7 +102,7 @@ func setupWithOriginOptions(t *testing.T, opts func(origin string) []compose.Opt
 	// message went out, so a harness missing it would test the refusal in
 	// every suite that sends — including the consent and preference-center
 	// suites, whose subject is what happens AFTER a send is accepted.
-	ensureRiverSchema(t)
+	ApplyRiverSchema(t)
 	sendInserter, err := jobs.NewInserter(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("jobs.NewInserter: %v", err)

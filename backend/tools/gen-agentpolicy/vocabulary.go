@@ -26,21 +26,33 @@ import (
 )
 
 // schemaNode is the slice of a component schema this generator reads: property
-// names to their declared enum.
+// names to their declared enum, or — for an array property — its items' enum.
 type schemaNode struct {
-	Properties map[string]struct {
-		Enum []string `yaml:"enum"`
-	} `yaml:"properties"`
+	Properties map[string]schemaProperty `yaml:"properties"`
 }
 
-// vocabularySchema names the schema whose properties declare the vocabularies,
-// and toolSchema the one whose `tier` must agree with it — the same tier
-// vocabulary is declared twice (once for the wire type the tools listing
-// returns, once here), so the generator holds them equal rather than trusting
-// two hand-written lists to stay in step.
+// schemaProperty is one property's declaration: a scalar's own enum, or an
+// array's items' enum. Which one carries the vocabulary depends on the
+// property, so the reader picks (see closedEnum).
+type schemaProperty struct {
+	Enum  []string `yaml:"enum"`
+	Items struct {
+		Enum []string `yaml:"enum"`
+	} `yaml:"items"`
+}
+
+// vocabularySchema names the schema whose properties declare the vocabularies;
+// toolSchema the one whose `tier` must agree with it, and passportSchema the one
+// whose grantable `scopes` must. Each of those vocabularies is declared twice in
+// the contract — once for a wire type, once for the annotations — so the
+// generator holds them equal rather than trusting hand-written lists to stay in
+// step. The scope pairing is the load-bearing one: a cap an operation demands
+// that no passport can be granted would refuse every call to it, fail-closed
+// and silently, which reads exactly like the endpoint being broken.
 const (
 	vocabularySchema = "AgentAdmissionPolicy"
 	toolSchema       = "AgentTool"
+	passportSchema   = "IssuePassportRequest"
 )
 
 // vocabulary is one closed set per annotation field, in declaration order.
@@ -48,6 +60,7 @@ type vocabulary struct {
 	access     []string
 	recordType []string
 	tier       []string
+	scope      []string
 }
 
 func readVocabulary(schemas map[string]schemaNode) (vocabulary, error) {
@@ -59,7 +72,7 @@ func readVocabulary(schemas map[string]schemaNode) (vocabulary, error) {
 	}
 	var v vocabulary
 	for field, target := range map[string]*[]string{
-		"access": &v.access, "record_type": &v.recordType, "tier": &v.tier,
+		"access": &v.access, "record_type": &v.recordType, "tier": &v.tier, "scope": &v.scope,
 	} {
 		prop, ok := declared.Properties[field]
 		if !ok || len(prop.Enum) == 0 {
@@ -72,14 +85,51 @@ func readVocabulary(schemas map[string]schemaNode) (vocabulary, error) {
 	// The tools listing returns the same tier vocabulary on the wire. Two
 	// declarations of one vocabulary drift; hold them equal here so the drift is
 	// a build failure rather than a wire/gate disagreement.
-	if tool, ok := schemas[toolSchema]; ok {
-		if wire := tool.Properties["tier"].Enum; len(wire) > 0 && !sameSet(wire, v.tier) {
-			return vocabulary{}, fmt.Errorf(
-				"%s.tier declares %v but %s.tier declares %v — one tier vocabulary, two spellings",
-				toolSchema, wire, vocabularySchema, v.tier)
-		}
+	wire, err := closedEnum(schemas, toolSchema, "tier", func(p schemaProperty) []string { return p.Enum })
+	if err != nil {
+		return vocabulary{}, err
+	}
+	if !sameSet(wire, v.tier) {
+		return vocabulary{}, fmt.Errorf(
+			"%s.tier declares %v but %s.tier declares %v — one tier vocabulary, two spellings",
+			toolSchema, wire, vocabularySchema, v.tier)
+	}
+	// The caps an operation may DEMAND and the caps a passport may be GRANTED
+	// have to be the same set. A scope in one and not the other is not a typo
+	// the gate can survive: an operation demanding an ungrantable cap refuses
+	// every caller, and a grantable cap no operation names is authority nobody
+	// can spend.
+	grantable, err := closedEnum(schemas, passportSchema, "scopes", func(p schemaProperty) []string { return p.Items.Enum })
+	if err != nil {
+		return vocabulary{}, err
+	}
+	if !sameSet(grantable, v.scope) {
+		return vocabulary{}, fmt.Errorf(
+			"%s.scopes grants %v but %s.scope demands %v — a cap an operation requires must be one a passport can hold",
+			passportSchema, grantable, vocabularySchema, v.scope)
 	}
 	return v, nil
+}
+
+// closedEnum reads one schema property's closed set, refusing every way the
+// declaration could go missing. An absent schema, an absent property or an
+// empty enum must not be the same thing as "nothing to check": a comparison
+// that quietly compares against nothing is worse than no comparison, because
+// it reads on the page as an enforced invariant.
+func closedEnum(schemas map[string]schemaNode, schema, field string, enum func(schemaProperty) []string) ([]string, error) {
+	declared, ok := schemas[schema]
+	if !ok {
+		return nil, fmt.Errorf(
+			"components.schemas.%s is missing: %s.%s is held equal to it, and without it the check passes "+
+				"by default instead of holding the two vocabularies together", schema, vocabularySchema, field)
+	}
+	values := enum(declared.Properties[field])
+	if len(values) == 0 {
+		return nil, fmt.Errorf(
+			"components.schemas.%s.%s declares no enum — the vocabulary must be closed to be checkable against %s",
+			schema, field, vocabularySchema)
+	}
+	return values, nil
 }
 
 // violations reports every derived policy carrying a value the contract does not
@@ -96,6 +146,7 @@ func (v vocabulary) violations(policies []policy) []string {
 			{"x-agent-access", p.Access, v.access},
 			{"x-mcp-tool.record_type", p.RecordType, v.recordType},
 			{"x-mcp-tool.tier", p.Tier, v.tier},
+			{"x-mcp-tool.scope", p.Scope, v.scope},
 		} {
 			if check.value == "" || contains(check.allowed, check.value) {
 				continue
@@ -123,6 +174,8 @@ func renderVocabulary(v vocabulary) string {
 			"agentTier is the autonomy tier the gate admits against, identical on REST and MCP.", v.tier},
 		{"agentRecordType", "recordType",
 			"agentRecordType is the record an operation targets; the zero value means it declares none.", v.recordType},
+		{"agentScope", "scope",
+			"agentScope is the passport cap an operation consumes. Unlike the others it has no zero\n// value in practice: every tool operation declares one, so the gate never has to invent it.", v.scope},
 	} {
 		fmt.Fprintf(&b, "\n// %s\n//\n// Values are the closed set declared by components.schemas.%s in\n"+
 			"// api/crm.yaml; a value outside it fails generation.\ntype %s string\n\nconst (\n",

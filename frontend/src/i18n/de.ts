@@ -2697,6 +2697,8 @@ export const de = {
   "auth.resetRateLimited":
     "Zu viele Versuche. Warte einen Moment und speichere dein Passwort dann erneut.",
   "auth.requestNewLink": "Neuen Link anfordern",
+  "auth.askAdminForNewLink":
+    "Bitte deine Administratorin oder deinen Administrator um einen neuen Passwort-Link.",
   // "geändert", wie im Satz darunter: aktualisiert werden Daten, die veralten.
   "auth.resetDoneTitle": "Passwort geändert",
   // "beendet", nicht "abgemeldet": abmelden tut sich eine Person, eine Sitzung
@@ -3116,6 +3118,23 @@ export const de = {
   "users.role.rep": "Rep",
   "users.role.read_only": "Nur Lesen",
   "users.role.ops": "Ops",
+  "users.link.action": "Passwort-Link erstellen",
+  "users.link.title": "Passwort-Link für {name}",
+  "users.link.pending": "Link wird erstellt…",
+  "users.link.body":
+    "Sende diesen Link über einen vertrauenswürdigen Kanal an das Mitglied. Er funktioniert einmal und wird nur jetzt angezeigt. Nach dem Schließen kannst du in der Mitgliederzeile einen neuen erstellen.",
+  "users.link.urlLabel": "Passwort-Link",
+  "users.link.copy": "Link kopieren",
+  "users.link.copied": "Kopiert",
+  "users.link.copyFailed":
+    "Automatisches Kopieren nicht möglich. Markiere den Link und kopiere ihn.",
+  "users.link.expires": "Gültig bis {when}.",
+  "users.link.failed":
+    "Das Mitglied wurde angelegt, der Link jedoch nicht. Ohne Link kann es sich nicht anmelden.",
+  "users.link.offline":
+    "Server nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
+  "users.link.retry": "Erneut versuchen",
+  "users.link.done": "Fertig",
   "settings.companyKicker": "Firmenwissen",
   "settings.companyTitle": "Was Margince über dein Unternehmen weiß",
   "settings.companySub":
@@ -3480,4 +3499,101 @@ export const de = {
   "consent.invalidBody":
     "Diese Installation autorisiert die Anfrage in dieser Form nicht — die App ist hier möglicherweise nicht mehr registriert. Geh zurück zur App, die du verbinden wolltest, und starte erneut.",
   "consent.unnamedPassport": "Unbenannter Passport ({id})",
+  "person.thin.title": "Was wir bisher wissen",
+  "person.thin.known":
+    "Wir haben {what} zu {name}, aber niemand hier hat bisher einen erfassten Austausch mit ihnen.",
+  "person.thin.remediation.capture":
+    "Verbinden Sie das Postfach, das mit ihnen schreibt - dann fuellt sich diese Seite von selbst, jedes Feld mit seiner Quelle.",
+  "person.thin.remediation.employer":
+    "Hinterlegen Sie den Arbeitgeber, dann liest Margince dessen Website nach ihrer Rolle.",
+  "person.thin.logFirst": "Ersten Kontakt erfassen",
+  "person.timeline.all": "Alle",
+  "person.timeline.messages": "Nachrichten",
+  "person.timeline.meetings": "Termine",
+  "person.timeline.tasks": "Aufgaben",
+  "person.enriched.title": "Was Margince gelesen hat",
+  "person.enriched.sub":
+    "Jeder Wert mit dem Text, aus dem er gelesen wurde. Eine Korrektur bleibt bestehen.",
+  "person.enriched.field.title": "Position",
+  "person.enriched.field.phone": "Telefon",
+  "person.enriched.field.role": "Rolle",
+  "person.enriched.field.linkedin": "LinkedIn",
+  "person.enriched.field.org_name": "Unternehmen",
+  "person.enriched.readFrom": "Gelesen aus {source} am {when}",
+  "person.enriched.correctedByYou": "Von Ihnen korrigiert",
+  "person.enriched.confirmed": "Best\u00e4tigt",
+  "person.enriched.correct": "Korrigieren",
+  "person.enriched.confirm": "Das stimmt",
+  "person.enriched.save": "Korrektur speichern",
+  "person.enriched.cancel": "Abbrechen",
+  "person.graph.loading": "Das Netzwerk um diesen Kontakt wird gelesen \u2026",
+  "person.graph.routeTitle": "Der w\u00e4rmste Weg hinein",
+  "person.graph.routeDirect": "{name} steht bereits im Austausch mit ihnen.",
+  "person.graph.routeVia":
+    "{name} steht im Austausch mit {through} im selben Unternehmen.",
+  "person.graph.noRoute":
+    "Bisher steht hier niemand im Austausch mit ihnen oder mit jemandem in ihrem Unternehmen.",
+  "person.graph.direct": "Wer sie kennt",
+  "person.graph.directSub":
+    "Kolleginnen und Kollegen, die selbst mit diesem Kontakt korrespondiert haben.",
+  "person.graph.noDirect": "Hier hat niemand mit ihnen korrespondiert.",
+  "person.graph.account": "Im selben Unternehmen",
+  "person.graph.accountSub":
+    "Ihre Kolleginnen und Kollegen \u2014 und wer hier zu jedem den w\u00e4rmsten Draht hat.",
+  "person.graph.noAccount":
+    "Keine weiteren Kontakte in diesem Unternehmen erfasst.",
+  "person.graph.omitted":
+    "Ein Teil davon ist ausgeblendet, weil die Berechtigung daf\u00fcr fehlt.",
+  "person.graph.noEdge": "Keine erfasste Korrespondenz mit {name}.",
+  "person.graph.withColleague": "mit {name}",
+  "person.graph.withContact": "mit diesem Kontakt",
+  "person.graph.counts":
+    "{total} Interaktionen in 90 Tagen \u00b7 {inbound} eingehend, {outbound} ausgehend",
+  "person.graph.countsOnly":
+    "Nur Z\u00e4hlwerte \u2014 die Nachrichten selbst bleiben in der Chronik.",
+  "person.graph.untitledMessage": "Nachricht ohne Betreff",
+  "person.graph.dropped": "{count} weitere werden nicht angezeigt.",
+  "person.moment.dismiss": "Nicht jetzt",
+  "person.moment.recommended": "Als N\u00e4chstes:",
+  "person.moment.willConfirm": "wird zur Best\u00e4tigung vorgelegt",
+  "person.moment.blocked": "F\u00fcr diesen Datensatz nicht verf\u00fcgbar.",
+  "person.moment.kind.replied_after_gap": "Sie haben sich gemeldet",
+  "person.moment.kind.unanswered_inbound": "Antwort offen",
+  "person.moment.kind.meeting_ahead": "Steht an",
+  "person.moment.kind.task_overdue": "\u00dcberf\u00e4llig",
+  "person.moment.kind.went_quiet": "Still geworden",
+  "person.change.repliedAfterGap": "Antwort nach {days} stillen Tagen.",
+  "person.change.wentQuiet": "Seit {days} Tagen ist nichts passiert.",
+  "person.change.warmed": "Die Beziehung ist von {from} auf {to} gestiegen.",
+  "person.change.cooled": "Die Beziehung ist von {from} auf {to} gefallen.",
+  "person.band.none": "kein Kontakt",
+  "person.band.weak": "schwach",
+  "person.band.moderate": "mittel",
+  "person.band.strong": "stark",
+  "person.pulse.title": "Beziehung",
+  "person.pulse.warmestIs": "{name} hat hier die engste Beziehung.",
+  "person.pulse.nobodyYet":
+    "Niemand hier hat bisher einen erfassten Austausch mit ihnen.",
+  "person.pulse.lastInbound": "Letzte Nachricht von ihnen",
+  "person.pulse.lastOutbound": "Letzte Nachricht von uns",
+  "person.pulse.neverInbound": "nie",
+  "person.pulse.neverOutbound": "nie",
+  "person.pulse.why": "Wie das berechnet wird",
+  "person.pulse.arithmetic":
+    "Wert {score}/100 = 100 x Aktualitaet {recency} x Haeufigkeit {frequency} x Gegenseitigkeit {reciprocity}. Beim Lesen berechnet, nie gespeichert.",
+  "person.identity.title": "Identitaet",
+  "person.identity.email": "E-Mail",
+  "person.identity.phone": "Telefon",
+  "person.identity.currentRole": "Aktuelle Rolle",
+  "person.identity.buyingRole": "Rolle im Kaufprozess",
+  "person.career.title": "Fruehere Rollen",
+  "person.consent.title": "Ausgehend-Schutz",
+  "person.consent.allowed": "Erlaubt: {purposes}",
+  "person.consent.noneGranted":
+    "Kein Zweck ist eingewilligt, ausgehende Nachrichten bleiben blockiert.",
+  "person.consent.blocked": "Blockiert: {purposes}",
+  "person.network.title": "Wer kennt sie hier",
+  "person.network.twoWay": "{count} beidseitige Kontakte in 90 Tagen",
+  "person.network.oneSided": "{count} Kontakte in 90 Tagen, einseitig",
+  "person.network.replied": "antwortete {when}",
 } as const satisfies Record<MessageKey, string>;

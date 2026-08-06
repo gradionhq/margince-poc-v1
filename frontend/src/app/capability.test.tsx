@@ -9,7 +9,9 @@ import {
   type RbacObject,
   useCan,
   useCanMutate,
+  useCanUpsert,
   useCanWrite,
+  useHoldsWriteGrant,
 } from "./capability";
 import { meFixture } from "./mefixture";
 
@@ -46,6 +48,18 @@ function wrapper({ children }: { children: ReactNode }) {
 async function can(object: RbacObject, action: RbacAction): Promise<boolean> {
   const { result } = renderHook(
     () => ({ me: useMe(), allowed: useCan(object, action) }),
+    { wrapper },
+  );
+  await waitFor(() => {
+    expect(result.current.me.isPending).toBe(false);
+  });
+  return result.current.allowed;
+}
+
+// The seat answer, asked the same way — the licensing axis on its own.
+async function mutate(): Promise<boolean> {
+  const { result } = renderHook(
+    () => ({ me: useMe(), allowed: useCanMutate() }),
     { wrapper },
   );
   await waitFor(() => {
@@ -127,13 +141,14 @@ describe("useCan", () => {
   });
 });
 
-describe("useCanMutate / useCanWrite — the licensing seat", () => {
-  // The seat is a SECOND axis the server clamps on the HTTP method, before
-  // RBAC. A grant alone is not permission to write, and folding the two into
-  // one answer is wrong in both directions.
-  async function mutate(): Promise<boolean> {
+describe("useHoldsWriteGrant — any write verb", () => {
+  // The question a nav entry into an authoring surface asks. Which write verb
+  // a role holds varies by object — the seeded rep creates and updates a
+  // product but never deletes one — so insisting on one verb would hide a page
+  // its own cards would serve.
+  async function holdsWrite(object: RbacObject): Promise<boolean> {
     const { result } = renderHook(
-      () => ({ me: useMe(), allowed: useCanMutate() }),
+      () => ({ me: useMe(), allowed: useHoldsWriteGrant(object) }),
       { wrapper },
     );
     await waitFor(() => {
@@ -142,6 +157,92 @@ describe("useCanMutate / useCanWrite — the licensing seat", () => {
     return result.current.allowed;
   }
 
+  it("accepts any one of create, update and delete", async () => {
+    stubMe(
+      meFixture({
+        allow: {
+          product: ["create"],
+          offer_template: ["update"],
+          pipeline: ["delete"],
+        },
+      }),
+    );
+
+    expect(await holdsWrite("product")).toBe(true);
+    expect(await holdsWrite("offer_template")).toBe(true);
+    expect(await holdsWrite("pipeline")).toBe(true);
+  });
+
+  it("refuses read — the verb every seeded role holds on nearly everything", async () => {
+    // If read counted, this predicate would put every authoring surface in
+    // front of every seat, which is the opposite of what it is for.
+    stubMe(meFixture({ allow: { custom_field: ["read"] } }));
+
+    expect(await holdsWrite("custom_field")).toBe(false);
+    expect(await holdsWrite("fx_rate")).toBe(false);
+  });
+
+  it("ignores the licensing seat, so a read seat still reaches what it may read", async () => {
+    // Deliberately unlike useCanWrite: the seat blocks the mutation, not the
+    // page, and hiding the page would strand a reader on a fallback screen.
+    stubMe(meFixture({ seat: "read", allow: { product: ["update"] } }));
+
+    expect(await mutate()).toBe(false);
+    expect(await holdsWrite("product")).toBe(true);
+  });
+});
+
+describe("useCanUpsert — the grant an upsert control can honestly ask for", () => {
+  // The rate sheets are one endpoint that inserts OR replaces, so the server
+  // admits on create-or-update and demands the specific verb inside the
+  // transaction. A control asking for `create` alone would hide the editor
+  // from a principal the server would have admitted.
+  async function upsert(object: RbacObject): Promise<boolean> {
+    const { result } = renderHook(
+      () => ({ me: useMe(), allowed: useCanUpsert(object) }),
+      { wrapper },
+    );
+    await waitFor(() => {
+      expect(result.current.me.isPending).toBe(false);
+    });
+    return result.current.allowed;
+  }
+
+  it("admits a principal holding only update, which create alone would hide", async () => {
+    stubMe(meFixture({ allow: { fx_rate: ["update"] } }));
+
+    expect(await upsert("fx_rate")).toBe(true);
+  });
+
+  it("admits a principal holding only create", async () => {
+    stubMe(meFixture({ allow: { ai_model_rate: ["create"] } }));
+
+    expect(await upsert("ai_model_rate")).toBe(true);
+  });
+
+  it("refuses a principal holding neither, however much else it reads", async () => {
+    stubMe(
+      meFixture({ allow: { fx_rate: ["read"], ai_model_rate: ["read"] } }),
+    );
+
+    expect(await upsert("fx_rate")).toBe(false);
+    expect(await upsert("ai_model_rate")).toBe(false);
+  });
+
+  it("still clamps on the licensing seat — unlike the nav predicate", async () => {
+    // This one DOES fold the seat in: it gates a mutating control, not a page.
+    stubMe(
+      meFixture({ seat: "read", allow: { fx_rate: ["create", "update"] } }),
+    );
+
+    expect(await upsert("fx_rate")).toBe(false);
+  });
+});
+
+describe("useCanMutate / useCanWrite — the licensing seat", () => {
+  // The seat is a SECOND axis the server clamps on the HTTP method, before
+  // RBAC. A grant alone is not permission to write, and folding the two into
+  // one answer is wrong in both directions.
   async function write(object: RbacObject, action: RbacAction) {
     const { result } = renderHook(
       () => ({ me: useMe(), allowed: useCanWrite(object, action) }),

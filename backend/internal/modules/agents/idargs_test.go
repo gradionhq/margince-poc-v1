@@ -132,6 +132,27 @@ func (seamProbeProvider) Freshness(context.Context, datasource.EntityRef) (datas
 
 var _ datasource.SystemOfRecordProvider = seamProbeProvider{}
 
+// seamProbeLifecycle answers errSeamReached from every lifecycle and enrich
+// seam, so the walk can tell "the arguments got through" from "the tool refused
+// them" — the whole point of the probe.
+type seamProbeLifecycle struct{}
+
+func (seamProbeLifecycle) RelinkActivity(context.Context, ids.UUID, string, ids.UUID, bool) (json.RawMessage, error) {
+	return nil, errSeamReached
+}
+
+func (seamProbeLifecycle) DisqualifyLead(context.Context, ids.UUID) (json.RawMessage, error) {
+	return nil, errSeamReached
+}
+
+func (seamProbeLifecycle) AdvanceProjectPhase(context.Context, ids.UUID, string, *string, *int64) (json.RawMessage, error) {
+	return nil, errSeamReached
+}
+
+func (seamProbeLifecycle) EnrichCompany(context.Context, ids.UUID, string, string) (json.RawMessage, error) {
+	return nil, errSeamReached
+}
+
 // idProbeDispatcher is the whole product surface behind the real dispatcher,
 // with the seam probe underneath. fullRegistry passes nil seams, which is
 // enough to read specs and panics the moment a handler runs; this walk runs
@@ -156,6 +177,9 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 		func(context.Context, ids.UUID) ([]IntroRoute, bool, error) { return nil, false, errSeamReached },
 		func(context.Context) (AtRiskReport, error) { return AtRiskReport{}, errSeamReached })
 	RegisterCommsTools(r, &recordingComms{}, seamProbeProvider{})
+	RegisterLifecycleTools(r, seamProbeProvider{},
+		seamProbeLifecycle{}, seamProbeLifecycle{}, seamProbeLifecycle{})
+	RegisterEnrichTool(r, seamProbeProvider{}, seamProbeLifecycle{})
 	return NewDispatcher(r, bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }

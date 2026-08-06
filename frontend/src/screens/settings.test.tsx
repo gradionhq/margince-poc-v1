@@ -12,12 +12,19 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
+import { companyContextCapabilitiesQueryKey } from "./company-context";
 import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 
-// The Organization tab GROUP is still a role check — it spans objects with no
-// single grant in common, plus surfaces the server guards with RequireAdmin —
-// so these fixtures carry both a role and the grants the cards inside ask for.
+// The Organization tab group is composed from its MEMBERS: each tab opens on
+// the write grant its own cards ask for, and the three objectless ones (users,
+// privacy, audit) on the role. So a fixture that wants the nav has to name
+// both — a role alone no longer buys the group, and a grant alone no longer
+// buys the tabs the server gates on the role.
 const PIPELINE_ADMIN: GrantSpec = { pipeline: ["create", "update"] };
+const ORG_ADMIN: GrantSpec = {
+  ...PIPELINE_ADMIN,
+  custom_field: ["create", "update"],
+};
 
 // The settings identity + passport surfaces through the RBAC primitives:
 // roles render as localized RoleBadges (a workspace-defined key stays raw),
@@ -51,7 +58,7 @@ function settingsBackend() {
     if (url.endsWith("/v1/me")) {
       const me = meFixture({
         roles: ["admin", "field_marketing"],
-        allow: PIPELINE_ADMIN,
+        allow: ORG_ADMIN,
       });
       return jsonResponse({
         ...me,
@@ -80,15 +87,21 @@ function settingsBackend() {
   });
 }
 
+// The client comes back with the render so a test can read a query's settled
+// state, not just the DOM: "the answer is in the cache" is the fact a nav
+// assertion about an absent tab has to stand on.
 const render = (ui: ReactNode) => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return rtlRender(
-    <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">{ui}</LocaleProvider>
-    </QueryClientProvider>,
-  );
+  return {
+    ...rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">{ui}</LocaleProvider>
+      </QueryClientProvider>,
+    ),
+    client,
+  };
 };
 
 describe("SettingsScreen RBAC surfaces", () => {
@@ -487,9 +500,9 @@ describe("PassportCard revoke (AS-2)", () => {
 });
 
 describe("SettingsScreen tab layout", () => {
-  // The Organization group (company/data/catalog/privacy/audit) renders only
-  // for an admin/ops role; these layout assertions run as an admin so the org
-  // tabs are present. The rep-gating is covered by the RBAC-surfaces suite.
+  // These layout assertions run as an admin holding the org grants, so every
+  // tab under test is present. Which principal sees which tab is the
+  // Organization-group suite's subject, not this one's.
   beforeEach(() => {
     vi.stubGlobal("fetch", settingsBackend());
   });
@@ -531,7 +544,7 @@ describe("SettingsScreen tab layout", () => {
 
   it("surfaces the custom-fields door on the Data model tab", async () => {
     render(<SettingsScreen tab="data" />);
-    // Org tab: visible once /me resolves to an admin/ops role.
+    // Org tab: visible once /me resolves the custom_field write grant.
     await waitFor(() =>
       expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy(),
     );
@@ -550,6 +563,315 @@ describe("SettingsScreen tab layout", () => {
         .getByRole("link", { name: /offer templates/i })
         .getAttribute("href"),
     ).toBe("#/offer-templates");
+  });
+});
+
+// The nav, driven by exactly the two things the Organization group composes:
+// the grant map /me carries and the company-context rollout flag. Every other
+// endpoint answers empty, so a failure here can only be about visibility.
+function orgNavBackend(opts: {
+  roles: string[];
+  allow?: GrantSpec;
+  companyReadEnabled?: boolean;
+}) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse(
+        meFixture({ roles: opts.roles, allow: opts.allow ?? {} }),
+      );
+    }
+    if (url.includes("/company/context/capabilities")) {
+      const enabled = opts.companyReadEnabled ?? false;
+      return jsonResponse({
+        rollout: enabled ? "read" : "off",
+        read_enabled: enabled,
+        tasks_enabled: false,
+        onboarding_enabled: false,
+      });
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
+// The same backend with the rollout answer on a valve the test opens. The nav
+// can then be read at two named moments — flag unanswered, flag answered "off"
+// — instead of whichever of the two the event loop happens to serve first.
+function orgNavBackendHoldingCapabilities(opts: {
+  roles: string[];
+  allow?: GrantSpec;
+}) {
+  const answer = orgNavBackend({ ...opts, companyReadEnabled: false });
+  let release: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/company/context/capabilities")) {
+      await held;
+    }
+    return answer(input);
+  });
+  return { fetchMock, answerCapabilities: () => release?.() };
+}
+
+// The settings tabs currently in the nav, in render order — personal group
+// first, then the organization group. Asserting the WHOLE list rather than one
+// membership is the point: a predicate wired to the wrong object shows up as
+// an extra or a missing entry, where a single getBy would pass regardless.
+function navTabs(): string[] {
+  return screen
+    .getAllByRole("link")
+    .filter((link) =>
+      (link.getAttribute("href") ?? "").startsWith("#/settings/"),
+    )
+    .map((link) => link.textContent ?? "");
+}
+
+// The personal group, which no grant gates — every case below shows exactly
+// these four, and the assertions differ only in what follows them.
+const PERSONAL_TABS = ["Account", "Voice DNA", "AI & autonomy", "Integrations"];
+
+describe("SettingsScreen Organization group", () => {
+  // The group is composed from its members: a tab appears when the principal
+  // holds a write grant on what its cards author, or — for the three surfaces
+  // with no RBAC object — when they hold the role the server gates them on.
+
+  it("collapses to Overlay alone for a principal holding neither an org grant nor an admin role", async () => {
+    // Overlay is the group's one unconditional member (the topbar's
+    // system-of-record chip points every seat at it), so the heading survives
+    // while every gated member is gone — this is the group hiding, as far as
+    // the group can hide.
+    vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"] }));
+    render(<SettingsScreen />);
+    // /me has to have SETTLED before an emptiness claim means anything: a nav
+    // read mid-flight is empty for every principal.
+    await screen.findByText("test@example.test");
+    expect(navTabs()).toEqual([...PERSONAL_TABS, "Overlay"]);
+  });
+
+  it("renders the group for a single visible member — a lone custom_field write opens Data model", async () => {
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({ roles: ["rep"], allow: { custom_field: ["update"] } }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Data model", "Overlay"]),
+    );
+  });
+
+  it("renders the group for a single visible member — a lone embedding_reindex write opens Data model", async () => {
+    // The Data model tab's other half. Granting it alone is what separates the
+    // predicate from its sibling: a `data` wired to the catalog objects, or a
+    // `rates` wired to this one, shows up as a tab the whole-list assertion
+    // does not expect.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["rep"],
+        allow: { embedding_reindex: ["update"] },
+      }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Data model", "Overlay"]),
+    );
+  });
+
+  it("opens Rates & costs for a lone fx_rate write, with Catalog and Data model absent", async () => {
+    // The rate sheets are the only cards on the tab, and fx_rate is one of the
+    // two objects they author — so this grant alone has to open it, and the
+    // neighbouring tabs have to stay shut.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({ roles: ["rep"], allow: { fx_rate: ["create"] } }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Rates & costs", "Overlay"]),
+    );
+  });
+
+  it("opens Rates & costs for a lone ai_model_rate write", async () => {
+    // The other half of the same predicate: either object on its own opens the
+    // tab, so the union has to be read as a union and not as one object with a
+    // decorative second term.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({ roles: ["rep"], allow: { ai_model_rate: ["update"] } }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Rates & costs", "Overlay"]),
+    );
+  });
+
+  it("opens Catalog for a lone offer_template write", async () => {
+    // Catalog's third member, held here without pipeline or product, so the
+    // tab can only have come from the offer_template term.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["rep"],
+        allow: { offer_template: ["create", "update"] },
+      }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Catalog", "Overlay"]),
+    );
+  });
+
+  it("opens Catalog for a manager on product writes alone, with no pipeline grant", async () => {
+    // The seeded manager holds pipeline read-only and product create/update/
+    // delete, so this is the case the role check used to hide: the cards on
+    // the tab would serve them, the nav would not.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["manager"],
+        allow: { pipeline: ["read"], product: ["create", "update", "delete"] },
+      }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([...PERSONAL_TABS, "Catalog", "Overlay"]),
+    );
+  });
+
+  it("opens Catalog and Company for a rep holding the writes the seeded matrix gives them", async () => {
+    // A rep creates and updates products, offer templates and organizations,
+    // and deletes none of them — so the predicate has to accept any write verb
+    // rather than insist on one.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["rep"],
+        allow: {
+          pipeline: ["read"],
+          product: ["create", "read", "update"],
+          offer_template: ["create", "read", "update"],
+          organization: ["create", "read", "update"],
+          custom_field: ["read"],
+        },
+        companyReadEnabled: true,
+      }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([
+        ...PERSONAL_TABS,
+        "Company context",
+        "Catalog",
+        "Overlay",
+      ]),
+    );
+  });
+
+  it("keeps users, privacy and audit on the role — every object write in the matrix does not buy them", async () => {
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["manager"],
+        allow: {
+          pipeline: ["create", "update", "delete"],
+          product: ["create", "update", "delete"],
+          offer_template: ["create", "update", "delete"],
+          fx_rate: ["create", "update"],
+          ai_model_rate: ["create", "update"],
+          custom_field: ["create", "update", "delete"],
+          embedding_reindex: ["update"],
+          organization: ["create", "update", "delete"],
+        },
+        companyReadEnabled: true,
+      }),
+    );
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([
+        ...PERSONAL_TABS,
+        "Company context",
+        "Data model",
+        "Catalog",
+        "Rates & costs",
+        "Overlay",
+      ]),
+    );
+  });
+
+  it("gives ops the three objectless tabs while it holds no object grant at all", async () => {
+    // The mirror of the case above: those three surfaces have no RBAC object
+    // for a grant to name, so the role is what the server checks and what the
+    // nav must check.
+    vi.stubGlobal("fetch", orgNavBackend({ roles: ["ops"] }));
+    render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(navTabs()).toEqual([
+        ...PERSONAL_TABS,
+        "Users & roles",
+        "Privacy & consent",
+        "Audit log",
+        "Overlay",
+      ]),
+    );
+  });
+
+  it("shows Company to an admin holding organization writes once the rollout flag is on", async () => {
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["admin"],
+        allow: { organization: ["create", "update"] },
+        companyReadEnabled: true,
+      }),
+    );
+    render(<SettingsScreen />);
+    expect(
+      await screen.findByRole("link", { name: "Company context" }),
+    ).toBeTruthy();
+  });
+
+  it("withholds Company from the same admin while the rollout flag is off — before the flag answers and after", async () => {
+    // The flag is a deployment posture, not a permission, so it ANDs with the
+    // grant: the surface may simply not exist on this installation. An unknown
+    // flag therefore reads as "off" — a tab that appears while the answer is in
+    // flight and then vanishes has already offered a surface this installation
+    // may not have.
+    const { fetchMock, answerCapabilities } = orgNavBackendHoldingCapabilities({
+      roles: ["admin"],
+      allow: { organization: ["create", "update"] },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { client } = render(<SettingsScreen />);
+    const ADMIN_ORG_TABS = [
+      ...PERSONAL_TABS,
+      "Users & roles",
+      "Privacy & consent",
+      "Audit log",
+      "Overlay",
+    ];
+
+    // Moment one: the nav is fully composed from /me — its three role-gated
+    // tabs are on screen — while the flag is still unanswered, because this
+    // test holds the answer.
+    await screen.findByRole("link", { name: "Audit log" });
+    expect(navTabs()).toEqual(ADMIN_ORG_TABS);
+
+    // Moment two: the answer is in the cache, which is the fact the emptiness
+    // claim needs — the request having been SENT proves nothing about what the
+    // nav has rendered.
+    answerCapabilities();
+    await waitFor(() =>
+      expect(
+        client.getQueryState(companyContextCapabilitiesQueryKey)?.status,
+      ).toBe("success"),
+    );
+    expect(navTabs()).toEqual(ADMIN_ORG_TABS);
   });
 });
 
@@ -826,13 +1148,16 @@ function auditLogBackend() {
   });
 }
 
-// The danger-zone Reset data action: server-driven, gated on
-// isOrgAdmin && me.non_production. A dedicated backend per test so the
-// role/posture combination is explicit rather than layered on the shared
-// settingsBackend default.
+// The danger-zone Reset data action: server-driven, gated on the literal admin
+// role AND me.non_production. A dedicated backend per test so the role/posture
+// combination is explicit rather than layered on the shared settingsBackend
+// default. `allow` defaults to the custom_field writes that open the Data tab
+// the card lives on — a test about the card should not also have to argue its
+// way onto the tab, and one that wants the tab CLOSED says so with `{}`.
 function resetDataBackend(opts: {
   roles: string[];
   nonProduction: boolean;
+  allow?: GrantSpec;
   onReset?: (body: unknown) => void;
   resetStatus?: number;
   resetBody?: unknown;
@@ -843,10 +1168,13 @@ function resetDataBackend(opts: {
       input instanceof Request ? input.method : (init?.method ?? "GET")
     ).toUpperCase();
     if (url.endsWith("/v1/me")) {
-      return jsonResponse({
-        user: { email: "ada@acme.test" },
+      const me = meFixture({
         roles: opts.roles,
-        teams: [],
+        allow: opts.allow ?? { custom_field: ["create", "update"] },
+      });
+      return jsonResponse({
+        ...me,
+        user: { ...me.user, email: "ada@acme.test" },
         workspace_name: "Acme Inc",
         non_production: opts.nonProduction,
       });
@@ -897,20 +1225,22 @@ describe("ResetDataCard (danger zone)", () => {
   it("hides Reset data from a rep even in a non-production posture", async () => {
     vi.stubGlobal(
       "fetch",
-      resetDataBackend({ roles: ["rep"], nonProduction: true }),
+      // A rep holds custom_field read-only and no embedding_reindex at all, so
+      // the Data tab is not theirs to reach in the first place.
+      resetDataBackend({ roles: ["rep"], nonProduction: true, allow: {} }),
     );
     render(<SettingsScreen tab="data" />);
-    // Data tab is org-only, so a rep falls back to Account — proven here by
+    // With no member grant, the rep falls back to Account — proven here by
     // the identity card rendering instead of anything data-tab-shaped.
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
     expect(screen.queryByText(/reset data/i)).toBeNull();
   });
 
-  // The card is admin-ONLY (narrower than the "data" tab's own admin-OR-ops
-  // gate): the server's auth.RequireAdmin on /admin/reset-data admits only
-  // the literal "admin" role, so an ops user — who legitimately reaches the
-  // data tab and its other cards — must never see a Reset-data button that
-  // could only 403 on confirm.
+  // The card is admin-ONLY, narrower than the "data" tab that hosts it: the
+  // server's auth.RequireAdmin on /admin/reset-data admits only the literal
+  // "admin" role, so an ops user — who legitimately reaches the data tab and
+  // its other cards — must never see a Reset-data button that could only 403
+  // on confirm.
   it("reaches the data tab as ops but never sees Reset data", async () => {
     vi.stubGlobal(
       "fetch",

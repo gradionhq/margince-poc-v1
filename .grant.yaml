@@ -25,12 +25,19 @@ allow:
   - Unlicense
   - BUSL-1.1
 
-# First-party components carry no third-party license to gate. (CI Actions are
-# excluded from the scan entirely in .syft.yaml, so they never reach grant.)
-# Every other package must still resolve to a known, allowed license.
+# First-party components carry no third-party license to gate. The scan now
+# covers the whole committed tree (see .syft.yaml), so CI Actions reach grant as
+# packages; `make sbom-supplement` fills in their real (permissive) licenses,
+# except SonarSource's scanner action, which is LGPL-3.0-only. That action runs
+# only in CI — it is never linked into or shipped with the product, so its
+# copyleft never reaches Margince's BUSL-1.1 source — so it is ignored here rather
+# than admitted to `allow`, which stays the set of licenses accepted into the
+# shipped product. Every other package must still resolve to a known, allowed
+# license.
 ignore-packages:
   - github.com/gradionhq/margince/* # our own Go modules
   - example.margince.dev/* # committed extension stubs (ADR-0069), first-party
+  - SonarSource/sonarqube-scan-action # LGPL-3.0-only CI scanner action, runs in CI only, never shipped
 
 require-license: true # When true, deny packages with no detected licenses
 require-known-license: true

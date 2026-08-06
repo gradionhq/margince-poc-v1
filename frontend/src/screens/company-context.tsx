@@ -84,9 +84,17 @@ const MULTILINE_FIELDS = new Set<keyof CompanyInput>([
   "history",
 ]);
 
+// The rollout answer every surface that gates on the flag shares — the page
+// here, the onboarding entry, and the settings nav. Named so a caller can ask
+// the cache whether the answer has LANDED, which is a different question from
+// whether the request went out.
+export const companyContextCapabilitiesQueryKey = [
+  "company-context-capabilities",
+];
+
 export function useCompanyContextCapabilities(enabled = true) {
   return useQuery({
-    queryKey: ["company-context-capabilities"],
+    queryKey: companyContextCapabilitiesQueryKey,
     enabled,
     queryFn: async (): Promise<Capabilities> => {
       const { data, error } = await api.GET("/company/context/capabilities");

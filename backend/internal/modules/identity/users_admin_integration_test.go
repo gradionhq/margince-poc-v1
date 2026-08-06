@@ -109,7 +109,7 @@ func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 func TestInviteUserHandlerEmailsTheSetPasswordLink(t *testing.T) {
 	e := setupRevocationEnv(t, "invite-mail")
 	mail := &capturedMail{}
-	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test")
+	h := NewHandlers(e.svc).WithPasswordReset(mail).WithPasswordLinkBase("https://crm.example.test")
 
 	ctx := withIdentity(e.wsCtx(e.admin), e.admin)
 	body := `{"email":"invited@acme.test","display_name":"Invited Rep","role":"rep"}`

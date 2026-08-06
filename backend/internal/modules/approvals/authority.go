@@ -50,6 +50,16 @@ var decisionGrants = map[string][]grantRequirement{
 	// is the deal move, so deciding it needs the same grant.
 	"progress_deal": {{tableDeal, principal.ActionUpdate}},
 	"promote_lead":  {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
+	// Disqualifying retires the lead in place, and the store gates it on
+	// `lead:delete` (people/lead.go DisqualifyLead) as the REST twin's DELETE
+	// implies. Deciding takes the grant PERFORMING it takes: anything less and
+	// the confirm-first control point sits with someone who could not do the
+	// thing they are releasing.
+	"disqualify_lead": {{tableLead, principal.ActionDelete}},
+	// A phase transition writes the project row and one phase-history row in
+	// one transaction (deals/project_advance.go); the gated effect is the
+	// project move, so the approver needs the project's update grant.
+	"advance_project_phase": {{tableProject, principal.ActionUpdate}},
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
@@ -58,20 +68,36 @@ var decisionGrants = map[string][]grantRequirement{
 	// write, with the consent gate running in the handler whoever approved it.
 	"send_message": {{objectActivity, principal.ActionCreate}},
 	"book_meeting": {{objectActivity, principal.ActionCreate}},
-	// Sending an offer releases the draft→sent transition (B-E03.19) —
-	// an offer write; deciding it needs the same grant the send itself
-	// requires.
-	"send_offer": {{targetOffer, principal.ActionUpdate}},
 	// Accepting a cold-start read-back writes enrichment fields onto an
 	// organization; "enrich" is the same effect staged through the
 	// transport gate by an agent caller.
 	"coldstart": {{tableOrganization, principal.ActionUpdate}},
 	"enrich":    {{tableOrganization, principal.ActionUpdate}},
-	// A rate refresh proposes an effective-dated row on a workspace-shared
-	// price sheet; deciding it needs the same admin/ops Create grant the
-	// editor's write path requires.
-	"fx_rate_proposal":       {{targetFxRate, principal.ActionCreate}},
-	"ai_model_rate_proposal": {{targetAIModelRate, principal.ActionCreate}},
+	// A rate refresh proposes an effective-dated row on a workspace-shared price
+	// sheet, and deciding it requires BOTH write verbs on that sheet.
+	//
+	// The release is an upsert: it inserts a new (currency, day) or replaces an
+	// existing rate, and which one it will be is not knowable when the decision
+	// is made — the sheet can change between the decision and the apply. The
+	// apply also runs as the system principal, so the store's in-transaction
+	// check on the specific verb never fires here; this is the only grant
+	// standing between an approver and the row the release replaces.
+	//
+	// Either verb alone would authorize the operation it does not name: a
+	// create-only approver could release an overwrite, precisely the
+	// substitution the store's second check exists to refuse. Requiring both is
+	// the conservative reading — approve an upsert only if you could have
+	// performed either half yourself. Every seeded role holding one holds the
+	// other (writeNoDelete for admin and ops, the zero grant for everyone
+	// else), so this constrains edited roles only, and constrains them right.
+	"fx_rate_proposal": {
+		{targetFxRate, principal.ActionCreate},
+		{targetFxRate, principal.ActionUpdate},
+	},
+	"ai_model_rate_proposal": {
+		{targetAIModelRate, principal.ActionCreate},
+		{targetAIModelRate, principal.ActionUpdate},
+	},
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
 	"deepread": {{tableOrganization, principal.ActionUpdate}},
@@ -118,8 +144,6 @@ var decisionGrants = map[string][]grantRequirement{
 // the release performs on it:
 //
 //   - archive_record deletes the target.
-//   - share_record widens who sees the target, which the direct share path takes
-//     the target type's update grant for.
 //   - merge_records rewrites where records point, and the store maps the merge
 //     verb to update.
 //   - update_record releases a field patch (human-edit precedence,
@@ -133,7 +157,6 @@ var decisionGrants = map[string][]grantRequirement{
 // certify a route whose real decision demands a different object.
 var targetResolvedGrants = map[string]principal.Action{
 	"archive_record": principal.ActionDelete,
-	"share_record":   principal.ActionUpdate,
 	"merge_records":  principal.ActionUpdate,
 	"update_record":  principal.ActionUpdate,
 	"create_record":  principal.ActionCreate,

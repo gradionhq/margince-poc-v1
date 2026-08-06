@@ -24,10 +24,11 @@ shared  →  platform  →  modules  →  compose  →  cmd
   `database/storekit` (the one spelling of the write shape), `auth` (the
   one admission point), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr`, `httpserver`.
-- **`internal/modules/`** — the seventeen bounded capabilities (identity,
+- **`internal/modules/`** — the twenty bounded capabilities (identity,
   people, deals, activities, approvals, agents, automation, ai, search,
-  capture, consent, privacy, collections, signals, customfields, quotas,
-  and the `de` jurisdiction pack). A
+  capture, comms, consent, privacy, collections, signals, customfields,
+  quotas, webhooks, overlay, migration; the `de` jurisdiction pack is an
+  extension under `extensions/`, not a module). A
   module package starts flat (store + mapping + transport + provider in
   one package) and earns a subpackage only under the
   module growth policy —
@@ -43,10 +44,12 @@ shared  →  platform  →  modules  →  compose  →  cmd
   `compose/integration`; compose subpackages coordinate modules and
   never durably own a business entity. How it boots and where every
   cross-module edge is wired: [composition-layer.md](composition-layer.md).
-- **`cmd/{api,worker,migrate,mcp}`** — thin process roles.
+- **`cmd/{api,worker,migrate}`** — thin process roles.
 
-`cmd/<role>` is reserved for those **four deployable process-role
-binaries**. A *developer/CI harness* binary — a tool a
+`cmd/<role>` is reserved for those **three deployable process-role
+binaries** (ADR-0054/A69 as amended; the A1 stdio `cmd/mcp` is retired
+per SCR-9 — the governed tool surface is served by `cmd/api` at `/mcp`).
+A *developer/CI harness* binary — a tool a
 human or a `make` target runs, not a role that gets deployed — does not
 belong there: it lives **beside the package it serves** (e.g. the AI
 certification report tool at `internal/compose/aicert/reportcmd`, run by

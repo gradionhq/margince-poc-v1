@@ -103,7 +103,7 @@ func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		ToStageID:  args.ToStageID,
 		LostReason: args.LostReason,
 		Source:     toolSource,
-		IfVersion:  args.IfVersion,
+		IfVersion:  pinForWrite(ctx, args.IfVersion),
 	}); err != nil {
 		return nil, err
 	}

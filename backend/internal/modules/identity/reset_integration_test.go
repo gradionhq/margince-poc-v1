@@ -47,7 +47,7 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	e := setupRevocationEnv(t, "reset-e2e")
 	ctx := e.wsOnlyCtx()
 	mail := &capturedMail{}
-	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test/")
+	h := NewHandlers(e.svc).WithPasswordReset(mail).WithPasswordLinkBase("https://crm.example.test/")
 	sent := make(chan struct{})
 	h.resetSendStarted = func() { close(sent) }
 
@@ -118,7 +118,7 @@ func TestPasswordResetRequestIsEnumerationResistant(t *testing.T) {
 	e := setupRevocationEnv(t, "reset-enum")
 	ctx := e.wsOnlyCtx()
 	mail := &capturedMail{}
-	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test")
+	h := NewHandlers(e.svc).WithPasswordReset(mail).WithPasswordLinkBase("https://crm.example.test")
 
 	sent := make(chan struct{})
 	h.resetSendStarted = func() { close(sent) }
@@ -235,20 +235,4 @@ func OperatorResetPasswordSmoke(ctx context.Context, e *revocationEnv, email str
 		return err
 	}
 	return OperatorResetPassword(context.Background(), tx, ids.From[ids.WorkspaceKind](e.admin.WorkspaceID.UUID), email, "irrelevant password!")
-}
-
-func TestCapabilitiesReflectTheWiredMailer(t *testing.T) {
-	h := NewHandlers(&Service{})
-	rec := httptest.NewRecorder()
-	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
-	if !strings.Contains(rec.Body.String(), `"password_reset":false`) {
-		t.Fatalf("unwired capabilities = %s, want password_reset:false", rec.Body)
-	}
-
-	h = h.WithPasswordReset(&capturedMail{}, "https://crm.example.test")
-	rec = httptest.NewRecorder()
-	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
-	if !strings.Contains(rec.Body.String(), `"password_reset":true`) {
-		t.Fatalf("wired capabilities = %s, want password_reset:true", rec.Body)
-	}
 }

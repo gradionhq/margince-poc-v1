@@ -24,7 +24,7 @@ import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { dotTier } from "../app/autonomy";
-import { useCan, useCanWrite } from "../app/capability";
+import { useCan, useCanWrite, useHoldsWriteGrant } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
@@ -95,9 +95,14 @@ import "./settings.css";
 // Booking / Flow / Connected-surfaces tabs have no live seam here, so they are
 // omitted rather than stubbed (STATE-5). The tab is selected by the route id
 // (#/settings/<id>), so a tab is linkable and the palette can deep-link one.
-// Two groups: "you" (per-user, every member) and "org" (organization config,
-// admin/ops only). The nav renders the org group only for a role that could
-// actually use it; the server stays the RBAC authority on every card within.
+// Two groups: "you" (per-user, every member) and "org" (organization config).
+// Every org tab carries its OWN predicate — the grant the cards on it actually
+// ask for — and the group heading renders when at least one member survives.
+// One predicate for the whole group could only ever be a guess about a
+// heterogeneous set: it spans surfaces with clean object grants (catalog,
+// rates, data, company) and surfaces with no RBAC object at all (users,
+// privacy, audit), which the server gates on the role itself. The server stays
+// the RBAC authority on every card within.
 // `ai` stays in the personal group: it carries the caller's own agent passports
 // (per-user), so hiding the whole tab from a rep would regress passport minting.
 // The admin-only cards inside it (usage, call trace) are gated per-card already.
@@ -199,48 +204,76 @@ function tabContent(id: SettingsTabId): ReactNode {
 
 const SETTINGS_GROUPS = ["you", "org"] as const;
 
-export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
-  const t = useT();
+type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
+
+// Which Organization tabs this principal can use, one answer per tab, each
+// asking for the grant the tab's own cards ask for. The nav then describes the
+// seat instead of the role name it was assigned: a principal granted product
+// writes by an edited role reaches Catalog, and nobody is offered a tab whose
+// every card would refuse them.
+//
+// The object questions are WRITE grants rather than reads, because these are
+// authoring surfaces — the rate table, the field editor, the pipeline
+// designer. `read` on them is held by every seeded role, so gating on it would
+// put the whole group in front of everyone, which answers a different question
+// than "can you use this".
+//
+// The licensing seat is deliberately not folded in (see capability.ts): a read
+// seat still reads the pages behind these entries.
+//
+// EVERY predicate is evaluated here, unconditionally, before anything composes
+// them. The number of hooks a render runs must not depend on which grants came
+// back — so the `||` sits on the results, never around the calls, and no hook
+// may move into the filter over the tab list.
+function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   const me = useMe();
   const capabilities = useCompanyContextCapabilities();
-  // Deliberately a ROLE check, and the one place in this screen that stays one.
-  //
-  // The group spans surfaces with no RBAC object at all — the audit log, user
-  // administration, data reset and job health, which the server guards with
-  // RequireAdmin — alongside ones that do have clean grants. No single
-  // (object, action) pair describes the group.
-  //
-  // The honest cost: a principal granted, say, pipeline writes by an edited
-  // role still cannot NAVIGATE to the Catalog tab, even though the card inside
-  // would now offer them the controls. Per-tab capability gating is the fix,
-  // but it changes what every role sees in the nav — pipeline:read is held by
-  // everyone, so Catalog would appear for reps — and that is a product
-  // decision, not part of rebinding write affordances. Tracked separately.
+  const pipeline = useHoldsWriteGrant("pipeline");
+  const product = useHoldsWriteGrant("product");
+  const offerTemplate = useHoldsWriteGrant("offer_template");
+  const fxRate = useHoldsWriteGrant("fx_rate");
+  const aiModelRate = useHoldsWriteGrant("ai_model_rate");
+  const customField = useHoldsWriteGrant("custom_field");
+  const embeddingReindex = useHoldsWriteGrant("embedding_reindex");
+  const organization = useHoldsWriteGrant("organization");
+  // User administration, the DSR queue and the audit log map to no RBAC object
+  // at all — the server gates them on the role and on an unbounded row scope,
+  // so the role is their own honest predicate rather than a stand-in for one.
   const isOrgAdmin = (me.data?.roles ?? []).some(
     (role) => role === "admin" || role === "ops",
   );
-  const tabs = SETTINGS_TABS.filter((entry) => {
-    // Overlay is exempt for the same reason, plus one of its own: the
-    // system-of-record chip in the topbar is deliberately shown to EVERY
-    // seat and points here, so hiding the tab would strand any non-admin
-    // who follows it on the Account fallback. Hiding buys no security
-    // either — the server 403s the privileged reads regardless, and both
-    // cards on the tab already gate themselves on the overlay_connection
-    // grants, so a viewer without them gets the honest read-only view
-    // instead of a dead link.
-    if (entry.id === "overlay") {
-      return true;
-    }
-    if (entry.group === "org" && !isOrgAdmin) {
-      return false;
-    }
-    if (entry.id === "company" && !capabilities.data?.read_enabled) {
-      return false;
-    }
-    return true;
-  });
-  // Unknown / absent id (or one now hidden by role) falls back to the first
-  // visible tab — a stale deep-link lands on Account, never a blank screen.
+  return {
+    catalog: pipeline || product || offerTemplate,
+    rates: fxRate || aiModelRate,
+    data: customField || embeddingReindex,
+    // The company profile is the one tab whose second condition is a rollout
+    // flag rather than a permission, so the grant ANDs with it: PUT /company
+    // is gated on organization writes, and the flag says whether the surface
+    // exists on this installation at all.
+    company: organization && (capabilities.data?.read_enabled ?? false),
+    users: isOrgAdmin,
+    privacy: isOrgAdmin,
+    audit: isOrgAdmin,
+    // Overlay is exempt, and stays exempt: the system-of-record chip in the
+    // topbar is deliberately shown to EVERY seat and points here, so hiding
+    // the tab would strand any non-admin who follows it on the Account
+    // fallback. Hiding buys no security either — the server 403s the
+    // privileged reads regardless, and both cards on the tab already gate
+    // themselves on the overlay_connection grants, so a viewer without them
+    // gets the honest read-only view instead of a dead link.
+    overlay: true,
+  };
+}
+
+export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
+  const t = useT();
+  const orgTabVisible = useOrgTabVisibility();
+  const tabs = SETTINGS_TABS.filter(
+    (entry) => entry.group !== "org" || orgTabVisible[entry.id],
+  );
+  // Unknown / absent id (or one this principal cannot see) falls back to the
+  // first visible tab — a stale deep-link lands on Account, never a blank
+  // screen.
   const active = tabs.find((entry) => entry.id === tab) ?? tabs[0];
   return (
     <div className="wrap">
@@ -727,15 +760,16 @@ function CustomFieldsLinkCard() {
 // which is the unrelated password-reset link) — so the affordance is invisible
 // on a production install even to an admin; the server enforces both the
 // same way and 404s the endpoint outright in production regardless of what
-// this card renders. This is admin-ONLY, narrower than the "data" tab's own
-// isOrgAdmin (admin OR ops) gate: the server's auth.RequireAdmin on
-// /admin/reset-data admits only the literal "admin" role (mirrors
-// users-admin.tsx's isAdmin check), so an ops user must never see a button
-// that can only 403. The organization's name is not carried on MeResponse, so
-// this never fetches or compares it client-side: the input just has to be
-// non-empty to enable the confirm button, and the server is the sole judge of
-// whether the typed text actually matches (a mismatch comes back as a 422,
-// surfaced verbatim in the dialog).
+// this card renders. This is admin-ONLY, and narrower than the "data" tab that
+// hosts it — that tab opens on a custom_field or embedding_reindex write, so a
+// manager who authors fields reaches it and simply finds no reset control. The
+// server's auth.RequireAdmin on /admin/reset-data admits only the literal
+// "admin" role (mirrors users-admin.tsx's isAdmin check), so neither a manager
+// nor an ops user may see a button that can only 403. The organization's name
+// is not carried on MeResponse, so this never fetches or compares it
+// client-side: the input just has to be non-empty to enable the confirm
+// button, and the server is the sole judge of whether the typed text actually
+// matches (a mismatch comes back as a 422, surfaced verbatim in the dialog).
 function ResetDataCard() {
   const t = useT();
   const me = useMe();

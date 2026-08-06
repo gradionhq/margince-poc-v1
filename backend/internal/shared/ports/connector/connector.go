@@ -154,6 +154,19 @@ type NormalizedRecord struct {
 	// same CAP-FORMULA-1 reply join and activity.thread_key. Empty only for a
 	// mail record with none of its three sources; a channel record always has one.
 	ThreadKey string
+
+	// Participants are the FURTHER parties to this message beyond the mailbox
+	// owner and Counterparty — the CCs on a thread, the attendees and organizer
+	// of a meeting. A connector that reports none behaves exactly as before,
+	// which is why this is additive rather than a replacement for Counterparty:
+	// the two ends of the exchange are what direction is defined against, and
+	// everyone else is present without being either end.
+	//
+	// They are addresses, not records. Resolving one to a colleague or a known
+	// contact is capture's job at stamping time, and an address that resolves to
+	// neither is still kept — an attendee nobody has a record for is a fact
+	// about the meeting.
+	Participants []MessageParticipant
 }
 
 // Counterparty names the non-owner participant of one captured message. A

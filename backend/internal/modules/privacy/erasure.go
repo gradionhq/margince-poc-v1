@@ -303,6 +303,13 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		), pruned AS (
 		  DELETE FROM field_provenance
 		  WHERE object_type = 'lead' AND object_id IN (SELECT id FROM wiped)
+		), verdicts AS (
+		  -- The correction ledger accepts a lead as a subject, and a lead twin
+		  -- is the same human as the person being erased. Deleting only the
+		  -- person's verdicts would leave a human-typed value about them
+		  -- keyed to the twin, which no later erasure would ever revisit.
+		  DELETE FROM ai_feedback
+		  WHERE subject_type = 'lead' AND subject_id IN (SELECT id FROM wiped)
 		)
 		SELECT id FROM wiped`, nullColumnAssignments(leadCustom)),
 		personID, lowercased(emails))
@@ -313,15 +320,44 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM field_provenance WHERE object_type = 'person' AND object_id = $1`, personID); err != nil {
+	if err := purgePersonDerivedRows(ctx, tx, personID); err != nil {
 		return nil, err
 	}
 	return wiped, nil
+}
+
+// purgePersonDerivedRows deletes what the system DERIVED about the subject and
+// keyed on their person id.
+//
+// The four tables share a posture that makes them one step rather than four:
+// none is anonymizable. An embedding is an opaque vector of the text, a
+// provenance row says where a now-erased field came from, an enrichment row
+// holds the subject's title and employer with the verbatim sentence it was
+// read from, and a correction verdict is what a human typed over what the
+// system inferred. Nulling any of them leaves a row asserting something about
+// a person nobody may now assert anything about, so all four are deleted.
+func purgePersonDerivedRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID) error {
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM field_provenance WHERE object_type = 'person' AND object_id = $1`, personID); err != nil {
+		return err
+	}
+	// The enrichment sidecar. anonymize-in-place leaves the person row
+	// standing, so nothing cascades here: the value AND its evidence snippet
+	// — which quotes the page or signature naming the subject — survive an
+	// erasure verbatim unless this statement removes them.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM person_profile_field WHERE person_id = $1`, personID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM ai_feedback WHERE subject_type = 'person' AND subject_id = $1`, personID); err != nil {
+		return err
+	}
+	return nil
 }
 
 // deleteSubjectIdentifierRows drops every row that stores an identifier the

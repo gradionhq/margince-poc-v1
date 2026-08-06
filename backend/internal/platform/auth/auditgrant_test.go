@@ -61,6 +61,14 @@ var auditVerbNoGrant = gatekit.Waive(map[string]string{
 	"disqualify":  "admitted by the contract vocabulary; no Go writer emits it yet",
 	"send_email":  "the agent tool of that name stages an approval; the send itself audits the activity as create",
 	"reset_data":  "audited on workspace, which is not an RBAC policy object; the governing check is auth.RequireAdmin (a role gate, not an object CRUD grant)",
+	// The verb audits the issuing of a member's set-password link. Its subject
+	// is `user`, which is not an RBAC policy object — user administration is
+	// gated by the admin ROLE (identity's actor.hasRole), never by a CRUD grant
+	// on an entity — so any rule rendered here would name a grant that cannot
+	// exist. Its siblings on the same surface (invite, role change, deactivate)
+	// audit as create/update on `user` and reach the map only through those
+	// generic verbs, which is the same non-attribution wearing a CRUD name.
+	"password_link_issued": "audited on user, which is not an RBAC policy object; the governing check is the admin role gate, not an object CRUD grant",
 })
 
 func TestEveryAuditVerbRendersItsAuthorizationRule(t *testing.T) {

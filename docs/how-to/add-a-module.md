@@ -7,7 +7,7 @@ composition layer. For adding a single operation to an *existing* module, use
 
 ## Add a new module
 
-1. **Create the flat package** `internal/modules/<name>/` with a `doc.go` that states the one-line
+1. **Create the flat package** `backend/internal/modules/<name>/` with a `doc.go` that states the one-line
    purpose and a **"Tables owned"** list (the ownership fitness test reads it). Pick one spine shape:
    *Handlers→Store* (CRUD) or *Handlers→Service* (engine) — see the existing modules in
    [reference/modules.md](../reference/modules.md).
@@ -15,7 +15,7 @@ composition layer. For adding a single operation to an *existing* module, use
    `doc.go`.
 3. **Add its contract operations** and regenerate ([add-an-endpoint.md](add-an-endpoint.md)) — the ops
    now answer 501 until wired.
-4. **Embed the handler set in `Server`** (`internal/compose/server.go`): add a type alias
+4. **Embed the handler set in `Server`** (`backend/internal/compose/server.go`): add a type alias
    (`fooHandlers = foo.Handlers`), add the field to the `Server` struct, and construct it in
    `newServer` (`fooHandlers: foo.NewHandlers(pool)`). Method promotion then shadows the generated 501
    stubs automatically — no routing to write.
@@ -59,10 +59,14 @@ If the capability needs infra a given process role may not have:
 ## Expose it to agents or background work (only if needed)
 
 - **A system-of-record verb** the AI/MCP surface should reach → add it to the `Provider`
-  (`internal/compose/provider.go`).
-- **An MCP tool** → register it in `internal/compose/registry.go`.
-- **A scheduled/background job** → add a River worker via `NewJobRunner`
-  (`internal/compose/jobs.go`), run in `cmd/worker`.
+  (`backend/internal/compose/provider.go`).
+- **An MCP tool** → register it in `backend/internal/compose/registry.go`.
+- **A scheduled/background job** → declare the kind in `backend/api/jobs.yaml` first (a kind not
+  declared there does not compile — the generated type set is closed, and a kind with no chosen
+  timeout fails generation rather than running on River's silent default), `make gen`, then register
+  the worker in `backend/internal/compose/jobs.go` and run it in `backend/cmd/worker`. A pass that touches every
+  tenant is a *dispatcher* plus a *workspace worker*, never a fleet loop inside one job row. See
+  [add-a-job.md](add-a-job.md).
 
 ## Verify
 

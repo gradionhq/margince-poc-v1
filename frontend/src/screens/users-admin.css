@@ -44,3 +44,19 @@
 .users-who .t-small {
   overflow-wrap: anywhere;
 }
+
+/* The link and its copy button sit on one line, with the input taking the
+   slack — the URL is long, and truncating it would hide what is being copied.
+   Wraps to two lines on a narrow card rather than overflowing it. */
+.users-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.users-link-row .input {
+  flex: 1 1 20rem;
+  min-width: 0;
+}

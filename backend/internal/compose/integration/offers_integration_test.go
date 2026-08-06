@@ -416,10 +416,13 @@ func assertOfferEventTrail(t *testing.T, e *env) {
 	}
 }
 
-// ADR-0055 + ADR-0036 on the offer surface: an agent may draft (🟢) but
-// sending leaves the workspace — the 🟡 gate stages an approval only a
-// human can decide, and the approved retry redeems the token.
-func TestOfferAgentSendRequiresApproval(t *testing.T) {
+// ADR-0055 on the offer surface: sendOffer carries no registered agent
+// tool (`x-agent-access: human-only`), so an agent is refused outright —
+// there is no 🟡 staging path to redeem, whatever caps its passport holds.
+// The offer stays draft. The human path alongside it must be unaffected:
+// a human session sending the same offer end to end still works, which is
+// the behaviour that must not have regressed by tightening the agent side.
+func TestOfferSendIsHumanOnlyButTheHumanPathStillWorks(t *testing.T) {
 	e := setup(t)
 	e.slug = "offers-agent"
 	bootstrapWorkspaceSession(t, e, "Offers Agent", "agent@fable.test", "Admin")
@@ -429,7 +432,9 @@ func TestOfferAgentSendRequiresApproval(t *testing.T) {
 		Token string `json:"token"`
 	}
 	if status := e.call(t, "POST", "/v1/passports", anyMap{
-		"label": "offer agent", "scopes": []string{"read", "write"},
+		// Even the broadest cap the contract knows for this surface does not
+		// reach a human-only verb — there is no cap that would.
+		"label": "offer agent", "scopes": []string{"read", "write", "send"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
 	}
@@ -444,36 +449,27 @@ func TestOfferAgentSendRequiresApproval(t *testing.T) {
 		t.Fatalf("agent 🟢 offer draft → %d", status)
 	}
 
-	// 🟡 send: refused with a staged approval; the offer stays draft.
+	// Human-only: refused outright, no approval staged, offer stays draft.
 	var problem struct {
 		Code   string `json:"code"`
 		Detail string `json:"detail"`
 	}
-	if status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, bearer, &problem); status != http.StatusForbidden || problem.Code != "approval_required" {
-		t.Fatalf("agent send → %d %q, want 403 approval_required", status, problem.Code)
+	if status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, bearer, &problem); status != http.StatusForbidden || problem.Code != "permission_denied" {
+		t.Fatalf("agent send → %d %q, want 403 permission_denied (human-only)", status, problem.Code)
+	}
+	if !strings.Contains(problem.Detail, "human-only") {
+		t.Fatalf("refusal %q does not say the verb is human-only", problem.Detail)
 	}
 	var still offerBody
 	if status := e.call(t, "GET", "/v1/offers/"+offer.ID, nil, bearer, &still); status != http.StatusOK || still.Status != "draft" {
-		t.Fatalf("offer after staged send = %q, want draft (no effect before approval)", still.Status)
-	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
-
-	// The agent cannot approve its own staging; the human can.
-	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, bearer, nil); status != http.StatusForbidden {
-		t.Fatalf("agent self-approval → %d, want 403", status)
-	}
-	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, nil); status != http.StatusOK {
-		t.Fatalf("human approve → %d", status)
+		t.Fatalf("offer after the refused agent send = %q, want draft", still.Status)
 	}
 
-	// The identical retry with the token executes exactly once.
-	withToken := map[string]string{"Authorization": "Bearer " + minted.Token, "X-Approval-Token": approvalID}
+	// The human path is unaffected: the same agent-drafted offer, sent by
+	// the human session, executes end to end.
 	var sent offerBody
-	if status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, withToken, &sent); status != http.StatusOK || sent.Status != "sent" {
-		t.Fatalf("approved send retry → %d %q, want 200 sent", status, sent.Status)
-	}
-	if e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, withToken, nil) == http.StatusOK {
-		t.Fatal("a consumed approval token authorized a second send")
+	if status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, nil, &sent); status != http.StatusOK || sent.Status != "sent" {
+		t.Fatalf("human send → %d %q, want 200 sent", status, sent.Status)
 	}
 
 	// Recording the buyer's decision is a human attestation: the agent is
