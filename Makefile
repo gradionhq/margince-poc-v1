@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -262,6 +262,22 @@ craft-residue:
 check-craft-doc:
 	@grep -q '^## Craftsmanship' AGENTS.md || { echo "FAIL: AGENTS.md is missing the '## Craftsmanship' section"; exit 1; }
 	@echo "OK: AGENTS.md ## Craftsmanship present"
+
+## secret-scan — no hardcoded credential reaches main: gitleaks over a clean
+## `git archive HEAD` export, policy in .gitleaks.toml. Scans the COMMITTED
+## tree, not the working tree, so a sibling worktree or a local .env.local
+## cannot change the verdict (gitleaks does not honour .gitignore). Needs
+## gitleaks on PATH (`brew install gitleaks`); CI's secret-scan job runs this
+## same target against a version- and checksum-pinned binary.
+secret-scan:
+	@./scripts/secret-scan.sh
+
+## test-secret-scan — prove the secret gate still catches: plant a token in
+## each file .gitleaks.toml exempts and require the scan to fail anyway. An
+## over-broad allowlist reports "no leaks found" exactly like a clean tree, so
+## the policy is only trustworthy with this beside it.
+test-secret-scan:
+	@./scripts/test-secret-scan.sh
 
 ## check-image-pins — every `uses:` in .github/workflows/ AND every container
 ## `image:` (workflow service containers + infra/docker-compose.dev.yml) is
