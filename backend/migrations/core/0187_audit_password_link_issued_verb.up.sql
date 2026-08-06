@@ -1,4 +1,4 @@
--- 0184: `password_link_issued` joins the audit verb vocabulary. On an
+-- 0187: `password_link_issued` joins the audit verb vocabulary. On an
 -- installation with no outbound-email channel an admin mints a single-use
 -- set-password link for a member and delivers it out-of-band (ADR-0061
 -- Amendment 1). That mint supersedes the member's outstanding unused tokens
@@ -19,7 +19,7 @@
 -- enum therefore agree (no auditActionDBOnly asymmetry).
 --
 -- Effective set = this migration (the highest-numbered re-statement):
--- 0173's vocabulary plus password_link_issued.
+-- 0173's vocabulary plus password_link_issued (no migration between them restates the CHECK).
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_action_check;
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check
   CHECK (action IN ('create','update','archive','merge','promote','restore','export','erase',
