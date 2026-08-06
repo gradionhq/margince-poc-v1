@@ -27,6 +27,9 @@ type rosterUser struct {
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
 	IsAgent     bool   `json:"is_agent"`
+	// A pointer so "the field was withheld" stays distinguishable from "this
+	// member holds no role" — the whole point of the admin-only disclosure.
+	Roles *[]string `json:"roles"`
 }
 
 type rosterTeam struct {
@@ -104,9 +107,18 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 		t.Fatalf("seeding workspace B: %v", err)
 	}
 	wsB := wsID(t, e, "fable-other")
+	// B's member holds a role whose key exists in NO other workspace, so if the
+	// role aggregate ever escaped its tenant the string would be unmistakable in
+	// A's response. role/role_assignment are FORCE-RLS deny-on-unset, and every
+	// roster read runs inside WithWorkspaceTx — this is what proves it rather
+	// than asserting it.
+	eve := ids.NewV7()
 	seedInWorkspace(
 		t, e, wsB,
-		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'eve@other.example', 'Eve Other')`, ids.NewV7(), wsB),
+		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'eve@other.example', 'Eve Other')`, eve, wsB),
+		stmt(`INSERT INTO role (workspace_id, key, name) VALUES ($1, 'other-tenant-only', 'Other Tenant Only')`, wsB),
+		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id)
+		      SELECT $1, r.id, $2 FROM role r WHERE r.key = 'other-tenant-only'`, wsB, eve),
 	)
 
 	// (e) No session → 401, before we lean on the authenticated reads.
@@ -142,6 +154,18 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 			t.Errorf("user %q workspace_id = %q, want %q", u.Email, u.WorkspaceID, wsA)
 		}
 	}
+	// The role aggregate is tenant-scoped too, not just the member rows: B's
+	// uniquely-keyed role must appear nowhere in A's page.
+	for _, u := range users.Data {
+		if u.Roles == nil {
+			continue
+		}
+		for _, key := range *u.Roles {
+			if key == "other-tenant-only" {
+				t.Errorf("cross-tenant leak: %q carries workspace B's role key", u.Email)
+			}
+		}
+	}
 
 	// (c) q narrows over display_name/email, case-insensitively.
 	var filtered struct {
@@ -175,6 +199,82 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	}
 	if desk.WorkspaceID != wsA.String() {
 		t.Errorf("Deal Desk workspace_id = %q, want %q", desk.WorkspaceID, wsA)
+	}
+}
+
+// The roster answers every authenticated member, so the role keys it now
+// carries need their DENY arm proved where the gate actually lives — at the
+// handler, off the request principal. The unit test downstairs proves only that
+// the two mappings differ; a regression that inlined the admin mapping into the
+// response loop would pass it and leak here.
+func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t) // admin ada@example.com, session in the jar
+
+	wsA := wsID(t, e, e.slug)
+	rep := ids.NewV7()
+	seedInWorkspace(
+		t, e, wsA,
+		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep@example.com', 'Rep One')`, rep, wsA),
+		// Borrow the bootstrap admin's hash so the rep can actually sign in:
+		// the gate under test reads the request principal, so the assertion is
+		// only worth anything from a real non-admin session.
+		stmt(`UPDATE app_user SET password_hash = (SELECT password_hash FROM app_user WHERE email = 'ada@example.com') WHERE id = $1`, rep),
+		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id)
+		      SELECT $2, r.id, $1 FROM role r WHERE r.key = 'rep'`, rep, wsA),
+	)
+
+	// The admin arm first, from the session the bootstrap left: every row
+	// carries its keys, and the seeded rep's read back as exactly [rep].
+	var asAdmin struct {
+		Data []rosterUser `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/users", nil, nil, &asAdmin); status != http.StatusOK {
+		t.Fatalf("admin list users → %d, want 200", status)
+	}
+	for _, u := range asAdmin.Data {
+		if u.Roles == nil {
+			t.Fatalf("admin roster: %q carries no roles field", u.Email)
+		}
+		if u.Email == "rep@example.com" && (len(*u.Roles) != 1 || (*u.Roles)[0] != "rep") {
+			t.Errorf("admin roster: rep roles = %v, want [rep]", *u.Roles)
+		}
+	}
+
+	// Now the deny arm, from the rep's own session.
+	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+		"email": "rep@example.com", "password": "correct-horse-battery",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("rep login → %d, want 200", status)
+	}
+	var asRep struct {
+		Data []rosterUser `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/users", nil, nil, &asRep); status != http.StatusOK {
+		t.Fatalf("rep list users → %d, want 200", status)
+	}
+	if len(asRep.Data) == 0 {
+		t.Fatal("rep roster is empty; the deny arm would pass vacuously")
+	}
+	for _, u := range asRep.Data {
+		if u.Roles != nil {
+			t.Errorf("rep sees %q roles = %v; a non-admin must not learn who holds a role", u.Email, *u.Roles)
+		}
+	}
+
+	// The same principal check gates the widened view — a rep asking for it is
+	// answered with the active-only roster, not refused, so this is the only
+	// place that failure would show.
+	var repWidened struct {
+		Data []rosterUser `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/users?include_inactive=true", nil, nil, &repWidened); status != http.StatusOK {
+		t.Fatalf("rep list users (include_inactive) → %d, want 200", status)
+	}
+	for _, u := range repWidened.Data {
+		if u.Roles != nil {
+			t.Errorf("rep sees %q roles = %v via include_inactive", u.Email, *u.Roles)
+		}
 	}
 }
 

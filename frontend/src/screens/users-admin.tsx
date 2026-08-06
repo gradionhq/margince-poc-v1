@@ -23,6 +23,12 @@ type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
 
 const ROLES: readonly Role[] = ["admin", "manager", "rep", "read_only", "ops"];
 
+// roleLabel names a held role key. The catalog covers the five system roles;
+// a workspace-defined key has no translation, so it reads as itself rather
+// than as a missing-translation marker — the admin still learns what is held.
+const roleLabel = (t: ReturnType<typeof useT>) => (key: string) =>
+  isOption(key, ROLES) ? t(`users.role.${key}`) : key;
+
 // Admin member management (org settings). Every user-management write is
 // admin-only server-side, so the whole card is admin-only here — an ops seat in
 // the Organization group would otherwise see controls that only 403. The roster
@@ -217,9 +223,14 @@ function MemberRow({
     setLinkOpen(true);
     void passwordLink.mint(member.id);
   };
+  // Returns the refetch so each onSuccess can hand it back to react-query,
+  // which then keeps the mutation pending until the new roster lands. Without
+  // that the mutation settles first and the row renders the pre-change roster
+  // it still has cached — the member's OLD role, briefly, right after a
+  // successful change.
   const refresh = () => {
     setError(null);
-    qc.invalidateQueries({ queryKey: ["users-admin"] });
+    return qc.invalidateQueries({ queryKey: ["users-admin"] });
   };
   const onError = (e: Error) => setError(e.message);
 
@@ -248,7 +259,7 @@ function MemberRow({
     },
     onSuccess: () => {
       setConfirmOff(false);
-      refresh();
+      return refresh();
     },
     onError,
   });
@@ -269,6 +280,27 @@ function MemberRow({
   const pending =
     setRole.isPending || deactivate.isPending || reactivate.isPending;
 
+  // The role the select reads back. `roles` arrives only for an admin caller —
+  // which this card always is — and normally holds exactly one key. No key (an
+  // unassigned seat) and several keys both leave the select on its placeholder,
+  // because neither has one current role to show.
+  const heldRoles = member.roles ?? [];
+  const currentRole =
+    heldRoles.length === 1 && isOption(heldRoles[0], ROLES) ? heldRoles[0] : "";
+  // A member holding SEVERAL roles is the case worth naming: any choice here
+  // replaces the whole set, so a neutral "Set role…" would let an admin strip
+  // privileges they never saw. The placeholder says what is held instead.
+  const placeholder =
+    heldRoles.length > 1
+      ? t("users.rolesHeld", { roles: heldRoles.map(roleLabel(t)).join(", ") })
+      : t("users.setRole");
+  // While a change is in flight the select shows the role being applied — and
+  // it stays in flight until the refreshed roster lands (see refresh), so the
+  // row never renders the replaced role. A FAILED change leaves the select on
+  // the role still held, which is what keeps a retry live: re-picking the same
+  // target still fires onChange.
+  const inFlightRole = setRole.isPending ? setRole.variables : undefined;
+
   return (
     <li className="users-row">
       <span className="users-who">
@@ -278,11 +310,9 @@ function MemberRow({
       <Badge tone={member.status === "active" ? "success" : "warn"}>
         {t(`users.status.${member.status}`)}
       </Badge>
-      {/* Controlled at "" so the label always resets — re-selecting the same
-          role after a failed change still fires onChange. */}
       <Select
         aria-label={t("users.setRoleFor", { name: member.display_name })}
-        value=""
+        value={inFlightRole ?? currentRole}
         disabled={pending}
         onChange={(e) => {
           const value = e.target.value;
@@ -291,7 +321,9 @@ function MemberRow({
           }
         }}
       >
-        <option value="">{t("users.setRole")}</option>
+        {/* Offered only when there is no single role to show — otherwise it
+            would be a selectable option that does nothing. */}
+        {currentRole === "" && <option value="">{placeholder}</option>}
         {ROLES.map((r) => (
           <option key={r} value={r}>
             {t(`users.role.${r}`)}
