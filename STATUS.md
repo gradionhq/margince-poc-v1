@@ -71,6 +71,10 @@ drives `drain_timed_out` true end to end, and nothing asserts `QueuePause`
 actually paused (no running job, no `river_queue` read). Both behaviours are
 covered by lower-level tests today.
 
+Tracked as **#512**. Related: **#511** (parallel `DEV_SLUG` stacks share one
+Redis database, so a reset in one clears another's bus — an isolation break
+older than this work, surfaced by it).
+
 ## Open — the brief's omitted sections are prompt-enforced, not code-enforced
 
 `Input.SectionsOmitted` names what a reader could not see, and the writer is
