@@ -19,7 +19,13 @@ afterEach(cleanup);
 // stubbed to null globally (WDS-CORE-3's fallback-to-CSS case); this test
 // needs the OTHER branch, where a context exists and the shader "compiles",
 // so the effect reaches the ResizeObserver line this guards.
-function fakeGl(onDraw: () => void = () => {}): WebGLRenderingContext {
+// `onResolution` observes the ONE uniform the sphere cannot render without: the
+// shader divides by `min(uRes.x, uRes.y)`, so a program that never receives it
+// draws an empty canvas rather than an obviously broken one.
+function fakeGl(
+  onDraw: () => void = () => {},
+  onResolution: () => void = () => {},
+): WebGLRenderingContext {
   const gl = {
     VERTEX_SHADER: 1,
     FRAGMENT_SHADER: 2,
@@ -50,7 +56,7 @@ function fakeGl(onDraw: () => void = () => {}): WebGLRenderingContext {
     vertexAttribPointer: () => {},
     getUniformLocation: () => ({}),
     uniform1f: () => {},
-    uniform2f: () => {},
+    uniform2f: onResolution,
     uniform3f: () => {},
     isContextLost: () => false,
     clearColor: () => {},
@@ -90,17 +96,19 @@ describe("CoreLiquid", () => {
     }
   });
 
-  // Every assertion below counts `drawArrays`, because the cost this component is
-  // allowed to have IS its drawn frames: what a reader sees is one sphere either
-  // way, and the difference between a Core that costs a fifth of a hero and one
-  // that costs a permanent seat is entirely in how often it draws and when it
-  // stops. A count is the only thing that can fail when that regresses.
+  // What these count is the component's whole cost: the frames it DRAWS, and the
+  // times it WAKES THE MAIN THREAD to decide whether to. A reader sees one sphere
+  // either way, so a count is the only thing that can fail when either regresses.
   describe("its draw loop", () => {
     let draws = 0;
+    let wakeups = 0;
+    let resolutions = 0;
     let hidden = false;
 
     beforeEach(() => {
       draws = 0;
+      wakeups = 0;
+      resolutions = 0;
       hidden = false;
       // `document.hidden` is a getter on Document.prototype; redefining it here
       // is what lets a test say "the tab went away" without a real tab.
@@ -109,9 +117,14 @@ describe("CoreLiquid", () => {
         get: () => hidden,
       });
       vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
-        fakeGl(() => {
-          draws += 1;
-        }),
+        fakeGl(
+          () => {
+            draws += 1;
+          },
+          () => {
+            resolutions += 1;
+          },
+        ),
       );
       vi.useFakeTimers({
         toFake: [
@@ -121,6 +134,16 @@ describe("CoreLiquid", () => {
           "clearTimeout",
           "performance",
         ],
+      });
+      // Counted AFTER the fake timers install, because installing them replaces
+      // the global this wraps. Every scheduled frame is one main-thread wakeup,
+      // which is the quantity the timer-paced loop exists to reduce — the draw
+      // count alone cannot see it, since a per-refresh loop drawing on a 24fps
+      // gate produces the same drawn frames from four times the callbacks.
+      const scheduled = globalThis.requestAnimationFrame;
+      vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
+        wakeups += 1;
+        return scheduled(cb);
       });
     });
 
@@ -137,17 +160,41 @@ describe("CoreLiquid", () => {
       render(<CoreLiquid state="unavailable" />);
       vi.advanceTimersByTime(2000);
       expect(draws).toBe(1);
+      // And it asked for exactly the one frame it drew: parking means scheduling
+      // nothing, not scheduling a callback that returns early.
+      expect(wakeups).toBe(1);
     });
 
-    it("spends the frame budget on a timer rather than polling every refresh", () => {
+    it("wakes the main thread once per frame it draws, not once per refresh", () => {
       render(<CoreLiquid state="working" />);
-      // A second of animation frames at jsdom's 16ms tick is ~62 callbacks. The
-      // old loop drew on a 24fps gate INSIDE a per-refresh rAF chain, so it woke
-      // for all 62 to use a third of them; this one asks for a frame only when it
-      // intends to draw.
       vi.advanceTimersByTime(1000);
+      // ~62 animation frames are available in that second at jsdom's 16ms tick.
+      // The old loop rescheduled on every one of them and used a third, so its
+      // wakeups ran well ahead of its draws; this one asks for a frame only when
+      // it intends to draw, so the two counts track each other. Slack of one for
+      // the frame in flight when time stopped.
       expect(draws).toBeGreaterThan(0);
+      expect(wakeups).toBeLessThanOrEqual(draws + 1);
+      // The 24fps ceiling itself, which is the other half of the cost.
       expect(draws).toBeLessThanOrEqual(30);
+    });
+
+    it("gives every program its resolution, so a state change cannot blank the sphere", () => {
+      // A state change tears the render effect down and builds a NEW program, and
+      // a new program has none of its uniforms set. The buffer is usually already
+      // the right size at that moment, so a size-changed check that reads the
+      // canvas back skips the upload — and the shader divides by uRes, so the
+      // sphere renders empty for the rest of the session. One `quiet` → `working`
+      // is all it takes.
+      const { rerender } = render(<CoreLiquid state="quiet" />);
+      vi.advanceTimersByTime(200);
+      expect(resolutions).toBe(1);
+      const drawnBefore = draws;
+
+      rerender(<CoreLiquid state="working" />);
+      vi.advanceTimersByTime(200);
+      expect(draws).toBeGreaterThan(drawnBefore);
+      expect(resolutions).toBe(2);
     });
 
     it("stops in a hidden tab and resumes when it is shown again", () => {

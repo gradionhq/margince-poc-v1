@@ -514,6 +514,11 @@
   display: grid;
   place-items: center;
   gap: 0;
+  /* Contains the clipped status line the collapsed card carries for a screen
+     reader (`.sr-only` is absolutely positioned): without a positioned ancestor
+     its containing block is the viewport, and a 1px box that escapes its
+     scroller is the same defect this branch fixes on the settings tabs. */
+  position: relative;
 }
 .rail .agenthead {
   display: flex;
@@ -640,6 +645,12 @@
   right: 0;
   top: calc(100% + 6px);
   min-width: 188px;
+  /* The floor above sets the comfortable width; this keeps it a floor rather than
+     a promise the viewport cannot keep. A narrow phone at 200% zoom leaves less
+     room than 188px plus the bar's own gutter, and the menu is anchored to its
+     right edge, so growing past the viewport clips it on the LEFT — the side the
+     labels start on. */
+  max-width: calc(100vw - 2 * var(--space-2));
   display: flex;
   flex-direction: column;
   padding: 5px;

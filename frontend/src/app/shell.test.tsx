@@ -424,6 +424,16 @@ describe("TopBar (§2b contextual truth)", () => {
       name: /^Switch to (dark|light) theme$/,
     });
     expect(after.getAttribute("aria-label")).not.toBe(before);
+
+    // Put the theme back. It is document-wide state that outlives this test —
+    // persisted to localStorage and held in theme.ts's own store, neither of
+    // which `cleanup()` touches — so leaving it flipped would hand every later
+    // test in this file a theme that depends on test order.
+    await userEvent.click(after);
+    const restored = screen.getByRole("button", {
+      name: /^Switch to (dark|light) theme$/,
+    });
+    expect(restored.getAttribute("aria-label")).toBe(before);
   });
 
   // AC-shell-1k: every authenticated route resolves to real copy. This bites on

@@ -521,6 +521,18 @@ function runLiquidLoop({
   let drawnOnce = false;
   let onScreen = true;
   const still = reduced || speed === 0;
+  /*
+   * The buffer edge THIS loop has configured, and why it is not read back off
+   * the canvas: a loop belongs to one program, and every loop starts with none
+   * of its uniforms set. Comparing against `canvas.width` looks equivalent and
+   * is not — a new program over a canvas that is already the right size matches
+   * on the first frame, so the size block is skipped and `uRes` stays at its
+   * default of (0,0). The shader divides by `min(uRes.x, uRes.y)`, so the sphere
+   * comes back empty and stays empty. That is one state change away on any
+   * screen (`quiet` → `working`) and it is what a restored context does too.
+   * Zero means "nothing configured yet", which no real size can be.
+   */
+  let configured = 0;
 
   const draw = (now: number) => {
     const delta = Math.min((now - last) / 1000, 0.08);
@@ -531,7 +543,8 @@ function runLiquidLoop({
       time += delta * speed;
     }
     const size = bufferSize();
-    if (canvas.width !== size) {
+    if (configured !== size) {
+      configured = size;
       canvas.width = size;
       canvas.height = size;
       gl.viewport(0, 0, size, size);

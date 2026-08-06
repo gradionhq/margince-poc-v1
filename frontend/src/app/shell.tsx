@@ -161,8 +161,20 @@ function AgentPanel({ collapsed }: Readonly<{ collapsed: boolean }>) {
   if (collapsed) {
     return (
       <div className="agentfield collapsed">
-        <span className="agentcard" title={t("agent.title")}>
+        {/* Collapsed, the orb is the whole panel — and the orb is `aria-hidden`,
+            which WDS-CORE-4 only permits because the surface around it states in
+            text every state it shows. Expanded, the two lines below do that; here
+            there is no room for them, so they are present for a screen reader and
+            clipped for the eye. The `title` is the pointer's version of the same
+            sentence. */}
+        <span
+          className="agentcard"
+          title={`${t("agent.title")} — ${t("agent.configured")}`}
+        >
           <AgentOrb />
+          <span className="sr-only">
+            {t("agent.title")} — {t("agent.configured")}
+          </span>
         </span>
       </div>
     );

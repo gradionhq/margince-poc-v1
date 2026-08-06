@@ -433,13 +433,13 @@ because the count is the only thing that fails when this regresses.
 
 Verified against a cold `make dev-fresh` install through onboarding: the menu in
 both locales and both themes, the rail toggle in both directions, the integrations
-tab, and a 21-route scroll sweep. `make check` and `make frontend-check` green.
+tab, and a 21-route scroll sweep. `make check`, `make frontend-check` and
+`make frontend-e2e` green.
 
-One environment note, not a code defect: `golangci-lint` reported 15 issues
-against a sibling checkout that no longer exists on disk
-(`../../margince-poc-v1-onboarding-findings/...`) — a stale lint cache.
-`golangci-lint cache clean` clears it; `make -C backend lint` then reports
-0 issues.
+The e2e lane is the one that caught what `make check` cannot: it is not a `check`
+prerequisite, so a chrome control that moves takes its AC test with it and the
+first sign is a red `uat` job on the PR. Run `make frontend-e2e` before pushing a
+change to the shell.
 
 ## Session pickup — 2026-08-05 (form controls get one spelling, and the design gates widen, branch `feat/streamline-ui-elements`, PR #469)
 
