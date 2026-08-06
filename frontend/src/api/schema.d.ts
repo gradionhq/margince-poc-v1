@@ -7054,6 +7054,10 @@ export interface components {
         };
         /** @description A company. Mirrors the `organization` table. */
         Organization: {
+            /** @description Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A first-class validated column rather than a governed custom field, because it bears identity semantics — matching, dedupe, enrichment — that a custom field cannot express. Unique among live rows in a workspace. */
+            linkedin_url?: string | null;
+            /** @description The company's readable website, DERIVED from its primary domain row — there is deliberately no website column, because a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write; set the primary domain instead. */
+            readonly website_url?: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -7152,6 +7156,8 @@ export interface components {
             [key: string]: unknown;
         };
         UpdateOrganizationRequest: {
+            /** @description Canonical LinkedIn company URL. Null clears it. website_url is derived from the primary domain and is refused here. */
+            linkedin_url?: string | null;
             display_name?: string;
             legal_name?: string | null;
             industry?: string | null;
@@ -10455,6 +10461,18 @@ export interface components {
             history?: string | null;
         };
         CompanyProfileField: {
+            /**
+             * Format: date-time
+             * @description When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim — "is this still true?" is a different question from "when did we learn it?".
+             */
+            retrieved_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by: a verification without an actor describes a confirmation nobody made.
+             */
+            verified_at?: string | null;
+            /** @description The human who confirmed the claim. Server-stamped, never accepted from a request body. */
+            readonly verified_by?: string | null;
             /** @enum {string} */
             field: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
             value: string;
@@ -10469,6 +10487,18 @@ export interface components {
             updated_at: string;
         };
         OrganizationFact: {
+            /**
+             * Format: date-time
+             * @description When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim — "is this still true?" is a different question from "when did we learn it?".
+             */
+            retrieved_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by: a verification without an actor describes a confirmation nobody made.
+             */
+            verified_at?: string | null;
+            /** @description The human who confirmed the claim. Server-stamped, never accepted from a request body. */
+            readonly verified_by?: string | null;
             /**
              * Format: uuid
              * @description The stored row, so a brief sentence written from this fact can cite something the reader can open. Without it a fact-derived claim had to cite the organization, which told the reader where to look but not at what.
