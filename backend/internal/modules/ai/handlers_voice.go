@@ -27,10 +27,13 @@ import (
 // transport). The BudgetPolicy is compose-injected — the seat-derived
 // pool joins identity's tables, which this module never reaches.
 type Handlers struct {
-	voice           *VoiceStore
-	meter           *Meter
-	budget          BudgetPolicy
-	calls           *CallReadStore
+	voice  *VoiceStore
+	meter  *Meter
+	budget BudgetPolicy
+	calls  *CallReadStore
+	// feedback is the correction ledger: what a human has already decided
+	// about a claim the system derives.
+	feedback        *FeedbackStore
 	capturePayloads bool
 	// rates is the ADR-0067 price sheet the usage read prices ai_call
 	// against at read time (price-on-read) — same pool, RLS scoped like
@@ -51,6 +54,7 @@ func NewHandlers(pool *pgxpool.Pool, budget BudgetPolicy) Handlers {
 	return Handlers{
 		voice: NewVoiceStore(pool), meter: NewMeter(pool), budget: budget,
 		calls: NewCallReadStore(pool), rates: NewRateStore(pool),
+		feedback:      NewFeedbackStore(pool),
 		publicProfile: NewPublicProfile("unconfigured", RoutingConfig{}),
 	}
 }

@@ -21,6 +21,78 @@ const (
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
 )
 
+// Defines values for AIFeedbackInputClaimKind.
+const (
+	AIFeedbackInputClaimKindInferredKpi   AIFeedbackInputClaimKind = "inferred_kpi"
+	AIFeedbackInputClaimKindNextStep      AIFeedbackInputClaimKind = "next_step"
+	AIFeedbackInputClaimKindProfileField  AIFeedbackInputClaimKind = "profile_field"
+	AIFeedbackInputClaimKindResearchClaim AIFeedbackInputClaimKind = "research_claim"
+	AIFeedbackInputClaimKindSignal        AIFeedbackInputClaimKind = "signal"
+)
+
+// Valid indicates whether the value is a known member of the AIFeedbackInputClaimKind enum.
+func (e AIFeedbackInputClaimKind) Valid() bool {
+	switch e {
+	case AIFeedbackInputClaimKindInferredKpi:
+		return true
+	case AIFeedbackInputClaimKindNextStep:
+		return true
+	case AIFeedbackInputClaimKindProfileField:
+		return true
+	case AIFeedbackInputClaimKindResearchClaim:
+		return true
+	case AIFeedbackInputClaimKindSignal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AIFeedbackInputSubjectType.
+const (
+	AIFeedbackInputSubjectTypeDeal         AIFeedbackInputSubjectType = "deal"
+	AIFeedbackInputSubjectTypeLead         AIFeedbackInputSubjectType = "lead"
+	AIFeedbackInputSubjectTypeOrganization AIFeedbackInputSubjectType = "organization"
+	AIFeedbackInputSubjectTypePerson       AIFeedbackInputSubjectType = "person"
+)
+
+// Valid indicates whether the value is a known member of the AIFeedbackInputSubjectType enum.
+func (e AIFeedbackInputSubjectType) Valid() bool {
+	switch e {
+	case AIFeedbackInputSubjectTypeDeal:
+		return true
+	case AIFeedbackInputSubjectTypeLead:
+		return true
+	case AIFeedbackInputSubjectTypeOrganization:
+		return true
+	case AIFeedbackInputSubjectTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AIFeedbackInputVerdict.
+const (
+	AIFeedbackInputVerdictConfirmed  AIFeedbackInputVerdict = "confirmed"
+	AIFeedbackInputVerdictCorrected  AIFeedbackInputVerdict = "corrected"
+	AIFeedbackInputVerdictSuppressed AIFeedbackInputVerdict = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the AIFeedbackInputVerdict enum.
+func (e AIFeedbackInputVerdict) Valid() bool {
+	switch e {
+	case AIFeedbackInputVerdictConfirmed:
+		return true
+	case AIFeedbackInputVerdictCorrected:
+		return true
+	case AIFeedbackInputVerdictSuppressed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AcceptedExtractionFieldProvenance.
 const (
 	AcceptedExtractionFieldProvenanceAiExtracted AcceptedExtractionFieldProvenance = "ai-extracted"
@@ -3026,16 +3098,16 @@ func (e EnrichmentProposalStatus) Valid() bool {
 
 // Defines values for ExtractedFieldConfidence.
 const (
-	High   ExtractedFieldConfidence = "high"
-	Medium ExtractedFieldConfidence = "medium"
+	ExtractedFieldConfidenceHigh   ExtractedFieldConfidence = "high"
+	ExtractedFieldConfidenceMedium ExtractedFieldConfidence = "medium"
 )
 
 // Valid indicates whether the value is a known member of the ExtractedFieldConfidence enum.
 func (e ExtractedFieldConfidence) Valid() bool {
 	switch e {
-	case High:
+	case ExtractedFieldConfidenceHigh:
 		return true
-	case Medium:
+	case ExtractedFieldConfidenceMedium:
 		return true
 	default:
 		return false
@@ -4073,19 +4145,19 @@ func (e Organization360StateStripSignalSeverity) Valid() bool {
 
 // Defines values for Organization360SuggestionActionKind.
 const (
-	AddTask    Organization360SuggestionActionKind = "add_task"
-	DraftReply Organization360SuggestionActionKind = "draft_reply"
-	OpenDeal   Organization360SuggestionActionKind = "open_deal"
+	Organization360SuggestionActionKindAddTask    Organization360SuggestionActionKind = "add_task"
+	Organization360SuggestionActionKindDraftReply Organization360SuggestionActionKind = "draft_reply"
+	Organization360SuggestionActionKindOpenDeal   Organization360SuggestionActionKind = "open_deal"
 )
 
 // Valid indicates whether the value is a known member of the Organization360SuggestionActionKind enum.
 func (e Organization360SuggestionActionKind) Valid() bool {
 	switch e {
-	case AddTask:
+	case Organization360SuggestionActionKindAddTask:
 		return true
-	case DraftReply:
+	case Organization360SuggestionActionKindDraftReply:
 		return true
-	case OpenDeal:
+	case Organization360SuggestionActionKindOpenDeal:
 		return true
 	default:
 		return false
@@ -4869,6 +4941,54 @@ func (e PartnerRelationshipStage) Valid() bool {
 	}
 }
 
+// Defines values for Person360SectionsOmitted.
+const (
+	Person360SectionsOmittedActivities          Person360SectionsOmitted = "activities"
+	Person360SectionsOmittedConsent             Person360SectionsOmitted = "consent"
+	Person360SectionsOmittedDealRoles           Person360SectionsOmitted = "deal_roles"
+	Person360SectionsOmittedEmployments         Person360SectionsOmitted = "employments"
+	Person360SectionsOmittedLastTouch           Person360SectionsOmitted = "last_touch"
+	Person360SectionsOmittedMoments             Person360SectionsOmitted = "moments"
+	Person360SectionsOmittedNetwork             Person360SectionsOmitted = "network"
+	Person360SectionsOmittedNextSteps           Person360SectionsOmitted = "next_steps"
+	Person360SectionsOmittedProfileFields       Person360SectionsOmitted = "profile_fields"
+	Person360SectionsOmittedRelationshipChanges Person360SectionsOmitted = "relationship_changes"
+	Person360SectionsOmittedSinceLastVisit      Person360SectionsOmitted = "since_last_visit"
+	Person360SectionsOmittedStrength            Person360SectionsOmitted = "strength"
+)
+
+// Valid indicates whether the value is a known member of the Person360SectionsOmitted enum.
+func (e Person360SectionsOmitted) Valid() bool {
+	switch e {
+	case Person360SectionsOmittedActivities:
+		return true
+	case Person360SectionsOmittedConsent:
+		return true
+	case Person360SectionsOmittedDealRoles:
+		return true
+	case Person360SectionsOmittedEmployments:
+		return true
+	case Person360SectionsOmittedLastTouch:
+		return true
+	case Person360SectionsOmittedMoments:
+		return true
+	case Person360SectionsOmittedNetwork:
+		return true
+	case Person360SectionsOmittedNextSteps:
+		return true
+	case Person360SectionsOmittedProfileFields:
+		return true
+	case Person360SectionsOmittedRelationshipChanges:
+		return true
+	case Person360SectionsOmittedSinceLastVisit:
+		return true
+	case Person360SectionsOmittedStrength:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonConsentStateState.
 const (
 	PersonConsentStateStateGranted   PersonConsentStateState = "granted"
@@ -4905,6 +5025,204 @@ func (e PersonEmailEmailType) Valid() bool {
 	case PersonEmailEmailTypePersonal:
 		return true
 	case PersonEmailEmailTypeWork:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonGraphGroupsOmitted.
+const (
+	PersonGraphGroupsOmittedAccount PersonGraphGroupsOmitted = "account"
+	PersonGraphGroupsOmittedDirect  PersonGraphGroupsOmitted = "direct"
+)
+
+// Valid indicates whether the value is a known member of the PersonGraphGroupsOmitted enum.
+func (e PersonGraphGroupsOmitted) Valid() bool {
+	switch e {
+	case PersonGraphGroupsOmittedAccount:
+		return true
+	case PersonGraphGroupsOmittedDirect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonGraphEdgeStrengthBucket.
+const (
+	PersonGraphEdgeStrengthBucketModerate PersonGraphEdgeStrengthBucket = "moderate"
+	PersonGraphEdgeStrengthBucketNone     PersonGraphEdgeStrengthBucket = "none"
+	PersonGraphEdgeStrengthBucketStrong   PersonGraphEdgeStrengthBucket = "strong"
+	PersonGraphEdgeStrengthBucketWeak     PersonGraphEdgeStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonGraphEdgeStrengthBucket enum.
+func (e PersonGraphEdgeStrengthBucket) Valid() bool {
+	switch e {
+	case PersonGraphEdgeStrengthBucketModerate:
+		return true
+	case PersonGraphEdgeStrengthBucketNone:
+		return true
+	case PersonGraphEdgeStrengthBucketStrong:
+		return true
+	case PersonGraphEdgeStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonGraphNodeGroup.
+const (
+	PersonGraphNodeGroupAccount PersonGraphNodeGroup = "account"
+	PersonGraphNodeGroupAnchor  PersonGraphNodeGroup = "anchor"
+	PersonGraphNodeGroupDirect  PersonGraphNodeGroup = "direct"
+)
+
+// Valid indicates whether the value is a known member of the PersonGraphNodeGroup enum.
+func (e PersonGraphNodeGroup) Valid() bool {
+	switch e {
+	case PersonGraphNodeGroupAccount:
+		return true
+	case PersonGraphNodeGroupAnchor:
+		return true
+	case PersonGraphNodeGroupDirect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonGraphNodeType.
+const (
+	PersonGraphNodeTypeColleague PersonGraphNodeType = "colleague"
+	PersonGraphNodeTypeContact   PersonGraphNodeType = "contact"
+)
+
+// Valid indicates whether the value is a known member of the PersonGraphNodeType enum.
+func (e PersonGraphNodeType) Valid() bool {
+	switch e {
+	case PersonGraphNodeTypeColleague:
+		return true
+	case PersonGraphNodeTypeContact:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentConfidence.
+const (
+	PersonMomentConfidenceHigh         PersonMomentConfidence = "high"
+	PersonMomentConfidenceMedium       PersonMomentConfidence = "medium"
+	PersonMomentConfidenceObservedFact PersonMomentConfidence = "observed_fact"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentConfidence enum.
+func (e PersonMomentConfidence) Valid() bool {
+	switch e {
+	case PersonMomentConfidenceHigh:
+		return true
+	case PersonMomentConfidenceMedium:
+		return true
+	case PersonMomentConfidenceObservedFact:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentKind.
+const (
+	PersonMomentKindMeetingAhead      PersonMomentKind = "meeting_ahead"
+	PersonMomentKindRepliedAfterGap   PersonMomentKind = "replied_after_gap"
+	PersonMomentKindTaskOverdue       PersonMomentKind = "task_overdue"
+	PersonMomentKindUnansweredInbound PersonMomentKind = "unanswered_inbound"
+	PersonMomentKindWentQuiet         PersonMomentKind = "went_quiet"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentKind enum.
+func (e PersonMomentKind) Valid() bool {
+	switch e {
+	case PersonMomentKindMeetingAhead:
+		return true
+	case PersonMomentKindRepliedAfterGap:
+		return true
+	case PersonMomentKindTaskOverdue:
+		return true
+	case PersonMomentKindUnansweredInbound:
+		return true
+	case PersonMomentKindWentQuiet:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentActionKind.
+const (
+	PersonMomentActionKindCompleteTask    PersonMomentActionKind = "complete_task"
+	PersonMomentActionKindDraftReply      PersonMomentActionKind = "draft_reply"
+	PersonMomentActionKindLogActivity     PersonMomentActionKind = "log_activity"
+	PersonMomentActionKindOpenRecord      PersonMomentActionKind = "open_record"
+	PersonMomentActionKindScheduleMeeting PersonMomentActionKind = "schedule_meeting"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentActionKind enum.
+func (e PersonMomentActionKind) Valid() bool {
+	switch e {
+	case PersonMomentActionKindCompleteTask:
+		return true
+	case PersonMomentActionKindDraftReply:
+		return true
+	case PersonMomentActionKindLogActivity:
+		return true
+	case PersonMomentActionKindOpenRecord:
+		return true
+	case PersonMomentActionKindScheduleMeeting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentActionState.
+const (
+	PersonMomentActionStateAvailable   PersonMomentActionState = "available"
+	PersonMomentActionStateBlocked     PersonMomentActionState = "blocked"
+	PersonMomentActionStateWillConfirm PersonMomentActionState = "will_confirm"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentActionState enum.
+func (e PersonMomentActionState) Valid() bool {
+	switch e {
+	case PersonMomentActionStateAvailable:
+		return true
+	case PersonMomentActionStateBlocked:
+		return true
+	case PersonMomentActionStateWillConfirm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentEvidenceType.
+const (
+	PersonMomentEvidenceTypeActivity           PersonMomentEvidenceType = "activity"
+	PersonMomentEvidenceTypeRelationshipChange PersonMomentEvidenceType = "relationship_change"
+	PersonMomentEvidenceTypeTask               PersonMomentEvidenceType = "task"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentEvidenceType enum.
+func (e PersonMomentEvidenceType) Valid() bool {
+	switch e {
+	case PersonMomentEvidenceTypeActivity:
+		return true
+	case PersonMomentEvidenceTypeRelationshipChange:
+		return true
+	case PersonMomentEvidenceTypeTask:
 		return true
 	default:
 		return false
@@ -4959,6 +5277,54 @@ func (e PersonPhonePhoneType) Valid() bool {
 	}
 }
 
+// Defines values for PersonProfileFieldField.
+const (
+	PersonProfileFieldFieldLinkedin PersonProfileFieldField = "linkedin"
+	PersonProfileFieldFieldOrgName  PersonProfileFieldField = "org_name"
+	PersonProfileFieldFieldPhone    PersonProfileFieldField = "phone"
+	PersonProfileFieldFieldRole     PersonProfileFieldField = "role"
+	PersonProfileFieldFieldTitle    PersonProfileFieldField = "title"
+)
+
+// Valid indicates whether the value is a known member of the PersonProfileFieldField enum.
+func (e PersonProfileFieldField) Valid() bool {
+	switch e {
+	case PersonProfileFieldFieldLinkedin:
+		return true
+	case PersonProfileFieldFieldOrgName:
+		return true
+	case PersonProfileFieldFieldPhone:
+		return true
+	case PersonProfileFieldFieldRole:
+		return true
+	case PersonProfileFieldFieldTitle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonProfileFieldVerdict.
+const (
+	Confirmed  PersonProfileFieldVerdict = "confirmed"
+	Corrected  PersonProfileFieldVerdict = "corrected"
+	Suppressed PersonProfileFieldVerdict = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the PersonProfileFieldVerdict enum.
+func (e PersonProfileFieldVerdict) Valid() bool {
+	switch e {
+	case Confirmed:
+		return true
+	case Corrected:
+		return true
+	case Suppressed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonReachabilityProvider.
 const (
 	PersonReachabilityProviderTelegram PersonReachabilityProvider = "telegram"
@@ -4968,6 +5334,78 @@ const (
 func (e PersonReachabilityProvider) Valid() bool {
 	switch e {
 	case PersonReachabilityProviderTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonRelationshipChangeFromBucket.
+const (
+	PersonRelationshipChangeFromBucketModerate PersonRelationshipChangeFromBucket = "moderate"
+	PersonRelationshipChangeFromBucketNone     PersonRelationshipChangeFromBucket = "none"
+	PersonRelationshipChangeFromBucketStrong   PersonRelationshipChangeFromBucket = "strong"
+	PersonRelationshipChangeFromBucketWeak     PersonRelationshipChangeFromBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonRelationshipChangeFromBucket enum.
+func (e PersonRelationshipChangeFromBucket) Valid() bool {
+	switch e {
+	case PersonRelationshipChangeFromBucketModerate:
+		return true
+	case PersonRelationshipChangeFromBucketNone:
+		return true
+	case PersonRelationshipChangeFromBucketStrong:
+		return true
+	case PersonRelationshipChangeFromBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonRelationshipChangeKind.
+const (
+	PersonRelationshipChangeKindCooled          PersonRelationshipChangeKind = "cooled"
+	PersonRelationshipChangeKindRepliedAfterGap PersonRelationshipChangeKind = "replied_after_gap"
+	PersonRelationshipChangeKindWarmed          PersonRelationshipChangeKind = "warmed"
+	PersonRelationshipChangeKindWentQuiet       PersonRelationshipChangeKind = "went_quiet"
+)
+
+// Valid indicates whether the value is a known member of the PersonRelationshipChangeKind enum.
+func (e PersonRelationshipChangeKind) Valid() bool {
+	switch e {
+	case PersonRelationshipChangeKindCooled:
+		return true
+	case PersonRelationshipChangeKindRepliedAfterGap:
+		return true
+	case PersonRelationshipChangeKindWarmed:
+		return true
+	case PersonRelationshipChangeKindWentQuiet:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonRelationshipChangeToBucket.
+const (
+	PersonRelationshipChangeToBucketModerate PersonRelationshipChangeToBucket = "moderate"
+	PersonRelationshipChangeToBucketNone     PersonRelationshipChangeToBucket = "none"
+	PersonRelationshipChangeToBucketStrong   PersonRelationshipChangeToBucket = "strong"
+	PersonRelationshipChangeToBucketWeak     PersonRelationshipChangeToBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonRelationshipChangeToBucket enum.
+func (e PersonRelationshipChangeToBucket) Valid() bool {
+	switch e {
+	case PersonRelationshipChangeToBucketModerate:
+		return true
+	case PersonRelationshipChangeToBucketNone:
+		return true
+	case PersonRelationshipChangeToBucketStrong:
+		return true
+	case PersonRelationshipChangeToBucketWeak:
 		return true
 	default:
 		return false
@@ -5196,12 +5634,15 @@ func (e RecordGrantSubjectType) Valid() bool {
 // Defines values for RecordViewAckEntityType.
 const (
 	RecordViewAckEntityTypeOrganization RecordViewAckEntityType = "organization"
+	RecordViewAckEntityTypePerson       RecordViewAckEntityType = "person"
 )
 
 // Valid indicates whether the value is a known member of the RecordViewAckEntityType enum.
 func (e RecordViewAckEntityType) Valid() bool {
 	switch e {
 	case RecordViewAckEntityTypeOrganization:
+		return true
+	case RecordViewAckEntityTypePerson:
 		return true
 	default:
 		return false
@@ -6470,25 +6911,25 @@ func (e VoiceBuildStage) Valid() bool {
 
 // Defines values for VoiceBuildStatus.
 const (
-	VoiceBuildStatusDeferred  VoiceBuildStatus = "deferred"
-	VoiceBuildStatusFailed    VoiceBuildStatus = "failed"
-	VoiceBuildStatusQueued    VoiceBuildStatus = "queued"
-	VoiceBuildStatusRunning   VoiceBuildStatus = "running"
-	VoiceBuildStatusSucceeded VoiceBuildStatus = "succeeded"
+	Deferred  VoiceBuildStatus = "deferred"
+	Failed    VoiceBuildStatus = "failed"
+	Queued    VoiceBuildStatus = "queued"
+	Running   VoiceBuildStatus = "running"
+	Succeeded VoiceBuildStatus = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatus enum.
 func (e VoiceBuildStatus) Valid() bool {
 	switch e {
-	case VoiceBuildStatusDeferred:
+	case Deferred:
 		return true
-	case VoiceBuildStatusFailed:
+	case Failed:
 		return true
-	case VoiceBuildStatusQueued:
+	case Queued:
 		return true
-	case VoiceBuildStatusRunning:
+	case Running:
 		return true
-	case VoiceBuildStatusSucceeded:
+	case Succeeded:
 		return true
 	default:
 		return false
@@ -6530,16 +6971,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	Text       VoiceCorpusPreviewRequestFormat = "text"
-	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
+	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
+	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case Text:
+	case VoiceCorpusPreviewRequestFormatText:
 		return true
-	case Transcript:
+	case VoiceCorpusPreviewRequestFormatTranscript:
 		return true
 	default:
 		return false
@@ -6869,22 +7310,22 @@ func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	Automatic  VoiceProfileVersionReason = "automatic"
-	Manual     VoiceProfileVersionReason = "manual"
-	Onboarding VoiceProfileVersionReason = "onboarding"
-	Rollback   VoiceProfileVersionReason = "rollback"
+	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
+	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
+	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
+	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case Automatic:
+	case VoiceProfileVersionReasonAutomatic:
 		return true
-	case Manual:
+	case VoiceProfileVersionReasonManual:
 		return true
-	case Onboarding:
+	case VoiceProfileVersionReasonOnboarding:
 		return true
-	case Rollback:
+	case VoiceProfileVersionReasonRollback:
 		return true
 	default:
 		return false
@@ -6941,16 +7382,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
-	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
+	Active WebhookSubscriptionState = "active"
+	Paused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case WebhookSubscriptionStateActive:
+	case Active:
 		return true
-	case WebhookSubscriptionStatePaused:
+	case Paused:
 		return true
 	default:
 		return false
@@ -7187,25 +7628,25 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
-	Blocked           ListAutomationRunsParamsOutcome = "blocked"
-	Failed            ListAutomationRunsParamsOutcome = "failed"
-	Fired             ListAutomationRunsParamsOutcome = "fired"
-	QueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
-	Skipped           ListAutomationRunsParamsOutcome = "skipped"
+	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
+	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
+	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
+	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
 func (e ListAutomationRunsParamsOutcome) Valid() bool {
 	switch e {
-	case Blocked:
+	case ListAutomationRunsParamsOutcomeBlocked:
 		return true
-	case Failed:
+	case ListAutomationRunsParamsOutcomeFailed:
 		return true
-	case Fired:
+	case ListAutomationRunsParamsOutcomeFired:
 		return true
-	case QueuedForApproval:
+	case ListAutomationRunsParamsOutcomeQueuedForApproval:
 		return true
-	case Skipped:
+	case ListAutomationRunsParamsOutcomeSkipped:
 		return true
 	default:
 		return false
@@ -7934,36 +8375,64 @@ func (e ListSignalsParamsResolutionState) Valid() bool {
 
 // Defines values for ListSavedViewsParamsResource.
 const (
-	Activities    ListSavedViewsParamsResource = "activities"
-	Deals         ListSavedViewsParamsResource = "deals"
-	Leads         ListSavedViewsParamsResource = "leads"
-	Organizations ListSavedViewsParamsResource = "organizations"
-	Partners      ListSavedViewsParamsResource = "partners"
-	People        ListSavedViewsParamsResource = "people"
-	Projects      ListSavedViewsParamsResource = "projects"
+	ListSavedViewsParamsResourceActivities    ListSavedViewsParamsResource = "activities"
+	ListSavedViewsParamsResourceDeals         ListSavedViewsParamsResource = "deals"
+	ListSavedViewsParamsResourceLeads         ListSavedViewsParamsResource = "leads"
+	ListSavedViewsParamsResourceOrganizations ListSavedViewsParamsResource = "organizations"
+	ListSavedViewsParamsResourcePartners      ListSavedViewsParamsResource = "partners"
+	ListSavedViewsParamsResourcePeople        ListSavedViewsParamsResource = "people"
+	ListSavedViewsParamsResourceProjects      ListSavedViewsParamsResource = "projects"
 )
 
 // Valid indicates whether the value is a known member of the ListSavedViewsParamsResource enum.
 func (e ListSavedViewsParamsResource) Valid() bool {
 	switch e {
-	case Activities:
+	case ListSavedViewsParamsResourceActivities:
 		return true
-	case Deals:
+	case ListSavedViewsParamsResourceDeals:
 		return true
-	case Leads:
+	case ListSavedViewsParamsResourceLeads:
 		return true
-	case Organizations:
+	case ListSavedViewsParamsResourceOrganizations:
 		return true
-	case Partners:
+	case ListSavedViewsParamsResourcePartners:
 		return true
-	case People:
+	case ListSavedViewsParamsResourcePeople:
 		return true
-	case Projects:
+	case ListSavedViewsParamsResourceProjects:
 		return true
 	default:
 		return false
 	}
 }
+
+// AIFeedbackInput A human's verdict on one derived claim.
+type AIFeedbackInput struct {
+	ClaimKind AIFeedbackInputClaimKind `json:"claim_kind"`
+
+	// ClaimPath What the claim is ABOUT, not what it says — `profile_field:title`, `moment:replied_after_gap`. Hashed server-side into the stable claim key, so the same logical claim maps to the same verdict across every re-derivation.
+	ClaimPath string `json:"claim_path"`
+
+	// CorrectedValue The human's value. Required for `corrected` and refused for the other two — a corrected verdict with no value is an answer that was lost on the way in.
+	CorrectedValue *string `json:"corrected_value,omitempty"`
+
+	// Note Why, in the human's words. Optional and never shown to a model.
+	Note      *string            `json:"note,omitempty"`
+	SubjectId openapi_types.UUID `json:"subject_id"`
+
+	// SubjectType The record the claim is about. One ledger across all four, so a correction made on one screen binds on the others.
+	SubjectType AIFeedbackInputSubjectType `json:"subject_type"`
+	Verdict     AIFeedbackInputVerdict     `json:"verdict"`
+}
+
+// AIFeedbackInputClaimKind defines model for AIFeedbackInput.ClaimKind.
+type AIFeedbackInputClaimKind string
+
+// AIFeedbackInputSubjectType The record the claim is about. One ledger across all four, so a correction made on one screen binds on the others.
+type AIFeedbackInputSubjectType string
+
+// AIFeedbackInputVerdict defines model for AIFeedbackInput.Verdict.
+type AIFeedbackInputVerdict string
 
 // AcceptExtractionRequest defines model for AcceptExtractionRequest.
 type AcceptExtractionRequest struct {
@@ -12589,6 +13058,109 @@ type Person struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// Person360 The person record page in one payload (PO-EXT-3). Every section except `person` is
+// optional: absent means the caller lacks its grant, and `sections_omitted` names it.
+type Person360 struct {
+	Activities *struct {
+		Data []Activity `json:"data"`
+		Page PageInfo   `json:"page"`
+	} `json:"activities,omitempty"`
+
+	// AsOf The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+	AsOf time.Time `json:"as_of"`
+
+	// Consent Per-purpose state. The proof log stays at `GET /people/{id}/consent` — this is the guard, not the ledger.
+	Consent *struct {
+		State []PersonConsentState `json:"state"`
+	} `json:"consent,omitempty"`
+	DealRoles *struct {
+		Data []Person360DealRole `json:"data"`
+		Page PageInfo            `json:"page"`
+	} `json:"deal_roles,omitempty"`
+	Employments *struct {
+		Data []Person360Employment `json:"data"`
+		Page PageInfo              `json:"page"`
+	} `json:"employments,omitempty"`
+
+	// LastInboundAt When they last wrote to us. Null means nothing inbound was ever captured — a fact about the relationship, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
+	LastInboundAt *time.Time `json:"last_inbound_at,omitempty"`
+
+	// LastOutboundAt When we last wrote to them. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question.
+	LastOutboundAt *time.Time `json:"last_outbound_at,omitempty"`
+
+	// Moments Why this contact is worth attention NOW, most consequential first, at most five. Deterministic and computed at read from captured data — a moment is a reason with its evidence attached, not a model's opinion. A moment a human dismissed does not come back: the verdict lives in `ai_feedback` keyed on `claim_key` below.
+	Moments *[]PersonMoment `json:"moments,omitempty"`
+
+	// Network The colleagues who know this contact, warmest first — who to ask.
+	Network *struct {
+		Colleagues []PersonNetworkColleague `json:"colleagues"`
+	} `json:"network,omitempty"`
+
+	// NextSteps Open tasks filed against this person.
+	NextSteps *struct {
+		Data []Activity `json:"data"`
+		Page PageInfo   `json:"page"`
+	} `json:"next_steps,omitempty"`
+
+	// Person A contact. Mirrors the `person` table.
+	Person Person `json:"person"`
+
+	// ProfileFields The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
+	ProfileFields *[]PersonProfileField `json:"profile_fields,omitempty"`
+
+	// RelationshipChanges What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold.
+	RelationshipChanges *[]PersonRelationshipChange `json:"relationship_changes,omitempty"`
+
+	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+	SectionsOmitted []Person360SectionsOmitted `json:"sections_omitted"`
+
+	// SinceLastVisit What changed on this person since the caller last acknowledged seeing them.
+	// Read-only: the 360 never advances the baseline — `POST /people/{id}/view-ack` does.
+	SinceLastVisit *Person360SinceLastVisit `json:"since_last_visit,omitempty"`
+
+	// Strength Deterministic relationship-strength (features/07 §4) — a transparent function over captured
+	// interaction features (recency, frequency, direction, reciprocity), NOT a trained model. A fixed
+	// interaction set + fixed clock yields a stable value (P6/P12). The `factors` decompose the score and
+	// `contributing_activity_ids` are the receipts, so the UI can show its inputs — no mystery number.
+	Strength *RelationshipStrength `json:"strength,omitempty"`
+}
+
+// Person360SectionsOmitted defines model for Person360.SectionsOmitted.
+type Person360SectionsOmitted string
+
+// Person360DealRole One stakeholder seat this person holds on a deal.
+type Person360DealRole struct {
+	DealId         openapi_types.UUID `json:"deal_id"`
+	DealStage      *string            `json:"deal_stage,omitempty"`
+	DealTitle      *string            `json:"deal_title,omitempty"`
+	RelationshipId openapi_types.UUID `json:"relationship_id"`
+
+	// Role The buying role as recorded — champion, economic_buyer, blocker, influencer, user by convention. Never inferred from a job title.
+	Role string `json:"role"`
+}
+
+// Person360Employment One employment edge, current primary first.
+type Person360Employment struct {
+	// EndedAt Null means ongoing. A former employment keeps its row — history is never overwritten.
+	EndedAt          *time.Time         `json:"ended_at,omitempty"`
+	IsCurrentPrimary bool               `json:"is_current_primary"`
+	OrganizationId   openapi_types.UUID `json:"organization_id"`
+	OrganizationName *string            `json:"organization_name,omitempty"`
+	RelationshipId   openapi_types.UUID `json:"relationship_id"`
+
+	// Role The title as the edge records it, which may differ from the person's own title field.
+	Role      *string    `json:"role,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+}
+
+// Person360SinceLastVisit What changed on this person since the caller last acknowledged seeing them.
+// Read-only: the 360 never advances the baseline — `POST /people/{id}/view-ack` does.
+type Person360SinceLastVisit struct {
+	// BaselineAt The caller's last acknowledged visit, or null if they have never acknowledged one (first visit — counts run from the person's whole history).
+	BaselineAt    *time.Time `json:"baseline_at,omitempty"`
+	NewActivities int        `json:"new_activities"`
+}
+
 // PersonConsentState A person's current consent for one purpose.
 type PersonConsentState struct {
 	DoubleOptInConfirmedAt *time.Time              `json:"double_opt_in_confirmed_at,omitempty"`
@@ -12628,11 +13200,172 @@ type PersonEmail struct {
 // PersonEmailEmailType defines model for PersonEmail.EmailType.
 type PersonEmailEmailType string
 
+// PersonGraph The local graph around one contact — nodes, the edges between them, and the route worth taking.
+type PersonGraph struct {
+	// DroppedCount How many nodes each group lost to its cap, stated rather than silently truncated. `account` is the true remainder. `direct` counts from a bounded fetch (100), so on a contact more than a hundred colleagues have corresponded with it understates — a shape far outside what this card is for, and making it exact would cost every ordinary read.
+	DroppedCount *struct {
+		Account *int `json:"account,omitempty"`
+		Direct  *int `json:"direct,omitempty"`
+	} `json:"dropped_count,omitempty"`
+
+	// Edges Who has actually corresponded with whom. An edge exists only where interactions do.
+	Edges []PersonGraphEdge `json:"edges"`
+
+	// GroupsOmitted Groups withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+	GroupsOmitted []PersonGraphGroupsOmitted `json:"groups_omitted"`
+
+	// Nodes Everyone in the picture, including the contact themselves as the anchor.
+	Nodes    []PersonGraphNode  `json:"nodes"`
+	PersonId openapi_types.UUID `json:"person_id"`
+
+	// Route The warmest way in, chosen deterministically rather than scored by a model: the
+	// strongest direct relationship if one exists, otherwise the strongest relationship any
+	// colleague has with someone else at the same company.
+	Route *PersonGraphRoute `json:"route,omitempty"`
+}
+
+// PersonGraphGroupsOmitted defines model for PersonGraph.GroupsOmitted.
+type PersonGraphGroupsOmitted string
+
+// PersonGraphEdge One corresponding pair, with the evidence the graph is allowed to disclose.
+type PersonGraphEdge struct {
+	// From A node id.
+	From            string     `json:"from"`
+	Inbound90d      *int       `json:"inbound_90d,omitempty"`
+	Interactions90d int        `json:"interactions_90d"`
+	LastAt          *time.Time `json:"last_at,omitempty"`
+	Outbound90d     *int       `json:"outbound_90d,omitempty"`
+
+	// Receipts The actual messages behind this edge, each individually visibility-checked before it is named. Present on `direct` edges only: pooled counts are disclosable where the correspondence itself is not, so an `account` edge carries the numbers and no rows.
+	Receipts       *[]PersonGraphReceipt         `json:"receipts,omitempty"`
+	StrengthBucket PersonGraphEdgeStrengthBucket `json:"strength_bucket"`
+
+	// To A node id.
+	To string `json:"to"`
+}
+
+// PersonGraphEdgeStrengthBucket defines model for PersonGraphEdge.StrengthBucket.
+type PersonGraphEdgeStrengthBucket string
+
+// PersonGraphNode defines model for PersonGraphNode.
+type PersonGraphNode struct {
+	// Group `anchor` is the contact this graph is about. `direct` knows them. `account` works with them.
+	Group PersonGraphNodeGroup `json:"group"`
+
+	// Id Stable within this response, and what an edge refers to. `user:<uuid>` or `person:<uuid>`.
+	Id       string              `json:"id"`
+	Label    string              `json:"label"`
+	PersonId *openapi_types.UUID `json:"person_id,omitempty"`
+
+	// Sublabel Their role or employer, when the record carries one.
+	Sublabel *string             `json:"sublabel,omitempty"`
+	Type     PersonGraphNodeType `json:"type"`
+	UserId   *openapi_types.UUID `json:"user_id,omitempty"`
+}
+
+// PersonGraphNodeGroup `anchor` is the contact this graph is about. `direct` knows them. `account` works with them.
+type PersonGraphNodeGroup string
+
+// PersonGraphNodeType defines model for PersonGraphNode.Type.
+type PersonGraphNodeType string
+
+// PersonGraphReceipt defines model for PersonGraphReceipt.
+type PersonGraphReceipt struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+	OccurredAt time.Time          `json:"occurred_at"`
+	Subject    *string            `json:"subject,omitempty"`
+}
+
+// PersonGraphRoute The warmest way in, chosen deterministically rather than scored by a model: the
+// strongest direct relationship if one exists, otherwise the strongest relationship any
+// colleague has with someone else at the same company.
+type PersonGraphRoute struct {
+	ThroughDisplayName *string `json:"through_display_name,omitempty"`
+
+	// ThroughPersonId Set when the route goes via a colleague at the same company rather than the contact directly.
+	ThroughPersonId *openapi_types.UUID `json:"through_person_id,omitempty"`
+	ViaDisplayName  string              `json:"via_display_name"`
+	ViaUserId       openapi_types.UUID  `json:"via_user_id"`
+
+	// Why The proof line, written from the counts — "6 two-way exchanges · replied 2 days ago".
+	Why string `json:"why"`
+}
+
 // PersonListResponse defines model for PersonListResponse.
 type PersonListResponse struct {
 	Data []Person `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// PersonMoment One reason this contact is worth attention now, with the evidence behind it.
+//
+// Every moment in this version is DETERMINISTIC: derived from captured activity by a
+// rule, never asserted by a model. That is what lets every one of them carry evidence a
+// reader can open, and why `confidence` is `observed_fact` throughout — the enum admits
+// the softer values a later inferred source would need, and nothing produces them yet.
+type PersonMoment struct {
+	// ClaimKey The stable identity of this moment as a claim. Pass it to `POST /ai/feedback` as `claim_path` to dismiss it — keyed on what the moment is ABOUT, so a dismissal survives the evidence moving and the moment being re-derived tomorrow.
+	ClaimKey string `json:"claim_key"`
+
+	// Confidence `observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.
+	Confidence PersonMomentConfidence `json:"confidence"`
+
+	// Evidence What the moment is derived from. Never empty — a reason with no evidence is an opinion.
+	Evidence []PersonMomentEvidence `json:"evidence"`
+
+	// FreshnessAt When the fact behind this moment happened, so a reader can judge its age themselves.
+	FreshnessAt *time.Time `json:"freshness_at,omitempty"`
+
+	// Headline The reason in one line, written from the evidence — never a model's paraphrase of it.
+	Headline string `json:"headline"`
+
+	// Kind `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
+	Kind PersonMomentKind `json:"kind"`
+
+	// RecommendedAction What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click.
+	RecommendedAction PersonMomentAction    `json:"recommended_action"`
+	SecondaryActions  *[]PersonMomentAction `json:"secondary_actions,omitempty"`
+
+	// WhyNow What makes it timely rather than merely true. A moment that would read the same next month is not a moment.
+	WhyNow string `json:"why_now"`
+}
+
+// PersonMomentConfidence `observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.
+type PersonMomentConfidence string
+
+// PersonMomentKind `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
+type PersonMomentKind string
+
+// PersonMomentAction What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click.
+type PersonMomentAction struct {
+	BlockedReason *string                `json:"blocked_reason,omitempty"`
+	Kind          PersonMomentActionKind `json:"kind"`
+	Label         string                 `json:"label"`
+
+	// State `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
+	State PersonMomentActionState `json:"state"`
+}
+
+// PersonMomentActionKind defines model for PersonMomentAction.Kind.
+type PersonMomentActionKind string
+
+// PersonMomentActionState `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
+type PersonMomentActionState string
+
+// PersonMomentEvidence One thing that actually happened, which the reader can open.
+type PersonMomentEvidence struct {
+	// Id The record to open. Absent when the evidence is a derived fact rather than a row.
+	Id         *openapi_types.UUID `json:"id,omitempty"`
+	Label      string              `json:"label"`
+	ObservedAt *time.Time          `json:"observed_at,omitempty"`
+
+	// Snippet A verbatim excerpt of the evidence, never a summary of it.
+	Snippet *string                  `json:"snippet,omitempty"`
+	Type    PersonMomentEvidenceType `json:"type"`
+}
+
+// PersonMomentEvidenceType defines model for PersonMomentEvidence.Type.
+type PersonMomentEvidenceType string
 
 // PersonNetwork The colleagues who know this contact, warmest first. Ordering is the answer, not
 // a presentation detail: it is who to ask.
@@ -12643,9 +13376,21 @@ type PersonNetwork struct {
 
 // PersonNetworkColleague One colleague's own relationship with this contact.
 type PersonNetworkColleague struct {
-	DisplayName     string     `json:"display_name"`
+	DisplayName string `json:"display_name"`
+
+	// Inbound90d Interactions in the last 90 days where they wrote to this colleague.
+	Inbound90d      *int       `json:"inbound_90d,omitempty"`
 	Interactions90d int        `json:"interactions_90d"`
 	LastAt          *time.Time `json:"last_at,omitempty"`
+
+	// LastInboundAt When they last replied to this colleague. Null means they never have.
+	LastInboundAt *time.Time `json:"last_inbound_at,omitempty"`
+
+	// LastOutboundAt When this colleague last wrote to them.
+	LastOutboundAt *time.Time `json:"last_outbound_at,omitempty"`
+
+	// Outbound90d Interactions in the last 90 days where this colleague wrote to them.
+	Outbound90d *int `json:"outbound_90d,omitempty"`
 
 	// Strength PO-F-3b, computed at read; null when the band is `none`.
 	Strength       *int                                 `json:"strength,omitempty"`
@@ -12678,6 +13423,42 @@ type PersonPhone struct {
 // PersonPhonePhoneType defines model for PersonPhone.PhoneType.
 type PersonPhonePhoneType string
 
+// PersonProfileField One enriched field with the evidence it was read from. Evidence-or-omit: a row
+// exists only where a verbatim snippet was captured.
+type PersonProfileField struct {
+	CapturedAt time.Time `json:"captured_at"`
+
+	// CapturedBy `agent:enrich` until a human edits the field, `human:<uuid>` after — this is how the page says "corrected by you".
+	CapturedBy string `json:"captured_by"`
+
+	// ClaimKey The stable identity of this field as a claim. Pass it to `POST /ai/feedback` as `claim_path` to correct or confirm the value — keyed on WHICH field, so the verdict survives the value being re-derived.
+	ClaimKey   *string  `json:"claim_key,omitempty"`
+	Confidence *float32 `json:"confidence,omitempty"`
+
+	// EvidenceSnippet The verbatim source text the value was read from — the reader checks the claim against its own source.
+	EvidenceSnippet string                  `json:"evidence_snippet"`
+	Field           PersonProfileFieldField `json:"field"`
+
+	// Source The channel that produced it, e.g. `capture_enrich` or `site_read`.
+	Source string `json:"source"`
+
+	// SourceRef What was read, as `activity:<uuid>` for a signature or `site_read:<url>` for a page.
+	SourceRef *string `json:"source_ref,omitempty"`
+	Value     string  `json:"value"`
+
+	// Verdict What a human has already decided about this field, absent when nobody has. A `corrected` field shows their value in `value` and is never overwritten by a fresh inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means the claim is not shown again.
+	Verdict *PersonProfileFieldVerdict `json:"verdict,omitempty"`
+
+	// VerdictNote Why, in the human's own words, when they gave a reason.
+	VerdictNote *string `json:"verdict_note,omitempty"`
+}
+
+// PersonProfileFieldField defines model for PersonProfileField.Field.
+type PersonProfileFieldField string
+
+// PersonProfileFieldVerdict What a human has already decided about this field, absent when nobody has. A `corrected` field shows their value in `value` and is never overwritten by a fresh inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means the claim is not shown again.
+type PersonProfileFieldVerdict string
+
 // PersonReachability Whether a reply on this channel can currently be delivered (design §6.6) — a live
 // `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
 type PersonReachability struct {
@@ -12690,6 +13471,35 @@ type PersonReachability struct {
 
 // PersonReachabilityProvider defines model for PersonReachability.Provider.
 type PersonReachabilityProvider string
+
+// PersonRelationshipChange One thing that happened to a relationship, with the evidence for it. Derived at read
+// by folding the §4 curve over a window that ends in the past, so it needs no table and
+// disappears when the activities behind it are erased.
+type PersonRelationshipChange struct {
+	// At When it happened — the reply's own timestamp, or the last touch of a relationship that went quiet. For a band move this is the read instant: a band move is observed, not dated.
+	At time.Time `json:"at"`
+
+	// Days The span the change is about: the silence a reply broke, or how long a quiet relationship has been quiet. Absent for a band move.
+	Days *int `json:"days,omitempty"`
+
+	// FromBucket The §4 band the relationship held one comparison window ago. Band moves only.
+	FromBucket *PersonRelationshipChangeFromBucket `json:"from_bucket,omitempty"`
+
+	// Kind `replied_after_gap` — they answered after a long silence, the strongest buy-signal captured data alone can produce. `went_quiet` — an established relationship stopped. `warmed` / `cooled` — the §4 band moved. A band move is reported; a point drift is not, because the score decays continuously and reporting that would fire on every read.
+	Kind PersonRelationshipChangeKind `json:"kind"`
+
+	// ToBucket The band it holds now. Band moves only.
+	ToBucket *PersonRelationshipChangeToBucket `json:"to_bucket,omitempty"`
+}
+
+// PersonRelationshipChangeFromBucket The §4 band the relationship held one comparison window ago. Band moves only.
+type PersonRelationshipChangeFromBucket string
+
+// PersonRelationshipChangeKind `replied_after_gap` — they answered after a long silence, the strongest buy-signal captured data alone can produce. `went_quiet` — an established relationship stopped. `warmed` / `cooled` — the §4 band moved. A band move is reported; a point drift is not, because the score decays continuously and reporting that would fire on every read.
+type PersonRelationshipChangeKind string
+
+// PersonRelationshipChangeToBucket The band it holds now. Band moves only.
+type PersonRelationshipChangeToBucket string
 
 // Pipeline A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
 type Pipeline struct {
@@ -17481,6 +18291,9 @@ type ResetDataJSONRequestBody ResetDataJSONBody
 
 // SetAiModelRateJSONRequestBody defines body for SetAiModelRate for application/json ContentType.
 type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
+
+// RecordAIFeedbackJSONRequestBody defines body for RecordAIFeedback for application/json ContentType.
+type RecordAIFeedbackJSONRequestBody = AIFeedbackInput
 
 // ApproveApprovalJSONRequestBody defines body for ApproveApproval for application/json ContentType.
 type ApproveApprovalJSONRequestBody = ApproveRequest
@@ -23547,6 +24360,9 @@ type ServerInterface interface {
 	// One call — attempt ladder, routing identity, context provenance, captured payload.
 	// (GET /ai/calls/{id})
 	GetAiCall(w http.ResponseWriter, r *http.Request, id Id)
+	// Record a human's verdict on a claim the system derived — the correction the next re-derivation must respect.
+	// (POST /ai/feedback)
+	RecordAIFeedback(w http.ResponseWriter, r *http.Request)
 	// Authenticated AI configuration posture for transparent human-facing workspaces.
 	// (GET /ai/profile)
 	GetAiProfile(w http.ResponseWriter, r *http.Request)
@@ -24084,6 +24900,9 @@ type ServerInterface interface {
 	// Update a person (partial).
 	// (PATCH /people/{id})
 	UpdatePerson(w http.ResponseWriter, r *http.Request, id Id, params UpdatePersonParams)
+	// The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
+	// (GET /people/{id}/360)
+	GetPerson360(w http.ResponseWriter, r *http.Request, id Id)
 	// Read a person's per-purpose consent state plus the append-only proof log.
 	// (GET /people/{id}/consent)
 	GetPersonConsent(w http.ResponseWriter, r *http.Request, id Id)
@@ -24093,15 +24912,24 @@ type ServerInterface interface {
 	// Mint + deliver a double-opt-in confirmation token (the issuance half of the DOI round-trip).
 	// (POST /people/{id}/consent/double-opt-in)
 	IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, id Id)
+	// Who around this contact could open a door, and through whom.
+	// (GET /people/{id}/graph)
+	GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id)
 	// Merge this person into a target (non-lossy).
 	// (POST /people/{id}/merge)
 	MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams)
 	// Who on our team knows this contact, and how well.
 	// (GET /people/{id}/network)
 	GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
+	// (GET /people/{id}/profile-fields)
+	GetPersonProfileFields(w http.ResponseWriter, r *http.Request, id Id)
 	// Relationship strength for a person (deterministic recency × frequency × reciprocity).
 	// (GET /people/{id}/strength)
 	GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id)
+	// Record that the calling human has now seen this person — the baseline `since_last_visit` counts from.
+	// (POST /people/{id}/view-ack)
+	AcknowledgePersonView(w http.ResponseWriter, r *http.Request, id Id)
 	// List pipelines.
 	// (GET /pipelines)
 	ListPipelines(w http.ResponseWriter, r *http.Request, params ListPipelinesParams)
@@ -24498,6 +25326,12 @@ func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, param
 // One call — attempt ladder, routing identity, context provenance, captured payload.
 // (GET /ai/calls/{id})
 func (_ Unimplemented) GetAiCall(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record a human's verdict on a claim the system derived — the correction the next re-derivation must respect.
+// (POST /ai/feedback)
+func (_ Unimplemented) RecordAIFeedback(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25575,6 +26409,12 @@ func (_ Unimplemented) UpdatePerson(w http.ResponseWriter, r *http.Request, id I
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
+// (GET /people/{id}/360)
+func (_ Unimplemented) GetPerson360(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Read a person's per-purpose consent state plus the append-only proof log.
 // (GET /people/{id}/consent)
 func (_ Unimplemented) GetPersonConsent(w http.ResponseWriter, r *http.Request, id Id) {
@@ -25593,6 +26433,12 @@ func (_ Unimplemented) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Who around this contact could open a door, and through whom.
+// (GET /people/{id}/graph)
+func (_ Unimplemented) GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Merge this person into a target (non-lossy).
 // (POST /people/{id}/merge)
 func (_ Unimplemented) MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams) {
@@ -25605,9 +26451,21 @@ func (_ Unimplemented) GetPersonNetwork(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
+// (GET /people/{id}/profile-fields)
+func (_ Unimplemented) GetPersonProfileFields(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Relationship strength for a person (deterministic recency × frequency × reciprocity).
 // (GET /people/{id}/strength)
 func (_ Unimplemented) GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record that the calling human has now seen this person — the baseline `since_last_visit` counts from.
+// (POST /people/{id}/view-ack)
+func (_ Unimplemented) AcknowledgePersonView(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -27040,6 +27898,26 @@ func (siw *ServerInterfaceWrapper) GetAiCall(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAiCall(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RecordAIFeedback operation middleware
+func (siw *ServerInterfaceWrapper) RecordAIFeedback(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecordAIFeedback(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -34796,6 +35674,38 @@ func (siw *ServerInterfaceWrapper) UpdatePerson(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetPerson360 operation middleware
+func (siw *ServerInterfaceWrapper) GetPerson360(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPerson360(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonConsent operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonConsent(w http.ResponseWriter, r *http.Request) {
 
@@ -34918,6 +35828,38 @@ func (siw *ServerInterfaceWrapper) IssueDoubleOptIn(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetPersonGraph operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonGraph(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonGraph(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MergePerson operation middleware
 func (siw *ServerInterfaceWrapper) MergePerson(w http.ResponseWriter, r *http.Request) {
 
@@ -35029,6 +35971,38 @@ func (siw *ServerInterfaceWrapper) GetPersonNetwork(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetPersonProfileFields operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonProfileFields(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonProfileFields(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonStrength operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonStrength(w http.ResponseWriter, r *http.Request) {
 
@@ -35054,6 +36028,38 @@ func (siw *ServerInterfaceWrapper) GetPersonStrength(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPersonStrength(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcknowledgePersonView operation middleware
+func (siw *ServerInterfaceWrapper) AcknowledgePersonView(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcknowledgePersonView(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -40413,6 +41419,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/ai/calls/{id}", wrapper.GetAiCall)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ai/feedback", wrapper.RecordAIFeedback)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/profile", wrapper.GetAiProfile)
 	})
 	r.Group(func(r chi.Router) {
@@ -40950,6 +41959,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/people/{id}", wrapper.UpdatePerson)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/360", wrapper.GetPerson360)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/consent", wrapper.GetPersonConsent)
 	})
 	r.Group(func(r chi.Router) {
@@ -40959,13 +41971,22 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/people/{id}/consent/double-opt-in", wrapper.IssueDoubleOptIn)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/graph", wrapper.GetPersonGraph)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/merge", wrapper.MergePerson)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/network", wrapper.GetPersonNetwork)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/profile-fields", wrapper.GetPersonProfileFields)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/strength", wrapper.GetPersonStrength)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/view-ack", wrapper.AcknowledgePersonView)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/pipelines", wrapper.ListPipelines)

@@ -277,6 +277,14 @@ func Groups() []Group {
 		// account appearing, because employer resolution is what most ghosts
 		// are waiting on.
 		{Name: "cg:linkedin-match", Streams: forEntities(personStreamEntity, organizationStreamEntity)},
+		// Filling a contact from what their employer's site already published
+		// (ADR-0072 arc). Its own group for the same reason as the matcher
+		// above: the deep read fills a published person DURING the crawl, so
+		// a contact who arrives afterwards is never matched against what that
+		// site said. It listens on the person stream alone — the fill is
+		// keyed on the contact, and an account appearing enriches nobody
+		// until a person is filed against it, which is itself a person event.
+		{Name: "cg:person-auto-enrich", Streams: forEntities(personStreamEntity)},
 		{Name: "cg:overnight-agent", Streams: forEntities(activityStreamEntity, dealStreamEntity, leadStreamEntity, approvalStreamEntity)},
 		{Name: "cg:workflows", Streams: all},
 		{Name: "cg:capture", Streams: forEntities(captureStreamEntity)},

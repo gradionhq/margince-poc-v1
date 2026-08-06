@@ -53,6 +53,16 @@ type SARPackage struct {
 	ConsentEvents       []map[string]any `json:"consent_events"`
 	RawCapture          []map[string]any `json:"raw_capture"`
 	FieldOrigins        []map[string]any `json:"field_origins"`
+	// EnrichedFields is what the system read about the subject from a public
+	// page or a mail signature, each with the verbatim text it came from.
+	// Art. 15(1)(g) makes the source itself disclosable, and the snippet IS
+	// the source.
+	EnrichedFields []map[string]any `json:"enriched_fields"`
+	// Corrections is what a human recorded over what the system inferred
+	// about this subject. It is theirs twice over: the value was typed by a
+	// person about them, and the suppressions are the record of which claims
+	// this installation has agreed to stop making.
+	Corrections []map[string]any `json:"corrections"`
 	// What capture decided about the subject's own address, and why — an
 	// automated decision the subject is owed sight of (CAP-DDL-8).
 	CaptureDispositions []map[string]any `json:"capture_dispositions"`
@@ -331,6 +341,17 @@ func sarProvenanceSections(pkg *SARPackage) []sarSection {
 		{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
 		   FROM field_provenance fp
 		   WHERE fp.object_type = 'person' AND fp.object_id = $1`},
+		{&pkg.EnrichedFields, `SELECT ppf.field, ppf.value, ppf.evidence_snippet, ppf.source_ref,
+		          ppf.confidence, ppf.source, ppf.captured_by, ppf.updated_at
+		   FROM person_profile_field ppf
+		   WHERE ppf.person_id = $1`},
+		// claim_key is exported as it stands: it is a hash of the claim's
+		// path, so it names WHICH claim was decided without carrying the
+		// asserted value, which the ledger never stores in the first place.
+		{&pkg.Corrections, `SELECT af.claim_kind, af.claim_key, af.verdict, af.corrected_value, af.note,
+		          af.captured_by, af.created_at, af.updated_at
+		   FROM ai_feedback af
+		   WHERE af.subject_type = 'person' AND af.subject_id = $1`},
 	}
 }
 

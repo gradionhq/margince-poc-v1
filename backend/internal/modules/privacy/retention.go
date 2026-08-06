@@ -423,6 +423,13 @@ func anonymizePersonRecord(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 		_, err = tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, id)
 	}
 	if err == nil {
+		// The enrichment sidecar holds the subject's title and employer with
+		// the verbatim sentence naming them. Anonymizing the person row above
+		// cascades to nothing, so a sweep that skipped this would leave the
+		// quote standing beside an "Erased Subject" record.
+		_, err = tx.Exec(ctx, `DELETE FROM person_profile_field WHERE person_id = $1`, id)
+	}
+	if err == nil {
 		// The channel identity is a resolution key on the subject as
 		// much as their address: left behind, it would keep binding
 		// inbound messages to the row this sweep just anonymized.

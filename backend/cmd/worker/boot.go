@@ -212,6 +212,12 @@ func startProjectionLanes(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Cl
 	matcher := compose.NewLinkedInMatchGen(pool, people.NewStore(pool), identity.NewService(pool), logger)
 	_, _ = fmt.Fprintln(stdout, "worker matching LinkedIn connections as contacts appear")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:linkedin-match", matcher.HandleEvent, logger, 0) })
+
+	// Filling a contact from what their employer's site already published, and
+	// from public search metadata when a provider is bound. Same trigger as the
+	// matcher above and the same reason: matching only at write time means every
+	// later arrival is a match nobody will ever make.
+	startPersonAutoEnrich(ctx, pool, rdb, background, logger, stdout)
 }
 
 // startWebhookLane starts the cg:webhooks delivery consumer, whose deliverer is

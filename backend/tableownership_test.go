@@ -166,6 +166,7 @@ var tableOwners = map[string]string{
 	"ai_call":               "internal/modules/ai",
 	"ai_call_payload":       "internal/modules/ai",
 	"ai_call_config":        "internal/modules/ai",
+	"ai_feedback":           "internal/modules/ai",
 	"ai_model_rate":         "internal/modules/ai",
 	// agents (incl. the runner subpackage)
 	"agent_run":  "internal/modules/agents",
@@ -221,7 +222,14 @@ var tableOwners = map[string]string{
 	"brief_item":      "internal/compose/briefs",
 	// The company view's per-user visit baseline: view state, not a record
 	// fact, so it is written without an audit row — the saved-view ruling.
+	// The person view acknowledges visits into the SAME table (one baseline
+	// per user per record, whatever kind of record it is), ratified below.
 	"user_record_view": "internal/compose/org360",
+	// Which activities have had their stored originals re-read for further
+	// participants. Job bookkeeping about a background pass rather than a
+	// fact about a customer, and the pass is composed here because it spans
+	// the mail and calendar parsers that no single module may reach across.
+	"activity_participant_replay": "internal/compose",
 	// The rep's own "not this, not now" on a suggestion: per user, keyed on
 	// the evidence it fired on. Same ruling — view state, no audit row.
 	"suggestion_dismissal": "internal/compose/org360",
@@ -242,6 +250,12 @@ var tableOwners = map[string]string{
 // keyed "module-dir:table". Every entry carries its rationale inline so the
 // gate is self-contained on a clean checkout.
 var crossStoreWrites = gatekit.Waive(map[string]string{
+	// One visit baseline per user per record, and a person is a record. A
+	// second table keyed the same way would be the same fact under a second
+	// name, and the two would answer "when did you last look at this?"
+	// differently the first time one write path changed.
+	"internal/compose/person360:user_record_view": "the person view's visit acknowledgement rides org360's table because since-last-visit is one fact per (user, record) — migration 0184 widened its entity_type CHECK to admit a person rather than adding a parallel table that would drift",
+
 	// people's merge/promotion relink rows across aggregates inside their
 	// single transaction — the primary aggregate owns the single-tx
 	// cross-aggregate write, because a merge that could half-commit its
@@ -310,6 +324,8 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/privacy:embedding":                    "erasure/retention purge the subject's vectors — a similarity probe must not reconstruct erased text",
 	"internal/modules/activities:embedding":                 "the ADR-0072 noise redaction drops the vectors built from the mail it just nulled, in the same transaction — an embedding of redacted text is that text in another shape, and leaving it would let a similarity probe reconstruct what the workspace decided not to retain. Same obligation as the privacy waiver above, at the other place content is destroyed; the embed lane cannot do it itself because it never observes an archived row",
 	"internal/modules/privacy:raw_capture":                  "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
+	"internal/modules/privacy:person_profile_field":         "Art. 17 and the retention sweep delete the subject's enrichment sidecar inside the single erasure transaction, beside field_provenance and ai_feedback: anonymize-in-place leaves the person row standing, so nothing cascades here, and the row holds the subject's title and employer with the verbatim sentence naming them",
+	"internal/modules/privacy:ai_feedback":                  "Art. 17 deletes the subject's correction ledger inside the single erasure transaction, exactly as it does field_provenance beside it: the ledger holds a human-typed value ABOUT the subject, and a claim nobody may now assert anything about has nothing left to suppress",
 	"internal/modules/privacy:ai_call_payload":              "erasure purges captured AI payloads mentioning the subject's identifiers, and retention ages every payload out at 365d — the special-category-adjacent content, deleted in the single erasure/per-record transaction while the ai_call metadata row survives",
 	"internal/modules/privacy:ai_call":                      "retention erases embedding-kind ai_call trace rows past their fixed 90-day cap (spec §4) in the single erasure/per-record transaction — a fixed operational cap, not an admin-editable retention_policy row",
 	"internal/modules/privacy:field_provenance":             "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",

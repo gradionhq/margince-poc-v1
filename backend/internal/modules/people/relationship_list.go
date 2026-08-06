@@ -30,33 +30,51 @@ func (s *Store) ListRelationships(ctx context.Context, in ListRelationshipsInput
 	if err := auth.Require(ctx, "relationship", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
-	limit := storekit.ClampLimit(in.Limit)
 	var out []relationshipRow
 	var page storekit.Page
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		var args []any
-		arg := func(v any) int { args = append(args, v); return len(args) }
-		where, err := relationshipListWhere(ctx, in, arg)
-		if err != nil {
-			return err
-		}
-		rows, err := tx.Query(ctx, storekit.SQLf(
-			`SELECT %s FROM relationship r WHERE %s ORDER BY r.id LIMIT $%d`,
-			aliased(relationshipColumns, "r"), strings.Join(where, " AND "), arg(limit+1)), args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		if out, err = scanRelationships(rows); err != nil {
-			return err
-		}
-		if len(out) > limit {
-			out = out[:limit]
-			page = storekit.Page{HasMore: true, NextCursor: out[limit-1].ID.String()}
-		}
-		return nil
+	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+		out, page, err = listRelationshipsInTx(ctx, tx, in)
+		return err
 	})
 	return out, page, err
+}
+
+// ListRelationshipsTx is ListRelationships inside a caller-opened
+// transaction — the composite record read. Same gate, borrowed transaction.
+func (s *Store) ListRelationshipsTx(ctx context.Context, tx pgx.Tx, in ListRelationshipsInput) ([]relationshipRow, storekit.Page, error) {
+	if err := auth.Require(ctx, "relationship", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	return listRelationshipsInTx(ctx, tx, in)
+}
+
+// listRelationshipsInTx is the shared body of the store-opened and
+// caller-opened relationship list reads.
+func listRelationshipsInTx(ctx context.Context, tx pgx.Tx, in ListRelationshipsInput) ([]relationshipRow, storekit.Page, error) {
+	limit := storekit.ClampLimit(in.Limit)
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	where, err := relationshipListWhere(ctx, in, arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	rows, err := tx.Query(ctx, storekit.SQLf(
+		`SELECT %s FROM relationship r WHERE %s ORDER BY r.id LIMIT $%d`,
+		aliased(relationshipColumns, "r"), strings.Join(where, " AND "), arg(limit+1)), args...)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	defer rows.Close()
+	out, err := scanRelationships(rows)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	var page storekit.Page
+	if len(out) > limit {
+		out = out[:limit]
+		page = storekit.Page{HasMore: true, NextCursor: out[limit-1].ID.String()}
+	}
+	return out, page, nil
 }
 
 // relationshipListWhere renders the list filters (kind/person/org/deal,

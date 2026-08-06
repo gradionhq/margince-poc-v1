@@ -153,6 +153,24 @@ func (s *Store) GetPerson(ctx context.Context, id ids.PersonID, archived storeki
 	return out, err
 }
 
+// GetPersonTx is GetPerson for a caller that already opened a transaction —
+// the composite record read, which must see every one of its sections at the
+// same instant and cannot afford a second connection per section. Same gates
+// in the same order; only the transaction is borrowed.
+func (s *Store) GetPersonTx(ctx context.Context, tx pgx.Tx, id ids.PersonID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return crmcontracts.Person{}, err
+	}
+	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
+	if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
+		return crmcontracts.Person{}, err
+	}
+	return readPerson(ctx, tx, id, archived, active)
+}
+
 type UpdatePersonInput struct {
 	FullName  *string
 	FirstName *string
