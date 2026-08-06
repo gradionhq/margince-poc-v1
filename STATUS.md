@@ -387,9 +387,21 @@ Seven reported chrome defects, fixed as five invariants rather than five patches
 
 - **Language and theme live in the account menu**, which now reads Settings ·
   Language · Theme · Sign out with the two preferences stating their current
-  value and named by the action they perform. Both keep the menu open (they stop
-  the click from reaching the document dismissal listener) so the theme is
-  visible from the control that set it.
+  value and named by the setting plus the action they perform (WCAG 2.5.3 wants
+  the visible label inside the accessible name). Both keep the menu open (they
+  stop the click from reaching the document dismissal listener) so the theme is
+  visible from the control that set it, and dismissal hands focus back to the
+  avatar rather than dropping it on `<body>`.
+
+  **The language row is #526's three-locale menu, nested.** That PR landed while
+  this branch was in flight: it owns the mechanism (three locales, endonyms,
+  `role="menu"` with arrow movement), this branch owns the placement. Nesting one
+  popover in another has three consequences, each handled at its source — the
+  trigger and the list stop their own clicks, or the outer menu's document-level
+  dismissal closes the popover the list lives in; and **Escape closes one layer**,
+  because the account menu defers while a submenu reports itself expanded. A test
+  pins the layering. Anything else nested in that popover later inherits the same
+  three obligations.
 - **`scrollbar-width: thin` is on every element, not `:root`.** It is the one
   property in `app.css`'s browser-chrome block that does NOT inherit, so the
   thin bar applied to the document scroller only while every in-app scroller

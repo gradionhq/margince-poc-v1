@@ -182,12 +182,14 @@ numbers appear here when releases start.
   credential has rotated. Revoking a grant-bound passport ends the whole
   connection, not just the current credential.
 - **Language and theme moved into the account menu.** The top bar carried
-  two icon buttons for them beside the avatar; both are this person's
+  an icon button for each beside the avatar; both are this person's
   preferences rather than screen actions, so the bar is down to search and
   one account affordance, and the menu reads Settings · Language · Theme ·
   Sign out with the two preferences stating what they are set to. Changing
   one keeps the menu open, so the theme you pick is visible from the
-  control that picked it.
+  control that picked it, and dismissing the menu hands focus back to the
+  avatar. The language row is the three-locale menu itself, nested: one
+  Escape closes the language list, the next closes the account menu.
 - **One orb in the product.** The agent panel at the sidebar foot drew a
   CSS lookalike of the Core because the real primitive held a render loop
   for the whole session. The Core now costs what it displays — it draws at
