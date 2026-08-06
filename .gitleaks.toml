@@ -1,0 +1,64 @@
+# Secret-scan policy for `make secret-scan` and CI's `secret-scan` job.
+#
+# This file is the whole policy. It is read by the same gitleaks invocation
+# locally and in CI, so an exemption is argued for in the pull request that
+# needs it — the previous scanner took its exclusions from a hosted dashboard
+# instead, disagreed with the list committed here, and flagged fixtures this
+# repo had already declared fake.
+#
+# An entry earns its place by naming why the match is not a credential. Prefer
+# a scoped allowlist (a path AND a pattern) over a bare path exclusion: a whole
+# file waved through stops being scanned for the real thing.
+#
+# Scoping REQUIRES `targetRules`. A global `[[allowlists]]` carrying `paths`
+# makes gitleaks skip the whole file before it reads a line, so `condition =
+# "AND"` never gets the chance to narrow it — the exemption silently widens to
+# the entire file. Binding the allowlist to the rule it excuses keeps it out of
+# that path (config.go: allowlists with targetRules are not added to the global
+# list), so the file stays scanned for everything else. This is covered by the
+# mutation tests in scripts/test-secret-scan.sh — a planted token in one of the
+# files named below must still fail the gate.
+
+[extend]
+useDefault = true
+
+# Tests and Storybook stories hold fabricated fixtures — stand-in passports and
+# approval tokens, demo ids, and deliberately malformed URLs. The credentialed
+# URLs in the websearch and person-discovery tests are the clearest case: they
+# exist so the code under test can refuse them, so the literal HAS to look like
+# a credential for the test to mean anything.
+[[allowlists]]
+description = "Fabricated fixtures in tests and Storybook stories"
+paths = [
+  '''_test\.go$''',
+  '''\.test\.tsx?$''',
+  '''\.stories\.tsx$''',
+]
+
+# The agent tool registry names the contract operations a tool composes —
+# "getPerson/getOrganization/getDeal + listActivities". Slash-joined camelCase
+# reads as high-entropy to the generic detector; it is an operation id, and the
+# gen-agentpolicy drift gate would fail if it were anything else.
+#
+# Scoped to the module AND to the field declaration, not to the two filenames
+# that happen to trip the detector today: six files in this package declare
+# OpenAPIOp, and naming them individually would mean a new tool file, or one
+# more operation in an existing list, failing the gate over a non-secret. The
+# invariant is "an OpenAPIOp declaration in the agent registry is an operation
+# id" — everything else in these files stays scanned.
+[[allowlists]]
+description = "OpenAPI operation ids in the agent tool registry"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''backend/internal/modules/agents/''']
+regexes = ['''OpenAPIOp:\s''']
+
+# `linkedinStatus: LinkedinStatus` — a TypeScript prop and its type. The
+# linkedin-client-id rule matches the type name, not a client id.
+[[allowlists]]
+description = "The LinkedinStatus type name in the connect scene"
+targetRules = ["linkedin-client-id"]
+condition = "AND"
+paths = ['''frontend/src/screens/onboarding-conversation/connect-scene\.tsx$''']
+regexes = ['''^LinkedinStatus$''']
