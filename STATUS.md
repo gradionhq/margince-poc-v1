@@ -35,6 +35,42 @@ fallback), **#495** (auth rate limits are process-local, so N replicas multiply
 every ceiling by N), **#496** (audit-verb down migrations cannot see the rows
 their refusal probe checks for, under production RLS).
 
+## Open — contract drift: the reset's response gained five fields
+
+`backend/api/crm.yaml`'s `resetData` 200 body now declares `jobs_cancelled`,
+`streams_purged`, `cache_keys_deleted`, `objects_deleted` and
+`drain_timed_out`, all required. The spec repo's `specs/contract/crm.yaml` is
+the source of truth (P3) and does not carry them yet — this is deliberate
+drift awaiting upstream reconciliation, not an accident. Nothing was edited in
+the spec repo from here.
+
+Worth knowing when reconciling: the response schema is declared inline rather
+than by `$ref`, so oapi-codegen synthesizes no Go type for it and the
+hand-written `resetDataResponse` struct is the only Go-side wire shape. A
+derived test (`backend/resetwireshape_test.go`) parses the contract and
+compares its `required` list against the struct's json tags, which is what
+keeps the two from drifting apart silently.
+
+## Open — the data reset has no end-to-end proof, by request
+
+The reset now spans five stores (Postgres, `river_job`, Redis streams + keys,
+object storage, and every process's memory). Each surface has its own tests,
+and the orchestration has unit tests over fake purgers — but the test that
+proved they COMPOSE was reverted before merge at the requester's direction,
+so nothing exercises a real reset through HTTP against real infrastructure.
+
+What it had covered, for whoever restores it: a queued job, a bus entry and a
+stored object all seeded, then gone after `POST /v1/admin/reset-data`; every
+`kevents.Groups()` consumer group still present afterwards; a sibling tenant's
+object untouched; and the `audit_log` evidence read back from Postgres and
+compared against the response counts. It was mutation-tested against six
+broken purges, three of them production-code mutations.
+
+Two gaps it never closed either, worth folding in when it returns: nothing
+drives `drain_timed_out` true end to end, and nothing asserts `QueuePause`
+actually paused (no running job, no `river_queue` read). Both behaviours are
+covered by lower-level tests today.
+
 ## Open — the brief's omitted sections are prompt-enforced, not code-enforced
 
 `Input.SectionsOmitted` names what a reader could not see, and the writer is

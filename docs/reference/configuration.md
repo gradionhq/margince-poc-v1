@@ -539,6 +539,53 @@ skipped. Orphaned `cf_*` custom-field columns are dropped afterward through
 the owner schema pool (`--schema-dsn`); with no schema pool configured that
 step is skipped (logged, not swallowed) and the reset itself still succeeds.
 
+#### It resets the runtime, not only the rows
+
+Table rows are not the whole installation. Queued jobs, bus entries, Redis
+counters, every process's in-memory caches and the stored object bytes all
+outlive a row sweep, so a reset that stopped there would leave work executing
+against records that no longer exist. The endpoint therefore also:
+
+1. **Pauses every job queue and drains it**, bounded to 10 seconds. The pause
+   is mediated by `river_queue`, so the api quiets the queues the *worker*
+   process owns. A drain that does not finish never fails the reset — a long
+   pass must not make an installation unresettable — but it sets
+   `drain_timed_out` in the response, the audit evidence and the log, and the
+   surviving job's completion write will fail against the wiped rows.
+2. **Purges queued work** (`river_job`): this workspace's rows plus the
+   fleet dispatchers, which the periodic ticks re-insert on the next cadence.
+3. **Purges the event bus** — the catalog streams, their consumer groups
+   (deleted and immediately re-created, so live subscribers keep reading), the
+   processed-event dedupe marks, and this workspace's overlay budget counters.
+4. **Deletes the workspace's stored objects** under its `<workspace>/` prefix.
+5. **Announces the reset** on the `gw:control:reset` Redis pub/sub channel, so
+   the api and the worker each drop the caches they hold (model results,
+   resolved SoR mode, auth lockout buckets). No HTTP call reaches the worker
+   process; this channel is the only path to it.
+
+The queues are resumed on every exit path, including a failure and a panic,
+on a context detached from the request — an operator whose client disconnects
+mid-reset must not leave the fleet paused.
+
+The Redis half is **installation-wide**, from a declared key inventory — the
+stream catalog, the `gw:dedupe:` namespace and `ovb:<workspace>:` — and never
+`FLUSHDB`, so anything else sharing that Redis survives. Installation-wide is
+exact here because one installation serves one organization (A107/ADR-0061).
+One consequence worth knowing locally: parallel `DEV_SLUG` stacks share a
+single Redis database, so a reset in one stack clears the other's bus.
+
+The 200 body reports what was actually cleared — `tables_cleared`,
+`jobs_cancelled`, `streams_purged` (stream *keys*, not entries),
+`cache_keys_deleted` (dedupe marks plus budget counters), `objects_deleted`
+and `drain_timed_out`. The same counts go into the `audit_log` evidence, with
+one deliberate exception: `objects_deleted` is not in the audit row, because
+the object purge cannot join the transaction that writes it.
+
+Any purge step failing fails the whole request with an opaque 500 (the cause
+is logged server-side). The purges run *before* the database transaction, so
+a mid-purge failure leaves a safe partial state — queue and bus clear, data
+intact — that re-running the reset recovers.
+
 `GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
 show the action only where it will work: Admin settings → *data* tab → Danger
 zone → *Reset data*, which prompts the operator to type the organization name
