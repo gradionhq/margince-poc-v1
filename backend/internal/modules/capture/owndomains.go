@@ -205,3 +205,7 @@ func queryDomains(ctx context.Context, tx pgx.Tx, query string) (InternalDomains
 	}
 	return NewInternalDomains(raw), nil
 }
+
+// Domains returns the normalized domains in the set, for a caller that needs to
+// show them rather than test against them.
+func (d InternalDomains) Domains() []string { return d.domains }

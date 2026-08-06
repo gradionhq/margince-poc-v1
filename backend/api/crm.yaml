@@ -4829,6 +4829,83 @@ paths:
               schema: { $ref: '#/components/schemas/CaptureConnectionListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /workspace/email-domains:
+    get:
+      tags: [Connectors]
+      operationId: listWorkspaceEmailDomains
+      summary: The workspace's own email domains.
+      description: |
+        The domains this installation treats as its own (capture.md CAP-DDL-1). A message whose
+        participants are ALL on one of these — subdomains included — produces zero rows
+        (ADR-0082/A127, formulas §20).
+
+        `verified` reports whether a human vouched for the domain. Only a verified domain, or one
+        the installation's own company claims, suppresses storage; a row a connected mailbox
+        contributed is a candidate until an administrator confirms it. A mailbox proves whose
+        mailbox it is, never whose domain it is.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      responses:
+        '200':
+          description: The workspace's own email domains.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceEmailDomainListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Connectors]
+      operationId: createWorkspaceEmailDomain
+      summary: Register one of the workspace's own email domains.
+      description: |
+        Adds a domain, or confirms one a connected mailbox already contributed. An administrator
+        adding a domain IS the human vouching for it, so the row is stored verified and takes
+        effect on the next captured message.
+
+        Registering a domain is NOT retroactive, and its effect is NOT reversible: mail already
+        captured stays, and every connector advances its watermark past a message this
+        suppresses, so a message dropped under a domain entered by mistake is not offered again.
+        Idempotent on the folded domain.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWorkspaceEmailDomainRequest' }
+      responses:
+        '201':
+          description: The registered domain.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceEmailDomain' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /workspace/email-domains/{domain}:
+    parameters:
+      - name: domain
+        in: path
+        required: true
+        description: The domain, as listed. Compared in its folded form.
+        schema: { type: string, maxLength: 253 }
+    delete:
+      tags: [Connectors]
+      operationId: deleteWorkspaceEmailDomain
+      summary: Stop treating a domain as the workspace's own.
+      description: |
+        Removes the domain. Mail among its addresses is captured again from the next message on;
+        nothing already suppressed comes back. Removing a domain the installation's own company
+        claims has no effect on its own — that claim is read from the company profile, and is
+        changed there.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      responses:
+        '204': { description: Removed (or never registered). }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /connectors/{provider}/connect:
     parameters:
       - $ref: '#/components/parameters/CaptureProvider'
@@ -9713,6 +9790,49 @@ components:
         backfill: { allOf: [ { $ref: '#/components/schemas/BackfillStatus' } ], description: 'Summary of the connection''s backfill run; state `none` when never run.' }
         created_at: { type: string, format: date-time, readOnly: true }
         updated_at: { type: string, format: date-time, readOnly: true }
+    WorkspaceEmailDomain:
+      type: object
+      required: [domain, source, verified]
+      properties:
+        domain:
+          type: string
+          description: The domain, IDNA-folded and lowercased. Covers its subdomains.
+        source:
+          type: string
+          enum: [admin, mailbox]
+          description: |
+            Who contributed the row. `mailbox` was observed from a connected account and is a
+            candidate; `admin` was entered by a human.
+        verified:
+          type: boolean
+          description: |
+            Whether a human vouched for this domain. Only a verified domain — or one the
+            installation's own company claims — suppresses storage.
+        created_at: { type: string, format: date-time }
+    WorkspaceEmailDomainListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/WorkspaceEmailDomain' } }
+        anchor_domains:
+          type: array
+          items: { type: string }
+          description: |
+            The domains the installation's own company claims, read from the company profile.
+            They suppress storage whether or not they appear in `data`, and are changed on the
+            company page rather than here — listed so the surface can show what is already in
+            force without implying it can be removed from this screen.
+    CreateWorkspaceEmailDomainRequest:
+      type: object
+      required: [domain]
+      properties:
+        domain:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: |
+            A bare domain — no scheme, no path, no `@`. Folded before storage, so one domain
+            cannot be registered twice under two spellings.
     CaptureConnectionListResponse:
       type: object
       required: [data]

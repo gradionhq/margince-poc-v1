@@ -7398,6 +7398,24 @@ func (e WebhookSubscriptionState) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceEmailDomainSource.
+const (
+	Admin   WorkspaceEmailDomainSource = "admin"
+	Mailbox WorkspaceEmailDomainSource = "mailbox"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceEmailDomainSource enum.
+func (e WorkspaceEmailDomainSource) Valid() bool {
+	switch e {
+	case Admin:
+		return true
+	case Mailbox:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WrittenBy.
 const (
 	Deterministic WrittenBy = "deterministic"
@@ -10477,6 +10495,13 @@ type CreateWebhookSubscriptionRequest struct {
 
 	// TargetUrl HTTPS-only; http:// is rejected (the contract enforces the scheme, matching the store's check).
 	TargetUrl string `json:"target_url"`
+}
+
+// CreateWorkspaceEmailDomainRequest defines model for CreateWorkspaceEmailDomainRequest.
+type CreateWorkspaceEmailDomainRequest struct {
+	// Domain A bare domain — no scheme, no path, no `@`. Folded before storage, so one domain
+	// cannot be registered twice under two spellings.
+	Domain string `json:"domain"`
 }
 
 // CustomField A workspace-defined runtime field on an existing core object. Mirrors the
@@ -15237,6 +15262,36 @@ type WebhookSubscriptionListResponse struct {
 	Page            PageInfo `json:"page"`
 }
 
+// WorkspaceEmailDomain defines model for WorkspaceEmailDomain.
+type WorkspaceEmailDomain struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Domain The domain, IDNA-folded and lowercased. Covers its subdomains.
+	Domain string `json:"domain"`
+
+	// Source Who contributed the row. `mailbox` was observed from a connected account and is a
+	// candidate; `admin` was entered by a human.
+	Source WorkspaceEmailDomainSource `json:"source"`
+
+	// Verified Whether a human vouched for this domain. Only a verified domain — or one the
+	// installation's own company claims — suppresses storage.
+	Verified bool `json:"verified"`
+}
+
+// WorkspaceEmailDomainSource Who contributed the row. `mailbox` was observed from a connected account and is a
+// candidate; `admin` was entered by a human.
+type WorkspaceEmailDomainSource string
+
+// WorkspaceEmailDomainListResponse defines model for WorkspaceEmailDomainListResponse.
+type WorkspaceEmailDomainListResponse struct {
+	// AnchorDomains The domains the installation's own company claims, read from the company profile.
+	// They suppress storage whether or not they appear in `data`, and are changed on the
+	// company page rather than here — listed so the surface can show what is already in
+	// force without implying it can be removed from this screen.
+	AnchorDomains *[]string              `json:"anchor_domains,omitempty"`
+	Data          []WorkspaceEmailDomain `json:"data"`
+}
+
 // WrittenBy Which writer produced a piece of generated prose. `model` — the configured model
 // lane. `deterministic` — the structured fallback, used when no lane is configured
 // or the workspace's AI budget is exhausted. Never silently interchangeable: a
@@ -18588,6 +18643,9 @@ type CreateWebhookSubscriptionJSONRequestBody = CreateWebhookSubscriptionRequest
 
 // UpdateWebhookSubscriptionJSONRequestBody defines body for UpdateWebhookSubscription for application/json ContentType.
 type UpdateWebhookSubscriptionJSONRequestBody = UpdateWebhookSubscriptionRequest
+
+// CreateWorkspaceEmailDomainJSONRequestBody defines body for CreateWorkspaceEmailDomain for application/json ContentType.
+type CreateWorkspaceEmailDomainJSONRequestBody = CreateWorkspaceEmailDomainRequest
 
 // Getter for additional properties for Address. Returns the specified
 // element and whether it was found
@@ -25194,6 +25252,15 @@ type ServerInterface interface {
 	// Rotate a subscription's signing secret (returns the new secret once).
 	// (POST /webhook-subscriptions/{id}/rotate-secret)
 	RotateWebhookSecret(w http.ResponseWriter, r *http.Request, id Id)
+	// The workspace's own email domains.
+	// (GET /workspace/email-domains)
+	ListWorkspaceEmailDomains(w http.ResponseWriter, r *http.Request)
+	// Register one of the workspace's own email domains.
+	// (POST /workspace/email-domains)
+	CreateWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request)
+	// Stop treating a domain as the workspace's own.
+	// (DELETE /workspace/email-domains/{domain})
+	DeleteWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request, domain string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -27021,6 +27088,24 @@ func (_ Unimplemented) ReplayWebhookDelivery(w http.ResponseWriter, r *http.Requ
 // Rotate a subscription's signing secret (returns the new secret once).
 // (POST /webhook-subscriptions/{id}/rotate-secret)
 func (_ Unimplemented) RotateWebhookSecret(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The workspace's own email domains.
+// (GET /workspace/email-domains)
+func (_ Unimplemented) ListWorkspaceEmailDomains(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register one of the workspace's own email domains.
+// (POST /workspace/email-domains)
+func (_ Unimplemented) CreateWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stop treating a domain as the workspace's own.
+// (DELETE /workspace/email-domains/{domain})
+func (_ Unimplemented) DeleteWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request, domain string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -41170,6 +41255,78 @@ func (siw *ServerInterfaceWrapper) RotateWebhookSecret(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// ListWorkspaceEmailDomains operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceEmailDomains(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceEmailDomains(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkspaceEmailDomain operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkspaceEmailDomain(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteWorkspaceEmailDomain operation middleware
+func (siw *ServerInterfaceWrapper) DeleteWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "domain" -------------
+	var domain string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "domain", chi.URLParam(r, "domain"), &domain, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "domain", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteWorkspaceEmailDomain(w, r, domain)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -42194,6 +42351,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/webhook-subscriptions/{id}/rotate-secret", wrapper.RotateWebhookSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/workspace/email-domains", wrapper.ListWorkspaceEmailDomains)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/workspace/email-domains", wrapper.CreateWorkspaceEmailDomain)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/workspace/email-domains/{domain}", wrapper.DeleteWorkspaceEmailDomain)
 	})
 
 	return r
