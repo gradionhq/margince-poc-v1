@@ -232,6 +232,14 @@ func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream b
 	if maxTokens <= 0 {
 		maxTokens = ollamaMaxTokensDefault
 	}
+	// A budget past the largest window the adapter will ask for cannot be met
+	// whatever it says, and left unclamped it overflows the window arithmetic
+	// into a SMALL number — a request advertising an enormous num_predict
+	// against a tiny context, which Ollama then truncates at once. Clamped here
+	// rather than inside the window so the two fields cannot disagree.
+	if maxTokens > ollamaMaxContext {
+		maxTokens = ollamaMaxContext
+	}
 	// Sized last: the window has to account for the messages, tools and schema
 	// just assembled, so this cannot move above them.
 	wire.Options = &ollamaOptions{NumPredict: maxTokens, NumCtx: wire.contextWindow(maxTokens)}

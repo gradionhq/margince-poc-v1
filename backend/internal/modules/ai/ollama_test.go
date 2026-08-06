@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -279,6 +280,24 @@ func TestOllamaSizesContextWindowToPromptPlusOutputBudget(t *testing.T) {
 	})
 	if grown.NumCtx <= base.NumCtx {
 		t.Fatalf("num_ctx did not grow with the prompt: %d then %d", base.NumCtx, grown.NumCtx)
+	}
+
+	// An absurd budget must clamp rather than wrap. Unclamped, `prompt/4 +
+	// maxTokens` overflows and the bucket arithmetic lands on a SMALL window —
+	// the model would be handed a huge num_predict against a tiny context and
+	// truncate immediately, which is the opposite of what the number says.
+	_, absurd, _ := sent(t, model.Request{
+		Messages:  []model.Message{{Role: "user", Content: "hi"}},
+		MaxTokens: math.MaxInt32,
+	})
+	if absurd.NumCtx != ollamaMaxContext {
+		t.Fatalf("num_ctx %d for an absurd budget, want the %d cap", absurd.NumCtx, ollamaMaxContext)
+	}
+	if absurd.NumPredict > absurd.NumCtx {
+		t.Fatalf(
+			"num_predict %d exceeds num_ctx %d — the budget promises more than the window can hold",
+			absurd.NumPredict, absurd.NumCtx,
+		)
 	}
 
 	// Prompt length is chosen by whoever published the page, so the window it
