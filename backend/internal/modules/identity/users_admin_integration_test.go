@@ -16,6 +16,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -94,19 +95,27 @@ func TestReactivateRefusalNamesEveryStateItCanBeReachedFrom(t *testing.T) {
 		  AND pg_get_constraintdef(c.oid) LIKE '%status%'`).Scan(&check); err != nil {
 		t.Fatalf("reading the app_user status constraint: %v", err)
 	}
-	// The statuses the refusal and the contract account for. Anything else in
-	// the constraint reaches that refusal wearing someone else's description.
-	known := []string{"invited", "active", "suspended", "deactivated"}
-	for _, status := range known {
-		if !strings.Contains(check, "'"+status+"'") {
+	// The statuses the refusal and the contract account for. Compared as a SET
+	// against the literals the constraint actually admits — counting quotes
+	// would also count any cast, collation or quoted identifier Postgres puts in
+	// its normalised text, and would miss a rename that kept the same count.
+	known := map[string]bool{"invited": true, "active": true, "suspended": true, "deactivated": true}
+	admitted := map[string]bool{}
+	for _, m := range regexp.MustCompile(`'([^']*)'`).FindAllStringSubmatch(check, -1) {
+		admitted[m[1]] = true
+	}
+	for status := range known {
+		if !admitted[status] {
 			t.Errorf("status %q is no longer admitted by %s", status, check)
 		}
 	}
-	if got := strings.Count(check, "'"); got != len(known)*2 {
-		t.Errorf("app_user.status admits a value beyond %v: %s\n"+
-			"the reactivate refusal names the states it can be reached from, and its "+
-			"contract description repeats them — both need updating with the new state",
-			known, check)
+	for status := range admitted {
+		if !known[status] {
+			t.Errorf("app_user.status admits %q, which nothing here accounts for: %s\n"+
+				"the reactivate refusal names the states it can be reached from, and its "+
+				"contract description repeats them — both need updating with the new state",
+				status, check)
+		}
 	}
 }
 
