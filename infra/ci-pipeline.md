@@ -43,9 +43,10 @@ Consequences:
   skips the Go build/gate + the integration lane.
 - **Draft PRs run nothing** until marked ready (`draft == false` guards every
   job) — the swarm pushes many WIP commits.
-- `craft-residue` is the deliberate exception: it runs on **every** non-draft
-  change (docs included) so a leaked `CRAFT-FIX`/`CRAFT-DISPUTE` marker in any
-  file fails the merge.
+- `craft-residue` and `secret-scan` are the deliberate exceptions: both run on
+  **every** non-draft change, docs included. A leaked `CRAFT-FIX`/`CRAFT-DISPUTE`
+  marker, or a hardcoded credential, can land in any file type — neither can be
+  gated on the scope classifier.
 
 ## Job graph
 
@@ -62,6 +63,7 @@ changes ──┬─> deterministic-gates ──> craftsmanship
  deterministic-gates + integration + extension-reference + frontend ──> sonarcloud
   dco  (PR-only, independent)
   craft-residue  (every non-draft change, independent)
+  secret-scan    (every non-draft change, independent)
 ```
 
 Two deliberate shapes here. The Playwright `uat` lane is **fail-fast**: it
@@ -85,6 +87,7 @@ one required check.
 | `extension-reference` | The composed-build lane (ADR-0069): proves the **empty** extension set still composes byte-identically to the committed `composition/` stub, then enables the reference fixture and runs the backend build + unit lane + `check-composition` against the composed workspace, plus every enabled unit's own module lane. Emits its own coverage profile — extension units are separate Go modules, unreachable by the shard profiles |
 | `craftsmanship` | `make craft-static` — strict: BLOCKER **and** MAJOR findings fail it, MINOR is advisory. Runs **after** `deterministic-gates` — a red build is never judged on style |
 | `craft-residue` | No unresolved `CRAFT-FIX`/`CRAFT-DISPUTE` markers reach `main` |
+| `secret-scan` | `make secret-scan` — gitleaks over a clean `git archive HEAD` export, policy in `.gitleaks.toml`. Scans the **committed** tree, never the working tree: gitleaks does not honour `.gitignore`, so an in-place scan reads sibling worktrees and local `.env` files and reaches a different verdict per machine. The job has no install step: `scripts/gitleaks-pin.sh` fetches the version- **and** checksum-pinned binary itself, so CI and a laptop resolve the same scanner through the same code — a scan's verdict is a function of its rule set, so a different version would be a different gate. The official gitleaks action is not used: it needs a paid licence key for organization repositories. Findings print redacted — CI logs on a public repo are public. Followed immediately by `make test-secret-scan`, which plants a token in each exempted file and requires the scan to fail anyway: an allowlist that grew too broad reports "no leaks found" exactly like a clean tree |
 | `integration shard (k/12)` | `make test-integration` with `INTEGRATION_SHARD=k/12`: a deterministic per-test round-robin slice of the whole integration lane. Slices are count-based, not duration-based; the heavy e2e tail lands on whichever shard draws it, and `INTEGRATION_JOBS=16` (the tests wait on Postgres, not cores) lets that shard chew through its slice instead of running minutes over its siblings. Boots the dev compose stack (`make db-up`: digest-pinned Postgres 16 (pgvector) + Redis 7 + MinIO + the app role — one stack definition, no hand-mirrored GH services); each shard builds its own migrated `margince_test` template and clones per package. Uploads its slice manifests + binary coverage pods |
 | `integration unit coverage` | The unit `-cover` pass over every package, binary coverage pods only. Needed because the shards run just the integration-tagged packages, and without it SonarCloud would see the unit-only packages at a false ~0% new-code coverage. No services (the test-lanes gate guarantees untagged tests open no real DB) |
 | `integration` | The fan-in — and the required check, under the same name the single-runner lane carried, so branch protection is unchanged. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
