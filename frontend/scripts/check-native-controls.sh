@@ -11,9 +11,11 @@
 # portalled listbox — which is also the only file this gate exempts.
 #
 # Fails on `<select`, `<option` and `<optgroup` anywhere under frontend/src except
-# design-system/select.tsx, in any *.ts / *.tsx — tests and stories included,
-# because a test that drives a native control is a test of the wrong control, and
-# a story catalogues what we ship.
+# design-system/select.tsx, in any *.ts / *.tsx / *.js / *.jsx — tests and stories
+# included, because a test that drives a native control is a test of the wrong
+# control, and a story catalogues what we ship. The tree is TypeScript today and
+# the plain-JS extensions cost nothing to scan; a gate whose coverage depends on
+# which extension a file happens to carry is a gate with a way around it.
 #
 # All three, not just the element that names the gate: `<option>` is what the
 # native dropdown is BUILT from, it is meaningless anywhere else, and it is what a
@@ -25,13 +27,21 @@
 # cross-reference (this replaced that), which is exactly how select.tsx and its
 # neighbours cite the thing they exist to remove.
 #
-# STRING LITERALS are stripped first, and that ordering is the whole subtlety: a
-# `//` inside a string is not a comment, and a URL carries them in two places —
-# after the scheme, and in a path (`https://host/a//b`). Treating either as a
-# comment blanks the rest of the line, which for a fail-closed gate means the
-# markup it exists to catch could sit past a URL and never be seen. So the
-# scanner tracks whether it is inside a quote, and only unquoted `//` and `/*`
-# begin a comment.
+# STRING LITERALS are recognised before comments, and that ordering is the whole
+# subtlety: a `//` inside a string does not begin a comment, and a URL carries them
+# in two places — after the scheme, and in a path (`https://host/a//b`). Treating
+# either as a comment blanks the rest of the line, which for a fail-closed gate
+# means the markup it exists to catch could sit past a URL and never be seen. So
+# the scanner tracks whether it is inside a quote, and only an unquoted `//` or
+# `/*` begins a comment.
+#
+# A string's CONTENT is kept rather than blanked, and that is the deliberate half:
+# markup can be built inside a template literal, so a `<select>` in there is a
+# native dropdown that would ship. The cost is that a non-rendered reference in a
+# string — a doc line, an example — is reported too. That is the direction to be
+# wrong in: a false positive is one edit away from silence, and a miss is a
+# browser-drawn dropdown nobody sees until it is on a screen. Prose is the place
+# for a cross-reference, which is what the comment stripping is for.
 #
 # Two states survive a line ending, because two constructs legally span lines: a
 # block comment, and a TEMPLATE literal. A quote state reset at every newline
@@ -56,7 +66,8 @@ SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/src"
 # in the tree — including a screen that wrote its own.
 FILES=()
 while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
-  find "$SRC_DIR" -type f \( -name "*.ts" -o -name "*.tsx" \) \
+  find "$SRC_DIR" -type f \
+    \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \) \
     -not -path "$SRC_DIR/design-system/select.tsx" \
     -print0 2>/dev/null
 )

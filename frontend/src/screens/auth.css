@@ -17,10 +17,9 @@
  *  - the task region is FIRST in the DOM and `order` puts the identity region to
  *    its left, so reading order and visual order disagree on purpose.
  *  - the identity region shows ALL of itself or none of it. Down to 561px it
- *    keeps every limit (two columns, never dropping any, which is what the old
- *    `.auth-core-trust li:nth-child(n + 2) { display: none }` did); below that
- *    the phone layout drops the region — sphere included — and the surface is
- *    the task alone. `e2e/ac.spec.ts` pins both halves of that split.
+ *    keeps every limit (two columns, never dropping any); below that the phone
+ *    layout drops the region — sphere included — and the surface is the task
+ *    alone.
  *
  * The two regions are two HALVES OF THE PAGE divided by one hairline, not a card
  * floating in a pane. A wash that stops short of the edge on all four sides
@@ -1085,17 +1084,11 @@
    * PHONE ONLY: the surface is the task. Nothing else.
    *
    * The identity region goes whole — the sphere, the limits, and the AI's own
-   * sentence with them (founder ruling, 2026-08-07). On a phone the form is the
-   * only thing the screen is for, and everything that introduced the system was
-   * competing with it for the first look. The wide layout is where the system
-   * gets to introduce itself.
-   *
-   * The trade this makes, stated rather than hidden: a phone reader is told
-   * nothing here about the AI behind the installation. ADR-0076 Decision 1 asks
-   * for that disclosure at every width, and above this breakpoint (tablet, 200%
-   * zoom, desktop) it is intact — this is a deliberate departure at phone width,
-   * raised in STATUS.md for the spec to reconcile, and `e2e/ac.spec.ts` pins
-   * both halves of the split so it cannot drift back by accident.
+   * sentence with them. On a phone the form is the only thing the screen is for,
+   * and everything that introduced the system was competing with it for the first
+   * look. The wide layout is where the system gets to introduce itself; nothing
+   * here says anything about the AI behind the installation, and every layout
+   * above this breakpoint still does.
    */
   .auth-surface {
     grid-template-rows: 1fr;

@@ -157,8 +157,18 @@ describe("the Core's stillness", () => {
     // reads as the page moving rather than as the Core living, and next to copy
     // it is a bug that moves. The feed's `translateX` is the motes arriving,
     // which is the one thing here that travels on purpose.
+    //
+    // Every spelling of vertical travel, not the one that was written here
+    // before: the named function, the 3D form, the `translate` property, and the
+    // two-argument shorthand whose SECOND argument is the y — `translate(0, 8px)`
+    // moves the Core exactly as far as `translateY(8px)` and would have passed a
+    // check that only knew the name.
     expect(animatedSelectors().length).toBeGreaterThanOrEqual(3);
     expect(sheet).not.toMatch(/translateY|translate3d|translate\s*:/);
+    const offsets = [...sheet.matchAll(/\btranslate\(([^)]*)\)/g)].map((match) =>
+      (match[1].split(",")[1] ?? "0").trim(),
+    );
+    expect(offsets.filter((y) => !/^0[a-z%]*$/.test(y))).toEqual([]);
   });
 
   it("pauses every rhythm it starts while the window has no focus", () => {
