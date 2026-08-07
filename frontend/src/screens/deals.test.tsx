@@ -369,6 +369,9 @@ describe("DealsScreen", () => {
         agentTools: [
           {
             name: "progress_deal",
+            title: "Progress a deal with a note",
+            description:
+              'Move a deal to a new stage and leave a note on its timeline saying why. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)',
             required_scope: "write",
             tier: "auto_execute",
             egress: false,

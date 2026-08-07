@@ -220,12 +220,18 @@ function agentToolsBackend() {
         data: [
           {
             name: "search_records",
+            title: "Search records",
+            description:
+              'Find people, organizations, deals, leads and projects by name. (Governance: runs immediately; requires passport scope "read".)',
             required_scope: "read",
             tier: "auto_execute",
             egress: false,
           },
           {
             name: "send_email",
+            title: "Send an email",
+            description:
+              'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
             required_scope: "send",
             tier: "confirmation_required",
             egress: true,
@@ -262,6 +268,36 @@ describe("AgentToolsCard (IT-1)", () => {
     expect(
       searchRow && within(searchRow as HTMLElement).queryByText("reaches out"),
     ).toBeNull();
+  });
+
+  // The console's own promise is that it shows the surface an MCP client sees,
+  // and a verb with an autonomy dot beside it is not that: what an agent
+  // selects on is the written description the server serves, so the row has to
+  // show it rather than leave an operator to guess what their agents are told.
+  it("shows each tool's written display name and the text an agent selects it by", async () => {
+    vi.stubGlobal("fetch", agentToolsBackend());
+    render(<SettingsScreen tab="ai" />);
+
+    await waitFor(() =>
+      expect(screen.getAllByText("search_records").length).toBe(1),
+    );
+    const searchRow = document.querySelector(
+      '[data-tool="search_records"]',
+    ) as HTMLElement | null;
+    expect(searchRow).toBeTruthy();
+    expect(
+      searchRow && within(searchRow).getByText("Search records"),
+    ).toBeTruthy();
+    expect(
+      searchRow &&
+        within(searchRow).getByText(/Find people, organizations, deals/),
+    ).toBeTruthy();
+    // Governance travels with it, because the server appends it to the same
+    // string — the console must not show a shortened reading of what an agent
+    // was actually told.
+    expect(
+      searchRow && within(searchRow).getByText(/Governance: runs immediately/),
+    ).toBeTruthy();
   });
 });
 
@@ -313,6 +349,9 @@ function agentToolsWithPassportsBackend() {
           },
           {
             name: "send_email",
+            title: "Send an email",
+            description:
+              'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
             required_scope: "send",
             tier: "confirmation_required",
             egress: true,
@@ -408,6 +447,9 @@ function revocablePassportsBackend() {
         data: [
           {
             name: "send_email",
+            title: "Send an email",
+            description:
+              'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
             required_scope: "send",
             tier: "confirmation_required",
             egress: true,
