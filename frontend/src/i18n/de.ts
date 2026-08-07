@@ -496,7 +496,7 @@ export const de = {
   // Formular erscheint erst, wenn eines besteht — so entsteht das erste.
   // Wo der Account bei uns steht, und was er für uns ist — die zwei Fragen,
   // die die abgelöste Einstufung mit einem Wert beantworten wollte.
-  "org.lifecycle": "Phase",
+  "org.lifecycle": "Lebenszyklus",
   "org.relationshipTypes": "Beziehung zu uns",
   "org.lifecycle.unknown": "Nicht eingeschätzt",
   "org.lifecycle.target": "Zielkunde",
@@ -522,7 +522,7 @@ export const de = {
   // Die drei Aussagen, mit denen die Übersicht beginnt, und was das
   // Ausführen eines Vorschlags bedeutet.
   "co.strip.title": "Wo dieser Account steht",
-  "co.strip.account": "Phase",
+  "co.strip.account": "Lebenszyklus",
   "co.strip.engagement": "Wer am Zug ist",
   "co.strip.commercial": "Offene Deals",
   "co.strip.engagement.never_contacted": "Nie kontaktiert",
@@ -695,7 +695,7 @@ export const de = {
   "approval.kind.site_lead": "Person von der Website aufnehmen",
   "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
   "approval.kind.org_name_promotion": "Account umbenennen",
-  "approval.kind.lifecycle_change": "Account-Phase",
+  "approval.kind.lifecycle_change": "Lebenszyklus-Änderung",
   "approval.kind.fx_rate_proposal": "Wechselkurse aktualisieren",
   "approval.kind.ai_model_rate_proposal": "Modellpreise aktualisieren",
   "co.assistant.title": "Diesen Account befragen",

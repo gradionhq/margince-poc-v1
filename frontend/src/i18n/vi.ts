@@ -495,7 +495,7 @@ export const vi = {
   // the form appears once one exists, so this is how the first one is made.
   // Where the account stands with us, and what it is to us — the two
   // questions the retired classification answered with one value.
-  "org.lifecycle": "Giai đoạn",
+  "org.lifecycle": "Vòng đời",
   "org.relationshipTypes": "Quan hệ với chúng ta",
   "org.lifecycle.unknown": "Chưa đánh giá",
   "org.lifecycle.target": "Mục tiêu",
@@ -522,7 +522,7 @@ export const vi = {
   // suggestion means. "Whose move" is the question the 0-100 score was
   // mistaken for.
   "co.strip.title": "Tình hình tài khoản này",
-  "co.strip.account": "Giai đoạn",
+  "co.strip.account": "Vòng đời",
   "co.strip.engagement": "Đến lượt ai",
   "co.strip.commercial": "Deal đang mở",
   "co.strip.engagement.never_contacted": "Chưa từng liên hệ",
@@ -698,7 +698,7 @@ export const vi = {
   "approval.kind.site_lead": "Thêm người tìm thấy trên website",
   "approval.kind.capture_counterparty": "Thêm người từ email của bạn",
   "approval.kind.org_name_promotion": "Đổi tên một công ty",
-  "approval.kind.lifecycle_change": "Giai đoạn công ty",
+  "approval.kind.lifecycle_change": "Thay đổi vòng đời",
   "approval.kind.fx_rate_proposal": "Làm mới tỷ giá",
   "approval.kind.ai_model_rate_proposal": "Làm mới giá mô hình",
   "co.assistant.title": "Hỏi về tài khoản này",

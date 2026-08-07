@@ -1689,14 +1689,14 @@ function CompanyFactsCard({
   // company, and the icon carries what the label used to say. The grounded
   // statements below stay rows — they are sentences, and a sentence in a
   // pill is just a pill nobody can scan.
-  const chips: {
+  const rows: {
     key: string;
     icon: ReactNode;
     label: string;
     value: ReactNode;
   }[] = [];
   if (primary?.domain) {
-    chips.push({
+    rows.push({
       key: "website",
       icon: <Globe aria-hidden size={12} />,
       label: t("co.company.website"),
@@ -1712,7 +1712,7 @@ function CompanyFactsCard({
     });
   }
   if (org.industry) {
-    chips.push({
+    rows.push({
       key: "industry",
       icon: <Building2 aria-hidden size={12} />,
       label: t("co.company.industry"),
@@ -1720,14 +1720,14 @@ function CompanyFactsCard({
     });
   }
   if (org.size_band) {
-    chips.push({
+    rows.push({
       key: "size",
       icon: <Users aria-hidden size={12} />,
       label: t("co.company.size"),
       value: org.size_band,
     });
   }
-  chips.push({
+  rows.push({
     key: "owner",
     icon: <UserRound aria-hidden size={12} />,
     label: t("co.company.owner"),
@@ -1737,7 +1737,7 @@ function CompanyFactsCard({
       t("co.pulse.unowned")
     ),
   });
-  chips.push({
+  rows.push({
     key: "added",
     icon: <CalendarClock aria-hidden size={12} />,
     label: t("co.company.added"),
@@ -1749,20 +1749,21 @@ function CompanyFactsCard({
   return (
     <section className="card co-card co-lead">
       <h2 className="co-lead-title">{t("co.company.title")}</h2>
-      <div className="co-factchips">
-        {chips.map((chip) => (
-          <span key={chip.key} className="co-chip" title={chip.label}>
-            {chip.icon}
-            {/* The visible chip is icon + value only — the label lives in
-                `title`, which a touch user can never trigger and a screen
-                reader does not reliably announce on a span. This carries the
-                field name into the accessible name without adding a second
-                visible label. */}
-            <span className="sr-only">{chip.label}: </span>
-            {chip.value}
-          </span>
+      {/* One fact per row, each named. As chips the label lived only in an
+          icon, and an icon cannot tell "added" from "last contacted" — a bare
+          date beside a calendar glyph is unreadable. The name earns its
+          column. */}
+      <dl className="co-facts">
+        {rows.map((row) => (
+          <div key={row.key}>
+            <dt>
+              {row.icon}
+              {row.label}
+            </dt>
+            <dd>{row.value}</dd>
+          </div>
         ))}
-      </div>
+      </dl>
       {org.legal_name && <p className="co-legalname">{org.legal_name}</p>}
       {grounded.length > 0 && (
         <dl className="co-facts">

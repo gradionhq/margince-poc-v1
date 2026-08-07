@@ -186,13 +186,15 @@ describe("InboxScreen (B-EP09.12a)", () => {
     } as Approval;
     vi.stubGlobal("fetch", inboxBackend(calls, [], proposal));
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("Account stage")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("Lifecycle change")).toBeTruthy(),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     // By its LABEL, not its wire path: "proposed_lifecycle" is where the value
     // lives in the payload, and a reader deciding a proposal is asked about the
-    // account's stage.
-    const stage = screen.getByRole("combobox", { name: "Stage" });
+    // account's lifecycle.
+    const stage = screen.getByRole("combobox", { name: "Lifecycle" });
     expect(
       screen.queryByRole("textbox", { name: "organization_id" }),
     ).toBeNull();

@@ -487,7 +487,7 @@ export const en = {
   // the form appears once one exists, so this is how the first one is made.
   // Where the account stands with us, and what it is to us — the two
   // questions the retired classification answered with one value.
-  "org.lifecycle": "Stage",
+  "org.lifecycle": "Lifecycle",
   "org.relationshipTypes": "Relationship to us",
   "org.lifecycle.unknown": "Not assessed",
   "org.lifecycle.target": "Target",
@@ -514,7 +514,7 @@ export const en = {
   // suggestion means. "Whose move" is the question the 0-100 score was
   // mistaken for.
   "co.strip.title": "Where this account stands",
-  "co.strip.account": "Stage",
+  "co.strip.account": "Lifecycle",
   "co.strip.engagement": "Whose move",
   "co.strip.commercial": "Open deals",
   "co.strip.engagement.never_contacted": "Never contacted",
@@ -691,7 +691,7 @@ export const en = {
   "approval.kind.site_lead": "Add a person found on the site",
   "approval.kind.capture_counterparty": "Add someone from your mail",
   "approval.kind.org_name_promotion": "Rename an account",
-  "approval.kind.lifecycle_change": "Account stage",
+  "approval.kind.lifecycle_change": "Lifecycle change",
   "approval.kind.fx_rate_proposal": "Refresh exchange rates",
   "approval.kind.ai_model_rate_proposal": "Refresh model prices",
   "co.assistant.title": "Ask about this account",

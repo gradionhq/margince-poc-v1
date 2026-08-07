@@ -553,6 +553,9 @@ a.co-chip:focus-visible {
   width: 6.5rem;
   color: var(--textTertiary);
   font-size: 0.8125rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .co-facts dd {
   margin: 0;
@@ -589,19 +592,8 @@ a.co-chip:focus-visible {
   padding: var(--space-4);
 }
 
-/* The company's facts as chips: compact, wrapping, each self-contained, the
-   icon carrying what a label column used to spend 6.5rem saying. */
-.co-factchips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.co-factchips .co-chip {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-/* The legal name sits under the chips as plain text: it is the one fact with
-   no meaningful icon and no short form. */
+/* The legal name sits under the facts as plain text: it is the one fact with
+   no short form worth a row of its own. */
 .co-legalname {
   margin: var(--space-3) 0 0;
   color: var(--textMeta);
