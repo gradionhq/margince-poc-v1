@@ -165,6 +165,43 @@ numbers appear here when releases start.
 
 ### Changed
 
+- **Every dropdown in the product is the design system's, not the
+  browser's.** `Select` is a button trigger plus a portalled listbox with
+  the full keyboard contract (arrows, Home/End, typeahead, Escape without
+  committing, focus back to the trigger), so the option list takes the
+  product's tokens instead of the platform's — including inside a
+  scrolling toolbar, where it anchors to the trigger and flips when the
+  room below runs out. Callers pass `options` and receive the VALUE in
+  `onChange`; a `<select>`, `<option>` or `<optgroup>` anywhere under
+  `frontend/src` outside that one component now fails
+  `make frontend-check`. `frontend/src/design-system/README.md` is the
+  catalog to read before hand-rolling any control.
+- **The sign-in screen is two halves of a page, not a card in a pane.** The
+  identity region runs full-bleed and is divided from the form by one
+  hairline; the wordmark sits in the page's top-left corner on the split
+  layout and above the form when the layout stacks; the form is a single
+  400px measure with its heading, provider buttons, fields, locale row and
+  fine print all on one left edge, and the provider buttons are stacked
+  full-width so every way in presents the same target. Spacing scales with
+  the viewport off the `--space` scale rather than sitting at fixed pixels.
+  On phones (≤560px) the identity region drops **entirely, sphere
+  included** — the form is the only thing that screen is for — and the
+  boundary statement it is obliged to make stays, as the line above the
+  form.
+- **The sign-in screen's entry animation belongs to the page load.** The
+  staggered fades and the typed statement ran again on every React remount
+  of the surface, which reads as the page reloading under the reader. The
+  choreography is now marked spent on the document once it has run its
+  course, so a remount renders the surface already arrived while a real
+  page load still gets the introduction.
+- **The Core holds its position.** The sphere's 11-second vertical drift is
+  gone everywhere; it still breathes, and the beat is still what carries
+  its state.
+- **The Core goes still while the window does not have focus.** Both halves
+  of it — the WebGL liquid and the CSS rhythms (breath, sheen, halo, feed) —
+  stop off one document-level `focus`/`blur` signal and resume with it, so
+  a Core behind another window costs nothing and the sphere and its glow
+  can never disagree about whether it is moving.
 - **The passport cap an operation spends comes from the contract.** Every
   `x-mcp-tool` annotation now declares its `scope` alongside its tier, and
   the REST agent gate spends that declared cap instead of a hardcoded

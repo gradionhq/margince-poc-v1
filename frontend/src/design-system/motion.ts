@@ -121,3 +121,57 @@ export function useTypeStream(
 
   return { shown, done };
 }
+
+/**
+ * How long an entry choreography owns the screen. Past this the document has
+ * been introduced, and anything that mounts later renders in its end state.
+ *
+ * It is a ceiling over the longest sequence any surface runs (the login
+ * surface's staggered rows plus its typed statement), not a per-surface number:
+ * an intro that is still mid-flight when a remount lands should finish where it
+ * was going rather than be cut off by a shorter budget.
+ */
+export const INTRO_MS = 2400;
+
+/**
+ * Whether an entry animation should PLAY, which is true once per document load
+ * and not once per mount.
+ *
+ * The distinction is the whole point. A React remount is not a page load — a
+ * background refetch, a notice appearing, a parent re-branching all replace the
+ * subtree — and a surface that keys its intro to the mount replays the whole
+ * choreography on every one of them. Copy that types itself out again, after
+ * the reader has already read it, reads as the page reloading under them.
+ *
+ * The mark is set once the intro HAS RUN ITS COURSE rather than at mount, and
+ * that is what makes it survive React's development double-mount: the second
+ * mount arrives long before the sequence is over, so it still plays, while a
+ * remount after the fact renders the end state.
+ *
+ * It is kept on the document element rather than in a module variable because
+ * the document is what the rule is about: a real page load builds a new one and
+ * the intro comes back with it, which is exactly when a reader expects to see
+ * it. It is also then observable — a stylesheet, a test or a browser can read
+ * whether this document has been introduced.
+ */
+const INTRO_MARK = "marginceIntro";
+
+export function useDocumentIntro(): boolean {
+  // Read at mount and held: the mark lands while this component is alive, and a
+  // surface whose intro is mid-flight must not lose its animation halfway.
+  const [play] = useState(
+    () => document.documentElement.dataset[INTRO_MARK] !== "spent",
+  );
+
+  useEffect(() => {
+    if (!play) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      document.documentElement.dataset[INTRO_MARK] = "spent";
+    }, INTRO_MS);
+    return () => clearTimeout(timer);
+  }, [play]);
+
+  return play;
+}

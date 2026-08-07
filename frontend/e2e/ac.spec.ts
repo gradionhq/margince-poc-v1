@@ -399,12 +399,23 @@ test("AC-create-2: the palette's New-deal action opens the create form; only ope
   // still offers open stages only.
   const stageSelect = page.getByRole("dialog").getByLabel("Phase");
   await expect(stageSelect).toBeVisible();
-  const stageNames = await stageSelect.locator("option").allTextContents();
+  // The choices exist only while the popup is open, and the popup is portalled
+  // to the body — so it is located from the page, not from inside the dialog.
+  await stageSelect.click();
+  const stageNames = await page
+    .locator('[role="listbox"]')
+    .getByRole("option")
+    .allTextContents();
   expect(stageNames.filter(Boolean)).toEqual([
     "Qualify",
     "Proposal",
     "Negotiation",
   ]);
+  // Looking is all this AC needs, so the list is put away the way it was
+  // opened — a second press on the trigger. NOT Escape: the surrounding Modal
+  // listens for it too and would take the whole create form down with it.
+  await stageSelect.click();
+  await expect(page.locator('[role="listbox"]')).toHaveCount(0);
   await page.getByLabel("Deal-Name").fill("Neuer Deal");
   await page.getByLabel("Wert").fill("480");
   await page.getByRole("button", { name: "Anlegen" }).click();
@@ -752,11 +763,12 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
   // because that is what the layout sees; deviceScaleFactor would change the
   // pixel ratio and nothing about the breakpoints.
   // `identity` is whether the identity REGION is part of the surface at that
-  // width. Below 561px it is not: the phone layout is the task alone, one
-  // full-height card, with the Core in its header (see the ≤560 block in
-  // auth.css). That is a deliberate reversal of Decision 1 for phones only —
-  // raised in STATUS.md — and it is pinned here rather than left to drift,
-  // because the alternative is a suite that still forbids the shipped design.
+  // width. Below 561px it is not: the phone layout is the task alone — the
+  // region goes, and the Core goes with it (see the ≤560 block in auth.css),
+  // because on a phone the form is the only thing the screen is for. That is a
+  // deliberate reversal of Decision 1 for phones only — raised in STATUS.md —
+  // and it is pinned here rather than left to drift, because the alternative is
+  // a suite that still forbids the shipped design.
   const NARROW = [
     { label: "390px mobile", width: 390, height: 844, identity: false },
     { label: "320px narrow", width: 320, height: 568, identity: false },
@@ -817,12 +829,12 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
       // rendered height, because a count alone passes on a hidden node.
       //
       // Where it is NOT — the phone layout — the region is absent by design and
-      // what remains is one card with the Core in its header. But the DISCLOSURE
-      // is not the region's to take with it: the Core is `aria-hidden`, so
-      // dropping the aside without the phone line leaves a phone user, and every
-      // screen-reader user on one, told nothing about the AI at all. Exactly one
-      // of the two statements is live at any width, so neither branch can pass
-      // by saying it twice.
+      // what remains is the task alone: no aside, and no sphere either. But the
+      // DISCLOSURE is not the region's to take with it: the Core is
+      // `aria-hidden`, so dropping the aside without the phone line leaves a
+      // phone user, and every screen-reader user on one, told nothing about the
+      // AI at all. Exactly one of the two statements is live at any width, so
+      // neither branch can pass by saying it twice.
       test("shows the identity region whole, or not at all", async ({
         page,
       }) => {
@@ -839,7 +851,10 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
           await expect(phoneLine).toBeHidden();
         } else {
           await expect(region).toBeHidden();
-          await expect(page.locator("[data-core-state]")).toHaveCount(1);
+          // Hidden, not merely present: the sphere is drawn by the same markup at
+          // every width, so a count would pass on a Core the phone layout still
+          // shows — which is the thing this width is supposed to be free of.
+          await expect(page.locator("[data-core-state]")).toBeHidden();
           // The class, not the tag: `RaillessFrame` already wraps every
           // rail-less screen in a `<main>`, so the task region is a `<div>` —
           // a second `<main>` here would be an invalid, duplicate landmark.
