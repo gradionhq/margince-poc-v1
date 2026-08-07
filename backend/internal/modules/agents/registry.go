@@ -61,6 +61,12 @@ func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 
 var _ mcp.Registry = (*Registry)(nil)
 
+// maxDescriptionRunes bounds one tool's written description. See Register for
+// why a bound exists at all; the value is roughly three times the longest entry
+// this surface ships, so it refuses runaway prose without ever being a number
+// an author writing a careful description has to think about.
+const maxDescriptionRunes = 3000
+
 // Register refuses, at boot, the spec defects that would otherwise surface as
 // a runtime authority bug or a broken wire response: a duplicate name (two
 // handlers behind one admission decision), a TierDynamic spec with no resolver
@@ -101,6 +107,19 @@ func (r *Registry) Register(t mcp.Tool) {
 	if strings.TrimSpace(spec.Description) == "" {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s has no Description — a client would be told how it is governed and never what it is for", spec.Name))
+	}
+	// And an upper bound, because the description is not only served to a
+	// client that can ignore it: the Surface-B window prints every registered
+	// tool's, and that listing is in the system prompt, which elision never
+	// touches. One tool's prose is therefore spent out of every run's own
+	// context for the life of the process. The ceiling is several times the
+	// longest written entry — it is a bound on the pathological case, not a
+	// style rule — and it binds every tool that comes through this door, so an
+	// extension unit cannot crowd the prompt on its own.
+	if n := len([]rune(spec.Description)); n > maxDescriptionRunes {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: %s has a %d-rune Description, past the %d a tool may spend — "+
+			"every run's prompt carries it and never elides it", spec.Name, n, maxDescriptionRunes))
 	}
 	if err := assertObjectSchemas(spec); err != nil {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path

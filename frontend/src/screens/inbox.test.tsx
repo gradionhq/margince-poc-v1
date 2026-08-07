@@ -242,7 +242,7 @@ describe("InboxScreen (B-EP09.12a)", () => {
           name: "send_email",
           title: "Send an email",
           description:
-            'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
+            'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: runs immediately; requires passport scope "write".)',
           required_scope: "write",
           tier: "auto_execute",
           egress: true,

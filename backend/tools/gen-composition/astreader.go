@@ -224,10 +224,13 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			scope, err = r.constValue(kv.Value, ext)
 		case "Handle":
 			// Behavior is not a static declaration and never reaches the
-			// manifest. Whether one is PRESENT is read anyway, because it is
-			// what separates a served tool — which owes a description — from an
-			// inert manifest request, which does not.
-			served = true
+			// manifest. Whether one is SERVED is read anyway, because that is
+			// what separates a tool owing a description from an inert manifest
+			// request that does not. A declared `Handle: nil` is inert — it is
+			// how the seam spells "declare it, serve nothing", and the runtime
+			// adapter skips exactly that — so the field's presence is not the
+			// question; its value being non-nil is.
+			served = !isNilIdent(kv.Value)
 		case "InputSchema", "OutputSchema":
 			// Client-facing I/O docs — recognized and skipped. The manifest
 			// records the governance descriptor, not the advertised schemas.
@@ -249,6 +252,13 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 	return r.toolRequest(lit, declaredTool{
 		name: name, title: title, description: description, version: version, tier: tier, scope: scope,
 	})
+}
+
+// isNilIdent reports whether an expression is the literal `nil`. It is the one
+// value of Handle that declares a tool and serves nothing.
+func isNilIdent(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == "nil"
 }
 
 // declaredTool is one Tools entry as the source states it, before the

@@ -298,6 +298,23 @@ describe("AgentToolsCard (IT-1)", () => {
     expect(
       searchRow && within(searchRow).getByText(/Governance: runs immediately/),
     ).toBeTruthy();
+
+    // The confirm-first row too, and not only the 🟢 one: a regression that
+    // dropped the title or the description from the row an operator most needs
+    // to read — the one that leaves the workspace — would otherwise pass here.
+    const sendRow = document.querySelector(
+      '[data-tool="send_email"]',
+    ) as HTMLElement | null;
+    expect(sendRow).toBeTruthy();
+    expect(sendRow && within(sendRow).getByText("Send an email")).toBeTruthy();
+    expect(
+      sendRow && within(sendRow).getByText(/Put a mail on the wire/),
+    ).toBeTruthy();
+    expect(
+      sendRow &&
+        within(sendRow).getByText(/Governance: a person approves every call/),
+    ).toBeTruthy();
+    expect(sendRow && within(sendRow).getByText("send")).toBeTruthy();
   });
 });
 
@@ -343,6 +360,9 @@ function agentToolsWithPassportsBackend() {
         data: [
           {
             name: "list_pipelines",
+            title: "List pipelines and their stages",
+            description:
+              'Every pipeline with its live stages. (Governance: runs immediately; requires passport scope "read".)',
             required_scope: null,
             tier: "auto_execute",
             egress: false,

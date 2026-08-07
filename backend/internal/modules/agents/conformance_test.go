@@ -394,6 +394,23 @@ func TestRegisterRefusesWireDefects(t *testing.T) {
 		spec.Description = "  "
 		NewRegistry(nil, nil).Register(echoTool{spec: spec})
 	})
+	mustPanic(t, "a runaway description is spent out of every run's prompt, which never elides it", func() {
+		spec := objectSpec("verbose", principal.ScopeRead)
+		spec.Description = strings.Repeat("a", maxDescriptionRunes+1)
+		NewRegistry(nil, nil).Register(echoTool{spec: spec})
+	})
+	// The bound has to admit what the surface actually ships, or it is a rule
+	// against writing the descriptions this change exists to write.
+	longest := 0
+	for _, spec := range coreSpecsForBounds() {
+		if n := len([]rune(spec.Description)); n > longest {
+			longest = n
+		}
+	}
+	if longest >= maxDescriptionRunes {
+		t.Errorf("the longest shipped description is %d runes against a %d ceiling — the bound is "+
+			"refusing prose this surface already writes", longest, maxDescriptionRunes)
+	}
 	mustPanic(t, "an array output schema can never be answered with structuredContent", func() {
 		spec := objectSpec("lists_things", principal.ScopeRead)
 		spec.OutputSchema = json.RawMessage(`{"type":"array"}`)
@@ -556,3 +573,12 @@ var probeReportCatalog = []ReportCatalogEntry{{
 	Aggregates: []string{"amount_minor"},
 	Defaults:   "count as deals grouped by stage_id",
 }}
+
+// coreSpecsForBounds is every tool this package registers over stub seams, which
+// is enough to read their specs: Register runs the bounds, and a spec's written
+// text does not depend on what it was wired to.
+func coreSpecsForBounds() []mcp.ToolSpec {
+	r := NewRegistry(nil, nil)
+	RegisterCoreTools(r, nil, nil, nil, nil)
+	return r.Specs()
+}

@@ -383,6 +383,19 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* The verb, the written title and the badges are one line only while there
+     is room for one. A long verb next to a long title and two badges is wider
+     than a narrow viewport, and an unwrapped flex line does not shrink — it
+     pushes the card's own scroll width out and the whole settings column
+     scrolls sideways. Wrapping costs a line and keeps the page still. */
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+/* The verb is a machine identifier with no spaces to break at, so wrapping the
+   line around it is not enough on its own: it has to be allowed to break
+   inside itself rather than set the row's minimum width. */
+.tool-row-head .t-mono {
+  overflow-wrap: anywhere;
 }
 
 /* The tool console's selection prose (AgentToolsCard). It hangs under the

@@ -223,8 +223,15 @@ func invocableByCaller(ctx context.Context, spec mcp.ToolSpec) bool {
 // endpoint it has no way to call. It stays on ToolSpec.OpenAPIOp, which is what
 // the contract-parity gate reads.
 func DescribeForClient(spec mcp.ToolSpec) string {
-	tier := "runs immediately"
+	// Every arm is named, and the fallthrough is the CONSERVATIVE reading, not
+	// the convenient one: the admission gate treats anything that is not
+	// TierAutoExecute as confirm-first, so a tier added without updating this
+	// switch must not be advertised as running unattended. The same posture
+	// tierWire takes on the REST side, for the same reason.
+	tier := "a person approves every call before it runs"
 	switch spec.Tier {
+	case mcp.TierAutoExecute:
+		tier = "runs immediately"
 	case mcp.TierConfirmationRequired:
 		tier = "a person approves every call before it runs"
 	case mcp.TierDynamic:

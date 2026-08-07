@@ -79,7 +79,7 @@ func restatedGovernance(spec mcp.ToolSpec) string {
 }
 
 func TestEveryRegisteredToolIsDescribedInTextAClientCanRender(t *testing.T) {
-	for _, spec := range NewRegistry(nil, SendPath{}).Specs() {
+	for _, spec := range servedSurface(t).Specs() {
 		if defect := renderableDescriptionDefect(spec); defect != "" {
 			t.Errorf("%s: %s", spec.Name, defect)
 		}
@@ -87,7 +87,7 @@ func TestEveryRegisteredToolIsDescribedInTextAClientCanRender(t *testing.T) {
 }
 
 func TestNoWrittenDescriptionRestatesGovernanceInsteadOfPurpose(t *testing.T) {
-	for _, spec := range NewRegistry(nil, SendPath{}).Specs() {
+	for _, spec := range servedSurface(t).Specs() {
 		if phrase := restatedGovernance(spec); phrase != "" {
 			t.Errorf("%s: the written description carries %q, which the governance clause already states",
 				spec.Name, phrase)
@@ -100,7 +100,7 @@ func TestNoWrittenDescriptionRestatesGovernanceInsteadOfPurpose(t *testing.T) {
 // version of this a test can hold honestly — near-duplication is an editorial
 // judgement — but it is the version that catches a copy-paste.
 func TestNoTwoToolsShareADescription(t *testing.T) {
-	if first, second, shared := duplicateDescription(NewRegistry(nil, SendPath{}).Specs()); shared {
+	if first, second, shared := duplicateDescription(servedSurface(t).Specs()); shared {
 		t.Errorf("%s and %s are described identically, so nothing in the listing tells them apart", first, second)
 	}
 }
@@ -127,7 +127,10 @@ func TestTheDescriptionRulesFailOnTheDefectsTheyDescribe(t *testing.T) {
 	}{
 		{"framed by whitespace", mcp.ToolSpec{Name: "t", Description: " " + written}},
 		{"too short to have said anything", mcp.ToolSpec{Name: "t", Description: "Searches."}},
-		{"carrying a control character", mcp.ToolSpec{Name: "t", Description: written + "\n"}},
+		// \x01 rather than a newline: TrimSpace catches trailing whitespace one
+		// branch earlier, so a newline would have proved the framing rule twice
+		// and the rune loop never once.
+		{"carrying a control character", mcp.ToolSpec{Name: "t", Description: "Find people" + "\x01" + " by name, when you do not yet know which record you mean."}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if renderableDescriptionDefect(tc.spec) == "" {
@@ -193,16 +196,32 @@ const windowListingDivisor = 2
 // are estimated by the ~4-bytes rule the window itself estimates with, so this
 // holds the real string against the real ceiling.
 //
-// It counts the CORE catalog. An installation's extension tools ride the same
-// never-elided listing and are not counted here, which is why the bound is half
-// a window rather than most of one.
+// It measures the surface an installation actually serves, extension tools
+// included. They ride the same never-elided listing as the core tools, and a
+// unit is free to write as much prose as it likes — so a gate that counted only
+// the core catalog would report headroom the shipped prompt does not have.
 func TestTheToolListingLeavesTheRunRoomInTheWindow(t *testing.T) {
-	tokens := len(runner.ToolListing(NewRegistry(nil, SendPath{}).Specs())) / 4
+	tokens := len(runner.ToolListing(servedSurface(t).Specs())) / 4
 	if budget := runner.PromptTokenCeiling / windowListingDivisor; tokens > budget {
 		t.Errorf("the tool listing is ~%d tokens of a %d-token window, past the %d it may take — "+
 			"the listing is never elided, so what grows here comes out of the run's own observations",
 			tokens, runner.PromptTokenCeiling, budget)
 	}
+}
+
+// servedSurface is the core tool surface these rules are held against.
+//
+// It is the CORE catalog and not the composed one. Reaching the composed set
+// from here would mean importing the composition module, which only a role main
+// may do (TestCompositionWiredOnlyFromCmd) — and that boundary is worth more
+// than the coverage would be. An extension tool is not unchecked in its place:
+// Register applies the same per-tool bounds to every tool that comes through
+// it, core and extension alike, so no single unit can blow the listing on its
+// own. What this leaves unmeasured is a tree that adds MANY units at once,
+// which is an installation's own arithmetic to do.
+func servedSurface(t *testing.T) *agents.Registry {
+	t.Helper()
+	return NewRegistry(nil, SendPath{})
 }
 
 // toolsListDescriptions is what an MCP client is actually served, read off a

@@ -11,6 +11,8 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,8 +35,12 @@ func TestListPipelinesIsReadTierAndNeedsOnlyReadScope(t *testing.T) {
 	// the dead end exactly where it was. It is read off Description rather than
 	// off the input schema because the tool takes no arguments: there was
 	// nowhere else to put this before the spec carried written copy.
+	// Each name is looked for as a WORD. `stage_id` is a substring of
+	// `to_stage_id`, so a contains-check would report the standalone argument as
+	// named by a description that only ever mentions the other one.
+	named := regexp.MustCompile(`[a-z_]+`).FindAllString(spec.Description, -1)
 	for _, want := range []string{"pipeline_id", "stage_id", "to_stage_id", "semantic"} {
-		if !strings.Contains(spec.Description, want) {
+		if !slices.Contains(named, want) {
 			t.Errorf("the description names no %s — an agent reading tools/list cannot tell "+
 				"this is the tool that unblocks the deal verbs", want)
 		}
