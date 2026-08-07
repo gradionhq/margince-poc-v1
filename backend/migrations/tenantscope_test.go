@@ -127,7 +127,7 @@ var tenantScopeCases = []struct {
 }, {
 	// The binding search must read a view with comments blanked. Reading raw
 	// text lets an author who EXPLAINS the binding satisfy the requirement to
-	// perform it — the one way this gate can be talked out of firing.
+	// perform it.
 	name: "a comment that mentions the binding instead of a statement that does it",
 	sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
 			-- already bound above via set_config('app.workspace_id', ws::text, true)
@@ -143,6 +143,16 @@ var tenantScopeCases = []struct {
 			END LOOP;
 			UPDATE role SET permissions = '{}'::jsonb WHERE role.workspace_id = ws;
 			END $$;`,
+	flagged: true,
+}, {
+	// Same evasion as the comment above, one quoting style further out: a
+	// dollar-quoted string is not blanked by the single-quote pass, so its
+	// contents would otherwise stand in for the call it only spells.
+	name: "a dollar-quoted string that spells the binding instead of a statement that does it",
+	sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
+			PERFORM log_note($note$ bound via set_config('app.workspace_id', ws::text, true) $note$);
+			UPDATE role SET permissions = '{}'::jsonb WHERE role.workspace_id = ws;
+			END LOOP; END $$;`,
 	flagged: true,
 }, {
 	name: "a bound loop whose write does not name the workspace it is for",
@@ -189,6 +199,18 @@ var tenantScopeCases = []struct {
 			PERFORM set_config('app.workspace_id', ws::text, true);
 			INSERT INTO activity (workspace_id, subject)
 			SELECT o.workspace_id, o.name FROM organization o WHERE o.workspace_id = ws
+			ON CONFLICT (workspace_id, subject) DO UPDATE SET subject = EXCLUDED.subject;
+			END LOOP; END $$;`,
+	flagged: true,
+}, {
+	// A self-insert carries the TARGET's name on its source predicate, so a
+	// whole-statement search would find `activity.workspace_id = ws` and credit
+	// the conflict branch with a scope it never declared.
+	name: "an upsert whose only predicate belongs to the source it selects from",
+	sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
+			PERFORM set_config('app.workspace_id', ws::text, true);
+			INSERT INTO activity (workspace_id, subject)
+			SELECT activity.workspace_id, activity.subject FROM activity WHERE activity.workspace_id = ws
 			ON CONFLICT (workspace_id, subject) DO UPDATE SET subject = EXCLUDED.subject;
 			END LOOP; END $$;`,
 	flagged: true,
@@ -273,8 +295,10 @@ func TestTheTenantScopeCheckSeesEveryUnscopedShapeAndPassesTheLegitimateOnes(t *
 // Two views of the same text, because the two checks need different things and
 // stripComments preserves every offset so the views stay aligned. Statements are
 // read from the blanked view, where a table name or a predicate inside a string
-// literal cannot raise or satisfy a finding. The binding is looked for in the RAW
-// view, since `set_config('app.workspace_id'` is itself a literal.
+// literal cannot raise or satisfy a finding. The binding is looked for in a
+// SECOND view that keeps single-quoted literals — `set_config('app.workspace_id'`
+// is itself one — and blanks comments, so explaining the binding cannot pass for
+// performing it.
 func unscopedTenantWrites(sql string, tenant map[string]bool) []string {
 	blanked := stripComments(sql)
 	topLevel, blocks := executedRegions(blanked)
@@ -291,17 +315,52 @@ func unscopedTenantWrites(sql string, tenant map[string]bool) []string {
 		}
 	}
 	// Two views, aligned because blanking preserves length. The write scan reads
-	// `blanked` (comments AND literals gone) so a table named in a literal cannot
-	// raise a finding; the binding search reads `bindings` (comments gone,
-	// literals kept) because the binding is itself a literal — and reading the
-	// raw text there would let a comment MENTIONING the binding satisfy the
-	// requirement to perform one.
+	// `blanked` (comments AND single-quoted literals gone) so a table named in a
+	// literal cannot raise a finding; the binding search reads `bindings`
+	// (comments gone, single-quoted literals kept) because the binding is itself
+	// a literal — and reading the raw text there would let a comment MENTIONING
+	// the binding satisfy the requirement to perform one.
+	//
+	// Both views then lose any NESTED dollar-quoted body. Inside a block region
+	// the outer $$ is already stripped, so a $tag$…$tag$ within it is a literal
+	// or a function body — either way text this connection does not execute, and
+	// either way it must neither raise a finding nor satisfy one. Keeping it in
+	// the binding view would let a dollar-quoted string containing the
+	// set_config call stand in for making it.
 	bindings := blankComments(sql)
 	for _, region := range blocks {
 		findings = append(findings, unscopedWritesInBlock(
-			blanked[region.start:region.end], bindings[region.start:region.end], tenant)...)
+			blankNestedDollarQuoted(blanked[region.start:region.end]),
+			blankNestedDollarQuoted(bindings[region.start:region.end]), tenant)...)
 	}
 	return findings
+}
+
+// blankNestedDollarQuoted blanks the body of every dollar-quoted region in a
+// block, preserving length so the loop-scope arithmetic still lines up.
+func blankNestedDollarQuoted(block string) string {
+	out := []byte(block)
+	for at := 0; at < len(block); {
+		open := dollarTagPattern.FindStringIndex(block[at:])
+		if open == nil {
+			break
+		}
+		bodyStart := at + open[1]
+		tag := block[at+open[0] : bodyStart]
+		end := strings.Index(block[bodyStart:], tag)
+		if end < 0 {
+			// Unterminated: the database rejects it. Blanking to the end keeps a
+			// stray tag from hiding the rest of the block from the write scan.
+			end = len(block) - bodyStart
+		}
+		for i := bodyStart; i < bodyStart+end; i++ {
+			if out[i] != '\n' {
+				out[i] = ' '
+			}
+		}
+		at = bodyStart + end + len(tag)
+	}
+	return string(out)
 }
 
 // unscopedWritesInBlock checks one executed-now plpgsql body. Scope is judged
@@ -385,9 +444,22 @@ type tenantWrite struct {
 // upserts a tenant table that way today; requiring it now is what keeps the
 // exception from quietly widening to cover one that does.
 func (w tenantWrite) namesItsWorkspace() bool {
-	sourceScopedInsert := strings.EqualFold(w.verb, "INSERT INTO") && !conflictUpdatePattern.MatchString(w.text)
-	for _, predicate := range qualifiedPredicatePattern.FindAllStringSubmatch(w.text, -1) {
-		if sourceScopedInsert || strings.EqualFold(predicate[1], w.target) {
+	searched := w.text
+	switch conflict := conflictUpdatePattern.FindStringIndex(w.text); {
+	case conflict != nil:
+		// Only a predicate inside the conflict branch can scope rows the source
+		// never selected. Searching the whole statement would let the source's own
+		// predicate stand in for it — and in a self-insert that predicate carries
+		// the target's name, so the branch would read as scoped while constraining
+		// nothing.
+		searched = w.text[conflict[1]:]
+	case strings.EqualFold(w.verb, "INSERT INTO"):
+		// The exception: a plain insert takes its workspace_id from the row the
+		// source produced, so any qualifier is the correct one.
+		return qualifiedPredicatePattern.MatchString(w.text)
+	}
+	for _, predicate := range qualifiedPredicatePattern.FindAllStringSubmatch(searched, -1) {
+		if strings.EqualFold(predicate[1], w.target) {
 			return true
 		}
 	}
@@ -540,17 +612,21 @@ func executedRegions(sql string) (topLevel, doBlocks []region) {
 // stripComments blanks out `--` and `/* */` comments and the contents of string
 // literals, preserving every offset so the loop-scope arithmetic still lines up.
 // Literals go because a table name or a `workspace_id = ws` inside quotes is
-// text, not SQL, and must neither raise a finding nor satisfy one.
-// stripComments blanks comments AND string literals — the view the write scan
-// reads, so a tenant table named only inside a literal cannot raise a finding.
+// stripComments blanks comments AND single-quoted literals — the view the write
+// scan reads. A table name or a `workspace_id = ws` inside quotes is text, not
+// SQL, and must neither raise a finding nor satisfy one. Offsets are preserved
+// so the loop-scope arithmetic still lines up.
 func stripComments(sql string) string { return blank(sql, true) }
 
-// blankComments blanks comments and leaves string literals standing — the view
-// the BINDING search reads, because the binding it looks for
+// blankComments blanks comments and leaves single-quoted literals standing — the
+// view the BINDING search reads, because the binding it looks for
 // (`set_config('app.workspace_id'`) contains a literal of its own and would be
-// erased by the pass above. Reading the raw text instead would let a comment
-// that merely mentions the binding satisfy the requirement to perform it, which
-// is the one way this gate can be talked out of firing.
+// erased by the pass above. Reading the raw text instead would let a comment that
+// merely mentions the binding satisfy the requirement to perform it.
+//
+// Neither pass recognizes dollar quoting; blankNestedDollarQuoted handles that
+// per block, where the outer $$ has already been stripped and a remaining
+// $tag$…$tag$ can only be a literal or a body this connection does not run.
 func blankComments(sql string) string { return blank(sql, false) }
 
 func blank(sql string, literals bool) string {

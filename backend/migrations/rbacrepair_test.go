@@ -220,9 +220,14 @@ func isRepair(migration dbmigrate.Migration) bool {
 // same permission compare equal however they were written. Folding whitespace
 // alone would leave key ORDER significant, and the mismatch it then reported
 // would show two payloads a reader cannot tell apart.
+//
+// Decoded as `any`, not `bool`: a bool target would read JSON null as false and
+// call `{"create":null}` equal to `{"create":false}`. Postgres stores those as
+// different JSONB, and `permissions->'objects'->'x'->>'create'` returns NULL for
+// one and "false" for the other — a difference this comparison must not erase.
 func normalizePayload(t *testing.T, payload string) string {
 	t.Helper()
-	var verbs map[string]bool
+	var verbs map[string]any
 	if err := json.Unmarshal([]byte(payload), &verbs); err != nil {
 		t.Fatalf("a grant payload is not a permission document: %s (%v). The derivation reads these as "+
 			"the thing being compared, so one it cannot parse silently compares as a string instead.",

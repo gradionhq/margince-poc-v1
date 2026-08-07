@@ -65,13 +65,21 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 					}
 				}
 
-				// A second workspace whose admin already holds every one of these
-				// objects, deliberately NARROWED. The repair's only-if-absent guard is
-				// the single thing standing between it and overwriting an operator's
-				// decision on every installation that upgrades, and a guard is only
-				// proved by a row it has to skip.
+				// A second workspace where EVERY system role already holds every one of
+				// these objects, deliberately NARROWED. The repair's only-if-absent
+				// guard is the single thing standing between it and overwriting an
+				// operator's decision on every installation that upgrades, and a guard
+				// is only proved by a row it has to skip.
+				//
+				// All five roles, not just admin: each object is repaired by two or
+				// three statements split by role, so a guard dropped from the
+				// manager/rep/read_only arm would leave the assertions above passing —
+				// those roles are absent in the main workspace, so the repair writing
+				// them is the expected outcome there.
 				narrowed := seedWorkspace(t, admin, "repair-narrowed-"+namespace.Name+"-"+repair.Version)
-				seedRole(t, admin, narrowed, "admin", true, documentGranting(t, objects, alteredGrant))
+				for _, role := range systemRoleKeys {
+					seedRole(t, admin, narrowed, role, true, documentGranting(t, objects, alteredGrant))
+				}
 
 				// Executed directly rather than through Up: the version is already
 				// recorded, and skipping recorded versions is the behaviour that makes
@@ -98,11 +106,13 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 						}
 					}
 
-					if held, present := readGrant(ctx, t, admin, narrowed, "admin", object); !present ||
-						held != alteredGrant {
-						t.Errorf("the repair rewrote admin's existing %s grant to %+v; it was %+v, which an "+
-							"operator set deliberately. The only-if-absent guard is what keeps a repair "+
-							"from overruling every installation it touches", object, held, alteredGrant)
+					for _, role := range systemRoleKeys {
+						if held, present := readGrant(ctx, t, admin, narrowed, role, object); !present ||
+							held != alteredGrant {
+							t.Errorf("the repair rewrote %q's existing %s grant to %+v; it was %+v, which an "+
+								"operator set deliberately. The only-if-absent guard is what keeps a repair "+
+								"from overruling every installation it touches", role, object, held, alteredGrant)
+						}
 					}
 				}
 
