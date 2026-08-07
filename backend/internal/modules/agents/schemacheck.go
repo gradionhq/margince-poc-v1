@@ -28,10 +28,15 @@ import (
 	"strings"
 )
 
-// conformsToSchema reports the first way value fails schema, or "" when it
-// keeps it. A schema this cannot parse is reported rather than passed: an
-// unreadable schema is a defect in the same family as an unsatisfied one.
-func conformsToSchema(schema, value json.RawMessage) string {
+// ResultDefect reports the first way value fails schema, or "" when it keeps
+// it. A schema this cannot parse is reported rather than passed: an unreadable
+// schema is a defect in the same family as an unsatisfied one.
+//
+// Exported because the dispatcher is not its only caller: the conformance suite
+// invokes every tool against a real database and holds each answer to the schema
+// its tool advertised, and it has to ask that question the same way the server
+// asks it — a second spelling would be a second definition of "conforms".
+func ResultDefect(schema, value json.RawMessage) string {
 	var declared jsonSchema
 	if err := json.Unmarshal(schema, &declared); err != nil {
 		return "the advertised schema is not readable: " + err.Error()

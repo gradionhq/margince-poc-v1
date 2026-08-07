@@ -25,20 +25,20 @@ func TestTheSchemaCheckerReportsTheWayAResultMissesItsSchema(t *testing.T) {
 		{"an array where the object was declared", `[]`, "declared an object"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			defect := conformsToSchema(schema, json.RawMessage(tc.value))
+			defect := ResultDefect(schema, json.RawMessage(tc.value))
 			if !strings.Contains(defect, tc.want) {
 				t.Errorf("defect = %q, want it to name %q", defect, tc.want)
 			}
 		})
 	}
 	kept := `{"archived":true,"record_type":"person","id":"0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e11"}`
-	if defect := conformsToSchema(schema, json.RawMessage(kept)); defect != "" {
+	if defect := ResultDefect(schema, json.RawMessage(kept)); defect != "" {
 		t.Errorf("a conforming result was reported as %q", defect)
 	}
 	// Open by design: a member the schema never named is not a violation, so a
 	// result that grows a field does not break every client at once.
 	extra := `{"archived":true,"record_type":"person","id":"x","reason":"duplicate"}`
-	if defect := conformsToSchema(schema, json.RawMessage(extra)); defect != "" {
+	if defect := ResultDefect(schema, json.RawMessage(extra)); defect != "" {
 		t.Errorf("an extra member was reported as %q; every schema here claims \"at least these\"", defect)
 	}
 }
@@ -47,13 +47,13 @@ func TestTheSchemaCheckerReportsTheWayAResultMissesItsSchema(t *testing.T) {
 // or a map value has to be found, and it has to say WHERE.
 func TestTheSchemaCheckerReachesInsideArraysAndMaps(t *testing.T) {
 	list := schemaFor[WhatsSlippingResult]()
-	defect := conformsToSchema(list, json.RawMessage(`{"deals":[{"rank":1,"deal_id":"x","name":"A","evidence":[]},{"rank":"two","deal_id":"y","name":"B","evidence":[]}]}`))
+	defect := ResultDefect(list, json.RawMessage(`{"deals":[{"rank":1,"deal_id":"x","name":"A","evidence":[]},{"rank":"two","deal_id":"y","name":"B","evidence":[]}]}`))
 	if !strings.Contains(defect, "deals[1]") || !strings.Contains(defect, "declared a number") {
 		t.Errorf("defect = %q, want it to name the offending item and what was declared", defect)
 	}
 
 	mapped := schemaFor[QualifyLeadResult]()
-	defect = conformsToSchema(mapped, json.RawMessage(`{"record_id":"x","filled":{"company_name":{"value":9,"evidence":[]}},"gaps":[]}`))
+	defect = ResultDefect(mapped, json.RawMessage(`{"record_id":"x","filled":{"company_name":{"value":9,"evidence":[]}},"gaps":[]}`))
 	if !strings.Contains(defect, "filled.company_name") || !strings.Contains(defect, "declared a string") {
 		t.Errorf("defect = %q, want it to name the map member that failed", defect)
 	}
@@ -68,7 +68,7 @@ func TestAnOptionalMemberMayBeAbsentOrNull(t *testing.T) {
 		`{"deal":{"record_type":"deal","id":"x","fields":{}}}`,
 		`{"deal":{"record_type":"deal","id":"x","fields":{}},"note_activity_id":null}`,
 	} {
-		if defect := conformsToSchema(schema, json.RawMessage(value)); defect != "" {
+		if defect := ResultDefect(schema, json.RawMessage(value)); defect != "" {
 			t.Errorf("%s was reported as %q", value, defect)
 		}
 	}
