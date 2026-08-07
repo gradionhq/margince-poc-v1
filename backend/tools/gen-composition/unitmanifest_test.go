@@ -412,6 +412,19 @@ var nonLiteralCases = []struct {
 		wantErr: "is blank or carries surrounding whitespace",
 	},
 	{
+		// A concatenation is resolved literal by literal, so a computed piece
+		// on either side of the + is still a value the manifest cannot derive
+		// — and this is the shape it hides in most easily, next to real prose.
+		name:    "a computed piece opening a concatenated description",
+		source:  toolUnitSource("\t\t\tName: \"t\", Description: opening() + \" It reads nothing.\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc opening() string { return \"D\" }\n",
+		wantErr: "Tool.Description must be a string literal",
+	},
+	{
+		name:    "a computed piece closing a concatenated description",
+		source:  toolUnitSource("\t\t\tName: \"t\", Description: \"Keeps the contacts in step. \" + closing(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc closing() string { return \"D\" }\n",
+		wantErr: "Tool.Description must be a string literal",
+	},
+	{
 		// Selection prose is the one field a unit author is most likely to
 		// compute — from a constant, a helper, a template. The manifest derives
 		// statically, so it has to be told here rather than at boot.
