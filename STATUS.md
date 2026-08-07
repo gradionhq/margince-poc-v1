@@ -105,10 +105,13 @@ schema, #514 gives an administrator the own-domain surface. What shipped is in
   The general fix changes audit representation for every module at once, which
   is why it is an issue rather than part of #514.
 - **[#570](https://github.com/gradionhq/margince-poc-v1/issues/570) —
-  `company-context.test.tsx` is a load-dependent flake.** It times out waiting
-  for the refresh-review heading on a 10s budget, hits a different test in the
-  file each run, and failed three runs in a row on one head whose only diff was
-  four Go files. It blocks any PR's merge and reads like a real regression to
+  `company-context.test.tsx` is a load-dependent flake.** It fails on the
+  `findByRole` for the refresh-review heading, whose own budget is 10s — not on
+  the per-test limit, which is already `SETTLE_MS * 3` and is applied to both
+  affected cases. So the review step genuinely does not render within ten
+  seconds of the click on a loaded runner. It hits a different test in the file
+  each run, and failed three runs in a row on one head whose only diff was four
+  Go files. It blocks any PR's merge and reads like a real regression to
   whoever hits it, so re-running is not a workaround anyone should have to
   learn.
 

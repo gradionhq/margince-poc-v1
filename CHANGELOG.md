@@ -167,8 +167,10 @@ numbers appear here when releases start.
   surfaces that answer "which companies are we selling to" — the
   organization list, lexical and vector search, dynamic segments and their
   exports, duplicate detection, and signal candidate resolution — with
-  `include_anchor` as the opt-in on the list, shaped like
-  `include_archived`. It stays reachable by id everywhere, and stays
+  `include_anchor` as the opt-in on the NATIVE list, shaped like
+  `include_archived`; an overlay-mode list refuses it with 422, because the
+  mirror holds the incumbent's accounts and the anchor is a native row that
+  is never among them. It stays reachable by id everywhere, and stays
   deliberately available where naming it is the point, such as recording
   that a person works there. `is_anchor` is on the wire so a client can
   tell it apart, and the governed agent surface learns the id through its
