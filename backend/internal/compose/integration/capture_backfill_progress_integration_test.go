@@ -57,7 +57,7 @@ func (c *reportingConnector) BackfillPage(ctx context.Context, _ connector.Auth,
 
 // readInflight reads the transient columns directly — the test's proof that
 // they are cleared, which the summed status read alone cannot show.
-func readInflight(t *testing.T, e *searchEnv, id ids.UUID) (scanned, captured int) {
+func readInflight(t *testing.T, e *SearchEnv, id ids.UUID) (scanned, captured int) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -74,7 +74,7 @@ func readInflight(t *testing.T, e *searchEnv, id ids.UUID) (scanned, captured in
 // opens a run against it. pacing is the live-tally write pacing: 0 writes every
 // report, which is what a test walking a page in microseconds needs to observe
 // the tally at all.
-func startReportingBackfill(t *testing.T, e *searchEnv, prov *reportingConnector, pacing time.Duration) (*capture.Registry, context.Context, ids.UUID) {
+func startReportingBackfill(t *testing.T, e *SearchEnv, prov *reportingConnector, pacing time.Duration) (*capture.Registry, context.Context, ids.UUID) {
 	t.Helper()
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e)).WithProgressPacing(pacing)
 	registry.Register(prov)
@@ -90,7 +90,7 @@ func startReportingBackfill(t *testing.T, e *searchEnv, prov *reportingConnector
 }
 
 func TestBackfillProgressIsVisibleWhileThePageRuns(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}}
 	registry, grantCtx, runID := startReportingBackfill(t, e, prov, 0)
 	rep := ids.From[ids.UserKind](e.Rep1)
@@ -152,7 +152,7 @@ func TestBackfillProgressIsPacedRatherThanWrittenPerMessage(t *testing.T) {
 	// update per message purely so a number can move faster than anyone reads
 	// it. Under a pacing longer than the page takes, only the first report is
 	// written — and the page's commit still reports every message.
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}}
 	registry, grantCtx, runID := startReportingBackfill(t, e, prov, time.Hour)
 	rep := ids.From[ids.UserKind](e.Rep1)
@@ -184,7 +184,7 @@ func TestBackfillProgressDiesWithTheFailedPage(t *testing.T) {
 	// A page that fails transiently is retried from the committed cursor, so
 	// its partial tally must not survive — kept, it would be added to the same
 	// messages when the retry counts them for real.
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}, failAfter: 4}
 	registry, grantCtx, runID := startReportingBackfill(t, e, prov, 0)
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
@@ -213,7 +213,7 @@ func TestBackfillProgressIsFencedByTheConnectionGeneration(t *testing.T) {
 	// fenced off, and the live tally must be fenced the same way — otherwise
 	// the screen keeps counting up mail from an account this run no longer has,
 	// right until the commit cancels it.
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}}
 	registry, grantCtx, runID := startReportingBackfill(t, e, prov, 0)
@@ -255,7 +255,7 @@ func TestCancelClearsTheLiveTallyAndTheRunningPageCannotWriteItBack(t *testing.T
 	// terminal and its counts are what they keep, so the page's live tally must
 	// go with it — and the messages the page keeps walking afterwards must not
 	// write it back.
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}}
 	registry, grantCtx, runID := startReportingBackfill(t, e, prov, 0)
 	rep := ids.From[ids.UserKind](e.Rep1)

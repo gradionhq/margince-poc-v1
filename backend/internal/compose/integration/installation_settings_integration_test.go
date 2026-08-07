@@ -40,7 +40,7 @@ import (
 
 // installationSettingsCtx builds a human principal in the env workspace with a
 // specific installation_settings grant.
-func (e *searchEnv) installationSettingsCtx(grant principal.ObjectGrant) context.Context {
+func (e *SearchEnv) installationSettingsCtx(grant principal.ObjectGrant) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
@@ -52,7 +52,7 @@ func (e *searchEnv) installationSettingsCtx(grant principal.ObjectGrant) context
 	})
 }
 
-func installationAuditCount(t *testing.T, e *searchEnv) int {
+func installationAuditCount(t *testing.T, e *SearchEnv) int {
 	t.Helper()
 	var n int
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -65,7 +65,7 @@ func installationAuditCount(t *testing.T, e *searchEnv) int {
 }
 
 func TestInstallationSettingsReadWriteAndGate(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := identity.NewInstallationSettings(e.Pool, compose.NewSettingsStore(e.Pool))
 
 	admin := e.installationSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
@@ -134,7 +134,7 @@ func TestInstallationSettingsReadWriteAndGate(t *testing.T) {
 }
 
 func TestInstallationSettingsRefuseValuesTheOwningModuleRejects(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := identity.NewInstallationSettings(e.Pool, compose.NewSettingsStore(e.Pool))
 	admin := e.installationSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
 
@@ -173,7 +173,7 @@ func TestInstallationSettingsRefuseValuesTheOwningModuleRejects(t *testing.T) {
 // a test that creates a deal carrying a frozen conversion rate can tell a
 // working guard from an absent one.
 func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := identity.NewInstallationSettings(e.Pool, compose.NewSettingsStore(e.Pool))
 	admin := e.installationSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
 
@@ -189,9 +189,9 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 	// INSERT..SELECT that matches nothing SUCCEEDS, so a missing fixture would
 	// leave this test asserting a freeze that never had a deal to fire on —
 	// passing or failing for the wrong reason either way.
-	pipeline := e.seed(t, `
+	pipeline := e.Seed(t, `
 		INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, $2, 'Freeze fixture', false)`)
-	stage := e.seed(t, `
+	stage := e.Seed(t, `
 		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
 		VALUES ($1, $2, $3, 'Won', 1, 'won', 100)`, pipeline)
 	// Every CHECK on `deal` has to be satisfied for the row to land, and the
@@ -202,7 +202,7 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 	//   deal_lost_reason          — not reached; 'won', not 'lost'
 	// The frozen rate is the one this test actually needs; the rest are the
 	// price of a valid closed deal.
-	e.seed(t, `
+	e.Seed(t, `
 		INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, source, captured_by,
 		                  amount_minor, currency, fx_rate_to_base, status, closed_at)
 		VALUES ($1, $2, 'Converted deal', $3, $4, 'seed', 'system:test',

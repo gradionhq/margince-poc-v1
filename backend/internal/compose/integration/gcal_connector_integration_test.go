@@ -75,7 +75,7 @@ func gcalStub(t *testing.T, owner string) *httptest.Server {
 }
 
 func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	const owner = "rep@ws.example"
 	stub := gcalStub(t, owner)
 
@@ -153,7 +153,7 @@ func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
 // listConnectors / the fleet due-poll / disconnectConnector for the one gcal
 // connection: it lists connected, is paced out right after a sync, becomes due
 // again once the pacing clock passes, and after disconnect the poller skips it.
-func assertGcalConnectionSurface(grantCtx context.Context, e *searchEnv, t *testing.T, registry *capture.Registry, connID ids.UUID) {
+func assertGcalConnectionSurface(grantCtx context.Context, e *SearchEnv, t *testing.T, registry *capture.Registry, connID ids.UUID) {
 	t.Helper()
 	views, err := registry.Connections(grantCtx)
 	if err != nil {

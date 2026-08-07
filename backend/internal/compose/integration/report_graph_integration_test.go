@@ -28,21 +28,20 @@ import (
 
 // seedDealFixtures plants a pipeline, one open stage, an organization
 // and n open deals owned by the given user (nil = ownerless).
-func (e *searchEnv) seedDealFixtures(t *testing.T, n int, owner *ids.UUID) (orgID ids.UUID) {
+func (e *SearchEnv) seedDealFixtures(t *testing.T, n int, owner *ids.UUID) {
 	t.Helper()
-	pipelineID := e.seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
-	stageID := e.seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
-	orgID = e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Report Org', 'manual', 'human:x')`)
+	pipelineID := e.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
+	stageID := e.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
+	orgID := e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Report Org', 'manual', 'human:x')`)
 	for i := 0; i < n; i++ {
-		e.seed(t, fmt.Sprintf(`INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, owner_id, amount_minor, currency, source, captured_by)
+		e.Seed(t, fmt.Sprintf(`INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, owner_id, amount_minor, currency, source, captured_by)
 			VALUES ($1, $2, 'Deal %d', $3, $4, $5, $6, 100000, 'EUR', 'manual', 'human:x')`, i),
 			pipelineID, stageID, orgID, owner)
 	}
-	return orgID
 }
 
 func TestAdHocReportPlanCountsUnderRowScope(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedDealFixtures(t, 3, &e.Rep3) // owned by team2's rep
 	provider := compose.NewProvider(e.Pool)
 
@@ -59,7 +58,7 @@ func TestAdHocReportPlanCountsUnderRowScope(t *testing.T) {
 
 	// A team1 rep sees none of team2's deals — aggregates cannot leak
 	// what the lists hide.
-	res, err = provider.RunReport(e.asTeamRep(e.Rep1, e.Team1), datasource.ReportPlan{
+	res, err = provider.RunReport(e.AsTeamRep(e.Rep1, e.Team1), datasource.ReportPlan{
 		Entity: datasource.EntityDeal, GroupBy: []string{"status"},
 	})
 	if err != nil {
@@ -71,7 +70,7 @@ func TestAdHocReportPlanCountsUnderRowScope(t *testing.T) {
 }
 
 func TestSchemaIntrospectionServesDescriptors(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	provider := compose.NewProvider(e.Pool)
 	objects, err := provider.ListObjects(context.Background())
 	if err != nil {
@@ -177,7 +176,7 @@ func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 }
 
 func TestRunReportToolThroughGovernedRegistry(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedDealFixtures(t, 2, nil)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 	out, err := registry.Invoke(e.Admin(), "run_report", []byte(`{"report":"deals-by-stage"}`))
@@ -190,18 +189,18 @@ func TestRunReportToolThroughGovernedRegistry(t *testing.T) {
 }
 
 func TestAssembleContextFixedDepthWalk(t *testing.T) {
-	e := setupSearch(t)
-	orgID := e.seedDealFixtures(t, 1, nil)
+	e := SetupSearch(t)
+	e.seedDealFixtures(t, 1, nil)
 	var dealID ids.UUID
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
 		t.Fatal(err)
 	}
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Graph Contact', 'manual', 'human:x')`)
-	noteID := e.seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, source, captured_by) VALUES ($1, $2, 'note', 'Kickoff call', 'manual', 'human:x')`)
-	taskID := e.seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, is_done, source, captured_by) VALUES ($1, $2, 'task', 'Send offer', false, 'manual', 'human:x')`)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Graph Contact', 'manual', 'human:x')`)
+	noteID := e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, source, captured_by) VALUES ($1, $2, 'note', 'Kickoff call', 'manual', 'human:x')`)
+	taskID := e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, is_done, source, captured_by) VALUES ($1, $2, 'task', 'Send offer', false, 'manual', 'human:x')`)
 	for _, activityID := range []ids.UUID{noteID, taskID} {
-		e.seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, deal_id) VALUES ($1, $2, $3, 'deal', $4)`, activityID, dealID)
-		e.seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, activityID, personID)
+		e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, deal_id) VALUES ($1, $2, $3, 'deal', $4)`, activityID, dealID)
+		e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, activityID, personID)
 	}
 
 	// AssembleContext never calls the embedder (it's Search's seam), but
@@ -212,7 +211,7 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLocalModelPath: %v", err)
 	}
-	retriever := search.NewRetriever(e.store, modelPath.Embedder)
+	retriever := search.NewRetriever(e.Store, modelPath.Embedder)
 	assembled, err := retriever.AssembleContext(e.Admin(),
 		datasource.EntityRef{Type: datasource.EntityDeal, ID: dealID}, retrieval.AssembleOptions{MaxItems: 5})
 	if err != nil {
@@ -239,12 +238,11 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 		// the fixed-depth walk only follows conversation links.
 		t.Logf("note: org appears only when linked through an activity: %+v", sections["related_organizations"])
 	}
-	_ = orgID
 
 	// An anchor outside the caller's row scope assembles nothing.
-	foreignDeal := e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id, source, captured_by)
+	foreignDeal := e.Seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id, source, captured_by)
 		SELECT $1, $2, 'Foreign Deal', pipeline_id, stage_id, $3, 'manual', 'human:x' FROM deal LIMIT 1`, e.Rep3)
-	if _, err := retriever.AssembleContext(e.asTeamRep(e.Rep1, e.Team1),
+	if _, err := retriever.AssembleContext(e.AsTeamRep(e.Rep1, e.Team1),
 		datasource.EntityRef{Type: datasource.EntityDeal, ID: foreignDeal}, retrieval.AssembleOptions{}); err == nil {
 		t.Fatal("foreign anchor must be absent, not assembled")
 	}

@@ -48,7 +48,7 @@ func pushBody(t *testing.T, email string) []byte {
 }
 
 func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	const mailbox = "push-owner@ws.example"
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))

@@ -27,7 +27,7 @@ import (
 
 // reembedFleetEnv is one search harness plus a claimed run over a named fleet.
 type reembedFleetEnv struct {
-	*searchEnv
+	*SearchEnv
 	embedder search.Embedder
 	identity string
 	run      ids.UUID
@@ -39,20 +39,20 @@ type reembedFleetEnv struct {
 // exercise is the RUN, and the confirm has its own suite.
 func setupReembedFleet(t *testing.T) *reembedFleetEnv {
 	t.Helper()
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	ApplyRiverSchema(t)
 	embedder := fakeEmbedderNamed(t, ai.NewFakeClient(), "model-fanout")
 	identity, _ := embedder.EmbedIdentity()
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	run := ids.NewV7()
-	if err := e.store.ClaimAndEnqueueReembedding(ctx,
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx,
 		search.ReembedClaim{Run: run, TargetIdentity: identity}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming the run: %v", err)
 	}
-	return &reembedFleetEnv{searchEnv: e, embedder: embedder, identity: identity, run: run}
+	return &reembedFleetEnv{SearchEnv: e, embedder: embedder, identity: identity, run: run}
 }
 
 // TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant is
@@ -64,21 +64,21 @@ func setupReembedFleet(t *testing.T) *reembedFleetEnv {
 // reached every workspace it is ever going to.
 func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
 	re := setupReembedFleet(t)
-	healthy := seedExtraWorkspace(t, re.owner, "reindex-healthy", false)
-	archived := seedExtraWorkspace(t, re.owner, "reindex-archived", true)
+	healthy := seedExtraWorkspace(t, re.Owner, "reindex-healthy", false)
+	archived := seedExtraWorkspace(t, re.Owner, "reindex-archived", true)
 
 	// Both live tenants get an entity to embed, so each child has real work and
 	// the victim's write actually reaches the fault.
-	re.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Fanout Person', 'manual', 'human:x')`)
+	re.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Fanout Person', 'manual', 'human:x')`)
 	healthyPersonID := ids.NewV7()
-	if _, err := re.owner.Exec(context.Background(),
+	if _, err := re.Owner.Exec(context.Background(),
 		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Fanout Person', 'manual', 'human:x')`,
 		healthyPersonID, healthy); err != nil {
 		t.Fatalf("seeding the healthy tenant's person: %v", err)
 	}
 	// Permanent, not transient: a fault that healed would let the tenant
 	// complete on a later attempt and read as green — the outcome this denies.
-	failEmbeddingWritesFor(t, re.owner, re.WS)
+	failEmbeddingWritesFor(t, re.Owner, re.WS)
 
 	runner, completed, failed := startTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
@@ -106,7 +106,7 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	}
 	// The pass is only worth a row if it did the work.
 	var model string
-	if err := re.owner.QueryRow(context.Background(),
+	if err := re.Owner.QueryRow(context.Background(),
 		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2 AND chunk_ix = 0`,
 		healthy, healthyPersonID).Scan(&model); err != nil {
 		t.Fatalf("reading the healthy tenant's embedding: %v", err)
@@ -179,7 +179,7 @@ func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {
 // with no job anywhere to explain why.
 func TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack(t *testing.T) {
 	re := setupReembedFleet(t)
-	if _, err := re.owner.Exec(context.Background(),
+	if _, err := re.Owner.Exec(context.Background(),
 		`UPDATE workspace SET archived_at = now() WHERE id = $1`, re.WS); err != nil {
 		t.Fatalf("archiving the only workspace: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack(t *testing.T) 
 	defer cancel()
 	awaitKindsCompleted(waitCtx, t, completed, compose.EmbedReindexArgs{}.Kind())
 
-	populated, status, _, err := re.store.PopulatedIdentity(context.Background())
+	populated, status, _, err := re.Store.PopulatedIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}

@@ -3,7 +3,7 @@
 
 package backendarch
 
-// Migrate-once discipline for every integration suite in the module, as a
+// Migrate-once discipline for everything the integration lane compiles, as a
 // fitness function. A suite migrates the schema once per test process
 // (internal/platform/testdb.EnsureSchema) and resets between tests with a fast
 // data-only reset (testdb.Reset); one that instead runs its own DROP SCHEMA +
@@ -13,7 +13,14 @@ package backendarch
 // subtree is where the obligated code lives, and that second claim is the one
 // nothing checks.
 //
-// Any test file that REFERENCES the migrate entry point is caught, not only one
+// Every file the lane COMPILES is judged, not only the _test.go ones: a shared
+// fixture that moves into a build-tagged non-test file so sibling packages can
+// import it is still the thing that migrates, and keying on the filename suffix
+// would let it walk out of reach here while the gate kept passing. Membership is
+// therefore the build tag, which is what actually decides whether the lane
+// compiles a file.
+//
+// Any such file that REFERENCES the migrate entry point is caught, not only one
 // that applies it: `up := dm.Up; up(...)` migrates just as much as `dm.Up(...)`,
 // and a file has no reason to hold the migrator except to run it. That closes the
 // function-value route without type-aware analysis, and the qualifier is resolved
@@ -50,6 +57,13 @@ import (
 // than this gate owns today.
 const migrationsPackage = "migrations"
 
+// testdbPackage implements the migrate-once mechanism every suite is required to
+// ride, so it is where dbmigrate.Up is SUPPOSED to be called. Excluded by rule
+// rather than waived, for the same reason migrationsPackage is: a waiver would
+// read as "this one is allowed to misbehave" when in fact it is the definition of
+// behaving. Only reachable now that this gate walks non-test files too.
+const testdbPackage = "internal/platform/testdb"
+
 // inlineMigrators are the suites outside migrationsPackage ratified to migrate
 // on their own, each bound to what the exception costs.
 var inlineMigrators = gatekit.Waive(map[string]string{
@@ -63,8 +77,17 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 	var offenders, inMigrations []string
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, "_test.go") {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
+		}
+		// Every file the lane compiles, not only the _test.go ones. A shared
+		// fixture that moves into a non-test file so sibling packages can import
+		// it would otherwise walk straight out of this gate's reach while still
+		// being the thing that migrates — and the gate would keep passing,
+		// covering less, saying nothing. Membership is the build tag, which is
+		// what actually decides whether the lane runs the file.
+		if !strings.HasSuffix(path, "_test.go") && !isIntegrationTagged(path) {
+			return nil
 		}
 		path = filepath.ToSlash(path)
 		file, err := parser.ParseFile(fset, path, nil, 0)
@@ -78,18 +101,22 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 			inMigrations = append(inMigrations, path)
 			return nil
 		}
+		if strings.HasPrefix(path, testdbPackage+"/") {
+			return nil
+		}
 		if !inlineMigrators.Waived(t, path) {
 			offenders = append(offenders, path)
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walking the module for test files: %v", err)
+		t.Fatalf("walking the module for integration-lane files: %v", err)
 	}
 
 	if len(offenders) > 0 {
-		t.Errorf("%d integration suite(s) migrate inline instead of riding testdb.EnsureSchema — "+
-			"replace the DROP SCHEMA + dbmigrate.Up block with testdb.EnsureSchema + testdb.Reset "+
+		t.Errorf("%d integration-lane file(s) migrate inline instead of riding testdb.EnsureSchema — "+
+			"a suite or a shared fixture in a build-tagged non-test file counts alike. Replace the "+
+			"DROP SCHEMA + dbmigrate.Up block with testdb.EnsureSchema + testdb.Reset "+
 			"(see internal/compose/integration/harness.go):\n\t%s",
 			len(offenders), strings.Join(offenders, "\n\t"))
 	}

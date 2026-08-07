@@ -131,7 +131,7 @@ func TestCaptureLedgerRefusesAVerdictFromAnExpiredClaim(t *testing.T) {
 
 // resolveWith runs one Resolve on its own transaction, as the verdict engine
 // does, and reports whether this caller was the one that closed the row.
-func resolveWith(t *testing.T, e *searchEnv, store *capture.PendingStore, p capture.PendingCounterparty, status string) bool {
+func resolveWith(t *testing.T, e *SearchEnv, store *capture.PendingStore, p capture.PendingCounterparty, status string) bool {
 	t.Helper()
 	var resolved bool
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -147,7 +147,7 @@ func resolveWith(t *testing.T, e *searchEnv, store *capture.PendingStore, p capt
 
 // expireClaimLease backdates a row's lease so it is claimable again — the state
 // a crashed or stalled worker leaves behind.
-func expireClaimLease(t *testing.T, e *searchEnv, id ids.UUID) {
+func expireClaimLease(t *testing.T, e *SearchEnv, id ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
@@ -164,7 +164,7 @@ func expireClaimLease(t *testing.T, e *searchEnv, id ids.UUID) {
 // fillLedgerToCeiling tops the workspace up to exactly its open-disposition
 // ceiling, leaving the queue full but not over — so the next capture is the
 // first one the cap refuses.
-func fillLedgerToCeiling(t *testing.T, e *searchEnv, activityID, ownerID ids.UUID) {
+func fillLedgerToCeiling(t *testing.T, e *SearchEnv, activityID, ownerID ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var live int
@@ -234,7 +234,7 @@ func TestCaptureLedgerStopsDeferringOneFloodingDomain(t *testing.T) {
 // fillDomainToShare tops one domain up to exactly its share of the ceiling,
 // leaving it full but not over — so the next message from it is the first the
 // per-domain cap refuses.
-func fillDomainToShare(t *testing.T, e *searchEnv, domain string, activityID, ownerID ids.UUID) {
+func fillDomainToShare(t *testing.T, e *SearchEnv, domain string, activityID, ownerID ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var live int

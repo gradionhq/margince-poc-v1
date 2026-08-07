@@ -27,7 +27,7 @@ import (
 
 // captureSettingsCtx builds a human principal in the env workspace with a
 // specific capture_settings grant.
-func (e *searchEnv) captureSettingsCtx(grant principal.ObjectGrant) context.Context {
+func (e *SearchEnv) captureSettingsCtx(grant principal.ObjectGrant) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
@@ -40,7 +40,7 @@ func (e *searchEnv) captureSettingsCtx(grant principal.ObjectGrant) context.Cont
 }
 
 func TestCaptureSettingsStore(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := capture.NewSettings(compose.NewSettingsStore(e.Pool))
 
 	admin := e.captureSettingsCtx(principal.ObjectGrant{Read: true, Update: true})

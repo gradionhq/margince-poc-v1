@@ -64,7 +64,7 @@ type syncStateRow struct {
 	class    *string
 }
 
-func readSyncState(t *testing.T, e *searchEnv, connID ids.UUID) (string, syncStateRow) {
+func readSyncState(t *testing.T, e *SearchEnv, connID ids.UUID) (string, syncStateRow) {
 	t.Helper()
 	var status string
 	var row syncStateRow
@@ -85,7 +85,7 @@ func readSyncState(t *testing.T, e *searchEnv, connID ids.UUID) (string, syncSta
 }
 
 func TestSyncFailureNeverKillsAConnection(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	moody := &moodyConnector{name: "gmail"}
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(moody)
@@ -222,7 +222,7 @@ func TestSyncFailureNeverKillsAConnection(t *testing.T) {
 }
 
 // forceDue moves the connection's pacing clock into the past.
-func forceDue(t *testing.T, e *searchEnv, connID ids.UUID) {
+func forceDue(t *testing.T, e *SearchEnv, connID ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),

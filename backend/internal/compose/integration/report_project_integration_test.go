@@ -25,12 +25,12 @@ import (
 
 // seedProjects plants an anchor company and n live projects in one phase,
 // owned by the given user (nil = ownerless, i.e. workspace-shared).
-func (e *searchEnv) seedProjects(t *testing.T, phase string, owner *ids.UUID, n int) (orgID ids.UUID) {
+func (e *SearchEnv) seedProjects(t *testing.T, phase string, owner *ids.UUID, n int) (orgID ids.UUID) {
 	t.Helper()
-	orgID = e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
+	orgID = e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
 		VALUES ($1, $2, 'Project Org', 'manual', 'human:x')`)
 	for i := 0; i < n; i++ {
-		e.seed(t, `INSERT INTO project (id, workspace_id, name, organization_id, owner_id, phase, source, captured_by)
+		e.Seed(t, `INSERT INTO project (id, workspace_id, name, organization_id, owner_id, phase, source, captured_by)
 			VALUES ($1, $2, $3, $4, $5, $6, 'manual', 'human:x')`,
 			fmt.Sprintf("%s Rollout %d", phase, i), orgID, owner, phase)
 	}
@@ -40,7 +40,7 @@ func (e *searchEnv) seedProjects(t *testing.T, phase string, owner *ids.UUID, n 
 // projectReader mints a human holding project.read at the given row scope —
 // the report path gates on the object grant before any row scope applies, and
 // the shared searchReadGrants helper predates the project vocabulary.
-func (e *searchEnv) projectReader(user *ids.UUID, team *ids.UUID, scope principal.RowScope) context.Context {
+func (e *SearchEnv) projectReader(user *ids.UUID, team *ids.UUID, scope principal.RowScope) context.Context {
 	actor := principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
 		Permissions: principal.Permissions{
@@ -59,7 +59,7 @@ func (e *searchEnv) projectReader(user *ids.UUID, team *ids.UUID, scope principa
 }
 
 func TestListFieldsServesTheProjectDescriptor(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	provider := compose.NewProvider(e.Pool)
 
 	fields, err := provider.ListFields(context.Background(), datasource.EntityProject)
@@ -78,7 +78,7 @@ func TestListFieldsServesTheProjectDescriptor(t *testing.T) {
 }
 
 func TestAdHocProjectReportCountsUnderRowScope(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	orgID := e.seedProjects(t, "delivering", &e.Rep3, 2)
 	provider := compose.NewProvider(e.Pool)
 
@@ -119,7 +119,7 @@ func TestAdHocProjectReportCountsUnderRowScope(t *testing.T) {
 
 	// The rep's own project is counted — the empty answer above is scope, not
 	// a plan that never matches.
-	e.seed(t, `INSERT INTO project (id, workspace_id, name, organization_id, owner_id, phase, source, captured_by)
+	e.Seed(t, `INSERT INTO project (id, workspace_id, name, organization_id, owner_id, phase, source, captured_by)
 		VALUES ($1, $2, 'Own Rollout', $3, $4, 'pursuing', 'manual', 'human:x')`, orgID, e.Rep1)
 	res, err = provider.RunReport(e.projectReader(&e.Rep1, &e.Team1, principal.RowScopeTeam), datasource.ReportPlan{
 		Entity: datasource.EntityProject, GroupBy: []string{"phase"},
@@ -133,7 +133,7 @@ func TestAdHocProjectReportCountsUnderRowScope(t *testing.T) {
 }
 
 func TestAdHocProjectReportRefusesWithoutTheObjectGrant(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedProjects(t, "delivering", nil, 1)
 	provider := compose.NewProvider(e.Pool)
 

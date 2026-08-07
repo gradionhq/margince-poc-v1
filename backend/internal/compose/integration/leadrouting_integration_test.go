@@ -27,31 +27,31 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// routingEnv is a searchEnv plus a third active rep, so the rotation
+// routingEnv is a SearchEnv plus a third active rep, so the rotation
 // has a shape (two owners cannot distinguish round-robin from ping-pong).
 type routingEnv struct {
-	*searchEnv
+	*SearchEnv
 	Rep2   ids.UUID
 	engine *automation.WorkflowEngine
 }
 
 func setupRouting(t *testing.T) *routingEnv {
 	t.Helper()
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	rep2 := ids.NewV7()
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep2@search.test', 'Rep Two')`,
 		rep2, e.WS); err != nil {
 		t.Fatal(err)
 	}
-	return &routingEnv{searchEnv: e, Rep2: rep2, engine: compose.NewWorkflowEngine(e.Pool)}
+	return &routingEnv{SearchEnv: e, Rep2: rep2, engine: compose.NewWorkflowEngine(e.Pool)}
 }
 
 // routeNewLead seeds one unowned lead and dispatches its lead.created
 // through the engine, returning the resulting owner (nil = unassigned).
 func (e *routingEnv) routeNewLead(t *testing.T, source string) (ids.UUID, *ids.UUID) {
 	t.Helper()
-	leadID := e.seed(t,
+	leadID := e.Seed(t,
 		`INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Routed Lead', $3, 'human:x')`,
 		source)
 	if err := e.engine.HandleEvent(context.Background(), kevents.Envelope{
@@ -67,7 +67,7 @@ func (e *routingEnv) routeNewLead(t *testing.T, source string) (ids.UUID, *ids.U
 func (e *routingEnv) leadOwner(t *testing.T, leadID ids.UUID) *ids.UUID {
 	t.Helper()
 	var owner *ids.UUID
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT owner_id FROM lead WHERE id = $1`, leadID).Scan(&owner); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func (e *routingEnv) leadOwner(t *testing.T, leadID ids.UUID) *ids.UUID {
 func TestLeadRoutingRoundRobinIsFairAndCapsAreNeverExceeded(t *testing.T) {
 	e := setupRouting(t)
 	pool := []ids.UUID{e.Rep1, e.Rep2, e.Rep3}
-	enableLeadRouting(t, e.searchEnv, map[string]any{
+	enableLeadRouting(t, e.SearchEnv, map[string]any{
 		"owners":        []string{e.Rep1.String(), e.Rep2.String(), e.Rep3.String()},
 		"cap_per_owner": 2,
 	})
@@ -99,7 +99,7 @@ func TestLeadRoutingRoundRobinIsFairAndCapsAreNeverExceeded(t *testing.T) {
 		t.Fatalf("all-capped pool still assigned %v — the cap was exceeded", owner)
 	}
 	var after []byte
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT after FROM audit_log WHERE entity_type = 'lead' AND entity_id = $1 AND action = 'assign'`,
 		leadID).Scan(&after); err != nil {
 		t.Fatalf("the no-capacity decision left no audit row: %v", err)
@@ -118,7 +118,7 @@ func TestLeadRoutingRoundRobinIsFairAndCapsAreNeverExceeded(t *testing.T) {
 	// Promoting one of rep1's leads frees capacity; the next lead goes
 	// to rep1 — the cap counts OPEN leads, so closed work hands the
 	// rotation back.
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE lead SET status = 'promoted', promoted_at = now()
 		 WHERE id IN (SELECT id FROM lead WHERE owner_id = $1 LIMIT 1)`, e.Rep1); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestLeadRoutingRoundRobinIsFairAndCapsAreNeverExceeded(t *testing.T) {
 
 func TestLeadRoutingRuleOutranksRotationButNeverTheCap(t *testing.T) {
 	e := setupRouting(t)
-	enableLeadRouting(t, e.searchEnv, map[string]any{
+	enableLeadRouting(t, e.SearchEnv, map[string]any{
 		"owners":        []string{e.Rep1.String(), e.Rep2.String()},
 		"cap_per_owner": 1,
 		"rules": []map[string]any{
@@ -157,11 +157,11 @@ func TestLeadRoutingRuleOutranksRotationButNeverTheCap(t *testing.T) {
 
 func TestLeadRoutingLeavesHumanAssignmentsAlone(t *testing.T) {
 	e := setupRouting(t)
-	enableLeadRouting(t, e.searchEnv, map[string]any{
+	enableLeadRouting(t, e.SearchEnv, map[string]any{
 		"owners": []string{e.Rep1.String()},
 	})
 
-	leadID := e.seed(t,
+	leadID := e.Seed(t,
 		`INSERT INTO lead (id, workspace_id, full_name, source, owner_id, captured_by) VALUES ($1, $2, 'Claimed Lead', 'manual', $3, 'human:x')`,
 		e.Rep3)
 	if err := e.engine.HandleEvent(context.Background(), kevents.Envelope{
