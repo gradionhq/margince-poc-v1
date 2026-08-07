@@ -65,10 +65,16 @@ func seedConfigWorkspace(t *testing.T, pool *pgxpool.Pool, label string) ids.UUI
 }
 
 // TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity is the behavioural
-// proof, over the two settings the row carries today: an installation with
-// auto-enrich switched off and flipped into overlay mode comes back to exactly
-// what a fresh bootstrap leaves, while the name, currency and zone bootstrap
-// took from the deployment file are untouched.
+// proof, over the one setting the row still carries: an installation flipped
+// into overlay mode — whose two columns move together, because
+// x_overlay_iff_incumbent admits no other state — comes back to exactly what a
+// fresh bootstrap leaves, while the name, currency and zone bootstrap took from
+// the deployment file are untouched.
+//
+// Those two columns come from the overlay pack's custom migration, which is
+// the fork-owned namespace. Core contributes no configuration column to this
+// row today, so on a core-only tree there is nothing here to restore and the
+// vacuity check below is what reports it.
 func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	owner, pool := setupIdentityDB(t)
 	ctx := context.Background()

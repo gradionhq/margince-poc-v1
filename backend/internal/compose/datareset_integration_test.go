@@ -382,14 +382,16 @@ func TestResetReturnsAnOverlayWorkspaceToNativeMode(t *testing.T) {
 // is derived from the tables carrying a workspace_id column; workspace keys on
 // id, so it is not excluded from that list, it is not a candidate for it.
 //
-// capture_auto_enrich (CAP-PARAM-7) is the second setting on the row today and
-// stands in for every one added after it: an operator who wiped the
-// installation would otherwise find yesterday's settings still applied to a
-// database with nothing in it.
+// x_sor_mode stands in for every configuration column the row carries: an
+// operator who wiped the installation would otherwise find yesterday's
+// settings still applied to a database with nothing in it. The settings that
+// live in the `setting` table are the other half of the same obligation, and
+// the sibling test below covers them.
 func TestResetRestoresWorkspaceLevelSettings(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.Admin()
-	e.WsExec(t, `UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, e.WS)
+	e.WsExec(t, `
+		UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`, e.WS)
 
 	h := dataResetHandlers{
 		pool:  e.Pool,
@@ -401,13 +403,13 @@ func TestResetRestoresWorkspaceLevelSettings(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	var autoEnrich bool
+	var mode string
 	if err := e.Pool.QueryRow(ctx,
-		`SELECT capture_auto_enrich FROM workspace WHERE id = $1`, e.WS).Scan(&autoEnrich); err != nil {
+		`SELECT x_sor_mode FROM workspace WHERE id = $1`, e.WS).Scan(&mode); err != nil {
 		t.Fatalf("reading the setting back: %v", err)
 	}
-	if !autoEnrich {
-		t.Error("capture_auto_enrich = false after a reset, want true (its declared default) — a workspace-level setting outlived the wipe")
+	if mode != "native" {
+		t.Errorf("x_sor_mode = %q after a reset, want native (its declared default) — a workspace-level setting outlived the wipe", mode)
 	}
 }
 
@@ -415,7 +417,7 @@ func TestResetRestoresWorkspaceLevelSettings(t *testing.T) {
 // `setting` (ADR-0090/A135). That table carries no workspace_id, so the reset's
 // table sweep — derived from the tables that do — never had it as a candidate
 // either: without an explicit restore every setting outlives the wipe exactly
-// as capture_auto_enrich did.
+// as the workspace row's own settings did before ResetWorkspaceConfig.
 //
 // The split is what this proves. Configuration goes back to its registered
 // default; the installation's IDENTITY does not, because a reset wipes an

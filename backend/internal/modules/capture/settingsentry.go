@@ -8,7 +8,6 @@ package capture
 // verb, and platform/settings runs them without knowing what enrichment is.
 //
 // AutoEnrich moved here from a `capture_auto_enrich` column on the workspace
-// row, which 0194 dropped once this became its only reader
 // row (0121). The governance is deliberately unchanged — same
 // `capture_settings` object, same audit-only posture (EVT-NOEVT-3: the closed
 // event catalog defines no capture-settings verb) — because this is a change
