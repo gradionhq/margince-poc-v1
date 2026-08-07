@@ -49,7 +49,7 @@ func TestFieldsTheWireNeverCarriesAreNotDescribed(t *testing.T) {
 	schema, err := describeType(reflect.TypeOf(struct {
 		Kept    string `json:"kept"`
 		Skipped string `json:"-"`
-		hidden  string //nolint:unused // present precisely to prove it is not described
+		hidden  string
 	}{}))
 	if err != nil {
 		t.Fatalf("describing the struct: %v", err)

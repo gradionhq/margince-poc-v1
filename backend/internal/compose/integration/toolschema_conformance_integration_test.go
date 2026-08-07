@@ -53,6 +53,8 @@ func TestEveryToolAnswerSatisfiesTheSchemaItAdvertises(t *testing.T) {
 	deal := createThroughTheToolSurface(ctx, t, registry,
 		`{"record_type":"deal","fields":{"name":"Conformance renewal","pipeline_id":"`+
 			pipeline.String()+`","stage_id":"`+open.String()+`"}}`)
+	activity := createThroughTheToolSurface(ctx, t, registry,
+		`{"record_type":"activity","fields":{"kind":"note","body":"to be relinked"}}`)
 
 	for _, call := range []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
@@ -71,6 +73,14 @@ func TestEveryToolAnswerSatisfiesTheSchemaItAdvertises(t *testing.T) {
 		{"account_coverage", `{"deal_id":"` + deal.String() + `"}`},
 		{"intro_path_to", `{"organization_id":"` + org.String() + `"}`},
 		{"qualify_lead", `{"record_id":"` + lead.String() + `"}`},
+		// The passthrough shapes, whose declared schema is a GUARANTEED SUBSET
+		// rather than a type this module marshals. They are the ones a unit test
+		// cannot check at all: nothing here builds the document, so the only way
+		// to know the subset is true is to ask the real handler.
+		{"check_availability", `{"from":"2026-01-05T09:00:00Z","to":"2026-01-05T17:00:00Z"}`},
+		{"relink_activity", `{"activity_id":"` + activity.String() + `","entity_type":"person","entity_id":"` +
+			person.String() + `"}`},
+		{"disqualify_lead", `{"lead_id":"` + lead.String() + `"}`},
 		{"log_activity", `{"kind":"note","body":"conformance","links":[{"entity_type":"deal","entity_id":"` +
 			deal.String() + `"}]}`},
 		{"update_record", `{"record_type":"person","id":"` + person.String() +
