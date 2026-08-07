@@ -34,6 +34,12 @@ coverage.out
 # kept on disk to guide the work but never committed to the repo.
 /docs/superpowers/
 
+# The company-record-page V2 implementation handoff and its state mockups.
+# A working handoff for whoever picks the slices up, not a repo doc; STATUS.md
+# is the tracked pickup record and names it.
+/docs/explanation/company-record-page-v2-implementation-plan.md
+/docs/explanation/assets/company-record-page-v2/
+
 # Local secrets — never commit
 .env.local
 
