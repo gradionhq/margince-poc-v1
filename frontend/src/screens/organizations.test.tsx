@@ -1206,7 +1206,7 @@ const employmentRel = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-describe("CompanyScreen — Relationships tab (P-5)", () => {
+describe("CompanyScreen — relationships on the Context tab (P-5)", () => {
   it("shows an Overview/Relationships tab bar and lists relationships by organization_id", async () => {
     stubFetch(async (url) => {
       if (
@@ -1225,9 +1225,9 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    const contextTab = await screen.findByRole("button", { name: "Context" });
+    await userEvent.click(contextTab);
+    expect(contextTab.getAttribute("aria-pressed")).toBe("true");
 
     await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
     expect(screen.getByText("cto")).toBeTruthy();
@@ -1259,9 +1259,9 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    const contextTab = await screen.findByRole("button", { name: "Context" });
+    await userEvent.click(contextTab);
+    expect(contextTab.getAttribute("aria-pressed")).toBe("true");
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1301,7 +1301,7 @@ const rollup = {
   computed_at: "2026-07-01T09:30:00Z",
 };
 
-describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
+describe("CompanyScreen — hierarchy roll-up beside the deals (P-7)", () => {
   it("shows the weighted pipeline, closed-won, activity, and account figures", async () => {
     stubFetch(
       async (url) => {
@@ -1313,7 +1313,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       { rollup },
     );
     render(<CompanyScreen id="o-1" />);
-    await openContextTab();
 
     await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
     expect(screen.getByText("€12,000.00")).toBeTruthy();
@@ -1337,7 +1336,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
-    await openContextTab();
 
     await waitFor(() =>
       expect(
@@ -1367,7 +1365,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
-    await openContextTab();
 
     await waitFor(() =>
       expect(
@@ -1499,9 +1496,9 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
-    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
+    const contextTab = await screen.findByRole("button", { name: "Context" });
+    await userEvent.click(contextTab);
+    expect(contextTab.getAttribute("aria-pressed")).toBe("true");
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1804,100 +1801,6 @@ describe("CompanyScreen — next-step suggestions", () => {
     );
     // The row is still there, which is what the notice is telling the reader.
     expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy();
-  });
-});
-
-describe("CompanyScreen — Ask Margince", () => {
-  const answer = {
-    organization_id: "o-1",
-    question: "whats_open",
-    generated_at: "2026-06-01T09:00:00Z",
-    generated_by: "model",
-    sentences: [
-      {
-        text: "Two open deals, worth about 57000 EUR.",
-        evidence: [{ entity_type: "deal", entity_id: "d-1" }],
-      },
-    ],
-  };
-
-  it("asks only the prepared questions, and shows which one the answer answers", async () => {
-    let asked: unknown;
-    stubFetch(async (url, method, request) => {
-      if (method === "POST" && url.endsWith("/ask")) {
-        asked = await request.json();
-        return jsonResponse(answer);
-      }
-      return companyBackstop(url);
-    });
-    render(<CompanyScreen id="o-1" />);
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "What's open here?" }),
-      ).toBeTruthy(),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "What's open here?" }),
-    );
-
-    await waitFor(() => expect(asked).toEqual({ question: "whats_open" }));
-    await waitFor(() =>
-      expect(
-        screen.getByText("Two open deals, worth about 57000 EUR."),
-      ).toBeTruthy(),
-    );
-    // Which writer produced it is never implied.
-    expect(screen.getByText("Written by Margince")).toBeTruthy();
-    // The question is repeated over its answer, so a reader who has scrolled
-    // cannot pair the wrong one with it.
-    expect(screen.getAllByText("What's open here?").length).toBeGreaterThan(1);
-  });
-
-  it("says there is nothing to answer from rather than nothing at all", async () => {
-    stubFetch(async (url, method) => {
-      if (method === "POST" && url.endsWith("/ask")) {
-        return jsonResponse({ ...answer, sentences: [] });
-      }
-      return companyBackstop(url);
-    });
-    render(<CompanyScreen id="o-1" />);
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "What's open here?" }),
-      ).toBeTruthy(),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "What's open here?" }),
-    );
-
-    await waitFor(() =>
-      expect(screen.getByText(/Nothing here that you can see/)).toBeTruthy(),
-    );
-  });
-
-  it("reports a failed question instead of leaving the card blank", async () => {
-    stubFetch(async (url, method) => {
-      if (method === "POST" && url.endsWith("/ask")) {
-        return jsonResponse({ title: "nope" }, 500);
-      }
-      return companyBackstop(url);
-    });
-    render(<CompanyScreen id="o-1" />);
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "What's open here?" }),
-      ).toBeTruthy(),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "What's open here?" }),
-    );
-
-    await waitFor(() =>
-      expect(screen.getByText(/could not be answered/)).toBeTruthy(),
-    );
   });
 });
 

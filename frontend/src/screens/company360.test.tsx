@@ -194,6 +194,12 @@ function renderCompany() {
   render(<CompanyScreen id="o-1" />);
 }
 
+// Lists, tags, links and the field tooling read on the Context tab: they are
+// how this record is FILED rather than anything about the company.
+async function openContextTab(): Promise<void> {
+  await userEvent.click(await screen.findByRole("button", { name: "Context" }));
+}
+
 describe("company view — withheld sections", () => {
   it("says a section is hidden rather than drawing it empty", async () => {
     stub(view({ deals: undefined, sections_omitted: ["deals"] }));
@@ -313,14 +319,10 @@ it("offers the tag verb but not the list verb when only lists are withheld", asy
     }),
   );
   renderCompany();
+  await openContextTab();
 
-  const card = await screen.findByRole("complementary", { name: "Business" });
-  expect(
-    await within(card).findByRole("button", { name: "Add tag" }),
-  ).toBeTruthy();
-  expect(
-    within(card).queryByRole("button", { name: "Add to list" }),
-  ).toBeNull();
+  expect(await screen.findByRole("button", { name: "Add tag" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Add to list" })).toBeNull();
 });
 
 describe("company view — consent is per purpose", () => {
@@ -396,26 +398,23 @@ describe("company view — consent is per purpose", () => {
 });
 
 describe("company view — the rails belong to the account, not to a tab", () => {
-  it("keeps the business column mounted when the reader switches tab", async () => {
+  it("gives the business column to the overview and the width to every other tab", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
 
-    const business = await screen.findByRole("complementary", {
-      name: "Business",
-    });
-    // The account's reference lives in the same column as its readings:
-    // relationships and the data tools fold under the cards rather than
-    // holding a second rail open.
-    expect(
-      within(business).getByText("Linked people and companies"),
-    ).toBeTruthy();
-    expect(within(business).getByText("Data & tools")).toBeTruthy();
+    // Mounted page-wide, this column repeated itself on every tab — the
+    // People tab drew People twice, and Context read as the overview with a
+    // profile bolted to its side. Each other tab is one subject and takes
+    // the whole width.
+    for (const tab of ["Context", "People", "History", "Partner"]) {
+      await userEvent.click(screen.getByRole("button", { name: tab }));
+      expect(
+        screen.queryByRole("complementary", { name: "Business" }),
+      ).toBeNull();
+    }
 
-    await userEvent.click(screen.getByRole("button", { name: "Partner" }));
-
-    // Partner and History used to render in a header-only frame, so the
-    // column unmounted, the grid re-columned under the reader, and every
-    // query behind it refetched on the way back.
+    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
     expect(
       screen.getByRole("complementary", { name: "Business" }),
     ).toBeTruthy();
@@ -612,22 +611,22 @@ describe("company view — one section never answers for another", () => {
       }),
     );
     renderCompany();
+    await openContextTab();
 
-    const rail = await screen.findByRole("complementary", { name: "Business" });
     // The refusal has to name WHICH half it is about: under a heading
     // covering both, an unattached "hidden from you" leaves the reader
     // unable to tell whether the lists or the tags were withheld.
-    const listsPart = within(rail).getByRole("region", { name: "Lists" });
+    const listsPart = await screen.findByRole("region", { name: "Lists" });
     expect(
       within(listsPart).getByText("Hidden — your role cannot read this"),
     ).toBeTruthy();
 
-    const tagsPart = within(rail).getByRole("region", { name: "Tags" });
+    const tagsPart = screen.getByRole("region", { name: "Tags" });
     expect(within(tagsPart).getByText("No tags applied.")).toBeTruthy();
     expect(
       within(tagsPart).queryByText("Hidden — your role cannot read this"),
     ).toBeNull();
-    expect(within(rail).queryByText("Not on any list.")).toBeNull();
+    expect(screen.queryByText("Not on any list.")).toBeNull();
   });
 
   it("still shows the tags a caller can read when lists are withheld", async () => {
@@ -639,6 +638,7 @@ describe("company view — one section never answers for another", () => {
       }),
     );
     renderCompany();
+    await openContextTab();
 
     // Losing one grant narrows the card; it does not blank it.
     await waitFor(() => expect(screen.getByText("Key account")).toBeTruthy());
@@ -1447,24 +1447,21 @@ describe("company view — the account's own tabs", () => {
     await screen.findByRole("complementary", { name: "Business" });
 
     await userEvent.click(screen.getByRole("button", { name: "People" }));
-    // The rail's card is a summary; the tab is the roster. Both read the same
-    // section of the one composite read, so they cannot disagree.
-    expect(screen.getAllByText("Christian Hagemeyer").length).toBeGreaterThan(
-      1,
-    );
+    // The overview's card is the summary and the tab is the roster, so only
+    // ONE of them is on screen at a time. Both rendering at once put the same
+    // name — and the same "no contact linked yet" — twice on one page.
+    expect(screen.getAllByText("Christian Hagemeyer")).toHaveLength(1);
   });
 
-  it("keeps Ask beside the account whichever tab is read", async () => {
+  it("leaves asking to the one ask surface the shell already carries", async () => {
     stub(view());
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
-    // Asking is a tool for when the page did not answer the question. It
-    // lives in the account's own column, which stays mounted across tabs,
-    // so the tool is at hand wherever the question arose.
-    expect(screen.getByText("Ask Margince")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.getByText("Ask Margince")).toBeTruthy();
+    // The page used to carry its own Ask card, so an account had two boxes
+    // for the same question. The shell's Ask FAB is scoped to whatever record
+    // is open and reachable from every tab, which is what this card was for.
+    expect(screen.queryByText("Ask Margince")).toBeNull();
   });
 });
 

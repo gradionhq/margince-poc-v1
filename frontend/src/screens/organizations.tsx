@@ -39,7 +39,6 @@ import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
 import { ArchiveAction } from "./archive";
-import { AssistantPanel } from "./assistant";
 import {
   coldFieldLabel,
   LoadMoreButton,
@@ -956,14 +955,11 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
     queryFn: () => fetchHierarchyRollup(orgId),
   });
 
+  // No skeleton: most accounts are not a group, so this card usually resolves
+  // to nothing. Reserving its height on every read would shift the column
+  // more often than it would steady it.
   if (rollupQuery.isPending) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Skeleton width="60%" />
-        <Skeleton width="90%" />
-        <Skeleton width="75%" />
-      </div>
-    );
+    return null;
   }
   if (rollupQuery.isError) {
     if (rollupQuery.error instanceof FxUnavailableError) {
@@ -973,6 +969,17 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
   }
 
   const rollup = rollupQuery.data;
+  // A roll-up of one account is that account, and every figure in it is
+  // already on the page beside this card. It renders when there is a GROUP
+  // to total — including a group whose other members this caller may not
+  // read, because "some of it is hidden from you" is exactly the case a
+  // total must not stay silent about.
+  if (
+    rollup.aggregated_account_count <= 1 &&
+    rollup.restricted_excluded.length === 0
+  ) {
+    return null;
+  }
   const money = (value: OrganizationHierarchyRollup["weighted_pipeline"]) =>
     value.amount_minor != null && value.currency
       ? formatMoney(value.amount_minor, value.currency, locale)
@@ -1564,6 +1571,18 @@ function CompanyActionBadges({
   );
 }
 
+/**
+ * The cache key the account record is held under. Exported because the
+ * shell's Ask surface names the account a reader is looking at, and reading
+ * the name out of this cache is what lets it do that without a second
+ * request. A shared key rather than a repeated string literal: a rename that
+ * missed one copy would fail silently, as a panel that stopped knowing where
+ * it was.
+ */
+export function organizationQueryKey(id: string) {
+  return ["organization", id] as const;
+}
+
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const [tab, setTab] = useState<CompanyTab>("overview");
@@ -1575,7 +1594,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   // The account itself still comes from its own read: the 360 refuses
   // entirely in overlay mode, and the header must render either way.
   const orgQuery = useQuery({
-    queryKey: ["organization", id],
+    queryKey: organizationQueryKey(id),
     queryFn: async () => {
       const { data, error } = await api.GET("/organizations/{id}", {
         params: { path: { id } },
@@ -2108,37 +2127,24 @@ function CompanyPage({
       // sixteen profile statements, the fact groups, the tools that fetch
       // them — stays on the Context tab: folded into this column it was
       // more content than the rest of the page put together.
+      // The business column belongs to the OVERVIEW, not to the record.
+      // Mounted page-wide it repeated itself on every tab — the People tab
+      // drew People twice, and Context read as the overview with a profile
+      // bolted to its side. The other tabs are each one subject, and take
+      // the width.
+      //
+      // Overlay refuses the page whole: a business column of cards that each
+      // read as an empty account is the half-page the refusal exists to
+      // prevent.
       aside={
-        // Overlay refuses the page whole: a business column of cards that
-        // each read as an empty account is the half-page the refusal exists
-        // to prevent.
-        overlay ? undefined : (
-          <>
-            {businessRail({
+        tab === "overview" && !overlay
+          ? businessRail({
               org,
               view,
-              overlay,
               failed,
               readOnly: Boolean(org.archived_at),
-              t,
-            })}
-            <Disclosure summary={t("co.relationships.title")}>
-              <RelationshipsTab scope={{ organization_id: org.id }} />
-            </Disclosure>
-            <Disclosure summary={t("co.tools.title")}>
-              <CustomFieldsCard object="organization" record={org} />
-            </Disclosure>
-            {/* Asking lives with the account's readings, not inside its
-                story: the tool for when the page did not already answer sits
-                at the bottom of the column a reader consults, leaving the
-                chronology to be only what happened. */}
-            <AssistantPanel
-              orgId={org.id}
-              enabled
-              onOpenRecord={openCitation}
-            />
-          </>
-        )
+            })
+          : undefined
       }
       asideFirst
       timelineTitle={t("co.story.title")}
@@ -2153,7 +2159,7 @@ function CompanyPage({
       {overlay && <OverlayFallback />}
       {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
       {!overlay && tab === "context" && (
-        <ContextTab orgId={org.id} onOpenHistory={showChanges} />
+        <ContextTab org={org} view={view} onOpenHistory={showChanges} />
       )}
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
@@ -2232,7 +2238,7 @@ function performSuggestion(
 // prepared answers and the suggestions all cite the same records, so they
 // share one route — a second copy would drift and send one card's reader to
 // the wrong screen.
-function openCitation(entityType: string, entityId: string) {
+export function openCitation(entityType: string, entityId: string) {
   if (entityType === "deal") {
     navigate({ screen: "deals", id: entityId });
   }
@@ -2427,17 +2433,51 @@ function CompanyStanding({ view }: Readonly<{ view: Organization360View }>) {
  * rail they were more content than the rest of the page put together, behind
  * four grey summary lines that nobody opened before a call.
  */
+/**
+ * ContextTab is everything about this company a rep consults rather than
+ * reads daily: what we know about them, how this record is filed, and the
+ * two depths of website read that fill the first of those.
+ *
+ * The roll-up left for the overview's business column — a weighted pipeline
+ * is a commercial reading, not a fact about the company.
+ */
 function ContextTab({
-  orgId,
+  org,
+  view,
   onOpenHistory,
-}: Readonly<{ orgId: string; onOpenHistory: () => void }>) {
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  onOpenHistory: () => void;
+}>) {
+  const t = useT();
+  const readOnly = Boolean(org.archived_at);
   return (
     <div className="co-context">
-      <ProfileFieldsCard orgId={orgId} onOpenHistory={onOpenHistory} />
-      <FactsCard orgId={orgId} onOpenHistory={onOpenHistory} />
-      <HierarchyRollupCard orgId={orgId} />
-      <EnrichCard orgId={orgId} />
-      <DeepReadCard orgId={orgId} />
+      <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+      <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+      {/* One capability at two depths, under one heading: separately edged
+          they read as two different features for reading a website. */}
+      <section className="card co-card">
+        <SectionHeader title={t("co.website.title")} />
+        <EnrichCard orgId={org.id} />
+        <DeepReadCard orgId={org.id} />
+      </section>
+      {/* How the record is filed. Folded, because a rep opens these to change
+          something rather than to learn something. */}
+      <Disclosure summary={t("co.tags.title")}>
+        <TagsCard
+          view={view}
+          tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
+          listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
+        />
+      </Disclosure>
+      <Disclosure summary={t("co.relationships.title")}>
+        <RelationshipsTab scope={{ organization_id: org.id }} />
+      </Disclosure>
+      <Disclosure summary={t("co.tools.title")}>
+        <CustomFieldsCard object="organization" record={org} />
+      </Disclosure>
     </div>
   );
 }
@@ -2445,25 +2485,16 @@ function ContextTab({
 function businessRail({
   org,
   view,
-  overlay,
   failed,
   readOnly,
-  t,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
-  overlay: boolean;
   failed: boolean;
   // An archived company takes no new deals, tags or list rows, so it shows no
   // verb that would only be refused.
   readOnly: boolean;
-  // Passed rather than read: this assembles a tree, it is not a component,
-  // so it has no hook context of its own.
-  t: ReturnType<typeof useT>;
 }>): ReactNode {
-  if (overlay) {
-    return undefined;
-  }
   if (view) {
     return (
       <>
@@ -2504,13 +2535,11 @@ function businessRail({
             stays (connections.tsx, GET /organizations/{id}/graph): it returns
             as a per-contact "find a route in", which is the question that IS
             worth asking, and only where a route actually exists. */}
-        <Disclosure summary={t("co.tags.title")}>
-          <TagsCard
-            view={view}
-            tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
-            listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
-          />
-        </Disclosure>
+        {/* The account's own commercial total, and only when the account is
+            a group. Lists, tags, links and the field tooling are how this
+            record is FILED rather than anything about the company, so they
+            read on the Context tab with the rest of the reference. */}
+        <HierarchyRollupCard orgId={org.id} />
       </>
     );
   }
@@ -2542,7 +2571,6 @@ function businessRail({
       <PeopleCard />
       <DealsCard />
       <SignalsCard orgId={org.id} />
-      <TagsCard />
     </>
   );
 }
