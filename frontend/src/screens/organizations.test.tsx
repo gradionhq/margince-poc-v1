@@ -118,6 +118,13 @@ const org360 = {
     deal_stage_moves: 0,
     pending_proposals: 0,
   },
+  // Where the account stands, as every real read returns it. The strip is
+  // the masthead's own reading, so a fixture without one is a page missing
+  // its standing rather than an account that has none.
+  state_strip: {
+    account: { lifecycle: "prospect", relationship_types: [] },
+    engagement: { state: "never_contacted" },
+  },
   // Assembled and empty: the section came back, and the account needs nothing.
   // Suites that exercise the card pass their own through `org360`.
   suggestions: [],
@@ -1370,8 +1377,14 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
   });
 });
 
-describe("CompanyScreen — the account pulse line (P-4)", () => {
-  it("names the way in and both directions, and shows no composite score", async () => {
+// Where the account stands, as the masthead's strip reports it. The prose
+// pulse line this once described is retired: the way in is the People card's
+// answer and the two directions are a reading of the account's state, so
+// they are read where those things live rather than restated in a sentence
+// under the name. What must stay true is what these assert — no composite
+// score, and absence stated as absence rather than as a zero.
+describe("CompanyScreen — where the account stands (P-4)", () => {
+  it("names both directions, and shows no composite score", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
@@ -1400,17 +1413,25 @@ describe("CompanyScreen — the account pulse line (P-4)", () => {
           },
           last_inbound_at: "2026-06-20T12:00:00Z",
           last_outbound_at: "2026-06-28T09:00:00Z",
+          state_strip: {
+            account: { lifecycle: "prospect", relationship_types: [] },
+            engagement: {
+              state: "waiting_on_them",
+              last_inbound_at: "2026-06-20T12:00:00Z",
+              last_outbound_at: "2026-06-28T09:00:00Z",
+            },
+          },
         },
       },
     );
     render(<CompanyScreen id="o-1" />);
 
-    // The way in first, because that is what a rep acts on, then who wrote
-    // last in each direction.
-    await waitFor(() => expect(screen.getByText(/Way in/)).toBeTruthy());
-    expect(screen.getByText(/of 3 contacts here/)).toBeTruthy();
-    expect(screen.getByText(/They wrote/)).toBeTruthy();
-    expect(screen.getByText(/We wrote/)).toBeTruthy();
+    // Both directions, in the standing strip. Folding them into one "last
+    // touch" hides the only distinction a reader acts on: an account we
+    // mailed a fortnight ago with no reply and one that wrote to us this
+    // morning have the same last-touch date and opposite meanings.
+    await waitFor(() => expect(screen.getByText("Whose move")).toBeTruthy());
+    expect(screen.getByText(/They wrote .* · we wrote/)).toBeTruthy();
     // The composite is gone: it was PO-F-3's MAX over contacts, so one
     // talkative contact spoke for the account and "41/100" read as a verdict.
     expect(screen.queryByText(/41\/100/)).toBeNull();

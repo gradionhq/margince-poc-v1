@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Building2, Globe, UserRound, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
@@ -1665,132 +1666,52 @@ function CompanyRecord({
 // companySubtitle is the meta line under the name: what this company is,
 // in the words the record already holds. Absent facts are absent, never
 // guessed — the same evidence-or-omit rule the firmographics card follows.
-function companySubtitle(org: Organization): string | undefined {
-  const primary = (org.domains ?? []).find((domain) => domain.is_primary);
-  const parts = [
-    org.industry,
-    primary?.domain,
-    org.size_band,
-    org.legal_name,
-  ].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? parts.join(" · ") : undefined;
-}
-
-// CompanyPulse is the one-line state of the relationship: how warm it is and
-// who carries it, when it was last touched, and who owns it. Each part is
-// omitted when the 360 could not answer it, so the line never implies a
-// number the reader was not allowed to see.
-function CompanyPulse({
+// What the record IS, as chips under its name: the domain, the trade, the
+// size, the owner. One fact per chip with its own icon, because a reader
+// scanning for the domain should find it at a glance rather than parse it
+// out of a run-on line of every firmographic joined by middots.
+//
+// A fact the record does not carry has no chip. An empty chip would be a
+// field the reader has to read to discover is empty.
+function CompanyIdentityChips({
   org,
-  view,
-  onOpenDecisions,
-}: Readonly<{
-  org: Organization;
-  view?: Organization360View;
-  // The overview owns the decisions panel, so only it can offer the way in.
-  // The other tabs render the same pulse line without the chip rather than a
-  // button that has nothing to open.
-  onOpenDecisions?: () => void;
-}>) {
+}: Readonly<{ org: Organization }>): ReactNode {
   const t = useT();
-  const { locale } = useLocale();
-  const viewerId = useViewerId();
-  const strength = view?.strength;
-  // Withheld or absent, the line says nothing at all: "never contacted" read
-  // off missing data is a business conclusion the page has no basis for, and
-  // it is the one a rep would act on.
-  const touchKnown = Boolean(
-    view && !view.sections_omitted?.includes("last_touch"),
-  );
-  const inbound = view?.last_inbound_at;
-  const outbound = view?.last_outbound_at;
-  const when = (at: string) => formatDateTime(at, locale, RECORD_ZONE);
+  const primary = (org.domains ?? []).find((domain) => domain.is_primary);
   return (
-    <>
-      {strength && <StrengthPulse strength={strength} />}
-      {/* Both directions, side by side. Folding them into one "last touch"
-          hides the only distinction a reader acts on: an account we mailed a
-          fortnight ago with no reply and one that wrote to us this morning
-          have the same last-touch date and opposite meanings. */}
-      {touchKnown && !inbound && !outbound && (
-        <span>{t("co.pulse.neverTouched")}</span>
+    <div className="co-chips">
+      {primary?.domain && (
+        <a
+          className="co-chip"
+          href={`https://${primary.domain}`}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          <Globe aria-hidden size={12} />
+          {primary.domain}
+        </a>
       )}
-      {touchKnown && (inbound || outbound) && (
-        <>
-          <span>
-            {inbound
-              ? t("co.pulse.lastInbound", { when: when(inbound) })
-              : t("co.pulse.noInbound")}
-          </span>
-          <span>
-            {outbound
-              ? t("co.pulse.lastOutbound", { when: when(outbound) })
-              : t("co.pulse.noOutbound")}
-          </span>
-        </>
+      {org.industry && (
+        <span className="co-chip">
+          <Building2 aria-hidden size={12} />
+          {org.industry}
+        </span>
       )}
-      {/* The owner, named as the owner. Unlabelled it read as one more
-          person in a row of people, and the reader had no way to tell the
-          one accountable for this account from whoever last touched it. */}
-      <span>
-        {t("co.pulse.owner")}:{" "}
+      {org.size_band && (
+        <span className="co-chip">
+          <Users aria-hidden size={12} />
+          {org.size_band}
+        </span>
+      )}
+      <span className="co-chip">
+        <UserRound aria-hidden size={12} />
         {org.owner_id ? (
           <EntityRef kind="user" id={org.owner_id} />
         ) : (
           t("co.pulse.unowned")
         )}
       </span>
-      {/* Where the RECORD came from — a different question from who owns it,
-          and the reason both now carry a word saying which is which. */}
-      <ProvenanceTag
-        provenance={provenanceOf(org.captured_by, viewerId)}
-        renderUser={(userId) => <EntityRef kind="user" id={userId} />}
-      />
-      {/* What is waiting on a human decision here, and the way to make it.
-          The count was a badge that led nowhere: a reader told that 27
-          decisions are owed and given no way to pay them learns only that the
-          page keeps score. */}
-      {onOpenDecisions && (
-        <DecisionsChip view={view} onOpen={onOpenDecisions} />
-      )}
-    </>
-  );
-}
-
-// StrengthPulse names the contact who carries the relationship — the way in —
-// and no longer renders a 0-100 score (AC-company-2, ADR-0079 arc).
-//
-// The number was PO-F-3's MAX over the account's contacts, and PO-F-3 is a
-// decayed count of recent two-way messages. So one talkative contact spoke for
-// the whole account, a long low-volume relationship scored near zero, and the
-// header showed "Relationship 2/100" as though it were a verdict. The factors
-// are still computed and still shown in the relationship detail, where each is
-// traceable to the messages behind it; only the single number is withheld.
-//
-// The contributor's NAME is a live lookup, so the sentence is assembled from
-// two translated halves around it rather than interpolating an empty
-// placeholder and appending the name after the full stop — which broke word
-// order in English and worse in German.
-function StrengthPulse({
-  strength,
-}: Readonly<{ strength: NonNullable<Organization360View["strength"]> }>) {
-  const t = useT();
-  if (!strength.contributor_person_id) {
-    // A dormant account: no contact has ever interacted, so there is no
-    // relationship to attribute and no number worth leading with.
-    return <span>{t("co.pulse.noStrength")}</span>;
-  }
-  return (
-    <span>
-      {t("co.pulse.strongestLead")}{" "}
-      <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
-      {t(
-        strength.contact_count === 1
-          ? "co.pulse.strengthTail.one"
-          : "co.pulse.strengthTail.other",
-        { count: strength.contact_count },
-      )}
-    </span>
+    </div>
   );
 }
 
@@ -2134,7 +2055,7 @@ function CompanyPage({
     <RecordView
       name={org.display_name}
       avatarSrc={org.logo_url}
-      subtitle={companySubtitle(org)}
+      subtitle={<CompanyIdentityChips org={org} />}
       zone={RECORD_ZONE}
       badges={
         <CompanyActionBadges
@@ -2143,16 +2064,15 @@ function CompanyPage({
           onSetUpPartner={() => onTab("partner")}
         />
       }
+      // What is waiting on a human decision here, and the way to make it.
+      // The rest of the old pulse line is gone: the way in and the last two
+      // touches are readings the strip and the People card already give, and
+      // said again as a run-on sentence under the name they were the longest
+      // thing in the masthead and the least legible.
       pulse={
-        <CompanyPulse
-          org={org}
-          view={view}
-          // The chip opens the queue, so it appears only where the queue can:
-          // a count you cannot act on from here is a dead end.
-          onOpenDecisions={
-            tab === "overview" ? () => setDecisionsOpen(true) : undefined
-          }
-        />
+        tab === "overview" ? (
+          <DecisionsChip view={view} onOpen={() => setDecisionsOpen(true)} />
+        ) : undefined
       }
       // The composer opens from a button rather than standing open above the
       // page: a whole form in the header's action strip pushed the account's
@@ -2211,69 +2131,17 @@ function CompanyPage({
           open tasks and the account's suggestions — and only then the prose
           brief. What a reader acts on comes before what they read. */}
       {tab === "overview" && view && (
-        <>
-          <SinceLastVisitStrip view={view} />
-          {/* What this reader owes and what the account advises are one
-              block: both are work waiting on them, and as two cards each
-              carrying its own edge the reader assembled the plate
-              themselves. The page spends its only elevation here. */}
-          <div className="co-plate">
-            <NextSteps
-              view={view}
-              onOpenTask={(step) => setOpenTaskId(step.activity_id)}
-              renderAction={(step) => (
-                <TaskQuickActions
-                  activityId={step.activity_id}
-                  dueAt={step.due_at}
-                  update={taskUpdate}
-                />
-              )}
-            />
-            <SuggestionsSection
-              orgId={org.id}
-              view={view}
-              onOpenRecord={openCitation}
-              onPerform={(action) =>
-                performSuggestion(action, {
-                  compose: setReplyToActivityId,
-                  logTask: () => setTaskFormOpen(true),
-                })
-              }
-            />
-          </div>
-          <AccountBrief
-            orgId={org.id}
-            view={view}
-            enabled={!overlay}
-            onOpenRecord={openCitation}
-          />
-        </>
-      )}
-      {/* The composer, anchored on the message a draft_reply suggestion named.
-          It is the same modal the timeline's own Reply opens — the advice
-          shortcuts to it rather than inventing a second way to answer. */}
-      {replyToActivityId && (
-        <ComposeModal
-          activityId={replyToActivityId}
-          entityType="organization"
-          entityId={org.id}
-          kind="email"
-          open
-          onClose={() => setReplyToActivityId(null)}
+        <AccountPlate
+          org={org}
+          view={view}
+          overlay={overlay}
+          taskUpdate={taskUpdate}
+          onOpenTask={setOpenTaskId}
+          onOpenRecord={openCitation}
+          onCompose={setReplyToActivityId}
+          onLogTask={() => setTaskFormOpen(true)}
         />
       )}
-      {taskFormOpen && (
-        <LogActivityAction
-          entityType="organization"
-          entityId={org.id}
-          initialKind="task"
-          openOnMount
-          onClose={() => setTaskFormOpen(false)}
-        />
-      )}
-      {/* The People tab gives the account team the whole middle column. The
-          rail's card is a summary; this is the roster, with room for the title
-          and the last exchange beside each name. */}
       {/* Asking sits UNDER the account's own story: it is the tool for when the
           page did not already answer the question. It belongs to the account
           rather than to its history, so it stays on the overview instead of
@@ -2281,26 +2149,26 @@ function CompanyPage({
       {tab === "overview" && (
         <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
       )}
+      {/* The People tab gives the account team the whole middle column. The
+          rail's card is a summary; this is the roster, with room for the title
+          and the last exchange beside each name. */}
       {tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
-      {openTaskId && (
-        <TaskDetailModal
-          activityId={openTaskId}
-          onClose={() => setOpenTaskId(null)}
-          update={taskUpdate}
-        />
-      )}
-      {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
-          Partner put a panel from one tab on top of another, and a reader who
-          switched tabs to get rid of it could not. */}
-      {decisionsOpen && tab === "overview" && (
-        <CompanyApprovalsPanel
-          orgId={org.id}
-          view={view}
-          onClose={() => setDecisionsOpen(false)}
-        />
-      )}
+      <CompanySurfaces
+        org={org}
+        view={view}
+        onOverview={tab === "overview"}
+        replyToActivityId={replyToActivityId}
+        taskFormOpen={taskFormOpen}
+        openTaskId={openTaskId}
+        decisionsOpen={decisionsOpen}
+        taskUpdate={taskUpdate}
+        onCloseReply={() => setReplyToActivityId(null)}
+        onCloseTaskForm={() => setTaskFormOpen(false)}
+        onCloseTask={() => setOpenTaskId(null)}
+        onCloseDecisions={() => setDecisionsOpen(false)}
+      />
       {/* The audit spine, opened from the header's overflow menu. It belongs
           to the RECORD, not to a tab, so it opens over whichever tab is up. */}
       <Modal
@@ -2369,6 +2237,152 @@ function openCitation(entityType: string, entityId: string) {
 // as an account with none of those, which is the one thing the page does not
 // know. The rail stays and each card says it could not be loaded — except in
 // overlay mode, where the single page-level refusal already covers it.
+/**
+ * CompanySurfaces are the record's overlays: the composer a suggestion
+ * shortcuts to, the task form, an opened task, and the decision queue.
+ *
+ * Each is mounted only while it is open — the reads behind them are not paid
+ * for by a reader who never opens one — and they live together because none
+ * of them is part of the page's reading order.
+ */
+function CompanySurfaces({
+  org,
+  view,
+  onOverview,
+  replyToActivityId,
+  taskFormOpen,
+  openTaskId,
+  decisionsOpen,
+  taskUpdate,
+  onCloseReply,
+  onCloseTaskForm,
+  onCloseTask,
+  onCloseDecisions,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  // The decision queue belongs to the OVERVIEW. Left standing over Partner it
+  // put a panel from one tab on top of another, and a reader who switched
+  // tabs to get rid of it could not.
+  onOverview: boolean;
+  replyToActivityId: string | null;
+  taskFormOpen: boolean;
+  openTaskId: string | null;
+  decisionsOpen: boolean;
+  taskUpdate: ReturnType<typeof useTaskUpdate>;
+  onCloseReply: () => void;
+  onCloseTaskForm: () => void;
+  onCloseTask: () => void;
+  onCloseDecisions: () => void;
+}>) {
+  return (
+    <>
+      {/* Anchored on the message a draft_reply suggestion named. It is the
+          same modal the timeline's own Reply opens — the advice shortcuts to
+          it rather than inventing a second way to answer. */}
+      {replyToActivityId && (
+        <ComposeModal
+          activityId={replyToActivityId}
+          entityType="organization"
+          entityId={org.id}
+          kind="email"
+          open
+          onClose={onCloseReply}
+        />
+      )}
+      {taskFormOpen && (
+        <LogActivityAction
+          entityType="organization"
+          entityId={org.id}
+          initialKind="task"
+          openOnMount
+          onClose={onCloseTaskForm}
+        />
+      )}
+      {openTaskId && (
+        <TaskDetailModal
+          activityId={openTaskId}
+          onClose={onCloseTask}
+          update={taskUpdate}
+        />
+      )}
+      {decisionsOpen && onOverview && (
+        <CompanyApprovalsPanel
+          orgId={org.id}
+          view={view}
+          onClose={onCloseDecisions}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * AccountPlate is the overview's reading, in the order a rep works: what
+ * moved while they were away, then the work waiting on them — their open
+ * tasks and the account's advice as one block — and only then the prose
+ * brief that describes the account.
+ *
+ * The plate itself is one surface. As two cards each carrying its own edge
+ * the reader assembled it themselves, and the page spends its only elevation
+ * here because this is what it is read to act on.
+ */
+function AccountPlate({
+  org,
+  view,
+  overlay,
+  taskUpdate,
+  onOpenTask,
+  onOpenRecord,
+  onCompose,
+  onLogTask,
+}: Readonly<{
+  org: Organization;
+  view: Organization360View;
+  overlay: boolean;
+  taskUpdate: ReturnType<typeof useTaskUpdate>;
+  onOpenTask: (activityId: string) => void;
+  onOpenRecord: (entityType: string, entityId: string) => void;
+  onCompose: (activityId: string) => void;
+  onLogTask: () => void;
+}>) {
+  return (
+    <>
+      <SinceLastVisitStrip view={view} />
+      <div className="co-plate">
+        <NextSteps
+          view={view}
+          onOpenTask={(step) => onOpenTask(step.activity_id)}
+          renderAction={(step) => (
+            <TaskQuickActions
+              activityId={step.activity_id}
+              dueAt={step.due_at}
+              update={taskUpdate}
+            />
+          )}
+        />
+        <SuggestionsSection
+          orgId={org.id}
+          view={view}
+          onOpenRecord={onOpenRecord}
+          onPerform={(action) =>
+            performSuggestion(action, {
+              compose: onCompose,
+              logTask: onLogTask,
+            })
+          }
+        />
+      </div>
+      <AccountBrief
+        orgId={org.id}
+        view={view}
+        enabled={!overlay}
+        onOpenRecord={onOpenRecord}
+      />
+    </>
+  );
+}
+
 // The standing strip with this screen's own words for a lifecycle and a
 // relationship type. A component rather than inline JSX so the page that
 // mounts it does not carry the label lookups in its own complexity.

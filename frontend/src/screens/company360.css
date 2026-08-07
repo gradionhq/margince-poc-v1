@@ -310,6 +310,81 @@
   border-block-start: 1px solid var(--borderSubtle);
 }
 
+/* The record's facts as chips: one per chip, each with its own icon, so a
+   reader looking for the domain finds it rather than parsing it out of a
+   line of every firmographic joined by middots. */
+.co-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-block-start: var(--space-2);
+}
+.co-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-full);
+  font-size: 12px;
+  color: var(--textContent);
+  text-decoration: none;
+}
+.co-chip svg {
+  color: var(--textTertiary);
+  flex: none;
+}
+a.co-chip:hover {
+  background: var(--bgHover);
+  text-decoration: none;
+}
+a.co-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Numbers in the standing strip are read against each other — an amount, a
+   date, a count — so they set in the mono face that keeps digits aligned. */
+.record-sheet .co-strip .stat-card-value {
+  font-family: var(--f-mono);
+  letter-spacing: -0.01em;
+}
+.record-sheet .co-strip .stat-card-label {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--textTertiary);
+}
+
+/* Tabs on the sheet's own edge: the active one is marked by a rule under it
+   in the accent, the way a tab has always said "you are here". As pills in
+   a tinted track they read as a filter control sitting on the record rather
+   than as the record's own navigation. */
+.record-tabs .segmented {
+  background: none;
+  border: 0;
+  padding: 0;
+  gap: var(--space-4);
+}
+.record-tabs .segmented button {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  border-block-end: 2px solid transparent;
+  padding: var(--space-3) 0;
+  box-shadow: none;
+  color: var(--textMeta);
+  font-weight: 500;
+}
+.record-tabs .segmented button[aria-pressed="true"],
+.record-tabs .segmented button[aria-selected="true"] {
+  background: none;
+  border-block-end-color: var(--accent);
+  color: var(--textPrimary);
+  font-weight: 600;
+}
+
 /* Context: what Margince holds about the account, in one column at the
    width of the reading rather than squeezed into a rail. */
 .co-context {
