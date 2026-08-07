@@ -99,7 +99,7 @@ func (t relinkActivity) Spec() mcp.ToolSpec {
 			"replace_existing_of_type":{"type":"boolean","default":false,
 				"description":"Replace the existing link of the same entity_type (move) rather than adding one (associate)"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
 }
 
@@ -135,7 +135,7 @@ func (t disqualifyLead) Spec() mcp.ToolSpec {
 			"lead_id":{"type":"string","format":"uuid","description":"The lead to disqualify"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
 }
 
@@ -203,7 +203,7 @@ func (t advanceProjectPhase) Spec() mcp.ToolSpec {
 			"if_version":{"type":"integer","description":"The version the caller read; the write is refused as skew if the project moved since"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
 }
 

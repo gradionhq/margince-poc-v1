@@ -57,18 +57,18 @@ func (stubComms) DraftEmail(context.Context, ids.UUID, string) (string, string, 
 	return "", "", nil
 }
 
-func (stubComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (json.RawMessage, error) {
-	return nil, nil
+func (stubComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (agents.SendEmailResult, error) {
+	return agents.SendEmailResult{}, nil
 }
 
-func (stubComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) (json.RawMessage, error) {
-	return nil, nil
+func (stubComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) (agents.SendMessageResult, error) {
+	return agents.SendMessageResult{}, nil
 }
 
 func (stubComms) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
 
-func (stubComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (json.RawMessage, error) {
-	return nil, nil
+func (stubComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (agents.AvailabilityResult, error) {
+	return agents.AvailabilityResult{}, nil
 }
 
 func (stubComms) BookMeeting(context.Context, agents.BookMeetingArgs) (json.RawMessage, error) {

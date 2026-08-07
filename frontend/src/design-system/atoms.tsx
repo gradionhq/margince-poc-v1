@@ -81,6 +81,16 @@ export function Avatar({
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const broken = Boolean(src) && brokenSrc === src;
   const setBroken = () => setBrokenSrc(src ?? null);
+  // The monogram is the floor UNDER the mark, so it has to stop being drawn the
+  // moment the mark is actually on screen: a logo with transparency would
+  // otherwise show the initials through it. Tracked by src for the same reason
+  // as the failure above.
+  const [paintedSrc, setPaintedSrc] = useState<string | null>(null);
+  // A mark that painted once and then failed on a later load is no longer on
+  // screen, so it stops holding the monogram down: without the `!broken` the
+  // image is removed while the fallback stays suppressed, and the avatar is
+  // simply empty.
+  const painted = Boolean(src) && paintedSrc === src && !broken;
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -102,6 +112,7 @@ export function Avatar({
   if (tinted) classes.push(`avatar-t${tone}`);
   if (size === "lg") classes.push("avatar-lg");
   if (src && !broken) classes.push("avatar-has-logo");
+  if (painted) classes.push("avatar-painted");
   return (
     <span className={classes.join(" ")}>
       {src && !broken ? (
@@ -113,9 +124,10 @@ export function Avatar({
           alt=""
           loading="lazy"
           onError={setBroken}
+          onLoad={() => setPaintedSrc(src ?? null)}
         />
       ) : null}
-      {initials}
+      {!painted && initials}
     </span>
   );
 }

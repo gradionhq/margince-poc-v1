@@ -8,7 +8,6 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
-  DataTable,
   Modal,
   SectionHeader,
   SegmentedControl,
@@ -38,10 +37,9 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 import { ShareAction } from "./share";
@@ -241,90 +239,88 @@ export function LeadsScreen() {
     initialSort: "-created_at",
     fetchPage: fetchLeadsPage,
   });
-  const { query, setQuery } = state;
 
   return (
     <div className="wrap lead-surface">
-      <div className="list-head">
-        <SectionHeader title={t("nav.leads")} sub={t("lead.segregated")} />
-        <CreateAction
-          label={t("create.lead")}
-          invalidate="leads"
-          screen="leads"
-          create={(values) => createLead(values, cf.toBody(values), t)}
-          resolveExisting={(_code, id) => ({ screen: "leads", id })}
-          fields={[...leadCreateFields, ...cf.formFields]}
-        />
-      </div>
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        sortOptions={[
-          { value: "-score", label: "list.sortScore" },
-          { value: "-created_at", label: "list.sortNewest" },
-        ]}
-        filters={[
+      <ListTable
+        state={state}
+        unit="unit.leads"
+        caption="lead.segregated"
+        action={
+          <CreateAction
+            label={t("create.lead")}
+            invalidate="leads"
+            screen="leads"
+            create={(values) => createLead(values, cf.toBody(values), t)}
+            resolveExisting={(_code, id) => ({ screen: "leads", id })}
+            fields={[...leadCreateFields, ...cf.formFields]}
+          />
+        }
+        columns={[
           {
-            kind: "select",
+            key: "name",
+            header: t("people.name"),
+            cell: (lead: Lead) => {
+              const terminal = terminalBadge(lead.status);
+              return (
+                <span>
+                  <strong>{lead.full_name ?? lead.email ?? ""}</strong>
+                  {lead.company_name && (
+                    <span className="t-caption"> · {lead.company_name}</span>
+                  )}
+                  {terminal && (
+                    <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
+                  )}
+                </span>
+              );
+            },
+            fixed: true,
+          },
+          {
+            key: "score",
+            header: t("lead.score"),
+            cell: (lead: Lead) => (
+              <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
+            ),
+            // No sort: /leads declares the dial but its store orders by
+            // creation time regardless, so a clickable header here would be a
+            // control that changes nothing. Restored when the endpoint
+            // honours it.
+            numeric: true,
+          },
+          {
+            key: "status",
+            header: t("lead.status"),
+            cell: (lead: Lead) => <Badge>{lead.status}</Badge>,
+          },
+          {
+            key: "provenance",
+            header: t("people.capturedBy"),
+            cell: (lead: Lead) => (
+              <ProvenanceTag
+                provenance={provenanceOf(lead.captured_by, viewerId)}
+              />
+            ),
+          },
+        ]}
+        rowKey={(lead) => lead.id}
+        rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
+        chips={[
+          {
             key: "status",
             label: "lead.filterStatus",
+            allLabel: "lead.filterStatusAll",
             options: leadStatusFilterOptions.map((option) => ({ ...option })),
           },
         ]}
+        // "Highest score" is gone with the sort it was made of; Hot stays,
+        // because it narrows by score rather than ordering by it, and that the
+        // endpoint does answer.
+        views={[
+          { label: "list.viewAll", sort: "-created_at" },
+          { label: "list.viewHot", filters: { min_score: "80" } },
+        ]}
       />
-      <ListGate state={state} empty={t("common.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "name",
-                header: t("people.name"),
-                render: (lead: Lead) => {
-                  const terminal = terminalBadge(lead.status);
-                  return (
-                    <span>
-                      <strong>{lead.full_name ?? lead.email ?? ""}</strong>
-                      {lead.company_name && (
-                        <span className="t-caption">
-                          {" "}
-                          · {lead.company_name}
-                        </span>
-                      )}
-                      {terminal && (
-                        <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
-                      )}
-                    </span>
-                  );
-                },
-              },
-              {
-                key: "score",
-                header: t("lead.score"),
-                render: (lead: Lead) => (
-                  <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
-                ),
-              },
-              {
-                key: "status",
-                header: t("lead.status"),
-                render: (lead: Lead) => <Badge>{lead.status}</Badge>,
-              },
-              {
-                key: "provenance",
-                header: t("people.capturedBy"),
-                render: (lead: Lead) => (
-                  <ProvenanceTag
-                    provenance={provenanceOf(lead.captured_by, viewerId)}
-                  />
-                ),
-              },
-            ]}
-            rows={rows}
-            rowKey={(lead) => lead.id}
-            onRowClick={(lead) => navigate({ screen: "leads", id: lead.id })}
-          />
-        )}
-      </ListGate>
     </div>
   );
 }

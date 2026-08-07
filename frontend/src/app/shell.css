@@ -128,47 +128,6 @@
   gap: var(--space-2);
 }
 
-/* List toolbar row: search grows, sort/filters/toggle sit fixed-width beside
- * it. Anything wearing `.input` defaults to width:100% (base.css), so the
- * width:auto override is required or they fight the search field for width.
- *
- * The dropdown is matched by its CLASS, not by an element name. It used to be a
- * `<select>` and the rule said so; it is a `<button>` now
- * (design-system/select.tsx), and an element-qualified selector silently stopped
- * applying — every filter in this row grew to the full width of the page, one per
- * line. A rule that names a tag is a rule that breaks when the control changes
- * shape, so this one names what the control IS. */
-.list-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin: 4px 0 16px;
-}
-.list-toolbar > .input-icon {
-  flex: 1 1 260px;
-  max-width: 360px;
-}
-.list-toolbar > .select-control,
-.list-toolbar > input.input {
-  width: auto;
-  flex: 0 1 200px;
-}
-.list-toolbar > label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-@media (max-width: 520px) {
-  .list-toolbar > .input-icon,
-  .list-toolbar > .select-control,
-  .list-toolbar > input.input {
-    flex-basis: 100%;
-    max-width: none;
-  }
-}
-
 /* ===== sidebar =====
  * The ground is the matte near-white surface in BOTH states. The collapsed
  * state matches the canonical rail's geometry — 64px, 44px targets, the
@@ -786,7 +745,7 @@
 }
 
 .topbar {
-  min-height: 52px;
+  min-height: 60px;
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-card);
@@ -797,19 +756,35 @@
   flex: none;
   gap: 10px;
 }
+/* The crumb IS the page title: the screen name carries display weight and the
+ * record it drills into stays secondary, so a glance at the bar answers "where
+ * am I" before anything in the content area is read. */
+/* The crumb IS the page title, and it carries the screen's icon. Weight is
+ * reserved for the segment you are actually on: on a record the section is a way
+ * back and reads as ordinary text, so bold always means "here". */
 .topbar .crumb {
-  color: var(--textMeta);
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--textSecondary);
+  font-family: var(--f-display);
+  font-size: 15px;
+  line-height: 1.2;
 }
 .topbar .crumb b {
   color: var(--textPrimary);
   font-weight: 600;
 }
-/* On a record the section name is the way back to its list. */
+/* A section that is only the route back does not compete with the record it
+ * leads away from. */
+/* It is also the way back to its list. Stated once: split across rules, the
+ * last weight won and the crumb kept the emphasis this is meant to take off
+ * it. */
 .topbar .crumb a {
   color: var(--textMeta);
   text-decoration: none;
-  font-weight: 500;
+  font-size: inherit;
+  font-weight: 400;
 }
 .topbar .crumb a:hover {
   color: var(--textPrimary);
@@ -1321,4 +1296,29 @@
   .askfab-root {
     bottom: 76px;
   }
+}
+
+/* A list screen is one full-height surface: the page itself does not scroll,
+ * the table's own body does. It also drops the reading-width inset every other
+ * screen wants, so the surface's edges line up with the top bar above it —
+ * a table narrower than the bar reads as a panel that failed to fit.
+ *
+ * Keyed off the wrap CARRYING a surface, not on it being the only child: a
+ * toast is a sibling in the markup even though it is fixed and takes no space,
+ * and an `:only-child` rule switched the whole layout off for as long as one
+ * was on screen. */
+.wrap:has(> .lt) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: none;
+  padding: 0;
+}
+/* The surface takes the height rather than its content deciding it. Sized by
+ * content, a list that momentarily renders smaller — a board mid-refetch after
+ * a deal is dragged to another stage, a filter that matches nothing — would
+ * collapse the whole surface and snap it back. */
+.wrap:has(> .lt) > .lt {
+  flex: 1;
+  min-height: 0;
 }

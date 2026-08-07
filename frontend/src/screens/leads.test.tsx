@@ -7,6 +7,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -255,6 +256,24 @@ function stubFetch(
   return { fetchMock, urls };
 }
 
+// The columns picker also offers a "Status" checkbox (the status column
+// shares its header text with the filter attribute's label), so a plain
+// name match is ambiguous — scope both the attribute pick and the value
+// pick to the Filter button's own open menu.
+// The menu names the step it is on — "Filter" while it lists attributes, then
+// the attribute once one is picked — so each click is scoped to the menu as it
+// stands at that moment rather than to a class name.
+async function pickFilter(attribute: string, value: string) {
+  await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+  const step = (name: string) => screen.getByRole("group", { name });
+  await userEvent.click(
+    within(step("Filter")).getByRole("button", { name: attribute }),
+  );
+  await userEvent.click(
+    within(step(attribute)).getByRole("button", { name: value }),
+  );
+}
+
 function emptyPage() {
   return jsonResponse({
     data: [],
@@ -270,7 +289,7 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
 
     vi.useFakeTimers();
     try {
-      fireEvent.change(screen.getByRole("searchbox"), {
+      fireEvent.change(screen.getByPlaceholderText("Search"), {
         target: { value: "jonas" },
       });
       act(() => {
@@ -286,19 +305,18 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
   });
 
   it("sends status=working when the status filter is set", async () => {
-    const user = userEvent.setup();
     const { urls } = stubFetch(async () => emptyPage());
     render(<LeadsScreen />);
     await waitFor(() => expect(urls.length).toBeGreaterThan(0));
 
-    await pickOption(user, screen.getByLabelText("Status"), "Working");
+    await pickFilter("Status", "Working");
 
     await waitFor(() =>
       expect(urls.some((url) => url.includes("status=working"))).toBe(true),
     );
   });
 
-  it("shows Load more on has_more and fetches the next cursor on click", async () => {
+  it("fetches the next cursor page when the pager steps past the loaded page", async () => {
     const { urls } = stubFetch(async (url) => {
       if (url.includes("cursor=c1")) {
         return jsonResponse({
@@ -316,8 +334,9 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
       expect(screen.getByText("Jonas Petersen")).toBeTruthy(),
     );
 
-    const loadMore = screen.getByRole("button", { name: "Load more" });
-    await userEvent.click(loadMore);
+    const next = screen.getByRole("button", { name: "Next ›" });
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(next);
 
     await waitFor(() => expect(screen.getByText("Otto Fischer")).toBeTruthy());
     expect(urls.some((url) => url.includes("cursor=c1"))).toBe(true);

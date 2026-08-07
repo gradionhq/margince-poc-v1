@@ -77,7 +77,7 @@ func (t runReport) Spec() mcp.ToolSpec {
 				"as":{"type":"string","description":"Output column name for this aggregate"}},"additionalProperties":false},
 				"description":"Omit for the report's own default aggregates."}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[RunReportResult](),
 	}
 }
 

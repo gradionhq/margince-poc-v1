@@ -46,6 +46,27 @@ type WhoKnowsLister func(ctx context.Context, personID ids.UUID) ([]KnownColleag
 // it". Compose implements it over compose/network.
 type CoverageReader func(ctx context.Context, dealID ids.UUID) (DealCoverageAnswer, error)
 
+// WhoKnowsAnswer is what who_knows answers: the colleagues who know one
+// contact, warmest first. An empty list is a real answer — it says the contact
+// is cold — so it is never an error and never null.
+type WhoKnowsAnswer struct {
+	PersonID   ids.UUID         `json:"person_id"`
+	Colleagues []KnownColleague `json:"colleagues"`
+}
+
+// IntroPathAnswer is what intro_path_to answers: the warm routes into an
+// account, and whether the candidate set the warmth was computed over was
+// itself cut short.
+type IntroPathAnswer struct {
+	OrganizationID ids.UUID     `json:"organization_id"`
+	Routes         []IntroRoute `json:"routes"`
+	// CandidatesTruncated says the ranking was computed over a bounded slice of
+	// the account's contacts, so a warmer route may exist outside it. A ranked
+	// list presented as complete is how a model tells a rep that nobody warmer
+	// exists.
+	CandidatesTruncated bool `json:"candidates_truncated"`
+}
+
 // DealCoverageAnswer is the coverage picture in the shape a model consumes:
 // the seats, who carries them, and the findings with their evidence.
 type DealCoverageAnswer struct {
@@ -151,7 +172,7 @@ func (t whoKnowsTool) Spec() mcp.ToolSpec {
 		InputSchema: schema(`{"type":"object","properties":{
 			"person_id":{"type":"string","format":"uuid","description":"The contact to ask about"}},
 			"required":["person_id"],"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[WhoKnowsAnswer](),
 	}
 }
 
@@ -175,9 +196,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	// knows them" is a true and useful answer to this question — it is the
 	// answer that says the account is cold — and turning it into a failure
 	// would make the model narrate a problem instead of a fact.
-	return json.Marshal(map[string]any{
-		"person_id": args.PersonID, "colleagues": colleagues,
-	})
+	return json.Marshal(WhoKnowsAnswer{PersonID: args.PersonID, Colleagues: colleagues})
 }
 
 // --- account_coverage (🟢 read) ---
@@ -193,7 +212,7 @@ func (t accountCoverageTool) Spec() mcp.ToolSpec {
 		InputSchema: schema(`{"type":"object","properties":{
 			"deal_id":{"type":"string","format":"uuid","description":"The deal to assess"}},
 			"required":["deal_id"],"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[DealCoverageAnswer](),
 	}
 }
 
@@ -238,7 +257,7 @@ func (t introPathTool) Spec() mcp.ToolSpec {
 		InputSchema: schema(`{"type":"object","properties":{
 			"organization_id":{"type":"string","format":"uuid","description":"The account to find a warm route into"}},
 			"required":["organization_id"],"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[IntroPathAnswer](),
 	}
 }
 
@@ -259,14 +278,14 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		// null reads it as "unknown" and hedges.
 		routes = []IntroRoute{}
 	}
-	return json.Marshal(map[string]any{
-		"organization_id": args.OrganizationID, "routes": routes,
+	return json.Marshal(IntroPathAnswer{
+		OrganizationID: args.OrganizationID, Routes: routes,
 		// Warmth is computed AFTER the read, so an account with more contacts
 		// than the fetch bound contributes only the first slice of them and the
 		// genuinely warmest route can fall outside it. Saying so is the "no
 		// silent caps" rule: a ranked list presented as complete is how a model
 		// tells a rep that nobody warmer exists.
-		"candidates_truncated": truncated,
+		CandidatesTruncated: truncated,
 	})
 }
 
@@ -284,7 +303,7 @@ func (t atRiskTool) Spec() mcp.ToolSpec {
 		// row scope already decides what that is — an owner or team filter here
 		// would be a second, weaker spelling of the same rule.
 		InputSchema:  schema(`{"type":"object","properties":{},"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[AtRiskReport](),
 	}
 }
 
@@ -299,6 +318,16 @@ func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	}
 	if report.Deals == nil {
 		report.Deals = []AtRiskDeal{}
+	}
+	// The NESTED list too, and at the same boundary for the same reason: a deal
+	// reported as at risk with a null findings list tells a model nothing about
+	// why, where an empty one would say the deal carries no finding at all. The
+	// declared schema requires it, so a null would also cost the whole answer
+	// its structured half.
+	for i := range report.Deals {
+		if report.Deals[i].Risks == nil {
+			report.Deals[i].Risks = []CoverageRisk{}
+		}
 	}
 	return json.Marshal(report)
 }
