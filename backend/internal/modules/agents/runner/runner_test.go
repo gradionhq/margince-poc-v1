@@ -439,7 +439,7 @@ func TestWindowBoundingElidesOldestKeepsGoal(t *testing.T) {
 		win.observe("read_record", strings.Repeat("x", 4000)+fmt.Sprintf("-%d", i))
 	}
 	req := win.asRequest(1000)
-	if got := estimateTokens(req.System, req.Messages); got > windowPromptTokenCeiling {
+	if got := estimateTokens(req.System, req.Messages); got > PromptTokenCeiling {
 		t.Fatalf("window not bounded: %d tokens", got)
 	}
 	if !strings.Contains(req.Messages[0].Content, "the goal survives") {

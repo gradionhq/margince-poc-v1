@@ -51,9 +51,12 @@ func sourceVocabulary(specs []mcp.ToolSpec) map[string]bool {
 // reply that would not parse.
 const outputValidatorSource = "output_validator"
 
-// windowPromptTokenCeiling bounds the prompt (§3: the window has a hard
-// token ceiling; a long run cannot silently grow the context).
-const windowPromptTokenCeiling = 24_000
+// PromptTokenCeiling bounds the prompt (§3: the window has a hard token
+// ceiling; a long run cannot silently grow the context). Only the transcript
+// gives way to it — the tool listing is in the system prompt and is never
+// elided — so it is exported for the composition that knows how large the real
+// catalog is to hold that listing against it.
+const PromptTokenCeiling = 24_000
 
 // roleUser is the wire role every window message carries: the goal, each
 // observation, and the elision notice are all things the runner SAYS to the
@@ -177,7 +180,7 @@ const elisionMarker = "[earlier observations elided to fit the context window]"
 // model is reasoning over right now.
 func (w *window) bounded() []model.Message {
 	msgs := append([]model.Message(nil), w.msgs...)
-	for estimateTokens(w.system, msgs) > windowPromptTokenCeiling && len(msgs) > 2 {
+	for estimateTokens(w.system, msgs) > PromptTokenCeiling && len(msgs) > 2 {
 		oldest := 1
 		if msgs[1].Content == elisionMarker {
 			oldest = 2

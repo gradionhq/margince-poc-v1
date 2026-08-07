@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -168,5 +169,36 @@ func TestTheOperatorConsoleServesTheTextAnMCPClientIsServed(t *testing.T) {
 		if tool.Title == nil || *tool.Title != spec.Title {
 			t.Errorf("%s: the console does not serve the tool's written display title", spec.Name)
 		}
+	}
+}
+
+// listingShareOfTheWindow is the most of the runner's prompt ceiling the tool
+// listing may take. The listing lives in the system prompt, which elision never
+// touches — only the transcript gives way — so a catalog that grew past this
+// would not overflow, it would quietly leave the run less and less room for the
+// observations it is reasoning over.
+//
+// Half is generous next to where the surface sits today and still leaves the
+// whole other half for the goal and the transcript. It is a ceiling on growth,
+// not a target.
+const listingShareOfTheWindow = 2
+
+// The cost this change introduced: thirty written descriptions go into every
+// Surface-B prompt, and nothing else in the loop notices if they grow. The
+// tokens are estimated the way the window itself estimates them, so this
+// measures the same thing the ceiling is enforced against rather than a second
+// idea of a token.
+func TestTheToolListingLeavesTheRunRoomInTheWindow(t *testing.T) {
+	bytes := 0
+	for _, spec := range NewRegistry(nil, SendPath{}).Specs() {
+		// What systemPrompt prints per tool: the name, the written description
+		// and the input schema, plus the few characters of framing around them.
+		bytes += len(spec.Name) + len(spec.Description) + len(spec.InputSchema) + len("-  — \n  input schema: \n")
+	}
+	tokens := bytes / 4
+	if budget := runner.PromptTokenCeiling / listingShareOfTheWindow; tokens > budget {
+		t.Errorf("the tool listing is ~%d tokens of a %d-token window, past the %d it may take — "+
+			"the listing is never elided, so what grows here comes out of the run's own observations",
+			tokens, runner.PromptTokenCeiling, budget)
 	}
 }
