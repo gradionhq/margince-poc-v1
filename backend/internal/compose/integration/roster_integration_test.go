@@ -61,7 +61,7 @@ func stmt(sql string, args ...any) seedStmt { return seedStmt{sql: sql, args: ar
 
 // seedInWorkspace runs setup statements inside a workspace-bound
 // transaction: app_user/team/team_membership are FORCE-RLS tables, so the
-// owner must set app.workspace_id even to insert. Mirrors setWorkspaceSeat.
+// owner must set app.workspace_id even to insert. Mirrors SetWorkspaceSeat.
 func seedInWorkspace(t *testing.T, e *apptest.AppEnv, ws ids.UUID, stmts ...seedStmt) {
 	t.Helper()
 	ctx := context.Background()

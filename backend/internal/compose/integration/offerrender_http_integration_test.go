@@ -12,7 +12,7 @@ package integration
 // over the real handler stack, including the TOCTOU fence between the
 // prepare read and the set write. The unwired-blobstore 501 shape is
 // already covered by offertemplate_http_integration_test.go's
-// assertRenderOfferNotImplementedWithoutBlobstore (the default setup()
+// assertRenderOfferNotImplementedWithoutBlobstore (the default apptest.SetupApp
 // harness wires no blobstore at all), so it is not repeated here.
 
 import (
@@ -137,7 +137,7 @@ type raceLineAdder struct {
 	// hookErr captures a failure from the injected call below. Put runs on
 	// the outer render request's own handler goroutine, so a t.Fatalf here
 	// would Goexit that goroutine before it writes the render's HTTP
-	// response — hanging the test goroutine's e.call for the render POST
+	// response — hanging the test goroutine's e.Call for the render POST
 	// forever. Recording the failure and asserting it from the test
 	// goroutine, after the outer call returns, avoids that deadlock.
 	hookErr error
@@ -237,7 +237,7 @@ type raceDoubleRenderer struct {
 	// hookErr captures a failure from the nested render below. Put runs on
 	// the outer render request's own handler goroutine, so a t.Fatalf here
 	// would Goexit that goroutine before it writes the outer render's HTTP
-	// response — hanging the test goroutine's e.call for the outer render
+	// response — hanging the test goroutine's e.Call for the outer render
 	// POST forever. Recording the failure and asserting it from the test
 	// goroutine, after the outer call returns, avoids that deadlock.
 	hookErr error

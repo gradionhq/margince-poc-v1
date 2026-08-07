@@ -88,7 +88,7 @@ func assertFieldHistoryValidation422(t *testing.T, status int, problem fieldHist
 
 // fieldHistoryHTTPEnv resolves the workspace id the HTTP harness's
 // bootstrap created and opens a second pgxpool.Pool onto the same live
-// schema — exactly how setup() itself pairs its owner connection with an
+// schema — exactly how apptest.SetupApp itself pairs its owner connection with an
 // app pool — so the store-level suite's seedAuditDiffRow can write
 // straight through the real audit-spine path this handler reads back.
 func fieldHistoryHTTPEnv(t *testing.T, e *apptest.AppEnv) *Env {

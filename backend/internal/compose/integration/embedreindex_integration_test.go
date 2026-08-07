@@ -116,9 +116,9 @@ func setupEmbedReindex(t *testing.T, router *ai.Router) *apptest.AppEnv {
 	}
 	ctx := context.Background()
 
-	// A separate pool from the pointed-at-the-same-DSN pool env's own
-	// setupWithOptions opens below — jobs.NewInserter just needs SOME
-	// pool reaching the same Postgres, not the exact same *pgxpool.Pool
+	// A separate pool from the pointed-at-the-same-DSN pool that
+	// apptest.SetupAppWithOptions opens below — jobs.NewInserter just needs
+	// SOME pool reaching the same Postgres, not the exact same *pgxpool.Pool
 	// object (mirrors SchemaPool(t)'s own separate-connection precedent).
 	wirePool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
@@ -150,7 +150,7 @@ func setupEmbedReindex(t *testing.T, router *ai.Router) *apptest.AppEnv {
 
 // embedReindexWorkspaceID resolves the bootstrapped workspace's raw id —
 // there is no /v1/workspaces endpoint to read it from, so this reads it
-// the same way demoteToRep/setWorkspaceSeat already do (owner connection,
+// the same way demoteToRep/SetWorkspaceSeat already do (owner connection,
 // by slug).
 func embedReindexWorkspaceID(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
@@ -238,7 +238,7 @@ func embedPreview(t *testing.T, e *apptest.AppEnv) (int, embedReindexPreviewWire
 
 // embedConfirm issues the confirm call. body is nil for a bare confirm
 // (an empty request — decodeEmbedReindexStart's zero-value path) or an
-// anyMap carrying previewed_identity/force; passed straight through as
+// apptest.AnyMap carrying previewed_identity/force; passed straight through as
 // `any` so a literal nil stays a true nil interface (never a boxed nil
 // map, which would marshal to the 4-byte literal "null" instead of an
 // empty body — harmless to the handler's own decode either way, but this

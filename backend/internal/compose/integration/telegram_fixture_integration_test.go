@@ -204,7 +204,7 @@ type telegramEnv struct {
 func setupTelegram(t *testing.T) *telegramEnv {
 	t.Helper()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	// The vault and the job inserter both need a pool before setupWithOptions
+	// The vault and the job inserter both need a pool before apptest.SetupAppWithOptions
 	// has opened the harness's own — the separate-connection precedent
 	// setupPreflight uses for exactly this reason.
 	pool := preflightAppPool(t)

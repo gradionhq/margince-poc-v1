@@ -248,10 +248,9 @@ func BootstrapWorkspaceSession(t *testing.T, e *AppEnv, organizationName, adminE
 	}
 }
 
-// CloseBody closes a response body and fails the test if it cannot, so a leaked
-// body is a red test rather than a slow drip nobody attributes.
-// CloseBody closes a response body and fails the test on a dirty close —
-// a broken close can hide a truncated read.
+// CloseBody closes a response body and fails the test on a dirty close: a
+// broken close can hide a truncated read, and a leaked body should be a red
+// test rather than a slow drip nobody attributes.
 func CloseBody(t *testing.T, resp *http.Response) {
 	t.Helper()
 	if err := resp.Body.Close(); err != nil {

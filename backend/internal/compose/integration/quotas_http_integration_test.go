@@ -19,7 +19,7 @@ package integration
 // fast-follow per crm.yaml's own NET-NEW comment) — the team fixture and
 // the rep-role demotion for the 403 scenario use the owner connection
 // directly, the same technique e2e_integration_test.go's
-// setWorkspaceSeat already uses for seat_type.
+// SetWorkspaceSeat already uses for seat_type.
 
 import (
 	"context"

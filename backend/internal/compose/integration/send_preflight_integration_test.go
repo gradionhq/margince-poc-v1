@@ -79,7 +79,7 @@ func inWorkspace(e *apptest.AppEnv, t *testing.T, slug string, fn func(pgx.Tx) e
 }
 
 // preflightAppPool opens a second pool onto the same database, because the
-// vault WithGmailCapture needs must exist before setupWithOptions opens the
+// vault WithGmailCapture needs must exist before apptest.SetupAppWithOptions opens the
 // harness's own (the separate-connection precedent setupEmbedReindex uses).
 func preflightAppPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -98,7 +98,7 @@ func preflightAppPool(t *testing.T) *pgxpool.Pool {
 // setupPreflight boots the api composition WITH the Google app configured, so
 // the connect registry — and with it the pre-flight — is actually wired. The
 // keyvault rides a separate pool for the same database: WithGmailCapture needs
-// a vault before setupWithOptions has opened the harness's own.
+// a vault before apptest.SetupAppWithOptions has opened the harness's own.
 func setupPreflight(t *testing.T) *preflightEnv {
 	t.Helper()
 	gmailCfg := compose.GmailConfig{

@@ -36,7 +36,7 @@ import (
 // production wiring rides (cmd/api's offerDraftOptions), just fed a
 // scripted fake in place of the routed model (the --ai-fake dev path).
 // The retriever needs its own pool at option-construction time, before
-// setupWithOptions has opened the harness's own — the same "a boot
+// apptest.SetupAppWithOptions has opened the harness's own — the same "a boot
 // option built from a pool opens ITS OWN, ahead of the harness's" shape
 // SchemaPool(t) already established for WithSchemaPool. fake is handed
 // back so the caller can script it AFTER seeding its deal context (the

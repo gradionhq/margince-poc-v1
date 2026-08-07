@@ -25,7 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
-// uploadAttachmentHTTP drives the real multipart upload endpoint (e.call
+// uploadAttachmentHTTP drives the real multipart upload endpoint (e.Call
 // only speaks JSON) and returns the new attachment's id.
 func uploadAttachmentHTTP(e *apptest.AppEnv, t *testing.T, entityType, entityID, filename string) string {
 	t.Helper()
@@ -61,7 +61,7 @@ func uploadAttachmentHTTP(e *apptest.AppEnv, t *testing.T, entityType, entityID,
 // directly through the owner connection — there is no scan-verdict HTTP
 // endpoint (MarkScanResult is administrative, never a public API) — inside
 // a workspace-bound transaction so RLS (FORCE) admits the UPDATE. Mirrors
-// setWorkspaceSeat's shape (e2e_integration_test.go). A fresh upload
+// SetWorkspaceSeat's shape (e2e_integration_test.go). A fresh upload
 // defaults to 'scanning' (0070), and the accept-write now scan-gates like
 // every other path over an attachment's bytes, so any HTTP scenario that
 // expects the accept to actually run its extractor must clear the gate

@@ -224,8 +224,9 @@ func assertOfferTemplateMissingLayout422(t *testing.T, e *apptest.AppEnv) {
 
 // assertRenderOfferNotImplementedWithoutBlobstore proves the render
 // endpoint's 501 fallback: the PDF renderer itself is fully implemented
-// (offer_pdf.go, offer_render.go), but THIS suite's setup() harness wires
-// no blobstore (compose.WithBlobstore is never passed), so RenderOffer's
+// (offer_pdf.go, offer_render.go), but the apptest.SetupApp harness this
+// suite rides wires no blobstore (compose.WithBlobstore is never passed),
+// so RenderOffer's
 // own h.blob == nil check correctly answers 501 rather than nil-derefing —
 // the same unwired-by-omission posture as the attachments seam. The
 // wired-blobstore success path (a real render, a real blob, real bytes)

@@ -28,7 +28,7 @@ package integration
 // posture backfill_test.go and the fake package's own doc already
 // establish.
 //
-// This test needs a *pgxpool.Pool of its own (the env/setup() harness
+// This test needs a *pgxpool.Pool of its own (the apptest.AppEnv harness
 // exposes none) to drive compose.Dispatcher/overlay.Backfill directly —
 // openAppPool opens a second, independent app-role connection to the
 // SAME database the httptest server is backed by, so rows committed
