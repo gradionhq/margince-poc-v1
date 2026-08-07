@@ -28,6 +28,7 @@ configurable logger.
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets at rest; unset = the mutating `/webhook-subscriptions` paths (create/rotate, replay) answer 503, never an unsigned fallback; the read surface still lists |
+| `--metrics-token` | `MARGINCE_METRICS_TOKEN` | — | shared secret `/metrics` requires as a Bearer credential. This is the access control the fleet-wide-exposition note below calls for: unset (the default) `/metrics` answers **404**, rather than serving per-workspace job telemetry to anyone who asks. Set it wherever the scraper can present it |
 | `--hubspot-app-secret` | `MARGINCE_HUBSPOT_APP_SECRET` | — | the HubSpot app client secret. Verifies inbound overlay-webhook v3 signatures and, when set, mounts `/webhooks/hubspot`; unset, that route is absent rather than present-and-unverified |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the cold-start read-back, per-org enrichment, the Morning-Brief L2 re-order, and AI-drafted offer regeneration |
 | `--ai-fake` | — | `false` | offline fake model (dev/test only); drives the same AI surfaces as `--ai-routing` |
@@ -50,7 +51,9 @@ Operational endpoints (served next to `/v1`):
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
   `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`, the
   AI router's counters, the overlay sync-health section, and the
-  **job-runtime section** below.
+  **job-runtime section** below. Gated by `--metrics-token`: without one the
+  route answers 404, so a deployment that wants scraping must set the token and
+  give it to the scraper.
 - `GET /v1/admin/job-health` — the per-workspace read of the same job
   table, for an admin rather than a scrape. See
   [Reading the job surfaces](#reading-the-job-surfaces).
