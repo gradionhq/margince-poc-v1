@@ -244,7 +244,7 @@ export function LeadsScreen() {
     <div className="wrap lead-surface">
       <ListTable
         state={state}
-        unit="nav.leads"
+        unit="unit.leads"
         caption="lead.segregated"
         action={
           <CreateAction

@@ -97,7 +97,7 @@ function Harness({
   return (
     <ListTable
       state={state}
-      unit="nav.contacts"
+      unit="unit.contacts"
       columns={columns}
       rowKey={(row) => row.id}
       chips={chips}

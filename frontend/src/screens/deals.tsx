@@ -962,17 +962,24 @@ export function DealsScreen({
               allLabel: "deals.filterStalledAll",
               options: [{ value: "true", label: "deals.filterStalled" }],
             },
-            {
-              key: "owner_id",
-              label: "deals.filterOwnerMe",
-              allLabel: "deals.filterOwnerAll",
-              options: [
-                {
-                  value: meQuery.data?.user.id ?? "",
-                  label: "deals.filterOwnerMe",
-                },
-              ],
-            },
+            // Offered only once the viewer's own id is known. An option whose
+            // value is still "" reads as "clear this filter" to the table, so
+            // picking "Only mine" mid-load would quietly narrow nothing.
+            ...(meQuery.data
+              ? [
+                  {
+                    key: "owner_id",
+                    label: "deals.filterOwnerMe" as const,
+                    allLabel: "deals.filterOwnerAll" as const,
+                    options: [
+                      {
+                        value: meQuery.data.user.id,
+                        label: "deals.filterOwnerMe" as const,
+                      },
+                    ],
+                  },
+                ]
+              : []),
             {
               key: "partner_sourced",
               label: "deals.filterPartnerSourced",

@@ -129,7 +129,7 @@ export function OfferTemplatesScreen() {
     <div className="wrap narrow">
       <ListTable
         state={list}
-        unit="nav.offerTemplates"
+        unit="unit.offerTemplates"
         searchable={false}
         caption="template.settingsSub"
         action={
@@ -163,7 +163,7 @@ export function OfferTemplatesScreen() {
           },
           {
             key: "actions",
-            header: "",
+            header: t("table.actions"),
             cell: (tpl: OfferTemplate) => (
               <div style={{ display: "flex", gap: "var(--space-2)" }}>
                 <EditAction
@@ -173,10 +173,11 @@ export function OfferTemplatesScreen() {
                   record={{
                     ...tpl,
                     is_default: String(tpl.is_default),
-                    header:
-                      (tpl.layout as Record<string, unknown>).header ?? "",
-                    footer:
-                      (tpl.layout as Record<string, unknown>).footer ?? "",
+                    // layout is already an index signature on the contract
+                    // type, so its members read straight off it — a cast here
+                    // would only be re-asserting what the schema states.
+                    header: tpl.layout.header ?? "",
+                    footer: tpl.layout.footer ?? "",
                   }}
                   update={updateTemplate(tpl)}
                   fields={TEMPLATE_FIELDS}

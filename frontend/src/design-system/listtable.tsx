@@ -60,7 +60,13 @@ export type ListColumn<Row> = {
   fixed?: boolean;
 };
 
-const PAGE_SIZES = [25, 50, 100] as const;
+/**
+ * Never larger than the page the list endpoints return (50). A bigger choice
+ * cannot be filled from one response, so the table would hold the reader on a
+ * page it has no rows for until enough cursor pages had been walked — a size
+ * the server cannot serve is not a size worth offering.
+ */
+const PAGE_SIZES = [25, 50] as const;
 
 /** Narrow enough to tuck a column away, wide enough to still read a header. */
 const MIN_COLUMN_WIDTH = 72;
@@ -352,21 +358,40 @@ export function ListTable<Row>({
     ? columns.find((column) => sortState(column, sort.value) !== null)
     : undefined;
   const optional = columns.filter((column) => !column.fixed);
+  // What is actually narrowing the set, and so whether an empty result should
+  // offer to clear anything. A view is not itself a narrowing: applying one
+  // writes its filters into `chosen`, so a view that narrows already reads as
+  // narrowed here, and a sort-only view correctly does not. Show-archived is
+  // not one either — it WIDENS the set, so an empty list with it on means the
+  // records do not exist rather than that a filter is hiding them.
   const filtered =
-    Boolean(search?.value) ||
-    Object.values(chosen).some(Boolean) ||
-    activeView > 0;
+    Boolean(search?.value) || Object.values(chosen).some(Boolean);
 
   // Narrowing the set changes what page 1 even means, so go back to it rather
   // than stranding the reader on a page that no longer exists. Clamping alone
   // is not enough: filtering 80 rows down to 5 while on page 2 should show the
   // 5, not the last page that still happens to be valid.
   //
+  // Re-ordering counts too: page 2 of a list sorted by name holds different
+  // records than page 2 of the same list sorted by date, so the reader is
+  // looking at rows they never asked for. Same for widening the set with
+  // Show archived.
+  //
   // These deps are the TRIGGER, not values the body reads — the body only calls
   // setPage(1). The lint rule cannot see that distinction, and dropping them
   // would break the reset.
   // biome-ignore lint/correctness/useExhaustiveDependencies: trigger-only deps
-  useEffect(() => setPage(1), [search?.value, chosen, activeView, perPage]);
+  useEffect(
+    () => setPage(1),
+    [
+      search?.value,
+      chosen,
+      activeView,
+      perPage,
+      sort?.value,
+      archived?.checked,
+    ],
+  );
 
   // The overlay needs two numbers CSS cannot work out for itself: where the
   // frozen column ends, which a reader changes by dragging its grip, and how
@@ -416,8 +441,14 @@ export function ListTable<Row>({
 
   const clearAll = () => {
     search?.onChange("");
-    for (const chip of chips) {
-      onChipChange?.(chip.key, "");
+    // Whatever is narrowing the list, not only what a chip can name — a filter
+    // a view applied without a chip of its own is still one the reader is
+    // asking to be rid of.
+    for (const key of new Set([
+      ...chips.map((chip) => chip.key),
+      ...Object.keys(chosen),
+    ])) {
+      onChipChange?.(key, "");
     }
     onViewChange?.(0);
   };
@@ -428,11 +459,21 @@ export function ListTable<Row>({
     if (sort) {
       sort.onChange(view?.sort ?? "");
     }
-    // Every chip is rewritten, not merged: a view describes the whole filter
-    // state, so leaving a chip from the previous view set would silently
-    // narrow the view the user just picked.
-    for (const chip of chips) {
-      onChipChange?.(chip.key, view?.filters?.[chip.key] ?? "");
+    // Every filter is rewritten, not merged: a view describes the whole filter
+    // state, so leaving one from the previous view set would silently narrow
+    // the view the user just picked.
+    //
+    // Keyed on the union rather than on the chips, because a view may narrow by
+    // something no chip offers — a lead's minimum score is a number, not a list
+    // to pick from — and a loop over the chips alone would drop exactly those,
+    // leaving a view that highlights itself and changes nothing.
+    const keys = new Set([
+      ...chips.map((chip) => chip.key),
+      ...Object.keys(chosen),
+      ...Object.keys(view?.filters ?? {}),
+    ]);
+    for (const key of keys) {
+      onChipChange?.(key, view?.filters?.[key] ?? "");
     }
   };
 
@@ -448,6 +489,7 @@ export function ListTable<Row>({
             first={from + 1}
             last={from + pageRows.length}
             total={rows.length}
+            more={hasMore}
             sortedBy={sorted?.header}
           />
         )

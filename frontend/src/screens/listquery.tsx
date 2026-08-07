@@ -177,7 +177,12 @@ export function ListTable<Row>({
   const overlay = useSorMode() === "overlay";
   const { rows, query, setQuery, isPending, isError, error, refetch } = state;
   const [localSearch, setLocalSearch] = useState(query.q);
-  const [view, setView] = useState(0);
+  // Which view tab is lit is READ from the query rather than remembered: a tab
+  // is a claim about what the list is showing, and a reader who then edits a
+  // filter or a sort is no longer looking at that preset. Stored, the highlight
+  // would keep claiming a view the query had already left; derived, it simply
+  // stops matching, and comes back by itself if the reader undoes the edit.
+  const view = views.findIndex((spec) => matchesView(spec, query));
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
@@ -265,9 +270,11 @@ export function ListTable<Row>({
       }
       chosen={query.filters}
       onChipChange={setFilter}
-      views={views.map((spec) => translateView(spec, t))}
+      // A view tab whose preset the mirror would refuse is a tab that lights up
+      // and does nothing, so overlay mode shows none — the same reason its
+      // chips and its sort are withheld.
+      views={overlay ? [] : views.map((spec) => translateView(spec, t))}
       activeView={view}
-      onViewChange={setView}
       archived={
         showArchivedToggle
           ? {
@@ -305,4 +312,17 @@ function translateChip(chip: FilterSpec, t: Translate): ListChip {
 
 function translateView(spec: ViewSpec, t: Translate): ListView {
   return { label: t(spec.label), sort: spec.sort, filters: spec.filters };
+}
+
+/** Is the list showing exactly what this view asks for, nothing added or left? */
+function matchesView(spec: ViewSpec, query: ListQuery): boolean {
+  if (query.sort !== (spec.sort ?? "")) {
+    return false;
+  }
+  const wanted = Object.entries(spec.filters ?? {});
+  const applied = Object.entries(query.filters).filter(([, value]) => value);
+  return (
+    wanted.length === applied.length &&
+    wanted.every(([key, value]) => query.filters[key] === value)
+  );
 }

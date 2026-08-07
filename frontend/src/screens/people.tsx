@@ -452,7 +452,7 @@ export function ContactsScreen() {
     <div className="wrap">
       <ListTable
         state={state}
-        unit="nav.contacts"
+        unit="unit.contacts"
         action={
           <CreateAction
             label={t("create.contact")}

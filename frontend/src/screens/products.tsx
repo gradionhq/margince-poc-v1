@@ -145,7 +145,7 @@ export function ProductsScreen() {
     <div className="wrap narrow">
       <ListTable
         state={list}
-        unit="nav.products"
+        unit="unit.products"
         caption="product.settingsSub"
         action={
           <CreateAction
@@ -192,7 +192,7 @@ export function ProductsScreen() {
           },
           {
             key: "actions",
-            header: "",
+            header: t("table.actions"),
             cell: (p: Product) => (
               <div style={{ display: "flex", gap: "var(--space-2)" }}>
                 <EditAction

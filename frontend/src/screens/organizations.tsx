@@ -457,7 +457,7 @@ export function CompaniesScreen() {
     <div className="wrap">
       <ListTable
         state={state}
-        unit="nav.companies"
+        unit="unit.companies"
         action={
           <>
             <Button small onClick={() => navigate({ screen: "partners" })}>

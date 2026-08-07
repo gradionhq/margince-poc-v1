@@ -531,7 +531,7 @@ export function PartnersScreen() {
     <div className="wrap">
       <ListTable
         state={state}
-        unit="nav.partners"
+        unit="unit.partners"
         searchable={false}
         showArchivedToggle={false}
         columns={[

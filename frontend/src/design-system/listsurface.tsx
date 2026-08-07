@@ -642,21 +642,31 @@ export function CountLine({
   first,
   last,
   total,
+  more = false,
   sortedBy,
 }: Readonly<{
   unit: string;
   first: number;
   last: number;
   total: number;
+  /**
+   * The server holds pages past the ones counted. `total` is then how many rows
+   * have been LOADED, not how many exist — a keyset cursor never learns the
+   * second number — and the line has to say which of the two it is rather than
+   * report a total the client cannot know.
+   */
+  more?: boolean;
   sortedBy?: string;
 }>) {
   const t = useT();
   // The surface owns the count's placement; this only says what it reads.
   return (
     <>
-      {total === 0
-        ? t("table.none", { unit })
-        : t("table.range", { first, last, count: total, unit })}
+      {total === 0 && t("table.none", { unit })}
+      {total > 0 &&
+        (more
+          ? t("table.rangeLoaded", { first, last, count: total, unit })
+          : t("table.range", { first, last, count: total, unit }))}
       {sortedBy && `, ${t("table.sortedBy", { column: sortedBy })}`}
     </>
   );
