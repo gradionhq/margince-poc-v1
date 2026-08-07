@@ -44,9 +44,9 @@ func TestToolCopyRendersTheWrittenPartsInOrder(t *testing.T) {
 }
 
 // The written text is what a model selects on; the governance clause is what
-// happens once it has. Both must be present, and the written half must come
-// first — the surface spent its whole life with the order the other way round,
-// which is what this PR changed.
+// happens once it has. Both must be present, and the written half comes first:
+// a model reading only the opening of a thirty-tool listing must be reading the
+// answer to "what is this for".
 func TestDescribeForClientLeadsWithTheWrittenTextAndAppendsGovernance(t *testing.T) {
 	spec := mcp.ToolSpec{
 		Name:          "send_email",
@@ -77,16 +77,31 @@ func TestDescribeForClientLeadsWithTheWrittenTextAndAppendsGovernance(t *testing
 // auto-execute until the target stage closes the deal. A description that
 // reported it as one or the other would be false half the time.
 func TestDescribeForClientStatesEachTierDistinctly(t *testing.T) {
-	rendered := map[mcp.RiskTier]string{}
-	for _, tier := range []mcp.RiskTier{mcp.TierAutoExecute, mcp.TierConfirmationRequired, mcp.TierDynamic} {
-		rendered[tier] = DescribeForClient(mcp.ToolSpec{
+	describe := func(tier mcp.RiskTier) string {
+		return DescribeForClient(mcp.ToolSpec{
 			Name: "t", Description: "Does the thing.", RequiredScope: principal.ScopeRead, Tier: tier,
 		})
 	}
-	if rendered[mcp.TierAutoExecute] == rendered[mcp.TierDynamic] {
-		t.Error("the dynamic tier reads exactly as auto-execute, so a closing move looks like it runs unattended")
+	if got := describe(mcp.TierAutoExecute); !strings.Contains(got, "runs immediately") ||
+		strings.Contains(got, "approve") {
+		t.Errorf("auto-execute reads %q, want it to promise the call runs and ask for no approval", got)
 	}
-	if rendered[mcp.TierConfirmationRequired] == rendered[mcp.TierDynamic] {
-		t.Error("the dynamic tier reads exactly as confirm-first, so an open→open move looks like it needs approval")
+	if got := describe(mcp.TierConfirmationRequired); !strings.Contains(got, "approves every call") {
+		t.Errorf("confirm-first reads %q, want every call named as needing a person", got)
+	}
+	// The dynamic tier is the one a single sentence gets wrong by collapsing:
+	// it must promise neither that the call runs nor that a person approves it,
+	// because which one is true is decided per call from the arguments.
+	dynamic := describe(mcp.TierDynamic)
+	if !strings.Contains(dynamic, "decided per call") {
+		t.Errorf("dynamic reads %q, want it to say the tier is resolved per call", dynamic)
+	}
+	if strings.Contains(dynamic, "approves every call") {
+		t.Errorf("dynamic reads %q, so an open→open move looks like it needs approval", dynamic)
+	}
+	// It must not name a deal: nothing holds TierDynamic to the deal moves that
+	// use it today, and a clause naming them would be false for the next one.
+	if strings.Contains(dynamic, "deal") {
+		t.Errorf("dynamic reads %q, want the clause to describe the tier rather than today's only users", dynamic)
 	}
 }

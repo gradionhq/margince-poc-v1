@@ -213,9 +213,9 @@ func invocableByCaller(ctx context.Context, spec mcp.ToolSpec) bool {
 //
 // The order is the point. The written text answers the question a model is
 // actually asking — which of thirty tools serves this goal — and the governance
-// clause answers what happens once it has chosen. For most of this surface's
-// life the second was the whole description, so a model was told the passport
-// scope of every tool and the purpose of none.
+// clause answers what happens once it has chosen. A description carrying only
+// the second tells a model the passport scope of every tool and the purpose of
+// none.
 //
 // The tier and scope are re-stated from the spec the admission gate enforces,
 // so they cannot disagree with it. The crm.yaml operation family is NOT here:
@@ -228,7 +228,7 @@ func DescribeForClient(spec mcp.ToolSpec) string {
 	case mcp.TierConfirmationRequired:
 		tier = "a person approves every call before it runs"
 	case mcp.TierDynamic:
-		tier = "runs immediately, except moves that close a deal, which a person approves first"
+		tier = "some calls run immediately and others a person approves first, decided per call from its arguments"
 	}
 	return fmt.Sprintf("%s (Governance: %s; requires passport scope %q.)", spec.Description, tier, spec.RequiredScope)
 }

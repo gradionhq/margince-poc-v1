@@ -14322,7 +14322,10 @@ components:
     # ---- Agents: governed tool surface ----
     AgentTool:
       type: object
-      required: [name, tier, egress]
+      # title and description are required because registration guarantees
+      # them: the tool registry refuses a tool carrying neither, so a client
+      # generated against this contract should not have to handle their absence.
+      required: [name, title, description, tier, egress]
       properties:
         name:  { type: string, description: The tool name (tools/list identity). }
         title: { type: string, description: The written display name a client shows in place of the name. }

@@ -39,8 +39,8 @@ var whatsSlippingCopy = toolCopy{
 		"nobody can point at a reason for is absent rather than guessed — and it is scoped to " +
 		"the deals the caller may see.",
 	Instead: "Use run_report for the pipeline as a whole (totals, counts, breakdowns), and " +
-		"at_risk_relationships when the question is about contacts going cold rather than deals " +
-		"stalling.",
+		"at_risk_relationships when the question is who a deal rests on rather than whether it " +
+		"is moving.",
 	Retain: "Keep each deal_id if you intend to act; draft_follow_ups_for works over this same " +
 		"ranked set without you re-deriving it.",
 }
@@ -80,14 +80,17 @@ var introPathToCopy = toolCopy{
 }
 
 var atRiskRelationshipsCopy = toolCopy{
-	Purpose: "Answer \"which relationships are going cold?\": the contacts on the caller's own " +
-		"book whose interactions have dropped away.",
-	Limits: "It takes no arguments — the caller's own visibility already decides whose book this " +
-		"is — and it is about people, not about the deals attached to them.",
-	Instead: "Use whats_slipping_this_week when the question is about deals losing momentum " +
-		"rather than contacts going quiet.",
-	Retain: "Each contact comes back with its person_id, which is what who_knows and " +
-		"catch_me_up_on take next.",
+	Purpose: "Answer \"where are our relationships thin?\": across the caller's OPEN deals, the " +
+		"ones resting on a single contact, missing an engaged champion, or carried almost " +
+		"entirely by one person on our side.",
+	Limits: "It sweeps open deals — a deal already won or lost is not at risk and is left out — " +
+		"and it takes no arguments, because the caller's own visibility already decides which " +
+		"deals these are. It is about the shape of the relationships around a deal, not about " +
+		"the deal's own momentum.",
+	Instead: "Use whats_slipping_this_week when the question is about deals losing momentum, and " +
+		"account_coverage when the question is about one deal rather than the whole book.",
+	Retain: "Each finding names its deal_id and the people it is about; those are what " +
+		"intro_path_to and who_knows take next.",
 }
 
 var runReportCopy = toolCopy{

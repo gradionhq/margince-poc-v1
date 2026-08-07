@@ -190,6 +190,7 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 		return riskTierRequest{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
 	}
 	var name, title, description, version, tier, scope string
+	var served bool
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
 		if !ok {
@@ -211,9 +212,9 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			title, err = r.stringLit(kv.Value, "Tool.Title")
 		case "Description":
 			// Read to be VALIDATED, like the title: selection prose grants
-			// nothing and stays out of the descriptor and its digest, but a
-			// SERVED tool is refused without one at boot, and this is where a
-			// unit author is told so at the declaration.
+			// nothing and stays out of the descriptor and its digest, but the
+			// composition refuses a SERVED tool without one, and this is where a
+			// unit author is told so — at the declaration, in their own source.
 			description, err = r.stringLit(kv.Value, "Tool.Description")
 		case "Version":
 			version, err = r.stringLit(kv.Value, "Tool.Version")
@@ -221,16 +222,29 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			tier, err = r.constValue(kv.Value, ext)
 		case "RequestedScope":
 			scope, err = r.constValue(kv.Value, ext)
-		case "Handle", "InputSchema", "OutputSchema":
-			// Behavior and client-facing I/O docs — recognized and skipped.
-			// The manifest records the governance descriptor, not the
-			// tool's code or its advertised schemas.
+		case "Handle":
+			// Behavior is not a static declaration and never reaches the
+			// manifest. Whether one is PRESENT is read anyway, because it is
+			// what separates a served tool — which owes a description — from an
+			// inert manifest request, which does not.
+			served = true
+		case "InputSchema", "OutputSchema":
+			// Client-facing I/O docs — recognized and skipped. The manifest
+			// records the governance descriptor, not the advertised schemas.
 		default:
 			err = r.errAt(kv, "Tool field %s is not derivable by this generator", key.Name)
 		}
 		if err != nil {
 			return riskTierRequest{}, err
 		}
+	}
+	// The composition refuses a served tool with no description, because a
+	// verb is all a model would have to choose it by. That refusal is a boot
+	// failure in whatever process composes the unit; raised here it is a line
+	// and a column in the unit's own source, which is where it can be fixed.
+	if served && strings.TrimSpace(description) == "" {
+		return riskTierRequest{}, r.errAt(lit,
+			"tool %q serves a handler but declares no Description — the text a model selects it by", name)
 	}
 	return r.toolRequest(lit, declaredTool{
 		name: name, title: title, description: description, version: version, tier: tier, scope: scope,

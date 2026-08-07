@@ -327,6 +327,32 @@ func TestAConcatenatedLiteralDerivesLikeASingleOne(t *testing.T) {
 	}
 }
 
+// A served tool with no description is refused by the composition at boot. The
+// generator can see the same thing — a Handle key and no Description — so it
+// says so at the declaration, with a line and a column, rather than leaving the
+// author a boot failure in whatever process composes their unit. An INERT tool
+// is untouched: it is a manifest request nothing serves to a client.
+func TestAServedToolWithNoDescriptionIsRefusedAtTheDeclaration(t *testing.T) {
+	handler := "\nfunc handle(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil }\n"
+	imports := "package x\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\n\t\"github.com/gradionhq/margince/backend/pkg/extension\"\n)\n"
+	unit := func(fields string) string {
+		return imports + "\nfunc New() extension.Extension {\n\treturn extension.Extension{\n\t\tName:    \"x\",\n\t\tVersion: \"0.1.0\",\n\t\tTools: []extension.Tool{{\n" + fields + "\n\t\t}},\n\t}\n}\n" + handler
+	}
+	base := "\t\t\tName: \"t\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"
+
+	_, err := deriveSynthetic(t, "x", unit(base+"\n\t\t\tHandle: handle,"))
+	if err == nil || !strings.Contains(err.Error(), "serves a handler but declares no Description") {
+		t.Fatalf("err = %v, want the undescribed-served-tool refusal", err)
+	}
+	if _, err := deriveSynthetic(t, "x", unit(base)); err != nil {
+		t.Fatalf("an undescribed INERT tool must still derive: %v", err)
+	}
+	described := base + "\n\t\t\tDescription: \"Keeps the contacts in step, and reads nothing else.\",\n\t\t\tHandle: handle,"
+	if _, err := deriveSynthetic(t, "x", unit(described)); err != nil {
+		t.Fatalf("a described served tool must derive: %v", err)
+	}
+}
+
 // nonLiteralHeader opens every rejection case's synthetic unit.
 const nonLiteralHeader = `package x
 

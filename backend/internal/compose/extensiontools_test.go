@@ -72,6 +72,12 @@ func TestBuildExtensionToolsAdaptsHandlerBearingTools(t *testing.T) {
 	if string(spec.InputSchema) != `{"type":"object"}` {
 		t.Fatalf("declared InputSchema not carried to the served spec: %s", spec.InputSchema)
 	}
+	// The unit's own words, not a placeholder the adapter could have supplied
+	// to satisfy the refusal: a description substituted here would be listed
+	// beside the core surface as if the unit had written it.
+	if spec.Description != unitToolDescription {
+		t.Fatalf("declared Description not carried to the served spec: %q", spec.Description)
+	}
 }
 
 // TestBuildExtensionToolsRejectsServedConfirmationRequired: a

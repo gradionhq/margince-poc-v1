@@ -10179,9 +10179,9 @@ export interface components {
             /** @description The tool name (tools/list identity). */
             name: string;
             /** @description The written display name a client shows in place of the name. */
-            title?: string;
+            title: string;
             /** @description What the tool is for, as an MCP client is told it: the outcome it produces, its limits, when a neighbouring tool is the better call, and what to keep from its result — followed by this server's own governance clause. */
-            description?: string;
+            description: string;
             /** @description Passport scope required to call it. */
             required_scope?: string;
             /** @enum {string} */

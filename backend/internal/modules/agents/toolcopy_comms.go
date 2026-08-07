@@ -8,11 +8,13 @@ package agents
 // toolcopy.go for what each field answers.
 
 var draftEmailCopy = toolCopy{
-	Purpose: "Compose a reply to a conversation already recorded here, in this workspace's own " +
-		"voice and grounded in what the thread actually says.",
+	Purpose: "Compose a reply to a conversation already recorded here, anchored on the thread " +
+		"it answers.",
 	Limits: "It writes the message and stops. Nothing is sent, nobody is notified, and the draft " +
 		"is returned for a person — or a later send — to use. It needs the activity_id of the " +
-		"thread being replied to; it cannot compose from a goal alone.",
+		"thread being replied to; it cannot compose from a goal alone. Read what comes back " +
+		"before sending it: where no drafting model is configured this falls back to a short " +
+		"deterministic note built from the thread's subject.",
 	Instead: "Use draft_follow_ups_for to draft across a whole set of slipping deals at once, and " +
 		"send_email only once a drafted message exists to send.",
 	Retain: "Keep the drafted subject and body and the activity_id; send_email takes all three, " +
@@ -69,12 +71,13 @@ var checkAvailabilityCopy = toolCopy{
 }
 
 var bookMeetingCopy = toolCopy{
-	Purpose: "Put a real meeting in a real calendar and record it against the people, accounts or " +
-		"deals it is about.",
+	Purpose: "Hold a slot in the host's calendar and record the meeting against the people, " +
+		"accounts or deals it is about.",
 	Limits: "It requires at least one link saying what the meeting is about and is refused " +
-		"without one. It takes time in someone's day and invitations leave the workspace, so a " +
-		"person approves it before it is booked. Check the slot is free first — this tool does " +
-		"not.",
+		"without one. The slot is taken and the meeting becomes a real commitment, so a person " +
+		"approves it before it is booked. It takes no attendee list: who is invited, and whether " +
+		"an invitation is delivered at all, is the deployment's calendar connection rather than " +
+		"this call. Check the slot is free first — this tool does not.",
 	Instead: "Use check_availability to find the time, and log_activity to record a meeting that " +
 		"already happened.",
 	Retain: "Keep the staged approval id and re-send the identical start, end and links: the " +

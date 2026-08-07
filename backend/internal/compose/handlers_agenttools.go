@@ -36,8 +36,8 @@ func agentToolsFromSpecs(specs []mcp.ToolSpec) []crmcontracts.AgentTool {
 			// from tools/list", and while it served the governance fields alone
 			// it did not: an operator reading this console could not see the
 			// text their agents actually select on.
-			Title:         ptrString(spec.Title),
-			Description:   ptrString(agents.DescribeForClient(spec)),
+			Title:         spec.Title,
+			Description:   agents.DescribeForClient(spec),
 			RequiredScope: ptrString(string(spec.RequiredScope)),
 			Tier:          tierWire(spec.Tier),
 			Egress:        spec.Egress,

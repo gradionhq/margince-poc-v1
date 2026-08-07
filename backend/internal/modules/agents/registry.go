@@ -93,11 +93,11 @@ func (r *Registry) Register(t mcp.Tool) {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s has no Title — tools/list would render its identifier as its display name", spec.Name))
 	}
-	// A tool nobody described can be selected only by the shape of its name,
-	// and the surface serving it falls back to describing how it is GOVERNED —
-	// which is what every description on this surface used to be, and what the
-	// written copy exists to replace. Refused at the one door, so a tool added
-	// later cannot quietly reintroduce it for itself.
+	// A tool nobody described can be selected only by the shape of its name:
+	// the surfaces that serve it have nothing else to say about it, and fall
+	// back to describing how it is GOVERNED — which is not the question a
+	// caller choosing between thirty tools is asking. Refused at the one door,
+	// so no tool can answer it for itself.
 	if strings.TrimSpace(spec.Description) == "" {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s has no Description — a client would be told how it is governed and never what it is for", spec.Name))

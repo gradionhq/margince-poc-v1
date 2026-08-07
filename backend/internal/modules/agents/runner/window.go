@@ -224,8 +224,22 @@ Rules:
 
 Available tools:
 `)
+	b.WriteString(ToolListing(specs))
+	return b.String()
+}
+
+// ToolListing renders the tool surface exactly as the system prompt carries it.
+//
+// It is exported because it is never elided — the transcript gives way to the
+// ceiling, the system prompt does not — so how large it is for the REAL catalog
+// is something that has to be held against PromptTokenCeiling somewhere, and
+// the only place that knows the whole catalog is the composition. Measuring a
+// second, hand-written idea of this format there would drift from this one
+// silently, and the drift would read as headroom that is not there.
+func ToolListing(specs []mcp.ToolSpec) string {
 	sorted := append([]mcp.ToolSpec(nil), specs...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	var b strings.Builder
 	for _, spec := range sorted {
 		// Two lines per tool: what it is FOR, then how to call it. A run offered
 		// the whole governed surface is choosing among thirty names that read

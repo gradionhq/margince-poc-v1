@@ -88,11 +88,11 @@ func (t listPipelinesTool) Spec() mcp.ToolSpec {
 		// a workspace configures, and a filter would only let a caller ask for
 		// the one it cannot name yet.
 		//
-		// The prose that used to live in this schema's own `description` now
-		// lives on the tool's, where it belongs: it says what the tool is for
-		// and why to call it first, which is not something the shape of an
-		// empty argument object can say. Kept in both places, the two would
-		// have drifted, and a model would have read the same paragraph twice.
+		// Why to call this first, and what to read off each stage, lives on the
+		// tool's Description rather than here: that is a statement about the
+		// tool, and an argument object with no arguments has nothing to say
+		// about it. Spelled in both places the two would drift, and a model
+		// would read the same paragraph twice.
 		InputSchema:  schema(`{"type":"object","properties":{},"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
