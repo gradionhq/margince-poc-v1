@@ -80,7 +80,7 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	var before time.Time
 	if err := owner.QueryRow(ctx, `
 		UPDATE workspace
-		   SET capture_auto_enrich = false, x_sor_mode = 'overlay', x_incumbent = 'hubspot'
+		   SET x_sor_mode = 'overlay', x_incumbent = 'hubspot'
 		 WHERE id = $1 RETURNING updated_at`, ws).Scan(&before); err != nil {
 		t.Fatalf("configuring the workspace away from its defaults: %v", err)
 	}
@@ -92,18 +92,14 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 		t.Fatalf("ResetWorkspaceConfig: %v", err)
 	}
 
-	var autoEnrich bool
 	var mode, name, currency, timezone string
 	var incumbent *string
 	var after time.Time
 	if err := owner.QueryRow(ctx, `
-		SELECT capture_auto_enrich, x_sor_mode, x_incumbent, name, base_currency, timezone, updated_at
+		SELECT x_sor_mode, x_incumbent, name, base_currency, timezone, updated_at
 		  FROM workspace WHERE id = $1`, ws).
-		Scan(&autoEnrich, &mode, &incumbent, &name, &currency, &timezone, &after); err != nil {
+		Scan(&mode, &incumbent, &name, &currency, &timezone, &after); err != nil {
 		t.Fatalf("reading the workspace back: %v", err)
-	}
-	if !autoEnrich {
-		t.Error("capture_auto_enrich = false, want true — the setting outlived the reset that claimed to restore first-boot state")
 	}
 	if mode != "native" {
 		t.Errorf("x_sor_mode = %q, want native", mode)
@@ -140,7 +136,8 @@ func TestResetWorkspaceConfigLeavesOtherWorkspacesAlone(t *testing.T) {
 	theirs := seedConfigWorkspace(t, pool, "theirs")
 
 	if _, err := owner.Exec(ctx,
-		`UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, theirs); err != nil {
+		`UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`,
+		theirs); err != nil {
 		t.Fatalf("configuring the co-tenant: %v", err)
 	}
 
@@ -151,13 +148,13 @@ func TestResetWorkspaceConfigLeavesOtherWorkspacesAlone(t *testing.T) {
 		t.Fatalf("ResetWorkspaceConfig: %v", err)
 	}
 
-	var autoEnrich bool
+	var mode string
 	if err := owner.QueryRow(ctx,
-		`SELECT capture_auto_enrich FROM workspace WHERE id = $1`, theirs).Scan(&autoEnrich); err != nil {
+		`SELECT x_sor_mode FROM workspace WHERE id = $1`, theirs).Scan(&mode); err != nil {
 		t.Fatalf("reading the co-tenant back: %v", err)
 	}
-	if autoEnrich {
-		t.Error("the co-tenant's capture_auto_enrich was restored too — one installation's reset reconfigured another's")
+	if mode != "overlay" {
+		t.Errorf("the co-tenant's x_sor_mode = %q, want overlay — one installation's reset reconfigured another's", mode)
 	}
 }
 
@@ -299,7 +296,7 @@ func TestAResetWorkspaceMatchesAFreshlyBootstrappedOne(t *testing.T) {
 	fresh := seedConfigWorkspace(t, pool, "fresh")
 	if _, err := owner.Exec(ctx, `
 		UPDATE workspace
-		   SET capture_auto_enrich = false, x_sor_mode = 'overlay', x_incumbent = 'hubspot'
+		   SET x_sor_mode = 'overlay', x_incumbent = 'hubspot'
 		 WHERE id = $1`, ws); err != nil {
 		t.Fatalf("configuring the workspace away from its defaults: %v", err)
 	}

@@ -46,7 +46,7 @@ var preservedWorkspaceColumns = map[string]bool{
 // workspaceConfigColumns lists the workspace columns a reset restores — every
 // column of the table that is not preserved, derived from the catalog for the
 // same reason the data reset derives its table sweep from one: a setting added
-// later (capture_auto_enrich, x_sor_mode, …) is restored automatically instead
+// later (x_sor_mode, x_incumbent, …) is restored automatically instead
 // of escaping a hand-kept list.
 func workspaceConfigColumns(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	rows, err := tx.Query(ctx, `

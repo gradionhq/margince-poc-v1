@@ -1,0 +1,16 @@
+-- The auto-enrich posture's column goes, now that nothing reads it (#521,
+-- ADR-0090/A135). 0190 moved the value into `setting` and switched the one
+-- reader — capture's own settings store — to it; this drops the column the
+-- value used to live in.
+--
+-- Held back until now on purpose: 0190 kept the column so its own reverse had
+-- somewhere to put the value back, and so a rollback landed on a schema whose
+-- readers still worked. That obligation ends here, and 0194's own reverse
+-- restores both the column and its value.
+--
+-- Deliberately NOT dropping name, timezone or base_currency in the same
+-- change. Those still have readers — roll-ups, FX conversion, quota
+-- attainment and the report builder read them directly, which is why
+-- UpdateInstallation mirrors onto them — and dropping a column out from under
+-- eight readers is a different change with a different risk. #521 tracks them.
+ALTER TABLE workspace DROP COLUMN capture_auto_enrich;
