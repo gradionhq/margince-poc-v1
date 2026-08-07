@@ -83,6 +83,46 @@ func TestEachAnchorRefusalNamesItsFieldAndAWorkingMove(t *testing.T) {
 	env.assertCompanyStillReadable(t)
 }
 
+// The guard's two non-answers, which decide what happens when it cannot say
+// "this is the anchor": an absent row belongs to the caller's own not-found
+// path, and an unreadable one must stop the operation rather than permit it.
+func TestTheGuardPassesOnAnAbsentRowAndRefusesOnAnUnreadableOne(t *testing.T) {
+	env := newAnchorEnv(t)
+	missing := ids.From[ids.OrganizationKind](ids.NewV7())
+
+	// Absent: the guard steps aside. The operation still fails, but with the
+	// caller's not-found answer — a guard that claimed "not the anchor" and a
+	// guard that answered 404 itself look identical from the outside, so the
+	// store call is what proves which one happened.
+	if _, err := env.store.ArchiveOrganization(env.ctx, missing); anchorProtected(err) {
+		t.Fatalf("archiving a missing organization: got the anchor refusal, want the ordinary not-found (%v)", err)
+	}
+
+	// Unreadable: an aborted transaction makes the guard's own SELECT fail. The
+	// guard must surface that, because returning nil here would PERMIT the
+	// archive or merge it exists to refuse.
+	var guardErr error
+	if err := database.WithWorkspaceTx(env.ctx, env.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(env.ctx, `SELECT 1 / 0`); err == nil {
+			t.Fatal("the poison statement succeeded — the transaction is not aborted, so this proves nothing")
+		}
+		guardErr = refuseIfAnchor(env.ctx, tx, env.anchorID, "id", "it cannot be archived")
+		return errors.New("rolling back the poisoned transaction")
+	}); err == nil {
+		t.Fatal("the poisoned transaction committed")
+	}
+	if guardErr == nil {
+		t.Fatal("the guard permitted the operation on an unreadable row — a dead connection would open the very hole it closes")
+	}
+	if anchorProtected(guardErr) {
+		t.Fatalf("got the anchor refusal, want the read failure surfaced: %v", guardErr)
+	}
+	if !strings.Contains(guardErr.Error(), "reading the anchor flag") {
+		t.Errorf("guard error = %v, want it to name what it could not read", guardErr)
+	}
+	env.assertCompanyStillReadable(t)
+}
+
 func TestTheAnchorCannotBeArchived(t *testing.T) {
 	env := newAnchorEnv(t)
 

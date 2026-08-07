@@ -326,19 +326,29 @@ func TestResolverNeverAttributesToTheOwnCompany(t *testing.T) {
 	colleague := e.seedEmployedContact(t, anchor, "Robin Colleague", "robin@private.invalid")
 	e.grantConsent(t, colleague)
 
-	sigID := createRaw(t, store, admin, "inbound:robin@private.invalid")
-	got, err := store.Resolve(admin, sigID)
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
-	}
-	if string(got.ResolutionState) != "dropped" {
-		t.Fatalf("resolution_state = %q, want dropped — the own company is not an account to hold signals about", got.ResolutionState)
-	}
-	if got.ResolvedOrgId != nil {
-		t.Fatalf("resolved_org_id = %v, want nil — a colleague's mail resolved to the installation's own company", got.ResolvedOrgId)
-	}
-	if got.ResolvedPersonId != nil {
-		t.Fatalf("resolved_person_id = %v, want nil — an unattributed signal links nobody", got.ResolvedPersonId)
+	// Each arm gets its own raw_ref, chosen so only that arm can match: an
+	// address on no registered domain reaches the prior-interaction arm alone,
+	// and a bare company name reaches the exact-name arm alone.
+	for _, tc := range []struct {
+		arm    string
+		rawRef string
+	}{
+		{"prior_interaction", "inbound:robin@private.invalid"},
+		{"name", "inbound:Our Own Company"},
+	} {
+		got, err := store.Resolve(admin, createRaw(t, store, admin, tc.rawRef))
+		if err != nil {
+			t.Fatalf("resolve via the %s arm: %v", tc.arm, err)
+		}
+		if string(got.ResolutionState) != "dropped" {
+			t.Errorf("%s arm: resolution_state = %q, want dropped — the own company is not an account to hold signals about", tc.arm, got.ResolutionState)
+		}
+		if got.ResolvedOrgId != nil {
+			t.Errorf("%s arm: resolved_org_id = %v, want nil — the signal resolved to the installation's own company", tc.arm, got.ResolvedOrgId)
+		}
+		if got.ResolvedPersonId != nil {
+			t.Errorf("%s arm: resolved_person_id = %v, want nil — an unattributed signal links nobody", tc.arm, got.ResolvedPersonId)
+		}
 	}
 }
 
