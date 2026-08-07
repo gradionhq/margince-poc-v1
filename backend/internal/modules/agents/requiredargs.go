@@ -112,10 +112,29 @@ func readRequiredList(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil
 	}
-	var names []string
-	if err := json.Unmarshal(raw, &names); err != nil || names == nil {
+	// Element by element, because []string hides two things: a null element
+	// decodes to "" without error, which would go on to be reported as a
+	// requirement with no name, and a repeated name would be reported twice in
+	// one refusal. JSON Schema says the list holds unique strings.
+	var elements []json.RawMessage
+	if err := json.Unmarshal(raw, &elements); err != nil || elements == nil {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: input schema's `required` is not a list of strings: " + string(raw))
+	}
+	names := make([]string, 0, len(elements))
+	seen := make(map[string]bool, len(elements))
+	for _, element := range elements {
+		var name string
+		if err := json.Unmarshal(element, &name); err != nil || name == "" {
+			//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+			panic("crmagents: input schema's `required` holds " + string(element) + ", which names no property")
+		}
+		if seen[name] {
+			//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+			panic("crmagents: input schema's `required` names " + name + " twice; JSON Schema's list holds unique names, and a repeat would be reported twice in one refusal")
+		}
+		seen[name] = true
+		names = append(names, name)
 	}
 	return names
 }

@@ -182,6 +182,12 @@ func TestAnInvalidRequiredKeywordIsRefusedInEverySpelling(t *testing.T) {
 		"a string required":    `{"type":"object","required":"q","properties":{"q":{"type":"string"}}}`,
 		"an object required":   `{"type":"object","required":{"q":true},"properties":{"q":{"type":"string"}}}`,
 		"a non-string element": `{"type":"object","required":[7],"properties":{"q":{"type":"string"}}}`,
+		// A null element decodes to "" without error, which would become a
+		// requirement with no name to report; a repeat would be reported twice
+		// in one refusal. JSON Schema's list holds unique strings.
+		"a null element":  `{"type":"object","required":[null],"properties":{"q":{"type":"string"}}}`,
+		"an empty name":   `{"type":"object","required":[""],"properties":{"q":{"type":"string"}}}`,
+		"a repeated name": `{"type":"object","required":["q","q"],"properties":{"q":{"type":"string"}}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			mustPanic(t, "a `required` that is not a list of strings cannot be enforced", func() {
