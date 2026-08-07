@@ -15,14 +15,15 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // assertValidationDetails proves the contract's exact multi-field 422 shape:
 // details.errors[{field,code}], no fabricated message.
-func assertValidationDetails(t *testing.T, e *env) {
+func assertValidationDetails(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, _, problem := createCustomField(t, e, anyMap{
+	status, _, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "Budget ceiling", "type": "currency", "source": "ui",
 	})
 	if status != http.StatusUnprocessableEntity {
@@ -39,9 +40,9 @@ func assertValidationDetails(t *testing.T, e *env) {
 
 // assertStructuralChangeRefused proves the contract's structural_change_refused
 // 422 example verbatim, including details.route.
-func assertStructuralChangeRefused(t *testing.T, e *env) {
+func assertStructuralChangeRefused(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, _, problem := createCustomField(t, e, anyMap{
+	status, _, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "Renewal formula", "type": "text", "source": "ui",
 	})
 	if status != http.StatusUnprocessableEntity {
@@ -57,9 +58,9 @@ func assertStructuralChangeRefused(t *testing.T, e *env) {
 
 // assertDuplicateSlugConflict proves the per-workspace duplicate-slug 409:
 // the same (object, label) pair refused the second time.
-func assertDuplicateSlugConflict(t *testing.T, e *env) {
+func assertDuplicateSlugConflict(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	body := anyMap{"object": "deal", "label": "Renewal Window", "type": "text", "source": "ui"}
+	body := apptest.AnyMap{"object": "deal", "label": "Renewal Window", "type": "text", "source": "ui"}
 	first, field, _ := createCustomField(t, e, body)
 	if first != http.StatusCreated {
 		t.Fatalf("first create status = %d, want 201: %+v", first, field)
@@ -72,10 +73,10 @@ func assertDuplicateSlugConflict(t *testing.T, e *env) {
 
 // assertRetireUnknownID proves a nonexistent id answers the ordinary
 // existence-hiding 404, not a schema-pool-shaped error.
-func assertRetireUnknownID(t *testing.T, e *env) {
+func assertRetireUnknownID(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	var problem customFieldProblem
-	status := e.call(t, "POST", "/v1/custom-fields/"+ids.NewV7().String()+"/retire", nil, nil, &problem)
+	status := e.Call(t, "POST", "/v1/custom-fields/"+ids.NewV7().String()+"/retire", nil, nil, &problem)
 	if status != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404: %+v", status, problem)
 	}
@@ -83,10 +84,10 @@ func assertRetireUnknownID(t *testing.T, e *env) {
 
 // assertListInvalidObject proves the closed object vocabulary is enforced
 // on List too, with the same single-field details.errors shape.
-func assertListInvalidObject(t *testing.T, e *env) {
+func assertListInvalidObject(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	var problem customFieldProblem
-	status := e.call(t, "GET", "/v1/custom-fields?object=bogus", nil, nil, &problem)
+	status := e.Call(t, "GET", "/v1/custom-fields?object=bogus", nil, nil, &problem)
 	if status != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422: %+v", status, problem)
 	}
@@ -98,17 +99,17 @@ func assertListInvalidObject(t *testing.T, e *env) {
 // assertNotPicklistOptionsEdit proves an options edit on a non-picklist
 // field answers the contract's dedicated not_picklist code, not the
 // generic validation_error.
-func assertNotPicklistOptionsEdit(t *testing.T, e *env) {
+func assertNotPicklistOptionsEdit(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, field, problem := createCustomField(t, e, anyMap{
+	status, field, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "Not A Picklist", "type": "text", "source": "ui",
 	})
 	if status != http.StatusCreated {
 		t.Fatalf("create status = %d, want 201: %+v", status, problem)
 	}
 	var notPicklist customFieldProblem
-	optStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
-		anyMap{"options": []string{"a"}}, nil, &notPicklist)
+	optStatus := e.Call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
+		apptest.AnyMap{"options": []string{"a"}}, nil, &notPicklist)
 	if optStatus != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422: %+v", optStatus, notPicklist)
 	}
@@ -121,9 +122,9 @@ func assertNotPicklistOptionsEdit(t *testing.T, e *env) {
 // header is a 422 client error caught before the store is ever called,
 // and a stale (correct-shape, wrong-value) version is the store's own
 // ErrVersionSkew, wire-mapped to 409 like every other versioned PATCH.
-func assertRenameConcurrencyErrors(t *testing.T, e *env) {
+func assertRenameConcurrencyErrors(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, field, problem := createCustomField(t, e, anyMap{
+	status, field, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "Concurrency Subject", "type": "text", "source": "ui",
 	})
 	if status != http.StatusCreated {
@@ -131,15 +132,15 @@ func assertRenameConcurrencyErrors(t *testing.T, e *env) {
 	}
 
 	var malformed customFieldProblem
-	malformedStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID,
-		anyMap{"label": "Whatever"}, map[string]string{"If-Match": "not-a-number"}, &malformed)
+	malformedStatus := e.Call(t, "PATCH", "/v1/custom-fields/"+field.ID,
+		apptest.AnyMap{"label": "Whatever"}, map[string]string{"If-Match": "not-a-number"}, &malformed)
 	if malformedStatus != http.StatusUnprocessableEntity {
 		t.Fatalf("malformed If-Match status = %d, want 422: %+v", malformedStatus, malformed)
 	}
 
 	var skew customFieldProblem
-	skewStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID,
-		anyMap{"label": "Whatever"}, map[string]string{"If-Match": "999999"}, &skew)
+	skewStatus := e.Call(t, "PATCH", "/v1/custom-fields/"+field.ID,
+		apptest.AnyMap{"label": "Whatever"}, map[string]string{"If-Match": "999999"}, &skew)
 	if skewStatus != http.StatusConflict {
 		t.Fatalf("stale If-Match status = %d, want 409: %+v", skewStatus, skew)
 	}
@@ -150,9 +151,9 @@ func assertRenameConcurrencyErrors(t *testing.T, e *env) {
 
 // assertSixTypesCreate covers CUSTOM-FIELDS-PARAM-1: every closed field
 // type creates end to end with the shape its type requires.
-func assertSixTypesCreate(t *testing.T, e *env) {
+func assertSixTypesCreate(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	cases := []anyMap{
+	cases := []apptest.AnyMap{
 		{"object": "deal", "label": "Renewal Date", "type": "date", "source": "ui"},
 		{"object": "deal", "label": "Seat Count", "type": "number", "source": "ui"},
 		{"object": "deal", "label": "Deal Notes", "type": "text", "source": "ui"},
@@ -182,10 +183,10 @@ func assertSixTypesCreate(t *testing.T, e *env) {
 // text creates cleanly, the catalog stores the label byte-for-byte, the
 // derived column identifier is alnum-only, and the person table — the
 // object this field attaches to — is provably intact afterward.
-func assertInjectionLabel(t *testing.T, e *env) {
+func assertInjectionLabel(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	hostile := `Notes'); DROP TABLE person; --`
-	status, field, problem := createCustomField(t, e, anyMap{
+	status, field, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "person", "label": hostile, "type": "text", "source": "ui",
 	})
 	if status != http.StatusCreated {
@@ -199,8 +200,8 @@ func assertInjectionLabel(t *testing.T, e *env) {
 	}
 
 	// The person table survives: an ordinary person write still round-trips.
-	var person anyMap
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	var person apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Injection Survivor", "source": "ui",
 	}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("person table did not survive the injection attempt: create status = %d %v", status, person)
@@ -209,9 +210,9 @@ func assertInjectionLabel(t *testing.T, e *env) {
 
 // assertRenameStable proves CUSTOM-FIELDS-WIRE-3: rename updates label
 // only, column_name never moves.
-func assertRenameStable(t *testing.T, e *env) {
+func assertRenameStable(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, field, problem := createCustomField(t, e, anyMap{
+	status, field, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "Original Label", "type": "text", "source": "ui",
 	})
 	if status != http.StatusCreated {
@@ -220,7 +221,7 @@ func assertRenameStable(t *testing.T, e *env) {
 	originalColumn := field.ColumnName
 
 	var renamed customFieldWire
-	renameStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID, anyMap{"label": "Renamed Label"}, nil, &renamed)
+	renameStatus := e.Call(t, "PATCH", "/v1/custom-fields/"+field.ID, apptest.AnyMap{"label": "Renamed Label"}, nil, &renamed)
 	if renameStatus != http.StatusOK {
 		t.Fatalf("rename status = %d, want 200: %+v", renameStatus, renamed)
 	}
@@ -234,9 +235,9 @@ func assertRenameStable(t *testing.T, e *env) {
 
 // assertRetire proves CUSTOM-FIELDS-WIRE-4/AC-13: status flips, archived_at
 // stays null — retire is a status flip, never an archive.
-func assertRetire(t *testing.T, e *env) {
+func assertRetire(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, field, problem := createCustomField(t, e, anyMap{
+	status, field, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "To Be Retired", "type": "text", "source": "ui",
 	})
 	if status != http.StatusCreated {
@@ -244,7 +245,7 @@ func assertRetire(t *testing.T, e *env) {
 	}
 
 	var retired customFieldWire
-	retireStatus := e.call(t, "POST", "/v1/custom-fields/"+field.ID+"/retire", nil, nil, &retired)
+	retireStatus := e.Call(t, "POST", "/v1/custom-fields/"+field.ID+"/retire", nil, nil, &retired)
 	if retireStatus != http.StatusOK {
 		t.Fatalf("retire status = %d, want 200: %+v", retireStatus, retired)
 	}
@@ -259,9 +260,9 @@ func assertRetire(t *testing.T, e *env) {
 // assertRetiredFieldFrozen proves retirement is terminal on the wire: a
 // retired field refuses rename and options edits with the contract's 409
 // conflict, while a repeat retire stays the 200 no-op.
-func assertRetiredFieldFrozen(t *testing.T, e *env) {
+func assertRetiredFieldFrozen(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, field, problem := createCustomField(t, e, anyMap{
+	status, field, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "Frozen Route", "type": "picklist",
 		"options": []string{"direct", "reseller"}, "source": "ui",
 	})
@@ -269,26 +270,26 @@ func assertRetiredFieldFrozen(t *testing.T, e *env) {
 		t.Fatalf("create status = %d, want 201: %+v", status, problem)
 	}
 	var retired customFieldWire
-	if s := e.call(t, "POST", "/v1/custom-fields/"+field.ID+"/retire", nil, nil, &retired); s != http.StatusOK {
+	if s := e.Call(t, "POST", "/v1/custom-fields/"+field.ID+"/retire", nil, nil, &retired); s != http.StatusOK {
 		t.Fatalf("retire status = %d, want 200: %+v", s, retired)
 	}
 
 	var renameProblem customFieldProblem
-	renameStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID,
-		anyMap{"label": "Thawed Route"}, nil, &renameProblem)
+	renameStatus := e.Call(t, "PATCH", "/v1/custom-fields/"+field.ID,
+		apptest.AnyMap{"label": "Thawed Route"}, nil, &renameProblem)
 	if renameStatus != http.StatusConflict || renameProblem.Code != "conflict" {
 		t.Fatalf("rename on retired = %d/%q, want 409/conflict: %+v", renameStatus, renameProblem.Code, renameProblem)
 	}
 
 	var optionsProblem customFieldProblem
-	optionsStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
-		anyMap{"options": []string{"direct"}}, nil, &optionsProblem)
+	optionsStatus := e.Call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
+		apptest.AnyMap{"options": []string{"direct"}}, nil, &optionsProblem)
 	if optionsStatus != http.StatusConflict || optionsProblem.Code != "conflict" {
 		t.Fatalf("options on retired = %d/%q, want 409/conflict: %+v", optionsStatus, optionsProblem.Code, optionsProblem)
 	}
 
 	var again customFieldWire
-	if s := e.call(t, "POST", "/v1/custom-fields/"+field.ID+"/retire", nil, nil, &again); s != http.StatusOK {
+	if s := e.Call(t, "POST", "/v1/custom-fields/"+field.ID+"/retire", nil, nil, &again); s != http.StatusOK {
 		t.Fatalf("repeat retire status = %d, want the 200 no-op: %+v", s, again)
 	}
 }
@@ -296,9 +297,9 @@ func assertRetiredFieldFrozen(t *testing.T, e *env) {
 // assertUnknownCreateKey proves a typo'd request key answers the
 // unknown_field 422 instead of being silently dropped — the create
 // request schema deliberately has no additionalProperties catch-all.
-func assertUnknownCreateKey(t *testing.T, e *env) {
+func assertUnknownCreateKey(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, _, problem := createCustomField(t, e, anyMap{
+	status, _, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "Typo Subject", "type": "currency",
 		"curency": "USD", "source": "ui",
 	})
@@ -314,9 +315,9 @@ func assertUnknownCreateKey(t *testing.T, e *env) {
 // assertOptionsLifecycle proves CUSTOM-FIELDS-PARAM-5: an options edit
 // replaces the set and regenerates the CHECK, and emptying the set is
 // refused with the contract's exact lastOption shape.
-func assertOptionsLifecycle(t *testing.T, e *env) {
+func assertOptionsLifecycle(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	status, field, problem := createCustomField(t, e, anyMap{
+	status, field, problem := createCustomField(t, e, apptest.AnyMap{
 		"object": "deal", "label": "Deployment Region", "type": "picklist",
 		"options": []string{"us-east", "eu-west", "apac"}, "source": "ui",
 	})
@@ -325,8 +326,8 @@ func assertOptionsLifecycle(t *testing.T, e *env) {
 	}
 
 	var updated customFieldWire
-	optStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
-		anyMap{"options": []string{"eu-west", "apac", "sa-east"}}, nil, &updated)
+	optStatus := e.Call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
+		apptest.AnyMap{"options": []string{"eu-west", "apac", "sa-east"}}, nil, &updated)
 	if optStatus != http.StatusOK {
 		t.Fatalf("options update status = %d, want 200: %+v", optStatus, updated)
 	}
@@ -335,8 +336,8 @@ func assertOptionsLifecycle(t *testing.T, e *env) {
 	}
 
 	var lastOptionProblem customFieldProblem
-	emptyStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
-		anyMap{"options": []string{}}, nil, &lastOptionProblem)
+	emptyStatus := e.Call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
+		apptest.AnyMap{"options": []string{}}, nil, &lastOptionProblem)
 	if emptyStatus != http.StatusUnprocessableEntity {
 		t.Fatalf("empty-options status = %d, want 422: %+v", emptyStatus, lastOptionProblem)
 	}
@@ -348,27 +349,27 @@ func assertOptionsLifecycle(t *testing.T, e *env) {
 
 // assertListFiltering proves CUSTOM-FIELDS-WIRE-1: omitted status returns
 // both lifecycle states, and object/status each narrow correctly.
-func assertListFiltering(t *testing.T, e *env) {
+func assertListFiltering(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	activeStatus, active, activeProblem := createCustomField(t, e, anyMap{
+	activeStatus, active, activeProblem := createCustomField(t, e, apptest.AnyMap{
 		"object": "lead", "label": "Lead Source Detail", "type": "text", "source": "ui",
 	})
 	if activeStatus != http.StatusCreated {
 		t.Fatalf("create active field status = %d: %+v", activeStatus, activeProblem)
 	}
-	retiringStatus, retiring, retiringProblem := createCustomField(t, e, anyMap{
+	retiringStatus, retiring, retiringProblem := createCustomField(t, e, apptest.AnyMap{
 		"object": "lead", "label": "Lead Legacy Field", "type": "text", "source": "ui",
 	})
 	if retiringStatus != http.StatusCreated {
 		t.Fatalf("create field-to-retire status = %d: %+v", retiringStatus, retiringProblem)
 	}
 	var retired customFieldWire
-	if s := e.call(t, "POST", "/v1/custom-fields/"+retiring.ID+"/retire", nil, nil, &retired); s != http.StatusOK {
+	if s := e.Call(t, "POST", "/v1/custom-fields/"+retiring.ID+"/retire", nil, nil, &retired); s != http.StatusOK {
 		t.Fatalf("retire status = %d, want 200: %+v", s, retired)
 	}
 
 	var both customFieldListWire
-	if s := e.call(t, "GET", "/v1/custom-fields?object=lead", nil, nil, &both); s != http.StatusOK {
+	if s := e.Call(t, "GET", "/v1/custom-fields?object=lead", nil, nil, &both); s != http.StatusOK {
 		t.Fatalf("list status = %d, want 200: %+v", s, both)
 	}
 	if !containsID(both.Data, active.ID) || !containsID(both.Data, retiring.ID) {
@@ -376,7 +377,7 @@ func assertListFiltering(t *testing.T, e *env) {
 	}
 
 	var activeOnly customFieldListWire
-	if s := e.call(t, "GET", "/v1/custom-fields?object=lead&status=active", nil, nil, &activeOnly); s != http.StatusOK {
+	if s := e.Call(t, "GET", "/v1/custom-fields?object=lead&status=active", nil, nil, &activeOnly); s != http.StatusOK {
 		t.Fatalf("list active status = %d, want 200: %+v", s, activeOnly)
 	}
 	if !containsID(activeOnly.Data, active.ID) || containsID(activeOnly.Data, retiring.ID) {
@@ -384,7 +385,7 @@ func assertListFiltering(t *testing.T, e *env) {
 	}
 
 	var retiredOnly customFieldListWire
-	if s := e.call(t, "GET", "/v1/custom-fields?object=lead&status=retired", nil, nil, &retiredOnly); s != http.StatusOK {
+	if s := e.Call(t, "GET", "/v1/custom-fields?object=lead&status=retired", nil, nil, &retiredOnly); s != http.StatusOK {
 		t.Fatalf("list retired status = %d, want 200: %+v", s, retiredOnly)
 	}
 	if containsID(retiredOnly.Data, active.ID) || !containsID(retiredOnly.Data, retiring.ID) {
@@ -396,7 +397,7 @@ func assertListFiltering(t *testing.T, e *env) {
 	// (`activity`, `relationship`) answers 422 and would prove nothing about
 	// filtering.
 	var otherObject customFieldListWire
-	if s := e.call(t, "GET", "/v1/custom-fields?object=organization", nil, nil, &otherObject); s != http.StatusOK {
+	if s := e.Call(t, "GET", "/v1/custom-fields?object=organization", nil, nil, &otherObject); s != http.StatusOK {
 		t.Fatalf("list other-object status = %d, want 200: %+v", s, otherObject)
 	}
 	if containsID(otherObject.Data, active.ID) || containsID(otherObject.Data, retiring.ID) {
@@ -420,11 +421,11 @@ func containsID(fields []customFieldWire, id string) bool {
 // subtests above, all of which ride the schema-wired server.
 func assertUnwired501(t *testing.T) {
 	t.Helper()
-	unwired := setup(t)
-	unwired.bootstrapWorkspace(t)
+	unwired := apptest.SetupApp(t)
+	unwired.BootstrapWorkspace(t)
 
 	var createProblem customFieldProblem
-	createStatus := unwired.call(t, "POST", "/v1/custom-fields", anyMap{
+	createStatus := unwired.Call(t, "POST", "/v1/custom-fields", apptest.AnyMap{
 		"object": "deal", "label": "Never Lands", "type": "date", "source": "ui",
 	}, nil, &createProblem)
 	if createStatus != http.StatusNotImplemented {
@@ -432,8 +433,8 @@ func assertUnwired501(t *testing.T) {
 	}
 
 	var optionsProblem customFieldProblem
-	optionsStatus := unwired.call(t, "PATCH", "/v1/custom-fields/"+ids.NewV7().String()+"/options",
-		anyMap{"options": []string{"a", "b"}}, nil, &optionsProblem)
+	optionsStatus := unwired.Call(t, "PATCH", "/v1/custom-fields/"+ids.NewV7().String()+"/options",
+		apptest.AnyMap{"options": []string{"a", "b"}}, nil, &optionsProblem)
 	if optionsStatus != http.StatusNotImplemented {
 		t.Fatalf("options status = %d, want 501: %+v", optionsStatus, optionsProblem)
 	}

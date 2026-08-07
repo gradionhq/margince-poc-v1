@@ -14,29 +14,31 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type relEnv struct {
-	*env
+	*apptest.AppEnv
 	personID string
 	orgID    string
 }
 
 func setupRelationships(t *testing.T) *relEnv {
 	t.Helper()
-	e := setup(t)
-	e.slug = "rel-e2e"
-	bootstrapWorkspaceSession(t, e, "Rel E2E", "rel@fable.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "rel-e2e"
+	apptest.BootstrapWorkspaceSession(t, e, "Rel E2E", "rel@fable.test", "Admin")
 	var person, org struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{"full_name": "Edge Person"}, nil, &person); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "Edge Person"}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
-	if status := e.call(t, "POST", "/v1/organizations", anyMap{"display_name": "Edge Org"}, nil, &org); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/organizations", apptest.AnyMap{"display_name": "Edge Org"}, nil, &org); status != http.StatusCreated {
 		t.Fatalf("create org → %d", status)
 	}
-	return &relEnv{env: e, personID: person.ID, orgID: org.ID}
+	return &relEnv{AppEnv: e, personID: person.ID, orgID: org.ID}
 }
 
 func TestRelationshipLifecycle(t *testing.T) {
@@ -46,7 +48,7 @@ func TestRelationshipLifecycle(t *testing.T) {
 		ID      string `json:"id"`
 		Version int64  `json:"version"`
 	}
-	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+	if status := e.Call(t, "POST", "/v1/relationships", apptest.AnyMap{
 		"kind": "employment", "person_id": e.personID, "organization_id": e.orgID,
 		"role": "cto", "is_current_primary": true, "source": "ui",
 	}, nil, &first); status != http.StatusCreated {
@@ -57,10 +59,10 @@ func TestRelationshipLifecycle(t *testing.T) {
 	var org2 struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/organizations", anyMap{"display_name": "Second Org"}, nil, &org2); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/organizations", apptest.AnyMap{"display_name": "Second Org"}, nil, &org2); status != http.StatusCreated {
 		t.Fatalf("create org2 → %d", status)
 	}
-	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+	if status := e.Call(t, "POST", "/v1/relationships", apptest.AnyMap{
 		"kind": "employment", "person_id": e.personID, "organization_id": org2.ID,
 		"is_current_primary": true, "source": "ui",
 	}, nil, nil); status != http.StatusCreated {
@@ -72,7 +74,7 @@ func TestRelationshipLifecycle(t *testing.T) {
 			IsCurrentPrimary bool   `json:"is_current_primary"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/relationships?person_id="+e.personID+"&kind=employment", nil, nil, &listed); status != http.StatusOK || len(listed.Data) != 2 {
+	if status := e.Call(t, "GET", "/v1/relationships?person_id="+e.personID+"&kind=employment", nil, nil, &listed); status != http.StatusOK || len(listed.Data) != 2 {
 		t.Fatalf("list → %d %+v", status, listed)
 	}
 	primaries := 0
@@ -89,27 +91,27 @@ func TestRelationshipLifecycle(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := e.call(t, "PATCH", "/v1/relationships/"+first.ID, anyMap{"role": "ceo"},
+	status := e.Call(t, "PATCH", "/v1/relationships/"+first.ID, apptest.AnyMap{"role": "ceo"},
 		map[string]string{"If-Match": "999"}, &problem)
 	if status != http.StatusConflict || problem.Code != "version_skew" {
 		t.Fatalf("stale If-Match → %d %q, want 409 version_skew", status, problem.Code)
 	}
-	if status := e.call(t, "PATCH", "/v1/relationships/"+first.ID, anyMap{"role": "ceo"}, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "PATCH", "/v1/relationships/"+first.ID, apptest.AnyMap{"role": "ceo"}, nil, nil); status != http.StatusOK {
 		t.Fatalf("update → %d", status)
 	}
 
-	if status := e.call(t, "DELETE", "/v1/relationships/"+first.ID, nil, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "DELETE", "/v1/relationships/"+first.ID, nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("archive → %d", status)
 	}
 
 	// A malformed endpoint shape is a 422, not a DB error.
-	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+	if status := e.Call(t, "POST", "/v1/relationships", apptest.AnyMap{
 		"kind": "employment", "person_id": e.personID, "source": "ui",
 	}, nil, nil); status != 422 {
 		t.Fatalf("shape-violating edge → %d, want 422", status)
 	}
 	// An invisible endpoint reads as absent (H1).
-	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+	if status := e.Call(t, "POST", "/v1/relationships", apptest.AnyMap{
 		"kind": "employment", "person_id": "00000000-0000-7000-8000-00000000dead",
 		"organization_id": e.orgID, "source": "ui",
 	}, nil, nil); status != http.StatusNotFound {
@@ -142,7 +144,7 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 		ID      string `json:"id"`
 		Version int64  `json:"version"`
 	}
-	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+	if status := e.Call(t, "POST", "/v1/relationships", apptest.AnyMap{
 		"kind": "employment", "person_id": e.personID, "organization_id": e.orgID,
 		"role": "cto", "source": "ui",
 	}, nil, &edge); status != http.StatusCreated {
@@ -152,7 +154,7 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "edge agent", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -163,7 +165,7 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 		Code   string `json:"code"`
 		Detail string `json:"detail"`
 	}
-	status := e.call(t, "DELETE", "/v1/relationships/"+edge.ID, nil, bearer, &problem)
+	status := e.Call(t, "DELETE", "/v1/relationships/"+edge.ID, nil, bearer, &problem)
 	if status != http.StatusForbidden || problem.Code != "approval_required" {
 		t.Fatalf("agent archive → %d %q, want 403 approval_required", status, problem.Code)
 	}
@@ -173,7 +175,7 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 	// the archive against whatever the edge had drifted to inside the TTL — and a
 	// nil pin is exactly what a target type the seam cannot read produces.
 	var pin *int64
-	if err := e.owner.QueryRow(t.Context(),
+	if err := e.Owner.QueryRow(t.Context(),
 		`SELECT target_version FROM approval WHERE id = $1`, approvalID).Scan(&pin); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +187,7 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 		t.Errorf("target_version = %d, want the edge's own %d", *pin, edge.Version)
 	}
 
-	assertDecidableInTheInbox(t, e.env, approvalID, "relationship")
+	assertDecidableInTheInbox(t, e.AppEnv, approvalID, "relationship")
 
 	// The edge is untouched while the approval is pending.
 	var parked struct {
@@ -194,7 +196,7 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 			ArchivedAt *string `json:"archived_at"`
 		} `json:"data"`
 	}
-	if got := e.call(t, "GET", "/v1/relationships?person_id="+e.personID+"&kind=employment", nil, nil, &parked); got != http.StatusOK {
+	if got := e.Call(t, "GET", "/v1/relationships?person_id="+e.personID+"&kind=employment", nil, nil, &parked); got != http.StatusOK {
 		t.Fatalf("list while parked → %d", got)
 	}
 	for _, rel := range parked.Data {
@@ -205,7 +207,7 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 
 	// And it can be REJECTED, which is the half a caller cannot fake: a decision
 	// runs the same visibility predicate as the list.
-	if got := e.call(t, "POST", "/v1/approvals/"+approvalID+"/reject", anyMap{
+	if got := e.Call(t, "POST", "/v1/approvals/"+approvalID+"/reject", apptest.AnyMap{
 		"reason": "probe",
 	}, nil, nil); got != http.StatusOK {
 		t.Fatalf("deciding the staged archive → %d, want 200 — a row the inbox lists and cannot decide is "+
@@ -216,15 +218,15 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 func TestPartnerPromotionLifecycle(t *testing.T) {
 	e := setupRelationships(t)
 
-	if status := e.call(t, "GET", "/v1/organizations/"+e.orgID+"/partner", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/organizations/"+e.orgID+"/partner", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("non-partner org → %d, want 404", status)
 	}
 	var partner struct {
 		CertStatus string `json:"cert_status"`
 	}
-	if status := e.call(t, "PUT", "/v1/organizations/"+e.orgID+"/partner", anyMap{
+	if status := e.Call(t, "PUT", "/v1/organizations/"+e.orgID+"/partner", apptest.AnyMap{
 		"partner_role": "consulting", "cert_status": "certified",
-		"gate_metrics": anyMap{"certified_staff": 3, "retention_rate": 90},
+		"gate_metrics": apptest.AnyMap{"certified_staff": 3, "retention_rate": 90},
 	}, nil, &partner); status != http.StatusOK || partner.CertStatus != "certified" {
 		t.Fatalf("upsert partner → %d %+v", status, partner)
 	}
@@ -233,7 +235,7 @@ func TestPartnerPromotionLifecycle(t *testing.T) {
 	var org struct {
 		RelationshipTypes []string `json:"relationship_types"`
 	}
-	if status := e.call(t, "GET", "/v1/organizations/"+e.orgID, nil, nil, &org); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/organizations/"+e.orgID, nil, nil, &org); status != http.StatusOK {
 		t.Fatalf("org after promotion → %d", status)
 	}
 	if !slices.Contains(org.RelationshipTypes, "partner") {
@@ -244,10 +246,10 @@ func TestPartnerPromotionLifecycle(t *testing.T) {
 			OrganizationID string `json:"organization_id"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/partners?cert_status=certified", nil, nil, &partners); status != http.StatusOK || len(partners.Data) != 1 {
+	if status := e.Call(t, "GET", "/v1/partners?cert_status=certified", nil, nil, &partners); status != http.StatusOK || len(partners.Data) != 1 {
 		t.Fatalf("list partners → %d %+v", status, partners)
 	}
-	if status := e.call(t, "GET", "/v1/partners?cert_status=suspended", nil, nil, &partners); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/partners?cert_status=suspended", nil, nil, &partners); status != http.StatusOK {
 		t.Fatalf("filtered list → %d", status)
 	}
 }
@@ -257,7 +259,7 @@ func TestPartnerPromotionLifecycle(t *testing.T) {
 // or reject, and `decidable` backs the list, the single read and the decision
 // alike — so an approval whose target type the inbox has no visibility rule for
 // is a zombie, and the fan-out that would have told anyone is dropped too.
-func assertDecidableInTheInbox(t *testing.T, e *env, approvalID, wantTargetType string) {
+func assertDecidableInTheInbox(t *testing.T, e *apptest.AppEnv, approvalID, wantTargetType string) {
 	t.Helper()
 	var inbox struct {
 		Data []struct {
@@ -265,7 +267,7 @@ func assertDecidableInTheInbox(t *testing.T, e *env, approvalID, wantTargetType 
 			TargetType string `json:"target_entity_type"`
 		} `json:"data"`
 	}
-	if got := e.call(t, "GET", "/v1/approvals?status=pending", nil, nil, &inbox); got != http.StatusOK {
+	if got := e.Call(t, "GET", "/v1/approvals?status=pending", nil, nil, &inbox); got != http.StatusOK {
 		t.Fatalf("list approvals → %d", got)
 	}
 	for _, a := range inbox.Data {
@@ -275,7 +277,7 @@ func assertDecidableInTheInbox(t *testing.T, e *env, approvalID, wantTargetType 
 		if a.TargetType != wantTargetType {
 			t.Errorf("the staged row's target_entity_type is %q, want %q", a.TargetType, wantTargetType)
 		}
-		if got := e.call(t, "GET", "/v1/approvals/"+approvalID, nil, nil, nil); got != http.StatusOK {
+		if got := e.Call(t, "GET", "/v1/approvals/"+approvalID, nil, nil, nil); got != http.StatusOK {
 			t.Fatalf("GET the staged approval → %d, want 200", got)
 		}
 		return
@@ -298,7 +300,7 @@ func TestAnApprovalStaysDecidableAfterItsEdgeIsArchived(t *testing.T) {
 	var edge struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+	if status := e.Call(t, "POST", "/v1/relationships", apptest.AnyMap{
 		"kind": "employment", "person_id": e.personID, "organization_id": e.orgID,
 		"role": "cfo", "source": "ui",
 	}, nil, &edge); status != http.StatusCreated {
@@ -308,7 +310,7 @@ func TestAnApprovalStaysDecidableAfterItsEdgeIsArchived(t *testing.T) {
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "archived edge agent", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -317,7 +319,7 @@ func TestAnApprovalStaysDecidableAfterItsEdgeIsArchived(t *testing.T) {
 	var problem struct {
 		Detail string `json:"detail"`
 	}
-	if status := e.call(t, "DELETE", "/v1/relationships/"+edge.ID, nil,
+	if status := e.Call(t, "DELETE", "/v1/relationships/"+edge.ID, nil,
 		map[string]string{"Authorization": "Bearer " + minted.Token}, &problem); status != http.StatusForbidden {
 		t.Fatalf("agent archive → %d, want 403 approval_required", status)
 	}
@@ -325,14 +327,14 @@ func TestAnApprovalStaysDecidableAfterItsEdgeIsArchived(t *testing.T) {
 
 	// The human archives the edge themselves, which is exactly the race the
 	// approval was staged into: the target is gone before anyone decided.
-	if status := e.call(t, "DELETE", "/v1/relationships/"+edge.ID, nil, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "DELETE", "/v1/relationships/"+edge.ID, nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("human archive → %d", status)
 	}
 
 	// The staged row must STILL be visible and rejectable. If it were not, the
 	// approval would sit pending until its TTL with no way to clear it.
-	assertDecidableInTheInbox(t, e.env, approvalID, "relationship")
-	if got := e.call(t, "POST", "/v1/approvals/"+approvalID+"/reject", anyMap{
+	assertDecidableInTheInbox(t, e.AppEnv, approvalID, "relationship")
+	if got := e.Call(t, "POST", "/v1/approvals/"+approvalID+"/reject", apptest.AnyMap{
 		"reason": "already archived",
 	}, nil, nil); got != http.StatusOK {
 		t.Errorf("rejecting an approval whose edge was archived → %d, want 200 — a human must be able to "+

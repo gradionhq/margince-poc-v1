@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -74,7 +75,7 @@ func TestRecordGrantHTTPLifecycle(t *testing.T) {
 		ID string `json:"id"`
 	}
 	// Sharing with a random subject refuses (the subject must exist).
-	if status := e.call(t, "POST", "/v1/record-grants", anyMap{
+	if status := e.Call(t, "POST", "/v1/record-grants", apptest.AnyMap{
 		"record_type": "person", "record_id": e.personID,
 		"subject_type": "user", "subject_id": "00000000-0000-7000-8000-00000000dead",
 		"access": "read",
@@ -86,10 +87,10 @@ func TestRecordGrantHTTPLifecycle(t *testing.T) {
 			ID string `json:"id"`
 		} `json:"user"`
 	}
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &admin); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &admin); status != http.StatusOK {
 		t.Fatalf("me → %d", status)
 	}
-	if status := e.call(t, "POST", "/v1/record-grants", anyMap{
+	if status := e.Call(t, "POST", "/v1/record-grants", apptest.AnyMap{
 		"record_type": "person", "record_id": e.personID,
 		"subject_type": "user", "subject_id": admin.User.ID,
 		"access": "write", "reason": "deal desk assist",
@@ -97,7 +98,7 @@ func TestRecordGrantHTTPLifecycle(t *testing.T) {
 		t.Fatalf("create grant → %d", status)
 	}
 	// Duplicate share → 409.
-	if status := e.call(t, "POST", "/v1/record-grants", anyMap{
+	if status := e.Call(t, "POST", "/v1/record-grants", apptest.AnyMap{
 		"record_type": "person", "record_id": e.personID,
 		"subject_type": "user", "subject_id": admin.User.ID,
 		"access": "read",
@@ -110,15 +111,15 @@ func TestRecordGrantHTTPLifecycle(t *testing.T) {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/record-grants?record_type=person&record_id="+e.personID, nil, nil, &listed); status != http.StatusOK || len(listed.Data) != 1 {
+	if status := e.Call(t, "GET", "/v1/record-grants?record_type=person&record_id="+e.personID, nil, nil, &listed); status != http.StatusOK || len(listed.Data) != 1 {
 		t.Fatalf("list grants → %d %+v", status, listed)
 	}
-	if status := e.call(t, "DELETE", "/v1/record-grants/"+grant.ID, nil, nil, nil); status != http.StatusNoContent {
+	if status := e.Call(t, "DELETE", "/v1/record-grants/"+grant.ID, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("revoke → %d", status)
 	}
 	// The share and the revocation are both audited facts.
 	var shares, unshares int
-	if err := e.owner.QueryRow(t.Context(),
+	if err := e.Owner.QueryRow(t.Context(),
 		`SELECT count(*) FILTER (WHERE action = 'record_share'),
 		        count(*) FILTER (WHERE action = 'record_unshare') FROM audit_log`).Scan(&shares, &unshares); err != nil {
 		t.Fatal(err)

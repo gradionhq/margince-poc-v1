@@ -15,6 +15,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type importSummaryDTO struct {
@@ -26,7 +28,7 @@ type importSummaryDTO struct {
 }
 
 // uploadExport posts a CSV as multipart, the way the browser does.
-func (e *env) uploadExport(t *testing.T, csv string) (int, importSummaryDTO) {
+func uploadExport(e *apptest.AppEnv, t *testing.T, csv string) (int, importSummaryDTO) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -41,14 +43,14 @@ func (e *env) uploadExport(t *testing.T, csv string) (int, importSummaryDTO) {
 		t.Fatalf("closing the multipart writer: %v", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, e.ts.URL+"/v1/me/linkedin-connections", &body)
+	req, err := http.NewRequest(http.MethodPost, e.TS.URL+"/v1/me/linkedin-connections", &body)
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("X-Workspace-Slug", e.slug)
+	req.Header.Set("X-Workspace-Slug", e.Slug)
 
-	resp, err := e.client.Do(req)
+	resp, err := e.Client.Do(req)
 	if err != nil {
 		t.Fatalf("uploading: %v", err)
 	}
@@ -76,10 +78,10 @@ Andreas,Müller,https://x,,Acme GmbH,Head of IT,02 Feb 2023
 `
 
 func TestUploadingAnExportImportsItAndReportsWhatItDid(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
-	status, got := e.uploadExport(t, exportWithPreamble)
+	status, got := uploadExport(e, t, exportWithPreamble)
 	if status != http.StatusOK {
 		t.Fatalf("upload status = %d, want 200", status)
 	}
@@ -99,7 +101,7 @@ func TestUploadingAnExportImportsItAndReportsWhatItDid(t *testing.T) {
 	// Re-uploading a refreshed export updates rather than duplicating —
 	// people re-export regularly, and a doubled network makes every reach
 	// count a lie.
-	status, again := e.uploadExport(t, exportWithPreamble)
+	status, again := uploadExport(e, t, exportWithPreamble)
 	if status != http.StatusOK {
 		t.Fatalf("re-upload status = %d", status)
 	}
@@ -109,19 +111,19 @@ func TestUploadingAnExportImportsItAndReportsWhatItDid(t *testing.T) {
 }
 
 func TestAnExactAddressMatchConfirmsOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// A contact carrying the address the export names.
-	var person anyMap
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	var person apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Dana Buyer",
-		"emails":    []anyMap{{"email": "dana@acme.test", "is_primary": true}},
+		"emails":    []apptest.AnyMap{{"email": "dana@acme.test", "is_primary": true}},
 	}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("creating the contact: %d", status)
 	}
 
-	status, got := e.uploadExport(t, exportWithPreamble)
+	status, got := uploadExport(e, t, exportWithPreamble)
 	if status != http.StatusOK {
 		t.Fatalf("upload status = %d", status)
 	}
@@ -138,12 +140,12 @@ func TestAnExactAddressMatchConfirmsOverHTTP(t *testing.T) {
 }
 
 func TestAFileThatIsNotAnExportIsRefusedWithAReadableReason(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// Picking the wrong file is a mistake a sentence can fix. Answering 500
 	// would send someone to support for something they can solve themselves.
-	status, _ := e.uploadExport(t, "id,amount\n1,20\n")
+	status, _ := uploadExport(e, t, "id,amount\n1,20\n")
 	if status != http.StatusUnprocessableEntity {
 		t.Errorf("a non-export answered %d, want 422", status)
 	}

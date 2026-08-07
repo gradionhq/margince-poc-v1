@@ -129,7 +129,7 @@ func TestTheSweepCannotReachAnotherTenantsRuns(t *testing.T) {
 func (re *runnerEnv) otherWorkspace(t *testing.T) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	if _, err := re.owner.Exec(context.Background(),
+	if _, err := re.Owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other Tenant', $2, 'EUR')`,
 		id, "reap-other-"+id.String()); err != nil {
 		t.Fatalf("seeding the second workspace: %v", err)
@@ -142,7 +142,7 @@ func (re *runnerEnv) otherWorkspace(t *testing.T) ids.UUID {
 func (re *runnerEnv) seedRunIn(t *testing.T, wsID ids.UUID, triggerRef string, staleFor time.Duration) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	if _, err := re.owner.Exec(context.Background(), `
+	if _, err := re.Owner.Exec(context.Background(), `
 		INSERT INTO agent_run (id, workspace_id, agent_spec, goal, trigger_ref, status, updated_at)
 		VALUES ($1, $2, 'morning_brief', 'another tenant''s run', $3, 'running',
 		        now() - ($4 * interval '1 microsecond'))`,
@@ -164,7 +164,7 @@ func (re *runnerEnv) seedRun(t *testing.T, triggerRef, status string, staleFor t
 		snapshot := `{"tool":"update_record","args":{}}`
 		pending = &snapshot
 	}
-	if _, err := re.owner.Exec(context.Background(), `
+	if _, err := re.Owner.Exec(context.Background(), `
 		INSERT INTO agent_run (id, workspace_id, agent_spec, goal, trigger_ref, status, updated_at,
 		                       approval_id, pending)
 		VALUES ($1, $2, 'morning_brief', 'seeded for the sweep', $3, $4,
@@ -179,7 +179,7 @@ func (re *runnerEnv) seedRun(t *testing.T, triggerRef, status string, staleFor t
 func (re *runnerEnv) seedApproval(t *testing.T) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	if _, err := re.owner.Exec(context.Background(), `
+	if _, err := re.Owner.Exec(context.Background(), `
 		INSERT INTO approval (id, workspace_id, kind, proposed_by, target_entity_type, target_entity_id,
 		                      summary, proposed_change, diff_hash, expires_at)
 		VALUES ($1, $2, 'advance_deal', 'agent:test', 'deal', $3,
@@ -227,7 +227,7 @@ func (re *runnerEnv) runState(t *testing.T, runID ids.UUID) sweptRun {
 func (re *runnerEnv) statusAsOwner(t *testing.T, runID ids.UUID) string {
 	t.Helper()
 	var status string
-	if err := re.owner.QueryRow(context.Background(),
+	if err := re.Owner.QueryRow(context.Background(),
 		`SELECT status FROM agent_run WHERE id = $1`, runID).Scan(&status); err != nil {
 		t.Fatalf("reading run %s as the owner: %v", runID, err)
 	}

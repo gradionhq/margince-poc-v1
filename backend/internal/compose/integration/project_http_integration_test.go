@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -86,12 +87,12 @@ func (p projectProblem) fieldName() string {
 
 // anchorOrg creates the company a project hangs from. A project has exactly
 // one, and the contract requires it at create time.
-func anchorOrg(t *testing.T, e *env, name string) string {
+func anchorOrg(t *testing.T, e *apptest.AppEnv, name string) string {
 	t.Helper()
 	var org struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/organizations", anyMap{
+	if status := e.Call(t, "POST", "/v1/organizations", apptest.AnyMap{
 		"display_name": name, "source": "manual",
 	}, nil, &org); status != http.StatusCreated {
 		t.Fatalf("POST /organizations → %d, want 201", status)
@@ -100,12 +101,12 @@ func anchorOrg(t *testing.T, e *env, name string) string {
 }
 
 // anchorPerson creates someone to put on a project's roster.
-func anchorPerson(t *testing.T, e *env, full string) string {
+func anchorPerson(t *testing.T, e *apptest.AppEnv, full string) string {
 	t.Helper()
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": full, "source": "manual",
 	}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("POST /people → %d, want 201", status)
@@ -117,12 +118,12 @@ func anchorPerson(t *testing.T, e *env, full string) string {
 // appears in the list, takes a PATCH, moves phase only through /advance, and
 // archives.
 func TestProjectLifecycleOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Northwind")
 
 	var created projectDTO
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Warehouse rollout", "key": "WHR", "organization_id": org, "source": "manual",
 	}, nil, &created); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
@@ -135,7 +136,7 @@ func TestProjectLifecycleOverHTTP(t *testing.T) {
 	}
 
 	var read projectDTO
-	if status := e.call(t, "GET", "/v1/projects/"+created.ID, nil, nil, &read); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/projects/"+created.ID, nil, nil, &read); status != http.StatusOK {
 		t.Fatalf("GET /projects/{id} → %d, want 200", status)
 	}
 	if read.ID != created.ID || read.Name != "Warehouse rollout" {
@@ -143,7 +144,7 @@ func TestProjectLifecycleOverHTTP(t *testing.T) {
 	}
 
 	var listed projectListDTO
-	if status := e.call(t, "GET", "/v1/projects?organization_id="+org, nil, nil, &listed); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/projects?organization_id="+org, nil, nil, &listed); status != http.StatusOK {
 		t.Fatalf("GET /projects → %d, want 200", status)
 	}
 	if len(listed.Data) != 1 || listed.Data[0].ID != created.ID {
@@ -151,7 +152,7 @@ func TestProjectLifecycleOverHTTP(t *testing.T) {
 	}
 
 	var patched projectDTO
-	if status := e.call(t, "PATCH", "/v1/projects/"+created.ID, anyMap{
+	if status := e.Call(t, "PATCH", "/v1/projects/"+created.ID, apptest.AnyMap{
 		"description": "Two sites, one cutover.",
 	}, nil, &patched); status != http.StatusOK {
 		t.Fatalf("PATCH /projects/{id} → %d, want 200", status)
@@ -164,7 +165,7 @@ func TestProjectLifecycleOverHTTP(t *testing.T) {
 	}
 
 	var advanced projectDTO
-	if status := e.call(t, "POST", "/v1/projects/"+created.ID+"/advance", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects/"+created.ID+"/advance", apptest.AnyMap{
 		"to_phase": "pursuing",
 	}, nil, &advanced); status != http.StatusOK {
 		t.Fatalf("POST /projects/{id}/advance → %d, want 200", status)
@@ -173,21 +174,21 @@ func TestProjectLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("phase = %q after advancing, want pursuing", advanced.Phase)
 	}
 
-	if status := e.call(t, "DELETE", "/v1/projects/"+created.ID, nil, nil, nil); status != http.StatusNoContent {
+	if status := e.Call(t, "DELETE", "/v1/projects/"+created.ID, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("DELETE /projects/{id} → %d, want 204", status)
 	}
 	// Archiving is not deleting: the project stays readable by id, stamped
 	// with when it was retired, so everything that pointed at it still
 	// resolves. What it leaves is the live LIST.
 	var archived projectDTO
-	if status := e.call(t, "GET", "/v1/projects/"+created.ID, nil, nil, &archived); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/projects/"+created.ID, nil, nil, &archived); status != http.StatusOK {
 		t.Fatalf("GET on an archived project → %d, want 200 — archive is not delete", status)
 	}
 	if archived.ArchivedAt == nil {
 		t.Fatal("an archived project came back with no archived_at")
 	}
 	var live projectListDTO
-	if status := e.call(t, "GET", "/v1/projects?organization_id="+org, nil, nil, &live); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/projects?organization_id="+org, nil, nil, &live); status != http.StatusOK {
 		t.Fatalf("GET /projects → %d, want 200", status)
 	}
 	if len(live.Data) != 0 {
@@ -198,17 +199,17 @@ func TestProjectLifecycleOverHTTP(t *testing.T) {
 // The key is the human handle, so a second live project may not take one that
 // is already in use — and the refusal says which key, not a server fault.
 func TestProjectKeyCollisionIsRefusedOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Contoso")
 
-	body := anyMap{"name": "First", "key": "DUP", "organization_id": org, "source": "manual"}
-	if status := e.call(t, "POST", "/v1/projects", body, nil, nil); status != http.StatusCreated {
+	body := apptest.AnyMap{"name": "First", "key": "DUP", "organization_id": org, "source": "manual"}
+	if status := e.Call(t, "POST", "/v1/projects", body, nil, nil); status != http.StatusCreated {
 		t.Fatalf("first POST /projects → %d, want 201", status)
 	}
 
 	var problem projectProblem
-	status := e.call(t, "POST", "/v1/projects", anyMap{
+	status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Second", "key": "dup", "organization_id": org, "source": "manual",
 	}, nil, &problem)
 	if status != http.StatusConflict {
@@ -227,25 +228,25 @@ func TestProjectKeyCollisionIsRefusedOverHTTP(t *testing.T) {
 // Closing is the one phase move that must say why: a closed project with no
 // reason is a record nobody can interpret later.
 func TestClosingAProjectOverHTTPRequiresAReason(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Initech")
 
 	var project projectDTO
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Migration", "organization_id": org, "source": "manual",
 	}, nil, &project); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
 	}
 
-	if status := e.call(t, "POST", "/v1/projects/"+project.ID+"/advance", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects/"+project.ID+"/advance", apptest.AnyMap{
 		"to_phase": "closed",
 	}, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("closing with no reason → %d, want 422", status)
 	}
 
 	var closed projectDTO
-	if status := e.call(t, "POST", "/v1/projects/"+project.ID+"/advance", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects/"+project.ID+"/advance", apptest.AnyMap{
 		"to_phase": "closed", "reason": "delivered",
 	}, nil, &closed); status != http.StatusOK {
 		t.Fatalf("closing with a reason → %d, want 200", status)
@@ -258,8 +259,8 @@ func TestClosingAProjectOverHTTPRequiresAReason(t *testing.T) {
 // The contract requires a name and an anchor company; neither is something the
 // server can invent, so both are refused at the edge rather than defaulted.
 func TestCreateProjectRefusesAnIncompleteBodyOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Umbrella")
 
 	// The shape of the refusal differs by cause and each is asserted exactly:
@@ -272,22 +273,22 @@ func TestCreateProjectRefusesAnIncompleteBodyOverHTTP(t *testing.T) {
 	// no row to protect when no id was supplied. Answering 404 to an omitted id
 	// sends the caller looking for a company it never named.
 	for name, tc := range map[string]struct {
-		body anyMap
+		body apptest.AnyMap
 		want int
 	}{
-		"no name":    {anyMap{"organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
-		"blank name": {anyMap{"name": "   ", "organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
+		"no name":    {apptest.AnyMap{"organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
+		"blank name": {apptest.AnyMap{"name": "   ", "organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
 		"organization_id omitted": {
-			anyMap{"name": "Orphan", "source": "manual"},
+			apptest.AnyMap{"name": "Orphan", "source": "manual"},
 			http.StatusUnprocessableEntity,
 		},
 		"organization_id names nothing visible": {
-			anyMap{"name": "Orphan", "organization_id": ids.NewV7().String(), "source": "manual"},
+			apptest.AnyMap{"name": "Orphan", "organization_id": ids.NewV7().String(), "source": "manual"},
 			http.StatusNotFound,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if status := e.call(t, "POST", "/v1/projects", tc.body, nil, nil); status != tc.want {
+			if status := e.Call(t, "POST", "/v1/projects", tc.body, nil, nil); status != tc.want {
 				t.Fatalf("%s → %d, want %d", name, status, tc.want)
 			}
 		})
@@ -296,12 +297,12 @@ func TestCreateProjectRefusesAnIncompleteBodyOverHTTP(t *testing.T) {
 	// A blank name is refused on the way IN and on the way through: a rule
 	// that only one verb carries is a rule the other verb erases.
 	var project projectDTO
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Named", "organization_id": org, "source": "manual",
 	}, nil, &project); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
 	}
-	if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+	if status := e.Call(t, "PATCH", "/v1/projects/"+project.ID, apptest.AnyMap{
 		"name": "   ",
 	}, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("PATCH to a blank name → %d, want 422", status)
@@ -312,20 +313,20 @@ func TestCreateProjectRefusesAnIncompleteBodyOverHTTP(t *testing.T) {
 // role correction, never a second edge. That is the whole contract of a PUT
 // here, and it is the property a uniqueness race must not break.
 func TestProjectStakeholderRosterOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Stark Industries")
 	person := anchorPerson(t, e, "Pepper Potts")
 
 	var project projectDTO
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Arc reactor", "organization_id": org, "source": "manual",
 	}, nil, &project); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
 	}
 
 	var edge relationshipDTO
-	if status := e.call(t, "PUT", "/v1/projects/"+project.ID+"/stakeholders", anyMap{
+	if status := e.Call(t, "PUT", "/v1/projects/"+project.ID+"/stakeholders", apptest.AnyMap{
 		"person_id": person, "role": "sponsor",
 	}, nil, &edge); status != http.StatusOK {
 		t.Fatalf("PUT stakeholder → %d, want 200", status)
@@ -336,7 +337,7 @@ func TestProjectStakeholderRosterOverHTTP(t *testing.T) {
 
 	// The same person again: the role moves, the edge does not multiply.
 	var recorrected relationshipDTO
-	if status := e.call(t, "PUT", "/v1/projects/"+project.ID+"/stakeholders", anyMap{
+	if status := e.Call(t, "PUT", "/v1/projects/"+project.ID+"/stakeholders", apptest.AnyMap{
 		"person_id": person, "role": "project_lead",
 	}, nil, &recorrected); status != http.StatusOK {
 		t.Fatalf("re-attaching → %d, want 200", status)
@@ -350,7 +351,7 @@ func TestProjectStakeholderRosterOverHTTP(t *testing.T) {
 	}
 
 	var roster relationshipListDTO
-	if status := e.call(t, "GET", "/v1/projects/"+project.ID+"/stakeholders", nil, nil, &roster); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/projects/"+project.ID+"/stakeholders", nil, nil, &roster); status != http.StatusOK {
 		t.Fatalf("GET stakeholders → %d, want 200", status)
 	}
 	if len(roster.Data) != 1 {
@@ -359,12 +360,12 @@ func TestProjectStakeholderRosterOverHTTP(t *testing.T) {
 
 	// Detaching archives the edge: the person's involvement stays on the
 	// record, it simply stops being current.
-	if status := e.call(t, "DELETE",
+	if status := e.Call(t, "DELETE",
 		fmt.Sprintf("/v1/projects/%s/stakeholders/%s", project.ID, person), nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("DELETE stakeholder → %d, want 204", status)
 	}
 	var afterDetach relationshipListDTO
-	if status := e.call(t, "GET", "/v1/projects/"+project.ID+"/stakeholders", nil, nil, &afterDetach); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/projects/"+project.ID+"/stakeholders", nil, nil, &afterDetach); status != http.StatusOK {
 		t.Fatalf("GET stakeholders after detach → %d, want 200", status)
 	}
 	if len(afterDetach.Data) != 0 {
@@ -375,29 +376,29 @@ func TestProjectStakeholderRosterOverHTTP(t *testing.T) {
 // A read seat may look at a project and may not change one. The ceiling is the
 // seat, not the role, so it applies to every write on this surface.
 func TestAReadSeatCannotWriteAProjectOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Cyberdyne")
 	person := anchorPerson(t, e, "Miles Dyson")
 
 	var project projectDTO
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Skynet", "organization_id": org, "source": "manual",
 	}, nil, &project); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
 	}
 
-	e.setWorkspaceSeat(t, e.slug, "read")
+	e.SetWorkspaceSeat(t, e.Slug, "read")
 
-	if status := e.call(t, "GET", "/v1/projects/"+project.ID, nil, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/projects/"+project.ID, nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("a read seat reading a project → %d, want 200", status)
 	}
-	if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+	if status := e.Call(t, "PATCH", "/v1/projects/"+project.ID, apptest.AnyMap{
 		"description": "not allowed",
 	}, nil, nil); status != http.StatusForbidden {
 		t.Fatalf("a read seat patching a project → %d, want 403", status)
 	}
-	if status := e.call(t, "POST", "/v1/projects/"+project.ID+"/advance", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects/"+project.ID+"/advance", apptest.AnyMap{
 		"to_phase": "pursuing",
 	}, nil, nil); status != http.StatusForbidden {
 		t.Fatalf("a read seat advancing a phase → %d, want 403", status)
@@ -405,12 +406,12 @@ func TestAReadSeatCannotWriteAProjectOverHTTP(t *testing.T) {
 	// The roster is part of the project's writable state, so both stakeholder
 	// verbs sit behind the same ceiling. Detach is asserted because it is the
 	// one that used to check only the relationship grant.
-	if status := e.call(t, "PUT", "/v1/projects/"+project.ID+"/stakeholders", anyMap{
+	if status := e.Call(t, "PUT", "/v1/projects/"+project.ID+"/stakeholders", apptest.AnyMap{
 		"person_id": person, "role": "sponsor",
 	}, nil, nil); status != http.StatusForbidden {
 		t.Fatalf("a read seat attaching a stakeholder → %d, want 403", status)
 	}
-	if status := e.call(t, "DELETE",
+	if status := e.Call(t, "DELETE",
 		fmt.Sprintf("/v1/projects/%s/stakeholders/%s", project.ID, person), nil, nil, nil); status != http.StatusForbidden {
 		t.Fatalf("a read seat detaching a stakeholder → %d, want 403", status)
 	}
@@ -425,17 +426,17 @@ func TestAReadSeatCannotWriteAProjectOverHTTP(t *testing.T) {
 // caller whose existing link is invisible to them, so it must name neither
 // the project nor its id — only what happened and what to do instead.
 func TestASecondProjectLinkIsRefusedWithoutNamingTheFirst(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Wayne Enterprises")
 
 	var first, second projectDTO
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Applied Sciences", "organization_id": org, "source": "manual",
 	}, nil, &first); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
 	}
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Batcave retrofit", "organization_id": org, "source": "manual",
 	}, nil, &second); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
@@ -444,9 +445,9 @@ func TestASecondProjectLinkIsRefusedWithoutNamingTheFirst(t *testing.T) {
 	var activity struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/activities", anyMap{
+	if status := e.Call(t, "POST", "/v1/activities", apptest.AnyMap{
 		"kind": "note", "source": "manual",
-		"links": []anyMap{{"entity_type": "project", "entity_id": first.ID}},
+		"links": []apptest.AnyMap{{"entity_type": "project", "entity_id": first.ID}},
 	}, nil, &activity); status != http.StatusCreated {
 		t.Fatalf("POST /activities → %d, want 201", status)
 	}
@@ -454,7 +455,7 @@ func TestASecondProjectLinkIsRefusedWithoutNamingTheFirst(t *testing.T) {
 	// A second project without asking to replace: the index refuses, and the
 	// caller must be told that in terms they can act on.
 	var problem projectProblem
-	status := e.call(t, "POST", "/v1/activities/"+activity.ID+"/relink", anyMap{
+	status := e.Call(t, "POST", "/v1/activities/"+activity.ID+"/relink", apptest.AnyMap{
 		"entity_type": "project", "entity_id": second.ID, "replace_existing_of_type": false,
 	}, nil, &problem)
 	if status != http.StatusUnprocessableEntity {
@@ -476,7 +477,7 @@ func TestASecondProjectLinkIsRefusedWithoutNamingTheFirst(t *testing.T) {
 
 	// Asking to replace moves it, so the refusal really was about the rule
 	// and not about the caller's authority.
-	if status := e.call(t, "POST", "/v1/activities/"+activity.ID+"/relink", anyMap{
+	if status := e.Call(t, "POST", "/v1/activities/"+activity.ID+"/relink", apptest.AnyMap{
 		"entity_type": "project", "entity_id": second.ID, "replace_existing_of_type": true,
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("relink with replace → %d, want 200", status)
@@ -488,12 +489,12 @@ func TestASecondProjectLinkIsRefusedWithoutNamingTheFirst(t *testing.T) {
 // untyped 500, or under the wrong code, is a promise broken — so each arm is
 // provoked here through the real schema rule that raises it.
 func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Refusal GmbH")
 
 	var project projectDTO
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Baseline", "organization_id": org, "source": "manual",
 	}, nil, &project); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
@@ -503,7 +504,7 @@ func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
 		// Letter-led on purpose: a bare number would match dates, amounts and
 		// order numbers in an inbound subject line.
 		var problem projectProblem
-		if status := e.call(t, "POST", "/v1/projects", anyMap{
+		if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 			"name": "Numeric", "key": "2026", "organization_id": org, "source": "manual",
 		}, nil, &problem); status != http.StatusUnprocessableEntity {
 			t.Fatalf("a numeric key → %d, want 422", status)
@@ -518,7 +519,7 @@ func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
 
 	t.Run("an end date before the start", func(t *testing.T) {
 		var problem projectProblem
-		if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+		if status := e.Call(t, "PATCH", "/v1/projects/"+project.ID, apptest.AnyMap{
 			"started_at": "2026-06-01", "ended_at": "2026-01-01",
 		}, nil, &problem); status != http.StatusUnprocessableEntity {
 			t.Fatalf("an inverted date range → %d, want 422", status)
@@ -533,7 +534,7 @@ func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
 
 	t.Run("closing without a reason", func(t *testing.T) {
 		var problem projectProblem
-		if status := e.call(t, "POST", "/v1/projects/"+project.ID+"/advance", anyMap{
+		if status := e.Call(t, "POST", "/v1/projects/"+project.ID+"/advance", apptest.AnyMap{
 			"to_phase": "closed",
 		}, nil, &problem); status != http.StatusUnprocessableEntity {
 			t.Fatalf("closing with no reason → %d, want 422", status)
@@ -552,7 +553,7 @@ func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
 		// a 422 about the rule rather than a server fault.
 		other := anchorOrg(t, e, "Elsewhere AG")
 		var elsewhere projectDTO
-		if status := e.call(t, "POST", "/v1/projects", anyMap{
+		if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 			"name": "Their work", "organization_id": other, "source": "manual",
 		}, nil, &elsewhere); status != http.StatusCreated {
 			t.Fatalf("POST /projects → %d, want 201", status)
@@ -568,14 +569,14 @@ func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
 		// Not a skip: bootstrapping seeds the default pipeline, so an empty
 		// list means the fixture broke, and skipping here would retire the
 		// only check on a rule that lives in a constraint trigger.
-		if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
+		if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
 			t.Fatalf("GET /pipelines → %d, want 200", status)
 		}
 		if len(pipelines.Data) == 0 || len(pipelines.Data[0].Stages) == 0 {
 			t.Fatal("the bootstrapped workspace has no pipeline with stages — the fixture no longer seeds one")
 		}
 		var problem projectProblem
-		status := e.call(t, "POST", "/v1/deals", anyMap{
+		status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 			"name": "Mismatched", "organization_id": org, "project_id": elsewhere.ID,
 			"pipeline_id": pipelines.Data[0].ID, "stage_id": pipelines.Data[0].Stages[0].ID,
 			"source": "manual",
@@ -596,12 +597,12 @@ func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
 // must not silently win: the write is refused so the client re-reads rather
 // than overwriting someone else's change.
 func TestAStaleVersionCannotOverwriteAProject(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Skew GmbH")
 
 	var project projectDTO
-	if status := e.call(t, "POST", "/v1/projects", anyMap{
+	if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
 		"name": "Contended", "organization_id": org, "source": "manual",
 	}, nil, &project); status != http.StatusCreated {
 		t.Fatalf("POST /projects → %d, want 201", status)
@@ -609,7 +610,7 @@ func TestAStaleVersionCannotOverwriteAProject(t *testing.T) {
 	stale := strconv.Itoa(project.Version)
 
 	// Someone else moves first.
-	if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+	if status := e.Call(t, "PATCH", "/v1/projects/"+project.ID, apptest.AnyMap{
 		"description": "first writer",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("first PATCH → %d, want 200", status)
@@ -619,7 +620,7 @@ func TestAStaleVersionCannotOverwriteAProject(t *testing.T) {
 	// different 4xx would be a different promise, so accepting either would
 	// let the surface change contracts without anything noticing.
 	var problem projectProblem
-	if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+	if status := e.Call(t, "PATCH", "/v1/projects/"+project.ID, apptest.AnyMap{
 		"description": "second writer",
 	}, map[string]string{"If-Match": stale}, &problem); status != http.StatusConflict {
 		t.Fatalf("a stale If-Match → %d, want 409", status)
@@ -627,16 +628,16 @@ func TestAStaleVersionCannotOverwriteAProject(t *testing.T) {
 	if problem.Code != "version_skew" {
 		t.Errorf("refusal code = %q, want version_skew", problem.Code)
 	}
-	if n := e.callDescription(t, project.ID); n != "first writer" {
+	if n := callDescription(e, t, project.ID); n != "first writer" {
 		t.Fatalf("description = %q — the stale write landed anyway", n)
 	}
 }
 
 // callDescription reads one project's description back over the wire.
-func (e *env) callDescription(t *testing.T, id string) string {
+func callDescription(e *apptest.AppEnv, t *testing.T, id string) string {
 	t.Helper()
 	var out projectDTO
-	if status := e.call(t, "GET", "/v1/projects/"+id, nil, nil, &out); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/projects/"+id, nil, nil, &out); status != http.StatusOK {
 		t.Fatalf("GET /projects/{id} → %d, want 200", status)
 	}
 	if out.Description == nil {

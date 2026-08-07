@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type oauthEnv struct {
@@ -56,7 +57,7 @@ func setupOAuthWith(t *testing.T, extra ...compose.Option) *oauthEnv {
 	var registered struct {
 		ClientID string `json:"client_id"`
 	}
-	if status := e.call(t, "POST", "/oauth/register", anyMap{
+	if status := e.Call(t, "POST", "/oauth/register", apptest.AnyMap{
 		"client_name": "night agent", "redirect_uris": []string{oauthRedirect},
 	}, nil, &registered); status != http.StatusCreated || registered.ClientID == "" {
 		t.Fatalf("DCR → %d %+v", status, registered)
@@ -96,11 +97,11 @@ func (o *oauthEnv) authorizeQuery(extra url.Values) url.Values {
 // "want 200" check would abort the test before the assertion runs.
 func (o *oauthEnv) authorizeRaw(t *testing.T, extra url.Values) (int, string) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+o.authorizeQuery(extra).Encode(), nil)
+	req, err := http.NewRequest(http.MethodGet, o.TS.URL+"/oauth/authorize?"+o.authorizeQuery(extra).Encode(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := o.client.Do(req)
+	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody once the body is read, below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +109,7 @@ func (o *oauthEnv) authorizeRaw(t *testing.T, extra url.Values) (int, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	closeBody(t, resp)
+	apptest.CloseBody(t, resp)
 	return resp.StatusCode, string(body)
 }
 
@@ -157,18 +158,18 @@ func (o *oauthEnv) armConsent(t *testing.T, extra url.Values) url.Values {
 // assertion target rather than whatever it points at.
 func (o *oauthEnv) postConsent(t *testing.T, form url.Values) (status int, location, body string) {
 	t.Helper()
-	post, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
+	post, err := http.NewRequest(http.MethodPost, o.TS.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	defer func() { o.client.CheckRedirect = nil }()
-	resp, err := o.client.Do(post)
+	o.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	defer func() { o.Client.CheckRedirect = nil }()
+	resp, err := o.Client.Do(post) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("reading the consent POST's body: %v", err)
@@ -222,15 +223,6 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	return granted.Query().Get("code")
 }
 
-// closeBody closes a response body and fails the test on a dirty close —
-// a broken close can hide a truncated read.
-func closeBody(t *testing.T, resp *http.Response) {
-	t.Helper()
-	if err := resp.Body.Close(); err != nil {
-		t.Errorf("closing response body: %v", err)
-	}
-}
-
 // exchange drives POST /oauth/token for the authorization-code grant and
 // returns status + parsed body.
 func (o *oauthEnv) exchange(t *testing.T, form url.Values) (int, map[string]any) {
@@ -252,16 +244,16 @@ func (o *oauthEnv) exchange(t *testing.T, form url.Values) (int, map[string]any)
 // in how the suite drives them.
 func (o *oauthEnv) postToken(t *testing.T, form url.Values) (int, map[string]any) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/token", strings.NewReader(form.Encode()))
+	req, err := http.NewRequest(http.MethodPost, o.TS.URL+"/oauth/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := o.client.Do(req)
+	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	var body map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("token response is not JSON: %v", err)
@@ -277,7 +269,7 @@ func TestOAuthHandshakeMintsAWorkingPassport(t *testing.T) {
 		TokenEndpoint string   `json:"token_endpoint"`
 		Methods       []string `json:"code_challenge_methods_supported"`
 	}
-	if status := o.call(t, "GET", "/.well-known/oauth-authorization-server", nil, nil, &metadata); status != http.StatusOK {
+	if status := o.Call(t, "GET", "/.well-known/oauth-authorization-server", nil, nil, &metadata); status != http.StatusOK {
 		t.Fatalf("discovery → %d", status)
 	}
 	if !strings.HasSuffix(metadata.TokenEndpoint, "/oauth/token") || len(metadata.Methods) != 1 || metadata.Methods[0] != "S256" {
@@ -306,7 +298,7 @@ func TestOAuthHandshakeMintsAWorkingPassport(t *testing.T) {
 
 	// The minted Bearer works on the resource surface.
 	bearer := map[string]string{"Authorization": "Bearer " + token}
-	if status := o.call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
+	if status := o.Call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
 		t.Fatalf("bearer GET /v1/people → %d", status)
 	}
 }
@@ -322,14 +314,14 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 		"code_challenge": {o.challenge()}, "code_challenge_method": {"S256"},
 	}
 	// GET answers with the consent screen, never a redirect carrying a code.
-	req, _ := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
-	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := o.client.Do(req)
-	o.client.CheckRedirect = nil
+	req, _ := http.NewRequest(http.MethodGet, o.TS.URL+"/oauth/authorize?"+q.Encode(), nil)
+	o.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	o.Client.CheckRedirect = nil
 	if err != nil {
 		t.Fatal(err)
 	}
-	closeBody(t, resp)
+	apptest.CloseBody(t, resp)
 	location := resp.Header.Get("Location")
 	if resp.StatusCode != http.StatusFound || !strings.HasPrefix(location, "/#/oauth-consent?") {
 		t.Fatalf("GET authorize → %d %q, want the consent screen, never a code", resp.StatusCode, location)
@@ -347,15 +339,15 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 		form[k] = vs
 	}
 	form.Set("consent", "forged")
-	post, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
+	post, _ := http.NewRequest(http.MethodPost, o.TS.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err = o.client.Do(post)
-	o.client.CheckRedirect = nil
+	o.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err = o.Client.Do(post) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	o.Client.CheckRedirect = nil
 	if err != nil {
 		t.Fatal(err)
 	}
-	closeBody(t, resp)
+	apptest.CloseBody(t, resp)
 	if location := resp.Header.Get("Location"); strings.Contains(location, "code=") {
 		t.Fatalf("forged consent POST → %q, which carries a code", location)
 	}
@@ -364,14 +356,14 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	// A browser-stamped cross-site POST is refused OUTRIGHT — no redirect, not
 	// even to the consent screen. This is not a human who took too long: the
 	// initiator was another site, so there is nobody to send back to a screen.
-	post2, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
+	post2, _ := http.NewRequest(http.MethodPost, o.TS.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	post2.Header.Set("Sec-Fetch-Site", "cross-site")
-	resp, err = o.client.Do(post2)
+	resp, err = o.Client.Do(post2) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	closeBody(t, resp)
+	apptest.CloseBody(t, resp)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("cross-site consent POST → %d, want 403", resp.StatusCode)
 	}
@@ -385,7 +377,7 @@ func TestOAuthRefusesDowngradesAndPrivilegedClients(t *testing.T) {
 
 	// No confidential clients, ever.
 	var problem map[string]any
-	if status := o.call(t, "POST", "/oauth/register", anyMap{
+	if status := o.Call(t, "POST", "/oauth/register", apptest.AnyMap{
 		"client_name": "privileged", "redirect_uris": []string{oauthRedirect},
 		"token_endpoint_auth_method": "client_secret_basic",
 	}, nil, &problem); status != http.StatusBadRequest {
@@ -405,12 +397,12 @@ func TestOAuthRefusesDowngradesAndPrivilegedClients(t *testing.T) {
 		for k, vs := range extra {
 			q[k] = vs
 		}
-		req, _ := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
-		resp, err := o.client.Do(req)
+		req, _ := http.NewRequest(http.MethodGet, o.TS.URL+"/oauth/authorize?"+q.Encode(), nil)
+		resp, err := o.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 		if err != nil {
 			t.Fatal(err)
 		}
-		closeBody(t, resp)
+		apptest.CloseBody(t, resp)
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s → %d, want 400", name, resp.StatusCode)
 		}
@@ -445,7 +437,7 @@ func TestAuthorizeRefusesAForeignResourceBeforeMintingACode(t *testing.T) {
 		t.Fatalf("authorize with a foreign resource → %d %s, want 400 invalid_target", status, body)
 	}
 	var codes int
-	if err := o.owner.QueryRow(context.Background(),
+	if err := o.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM oauth_authorization_code`).Scan(&codes); err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +454,7 @@ func TestAuthorizeRefusesAForeignResourceBeforeMintingACode(t *testing.T) {
 func assertOwnerCount(t *testing.T, o *oauthEnv, want int, query string, args ...any) {
 	t.Helper()
 	var got int
-	if err := o.owner.QueryRow(context.Background(), query, args...).Scan(&got); err != nil {
+	if err := o.Owner.QueryRow(context.Background(), query, args...).Scan(&got); err != nil {
 		t.Fatalf("counting rows for %s: %v", query, err)
 	}
 	if got != want {

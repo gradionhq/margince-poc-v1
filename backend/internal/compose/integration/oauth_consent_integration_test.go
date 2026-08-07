@@ -20,6 +20,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // consentCookieName is the double-submit cookie the authorize GET arms. Spelled
@@ -36,7 +38,7 @@ func (o *oauthEnv) mintPassport(t *testing.T, label string, scopes []string) str
 	var minted struct {
 		ID string `json:"passport_id"`
 	}
-	if status := o.call(t, "POST", "/v1/passports", anyMap{
+	if status := o.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": label, "scopes": scopes,
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("mint %q → %d", label, status)
@@ -46,7 +48,7 @@ func (o *oauthEnv) mintPassport(t *testing.T, label string, scopes []string) str
 
 func (o *oauthEnv) revokePassport(t *testing.T, id string) {
 	t.Helper()
-	if status := o.call(t, "DELETE", "/v1/passports/"+id, nil, nil, nil); status != http.StatusNoContent {
+	if status := o.Call(t, "DELETE", "/v1/passports/"+id, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("revoke %s → %d", id, status)
 	}
 }
@@ -55,7 +57,7 @@ func (o *oauthEnv) revokePassport(t *testing.T, id string) {
 func (o *oauthEnv) consentRequest(t *testing.T, scope string) consentRequestWire {
 	t.Helper()
 	var got consentRequestWire
-	status := o.call(t, "GET",
+	status := o.Call(t, "GET",
 		"/v1/oauth/consent-request?client_id="+url.QueryEscape(o.clientID)+
 			"&scope="+url.QueryEscape(scope), nil, nil, &got)
 	if status != http.StatusOK {
@@ -85,7 +87,7 @@ func TestSelectablePassportsExcludesEveryUnlendableShape(t *testing.T) {
 	revoked := o.mintPassport(t, "revoked", []string{"read"})
 	o.revokePassport(t, revoked)
 	bound := o.mintPassport(t, "bound", []string{"read"})
-	if _, err := o.owner.Exec(ctx,
+	if _, err := o.Owner.Exec(ctx,
 		`WITH new_grant AS (
 		   INSERT INTO oauth_grant (workspace_id, client_id, user_id, scopes, refresh_allowed)
 		   SELECT workspace_id, $2, on_behalf_of, ARRAY['read']::text[], false
@@ -149,7 +151,7 @@ func TestSelectablePassportsExcludesAnExpiredPassport(t *testing.T) {
 	ctx := context.Background()
 
 	expired := o.mintPassport(t, "expired", []string{"read"})
-	if _, err := o.owner.Exec(ctx,
+	if _, err := o.Owner.Exec(ctx,
 		`UPDATE passport SET expires_at = now() - interval '1 minute' WHERE id = $1`, expired); err != nil {
 		t.Fatalf("backdating a passport's expiry: %v", err)
 	}
@@ -176,12 +178,12 @@ func TestSelectablePassportsExcludesAnotherUsersPassport(t *testing.T) {
 	var other struct {
 		ID string `json:"id"`
 	}
-	if status := o.call(t, "POST", "/v1/users", anyMap{
+	if status := o.Call(t, "POST", "/v1/users", apptest.AnyMap{
 		"email": "otherhuman@acme.test", "display_name": "Other Human", "role": "rep",
 	}, nil, &other); status != http.StatusCreated {
 		t.Fatalf("inviting a second user → %d", status)
 	}
-	if _, err := o.owner.Exec(ctx,
+	if _, err := o.Owner.Exec(ctx,
 		`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
 		 SELECT workspace_id, id, id, 'not mine', ARRAY['read']::text[], 'other-user-'||id, now() + interval '1 day'
 		 FROM app_user WHERE id = $1`, other.ID); err != nil {
@@ -199,14 +201,14 @@ func TestSelectablePassportsExcludesAnotherUsersPassport(t *testing.T) {
 // /oauth/register, but that endpoint is itself part of the connector's
 // gated route group — unavailable in exactly the deployment state (connector
 // off) a test needs a live client to probe.
-func registerClientDirectly(t *testing.T, e *env, clientID string) {
+func registerClientDirectly(t *testing.T, e *apptest.AppEnv, clientID string) {
 	t.Helper()
 	ctx := context.Background()
 	var wsID string
-	if err := e.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
 		t.Fatalf("looking up the workspace: %v", err)
 	}
-	if _, err := e.owner.Exec(ctx,
+	if _, err := e.Owner.Exec(ctx,
 		`INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
 		 VALUES ($1, $2, 'directly registered', ARRAY['https://client.example/cb']::text[])`,
 		wsID, clientID); err != nil {
@@ -234,26 +236,26 @@ func TestConsentRequestFollowsTheConnectorSwitch(t *testing.T) {
 	var unbindable [2]int
 
 	t.Run("off", func(t *testing.T) {
-		e := setup(t)
-		e.bootstrapWorkspace(t)
+		e := apptest.SetupApp(t)
+		e.BootstrapWorkspace(t)
 		registerClientDirectly(t, e, clientID)
 
-		status := e.call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID+"&scope=read", nil, nil, nil)
+		status := e.Call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID+"&scope=read", nil, nil, nil)
 		if status != http.StatusNotFound {
 			t.Fatalf("consent-request for a live client, connector off → %d, want 404", status)
 		}
-		unbindable[0] = e.call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID, nil, nil, nil)
+		unbindable[0] = e.Call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID, nil, nil, nil)
 	})
 
 	t.Run("on", func(t *testing.T) {
 		c := setupConnector(t)
-		registerClientDirectly(t, c.env, clientID)
+		registerClientDirectly(t, c.AppEnv, clientID)
 
-		status := c.call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID+"&scope=read", nil, nil, nil)
+		status := c.Call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID+"&scope=read", nil, nil, nil)
 		if status != http.StatusOK {
 			t.Fatalf("consent-request for the same live client, connector on → %d, want 200", status)
 		}
-		unbindable[1] = c.call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID, nil, nil, nil)
+		unbindable[1] = c.Call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID, nil, nil, nil)
 	})
 
 	if unbindable[0] != http.StatusUnprocessableEntity || unbindable[1] != unbindable[0] {
@@ -269,21 +271,21 @@ func TestConsentRequestFollowsTheConnectorSwitch(t *testing.T) {
 func (o *oauthEnv) authorizeNoFollow(t *testing.T, extra url.Values) (int, string, string, []*http.Cookie) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet,
-		o.ts.URL+"/oauth/authorize?"+o.authorizeQuery(extra).Encode(), nil)
+		o.TS.URL+"/oauth/authorize?"+o.authorizeQuery(extra).Encode(), nil)
 	if err != nil {
 		t.Fatalf("building the authorize request: %v", err)
 	}
 	// o.client carries the signed-in human's session in its jar and trusts the
 	// harness's TLS certificate; a fresh http.Client would have neither.
-	o.client.CheckRedirect = func(*http.Request, []*http.Request) error {
+	o.Client.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	defer func() { o.client.CheckRedirect = nil }()
-	resp, err := o.client.Do(req)
+	defer func() { o.Client.CheckRedirect = nil }()
+	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("reading body: %v", err)

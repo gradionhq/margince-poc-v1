@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -143,19 +144,19 @@ func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {
 	router := embedReindexRouter(t, "reindex-wedged-v1")
 	e := setupEmbedReindex(t, router)
 
-	if status, _, _ := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusAccepted {
+	if status, _, _ := embedConfirm(t, e, apptest.AnyMap{"force": true}); status != http.StatusAccepted {
 		t.Fatalf("first confirm -> %d, want 202", status)
 	}
 	// A forced confirm while the run is genuinely moving must still be refused:
 	// the marker was claimed a moment ago, so nothing here is stale.
-	if status, _, problem := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusConflict || problem.Code != "reindex_running" {
+	if status, _, problem := embedConfirm(t, e, apptest.AnyMap{"force": true}); status != http.StatusConflict || problem.Code != "reindex_running" {
 		t.Fatalf("forced confirm over a live run -> %d %+v, want 409 reindex_running", status, problem)
 	}
 
 	// The run's only child was killed outright: its workspace never left the set
 	// and the marker has not moved since. Aged rather than waited out — a suite
 	// that waited an hour is a suite nobody runs.
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
 		t.Fatalf("ageing the wedged marker: %v", err)
 	}
@@ -163,7 +164,7 @@ func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {
 	if status, _, problem := embedConfirm(t, e, nil); status != http.StatusConflict || problem.Code != "reindex_running" {
 		t.Fatalf("bare confirm over a wedged marker -> %d %+v, want 409 — taking a run's marker away is something a human asks for", status, problem)
 	}
-	status, confirmed, problem := embedConfirm(t, e, anyMap{"force": true})
+	status, confirmed, problem := embedConfirm(t, e, apptest.AnyMap{"force": true})
 	if status != http.StatusAccepted {
 		t.Fatalf("forced confirm over a wedged marker -> %d %+v, want 202 — an installation with no way back answers 409 forever", status, problem)
 	}

@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
@@ -40,9 +41,9 @@ type auditRow struct {
 // last. It reads through the owner pool deliberately: the assertion is that
 // the row EXISTS and names the right principal, which must not depend on the
 // reader's own row scope.
-func auditRowsFor(t *testing.T, e *env, entityType, entityID string) []auditRow {
+func auditRowsFor(t *testing.T, e *apptest.AppEnv, entityType, entityID string) []auditRow {
 	t.Helper()
-	rows, err := e.owner.Query(context.Background(), `
+	rows, err := e.Owner.Query(context.Background(), `
 		SELECT action, entity_type, actor_type, actor_id, coalesce(evidence, '{}'::jsonb)
 		  FROM audit_log
 		 WHERE entity_type = $1 AND entity_id = $2
@@ -67,9 +68,9 @@ func auditRowsFor(t *testing.T, e *env, entityType, entityID string) []auditRow 
 }
 
 // outboxTypesFor reads the event types staged for one entity.
-func outboxTypesFor(t *testing.T, e *env, entityType, entityID string) []string {
+func outboxTypesFor(t *testing.T, e *apptest.AppEnv, entityType, entityID string) []string {
 	t.Helper()
-	rows, err := e.owner.Query(context.Background(), `
+	rows, err := e.Owner.Query(context.Background(), `
 		SELECT envelope->>'type'
 		  FROM event_outbox
 		 WHERE envelope->'entity'->>'type' = $1 AND envelope->'entity'->>'id' = $2
@@ -99,10 +100,10 @@ func outboxTypesFor(t *testing.T, e *env, entityType, entityID string) []string 
 func TestOverlayUpdateWritesTheAuditTrail(t *testing.T) {
 	e := setupOverlayWrite(t)
 	e.seed(t, "deal", "9201", map[string]any{"name": "Acme Renewal", "currency": "USD"})
-	id := firstListedID(t, e.env, "/v1/deals")
+	id := firstListedID(t, e.AppEnv, "/v1/deals")
 
 	var deal crmcontracts.Deal
-	if status := e.call(t, "PATCH", "/v1/deals/"+id, anyMap{"name": "Acme Renewal — Q3"}, nil, &deal); status != http.StatusOK {
+	if status := e.Call(t, "PATCH", "/v1/deals/"+id, apptest.AnyMap{"name": "Acme Renewal — Q3"}, nil, &deal); status != http.StatusOK {
 		t.Fatalf("PATCH /v1/deals/%s = %d", id, status)
 	}
 
@@ -113,7 +114,7 @@ func TestOverlayUpdateWritesTheAuditTrail(t *testing.T) {
 		t.Errorf("overlay deal body captured_by = %v, want the required provenance value", deal.CapturedBy)
 	}
 
-	audits := auditRowsFor(t, e.env, "deal", id)
+	audits := auditRowsFor(t, e.AppEnv, "deal", id)
 	if len(audits) != 1 {
 		t.Fatalf("audit_log rows for the updated deal = %d, want exactly 1 — an overlay write must leave the same trail a native write leaves", len(audits))
 	}
@@ -135,7 +136,7 @@ func TestOverlayUpdateWritesTheAuditTrail(t *testing.T) {
 		t.Errorf("audit evidence = %s, want it to name the incumbent record the write landed on", got.evidence)
 	}
 
-	if types := outboxTypesFor(t, e.env, "deal", id); len(types) != 1 || types[0] != "deal.updated" {
+	if types := outboxTypesFor(t, e.AppEnv, "deal", id); len(types) != 1 || types[0] != "deal.updated" {
 		t.Errorf("staged events = %v, want exactly [deal.updated] — a subscriber must not need to know which system of record served the write", types)
 	}
 }
@@ -147,13 +148,13 @@ func TestOverlayUpdateWritesTheAuditTrail(t *testing.T) {
 func TestOverlayArchiveWritesTheAuditTrail(t *testing.T) {
 	e := setupOverlayWrite(t)
 	e.seed(t, "person", "9202", map[string]any{"first_name": "Ada", "last_name": "Overlay"})
-	id := firstListedID(t, e.env, "/v1/people")
+	id := firstListedID(t, e.AppEnv, "/v1/people")
 
-	if status := e.call(t, "DELETE", "/v1/people/"+id, nil, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "DELETE", "/v1/people/"+id, nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("DELETE /v1/people/%s = %d", id, status)
 	}
 
-	audits := auditRowsFor(t, e.env, "person", id)
+	audits := auditRowsFor(t, e.AppEnv, "person", id)
 	if len(audits) != 1 {
 		t.Fatalf("audit_log rows for the archived person = %d, want exactly 1 — a record removed from the customer's CRM with no audit row has no answer to who removed it", len(audits))
 	}
@@ -164,7 +165,7 @@ func TestOverlayArchiveWritesTheAuditTrail(t *testing.T) {
 		t.Errorf("audit actor_type = %q, want %q", audits[0].actorType, "human")
 	}
 
-	types := outboxTypesFor(t, e.env, "person", id)
+	types := outboxTypesFor(t, e.AppEnv, "person", id)
 	if !containsString(types, "person.archived") {
 		t.Errorf("staged events = %v, want them to include person.archived", types)
 	}
@@ -177,13 +178,13 @@ func TestOverlayArchiveWritesTheAuditTrail(t *testing.T) {
 func TestOverlayRefusedWriteLeavesNoAuditTrail(t *testing.T) {
 	e := setupOverlayWrite(t)
 	e.seed(t, "lead", "9203", map[string]any{"full_name": "Refused Lead"})
-	id := firstListedID(t, e.env, "/v1/leads")
+	id := firstListedID(t, e.AppEnv, "/v1/leads")
 
 	// Archive is not a verb the mirror serves for a lead.
-	if status := e.call(t, "DELETE", "/v1/leads/"+id, nil, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "DELETE", "/v1/leads/"+id, nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("DELETE /v1/leads/%s = %d, want 422 unsupported_by_sor", id, status)
 	}
-	if audits := auditRowsFor(t, e.env, "lead", id); len(audits) != 0 {
+	if audits := auditRowsFor(t, e.AppEnv, "lead", id); len(audits) != 0 {
 		t.Errorf("audit_log rows after a refused archive = %d, want 0 — a refusal is not a mutation", len(audits))
 	}
 }

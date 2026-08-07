@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -104,14 +105,14 @@ func TestSchemaIntrospectionServesDescriptors(t *testing.T) {
 }
 
 func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
-	e := setup(t)
-	e.slug = "reports-e2e"
-	bootstrapWorkspaceSession(t, e, "Reports E2E", "rep@fable.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "reports-e2e"
+	apptest.BootstrapWorkspaceSession(t, e, "Reports E2E", "rep@fable.test", "Admin")
 
 	var org struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/organizations", anyMap{"display_name": "Acme"}, nil, &org); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/organizations", apptest.AnyMap{"display_name": "Acme"}, nil, &org); status != http.StatusCreated {
 		t.Fatalf("create org → %d", status)
 	}
 	var pipelines struct {
@@ -123,7 +124,7 @@ func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 			} `json:"stages"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK || len(pipelines.Data) == 0 {
+	if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK || len(pipelines.Data) == 0 {
 		t.Fatalf("list pipelines → %d %+v", status, pipelines)
 	}
 	stageID := ""
@@ -137,7 +138,7 @@ func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 		t.Fatalf("no open stage in the seeded pipeline: %+v", pipelines)
 	}
 	for i := 0; i < 2; i++ {
-		if status := e.call(t, "POST", "/v1/deals", anyMap{
+		if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 			"name": fmt.Sprintf("Acme Deal %d", i), "pipeline_id": pipelines.Data[0].ID,
 			"stage_id": stageID, "organization_id": org.ID,
 		}, nil, nil); status != http.StatusCreated {
@@ -150,7 +151,7 @@ func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 		Columns []string         `json:"columns"`
 		Rows    []map[string]any `json:"rows"`
 	}
-	if status := e.call(t, "POST", "/v1/reports/open-deals-per-company", nil, nil, &result); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/reports/open-deals-per-company", nil, nil, &result); status != http.StatusOK {
 		t.Fatalf("runReport → %d", status)
 	}
 	if result.Report != "open-deals-per-company" || len(result.Rows) != 1 {
@@ -164,13 +165,13 @@ func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := e.call(t, "POST", "/v1/reports/open-deals-per-company",
-		anyMap{"group_by": []string{"captured_by"}}, nil, &problem)
+	status := e.Call(t, "POST", "/v1/reports/open-deals-per-company",
+		apptest.AnyMap{"group_by": []string{"captured_by"}}, nil, &problem)
 	if status != 422 || problem.Code != "report_field_not_allowed" {
 		t.Fatalf("OOV field → %d %q, want 422 report_field_not_allowed", status, problem.Code)
 	}
 	// Unknown report keys are absent.
-	if status := e.call(t, "POST", "/v1/reports/definitely-not-a-report", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "POST", "/v1/reports/definitely-not-a-report", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("unknown report → %d, want 404", status)
 	}
 }

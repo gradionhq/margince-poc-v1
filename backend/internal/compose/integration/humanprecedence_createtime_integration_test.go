@@ -21,11 +21,13 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var pipelines struct {
 		Data []struct {
@@ -36,7 +38,7 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 			} `json:"stages"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK || len(pipelines.Data) == 0 {
+	if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK || len(pipelines.Data) == 0 {
 		t.Fatalf("pipelines → %d", status)
 	}
 	pipelineID := pipelines.Data[0].ID
@@ -53,7 +55,7 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 	var deal struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/deals", anyMap{
+	if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name": "Acme renewal", "pipeline_id": pipelineID, "stage_id": stageID,
 		"amount_minor": 25000000, "currency": "EUR",
 		"expected_close_date": "2026-12-31", "source": "manual",
@@ -64,7 +66,7 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "create-time precedence agent", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -80,7 +82,7 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 		Code   string `json:"code"`
 		Detail string `json:"detail"`
 	}
-	if status := e.call(t, "PATCH", "/v1/deals/"+deal.ID, anyMap{
+	if status := e.Call(t, "PATCH", "/v1/deals/"+deal.ID, apptest.AnyMap{
 		"amount_minor": 100, "expected_close_date": "2027-06-30",
 	}, bearer, &problem); status != http.StatusForbidden || problem.Code != "approval_required" {
 		t.Fatalf("agent money patch → %d %q, want 403 approval_required — the human typed those values at create",
@@ -93,7 +95,7 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 		TargetType string `json:"target_entity_type"`
 		Summary    string `json:"summary"`
 	}
-	if status := e.call(t, "GET", "/v1/approvals/"+approvalID, nil, nil, &staged); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/approvals/"+approvalID, nil, nil, &staged); status != http.StatusOK {
 		t.Fatalf("read the staged approval → %d", status)
 	}
 	if staged.TargetType != "deal" {
@@ -110,7 +112,7 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 		AmountMinor       int64  `json:"amount_minor"`
 		ExpectedCloseDate string `json:"expected_close_date"`
 	}
-	if status := e.call(t, "GET", "/v1/deals/"+deal.ID, nil, bearer, &current); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/deals/"+deal.ID, nil, bearer, &current); status != http.StatusOK {
 		t.Fatalf("read back → %d", status)
 	}
 	if current.AmountMinor != 25000000 {
@@ -126,8 +128,8 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 // it stays auto-execute — the gate exists to stop a silent overwrite, not to
 // stop the agent working.
 func TestAgentStillFillsAnEmptyFieldWithoutApproval(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	personID, agentToken := stagePersonAndAgent(t, e, "Petra Human", "empty-field agent")
 	bearer := map[string]string{"Authorization": "Bearer " + agentToken}
@@ -138,7 +140,7 @@ func TestAgentStillFillsAnEmptyFieldWithoutApproval(t *testing.T) {
 			ApprovalID string `json:"approval_id"`
 		} `json:"staged_approval"`
 	}
-	if status := e.call(t, "PATCH", "/v1/people/"+personID, anyMap{"title": "Founder"}, bearer, &patched); status != http.StatusOK {
+	if status := e.Call(t, "PATCH", "/v1/people/"+personID, apptest.AnyMap{"title": "Founder"}, bearer, &patched); status != http.StatusOK {
 		t.Fatalf("agent fills an empty field → %d", status)
 	}
 	if patched.StagedApproval != nil && patched.StagedApproval.ApprovalID != "" {

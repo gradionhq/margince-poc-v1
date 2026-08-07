@@ -14,6 +14,8 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // partnerWire is the contract Partner shape as this suite reads it.
@@ -34,14 +36,14 @@ func TestPartnerLifecycleFieldsRoundTrip(t *testing.T) {
 
 	// Upsert with the full lifecycle block.
 	var upserted partnerWire
-	if status := e.call(t, "PUT", "/v1/organizations/"+e.orgID+"/partner", anyMap{
+	if status := e.Call(t, "PUT", "/v1/organizations/"+e.orgID+"/partner", apptest.AnyMap{
 		"partner_role":       "consulting",
 		"cert_status":        "applied",
 		"relationship_stage": "in_conversation",
 		"next_step":          "Send the partnership one-pager",
 		"next_step_due_at":   "2026-08-01",
 		"served_segments":    []string{"manufacturing", "fintech"},
-		"gate_metrics":       anyMap{"certified_staff": 4, "retention_rate": 87},
+		"gate_metrics":       apptest.AnyMap{"certified_staff": 4, "retention_rate": 87},
 	}, nil, &upserted); status != http.StatusOK {
 		t.Fatalf("upsert partner with lifecycle fields → %d", status)
 	}
@@ -51,7 +53,7 @@ func TestPartnerLifecycleFieldsRoundTrip(t *testing.T) {
 
 	// The read-back returns exactly what was written.
 	var fetched partnerWire
-	if status := e.call(t, "GET", "/v1/organizations/"+e.orgID+"/partner", nil, nil, &fetched); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/organizations/"+e.orgID+"/partner", nil, nil, &fetched); status != http.StatusOK {
 		t.Fatalf("get partner → %d", status)
 	}
 	if fetched.OrganizationID != e.orgID || fetched.PartnerRole != "consulting" || fetched.CertStatus != "applied" {
@@ -75,14 +77,14 @@ func TestPartnerLifecycleFieldsRoundTrip(t *testing.T) {
 
 	// A stage outside the closed lifecycle vocabulary is refused at the
 	// seam — 422, and the stored stage stands.
-	if status := e.call(t, "PUT", "/v1/organizations/"+e.orgID+"/partner", anyMap{
+	if status := e.Call(t, "PUT", "/v1/organizations/"+e.orgID+"/partner", apptest.AnyMap{
 		"partner_role":       "consulting",
 		"relationship_stage": "best_friends",
 	}, map[string]string{"If-Match": "1"}, nil); status != 422 {
 		t.Fatalf("unknown relationship_stage → %d, want 422", status)
 	}
 	var after partnerWire
-	if status := e.call(t, "GET", "/v1/organizations/"+e.orgID+"/partner", nil, nil, &after); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/organizations/"+e.orgID+"/partner", nil, nil, &after); status != http.StatusOK {
 		t.Fatalf("get partner after refusal → %d", status)
 	}
 	if after.RelationshipStage != "in_conversation" {

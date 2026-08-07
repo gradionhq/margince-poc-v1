@@ -43,6 +43,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
@@ -68,7 +69,7 @@ func (f failingResolver) SeatType(context.Context, ids.UUID, ids.UUID) (principa
 // so a test can both register a subscription (over HTTP) and drive the
 // deliverer (against the same DB, sealing under the same key).
 type webhookEnv struct {
-	*env
+	*apptest.AppEnv
 	pool   *pgxpool.Pool
 	cipher *webhooks.Cipher
 	wsID   ids.UUID
@@ -83,15 +84,15 @@ func setupWebhooks(t *testing.T) *webhookEnv {
 	if err != nil {
 		t.Fatalf("cipher: %v", err)
 	}
-	e := setupWithOptions(t, compose.WithWebhookSigningKey(cipher))
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupAppWithOptions(t, compose.WithWebhookSigningKey(cipher))
+	e.BootstrapWorkspace(t)
 
 	var wsID ids.UUID
-	if err := e.owner.QueryRow(context.Background(),
-		`SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
-	return &webhookEnv{env: e, pool: e.pool, cipher: cipher, wsID: wsID}
+	return &webhookEnv{AppEnv: e, pool: e.Pool, cipher: cipher, wsID: wsID}
 }
 
 // receiver is a controllable webhook endpoint: it records every POST and
@@ -205,7 +206,7 @@ func (we *webhookEnv) createSubscription(t *testing.T, target string, eventTypes
 		} `json:"subscription"`
 		SigningSecret string `json:"signing_secret"`
 	}
-	status := we.call(t, "POST", "/v1/webhook-subscriptions", anyMap{
+	status := we.Call(t, "POST", "/v1/webhook-subscriptions", apptest.AnyMap{
 		"target_url": target, "event_types": eventTypes,
 	}, nil, &created)
 	if status != http.StatusCreated {
@@ -241,19 +242,19 @@ func TestWebhookSubscriptionCRUDOverHTTP(t *testing.T) {
 	we := setupWebhooks(t)
 
 	// http:// is rejected at create.
-	if status := we.call(t, "POST", "/v1/webhook-subscriptions", anyMap{
+	if status := we.Call(t, "POST", "/v1/webhook-subscriptions", apptest.AnyMap{
 		"target_url": "http://insecure.example/hook", "event_types": []string{"deal.created"},
 	}, nil, nil); status != 422 {
 		t.Fatalf("http target → %d, want 422", status)
 	}
 	// An unknown event type is rejected.
-	if status := we.call(t, "POST", "/v1/webhook-subscriptions", anyMap{
+	if status := we.Call(t, "POST", "/v1/webhook-subscriptions", apptest.AnyMap{
 		"target_url": "https://ok.example/hook", "event_types": []string{"nonsense.happened"},
 	}, nil, nil); status != 422 {
 		t.Fatalf("unknown event type → %d, want 422", status)
 	}
 	// A pipeline (entity-less) event type is not subscribable (BYO-EVT-4).
-	if status := we.call(t, "POST", "/v1/webhook-subscriptions", anyMap{
+	if status := we.Call(t, "POST", "/v1/webhook-subscriptions", apptest.AnyMap{
 		"target_url": "https://ok.example/hook", "event_types": []string{"capture.received"},
 	}, nil, nil); status != 422 {
 		t.Fatalf("pipeline event type → %d, want 422", status)
@@ -268,7 +269,7 @@ func TestWebhookSubscriptionCRUDOverHTTP(t *testing.T) {
 			SigningSecret string `json:"signing_secret"`
 		} `json:"data"`
 	}
-	if status := we.call(t, "GET", "/v1/webhook-subscriptions", nil, nil, &list); status != http.StatusOK {
+	if status := we.Call(t, "GET", "/v1/webhook-subscriptions", nil, nil, &list); status != http.StatusOK {
 		t.Fatalf("list → %d", status)
 	}
 	if len(list.Data) != 1 || list.Data[0].ID != subID {
@@ -280,7 +281,7 @@ func TestWebhookSubscriptionCRUDOverHTTP(t *testing.T) {
 
 	// The secret is NEVER returned by a read.
 	var got map[string]any
-	if status := we.call(t, "GET", "/v1/webhook-subscriptions/"+subID, nil, nil, &got); status != http.StatusOK {
+	if status := we.Call(t, "GET", "/v1/webhook-subscriptions/"+subID, nil, nil, &got); status != http.StatusOK {
 		t.Fatalf("get → %d", status)
 	}
 	if _, leaked := got["signing_secret"]; leaked {
@@ -294,7 +295,7 @@ func TestWebhookSubscriptionCRUDOverHTTP(t *testing.T) {
 	var rotated struct {
 		SigningSecret string `json:"signing_secret"`
 	}
-	if status := we.call(t, "POST", "/v1/webhook-subscriptions/"+subID+"/rotate-secret", nil, nil, &rotated); status != http.StatusOK {
+	if status := we.Call(t, "POST", "/v1/webhook-subscriptions/"+subID+"/rotate-secret", nil, nil, &rotated); status != http.StatusOK {
 		t.Fatalf("rotate → %d", status)
 	}
 	if rotated.SigningSecret == "" || rotated.SigningSecret == secret {
@@ -303,18 +304,18 @@ func TestWebhookSubscriptionCRUDOverHTTP(t *testing.T) {
 
 	// An empty update body is a 422 at runtime, matching the contract's
 	// minProperties:1 — never a silent no-op.
-	if status := we.call(t, "PATCH", "/v1/webhook-subscriptions/"+subID, anyMap{}, nil, nil); status != 422 {
+	if status := we.Call(t, "PATCH", "/v1/webhook-subscriptions/"+subID, apptest.AnyMap{}, nil, nil); status != 422 {
 		t.Fatalf("empty PATCH → %d, want 422", status)
 	}
 
 	// Pause via PATCH, then archive.
-	if status := we.call(t, "PATCH", "/v1/webhook-subscriptions/"+subID, anyMap{"state": "paused"}, nil, nil); status != http.StatusOK {
+	if status := we.Call(t, "PATCH", "/v1/webhook-subscriptions/"+subID, apptest.AnyMap{"state": "paused"}, nil, nil); status != http.StatusOK {
 		t.Fatalf("pause → %d", status)
 	}
-	if status := we.call(t, "DELETE", "/v1/webhook-subscriptions/"+subID, nil, nil, nil); status != http.StatusOK {
+	if status := we.Call(t, "DELETE", "/v1/webhook-subscriptions/"+subID, nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("archive → %d", status)
 	}
-	if status := we.call(t, "GET", "/v1/webhook-subscriptions/"+subID, nil, nil, nil); status != http.StatusNotFound {
+	if status := we.Call(t, "GET", "/v1/webhook-subscriptions/"+subID, nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("archived subscription still visible → %d, want 404", status)
 	}
 }
@@ -406,7 +407,7 @@ func TestWebhookFanOutStopsAtRevokedOwner(t *testing.T) {
 	// Revoke the owner (the bootstrap admin) by archiving the user row,
 	// through a workspace-bound owner tx so FORCE RLS admits the update.
 	ctx := context.Background()
-	tx, err := we.owner.Begin(ctx)
+	tx, err := we.Owner.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
@@ -686,7 +687,7 @@ func (we *webhookEnv) execInWorkspace(t *testing.T, sql string, args ...any) int
 func (we *webhookEnv) inWorkspaceTx(t *testing.T, run func(pgx.Tx) error) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := we.owner.Begin(ctx)
+	tx, err := we.Owner.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
@@ -765,7 +766,7 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 			Status string `json:"status"`
 		} `json:"data"`
 	}
-	if status := we.call(t, "GET", "/v1/webhook-subscriptions/"+subID+"/deliveries", nil, nil, &deliveries); status != http.StatusOK {
+	if status := we.Call(t, "GET", "/v1/webhook-subscriptions/"+subID+"/deliveries", nil, nil, &deliveries); status != http.StatusOK {
 		t.Fatalf("list deliveries → %d", status)
 	}
 	if len(deliveries.Data) != 1 || deliveries.Data[0].Status != "dead_lettered" {
@@ -778,7 +779,7 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	// answers 200 with the re-attempted delivery — exercising the handler
 	// path; the direct-engine replay below then proves the delivered path
 	// against the injectable (unguarded) test client.
-	if status := we.call(t, "POST", "/v1/webhook-subscriptions/"+subID+"/deliveries/"+deliveryID+"/replay", nil, nil, nil); status != http.StatusOK {
+	if status := we.Call(t, "POST", "/v1/webhook-subscriptions/"+subID+"/deliveries/"+deliveryID+"/replay", nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("http replay → %d, want 200", status)
 	}
 
@@ -836,7 +837,7 @@ func assertDeliveryStatus(t *testing.T, we *webhookEnv, subID, wantStatus string
 			Attempts int    `json:"attempts"`
 		} `json:"data"`
 	}
-	if status := we.call(t, "GET", "/v1/webhook-subscriptions/"+subID+"/deliveries", nil, nil, &deliveries); status != http.StatusOK {
+	if status := we.Call(t, "GET", "/v1/webhook-subscriptions/"+subID+"/deliveries", nil, nil, &deliveries); status != http.StatusOK {
 		t.Fatalf("list deliveries → %d", status)
 	}
 	if len(deliveries.Data) != 1 {
@@ -869,8 +870,8 @@ func mustParseUUID(t *testing.T, s string) ids.UUID {
 // documented wire contract (or vice versa) is still caught.
 func TestDealStageChangedPayloadConformsToPublicSchema(t *testing.T) {
 	we := setupWebhooks(t)
-	stages := discoverSeededPipeline(t, we.env)
-	dealID := exerciseDealToWon(t, we.env, stages)
+	stages := discoverSeededPipeline(t, we.AppEnv)
+	dealID := exerciseDealToWon(t, we.AppEnv, stages)
 
 	data := realEventPayload(t, we, "deal.stage_changed", dealID)
 	schema := publicEventSchema(t, "PublicEventDealStageChanged")
@@ -891,8 +892,8 @@ func TestDealStageChangedPayloadConformsToPublicSchema(t *testing.T) {
 // level (wireenvelope_test.go covers the pure mapping in isolation).
 func TestPublicEventEnvelopeConformsToPublicSchema(t *testing.T) {
 	we := setupWebhooks(t)
-	stages := discoverSeededPipeline(t, we.env)
-	dealID := exerciseDealToWon(t, we.env, stages)
+	stages := discoverSeededPipeline(t, we.AppEnv)
+	dealID := exerciseDealToWon(t, we.AppEnv, stages)
 	env := realEventEnvelope(t, we, "deal.stage_changed", dealID)
 
 	rcv := newReceiver(t, http.StatusOK)
@@ -926,7 +927,7 @@ func TestPublicEventEnvelopeConformsToPublicSchema(t *testing.T) {
 func realEventEnvelope(t *testing.T, we *webhookEnv, eventType, entityID string) kevents.Envelope {
 	t.Helper()
 	var raw []byte
-	err := we.owner.QueryRow(context.Background(),
+	err := we.Owner.QueryRow(context.Background(),
 		`SELECT envelope FROM event_outbox
 		 WHERE envelope->>'type' = $1 AND envelope->'entity'->>'id' = $2
 		 ORDER BY seq DESC LIMIT 1`,

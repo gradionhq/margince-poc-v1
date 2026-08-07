@@ -57,7 +57,7 @@ func replyFrom(quoting string) []byte {
 func (p *preflightEnv) activityOnTheStampedIdentity(t *testing.T) ids.UUID {
 	t.Helper()
 	var found []ids.UUID
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		rows, err := tx.Query(context.Background(),
 			`SELECT id FROM activity WHERE source_system = 'gmail' AND source_id = $1`, gmailStamped)
 		if err != nil {
@@ -87,7 +87,7 @@ func (p *preflightEnv) activityOnTheStampedIdentity(t *testing.T) ids.UUID {
 func (p *preflightEnv) countActivities(t *testing.T, where string, args ...any) int {
 	t.Helper()
 	var n int
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE `+where, args...).Scan(&n)
 	}); err != nil {
 		t.Fatalf("counting the activities matching %q: %v", where, err)
@@ -103,7 +103,7 @@ func (p *preflightEnv) captureEcho(t *testing.T, stored []byte) {
 	if err != nil {
 		t.Fatalf("the provider's stored copy does not parse:\n%s\n%v", stored, err)
 	}
-	if _, err := capture.NewSink(p.pool).Upsert(p.connectorCtx(t),
+	if _, err := capture.NewSink(p.Pool).Upsert(p.connectorCtx(t),
 		msg.AttestSentByOwner(true).ToRecord("gmail", stored)); err != nil {
 		t.Fatalf("capturing the provider's own copy: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestAnEchoCapturedBeforeTransmitIsAbsorbedByTheReceiptItself(t *testing.T) 
 	// may destroy.
 	var archived bool
 	var released bool
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT archived_at IS NOT NULL, source_id IS NULL FROM activity WHERE id = $1`, echo).
 			Scan(&archived, &released)
@@ -178,7 +178,7 @@ func TestAnEchoCapturedBeforeTransmitIsAbsorbedByTheReceiptItself(t *testing.T) 
 	// Zero breadcrumbs is what distinguishes an absorb that worked from a
 	// reconcile that silently degraded to "receipt recorded, one duplicate".
 	var faults int
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM system_log WHERE action = 'comms_identity_reconcile_failed'`).Scan(&faults)
 	}); err != nil {
@@ -209,7 +209,7 @@ func TestAGmailRewrittenIdentityStillYieldsOneActivityAndOneReplyTarget(t *testi
 		t.Fatalf("the stamped identity resolves to %s, want the send's own activity %s", id, sentActivity)
 	}
 	var deliveryMessageID string
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT message_id FROM comms_outbound WHERE id = $1`, deliveryID).Scan(&deliveryMessageID)
 	}); err != nil {
@@ -237,7 +237,7 @@ func TestAGmailRewrittenIdentityStillYieldsOneActivityAndOneReplyTarget(t *testi
 	// and must land on the send.
 	p.captureEcho(t, replyFrom(gmailStamped))
 	var matched ids.UUID
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT (envelope->'payload'->>'matched_outbound_activity_id')::uuid
 			  FROM event_outbox
