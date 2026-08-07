@@ -7,12 +7,18 @@
 #   scripts/test-integration-one.sh DIR [RUN]
 #     DIR  repo-root package dir, e.g. backend/internal/compose/integration
 #     RUN  optional -run regex, e.g. TestVoiceProfileMutationsRejectAgents
+#
+# Env:
+#   INTEGRATION_TIMEOUT  go-test timeout, as <seconds>s — the same budget and the
+#                        same rule as the parallel lane, since this runs a whole
+#                        package too
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=scripts/lib-testdb.sh
 source "$ROOT/scripts/lib-testdb.sh"
+resolve_it_timeout
 
 DIR="${1:-}"
 RUN="${2:-}"
@@ -49,4 +55,4 @@ echo "test-integration-one: backend $rel ${RUN:+(-run $RUN) }(db=$db)"
        MARGINCE_TEST_APP_DSN="$(app_clone_dsn "$db")" \
        MARGINCE_TEST_BLOBSTORE_BUCKET="$(bucket_for one)" \
        MARGINCE_TEST_REDIS_DB="${MARGINCE_TEST_REDIS_DB:-15}" \
-    go test -p 1 -tags=integration -v -count=1 -timeout=300s "${run_flag[@]+"${run_flag[@]}"}" "$rel" )
+    go test -p 1 -tags=integration -v -count=1 -timeout="$IT_TIMEOUT" "${run_flag[@]+"${run_flag[@]}"}" "$rel" )
