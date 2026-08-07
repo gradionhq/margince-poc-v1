@@ -1237,6 +1237,7 @@ export const vi = {
   "dedupe.viewExisting": "Xem bản ghi hiện có",
 
   "log.title": "Ghi nhận hoạt động",
+  "log.addTask": "Thêm công việc",
   "log.sub": "một ghi chú hay công việc, thẳng lên timeline này",
   "log.kind": "Loại",
   "log.kindNote": "Ghi chú",

@@ -1226,6 +1226,7 @@ export const en = {
   "dedupe.viewExisting": "View existing record",
 
   "log.title": "Log activity",
+  "log.addTask": "Add task",
   "log.sub": "a note or task, straight onto this timeline",
   "log.kind": "Type",
   "log.kindNote": "Note",

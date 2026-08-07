@@ -1240,6 +1240,7 @@ export const de = {
   "dedupe.viewExisting": "Vorhandenen Eintrag anzeigen",
 
   "log.title": "Aktivität erfassen",
+  "log.addTask": "Aufgabe anlegen",
   "log.sub": "eine Notiz oder Aufgabe, direkt auf diese Timeline",
   "log.kind": "Art",
   "log.kindNote": "Notiz",

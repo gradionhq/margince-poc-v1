@@ -12,6 +12,7 @@ import {
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
 
@@ -209,6 +210,7 @@ export function LogActivityAction({
   entityId,
   initialKind,
   openOnMount,
+  triggerLabel,
   onClose,
 }: Readonly<{
   entityType: EntityKind;
@@ -220,6 +222,11 @@ export function LogActivityAction({
   // Rendered already open, with no trigger button — for a caller that IS the
   // trigger (a suggestion's action), rather than a toolbar offering the verb.
   openOnMount?: boolean;
+  // What the trigger says. A header offering two ways into this form — log
+  // what happened, and set what happens next — needs each button to name its
+  // own verb; two buttons both reading "Log activity" is a toolbar that has
+  // stopped telling the reader anything.
+  triggerLabel?: MessageKey;
   onClose?: () => void;
 }>) {
   const t = useT();
@@ -237,7 +244,7 @@ export function LogActivityAction({
     <>
       {!openOnMount && (
         <Button small onClick={() => setOpen(true)}>
-          {t("log.title")}
+          {t(triggerLabel ?? "log.title")}
         </Button>
       )}
       <Modal open={open} onClose={close} labelledBy={titleId}>

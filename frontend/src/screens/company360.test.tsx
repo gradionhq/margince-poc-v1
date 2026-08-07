@@ -1452,3 +1452,32 @@ describe("company view — the way in to one contact", () => {
     expect(fetched.filter((path) => path.endsWith("/graph"))).toHaveLength(1);
   });
 });
+
+describe("company view — the account's primary actions", () => {
+  it("offers logging what happened and setting what happens next, as separate verbs", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // One button reading "Log activity", with the task hidden behind a type
+    // picker inside it, is why accounts collect notes and no follow-ups. The
+    // two verbs answer different questions and are asked separately.
+    expect(
+      await screen.findByRole("button", { name: "Log activity" }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Add task" }),
+    ).toBeTruthy();
+  });
+
+  it("offers neither on an archived company", async () => {
+    stub(view(), 200, { ...org, archived_at: "2026-07-01T09:00:00Z" });
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // The server refuses a write against a retired record, so the button would
+    // only open a form that fails on save.
+    expect(screen.queryByRole("button", { name: "Log activity" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add task" })).toBeNull();
+  });
+});
