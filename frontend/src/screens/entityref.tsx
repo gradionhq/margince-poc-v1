@@ -120,9 +120,17 @@ export function EntityRef({
   kind,
   id,
   name,
+  asText = false,
 }: Readonly<{
   kind: EntityRefKind;
   id: string | null | undefined;
+  /**
+   * Name the record without linking to it, for a caller that is already a link
+   * to the same place — a list row's identity cell. A control nested inside a
+   * link is invalid markup, and the second route would go where the first one
+   * already goes.
+   */
+  asText?: boolean;
   // The display name, when the CALLER already has it. A composite read that
   // returns its own labels — the company view's connection graph — would
   // otherwise pay one record fetch per reference and show the raw id until each
@@ -187,6 +195,9 @@ export function EntityRef({
         {id}
       </span>
     );
+  }
+  if (asText) {
+    return <span title={id}>{resolved}</span>;
   }
   return (
     <button
