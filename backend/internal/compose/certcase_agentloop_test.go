@@ -52,17 +52,24 @@ func agentLoopBaseFixture() agentLoopFixture {
 			{SourceID: agentLoopUserRef, TrustTier: "T1", Content: "owner_id=user_42"},
 			{SourceID: agentLoopDealRef, TrustTier: "T2", Content: agentLoopSeedSnippet},
 		},
-		Tools: []agentLoopTool{
-			{
+		Tools: agentLoopListedWindow(
+			agentLoopTool{
 				Name:        agentLoopListTool,
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"owner_id":{"type":"string"}}}`),
 			},
-			{
+			agentLoopTool{
 				Name:        agentLoopLogTool,
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"deal_id":{"type":"string"}}}`),
 			},
-		},
+		),
 	}
+}
+
+// agentLoopListedWindow is the hand-spelled spelling of an offered surface — the
+// one these tests use, because a table about which step a turn takes has to know
+// what the turn was choosing between.
+func agentLoopListedWindow(tools ...agentLoopTool) agentLoopToolWindow {
+	return agentLoopToolWindow{listed: tools}
 }
 
 func agentLoopFixtureJSON(t *testing.T, f agentLoopFixture) json.RawMessage {
@@ -347,31 +354,31 @@ func TestAgentLoopCaseRefusesAWindowTheLoopIsNeverHanded(t *testing.T) {
 		},
 		{
 			name:     "a run offered no tools at all",
-			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools = nil }),
+			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools = agentLoopToolWindow{} }),
 			expected: agentLoopExpectationJSON(t, agentLoopFinalStep),
 			want:     "offers no tools",
 		},
 		{
 			name:     "a tool with no name to call it by",
-			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools[0].Name = " " }),
+			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools.listed[0].Name = " " }),
 			expected: agentLoopExpectationJSON(t, agentLoopLogTool),
 			want:     "no name",
 		},
 		{
 			name:     "the same tool offered twice",
-			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools[1].Name = f.Tools[0].Name }),
+			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools.listed[1].Name = f.Tools.listed[0].Name }),
 			expected: agentLoopExpectationJSON(t, agentLoopListTool),
 			want:     "twice",
 		},
 		{
 			name:     "a tool wearing the protocol's own word for finishing",
-			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools[0].Name = agentLoopFinalStep }),
+			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools.listed[0].Name = agentLoopFinalStep }),
 			expected: agentLoopExpectationJSON(t, agentLoopLogTool),
 			want:     "could not tell the two apart",
 		},
 		{
 			name:     "a tool advertising no input schema",
-			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools[0].InputSchema = nil }),
+			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools.listed[0].InputSchema = nil }),
 			expected: agentLoopExpectationJSON(t, agentLoopLogTool),
 			want:     "no input schema object",
 		},

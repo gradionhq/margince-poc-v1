@@ -1,0 +1,31 @@
+name: catchup_over_raw_reads
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: What has been happening with Acme GmbH? I have not looked at them since June.
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e01
+  grounding:
+    - source_id: org:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+      trust_tier: T1
+      content: Acme GmbH — organization_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+  tools: catalog
+expect:
+  outcome: accepted
+  answer:
+    step: catch_me_up_on
+    args:
+      record_type: organization
+      record_id: 0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+  rubric: >
+    The goal asks what has happened to one named account, which is the question
+    catch_me_up_on answers in one call. Score high only if the turn calls it on
+    the organization the grounding identifies. read_record returns the record's
+    fields and not its history, search_records finds the account the grounding
+    has already found, and run_report answers a number rather than a narrative —
+    a turn taking any of those did more work for a worse answer.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

@@ -1,0 +1,26 @@
+name: the_stage_id_comes_from_the_pipeline
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: Move the Acme renewal into negotiation.
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e07
+  grounding:
+    - source_id: deal:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e11
+      trust_tier: T1
+      content: Acme renewal — deal_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e11, stage=proposal
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: list_pipelines
+  rubric: >
+    The deal's id is in the window but the target stage's id is not, and no other
+    tool on this surface yields one. Score high only if the turn calls
+    list_pipelines first. A turn that calls progress_deal or advance_deal
+    straight away has to supply a to_stage_id it cannot have — the stage is named
+    "negotiation" in words, and a word is not the identifier the call takes.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
