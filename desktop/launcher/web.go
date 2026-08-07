@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -60,11 +61,18 @@ func (u *ui) start(ctx context.Context) error {
 		return fmt.Errorf("the bundled frontend at %s is unusable: %w", webRoot, err)
 	}
 
-	port, err := freePort()
+	// Unlike the internal services, this port is fixed and user-visible: the
+	// browser is the only way in, so the address has to stay the same across
+	// restarts for a bookmark to keep working. Refusing a taken port is
+	// deliberate — silently moving would break that bookmark and leave the
+	// user hunting for the new address.
+	addr := fmt.Sprintf("127.0.0.1:%d", u.port)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return err
+		return fmt.Errorf(
+			"cannot listen on %s: %w\nAnother program is using port %d — quit it, or set MARGINCE_PORT in margince.env to a different port",
+			addr, err, u.port)
 	}
-	u.port = port
 
 	mux := http.NewServeMux()
 	proxy := httputil.NewSingleHostReverseProxy(target)
@@ -75,13 +83,13 @@ func (u *ui) start(ctx context.Context) error {
 	mux.Handle("/", spaHandler(webRoot))
 
 	u.srv = &http.Server{
-		Addr:              fmt.Sprintf("127.0.0.1:%d", port),
+		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	u.errs = make(chan error, 1)
 	go func() {
-		err := u.srv.ListenAndServe()
+		err := u.srv.Serve(listener)
 		// A closed server is the expected outcome of quitting, not a fault.
 		if errors.Is(err, http.ErrServerClosed) {
 			u.errs <- nil
@@ -91,7 +99,7 @@ func (u *ui) start(ctx context.Context) error {
 	}()
 
 	return waitUntil(ctx, "web ui", 15*time.Second, nil, func() error {
-		return dialTCP(u.srv.Addr)
+		return dialTCP(addr)
 	})
 }
 

@@ -10,7 +10,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-OUT="$HERE/out"
+OUT="$ROOT/build/desktop/.stage"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
@@ -29,7 +29,21 @@ build_server_binaries() {
   for role in api worker migrate; do
     log "building $role"
     (cd "$ROOT/backend" && GOWORK="$composition" go build -o "$OUT/bin/$role" "./cmd/$role")
+    sign_binary "$OUT/bin/$role"
   done
+}
+
+# sign_binary ad-hoc signs one executable, HERE in the staging directory
+# rather than after assembly.
+#
+# codesign treats a directory containing a same-named executable as a tool
+# bundle, so signing the launcher once it sits in the distributable folder
+# makes codesign try to sign that whole folder — and fail on the .command
+# starter script it cannot sign as a subcomponent. Staging paths cannot
+# collide that way. Signatures are embedded in the Mach-O, so they survive
+# the copy into the folder.
+sign_binary() {
+  codesign --force --sign - --timestamp=none "$1"
 }
 
 build_frontend() {
@@ -44,7 +58,8 @@ build_launcher() {
   # outside the workspace, so it neither sees nor perturbs the backend's
   # dependency graph.
   log "building the launcher"
-  (cd "$ROOT/desktop/launcher" && GOWORK=off go build -o "$OUT/bin/Margince" .)
+  (cd "$ROOT/desktop/launcher" && GOWORK=off go build -o "$OUT/bin/margince" .)
+  sign_binary "$OUT/bin/margince"
 }
 
 main() {

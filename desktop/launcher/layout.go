@@ -12,78 +12,73 @@ import (
 	"strings"
 )
 
-// layout resolves the two directories the bundle distinguishes between.
+// layout is the installation directory — everything is relative to it, so the
+// whole folder can be moved or copied and still work.
 //
-// The split is the point: resources live inside the .app and are replaced
-// wholesale by an update, while data lives outside it and must survive one.
-// A user updates by dragging the new app over the old one, so anything
-// durable kept inside the bundle would be destroyed by the very gesture the
-// update instructions ask for.
+// The split inside it is what makes updating safe: everything under
+// runtime/ is replaceable build output, while margince.yaml, margince.env
+// and data/ are the user's and must survive. An update replaces the launcher
+// and runtime/ and touches nothing else. Putting data/ under runtime/ would
+// make the natural "replace the folder" update destroy the records it exists
+// to keep.
+//
+// The program directory is named runtime/ and NOT resources/ on purpose:
+// codesign reads a directory that contains both a same-named executable and
+// a "resources" subdirectory as a legacy bundle, then fails to verify the
+// launcher because the folder has no signed resource envelope. Renaming the
+// directory removes the ambiguity outright.
 type layout struct {
-	resources string
-	data      string
+	root string
 }
 
-// Environment overrides exist so the stack can be driven before an .app
-// exists to run it from — the PoC harness and the integration check both
-// point these at a staging tree.
-const (
-	envResources = "MARGINCE_DESKTOP_RESOURCES"
-	envData      = "MARGINCE_DESKTOP_DATA"
-)
+// envHome overrides the installation directory, so a stack can be driven from
+// a staging tree during development without a packaged folder.
+const envHome = "MARGINCE_HOME"
 
 func resolveLayout() (layout, error) {
-	resources := os.Getenv(envResources)
-	if resources == "" {
+	root := os.Getenv(envHome)
+	if root == "" {
 		exe, err := os.Executable()
 		if err != nil {
 			return layout{}, fmt.Errorf("locate the running executable: %w", err)
 		}
-		// Contents/MacOS/Margince -> Contents/Resources
-		resources = filepath.Join(filepath.Dir(exe), "..", "Resources")
+		// The launcher sits at the top of the installation folder.
+		root = filepath.Dir(exe)
 	}
-	resources, err := filepath.Abs(resources)
+	root, err := filepath.Abs(root)
 	if err != nil {
-		return layout{}, fmt.Errorf("resolve the resources directory: %w", err)
-	}
-	if _, err := os.Stat(resources); err != nil {
-		return layout{}, fmt.Errorf("resources directory %s is unusable (set %s to override): %w", resources, envResources, err)
+		return layout{}, fmt.Errorf("resolve the installation directory: %w", err)
 	}
 
-	data := os.Getenv(envData)
-	if data == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return layout{}, fmt.Errorf("locate the home directory: %w", err)
-		}
-		data = filepath.Join(home, "Library", "Application Support", "Margince")
+	l := layout{root: root}
+	if _, err := os.Stat(l.runtimeDir()); err != nil {
+		return layout{}, fmt.Errorf(
+			"this installation is incomplete: %s is unusable (set %s to override): %w",
+			l.runtimeDir(), envHome, err)
 	}
-	data, err = filepath.Abs(data)
-	if err != nil {
-		return layout{}, fmt.Errorf("resolve the data directory: %w", err)
+	if err := os.MkdirAll(l.data(), 0o700); err != nil {
+		return layout{}, fmt.Errorf("create the data directory %s: %w", l.data(), err)
 	}
-	if err := os.MkdirAll(data, 0o700); err != nil {
-		return layout{}, fmt.Errorf("create the data directory %s: %w", data, err)
-	}
-	return layout{resources: resources, data: data}, nil
+	return l, nil
 }
 
-func (l layout) pgRoot() string { return filepath.Join(l.resources, "pgsql") }
-func (l layout) pgBin(name string) string {
-	return filepath.Join(l.pgRoot(), "bin", name)
-}
-func (l layout) appBin(name string) string { return filepath.Join(l.resources, name) }
-func (l layout) webRoot() string           { return filepath.Join(l.resources, "web") }
+// Replaceable build output.
+func (l layout) runtimeDir() string        { return filepath.Join(l.root, "runtime") }
+func (l layout) pgRoot() string            { return filepath.Join(l.runtimeDir(), "pgsql") }
+func (l layout) pgBin(name string) string  { return filepath.Join(l.pgRoot(), "bin", name) }
+func (l layout) appBin(name string) string { return filepath.Join(l.runtimeDir(), name) }
+func (l layout) webRoot() string           { return filepath.Join(l.runtimeDir(), "web") }
 
-func (l layout) pgData() string  { return filepath.Join(l.data, "pg") }
-func (l layout) sockets() string { return filepath.Join(l.data, "sockets") }
-func (l layout) logs() string    { return filepath.Join(l.data, "logs") }
-func (l layout) configPath() string {
-	return filepath.Join(l.data, "margince.yaml")
-}
-func (l layout) adminPasswordPath() string {
-	return filepath.Join(l.data, "admin-password")
-}
+// The user's, and never replaced by an update.
+func (l layout) configPath() string    { return filepath.Join(l.root, "margince.yaml") }
+func (l layout) envPath() string       { return filepath.Join(l.root, "margince.env") }
+func (l layout) aiRoutingPath() string { return filepath.Join(l.root, "ai-routing.yaml") }
+
+func (l layout) data() string              { return filepath.Join(l.root, "data") }
+func (l layout) pgData() string            { return filepath.Join(l.data(), "pg") }
+func (l layout) sockets() string           { return filepath.Join(l.data(), "sockets") }
+func (l layout) logs() string              { return filepath.Join(l.data(), "logs") }
+func (l layout) adminPasswordPath() string { return filepath.Join(l.data(), "admin-password") }
 
 // ensureConfig writes the deployment configuration on first run and leaves an
 // existing one alone, matching the create-if-missing / leave-if-exists rule
@@ -103,7 +98,13 @@ func (l layout) ensureConfig() (string, error) {
 		return "", fmt.Errorf("stat %s: %w", l.configPath(), err)
 	}
 
-	config := fmt.Sprintf(`version: 1
+	// password_file is written relative to this file's own directory so the
+	// whole installation folder stays portable; an absolute path baked in
+	// here would break the moment the folder is moved or copied.
+	config := fmt.Sprintf(`# Margince deployment configuration (A107/ADR-0061).
+# Created on first run and never overwritten — your edits survive a restart.
+# Restart Margince after changing anything here.
+version: 1
 
 organization:
   name: Margince
@@ -113,8 +114,8 @@ organization:
 bootstrap_admin:
   email: owner@margince.local
   display_name: Owner
-  password_file: %s
-`, localTimezone(), l.adminPasswordPath())
+  password_file: data/admin-password
+`, localTimezone())
 
 	if err := os.WriteFile(l.configPath(), []byte(config), 0o600); err != nil {
 		return "", fmt.Errorf("write %s: %w", l.configPath(), err)

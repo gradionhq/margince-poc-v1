@@ -15,8 +15,10 @@ VALKEY_VERSION="9.1.1"
 VALKEY_SHA256="7d7232acd1b8a49b4e05d07a00b3ca8c801ae06ab633ca6a3423bc5f385ab7ee"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK="$HERE/.work"
-OUT="$HERE/out/valkey"
+ROOT="$(cd "$HERE/../.." && pwd)"
+STAGE="$ROOT/build/desktop/.stage"
+WORK="$STAGE/.work"
+OUT="$STAGE/valkey"
 JOBS="$(sysctl -n hw.ncpu)"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }

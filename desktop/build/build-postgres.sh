@@ -19,8 +19,10 @@ PGVECTOR_VERSION="0.8.6"
 PGVECTOR_SHA256="10bf9938906e5d643bbc4a7eea104b6f57ba4898e5b76b20e60484ea1d5a7f8f"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK="$HERE/.work"
-OUT="$HERE/out/pgsql"
+ROOT="$(cd "$HERE/../.." && pwd)"
+STAGE="$ROOT/build/desktop/.stage"
+WORK="$STAGE/.work"
+OUT="$STAGE/pgsql"
 JOBS="$(sysctl -n hw.ncpu)"
 
 # The contrib modules the migrations require:

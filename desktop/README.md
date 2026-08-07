@@ -1,12 +1,13 @@
-# desktop — the macOS bundle (proof of concept)
+# desktop — the self-contained macOS build (proof of concept)
 
-A `Margince.app` that runs the whole stack locally for a non-technical
-single user on macOS arm64. No Docker, no terminal, no prerequisites.
+One folder that runs the whole Margince stack locally: Postgres, the event
+bus, the api, the worker and the web UI. No Docker, no terminal setup, no
+prerequisites. The user double-clicks a starter and Margince opens in their
+browser.
 
-**Status: proof of concept.** It boots, migrates, serves the SPA and
-survives a restart. It is not signed for distribution, has no first-run
-wizard, and stores no secrets in the Keychain. See "Not production-ready"
-below before shipping anything from here.
+**Status: proof of concept.** It boots, migrates, serves the UI and survives
+a restart. It is not signed for distribution and several product surfaces are
+off by default. See "Not production-ready" below.
 
 ## Why a custom Postgres build
 
@@ -21,73 +22,102 @@ The schema requires four extensions:
 Three come from `contrib`, which every prebuilt embedded-Postgres
 distribution ships. `vector` does not — it is a third-party extension that
 must be compiled against the exact Postgres build it loads into. That is why
-`build-postgres.sh` exists and why this bundle carries an ongoing
-maintenance obligation: every Postgres patch release means rebuilding here.
+`build-postgres.sh` exists, and why this carries an ongoing obligation: every
+Postgres patch release means rebuilding here.
 
 ## Build
 
-Run in order; each writes into `build/out/` (git-ignored).
+Run in order. Everything lands in `build/desktop/` at the repo root
+(git-ignored).
 
 ```
 ./build/build-postgres.sh   # PG 16 + pgvector + contrib, relocatable   (~5 min)
 ./build/build-valkey.sh     # the event bus                             (~1 min)
 ./build/build-app.sh        # api, worker, migrate, frontend, launcher
-./build/build-bundle.sh     # assemble + ad-hoc sign Margince.app
+./build/build-dist.sh       # assemble + ad-hoc sign the folder
 ```
 
 `build-app.sh` builds the server roles through `build/composition/`, not with
 a bare `go build`. That wiring is what links the enabled `extensions/` units;
-a bundle built against the vanilla stub silently ships without them and looks
+a build against the vanilla stub silently ships without them and looks
 identical from the outside. `extensions=2` in the api log is the evidence it
 worked.
 
 ## Run
 
 ```
-open build/out/Margince.app
+build/desktop/margince/margince
 ```
 
-To run against a scratch data directory instead of the real one:
+or double-click **Start Margince.command** in Finder. Either way it prints the
+address, opens your browser, and runs until Ctrl-C.
+
+## Layout — and the update contract
 
 ```
-MARGINCE_DESKTOP_DATA=/tmp/margince-test \
-  build/out/Margince.app/Contents/MacOS/Margince
+margince/
+├── margince                  ← replaced by an update
+├── Start Margince.command    ← replaced by an update
+├── resources/                ← replaced by an update
+│   └── pgsql/  valkey-server  api  worker  migrate  web/
+├── margince.yaml             ← yours: company name, currency, timezone
+├── margince.env              ← yours: every optional feature
+├── ai-routing.yaml           ← yours, optional: binds tasks to models
+└── data/                     ← yours: database, logs, uploads
 ```
 
-## How it fits together
+**Everything is relative to this folder**, so it can be moved, copied to
+another Mac, or deleted as a unit. Nothing is written to `~/Library`, and
+nothing escapes to `/tmp`.
 
-```
-Margince.app/Contents/
-├── MacOS/Margince          ui/main.swift — owns NSApplication + WKWebView
-└── Resources/
-    ├── margince-launcher   launcher/ — supervises everything below
-    ├── pgsql/, valkey-server, api, worker, migrate, web/
-```
+That makes the update gesture load-bearing: **an update replaces the launcher,
+the starter and `resources/`, and nothing else.** Replacing the whole folder
+would destroy the user's records.
 
-The Swift app owns `NSApplication` so macOS sees one app with one Dock tile
-and one Cmd-Q, and supervises the Go launcher as a child. The launcher starts
-Postgres and the bus, migrates, starts the api and worker, then serves the SPA
-and reverse-proxies the API paths on one origin. The two processes agree via a
-single contract line on stdout: `MARGINCE_READY <url>`.
+## How it works
 
-**Data lives outside the bundle**, in `~/Library/Application Support/Margince`.
-A user updates by dragging the new app over the old one; anything durable kept
-inside the bundle would be destroyed by exactly that gesture.
+The launcher is a supervisor, not a second composition root — it starts the
+shipped binaries as child processes and imports none of them.
+
+1. Reads `margince.env`, writes `margince.yaml` on first run.
+2. `initdb` into `data/pg` if absent; starts Postgres on a unix socket inside
+   `data/sockets` with no TCP listener at all.
+3. Starts the bus on loopback at an ephemeral port.
+4. Runs migrations with the owner role.
+5. Starts the api and worker on ephemeral ports, with `MARGINCE_ENV=production`.
+6. Serves the SPA and reverse-proxies the api paths on **one fixed port**
+   (8800 by default) so a browser bookmark keeps working.
+7. On Ctrl-C, stops everything in reverse and shuts Postgres down cleanly.
+
+Only the UI port is fixed and user-visible. The internal ports are ephemeral
+because nothing outside the folder addresses them.
+
+## Configuration
+
+`margince.env` is the single place features are turned on. It is generated on
+first run with every supported setting documented and commented out, so it
+doubles as the reference for what is possible — AI keys, S3-compatible
+storage for attachments, Gmail/Outlook capture, outbound webhooks, log level,
+and the listening port.
+
+Settings there are passed to the api and worker as their environment.
+`MARGINCE_ENV` is appended last and cannot be overridden: a desktop
+installation holds real customer records and stays in the production posture,
+which keeps the dev-only destructive switches off.
 
 ## Not production-ready
 
-- **Ad-hoc signed only.** A shipped bundle needs a Developer ID and
-  notarization. Without them a downloaded copy is quarantined and the first
-  double-click reports that the developer cannot be verified.
+- **Ad-hoc signed only.** A published build needs a Developer ID and
+  notarization; without them a downloaded copy is quarantined and the first
+  launch is refused.
 - **Collation is byte order.** Built `--without-icu` with `initdb --no-locale`,
   so `ORDER BY full_name` sorts diacritics by byte value. Product-visible
   given the shipped Vietnamese localization — decide before release.
-- **Signing in through the WKWebView window is unverified.** The session
-  cookie carries `Secure`; WebKit treats `localhost` as trustworthy so this
-  very likely works, but it has not been exercised.
-- **No object storage.** `blobstore` is left unconfigured, so attachment and
-  logo paths degrade. MinIO is AGPLv3, which needs a decision before it can
-  be redistributed here.
-- **Trust auth on a 0700 socket directory**, no passwords. Fine for one user
-  on one Mac; revisit alongside the Keychain work.
-- **No backup, no PG major-version upgrade path, no first-run wizard.**
+- **Trust auth on a `0700` socket directory**, no database passwords. Sound
+  for one user on one Mac; revisit for any other shape.
+- **A deeply nested folder cannot start.** The database socket path has a
+  103-byte system limit; the launcher checks it and says so, but the fix is
+  the user moving the folder.
+- **No backup, no restore, no PG major-version upgrade path.**
+- **No first-run wizard and no Keychain**, so secrets sit in `margince.env`
+  at `0600` rather than in the system keystore.

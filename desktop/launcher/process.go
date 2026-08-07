@@ -26,12 +26,19 @@ type child struct {
 	log  *os.File
 }
 
-// startChild launches bin and streams its output to logDir/<name>.log.
+// startChild launches bin in workDir and streams its output to
+// logDir/<name>.log.
 //
-// Service output goes to a file rather than the launcher's stdout because
-// the shipped app has no terminal attached; when something fails at a
-// customer's desk, that file is the only evidence there is.
-func startChild(name, bin string, args, env []string, logDir string) (*child, error) {
+// workDir is always the installation folder, never the directory the user
+// happened to launch from. Relative paths in the configuration — the
+// bootstrap password file among them — resolve against the child's working
+// directory, so pinning it here is what lets the configuration stay relative
+// and the whole folder stay portable.
+//
+// Service output goes to a file rather than the launcher's stdout because a
+// double-clicked start shows only the launcher's own summary; when something
+// fails at a user's desk, that file is the only evidence there is.
+func startChild(name, bin string, args, env []string, workDir, logDir string) (*child, error) {
 	if err := os.MkdirAll(logDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
@@ -42,6 +49,7 @@ func startChild(name, bin string, args, env []string, logDir string) (*child, er
 	}
 
 	cmd := exec.Command(bin, args...)
+	cmd.Dir = workDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if len(env) > 0 {

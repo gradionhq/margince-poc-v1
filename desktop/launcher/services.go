@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -27,7 +28,8 @@ func (v *valkey) addr() string { return fmt.Sprintf("127.0.0.1:%d", v.port) }
 // Loopback rather than a unix socket because the shipped api and worker build
 // their client with redis.Options{Addr}, which speaks TCP — reaching the bus
 // over a socket would mean changing product code the bundle is meant to run
-// unmodified.
+// unmodified. The port is ephemeral because nothing outside this installation
+// ever addresses it.
 func (v *valkey) start(ctx context.Context) error {
 	port, err := freePort()
 	if err != nil {
@@ -35,7 +37,7 @@ func (v *valkey) start(ctx context.Context) error {
 	}
 	v.port = port
 
-	dir := filepath.Join(v.layout.data, "valkey")
+	dir := filepath.Join(v.layout.data(), "valkey")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create the valkey directory: %w", err)
 	}
@@ -49,7 +51,7 @@ func (v *valkey) start(ctx context.Context) error {
 		"--bind", "127.0.0.1",
 		"--dir", dir,
 		"--appendonly", "yes",
-	}, nil, v.layout.logs())
+	}, nil, v.layout.root, v.layout.logs())
 	if err != nil {
 		return err
 	}
@@ -64,12 +66,13 @@ func (v *valkey) stop() error { return v.proc.stop(syscall.SIGTERM, 15*time.Seco
 
 // backend runs the two process roles the server is split into.
 type backend struct {
-	layout layout
-	pg     *postgres
-	bus    *valkey
-	port   int
-	api    *child
-	worker *child
+	layout  layout
+	pg      *postgres
+	bus     *valkey
+	userEnv []string
+	port    int
+	api     *child
+	worker  *child
 }
 
 func (b *backend) baseURL() string { return fmt.Sprintf("http://127.0.0.1:%d", b.port) }
@@ -85,10 +88,42 @@ func (b *backend) migrate() error {
 	return nil
 }
 
+// childEnv is the environment both roles inherit: the user's settings first,
+// then the deployment posture.
+//
+// MARGINCE_ENV is appended last so it cannot be overridden from margince.env.
+// A desktop installation holds a real customer's records and takes the
+// production posture, which keeps the dev-only destructive switches (today,
+// the admin data-reset endpoint) off. That is not a setting to expose beside
+// an API key.
+func (b *backend) childEnv() []string {
+	return append(append([]string{}, b.userEnv...), "MARGINCE_ENV=production")
+}
+
+// aiFlags decides how the AI surfaces are driven.
+//
+// A routing file next to margince.yaml is the discoverable way to configure a
+// real model, so it wins. Failing that, MARGINCE_AI_ROUTING in margince.env
+// does the same job and must not be undercut by passing --ai-fake alongside
+// it. Only when neither is present does the offline fake apply — so the
+// surfaces answer instead of erroring on a fresh install.
+func (b *backend) aiFlags() []string {
+	if _, err := os.Stat(b.layout.aiRoutingPath()); err == nil {
+		return []string{"--ai-routing", b.layout.aiRoutingPath()}
+	}
+	for _, entry := range b.userEnv {
+		if strings.HasPrefix(entry, "MARGINCE_AI_ROUTING=") &&
+			strings.TrimPrefix(entry, "MARGINCE_AI_ROUTING=") != "" {
+			return nil
+		}
+	}
+	return []string{"--ai-fake"}
+}
+
 // start boots the api, waits for it to report ready, then starts the worker.
 //
-// Order matters for what the user sees: the window can open as soon as the
-// api answers, and the worker's background sweeps do not gate a usable UI.
+// Order matters for what the user sees: the browser can be opened as soon as
+// the api answers, and the worker's background sweeps do not gate a usable UI.
 func (b *backend) start(ctx context.Context) error {
 	port, err := freePort()
 	if err != nil {
@@ -96,8 +131,8 @@ func (b *backend) start(ctx context.Context) error {
 	}
 	b.port = port
 
-	env := []string{"MARGINCE_ENV=desktop"}
-	api, err := startChild("api", b.layout.appBin("api"), []string{
+	env := b.childEnv()
+	apiArgs := append([]string{
 		"--addr", fmt.Sprintf("127.0.0.1:%d", port),
 		"--dsn", b.pg.appDSN(),
 		// The owner pool is what makes the custom-fields schema operations
@@ -105,19 +140,16 @@ func (b *backend) start(ctx context.Context) error {
 		"--schema-dsn", b.pg.ownerDSN(),
 		"--config", b.layout.configPath(),
 		"--redis", b.bus.addr(),
-		// No BYOK key is configured at first launch, so the AI surfaces run
-		// on the offline fake rather than failing. Replacing this with a real
-		// provider is the Keychain work the design doc defers.
-		"--ai-fake",
-	}, env, b.layout.logs())
+	}, b.aiFlags()...)
+
+	api, err := startChild("api", b.layout.appBin("api"), apiArgs, env, b.layout.root, b.layout.logs())
 	if err != nil {
 		return err
 	}
 	b.api = api
 
-	readyURL := b.baseURL() + "/readyz"
 	if err := waitUntil(ctx, "api", 120*time.Second, api.exited, func() error {
-		return httpOK(readyURL)
+		return httpOK(b.baseURL() + "/readyz")
 	}); err != nil {
 		return err
 	}
@@ -125,13 +157,14 @@ func (b *backend) start(ctx context.Context) error {
 	// The worker owns the automation time-scan and the retention sweeps; the
 	// api's inline relay and the worker's standalone relay coexist because
 	// outbox rows are claimed FOR UPDATE SKIP LOCKED.
-	worker, err := startChild("worker", b.layout.appBin("worker"), []string{
+	workerArgs := append([]string{
 		"--dsn", b.pg.appDSN(),
 		"--config", b.layout.configPath(),
 		"--redis", b.bus.addr(),
 		"--retention-interval", "24h",
-		"--ai-fake",
-	}, env, b.layout.logs())
+	}, b.aiFlags()...)
+
+	worker, err := startChild("worker", b.layout.appBin("worker"), workerArgs, env, b.layout.root, b.layout.logs())
 	if err != nil {
 		return err
 	}

@@ -27,11 +27,10 @@ const (
 // maxUnixSocketPath is the hard limit on a unix-domain socket path.
 //
 // Postgres composes <dir>/.s.PGSQL.<port>, and the kernel's sockaddr_un is
-// 104 bytes including the terminator. The default data directory is under
-// "~/Library/Application Support/Margince", which already spends 76 bytes for
-// a short account name — so a long macOS username is enough to push a working
-// install over the edge. This is not hypothetical: it is the first failure
-// this bundle hit.
+// 104 bytes including the terminator. Since the socket lives inside the
+// installation folder, how deeply the user unpacked that folder decides
+// whether the database can start at all. This is not hypothetical: it is the
+// first failure this bundle hit.
 const maxUnixSocketPath = 103
 
 type postgres struct {
@@ -48,28 +47,28 @@ func newPostgres(l layout) (*postgres, error) {
 	return &postgres{layout: l, socketDir: socketDir}, nil
 }
 
-// resolveSocketDir picks a directory whose socket path fits the kernel limit,
-// preferring to keep runtime state beside the data it belongs to and falling
-// back to a short path only when the preferred one cannot fit.
+// resolveSocketDir keeps the socket inside the installation folder, like
+// every other piece of runtime state.
+//
+// There is deliberately no fallback to /tmp. Escaping the folder would leave
+// one process's runtime state outside the directory the user can see, move
+// and delete — which is the whole property this layout exists to have. When
+// the path does not fit, that is a real limit the user must act on, and the
+// error says exactly what to do rather than hiding the problem somewhere they
+// will never look.
 func resolveSocketDir(l layout) (string, error) {
-	candidates := []string{
-		l.sockets(),
-		// Sockets are ephemera, not data, so relocating them costs nothing;
-		// the uid keeps one user's socket out of another's way on a shared Mac.
-		filepath.Join(os.TempDir(), fmt.Sprintf("margince-%d", os.Getuid())),
-		fmt.Sprintf("/tmp/margince-%d", os.Getuid()),
+	dir := l.sockets()
+	if path := socketPath(dir); len(path) > maxUnixSocketPath {
+		return "", fmt.Errorf(
+			"the installation folder is too deeply nested: the database socket path would be %d bytes and the system limit is %d.\n"+
+				"Move the Margince folder somewhere shorter (for example ~/Margince) and start it again.\n"+
+				"  path: %s",
+			len(path), maxUnixSocketPath, path)
 	}
-	for _, dir := range candidates {
-		if len(socketPath(dir)) <= maxUnixSocketPath {
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return "", fmt.Errorf("create the socket directory %s: %w", dir, err)
-			}
-			return dir, nil
-		}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create the socket directory %s: %w", dir, err)
 	}
-	return "", fmt.Errorf(
-		"no socket directory fits the %d-byte limit; the shortest candidate was %q (%d bytes)",
-		maxUnixSocketPath, socketPath(candidates[len(candidates)-1]), len(socketPath(candidates[len(candidates)-1])))
+	return dir, nil
 }
 
 func socketPath(dir string) string {
@@ -116,7 +115,7 @@ func (p *postgres) start(ctx context.Context) error {
 		"-D", p.layout.pgData(),
 		"-k", p.socketDir,
 		"-c", "listen_addresses=",
-	}, nil, p.layout.logs())
+	}, nil, p.layout.root, p.layout.logs())
 	if err != nil {
 		return err
 	}
