@@ -40,6 +40,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // errSeamReached stands for "the tool accepted these arguments and called me".
@@ -247,14 +248,30 @@ func uuidProps(t *testing.T, name string, inputSchema json.RawMessage) (all, req
 
 // malformedCall renders a tools/call putting a non-canonical UUID in prop and
 // nothing else. Only the offending property is set: the refusal under test has
-// to happen while the arguments decode, before any other validation.
-func malformedCall(tool, prop string) json.RawMessage {
+// to happen while the arguments decode, once the call is otherwise complete.
+func malformedCall(t *testing.T, spec mcp.ToolSpec, prop string) json.RawMessage {
+	t.Helper()
 	const notAUUID = `"not-a-uuid"`
-	args := fmt.Sprintf(`{%q:%s}`, prop, notAUUID)
-	if outer, nested, isNested := strings.Cut(prop, "[]."); isNested {
-		args = fmt.Sprintf(`{%q:[{%q:%s}]}`, outer, nested, notAUUID)
+	// Every OTHER required argument is supplied, plausibly, by the same helper
+	// the absent-id walk uses: the registry holds `required` before it holds
+	// shapes — an argument that is missing has no shape to be wrong about — so a
+	// call carrying only the malformed id would be refused for the arguments it
+	// also omitted, and this walk would stop testing what it is named for.
+	outer, nested, isNested := strings.Cut(prop, "[].")
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(absentIDArgs(t, spec.Name, spec.InputSchema, outer), &args); err != nil {
+		t.Fatalf("building a call for %s: %v", spec.Name, err)
 	}
-	return json.RawMessage(fmt.Sprintf(`{"name":%q,"arguments":%s}`, tool, args))
+	if isNested {
+		args[outer] = json.RawMessage(fmt.Sprintf(`[{%q:%s}]`, nested, notAUUID))
+	} else {
+		args[prop] = json.RawMessage(notAUUID)
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("building a call for %s: %v", spec.Name, err)
+	}
+	return json.RawMessage(fmt.Sprintf(`{"name":%q,"arguments":%s}`, spec.Name, encoded))
 }
 
 func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
@@ -274,7 +291,7 @@ func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
 		allProps, _ := uuidProps(t, name, tool.Spec().InputSchema)
 		for _, prop := range allProps {
 			probed++
-			res := s.call(ctx, malformedCall(name, prop))
+			res := s.call(ctx, malformedCall(t, tool.Spec(), prop))
 			if res["isError"] != true {
 				t.Errorf("%s accepted %q as a UUID", name, prop)
 				continue
