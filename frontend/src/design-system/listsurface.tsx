@@ -613,7 +613,12 @@ export function useCloseOnOutsideClick(close: () => void) {
   latest.current = close;
   useEffect(() => {
     const onClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
+      // An event target is not necessarily an element — a click can land on a
+      // text node — and only an element can be asked what it sits inside.
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
       // A click that re-rendered the menu — picking an attribute swaps the
       // attribute list for that attribute's values — leaves its own target
       // detached by the time this listener runs, and a detached node has no
