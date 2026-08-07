@@ -13,18 +13,54 @@ package compose
 // This file proves the SET and the one seam guard. That each derived verb
 // actually answers ErrUnsupportedBySoR is proved where it can only be proved —
 // against a real overlay workspace, in
-// compose/integration/overlay_toolsurface_integration_test.go, whose
+// compose/integration/overlay/overlay_toolsurface_integration_test.go, whose
 // nativeOnlyAgentTools drives every one of them through the live registry.
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"path/filepath"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// overlayPinName is the integration suite two gates in this package defer to: it
+// drives every native-only verb through the live registry against a real overlay
+// workspace, so the lists here can be derived from it rather than hand-kept.
+const overlayPinName = "overlay_toolsurface_integration_test.go"
+
+// overlayPin locates that suite by NAME, anywhere under integration/.
+//
+// Not a fixed relative path, which is what both gates used to hold: the suite
+// moved once — into its own package, to give the lane another scheduling slot —
+// and both gates failed on a path rather than on anything about the code. A gate
+// that breaks when a file it only READS is relocated is asserting where the file
+// lives, which is not the obligation it exists for.
+func overlayPin(t *testing.T) string {
+	t.Helper()
+	var found string
+	err := filepath.WalkDir("integration", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && d.Name() == overlayPinName {
+			found = path
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking integration/ for %s: %v", overlayPinName, err)
+	}
+	if found == "" {
+		t.Fatalf("%s is nowhere under integration/ — the pin these gates defer to is gone, "+
+			"so they would assert nothing", overlayPinName)
+	}
+	return found
+}
 
 // unservableRecordWriteVerbs derives the set: a verb that writes a record
 // (overlayRecordWriteTools) and has no seam verb the overlay provider can serve
@@ -61,7 +97,7 @@ func TestEveryUnservableRecordWriteVerbIsARegisteredToolTheOverlayPinDrives(t *t
 		if !driven[verb] {
 			t.Errorf("%s writes a record the overlay provider cannot serve, so an overlay workspace must "+
 				"meet a declared refusal on the TOOL path too — and nothing proves it does. Add it to "+
-				"nativeOnlyAgentTools in compose/integration/overlay_toolsurface_integration_test.go, "+
+				"nativeOnlyAgentTools in compose/integration/overlay/overlay_toolsurface_integration_test.go, "+
 				"which drives each verb through the live registry against a real overlay workspace.", verb)
 		}
 	}
@@ -72,7 +108,7 @@ func TestEveryUnservableRecordWriteVerbIsARegisteredToolTheOverlayPinDrives(t *t
 // with it while the pin covers something else.
 func overlayPinnedToolVerbs(t *testing.T) map[string]bool {
 	t.Helper()
-	const pin = "integration/overlay_toolsurface_integration_test.go"
+	pin := overlayPin(t)
 	// Two fixtures, because the two refusal mechanisms are different facts:
 	// nativeOnlyAgentTools are decorator-guarded, providerRefusedRecordWrites
 	// inherit the provider's own refusal. The same suite drives both.

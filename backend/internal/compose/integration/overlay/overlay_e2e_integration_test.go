@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The full HubSpot-overlay read+sync path, end to end, over the
 // real handler stack + a real migrated Postgres. This is the ONE place
@@ -19,7 +19,7 @@ package integration
 // retained and PII-free.
 //
 // The fake incumbent is the SEAM the test drives Backfill with directly
-// (package-level overlay.Backfill, the same call jobs.go's poller and
+// (package-level overlaymod.Backfill, the same call jobs.go's poller and
 // backfill.go's own doc describe) — connect's own HTTP call still names
 // "hubspot" (branch 1's Connect only ever validates that one incumbent
 // name, connection.go's ConnectInput.validate), but never reaches a real
@@ -28,11 +28,11 @@ package integration
 // posture backfill_test.go and the fake package's own doc already
 // establish.
 //
-// This test needs a *pgxpool.Pool of its own (the apptest.AppEnv harness
-// exposes none) to drive compose.Dispatcher/overlay.Backfill directly —
-// openAppPool opens a second, independent app-role connection to the
-// SAME database the httptest server is backed by, so rows committed
-// through one are immediately visible through the other.
+// This test drives compose.Dispatcher/overlaymod.Backfill directly, and does it
+// on a pool of its own rather than apptest.AppEnv's. Not for want of access —
+// AppEnv.Pool is exported — but for INDEPENDENCE: openAppPool opens a second
+// app-role connection to the SAME database the httptest server is backed by, so
+// rows committed through one are immediately visible through the other.
 
 import (
 	"context"
@@ -47,7 +47,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -196,7 +196,7 @@ func connectOverlayToTheFakeIncumbent(t *testing.T, e *apptest.AppEnv) (adminID,
 // admin's, the actor every mirror-backed read below runs as.
 func backfillOneMirroredContact(t *testing.T, pool *pgxpool.Pool, wsID, adminID ids.UUID) context.Context {
 	t.Helper()
-	mirror := overlay.NewMirrorStore(pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(pool, stubOwnerEmails{})
 	adminCtx := overlayActorCtx(wsID, adminID)
 	if err := mirror.UpsertUserMap(adminCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the admin to the fake incumbent owner: %v", err)
@@ -210,8 +210,8 @@ func backfillOneMirroredContact(t *testing.T, pool *pgxpool.Pool, wsID, adminID 
 	rec := fake.Rec("555000111", map[string]any{"first_name": "Ada", "last_name": "Overlay"})
 	rec.ObjectClass = "person"
 	rec.OwnerExternalID = "owner-1"
-	fakeInc.Seed(overlay.IncumbentClassContacts, rec)
-	if _, err := overlay.Backfill(adminCtx, fakeInc, mirror, overlay.IncumbentClassContacts, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+	fakeInc.Seed(overlaymod.IncumbentClassContacts, rec)
+	if _, err := overlaymod.Backfill(adminCtx, fakeInc, mirror, overlaymod.IncumbentClassContacts, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("backfilling the fake incumbent's contacts: %v", err)
 	}
 	return adminCtx

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The AC-OV-3/AC-OV-7 half of the AC-OV acceptance suite
 // (overlay_acceptance_test.go carries the suite's own scope doc): the two
@@ -16,7 +16,8 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
@@ -45,7 +46,7 @@ func acceptanceBudgetMeter(t *testing.T) *overlaybudget.Meter {
 // the AC-OV-1 gate proves of every package above the seam.
 func contactsTranslator(canonical string) ([]string, bool) {
 	if canonical == "person" {
-		return []string{overlay.IncumbentClassContacts}, true
+		return []string{overlaymod.IncumbentClassContacts}, true
 	}
 	return nil, false
 }
@@ -67,23 +68,23 @@ func contactsTranslator(canonical string) ([]string, bool) {
 // to route the two kinds of read into different budgets; this test
 // proves the classification is correct without needing a timer at all.
 func TestAcceptance_AC_OV_3_MirrorReadMeetsBudget(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
 
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
 	mirrorTime := time.Now().UTC().Add(-time.Hour)
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: "person", ExternalID: "100214862066",
 		Fields: map[string]any{"firstname": "Budget"}, ModifiedAt: mirrorTime, OwnerExternalID: "owner-1",
 	}); err != nil {
 		t.Fatalf("ingesting the mirror fixture: %v", err)
 	}
 
-	basicProvider := overlay.NewProvider(mirror, nil)
+	basicProvider := overlaymod.NewProvider(mirror, nil)
 	searchRes, err := basicProvider.Search(ctx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10})
 	if err != nil || len(searchRes.Records) != 1 {
 		t.Fatalf("resolving the fixture's own ref: err=%v records=%d", err, len(searchRes.Records))
@@ -92,12 +93,12 @@ func TestAcceptance_AC_OV_3_MirrorReadMeetsBudget(t *testing.T) {
 
 	fakeInc := fake.New()
 	liveRec := fake.Rec("100214862066", map[string]any{"firstname": "Live"})
-	liveRec.ObjectClass = overlay.IncumbentClassContacts
-	fakeInc.Seed(overlay.IncumbentClassContacts, liveRec)
+	liveRec.ObjectClass = overlaymod.IncumbentClassContacts
+	fakeInc.Seed(overlaymod.IncumbentClassContacts, liveRec)
 
 	meter := acceptanceBudgetMeter(t)
-	ff := overlay.NewFreshnessReader(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
-	fullProvider := overlay.NewProvider(mirror, ff)
+	ff := overlaymod.NewFreshnessReader(func(context.Context) (overlaymod.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
+	fullProvider := overlaymod.NewProvider(mirror, ff)
 
 	before := meter.Snapshot(ctx, acceptanceIncumbent)
 	if _, err := fullProvider.Read(ctx, ref); err != nil {
@@ -133,23 +134,23 @@ func TestAcceptance_AC_OV_3_MirrorReadMeetsBudget(t *testing.T) {
 // freshness_integration_test.go's module-level proof one layer up the
 // composed stack.
 func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
 
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
 	mirrorTime := time.Now().UTC().Add(-time.Hour)
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: "person", ExternalID: "100214862077",
 		Fields: map[string]any{"firstname": "Shed"}, ModifiedAt: mirrorTime, OwnerExternalID: "owner-1",
 	}); err != nil {
 		t.Fatalf("ingesting the mirror fixture: %v", err)
 	}
 
-	basicProvider := overlay.NewProvider(mirror, nil)
+	basicProvider := overlaymod.NewProvider(mirror, nil)
 	searchRes, err := basicProvider.Search(ctx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10})
 	if err != nil || len(searchRes.Records) != 1 {
 		t.Fatalf("resolving the fixture's own ref: err=%v records=%d", err, len(searchRes.Records))
@@ -158,8 +159,8 @@ func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
 
 	fakeInc := fake.New()
 	liveRec := fake.Rec("100214862077", map[string]any{"firstname": "Live"})
-	liveRec.ObjectClass = overlay.IncumbentClassContacts
-	fakeInc.Seed(overlay.IncumbentClassContacts, liveRec)
+	liveRec.ObjectClass = overlaymod.IncumbentClassContacts
+	fakeInc.Seed(overlaymod.IncumbentClassContacts, liveRec)
 
 	meter := acceptanceBudgetMeter(t)
 	// Push the window to shed (limit 10, shed at 8) via the POLLER lane —
@@ -172,8 +173,8 @@ func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
 		t.Fatalf("meter.Band = %q after loading to the shed threshold, want %q", got, overlaybudget.BandShed)
 	}
 
-	ff := overlay.NewFreshnessReader(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
-	overlayProvider := overlay.NewProvider(mirror, ff)
+	ff := overlaymod.NewFreshnessReader(func(context.Context) (overlaymod.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
+	overlayProvider := overlaymod.NewProvider(mirror, ff)
 	d := compose.NewDispatcher(compose.NewProvider(e.Pool), overlayProvider, e.Pool)
 
 	info, err := d.Freshness(ctx, ref)

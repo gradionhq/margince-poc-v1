@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The write-shadow story (compose/overlaywriteshadow.go), proven over the
 // real HTTP surface + a real migrated Postgres: an ordinary REST update or
@@ -11,7 +11,7 @@ package integration
 // incumbent and answers with the re-mirrored row. The overlay-mode write
 // guard (compose/overlaywrite.go) admits a mirrored-type write the whole
 // way to a handler on the promise that a shadow serves it
-// (overlay.SupportsWrite); a supported write with no shadow falls through
+// (overlaymod.SupportsWrite); a supported write with no shadow falls through
 // to the native module handler's promoted method instead and commits to
 // the empty overlay-mode table — this file is what proves that promise
 // holds for every write the guard admits.
@@ -33,7 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -50,7 +50,7 @@ import (
 type overlayWriteEnv struct {
 	*apptest.AppEnv
 	fake   *fake.Adapter
-	mirror *overlay.MirrorStore
+	mirror *overlaymod.MirrorStore
 	ctx    context.Context // workspace+admin-bound, for direct mirror/fake seeding
 }
 
@@ -63,7 +63,7 @@ func setupOverlayWrite(t *testing.T) overlayWriteEnv {
 		// Applied AFTER WithKeyvault so it wins: WithKeyvault's own
 		// SetOverlayIncumbentResolver call would otherwise install the
 		// real vaulted resolver last.
-		compose.WithOverlayIncumbentResolver(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }))
+		compose.WithOverlayIncumbentResolver(func(context.Context) (overlaymod.Incumbent, error) { return fakeInc, nil }))
 	e.BootstrapWorkspace(t)
 
 	var conn map[string]any
@@ -90,7 +90,7 @@ func setupOverlayWrite(t *testing.T) overlayWriteEnv {
 		t.Fatalf("parsing workspace id: %v", err)
 	}
 
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	actorCtx := overlayActorCtx(wsID, adminID)
 	if err := mirror.UpsertUserMap(actorCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the admin to the fake incumbent owner: %v", err)
@@ -122,7 +122,7 @@ var seedModifiedAt = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 // refuses the very first write this test issues.
 func (e overlayWriteEnv) seed(t *testing.T, class, externalID string, fields map[string]any) {
 	t.Helper()
-	rec := overlay.Record{ExternalID: externalID, Fields: fields, ModifiedAt: seedModifiedAt}
+	rec := overlaymod.Record{ExternalID: externalID, Fields: fields, ModifiedAt: seedModifiedAt}
 	rec.ObjectClass = class
 	rec.OwnerExternalID = "owner-1"
 	e.fake.Seed(class, rec)

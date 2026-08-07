@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // Bounded equivalence on the AGENT surface (AC-OV-2 / ADR-0018): every tool
 // the production registry advertises must, for an overlay-mode workspace,
@@ -31,7 +31,8 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -118,7 +119,7 @@ func nativeToolReaderPerms() principal.Permissions {
 }
 
 func TestOverlayAgentToolsRefuseRatherThanAnswerFromNativeTables(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	ws, user := seedOverlayModeWorkspace(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 	// Every object grant a guarded read could need, so an unwired guard fails
@@ -151,15 +152,15 @@ func TestOverlayAgentToolsRefuseRatherThanAnswerFromNativeTables(t *testing.T) {
 // patch would pass through. The assertion that matters most is the negative
 // one: the mirror row is untouched, so nothing was pushed.
 func TestOverlayUpdateRecordRefusesAnAgentRatherThanWritingBack(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	overlayWS, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(overlayWS, actorID)
 
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass:     "person",
 		ExternalID:      "100214862042",
 		Fields:          map[string]any{"firstname": "Ada", "lastname": "Overlay", "jobtitle": "Analyst"},
@@ -193,7 +194,7 @@ func TestOverlayUpdateRecordRefusesAnAgentRatherThanWritingBack(t *testing.T) {
 	// dead-ends, since the decidability probe and the redemption version pin
 	// both read tables a mirrored record has no row in.
 	var staged int
-	if err := OwnerConn(t).QueryRow(ctx,
+	if err := integration.OwnerConn(t).QueryRow(ctx,
 		`SELECT count(*) FROM approval WHERE workspace_id = $1`, overlayWS).Scan(&staged); err != nil {
 		t.Fatalf("counting staged approvals: %v", err)
 	}
@@ -221,15 +222,15 @@ func TestOverlayUpdateRecordRefusesAnAgentRatherThanWritingBack(t *testing.T) {
 // refusal has to live. Testing it here covers every one of those routes at
 // once rather than one route and a hope.
 func TestOverlayWritesRefuseAnUnreleasedAgentAtTheSeam(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
 
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: "person", ExternalID: "100214862044",
 		Fields:     map[string]any{"firstname": "Seam", "lastname": "Backstop"},
 		ModifiedAt: time.Now().UTC(), OwnerExternalID: "owner-1",
@@ -292,7 +293,7 @@ func agentActorCtx(ws, user ids.UUID) context.Context {
 // x_sor_mode underneath with no invalidation, and assert the gate still
 // holds.
 func TestOverlayUpdateRecordEgressGateIgnoresAStaleNativeModeCache(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	ws, actorID := seedNativeModeWorkspaceForFlip(t)
 	ctx := overlayActorCtx(ws, actorID)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
@@ -306,16 +307,16 @@ func TestOverlayUpdateRecordEgressGateIgnoresAStaleNativeModeCache(t *testing.T)
 
 	// Flip to overlay the way a connect does, but WITHOUT Invalidate — the
 	// state a second replica is in for the rest of the TTL.
-	if _, err := OwnerConn(t).Exec(ctx,
+	if _, err := integration.OwnerConn(t).Exec(ctx,
 		`UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`, ws); err != nil {
 		t.Fatalf("flipping the workspace to overlay mode: %v", err)
 	}
 
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass:     "person",
 		ExternalID:      "100214862043",
 		Fields:          map[string]any{"firstname": "Grace", "lastname": "Stale", "jobtitle": "Analyst"},
@@ -349,7 +350,7 @@ func TestOverlayUpdateRecordEgressGateIgnoresAStaleNativeModeCache(t *testing.T)
 // native window to cache.
 func seedNativeModeWorkspaceForFlip(t *testing.T) (ws, user ids.UUID) {
 	t.Helper()
-	owner := OwnerConn(t)
+	owner := integration.OwnerConn(t)
 	ws = ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Pre-flip', $2, 'EUR')`,
@@ -381,7 +382,7 @@ func mergedFixtures(sets ...map[string]string) map[string]string {
 }
 
 func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 	ctx := e.As(e.Rep1, nil, nativeToolReaderPerms())
 

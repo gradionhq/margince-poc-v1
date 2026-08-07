@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The overlay→native flip lane (OVA-AC-6 a/b + B-E18.26/27), over the
 // real composed HTTP stack + a real migrated Postgres, with the fake
@@ -61,10 +61,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -82,7 +83,7 @@ type flipEstate struct {
 	e       *apptest.AppEnv
 	wsID    ids.UUID
 	adminID ids.UUID
-	mirror  *overlay.MirrorStore
+	mirror  *overlaymod.MirrorStore
 	pool    *pgxpool.Pool
 	fakeInc *fake.Adapter
 	// adminCtx is a fully-granted admin principal bound to the workspace
@@ -167,7 +168,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 	}
 
 	pool := openAppPool(t)
-	mirror := overlay.NewMirrorStore(pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(pool, stubOwnerEmails{})
 	adminCtx := flipAdminCtx(wsID, adminID)
 
 	if err := mirror.UpsertUserMap(adminCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
@@ -188,21 +189,21 @@ func setupFlipEstate(t *testing.T) flipEstate {
 		rec.OwnerExternalID = "owner-1"
 		fakeInc.Seed(incumbentClass, rec)
 	}
-	// Child fields are seeded NESTED, the shape overlay.Apply actually
+	// Child fields are seeded NESTED, the shape overlaymod.Apply actually
 	// lands them in (mapping.go's TargetChild) — a flat "person_email.email"
 	// key is a shape the mapper never produces, and seeding one would let
 	// a writer that reads it flat pass while dropping every real email.
-	seed(overlay.IncumbentClassCompanies, "organization", "org-1", map[string]any{
+	seed(overlaymod.IncumbentClassCompanies, "organization", "org-1", map[string]any{
 		"display_name": "BÄR Pharma", "organization_domain": map[string]any{"domain": "baer-pharma.test"},
 	})
-	seed(overlay.IncumbentClassCompanies, "organization", "org-2", map[string]any{
+	seed(overlaymod.IncumbentClassCompanies, "organization", "org-2", map[string]any{
 		"display_name": "Gitex", "organization_domain": map[string]any{"domain": "gitex.test"},
 	})
-	seed(overlay.IncumbentClassContacts, "person", "p-1", map[string]any{
+	seed(overlaymod.IncumbentClassContacts, "person", "p-1", map[string]any{
 		"full_name": "Mor Anders", "first_name": "Mor", "last_name": "Anders",
 		"person_email": map[string]any{"email": "mor@baer-pharma.test"},
 	})
-	seed(overlay.IncumbentClassContacts, "person", "p-2", map[string]any{
+	seed(overlaymod.IncumbentClassContacts, "person", "p-2", map[string]any{
 		"full_name": "Riya Patel", "person_email": map[string]any{"email": "riya@gitex.test"},
 	})
 	// A contact the incumbent left unowned — the common case in a real
@@ -211,27 +212,27 @@ func setupFlipEstate(t *testing.T) flipEstate {
 	// at every tier, while the mirror row was hidden from every seat).
 	unowned := fake.Rec("p-unowned", map[string]any{"full_name": "Unassigned Contact"})
 	unowned.ObjectClass = "person"
-	fakeInc.Seed(overlay.IncumbentClassContacts, unowned)
-	seed(overlay.IncumbentClassDeals, "deal", "d-open", map[string]any{
+	fakeInc.Seed(overlaymod.IncumbentClassContacts, unowned)
+	seed(overlaymod.IncumbentClassDeals, "deal", "d-open", map[string]any{
 		"name": "Packaging QA", "stage_id": "appointmentscheduled", "amount_minor": int64(21200000), "currency": "EUR",
 	})
-	seed(overlay.IncumbentClassDeals, "deal", "d-won", map[string]any{
+	seed(overlaymod.IncumbentClassDeals, "deal", "d-won", map[string]any{
 		"name": "Filling Line", "stage_id": "closedwon", "amount_minor": int64(500000), "currency": "EUR",
 	})
-	seed(overlay.IncumbentClassLeads, "lead", "l-1", map[string]any{
+	seed(overlaymod.IncumbentClassLeads, "lead", "l-1", map[string]any{
 		"full_name": "Lars Prospect", "email": "lars@prospect.test",
 	})
-	seed(overlay.IncumbentClassEmails, "activity", "emails:900", map[string]any{
+	seed(overlaymod.IncumbentClassEmails, "activity", "emails:900", map[string]any{
 		"kind": "email", "subject": "Intro call follow-up", "body": "Notes from the call.",
 		"occurred_at": "2026-07-01T10:00:00Z", "direction": "outbound",
 	})
 
 	backfillClasses := append([]string{
-		overlay.IncumbentClassCompanies, overlay.IncumbentClassContacts,
-		overlay.IncumbentClassDeals, overlay.IncumbentClassLeads,
-	}, overlay.IncumbentEngagementClasses()...)
+		overlaymod.IncumbentClassCompanies, overlaymod.IncumbentClassContacts,
+		overlaymod.IncumbentClassDeals, overlaymod.IncumbentClassLeads,
+	}, overlaymod.IncumbentEngagementClasses()...)
 	for _, class := range backfillClasses {
-		if _, err := overlay.Backfill(adminCtx, fakeInc, mirror, class, connectedAt); err != nil {
+		if _, err := overlaymod.Backfill(adminCtx, fakeInc, mirror, class, connectedAt); err != nil {
 			t.Fatalf("backfilling %s: %v", class, err)
 		}
 	}
@@ -239,7 +240,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 	// The association edges (canonical vocabulary, the adapter's output
 	// shape): deal→organization FK, person→organization employment,
 	// activity→person link.
-	for _, a := range []overlay.Assoc{
+	for _, a := range []overlaymod.Assoc{
 		{FromType: "deal", FromID: "d-open", ToType: "organization", ToID: "org-1", TypeID: 5, Category: "HUBSPOT_DEFINED", Direction: "forward"},
 		{FromType: "person", FromID: "p-1", ToType: "organization", ToID: "org-1", TypeID: 1, Category: "HUBSPOT_DEFINED", Label: "primary", Direction: "forward"},
 		{FromType: "activity", FromID: "emails:900", ToType: "person", ToID: "p-1", TypeID: 9, Category: "HUBSPOT_DEFINED", Direction: "forward"},
@@ -655,7 +656,7 @@ func TestOverlayExportDownload(t *testing.T) {
 	// A real archive carrying BOTH halves of AC-OV-9: the mirror
 	// snapshot members, and the manifest line disclosing that canonical
 	// data still resides in the incumbent.
-	entries := bundleEntries(t, body)
+	entries := integration.BundleEntries(t, body)
 	var manifest struct {
 		CanonicalDataResidesIn string `json:"canonical_data_resides_in"`
 	}
@@ -674,7 +675,7 @@ func TestOverlayExportDownload(t *testing.T) {
 	// header — counted through the CSV reader, since a newline inside a
 	// quoted `fields` cell would inflate a line count and mask a
 	// dropped row.
-	if got := len(csvColumn(t, entries["overlay_mirror.csv"], "external_id")); got != 9 {
+	if got := len(integration.CSVColumn(t, entries["overlay_mirror.csv"], "external_id")); got != 9 {
 		t.Errorf("overlay_mirror.csv has %d rows, want the 9 seeded mirror records", got)
 	}
 

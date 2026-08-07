@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The write-back GOVERNANCE story, proven over the real HTTP surface and a
 // real migrated Postgres: a human write against a workspace in overlay mode

@@ -3,14 +3,14 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // Per-workspace SoR dispatch: compose.Dispatcher is the ONE
 // datasource.SystemOfRecordProvider every seam-injection point (the MCP
 // registry, the workflow engine, the ADR-0055 admission layer) now binds
 // to — it must route a native-mode workspace's calls to the native
 // composite Provider (Authoritative:true) and an overlay-mode
-// workspace's calls to the overlay.Provider (Authoritative:false),
+// workspace's calls to the overlaymod.Provider (Authoritative:false),
 // chosen per call from the context's workspace, never fixed at
 // construction time. This needs a real, migrated Postgres (RLS +
 // workspace.x_sor_mode + the mirror_visibility deny-join), so it is
@@ -22,8 +22,9 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -35,7 +36,7 @@ import (
 // (the harness's default fixture) dispatches Read to the native
 // composite Provider, whose Freshness is trivially authoritative.
 func TestDispatcherRoutesNativeWorkspaceReadsToTheNativeProvider(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	personID := e.SeedPerson(t, "Ada Native", nil)
 
 	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, overlaybudget.New(nil, nil), nil), e.Pool)
@@ -51,20 +52,20 @@ func TestDispatcherRoutesNativeWorkspaceReadsToTheNativeProvider(t *testing.T) {
 
 // TestDispatcherRoutesOverlayWorkspaceReadsToTheOverlayProvider is the
 // overlay-mode half: a workspace with x_sor_mode='overlay' dispatches
-// Read/Search to overlay.Provider, which serves the mirror
+// Read/Search to overlaymod.Provider, which serves the mirror
 // (Authoritative:false, DS-AC-7) — and the contract-assembly helper
 // tags that Search result with the T2 external trust tier (design.md
 // §4.6).
 func TestDispatcherRoutesOverlayWorkspaceReadsToTheOverlayProvider(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	overlayWS, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(overlayWS, actorID)
 
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass:     "person",
 		ExternalID:      "100214862042",
 		Fields:          map[string]any{"firstname": "Ada Overlay"},
@@ -112,13 +113,13 @@ func TestDispatcherRoutesOverlayWorkspaceReadsToTheOverlayProvider(t *testing.T)
 // 'overlay' from creation (the x_overlay_iff_incumbent CHECK requires
 // x_incumbent set in the same statement) plus one human app_user, via
 // the owner connection — the same "direct SQL, owner role bypasses RLS"
-// pattern SeedRow uses elsewhere in this harness. It opens its own
-// owner connection (via OwnerConn) rather than reusing the caller's
-// Env, since this workspace is intentionally a SECOND, independent
+// pattern integration.SeedRow uses elsewhere in this harness. It opens its own
+// owner connection (via integration.OwnerConn) rather than reusing the caller's
+// integration.Env, since this workspace is intentionally a SECOND, independent
 // tenant from the harness's own default fixture.
 func seedOverlayModeWorkspace(t *testing.T) (ws, user ids.UUID) {
 	t.Helper()
-	owner := OwnerConn(t)
+	owner := integration.OwnerConn(t)
 	ws = ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency, x_sor_mode, x_incumbent)
@@ -146,7 +147,7 @@ func seedOverlayModeWorkspace(t *testing.T) (ws, user ids.UUID) {
 // ones that actually run. RowScope is All because overlay ROW visibility is
 // the store's mirror_visibility deny-join (HubSpot-owner mapping), not the
 // RBAC owner predicate — an unmapped actor still sees zero rows despite
-// RowScopeAll. (ReadOnlyPerms would under-grant here: it omits
+// RowScopeAll. (integration.ReadOnlyPerms would under-grant here: it omits
 // organization/lead/activity, which these overlay tests also read.)
 var overlayReaderPerms = principal.Permissions{
 	RoleKeys: []string{"read_only"},
@@ -178,7 +179,7 @@ func overlayActorCtxWith(ws, user ids.UUID, perms principal.Permissions) context
 	})
 }
 
-// stubOwnerEmails is a no-op overlay.OwnerEmailResolver: this suite's
+// stubOwnerEmails is a no-op overlaymod.OwnerEmailResolver: this suite's
 // mirror_user_map row uses match_source="manual" (the human-override
 // path that never calls OwnerEmail) and Ingest's own revalidation
 // treats a resolution failure as "no email" and fails closed rather
