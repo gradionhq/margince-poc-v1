@@ -405,10 +405,14 @@ export function PeopleCard({
   // The account whose connection graph a route-in asks about. Absent on the
   // loading skeleton, where there is no account to ask about yet.
   orgId,
+  // The verb that puts someone on this account. It renders on the empty card
+  // too — an account with nobody on it is exactly where a rep needs it.
+  actions,
 }: Readonly<{
   view?: Organization360;
   writable?: boolean;
   orgId?: string;
+  actions?: ReactNode;
 }>) {
   const t = useT();
   const contacts = [...(view?.people?.data ?? [])].sort(byReach);
@@ -445,6 +449,7 @@ export function PeopleCard({
         contacts.length,
       )}
       emptyLabel={t("co.people.empty")}
+      actions={actions}
     >
       {/* The per-contact chips read as all-time claims — "Not approached"
           above a timeline showing last year's outbound email is the page

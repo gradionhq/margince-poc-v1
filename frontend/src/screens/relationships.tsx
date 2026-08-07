@@ -249,7 +249,7 @@ export function endpointBody(
 // other-side target picker (mirrors merge.tsx's debounced search-and-pick —
 // the source of the edge is fixed by scope, so there is no "exclude self"
 // filtering here).
-function AddRelationshipAction({
+export function AddRelationshipAction({
   scope,
 }: Readonly<{ scope: RelationshipScope }>) {
   const t = useT();

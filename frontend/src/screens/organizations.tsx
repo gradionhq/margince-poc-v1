@@ -98,7 +98,7 @@ import { LogActivityAction } from "./logactivity";
 import { MergeAction } from "./merge";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
-import { RelationshipsTab } from "./relationships";
+import { AddRelationshipAction, RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
 import {
   TaskDetailModal,
@@ -2104,23 +2104,12 @@ function CompanyPage({
       // the same on every tab and still redrew themselves inside each one.
       strip={view ? <CompanyStanding view={view} /> : undefined}
       tabs={tabs}
-      // The plate spans the page above the columns: what moved since the
-      // last visit and what the rep owes are acted on before anything is
-      // read. Everything below it is reference.
-      lead={
-        tab === "overview" && view ? (
-          <AccountPlate
-            org={org}
-            view={view}
-            overlay={overlay}
-            taskUpdate={taskUpdate}
-            onOpenTask={setOpenTaskId}
-            onOpenRecord={openCitation}
-            onCompose={setReplyToActivityId}
-            onLogTask={() => setTaskFormOpen(true)}
-          />
-        ) : undefined
-      }
+      // No full-width band above the columns. Spanning the page, the plate
+      // and the brief pushed the account itself below the fold, so a reader
+      // who opened the record to glance at the company met two panels of
+      // work first. The plate is the FEED now: it heads the right column,
+      // above the chronology it belongs with, and the left column carries
+      // the company from the first pixel.
       // One left column, the business beside the story: people, deals,
       // standing, then the slower-moving reference (relationships, custom
       // fields) folded under it. Everything the site read produced —
@@ -2163,6 +2152,20 @@ function CompanyPage({
       )}
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
+      )}
+      {/* The feed heads the right column: what moved, what is owed, and the
+          one line the brief has to add — then the chronology under it. */}
+      {tab === "overview" && view && (
+        <AccountPlate
+          org={org}
+          view={view}
+          overlay={overlay}
+          taskUpdate={taskUpdate}
+          onOpenTask={setOpenTaskId}
+          onOpenRecord={openCitation}
+          onCompose={setReplyToActivityId}
+          onLogTask={() => setTaskFormOpen(true)}
+        />
       )}
       {/* The People tab gives the account team the whole middle column. The
           rail's card is a summary; this is the roster, with room for the title
@@ -2507,27 +2510,40 @@ function businessRail({
         {/* Who and what the money is: one surface, because a rep weighing an
             account reads them together. Five separately-edged boxes down one
             column read as five subjects and scrolled like it. */}
-        <div className="co-group">
-          <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
-          <DealsCard
-            view={view}
-            // The verb sits under the list it changes: a rep who has just read
-            // "no open deal on this account" is one click from opening one,
-            // rather than leaving for the board to re-find this company there.
-            actions={
-              readOnly ? undefined : (
-                <NewDealAction orgId={org.id} orgName={org.display_name} />
-              )
-            }
-          />
-        </div>
+        {/* One subject, one card. People and Deals shared an edge, so the
+            account team and the pipeline read as a single list of mixed
+            things — and neither could carry its own verb where the reader
+            would look for it. */}
+        <PeopleCard
+          view={view}
+          writable={!readOnly}
+          orgId={org.id}
+          // Linking someone to the account is an employment edge, which is
+          // the relationship the Context tab writes. The verb belongs where
+          // the roster is read: an empty People card that cannot add a person
+          // asks the reader to go and find the form.
+          actions={
+            readOnly ? undefined : (
+              <AddRelationshipAction scope={{ organization_id: org.id }} />
+            )
+          }
+        />
+        <DealsCard
+          view={view}
+          // The verb sits under the list it changes: a rep who has just read
+          // "no open deal on this account" is one click from opening one,
+          // rather than leaving for the board to re-find this company there.
+          actions={
+            readOnly ? undefined : (
+              <NewDealAction orgId={org.id} orgName={org.display_name} />
+            )
+          }
+        />
         {/* How the relationship stands, in parts — the decomposition that
             replaced the header's 0-100 score — and what is currently flagged
             about it. Both are readings of the account's condition. */}
-        <div className="co-group">
-          <HealthCard health={view?.health} />
-          <SignalsCard orgId={org.id} />
-        </div>
+        <HealthCard health={view?.health} />
+        <SignalsCard orgId={org.id} />
         {/* Connections is deliberately not here. It listed the account owner
             and the same employees the People card already names, against two
             different strength scales and a bare "2" nobody could read — the
