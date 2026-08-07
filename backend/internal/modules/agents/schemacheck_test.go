@@ -115,3 +115,40 @@ func TestDescribingAnUndescribableTypeIsAnError(t *testing.T) {
 // above needs one, and naming it here keeps the reflect import out of the test
 // body where it would read as part of the assertion.
 func reflectTypeOfChan() reflect.Type { return reflect.TypeOf(make(chan int)) }
+
+// The checker's own failure modes, which a result reaching them means this
+// server published something it cannot itself read.
+func TestTheCheckerReportsASchemaItCannotRead(t *testing.T) {
+	if defect := ResultDefect(json.RawMessage(`{"type":`), json.RawMessage(`{}`)); defect == "" {
+		t.Error("an unreadable schema was reported as satisfied")
+	}
+	if defect := ResultDefect(json.RawMessage(`{"type":"widget"}`), json.RawMessage(`{}`)); !strings.Contains(defect, "unknown type") {
+		t.Errorf("defect = %q, want it to name the unknown declared type", defect)
+	}
+}
+
+// A schema that states no type states nothing about that node — which is what
+// the two declared exceptions rely on, and what lets a passthrough result carry
+// a document this surface did not build.
+func TestASchemaWithNoTypeAcceptsAnything(t *testing.T) {
+	for _, value := range []string{`{"anything":1}`, `[1,2]`, `"text"`, `null`} {
+		if defect := ResultDefect(json.RawMessage(`{}`), json.RawMessage(value)); defect != "" {
+			t.Errorf("%s was reported as %q against a schema that claims nothing", value, defect)
+		}
+	}
+}
+
+// A declared array that arrives as something else, and the summary a reader
+// sees: a long document is cut short, because a defect line goes to a log a
+// person reads and a result can carry captured text.
+func TestTheCheckerNamesWhatItFoundWithoutQuotingItWhole(t *testing.T) {
+	defect := ResultDefect(json.RawMessage(`{"type":"array","items":{"type":"string"}}`), json.RawMessage(`{"not":"an array"}`))
+	if !strings.Contains(defect, "declared an array") {
+		t.Errorf("defect = %q, want it to name what was declared", defect)
+	}
+	long := `"` + strings.Repeat("x", 200) + `"`
+	defect = ResultDefect(json.RawMessage(`{"type":"boolean"}`), json.RawMessage(long))
+	if !strings.Contains(defect, "…") || len(defect) > 120 {
+		t.Errorf("defect = %q, want the found value summarized rather than quoted whole", defect)
+	}
+}

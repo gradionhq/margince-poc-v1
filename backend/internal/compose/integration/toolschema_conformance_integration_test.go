@@ -44,13 +44,13 @@ func TestEveryToolAnswerSatisfiesTheSchemaItAdvertises(t *testing.T) {
 	// which holds create_record's own answer to its schema on the way — a
 	// write's read-back is a result like any other, and it is the one every
 	// write tool shares.
-	person := createThroughTheToolSurface(t, registry, ctx,
+	person := createThroughTheToolSurface(ctx, t, registry,
 		`{"record_type":"person","fields":{"full_name":"Schema Conformance"}}`)
-	org := createThroughTheToolSurface(t, registry, ctx,
+	org := createThroughTheToolSurface(ctx, t, registry,
 		`{"record_type":"organization","fields":{"display_name":"Conformance GmbH"}}`)
-	lead := createThroughTheToolSurface(t, registry, ctx,
+	lead := createThroughTheToolSurface(ctx, t, registry,
 		`{"record_type":"lead","fields":{"email":"lead@conformance.example"}}`)
-	deal := createThroughTheToolSurface(t, registry, ctx,
+	deal := createThroughTheToolSurface(ctx, t, registry,
 		`{"record_type":"deal","fields":{"name":"Conformance renewal","pipeline_id":"`+
 			pipeline.String()+`","stage_id":"`+open.String()+`"}}`)
 
@@ -97,7 +97,7 @@ func TestEveryToolAnswerSatisfiesTheSchemaItAdvertises(t *testing.T) {
 
 // createThroughTheToolSurface makes one record and returns its id, holding the
 // write's own answer to its declared schema before reading the id out of it.
-func createThroughTheToolSurface(t *testing.T, registry *agents.Registry, ctx context.Context, args string) ids.UUID {
+func createThroughTheToolSurface(ctx context.Context, t *testing.T, registry *agents.Registry, args string) ids.UUID {
 	t.Helper()
 	spec, registered := registry.Spec("create_record")
 	if !registered {
