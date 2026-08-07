@@ -12,10 +12,10 @@ import {
   Modal,
   SectionHeader,
   SegmentedControl,
-  Select,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -638,18 +638,15 @@ function LeadOverviewPane({
                   <Select
                     aria-label={t("lead.trigger")}
                     value={trigger}
-                    onChange={(event) => {
-                      const value = event.target.value;
+                    onChange={(value) => {
                       const triggers = PROMOTE_TRIGGERS.map((o) => o.value);
                       if (isOption(value, triggers)) setTrigger(value);
                     }}
-                  >
-                    {PROMOTE_TRIGGERS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {t(option.label)}
-                      </option>
-                    ))}
-                  </Select>
+                    options={PROMOTE_TRIGGERS.map((option) => ({
+                      value: option.value,
+                      label: t(option.label),
+                    }))}
+                  />
                 </label>
                 <label className="t-caption field">
                   {t("lead.evidenceNote")}

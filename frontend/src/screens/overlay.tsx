@@ -15,10 +15,10 @@ import {
   EmptyState,
   Field,
   SectionHeader,
-  Select,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Select } from "../design-system/select";
 import { formatDateTime } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -112,17 +112,14 @@ function OverlayConnectForm({
           <Select
             {...control}
             value={region}
-            onChange={(event) => {
-              const value = event.target.value;
+            onChange={(value) => {
               if (isOption(value, REGIONS)) setRegion(value);
             }}
-          >
-            {REGIONS.map((r) => (
-              <option key={r} value={r}>
-                {t(regionLabel[r])}
-              </option>
-            ))}
-          </Select>
+            options={REGIONS.map((r) => ({
+              value: r,
+              label: t(regionLabel[r]),
+            }))}
+          />
         )}
       </Field>
       <Field label={t("overlay.token")} hint={t("overlay.tokenHint")}>

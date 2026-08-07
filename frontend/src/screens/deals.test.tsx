@@ -5,11 +5,13 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { pickOption } from "../design-system/select-testing";
 import { formatMoney } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import { buildColumns, DealScreen, DealsScreen, mapDealUpdate } from "./deals";
@@ -525,6 +527,7 @@ describe("DealsScreen", () => {
 
 describe("DealsScreen filters", () => {
   it("switching pipeline scopes the deals fetch to that pipeline_id", async () => {
+    const user = userEvent.setup();
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -552,13 +555,62 @@ describe("DealsScreen filters", () => {
     );
     render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
-    await userEvent.selectOptions(screen.getByLabelText("Pipeline"), "pl2");
+    await pickOption(user, screen.getByLabelText("Pipeline"), "Renewals");
     await waitFor(() =>
       expect(urls.some((u) => u.includes("pipeline_id=pl2"))).toBe(true),
     );
   });
 
+  // The board always shows one pipeline, so an unset choice would fall straight
+  // back to the default one — the pipeline list therefore offers pipelines
+  // only. The stage filter's "all" entry clears a query filter, which the board
+  // can actually show, so that one stays.
+  it("offers pipelines only, while the stage filter keeps its all-stages entry", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        pipelines: [
+          {
+            id: "pl",
+            workspace_id: "w",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages,
+          },
+          {
+            id: "pl2",
+            workspace_id: "w",
+            name: "Renewals",
+            is_default: false,
+            position: 1,
+            stages,
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await screen.findByText("Fleet retrofit");
+
+    await user.click(screen.getByLabelText("Pipeline"));
+    expect(
+      within(screen.getByRole("listbox"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Sales", "Renewals"]);
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByLabelText("Stage"));
+    expect(
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: "All stages",
+      }),
+    ).toBeTruthy();
+  });
+
   it("the stalled filter adds stalled=true to the deals query", async () => {
+    const user = userEvent.setup();
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -566,9 +618,12 @@ describe("DealsScreen filters", () => {
     );
     render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
-    await userEvent.selectOptions(
+    // The control and its only narrowing choice share the "Stalled only" name:
+    // the combobox is named by the filter, the option by what it selects.
+    await pickOption(
+      user,
       screen.getByLabelText("Stalled only"),
-      "true",
+      "Stalled only",
     );
     await waitFor(() =>
       expect(urls.some((u) => u.includes("stalled=true"))).toBe(true),

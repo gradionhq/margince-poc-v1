@@ -9,7 +9,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -42,6 +42,21 @@ function render(ui: ReactNode) {
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
+}
+
+// What a dropdown offers, in order. The options live in a portalled popup that
+// only exists while the control is open, and only one popup is open at a time —
+// so a list is read by opening its own control and closing it again, which is
+// also what lets two Type selects on the same form be compared.
+async function optionTextOf(user: UserEvent, control: HTMLElement) {
+  await user.click(control);
+  const text = within(screen.getByRole("listbox"))
+    .getAllByRole("option")
+    .map((option) => option.textContent);
+  // Closed by the trigger, not by Escape: these controls sit inside a modal,
+  // and Escape reaches the dialog too.
+  await user.click(control);
+  return text;
 }
 
 const anna = {
@@ -237,27 +252,31 @@ describe("ContactsScreen — rich create (P-15)", () => {
   // MessageKey string (fieldControl in create.tsx renders option.label
   // verbatim, so an untranslated key would leak straight to the DOM).
   it("shows translated Type option text, not the raw i18n key", async () => {
+    const user = userEvent.setup();
     stubFetch(async () => emptyPage());
     render(<ContactsScreen />);
-    await userEvent.click(screen.getByTestId("new-record"));
-    await userEvent.click(screen.getByText("Add email"));
-    await userEvent.click(screen.getByText("Add phone"));
+    await user.click(screen.getByTestId("new-record"));
+    await user.click(screen.getByText("Add email"));
+    await user.click(screen.getByText("Add phone"));
     const [emailType, phoneType] = screen.getAllByLabelText("Type");
 
-    const emailOptionText = within(emailType as HTMLElement)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(emailOptionText).toEqual(["", "Work", "Personal", "Other"]);
+    const emailOptionText = await optionTextOf(user, emailType);
+    expect(emailOptionText).toEqual(["Not set", "Work", "Personal", "Other"]);
     expect(emailOptionText).not.toContain("field.emailWork");
 
-    const phoneOptionText = within(phoneType as HTMLElement)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(phoneOptionText).toEqual(["", "Work", "Mobile", "Home", "Other"]);
+    const phoneOptionText = await optionTextOf(user, phoneType);
+    expect(phoneOptionText).toEqual([
+      "Not set",
+      "Work",
+      "Mobile",
+      "Home",
+      "Other",
+    ]);
     expect(phoneOptionText).not.toContain("field.phoneWork");
   });
 
   it("shows German Type option text under the de locale", async () => {
+    const user = userEvent.setup();
     stubFetch(async () => emptyPage());
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -269,13 +288,15 @@ describe("ContactsScreen — rich create (P-15)", () => {
         </LocaleProvider>
       </QueryClientProvider>,
     );
-    await userEvent.click(screen.getByTestId("new-record"));
-    await userEvent.click(screen.getByText("E-Mail hinzufügen"));
-    const emailType = screen.getByLabelText("Typ");
-    const optionText = within(emailType)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-    expect(optionText).toEqual(["", "Geschäftlich", "Privat", "Sonstige"]);
+    await user.click(screen.getByTestId("new-record"));
+    await user.click(screen.getByText("E-Mail hinzufügen"));
+    const optionText = await optionTextOf(user, screen.getByLabelText("Typ"));
+    expect(optionText).toEqual([
+      "Nicht gesetzt",
+      "Geschäftlich",
+      "Privat",
+      "Sonstige",
+    ]);
   });
 
   it("posts full_name + emails + source:manual on submit", async () => {
@@ -823,6 +844,7 @@ describe("PersonScreen — archived is read-only (P-3)", () => {
 
 describe("PersonScreen — relationship kinds by scope (P-5)", () => {
   it("offers deal_stakeholder (not org↔org) from a person, searches deals, confirms, and POSTs deal_id", async () => {
+    const user = userEvent.setup();
     let posted: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/relationships")) {
@@ -845,19 +867,24 @@ describe("PersonScreen — relationship kinds by scope (P-5)", () => {
     });
     render(<PersonScreen id="p-1" />);
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("People & companies"));
+    await user.click(screen.getByText("People & companies"));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByTestId("add-relationship"));
+    await user.click(screen.getByTestId("add-relationship"));
 
     // A person can anchor employment + deal_stakeholder; the org↔org kinds
-    // (partner_of/…) need two orgs and must not be offered here.
-    const kind = screen.getByLabelText("Kind");
-    expect(within(kind).queryByText("Partner of")).toBeNull();
-    await userEvent.selectOptions(kind, "deal_stakeholder");
+    // (partner_of/…) need two orgs and must not be offered here. The kinds only
+    // exist in the DOM while the popup is open, hence the click before the
+    // absence is asserted.
+    await user.click(screen.getByLabelText("Kind"));
+    const kinds = screen.getByRole("listbox");
+    expect(within(kinds).queryByText("Partner of")).toBeNull();
+    await user.click(
+      within(kinds).getByRole("option", { name: "Deal stakeholder" }),
+    );
 
-    await userEvent.type(screen.getByPlaceholderText("Search…"), "q3");
+    await user.type(screen.getByPlaceholderText("Search…"), "q3");
     vi.useFakeTimers();
     try {
       act(() => {
@@ -867,14 +894,14 @@ describe("PersonScreen — relationship kinds by scope (P-5)", () => {
       vi.useRealTimers();
     }
     await waitFor(() => expect(screen.getByText("Q3 Renewal")).toBeTruthy());
-    await userEvent.click(screen.getByText("Q3 Renewal"));
+    await user.click(screen.getByText("Q3 Renewal"));
 
     // A meaningful confirmation after select, consistent with merge.
     expect(
       screen.getByText("Add a Deal stakeholder link to Q3 Renewal."),
     ).toBeTruthy();
 
-    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+    await user.click(screen.getByTestId("add-relationship-submit"));
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted).toMatchObject({
       person_id: "p-1",

@@ -3,7 +3,6 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   useEffect,
   useId,
@@ -141,21 +140,16 @@ export function SearchField(props: InputHTMLAttributes<HTMLInputElement>) {
 }
 
 /**
- * Select and Textarea carry no label of their own, exactly like TextInput: the
- * label is composed outside them, by the `.field` wrapper a form uses or by a
- * screen's own richer shell. What they own is the ONE spelling of the control's
- * surface, so a dropdown in a create form and one in settings cannot drift.
+ * Textarea carries no label of its own, exactly like TextInput: the label is
+ * composed outside it, by the `.field` wrapper a form uses or by a screen's own
+ * richer shell. What it owns is the ONE spelling of the control's surface, so a
+ * note field in a create form and one in settings cannot drift.
  *
- * A `select` reads `.input` rather than a class of its own — the two controls
- * are the same field on screen, and `select.input` in atoms.css adds only the
- * pointer cursor a native dropdown needs.
+ * The dropdown is NOT here: `Select` in select.tsx is a button and a portalled
+ * listbox, because a native `<select>` draws its own option list in the
+ * platform's idiom and no CSS reaches inside it. It still reads `.input` for its
+ * closed face — a dropdown and a text input are the same field on screen.
  */
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select {...props} className={`input ${props.className ?? ""}`.trim()} />
-  );
-}
-
 export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea

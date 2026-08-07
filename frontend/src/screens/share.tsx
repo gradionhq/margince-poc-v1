@@ -19,10 +19,10 @@ import {
   SearchField,
   SectionHeader,
   SegmentedControl,
-  Select,
   Textarea,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Select } from "../design-system/select";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -532,18 +532,18 @@ function ShareScreenBody({
             {(control) => (
               <Select
                 {...control}
-                value={expiryDays}
-                onChange={(event) => {
-                  setExpiryDays(Number(event.target.value));
+                // A day count is the state; the control speaks strings, so the
+                // conversion happens here at the boundary and nowhere else.
+                value={String(expiryDays)}
+                onChange={(value) => {
+                  setExpiryDays(Number(value));
                   dismissGrantError();
                 }}
-              >
-                {EXPIRY_OPTIONS.map((option) => (
-                  <option key={option.days} value={option.days}>
-                    {t(option.key)}
-                  </option>
-                ))}
-              </Select>
+                options={EXPIRY_OPTIONS.map((option) => ({
+                  value: String(option.days),
+                  label: t(option.key),
+                }))}
+              />
             )}
           </Field>
 

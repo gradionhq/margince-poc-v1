@@ -11,9 +11,10 @@ import {
   Checkbox,
   EmptyState,
   SearchField,
-  Select,
   Skeleton,
+  TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, useSorMode } from "./common";
@@ -45,12 +46,28 @@ export type FilterSpec =
       kind: "select";
       key: string;
       label: MessageKey;
-      // Shown as the empty (unset) option so the control names the filter at
-      // rest; re-selecting it clears the filter.
+      // Names the empty (unset) option so the control names the filter at
+      // rest; re-selecting it clears the filter. Absent, the filter's own
+      // label names that option — an option a reader cannot read is an option
+      // they cannot come back to.
       placeholder?: MessageKey;
       options: { value: string; label: MessageKey }[];
     }
   | { kind: "text"; key: string; label: MessageKey };
+
+// A blank choice CLEARS the filter rather than storing an empty string: the
+// query object is what each screen builds its request from, and `status=""`
+// would send an empty filter where none was meant. Shared by both filter
+// controls below so the select and the text input cannot drift on it.
+function withFilter(query: ListQuery, key: string, value: string): ListQuery {
+  const filters = { ...query.filters };
+  if (value) {
+    filters[key] = value;
+  } else {
+    delete filters[key];
+  }
+  return { ...query, filters };
+}
 
 export function useListQuery<Row>({
   key,
@@ -154,15 +171,18 @@ export function ListToolbar({
       ) : (
         <Select
           aria-label={t("list.sort")}
+          // A screen that opens on no explicit sort has nothing to show as the
+          // chosen one, and an unlabelled control reads as a control that failed
+          // to load. The face says what the control is FOR until it has an answer;
+          // the server's own default ordering is what the list is showing.
+          placeholder={t("list.sort")}
           value={query.sort}
-          onChange={(event) => setQuery({ ...query, sort: event.target.value })}
-        >
-          {sortOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {t(option.label)}
-            </option>
-          ))}
-        </Select>
+          onChange={(sort) => setQuery({ ...query, sort })}
+          options={sortOptions.map((option) => ({
+            value: option.value,
+            label: t(option.label),
+          }))}
+        />
       )}
       {showArchivedToggle && (
         <Checkbox
@@ -180,41 +200,29 @@ export function ListToolbar({
               key={filter.key}
               aria-label={t(filter.label)}
               value={query.filters[filter.key] ?? ""}
-              onChange={(event) => {
-                const next = { ...query.filters };
-                if (event.target.value) {
-                  next[filter.key] = event.target.value;
-                } else {
-                  delete next[filter.key];
-                }
-                setQuery({ ...query, filters: next });
-              }}
-            >
-              <option value="">
-                {filter.placeholder ? t(filter.placeholder) : ""}
-              </option>
-              {filter.options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {t(option.label)}
-                </option>
-              ))}
-            </Select>
+              onChange={(value) =>
+                setQuery(withFilter(query, filter.key, value))
+              }
+              // The unset entry is a real OPTION, not the select's placeholder:
+              // a placeholder is only a face for an unset value, and a reader
+              // who narrowed the list has to be able to come back to all of it.
+              options={[
+                { value: "", label: t(filter.placeholder ?? filter.label) },
+                ...filter.options.map((option) => ({
+                  value: option.value,
+                  label: t(option.label),
+                })),
+              ]}
+            />
           ) : (
-            <input
+            <TextInput
               key={filter.key}
               type="text"
-              className="input"
               aria-label={t(filter.label)}
               value={query.filters[filter.key] ?? ""}
-              onChange={(event) => {
-                const next = { ...query.filters };
-                if (event.target.value) {
-                  next[filter.key] = event.target.value;
-                } else {
-                  delete next[filter.key];
-                }
-                setQuery({ ...query, filters: next });
-              }}
+              onChange={(event) =>
+                setQuery(withFilter(query, filter.key, event.target.value))
+              }
             />
           ),
         )}

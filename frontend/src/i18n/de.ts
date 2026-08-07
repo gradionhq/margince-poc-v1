@@ -1210,6 +1210,7 @@ export const de = {
   "create.organization": "Firma",
   "create.expectedClose": "Erwarteter Abschluss",
 
+  "field.unset": "Nicht gesetzt",
   "field.addEmail": "E-Mail hinzufügen",
   "field.addPhone": "Telefon hinzufügen",
   "field.addDomain": "Domain hinzufügen",
@@ -2679,7 +2680,7 @@ export const de = {
   "auth.hidePassword": "Passwort ausblenden",
   "auth.capsLock": "Feststelltaste ist an",
   "auth.continueWith": "Weiter mit {brand}",
-  "auth.orWithEmail": "oder per E-Mail",
+  "auth.orDivider": "oder",
   "auth.legalProtected": "Der Zugang zu dieser Organisation ist beschränkt.",
   "auth.legalTerms": "Nutzungsbedingungen",
   "auth.legalPrivacy": "Datenschutz",

@@ -129,8 +129,15 @@
 }
 
 /* List toolbar row: search grows, sort/filters/toggle sit fixed-width beside
- * it. `select.input`/`input.input` default to width:100% (base.css), so the
- * width:auto override is required or they fight the search field for width. */
+ * it. Anything wearing `.input` defaults to width:100% (base.css), so the
+ * width:auto override is required or they fight the search field for width.
+ *
+ * The dropdown is matched by its CLASS, not by an element name. It used to be a
+ * `<select>` and the rule said so; it is a `<button>` now
+ * (design-system/select.tsx), and an element-qualified selector silently stopped
+ * applying — every filter in this row grew to the full width of the page, one per
+ * line. A rule that names a tag is a rule that breaks when the control changes
+ * shape, so this one names what the control IS. */
 .list-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -142,7 +149,7 @@
   flex: 1 1 260px;
   max-width: 360px;
 }
-.list-toolbar > select.input,
+.list-toolbar > .select-control,
 .list-toolbar > input.input {
   width: auto;
   flex: 0 1 200px;
@@ -155,7 +162,7 @@
 }
 @media (max-width: 520px) {
   .list-toolbar > .input-icon,
-  .list-toolbar > select.input,
+  .list-toolbar > .select-control,
   .list-toolbar > input.input {
     flex-basis: 100%;
     max-width: none;

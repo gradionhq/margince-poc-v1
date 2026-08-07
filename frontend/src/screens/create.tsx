@@ -9,9 +9,9 @@ import {
   type FieldControl,
   Modal,
   Radio,
-  Select,
   TextInput,
 } from "../design-system/atoms";
+import { Select, type SelectOption } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -259,21 +259,35 @@ export function fieldControl(
   control: FieldControl,
   value: string,
   setValue: (next: string) => void,
+  t: (key: MessageKey) => string,
 ): ReactNode {
   if (field.type === "select") {
+    // An optional select leads with a choice that clears it, and it is a choice
+    // rather than a placeholder face: once a value has been picked, this is the
+    // only way back to leaving the field unset.
+    //
+    // It says so in words. A blank-labelled entry is what a native `<option/>`
+    // left behind — a row a browser gave a baseline height and a screen reader
+    // announced as nothing at all — and in a drawn list it is an unreadable
+    // strip nobody can aim at.
+    //
+    // A field that already offers the empty value has said it in its own,
+    // better words ("Unassign" on a deal's owner), and one value gets exactly
+    // one entry: a second would offer the same choice twice and give the list
+    // two options with the same identity.
+    const options = field.options ?? [];
+    const clearable = options.some((option) => option.value === "");
+    const blank: SelectOption[] =
+      field.required || clearable
+        ? []
+        : [{ value: "", label: t("field.unset") }];
     return (
       <Select
         {...control}
         value={value}
-        onChange={(event) => setValue(event.target.value)}
-      >
-        {!field.required && <option value="" />}
-        {(field.options ?? []).map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </Select>
+        onChange={setValue}
+        options={[...blank, ...options]}
+      />
     );
   }
   return (
@@ -368,6 +382,7 @@ function RepeatableRowsField({
                   control,
                   row[subField.key] ?? "",
                   (next) => updateRow(index, subField.key, next),
+                  t,
                 )
               }
             </Field>
@@ -543,8 +558,12 @@ export function RecordFormBody({
             required={field.required}
           >
             {(control) =>
-              fieldControl(field, control, values[field.key] ?? "", (next) =>
-                setValues({ ...values, [field.key]: next }),
+              fieldControl(
+                field,
+                control,
+                values[field.key] ?? "",
+                (next) => setValues({ ...values, [field.key]: next }),
+                t,
               )
             }
           </Field>

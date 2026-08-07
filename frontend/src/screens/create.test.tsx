@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useLayoutEffect, useState } from "react";
@@ -288,6 +289,54 @@ describe("create modal reset", () => {
   });
 });
 
+// An optional select needs a way back to unset, and the value gets exactly one
+// entry: the generic "Not set" appears only where the field offers no clearing
+// choice of its own, so a screen's own wording is never doubled up.
+describe("an optional select's unset choice", () => {
+  const owner: CreateField = {
+    key: "owner_id",
+    labelText: "Owner",
+    type: "select",
+    options: [
+      { value: "u1", label: "Me" },
+      { value: "", label: "Unassign" },
+    ],
+  };
+
+  function openedOptionLabels(): (string | null)[] {
+    return within(screen.getByRole("listbox"))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+  }
+
+  async function openOwnerList(fields: CreateField[]) {
+    render(
+      <CreateRecordModal
+        open
+        onClose={() => {}}
+        title="New deal"
+        fields={fields}
+        pending={false}
+        error={null}
+        onSubmit={() => {}}
+      />,
+    );
+    await userEvent.click(screen.getByLabelText("Owner"));
+  }
+
+  it("keeps the field's own clearing entry and adds no second one for the same value", async () => {
+    await openOwnerList([owner]);
+    expect(openedOptionLabels()).toEqual(["Me", "Unassign"]);
+  });
+
+  it("synthesizes one when the field offers no way back to unset", async () => {
+    await openOwnerList([
+      { ...owner, options: [{ value: "u1", label: "Me" }] },
+    ]);
+    expect(openedOptionLabels()).toEqual(["Not set", "Me"]);
+  });
+});
+
 describe("deal create flow", () => {
   it("offers only open stages, converts major→minor, and posts the pipeline", async () => {
     const captured: Captured[] = [];
@@ -317,11 +366,17 @@ describe("deal create flow", () => {
     );
     render(<DealsScreen startCreating />);
     await waitFor(() => expect(screen.getByLabelText("Stage *")).toBeTruthy());
-    const stageSelect = screen.getByLabelText("Stage *") as HTMLSelectElement;
-    // won/lost stages are not creatable targets — deals are born open
+    // won/lost stages are not creatable targets — deals are born open. The list
+    // only exists while the control is open, so it is opened to be read and shut
+    // again before the form is filled in.
+    const stageSelect = screen.getByLabelText("Stage *");
+    await userEvent.click(stageSelect);
     expect(
-      Array.from(stageSelect.options).map((option) => option.textContent),
+      within(screen.getByRole("listbox"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
     ).toEqual(["Qualify"]);
+    await userEvent.keyboard("{Escape}");
     await userEvent.type(screen.getByLabelText("Deal name *"), "Neuer Deal");
     await userEvent.type(screen.getByLabelText("Value"), "480");
     await userEvent.click(screen.getByRole("button", { name: "Create" }));

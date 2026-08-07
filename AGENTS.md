@@ -281,6 +281,9 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `frontend/` — the Vite/React web UI: a standalone static build served
   separately from the API binary (which serves `/v1` only — no embedded
   SPA); `make frontend-check` / `make dev` exist at the repo root.
+  Every interactive control comes from `frontend/src/design-system/` —
+  its README is the catalog to read before hand-rolling one, and a native
+  `<select>` fails `frontend/scripts/check-native-controls.sh`.
 - `extensions/<name>/` — the stable extension tier (ADR-0069): each unit
   is its own Go module importing ONLY the marker-allowlisted
   `backend/pkg/**` surface; presence under `extensions/` is the

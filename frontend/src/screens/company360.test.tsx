@@ -1063,10 +1063,17 @@ it("does not offer a role the contact already holds on that deal", async () => {
   await userEvent.click(
     await screen.findByRole("button", { name: "Set role" }),
   );
-  const roles = screen.getByLabelText("Role") as HTMLSelectElement;
-  expect([...roles.options].map((option) => option.value)).not.toContain(
-    "champion",
-  );
+  // The offered roles only exist while the control is open, so the list is opened
+  // to be read. Asserted as the WHOLE set rather than as the absence of one word:
+  // an absence check passes for the wrong reason the moment a label is recased or
+  // reworded, and what this case is about is that a role this contact already
+  // holds is not offered a second time.
+  await userEvent.click(screen.getByLabelText("Role"));
+  expect(
+    within(screen.getByRole("listbox"))
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["economic buyer", "influencer", "blocker", "end user"]);
 });
 
 describe("company view — Partner is not a permanent tab", () => {

@@ -100,7 +100,6 @@
 /* unavailable: the one state that does not breathe. A server we cannot reach
    should not look busy — but it is not a dead grey ball either. */
 .core[data-core-state="unavailable"] .core-glass,
-.core[data-core-state="unavailable"] .core-tilt,
 .core[data-core-state="unavailable"] .core-glow {
   animation: none;
 }
@@ -109,23 +108,16 @@
 }
 
 /* ---- the glass ---------------------------------------------------------- */
+/* The stage the glass is centred in: the sphere is --coreGlass across inside a
+   --coreSize box, so without this it would sit in the corner. It holds the Core
+   STILL in its box — the sphere breathes in place and never travels, so a Core
+   next to copy cannot drift into it and one on a dense surface cannot be
+   mistaken for something the page is moving. */
 .core-tilt {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  animation: core-float 11s var(--coreEase) infinite;
-}
-/* Deliberately NOT on the beat: a slow drift sharing no factor with the breath
-   keeps the two from locking into one pumping motion. */
-@keyframes core-float {
-  0%,
-  100% {
-    transform: translateY(-4px);
-  }
-  50% {
-    transform: translateY(5px);
-  }
 }
 .core-glass {
   position: relative;
@@ -447,6 +439,27 @@
   transition: stroke-dasharray 0.4s ease;
 }
 
+/* ---- an unfocused window: the Core goes still ---------------------------- */
+/*
+ * Nobody is watching a window that sits behind another one, so every rhythm
+ * stops together — the breath and the sheen, the halo, and the motes on their
+ * way in. The liquid inside stops too, in the same breath and off the same
+ * signal: `window-focus.ts` owns one `focus`/`blur` pair for the document, sets
+ * this attribute, and parks the WebGL loop (margince-core-liquid.tsx). ONE
+ * signal, so the sphere and its glow can never disagree about whether the Core
+ * is moving.
+ *
+ * PAUSED, not `animation: none`. A paused animation holds the frame it reached,
+ * which is what coming back to a Core should look like; removing the animation
+ * would snap the sphere to its unanimated size and brightness — a visible jump
+ * every time the reader clicks away.
+ */
+:root[data-window-blurred] .core-glass,
+:root[data-window-blurred] .core-glow,
+:root[data-window-blurred] .core-feed i {
+  animation-play-state: paused;
+}
+
 /* ---- reduced motion: the END state, never nothing ----------------------- */
 /*
  * The feed is atmosphere and is the one thing safe to simply remove. Everything
@@ -457,7 +470,6 @@
   .core-feed {
     display: none;
   }
-  .core-tilt,
   .core-glass,
   .core-glow {
     animation: none;

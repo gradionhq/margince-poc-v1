@@ -467,9 +467,9 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accentLight);
 }
-select.input {
-  cursor: pointer;
-}
+/* No `select.input` rule: there is no native dropdown in this product. The
+   Margince select's trigger is a button that reads `.input` for the same field
+   surface and owns its own layout in select.css. */
 
 /* The Checkbox/Radio row: control, then its words, on one line the whole of
    which is the click target.

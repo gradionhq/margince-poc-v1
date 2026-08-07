@@ -25,7 +25,6 @@ import {
   Modal,
   SectionHeader,
   SegmentedControl,
-  Select,
   TextInput,
 } from "../design-system/atoms";
 import {
@@ -34,6 +33,7 @@ import {
   PipelineBoard,
   RecordView,
 } from "../design-system/composed";
+import { Select } from "../design-system/select";
 import { AutonomyDot } from "../design-system/trust";
 import { formatDate, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
@@ -456,46 +456,44 @@ function DealFilterSelects({
   const t = useT();
   return (
     <div className="list-toolbar">
+      {/* The board is always the board of ONE pipeline — there is no
+          all-pipelines view for an unset entry to select, and an unset
+          selection falls straight back to the default pipeline — so this list
+          offers pipelines only. The placeholder is the face while they load,
+          which is the only moment the value matches no option. The stage and
+          organization lists below DO lead with a real "all" option: each one
+          clears a query filter, a state the board can actually show, and a
+          reader who narrowed it has to be able to come back to all of it. */}
       <Select
         aria-label={t("deals.pipeline")}
+        placeholder={t("deals.pipeline")}
         value={pipelineId}
-        onChange={(event) => setPipelineId(event.target.value)}
-      >
-        <option value="">{t("deals.pipeline")}</option>
-        {pipelines.map((pipeline) => (
-          <option key={pipeline.id} value={pipeline.id}>
-            {pipeline.name}
-          </option>
-        ))}
-      </Select>
+        onChange={setPipelineId}
+        options={pipelines.map((pipeline) => ({
+          value: pipeline.id,
+          label: pipeline.name,
+        }))}
+      />
       <Select
         aria-label={t("deals.stage")}
         value={query.filters.stage_id ?? ""}
-        onChange={(event) =>
-          setOrClearFilter(setQuery, "stage_id", event.target.value)
-        }
-      >
-        <option value="">{t("deals.filterStageAll")}</option>
-        {stages.map((stage) => (
-          <option key={stage.id} value={stage.id}>
-            {stage.name}
-          </option>
-        ))}
-      </Select>
+        onChange={(value) => setOrClearFilter(setQuery, "stage_id", value)}
+        options={[
+          { value: "", label: t("deals.filterStageAll") },
+          ...stages.map((stage) => ({ value: stage.id, label: stage.name })),
+        ]}
+      />
       <Select
         aria-label={t("create.organization")}
         value={query.filters.organization_id ?? ""}
-        onChange={(event) =>
-          setOrClearFilter(setQuery, "organization_id", event.target.value)
+        onChange={(value) =>
+          setOrClearFilter(setQuery, "organization_id", value)
         }
-      >
-        <option value="">{t("deals.filterOrgAll")}</option>
-        {orgs.map((org) => (
-          <option key={org.id} value={org.id}>
-            {org.display_name}
-          </option>
-        ))}
-      </Select>
+        options={[
+          { value: "", label: t("deals.filterOrgAll") },
+          ...orgs.map((org) => ({ value: org.id, label: org.display_name })),
+        ]}
+      />
     </div>
   );
 }
@@ -553,7 +551,7 @@ function DealsHeader({
             pipelineId={pipelineId}
             setPipelineId={(id) => {
               // A stage belongs to one pipeline; switching pipeline strands any
-              // stage_id filter (its <select> blanks out but useDeals would
+              // stage_id filter (the stage picker blanks out but useDeals would
               // still forward the old id and filter a foreign stage → 0 rows).
               setPipelineId(id);
               setOrClearFilter(setQuery, "stage_id", "");

@@ -10,6 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { UsersAdminCard } from "./users-admin";
 
@@ -61,17 +62,24 @@ const ROSTER = {
 };
 
 // Both helpers narrow by instance rather than asserting: a cast would let the
-// suite read `.value` off whatever the query happened to return, so a control
-// that stopped being a select would surface as a confusing undefined instead of
-// a named failure.
+// suite read `.disabled` off whatever the query happened to return, so a control
+// that stopped being the Select trigger would surface as a confusing undefined
+// instead of a named failure.
 function roleSelect(row: HTMLElement, name: string) {
-  const control = within(row).getByLabelText(
-    new RegExp(`set role for ${name}`, "i"),
-  );
-  if (!(control instanceof HTMLSelectElement)) {
-    throw new Error(`the role control for ${name} is not a select`);
+  const control = within(row).getByRole("combobox", {
+    name: new RegExp(`set role for ${name}`, "i"),
+  });
+  if (!(control instanceof HTMLButtonElement)) {
+    throw new Error(`the role control for ${name} is not a select trigger`);
   }
   return control;
+}
+
+// What the closed control reads. The trigger's only text is its face — the
+// chevron is aria-hidden and carries none — so this is the role an operator
+// sees on the row without opening anything.
+function roleShown(row: HTMLElement, name: string): string {
+  return roleSelect(row, name).textContent ?? "";
 }
 
 function rowFor(name: string) {
@@ -223,25 +231,25 @@ describe("UsersAdminCard", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    expect(roleSelect(rowFor("Ada Active"), "ada active").value).toBe("admin");
-    expect(roleSelect(rowFor("Otto Off"), "otto off").value).toBe("read_only");
+    expect(roleShown(rowFor("Ada Active"), "ada active")).toBe("Admin");
+    expect(roleShown(rowFor("Otto Off"), "otto off")).toBe("Read-only");
   });
 
   it("offers the placeholder to a member holding no role", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", backend([]));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Nora None")).toBeTruthy());
 
-    const select = roleSelect(rowFor("Nora None"), "nora none");
-    expect(select.value).toBe("");
-    expect(within(select).getByText("Set role…")).toBeTruthy();
-    // A member who already has a role gets no such option: it would be
-    // selectable and do nothing.
-    expect(
-      within(roleSelect(rowFor("Ada Active"), "ada active")).queryByText(
-        "Set role…",
-      ),
-    ).toBeNull();
+    expect(roleShown(rowFor("Nora None"), "nora none")).toBe("Set role…");
+    // It is a face and never an entry: picking "Set role…" back would set no
+    // role, so the list this row opens is the five assignable roles and nothing
+    // else. The options exist only while the popup is open, hence the click.
+    await user.click(roleSelect(rowFor("Nora None"), "nora none"));
+    const offered = within(screen.getByRole("listbox"))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(offered).toEqual(["Admin", "Manager", "Rep", "Read-only", "Ops"]);
   });
 
   // Any choice replaces the whole set, so a member holding several roles must
@@ -272,27 +280,24 @@ describe("UsersAdminCard", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Nora None")).toBeTruthy());
 
-    const select = roleSelect(rowFor("Nora None"), "nora none");
-    expect(select.value).toBe("");
     // Both held roles are named, under their display labels, and the copy says
     // what picking one does.
-    const shown = within(select).getByText(/holds/i).textContent ?? "";
+    const shown = roleShown(rowFor("Nora None"), "nora none");
+    expect(shown).toMatch(/holds/i);
     expect(shown).toContain("Manager");
     expect(shown).toContain("Ops");
     expect(shown).toMatch(/replaces them all/i);
   });
 
   it("sets a member's role through the role seam", async () => {
+    const user = userEvent.setup();
     const calls: { method: string; url: string; body?: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
-    await userEvent.selectOptions(
-      within(active).getByLabelText(/set role for ada active/i),
-      "manager",
-    );
+    await pickOption(user, roleSelect(active, "ada active"), "Manager");
 
     await waitFor(() =>
       expect(
@@ -326,6 +331,7 @@ describe("UsersAdminCard", () => {
   });
 
   it("surfaces a failed member action as an inline alert on the row", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -351,20 +357,21 @@ describe("UsersAdminCard", () => {
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const active = rowFor("Ada Active");
-    await userEvent.selectOptions(roleSelect(active, "ada active"), "rep");
+    await pickOption(user, roleSelect(active, "ada active"), "Rep");
 
     await waitFor(() => expect(within(active).getByRole("alert")).toBeTruthy());
     expect(screen.getByText(/leave no admin/i)).toBeTruthy();
     // The refused change left the role untouched, so the select must read the
     // role the member still holds — anything else would claim a change the
     // server rejected.
-    expect(roleSelect(active, "ada active").value).toBe("admin");
+    expect(roleShown(active, "ada active")).toBe("Admin");
   });
 
   // The whole reason the select returns to the held role after a refusal: a
   // select left showing the refused target would make re-picking it a no-op,
   // and the operator's retry would silently never reach the server.
   it("lets the same role be re-picked after a refusal", async () => {
+    const user = userEvent.setup();
     const patches: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -389,11 +396,11 @@ describe("UsersAdminCard", () => {
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const active = rowFor("Ada Active");
-    await userEvent.selectOptions(roleSelect(active, "ada active"), "rep");
+    await pickOption(user, roleSelect(active, "ada active"), "Rep");
     await waitFor(() => expect(patches).toHaveLength(1));
 
     // The SAME target again — the retry the operator would make.
-    await userEvent.selectOptions(roleSelect(active, "ada active"), "rep");
+    await pickOption(user, roleSelect(active, "ada active"), "Rep");
     await waitFor(() => expect(patches).toHaveLength(2));
   });
 
@@ -401,6 +408,7 @@ describe("UsersAdminCard", () => {
   // the member's replaced role from the stale cache — the operator would watch
   // their change appear and then undo itself.
   it("stays pending until the refreshed roster lands", async () => {
+    const user = userEvent.setup();
     let rosterReads = 0;
     // Built up front rather than captured lazily: the refetch has to be held
     // open from the moment it starts, and a deferred that only exists once the
@@ -443,12 +451,12 @@ describe("UsersAdminCard", () => {
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const active = rowFor("Ada Active");
-    await userEvent.selectOptions(roleSelect(active, "ada active"), "manager");
+    await pickOption(user, roleSelect(active, "ada active"), "Manager");
     await waitFor(() => expect(rosterReads).toBe(2));
 
-    // Mid-flight: the row reads the role being applied and stays locked. "admin"
+    // Mid-flight: the row reads the role being applied and stays locked. "Admin"
     // here would be the stale cache showing through.
-    expect(roleSelect(active, "ada active").value).toBe("manager");
+    expect(roleShown(active, "ada active")).toBe("Manager");
     expect(roleSelect(active, "ada active").disabled).toBe(true);
 
     releaseRoster();
@@ -457,9 +465,7 @@ describe("UsersAdminCard", () => {
         false,
       ),
     );
-    expect(roleSelect(rowFor("Ada Active"), "ada active").value).toBe(
-      "manager",
-    );
+    expect(roleShown(rowFor("Ada Active"), "ada active")).toBe("Manager");
   });
 
   it("surfaces a failed invite as an inline error", async () => {
