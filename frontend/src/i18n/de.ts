@@ -332,7 +332,6 @@ export const de = {
   "list.sortScore": "Score",
   "list.viewAll": "Alle",
   "list.viewAZ": "A–Z",
-  "list.viewHighestScore": "Höchster Score",
   "list.viewHot": "Heiß",
   "list.overlayReadOnly":
     "Sortierung und Filter laufen über HubSpot — dort öffnen",

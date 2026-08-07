@@ -282,7 +282,10 @@ export function LeadsScreen() {
             cell: (lead: Lead) => (
               <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
             ),
-            sort: "score",
+            // No sort: /leads declares the dial but its store orders by
+            // creation time regardless, so a clickable header here would be a
+            // control that changes nothing. Restored when the endpoint
+            // honours it.
             numeric: true,
           },
           {
@@ -310,14 +313,12 @@ export function LeadsScreen() {
             options: leadStatusFilterOptions.map((option) => ({ ...option })),
           },
         ]}
+        // "Highest score" is gone with the sort it was made of; Hot stays,
+        // because it narrows by score rather than ordering by it, and that the
+        // endpoint does answer.
         views={[
           { label: "list.viewAll", sort: "-created_at" },
-          { label: "list.viewHighestScore", sort: "-score" },
-          {
-            label: "list.viewHot",
-            sort: "-score",
-            filters: { min_score: "80" },
-          },
+          { label: "list.viewHot", filters: { min_score: "80" } },
         ]}
       />
     </div>
