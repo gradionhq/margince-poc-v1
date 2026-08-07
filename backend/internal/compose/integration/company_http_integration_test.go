@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"strconv"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type companyProfileDTO struct {
@@ -69,8 +71,8 @@ func orAbsent(value *string) string {
 
 // wellFormedCompany is a submission every required field of which is filled —
 // the base a test perturbs one field of, so a 422 can only be about that field.
-func wellFormedCompany() anyMap {
-	return anyMap{
+func wellFormedCompany() apptest.AnyMap {
+	return apptest.AnyMap{
 		"display_name":  "Acme GmbH",
 		"offer_summary": "Revenue operations software",
 		"icp":           "RevOps at SaaS scale-ups",
@@ -80,17 +82,17 @@ func wellFormedCompany() anyMap {
 // The gate's whole contract: a bare installation has not described itself, and
 // the SAME GET answers the company once a human has saved it.
 func TestCompanyIs404UntilAHumanSavesItOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
-	if status := e.call(t, "GET", "/v1/company", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/company", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("GET /company on a bare installation → %d, want 404 (the onboarding signal)", status)
 	}
 
 	body := wellFormedCompany()
 	body["website"] = "https://www.acme.example/about"
 	var saved companyProfileDTO
-	if status := e.call(t, "PUT", "/v1/company", body, nil, &saved); status != http.StatusOK {
+	if status := e.Call(t, "PUT", "/v1/company", body, nil, &saved); status != http.StatusOK {
 		t.Fatalf("PUT /company → %d, want 200", status)
 	}
 	// The website is stored and returned as the bare domain — the same handle a
@@ -100,7 +102,7 @@ func TestCompanyIs404UntilAHumanSavesItOverHTTP(t *testing.T) {
 	}
 
 	var got companyProfileDTO
-	if status := e.call(t, "GET", "/v1/company", nil, nil, &got); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/company", nil, nil, &got); status != http.StatusOK {
 		t.Fatalf("GET /company after save → %d, want 200", status)
 	}
 	if got.OrganizationID != saved.OrganizationID || got.DisplayName != "Acme GmbH" {
@@ -123,8 +125,8 @@ func TestCompanyIs404UntilAHumanSavesItOverHTTP(t *testing.T) {
 // or whitespace-only, is a 422 that NAMES that field — the human is told which
 // answer is missing rather than left to guess.
 func TestCompanyRequiredFieldsAreNamedIndividually(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	required := []string{"display_name", "offer_summary", "icp"}
 	cases := []struct {
@@ -145,7 +147,7 @@ func TestCompanyRequiredFieldsAreNamedIndividually(t *testing.T) {
 					body[field] = tc.value
 				}
 				var problem companyProblem
-				status := e.call(t, "PUT", "/v1/company", body, nil, &problem)
+				status := e.Call(t, "PUT", "/v1/company", body, nil, &problem)
 				if status != http.StatusUnprocessableEntity {
 					t.Fatalf("PUT /company without %s → %d, want 422", field, status)
 				}
@@ -158,7 +160,7 @@ func TestCompanyRequiredFieldsAreNamedIndividually(t *testing.T) {
 
 	// Nothing above was persisted: a refused submission leaves the
 	// installation undescribed.
-	if status := e.call(t, "GET", "/v1/company", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/company", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("a refused save created a company anyway (GET → %d, want 404)", status)
 	}
 }
@@ -166,12 +168,12 @@ func TestCompanyRequiredFieldsAreNamedIndividually(t *testing.T) {
 // Website is optional and forgiving of what a human types, but an answer that
 // could not name a host is refused rather than stored.
 func TestCompanyWebsiteIsOptionalAndNormalised(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// The typed-by-hand path: no website read at all, no website typed either.
 	var typed companyProfileDTO
-	if status := e.call(t, "PUT", "/v1/company", wellFormedCompany(), nil, &typed); status != http.StatusOK {
+	if status := e.Call(t, "PUT", "/v1/company", wellFormedCompany(), nil, &typed); status != http.StatusOK {
 		t.Fatalf("a company typed by hand with no website → %d, want 200", status)
 	}
 	if typed.Website != nil {
@@ -184,7 +186,7 @@ func TestCompanyWebsiteIsOptionalAndNormalised(t *testing.T) {
 	var problem companyProblem
 	body := wellFormedCompany()
 	body["website"] = "not a url at all"
-	if status := e.call(t, "PUT", "/v1/company", body, nil, &problem); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "PUT", "/v1/company", body, nil, &problem); status != http.StatusUnprocessableEntity {
 		t.Fatalf("an unparseable website → %d, want 422", status)
 	}
 	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "website" {
@@ -195,7 +197,7 @@ func TestCompanyWebsiteIsOptionalAndNormalised(t *testing.T) {
 	bare := wellFormedCompany()
 	bare["website"] = "acme.example"
 	var withBare companyProfileDTO
-	if status := e.call(t, "PUT", "/v1/company", bare, nil, &withBare); status != http.StatusOK {
+	if status := e.Call(t, "PUT", "/v1/company", bare, nil, &withBare); status != http.StatusOK {
 		t.Fatalf("a bare-domain website → %d, want 200", status)
 	}
 	if withBare.Website == nil || *withBare.Website != "acme.example" {
@@ -206,14 +208,14 @@ func TestCompanyWebsiteIsOptionalAndNormalised(t *testing.T) {
 // Saving twice is an UPDATE of the installation's own company — never a second
 // one. An optional field sent empty is cleared; one omitted is left as it was.
 func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	first := wellFormedCompany()
 	first["usp"] = "Evidence, not guesses"
 	first["industry"] = "B2B SaaS"
 	var saved companyProfileDTO
-	if status := e.call(t, "PUT", "/v1/company", first, nil, &saved); status != http.StatusOK {
+	if status := e.Call(t, "PUT", "/v1/company", first, nil, &saved); status != http.StatusOK {
 		t.Fatalf("first save → %d", status)
 	}
 
@@ -222,7 +224,7 @@ func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
 	second["display_name"] = "Acme SE"
 	second["usp"] = ""
 	var again companyProfileDTO
-	if status := e.call(t, "PUT", "/v1/company", second, nil, &again); status != http.StatusOK {
+	if status := e.Call(t, "PUT", "/v1/company", second, nil, &again); status != http.StatusOK {
 		t.Fatalf("second save → %d", status)
 	}
 	if again.OrganizationID != saved.OrganizationID {
@@ -246,7 +248,7 @@ func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/organizations?include_anchor=true", nil, nil, &orgs); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/organizations?include_anchor=true", nil, nil, &orgs); status != http.StatusOK {
 		t.Fatalf("list organizations → %d", status)
 	}
 	if len(orgs.Data) != 1 || orgs.Data[0].ID != saved.OrganizationID {
@@ -260,7 +262,7 @@ func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/organizations", nil, nil, &selling); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/organizations", nil, nil, &selling); status != http.StatusOK {
 		t.Fatalf("list organizations → %d", status)
 	}
 	if len(selling.Data) != 0 {
@@ -269,15 +271,15 @@ func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
 }
 
 func TestCompanyContextScopesAreBoundedOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var saved companyProfileDTO
-	if status := e.call(t, "PUT", "/v1/company", wellFormedCompany(), nil, &saved); status != http.StatusOK {
+	if status := e.Call(t, "PUT", "/v1/company", wellFormedCompany(), nil, &saved); status != http.StatusOK {
 		t.Fatalf("save company → %d", status)
 	}
 	var context companyContextDTO
-	if status := e.call(t, "GET", "/v1/company/context?scopes=offer,positioning", nil, nil, &context); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/company/context?scopes=offer,positioning", nil, nil, &context); status != http.StatusOK {
 		t.Fatalf("GET scoped company context → %d", status)
 	}
 	if context.OrganizationID != saved.OrganizationID || context.SchemaVersion != 1 || len(context.Fingerprint) != 64 {
@@ -294,7 +296,7 @@ func TestCompanyContextScopesAreBoundedOverHTTP(t *testing.T) {
 	}
 
 	var problem companyProblem
-	if status := e.call(t, "GET", "/v1/company/context?scopes=everything", nil, nil, &problem); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "GET", "/v1/company/context?scopes=everything", nil, nil, &problem); status != http.StatusUnprocessableEntity {
 		t.Fatalf("unknown context scope → %d, want 422", status)
 	}
 	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "scopes" {
@@ -306,13 +308,13 @@ func TestCompanyContextScopesAreBoundedOverHTTP(t *testing.T) {
 // but never make it true, exactly as it may stage an approval and never approve
 // it. A write-scoped passport is still refused.
 func TestCompanyPutRefusesAnAgentPassport(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "read-back agent", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -320,12 +322,12 @@ func TestCompanyPutRefusesAnAgentPassport(t *testing.T) {
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 
 	var problem companyProblem
-	status := e.call(t, "PUT", "/v1/company", wellFormedCompany(), bearer, &problem)
+	status := e.Call(t, "PUT", "/v1/company", wellFormedCompany(), bearer, &problem)
 	if status != http.StatusForbidden || problem.Code != "permission_denied" {
 		t.Fatalf("agent PUT /company → %d %q, want 403 permission_denied", status, problem.Code)
 	}
 	// Refused means refused: the agent's submission did not become the company.
-	if getStatus := e.call(t, "GET", "/v1/company", nil, nil, nil); getStatus != http.StatusNotFound {
+	if getStatus := e.Call(t, "GET", "/v1/company", nil, nil, nil); getStatus != http.StatusNotFound {
 		t.Fatalf("the agent's refused PUT still saved a company (GET → %d, want 404)", getStatus)
 	}
 }

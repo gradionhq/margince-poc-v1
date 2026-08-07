@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
@@ -46,7 +47,7 @@ const (
 )
 
 type preflightEnv struct {
-	*env
+	*apptest.AppEnv
 	activityID string
 	personID   string
 	ws, user   string
@@ -55,10 +56,10 @@ type preflightEnv struct {
 // inWorkspace runs fn on the owner connection under the bootstrapped
 // workspace's GUC. FORCE RLS applies to the owner too, so a tenant table is
 // unreachable without it.
-func (e *env) inWorkspace(t *testing.T, slug string, fn func(pgx.Tx) error) error {
+func inWorkspace(e *apptest.AppEnv, t *testing.T, slug string, fn func(pgx.Tx) error) error {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := e.owner.Begin(ctx)
+	tx, err := e.Owner.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -137,25 +138,25 @@ func setupPreflightIn(t *testing.T, extra ...compose.Option) *preflightEnv {
 	// without a boot-configured base to build it from, so the fixture
 	// carries one — an install that can send at all has one.
 	opts = append(opts, compose.WithPublicBaseURL(preflightBaseURL))
-	e := setupWithOptions(t, opts...)
-	e.slug = "preflight-e2e"
-	bootstrapWorkspaceSession(t, e, "Preflight E2E", "sender@fable.test", "Admin")
+	e := apptest.SetupAppWithOptions(t, opts...)
+	e.Slug = "preflight-e2e"
+	apptest.BootstrapWorkspaceSession(t, e, "Preflight E2E", "sender@fable.test", "Admin")
 
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Consented Buyer",
-		"emails":    []anyMap{{"email": "buyer@preflight.test"}},
+		"emails":    []apptest.AnyMap{{"email": "buyer@preflight.test"}},
 	}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
 	var activity struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/activities", anyMap{
+	if status := e.Call(t, "POST", "/v1/activities", apptest.AnyMap{
 		"kind": "email", "subject": "Inbound question", "direction": "inbound",
-		"links": []anyMap{{"entity_type": "person", "entity_id": person.ID}},
+		"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": person.ID}},
 	}, nil, &activity); status != http.StatusCreated {
 		t.Fatalf("log anchor activity → %d", status)
 	}
@@ -168,7 +169,7 @@ func setupPreflightIn(t *testing.T, extra ...compose.Option) *preflightEnv {
 			Key string `json:"key"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
 		t.Fatalf("list purposes → %d", status)
 	}
 	var transactional string
@@ -180,20 +181,20 @@ func setupPreflightIn(t *testing.T, extra ...compose.Option) *preflightEnv {
 	if transactional == "" {
 		t.Fatalf("bootstrap seeded no transactional purpose: %+v", purposes.Data)
 	}
-	if status := e.call(t, "POST", "/v1/people/"+person.ID+"/consent", anyMap{
+	if status := e.Call(t, "POST", "/v1/people/"+person.ID+"/consent", apptest.AnyMap{
 		"purpose_id": transactional, "new_state": "granted", "lawful_basis": "consent",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("record consent → %d", status)
 	}
 
 	var ws, user string
-	if err := e.inWorkspace(t, e.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT workspace_id, id FROM app_user WHERE email = $1`, "sender@fable.test").Scan(&ws, &user)
 	}); err != nil {
 		t.Fatalf("resolving the acting human: %v", err)
 	}
-	return &preflightEnv{env: e, activityID: activity.ID, personID: person.ID, ws: ws, user: user}
+	return &preflightEnv{AppEnv: e, activityID: activity.ID, personID: person.ID, ws: ws, user: user}
 }
 
 // send issues the authenticated send and returns the status plus the
@@ -217,7 +218,7 @@ func (p *preflightEnv) send(t *testing.T) (status int, code, message string) {
 			} `json:"errors"`
 		} `json:"details"`
 	}
-	status = p.call(t, "POST", "/v1/activities/"+p.activityID+"/send-email", anyMap{
+	status = p.Call(t, "POST", "/v1/activities/"+p.activityID+"/send-email", apptest.AnyMap{
 		"subject": "Re: Inbound question", "body": "answer",
 		"to": []string{"buyer@preflight.test"}, "consent_purpose": "transactional",
 	}, nil, &problem)
@@ -232,7 +233,7 @@ func (p *preflightEnv) send(t *testing.T) (status int, code, message string) {
 func (p *preflightEnv) stagedDeliveries(t *testing.T) int {
 	t.Helper()
 	var n int
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM comms_outbound`).Scan(&n)
 	}); err != nil {
 		t.Fatalf("counting staged deliveries: %v", err)
@@ -245,7 +246,7 @@ func (p *preflightEnv) stagedDeliveries(t *testing.T) int {
 // reads out of the row, not how the OAuth callback puts it there.
 func (p *preflightEnv) connect(t *testing.T, providerScopes ...string) {
 	t.Helper()
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, status, auth, provider_scopes)
 			VALUES ($1, 'gmail', $2, '{}', 'connected', $3, $4)

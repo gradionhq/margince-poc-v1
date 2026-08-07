@@ -22,18 +22,19 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func TestOfferPdfHTTP_DownloadBeforeRenderReturns404(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	dealID := offerFixture(t, e)
 
-	var offer anyMap
-	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
+	var offer apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deals/"+dealID+"/offers", apptest.AnyMap{
 		"currency": "EUR", "source": "manual",
-		"line_items": []anyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
+		"line_items": []apptest.AnyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
 	}, nil, &offer); status != http.StatusCreated {
 		t.Fatalf("create offer for pdf download = %d %v", status, offer)
 	}
@@ -42,29 +43,29 @@ func TestOfferPdfHTTP_DownloadBeforeRenderReturns404(t *testing.T) {
 		t.Fatalf("create offer for pdf download response carries no id: %v", offer)
 	}
 
-	if status := e.call(t, "GET", "/v1/offers/"+offerID+"/pdf", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/offers/"+offerID+"/pdf", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("download pdf before any render = %d, want 404", status)
 	}
 }
 
 func TestOfferPdfHTTP_DownloadNonexistentOfferReturns404(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
-	if status := e.call(t, "GET", "/v1/offers/"+ids.NewV7().String()+"/pdf", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/offers/"+ids.NewV7().String()+"/pdf", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("download pdf for an offer that was never created = %d, want 404", status)
 	}
 }
 
 func TestOfferPdfHTTP_DownloadWhenTheBlobIsGoneReturns404(t *testing.T) {
 	e, blob := setupWithBlobstore(t)
-	e.bootstrapWorkspace(t)
+	e.BootstrapWorkspace(t)
 	dealID := offerFixture(t, e)
 
-	var offer anyMap
-	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
+	var offer apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deals/"+dealID+"/offers", apptest.AnyMap{
 		"currency": "EUR", "source": "manual",
-		"line_items": []anyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
+		"line_items": []apptest.AnyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
 	}, nil, &offer); status != http.StatusCreated {
 		t.Fatalf("create offer for pdf download = %d %v", status, offer)
 	}
@@ -74,7 +75,7 @@ func TestOfferPdfHTTP_DownloadWhenTheBlobIsGoneReturns404(t *testing.T) {
 	}
 
 	var rendered renderedOffer
-	if status := e.call(t, "POST", "/v1/offers/"+offerID+"/render", anyMap{}, nil, &rendered); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/offers/"+offerID+"/render", apptest.AnyMap{}, nil, &rendered); status != http.StatusOK {
 		t.Fatalf("render offer = %d %+v, want 200", status, rendered)
 	}
 
@@ -85,20 +86,20 @@ func TestOfferPdfHTTP_DownloadWhenTheBlobIsGoneReturns404(t *testing.T) {
 		t.Fatalf("delete the rendered blob out from under its ref: %v", err)
 	}
 
-	if status := e.call(t, "GET", "/v1/offers/"+offerID+"/pdf", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/offers/"+offerID+"/pdf", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("download pdf after the blob is gone = %d, want 404", status)
 	}
 }
 
 func TestOfferPdfHTTP_DownloadAfterRenderReturnsTheRenderedBytes(t *testing.T) {
 	e, _ := setupWithBlobstore(t)
-	e.bootstrapWorkspace(t)
+	e.BootstrapWorkspace(t)
 	dealID := offerFixture(t, e)
 
-	var offer anyMap
-	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
+	var offer apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deals/"+dealID+"/offers", apptest.AnyMap{
 		"currency": "EUR", "source": "manual",
-		"line_items": []anyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
+		"line_items": []apptest.AnyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
 	}, nil, &offer); status != http.StatusCreated {
 		t.Fatalf("create offer for pdf download = %d %v", status, offer)
 	}
@@ -108,20 +109,20 @@ func TestOfferPdfHTTP_DownloadAfterRenderReturnsTheRenderedBytes(t *testing.T) {
 	}
 
 	var rendered renderedOffer
-	if status := e.call(t, "POST", "/v1/offers/"+offerID+"/render", anyMap{}, nil, &rendered); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/offers/"+offerID+"/render", apptest.AnyMap{}, nil, &rendered); status != http.StatusOK {
 		t.Fatalf("render offer = %d %+v, want 200", status, rendered)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, e.ts.URL+"/v1/offers/"+offerID+"/pdf", nil)
+	req, err := http.NewRequest(http.MethodGet, e.TS.URL+"/v1/offers/"+offerID+"/pdf", nil)
 	if err != nil {
 		t.Fatalf("building pdf download request: %v", err)
 	}
-	req.Header.Set("X-Workspace-Slug", e.slug)
-	resp, err := e.client.Do(req)
+	req.Header.Set("X-Workspace-Slug", e.Slug)
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatalf("GET pdf: %v", err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("download pdf after render = %d, want 200", resp.StatusCode)
 	}

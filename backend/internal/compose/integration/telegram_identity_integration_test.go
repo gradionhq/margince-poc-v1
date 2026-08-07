@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
@@ -85,7 +86,7 @@ func TestAC_TG_6_IdentityPhoneDisagreementIsAConflictNotAMerge(t *testing.T) {
 	admin := c.adminStoreCtx(t)
 	var routed ids.PersonID
 	var conflict *people.LaneConflict
-	if err := database.WithWorkspaceTx(admin, c.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(admin, c.Pool, func(tx pgx.Tx) error {
 		res, err := people.DedupePerson(admin, tx, people.PersonCandidate{
 			FullName:          "Phone Half",
 			Phones:            []string{phone},
@@ -105,7 +106,7 @@ func TestAC_TG_6_IdentityPhoneDisagreementIsAConflictNotAMerge(t *testing.T) {
 		t.Fatal("two exact lanes named different people and no conflict was reported — the disagreement would be resolved silently")
 	}
 
-	recorded, err := people.NewStore(c.pool).EnqueueIdentityConflict(admin, *conflict,
+	recorded, err := people.NewStore(c.Pool).EnqueueIdentityConflict(admin, *conflict,
 		"telegram:"+fmt.Sprintf("%d", telegramBotID)+":"+account+":1", "connector:telegram")
 	if err != nil {
 		t.Fatalf("EnqueueIdentityConflict: %v", err)
@@ -134,7 +135,7 @@ func (c *telegramEnv) assertConflictIsReviewable(t *testing.T, channelPerson, ph
 			} `json:"evidence"`
 		} `json:"data"`
 	}
-	if status := c.call(t, "GET", "/v1/dedupe/candidates?entity_type=person", nil, nil, &queue); status != http.StatusOK {
+	if status := c.Call(t, "GET", "/v1/dedupe/candidates?entity_type=person", nil, nil, &queue); status != http.StatusOK {
 		t.Fatalf("GET /v1/dedupe/candidates → %d, want 200", status)
 	}
 	if len(queue.Data) != 1 {
@@ -201,14 +202,14 @@ func (c *telegramEnv) assertNothingWasMerged(t *testing.T, channelPerson, phoneP
 // a record the product itself would have produced.
 func (c *telegramEnv) seedPerson(t *testing.T, name string, phone *string) string {
 	t.Helper()
-	body := anyMap{"full_name": name}
+	body := apptest.AnyMap{"full_name": name}
 	if phone != nil {
-		body["phones"] = []anyMap{{"phone": *phone, "phone_type": "mobile"}}
+		body["phones"] = []apptest.AnyMap{{"phone": *phone, "phone_type": "mobile"}}
 	}
 	var created struct {
 		ID string `json:"id"`
 	}
-	if status := c.call(t, "POST", "/v1/people", body, nil, &created); status != http.StatusCreated {
+	if status := c.Call(t, "POST", "/v1/people", body, nil, &created); status != http.StatusCreated {
 		t.Fatalf("seeding person %q → %d", name, status)
 	}
 	return created.ID
@@ -220,7 +221,7 @@ func (c *telegramEnv) seedPerson(t *testing.T, name string, phone *string) strin
 // there (which AC-TG-3 already proves).
 func (c *telegramEnv) bindChannelIdentity(t *testing.T, person string, identity connector.ChannelIdentity) {
 	t.Helper()
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO person_channel_identity
 			  (workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
@@ -313,8 +314,8 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 	first := telegramUpdate{updateID: 5701, messageID: 71, senderID: 770701, username: "racer", firstName: "Nadia", text: "first"}
 	second := telegramUpdate{updateID: 5702, messageID: 72, senderID: 770701, username: "racer", firstName: "Nadia", text: "second"}
 
-	sink := capture.NewSink(c.pool).
-		WithChannelEnsurer(channelEnsureForwarder{store: people.NewStore(c.pool)})
+	sink := capture.NewSink(c.Pool).
+		WithChannelEnsurer(channelEnsureForwarder{store: people.NewStore(c.Pool)})
 	ctx := c.channelConnectorCtx(t)
 
 	start := make(chan struct{})
@@ -354,7 +355,7 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 	// across two people is the failure this convergence exists to prevent.
 	var links int
 	var linkedPeople int
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT count(*), count(DISTINCT l.person_id)
 			  FROM activity_link l JOIN activity a ON a.id = l.activity_id
@@ -407,7 +408,7 @@ func TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := privacy.NewEraser(c.pool).ErasePerson(c.adminStoreCtx(t), person, "acceptance-suite"); err != nil {
+	if err := privacy.NewEraser(c.Pool).ErasePerson(c.adminStoreCtx(t), person, "acceptance-suite"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 	if n := c.channelIdentities(t, before); n != 0 {
@@ -457,7 +458,7 @@ func (c *telegramEnv) accountSuppressed(t *testing.T, account string) bool {
 	t.Helper()
 	ctx := principal.WithWorkspaceID(context.Background(), c.workspaceID(t))
 	var answer bool
-	if err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(ctx, c.Pool, func(tx pgx.Tx) error {
 		var err error
 		answer, err = storekit.ChannelIdentitySuppressed(ctx, tx, "telegram", account)
 		return err

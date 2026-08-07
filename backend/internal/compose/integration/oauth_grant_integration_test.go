@@ -56,7 +56,7 @@ func TestCodeExchangeIssuesAGrantAndItsFirstRefreshToken(t *testing.T) {
 		refreshAllowed bool
 		revokedAt      *time.Time
 	)
-	if err := o.owner.QueryRow(ctx,
+	if err := o.Owner.QueryRow(ctx,
 		`SELECT id, scopes, refresh_allowed, revoked_at FROM oauth_grant`).
 		Scan(&grantID, &grantScopes, &refreshAllowed, &revokedAt); err != nil {
 		t.Fatalf("reading the grant: %v", err)
@@ -71,7 +71,7 @@ func TestCodeExchangeIssuesAGrantAndItsFirstRefreshToken(t *testing.T) {
 	// The passport the client calls with points at that grant, so revoking
 	// the connection reaches the credential.
 	var stamped string
-	if err := o.owner.QueryRow(ctx,
+	if err := o.Owner.QueryRow(ctx,
 		`SELECT oauth_grant_id FROM passport WHERE token_hash = $1`,
 		sha256Hex(body["access_token"].(string))).Scan(&stamped); err != nil {
 		t.Fatalf("reading the minted passport's grant: %v", err)
@@ -88,7 +88,7 @@ func TestCodeExchangeIssuesAGrantAndItsFirstRefreshToken(t *testing.T) {
 		replacedBy *string
 		expiresAt  time.Time
 	)
-	if err := o.owner.QueryRow(ctx,
+	if err := o.Owner.QueryRow(ctx,
 		`SELECT token_hash, consumed_at, replaced_by, expires_at FROM oauth_refresh_token WHERE grant_id = $1`,
 		grantID).Scan(&tokenHash, &consumedAt, &replacedBy, &expiresAt); err != nil {
 		t.Fatalf("reading the refresh row under the grant: %v", err)
@@ -124,7 +124,7 @@ func TestCodeExchangeAfterTheHumanIsDeactivatedIssuesNoGrant(t *testing.T) {
 
 	// Every member, so the assertion does not depend on WHICH fixture user the
 	// consent screen bound the code to.
-	if _, err := o.owner.Exec(ctx,
+	if _, err := o.Owner.Exec(ctx,
 		`UPDATE app_user SET status = 'deactivated' WHERE status = 'active'`); err != nil {
 		t.Fatalf("deactivating the consenting members: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestCodeExchangeWithoutOfflineAccessReturnsNoRefreshToken(t *testing.T) {
 
 	assertOwnerCount(t, o, 1, `SELECT count(*) FROM oauth_grant`)
 	var refreshAllowed bool
-	if err := o.owner.QueryRow(context.Background(),
+	if err := o.Owner.QueryRow(context.Background(),
 		`SELECT refresh_allowed FROM oauth_grant`).Scan(&refreshAllowed); err != nil {
 		t.Fatalf("reading the grant: %v", err)
 	}

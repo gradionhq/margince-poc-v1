@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -229,9 +230,9 @@ func lastSystemLog(t *testing.T, e *SearchEnv, action string) (gotAction string,
 // filtered export returns a CSV download, and an out-of-vocabulary filter
 // answers 422 — proving the transport wiring and error mapping.
 func TestFilteredExportHTTPEndToEnd(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "ada@example.com", "password": "correct-horse-battery",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("login → %d", status)
@@ -239,21 +240,21 @@ func TestFilteredExportHTTPEndToEnd(t *testing.T) {
 
 	// A valid filter with no matching rows still returns a CSV (header row):
 	// the endpoint is wired and the open format is honest on an empty slice.
-	body, err := json.Marshal(anyMap{
+	body, err := json.Marshal(apptest.AnyMap{
 		"object": "deal",
-		"filter": anyMap{"field": "forecast_category", "op": "eq", "value": "commit"},
+		"filter": apptest.AnyMap{"field": "forecast_category", "op": "eq", "value": "commit"},
 		"format": "csv",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest("POST", e.ts.URL+"/v1/exports", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", e.TS.URL+"/v1/exports", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Workspace-Slug", e.slug)
-	resp, err := e.client.Do(req)
+	req.Header.Set("X-Workspace-Slug", e.Slug)
+	resp, err := e.Client.Do(req)
 	if err != nil {
 		t.Fatalf("export request: %v", err)
 	}
@@ -280,9 +281,9 @@ func TestFilteredExportHTTPEndToEnd(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	if status := e.call(t, "POST", "/v1/exports", anyMap{
+	if status := e.Call(t, "POST", "/v1/exports", apptest.AnyMap{
 		"object": "deal",
-		"filter": anyMap{"field": "amount_minor", "op": "eq", "value": 1},
+		"filter": apptest.AnyMap{"field": "amount_minor", "op": "eq", "value": 1},
 		"format": "csv",
 	}, nil, &problem); status != http.StatusUnprocessableEntity {
 		t.Fatalf("out-of-vocabulary filter → %d, want 422", status)

@@ -37,6 +37,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // customFieldWire mirrors the contract's CustomField field by field,
@@ -91,10 +92,10 @@ var cfColumnName = regexp.MustCompile(`^cf_[a-z0-9_]+$`)
 // admin session in the client jar — every subtest below rides this one
 // bootstrapped workspace, since the custom-field catalog is workspace-shared
 // admin config with no per-row scope to isolate between subtests.
-func schemaWiredEnv(t *testing.T) *env {
+func schemaWiredEnv(t *testing.T) *apptest.AppEnv {
 	t.Helper()
-	e := setupWithOptions(t, compose.WithSchemaPool(SchemaPool(t)))
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(SchemaPool(t)))
+	e.BootstrapWorkspace(t)
 	return e
 }
 
@@ -106,10 +107,10 @@ func schemaWiredEnv(t *testing.T) *env {
 // number http.StatusCode, while CustomField's own `status` is the
 // lifecycle string (active/retired) — unmarshaling one body into the
 // other's struct would fail on that type mismatch, not just leave zeros.
-func createCustomField(t *testing.T, e *env, body anyMap) (int, customFieldWire, customFieldProblem) {
+func createCustomField(t *testing.T, e *apptest.AppEnv, body apptest.AnyMap) (int, customFieldWire, customFieldProblem) {
 	t.Helper()
 	var raw json.RawMessage
-	status := e.call(t, "POST", "/v1/custom-fields", body, nil, &raw)
+	status := e.Call(t, "POST", "/v1/custom-fields", body, nil, &raw)
 	var field customFieldWire
 	var problem customFieldProblem
 	if len(raw) == 0 {

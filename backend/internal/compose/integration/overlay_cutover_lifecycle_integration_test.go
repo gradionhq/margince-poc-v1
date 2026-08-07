@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
@@ -74,10 +75,10 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 		t.Fatalf("writing the pre-flip export: %v", err)
 	}
 	var verdict crmcontracts.OverlayFlipPreflight
-	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK || !verdict.Ready {
+	if code := e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK || !verdict.Ready {
 		t.Fatalf("preflight = %d ready=%v blocking=%v", code, verdict.Ready, verdict.Blocking)
 	}
-	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+	if code := e.Call(t, "POST", "/v1/overlay/flip", apptest.AnyMap{
 		"confirmation_phrase": "FLIP TO SOR",
 	}, nil, nil); code != http.StatusAccepted {
 		t.Fatalf("execute = %d", code)
@@ -87,7 +88,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	// already native; the disconnect revokes the connection and purges
 	// the mirror + derivatives, while native data, audit, and the
 	// export bundle remain.
-	if code := e.call(t, "DELETE", "/v1/overlay/connection", nil, nil, nil); code != http.StatusAccepted {
+	if code := e.Call(t, "DELETE", "/v1/overlay/connection", nil, nil, nil); code != http.StatusAccepted {
 		t.Fatalf("disconnect after flip = %d, want 202", code)
 	}
 
@@ -214,13 +215,13 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 	t.Helper()
 	ctx := context.Background()
 	ws := ids.NewV7()
-	if _, err := f.e.owner.Exec(ctx,
+	if _, err := f.e.Owner.Exec(ctx,
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Clean Rebuild', $2, 'EUR')`,
 		ws, "clean-rebuild-"+ws.String()); err != nil {
 		t.Fatalf("seeding the clean workspace: %v", err)
 	}
 	user := ids.New[ids.UserKind]()
-	if _, err := f.e.owner.Exec(ctx,
+	if _, err := f.e.Owner.Exec(ctx,
 		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rebuild Admin')`,
 		user, ws, "rebuild-"+user.String()+"@clean.test"); err != nil {
 		t.Fatalf("seeding the clean workspace admin: %v", err)

@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -73,14 +74,14 @@ type orgRollupFxProblem struct {
 
 // createOrgRollupOrg creates one organization through the real write path,
 // optionally hanging it under parentID (empty = a root).
-func createOrgRollupOrg(t *testing.T, e *env, name, parentID string) string {
+func createOrgRollupOrg(t *testing.T, e *apptest.AppEnv, name, parentID string) string {
 	t.Helper()
-	body := anyMap{"display_name": name, "source": "ui"}
+	body := apptest.AnyMap{"display_name": name, "source": "ui"}
 	if parentID != "" {
 		body["parent_org_id"] = parentID
 	}
-	var org anyMap
-	if status := e.call(t, "POST", "/v1/organizations", body, nil, &org); status != http.StatusCreated {
+	var org apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/organizations", body, nil, &org); status != http.StatusCreated {
 		t.Fatalf("create organization %q = %d %v", name, status, org)
 	}
 	return org["id"].(string)
@@ -90,7 +91,7 @@ func createOrgRollupOrg(t *testing.T, e *env, name, parentID string) string {
 // open stage and its live win probability, so the happy-path assertion
 // below can compute the expected weighted-pipeline figure exactly rather
 // than asserting a mere non-zero value.
-func orgRollupOpenStage(t *testing.T, e *env) (pipelineID, stageID string, winProbability int) {
+func orgRollupOpenStage(t *testing.T, e *apptest.AppEnv) (pipelineID, stageID string, winProbability int) {
 	t.Helper()
 	var pipelines struct {
 		Data []struct {
@@ -102,7 +103,7 @@ func orgRollupOpenStage(t *testing.T, e *env) (pipelineID, stageID string, winPr
 			} `json:"stages"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
 		t.Fatalf("list pipelines = %d", status)
 	}
 	if len(pipelines.Data) != 1 {
@@ -121,10 +122,10 @@ func orgRollupOpenStage(t *testing.T, e *env) (pipelineID, stageID string, winPr
 // createOrgRollupOpenDeal opens one deal on org through the real write
 // path; amountMinor is the caller's choice so the rollup's weighted-value
 // rounding stays exact arithmetic in the caller's test, not a guess.
-func createOrgRollupOpenDeal(t *testing.T, e *env, pipelineID, stageID, orgID string, amountMinor int64, currency string) {
+func createOrgRollupOpenDeal(t *testing.T, e *apptest.AppEnv, pipelineID, stageID, orgID string, amountMinor int64, currency string) {
 	t.Helper()
-	var deal anyMap
-	status := e.call(t, "POST", "/v1/deals", anyMap{
+	var deal apptest.AnyMap
+	status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name":            "Rollup HTTP Deal",
 		"amount_minor":    amountMinor,
 		"currency":        currency,
@@ -150,10 +151,10 @@ const orgRollupHTTPDealAmountMinor = 1_000_000
 // over the seeded deal and the seeded stage's live win probability, both
 // money objects always carry the workspace base currency, and
 // restricted_excluded decodes as a real (non-nil) empty array.
-func assertOrgRollupTreeHappyPath(t *testing.T, e *env, root string, winProbability int) {
+func assertOrgRollupTreeHappyPath(t *testing.T, e *apptest.AppEnv, root string, winProbability int) {
 	t.Helper()
 	var rollup orgRollupResponseWire
-	status := e.call(t, "GET", "/v1/organizations/"+root+"/hierarchy-rollup", nil, nil, &rollup)
+	status := e.Call(t, "GET", "/v1/organizations/"+root+"/hierarchy-rollup", nil, nil, &rollup)
 	if status != http.StatusOK {
 		t.Fatalf("rollup status = %d, want 200: %+v", status, rollup)
 	}
@@ -184,10 +185,10 @@ func assertOrgRollupTreeHappyPath(t *testing.T, e *env, root string, winProbabil
 
 // assertOrgRollupSelfScope drives scope=self on child and checks it
 // reports the child alone — the parent's deal never rolls down.
-func assertOrgRollupSelfScope(t *testing.T, e *env, child string) {
+func assertOrgRollupSelfScope(t *testing.T, e *apptest.AppEnv, child string) {
 	t.Helper()
 	var rollup orgRollupResponseWire
-	status := e.call(t, "GET", "/v1/organizations/"+child+"/hierarchy-rollup?scope=self", nil, nil, &rollup)
+	status := e.Call(t, "GET", "/v1/organizations/"+child+"/hierarchy-rollup?scope=self", nil, nil, &rollup)
 	if status != http.StatusOK {
 		t.Fatalf("self rollup status = %d, want 200: %+v", status, rollup)
 	}
@@ -205,13 +206,13 @@ func assertOrgRollupSelfScope(t *testing.T, e *env, child string) {
 // assertOrgRollupFXUnavailable seeds a fresh root with an open USD deal and
 // no stored USD->EUR rate, and checks the wire shape of the resulting
 // fx_rate_unavailable refusal.
-func assertOrgRollupFXUnavailable(t *testing.T, e *env, pipelineID, stageID string) {
+func assertOrgRollupFXUnavailable(t *testing.T, e *apptest.AppEnv, pipelineID, stageID string) {
 	t.Helper()
 	fxRoot := createOrgRollupOrg(t, e, "Rollup HTTP FX Root", "")
 	createOrgRollupOpenDeal(t, e, pipelineID, stageID, fxRoot, 10_000, "USD") // no USD->EUR rate on file
 
 	var problem orgRollupFxProblem
-	status := e.call(t, "GET", "/v1/organizations/"+fxRoot+"/hierarchy-rollup", nil, nil, &problem)
+	status := e.Call(t, "GET", "/v1/organizations/"+fxRoot+"/hierarchy-rollup", nil, nil, &problem)
 	if status != http.StatusUnprocessableEntity {
 		t.Fatalf("fx-unavailable status = %d, want 422: %+v", status, problem)
 	}
@@ -227,8 +228,8 @@ func assertOrgRollupFXUnavailable(t *testing.T, e *env, pipelineID, stageID stri
 }
 
 func TestOrgRollupHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	pipelineID, stageID, winProbability := orgRollupOpenStage(t, e)
 
 	root := createOrgRollupOrg(t, e, "Rollup HTTP Root", "")
@@ -245,7 +246,7 @@ func TestOrgRollupHTTP(t *testing.T) {
 
 	t.Run("422 invalid scope", func(t *testing.T) {
 		var problem fieldHistoryProblem
-		status := e.call(t, "GET", "/v1/organizations/"+root+"/hierarchy-rollup?scope=bogus", nil, nil, &problem)
+		status := e.Call(t, "GET", "/v1/organizations/"+root+"/hierarchy-rollup?scope=bogus", nil, nil, &problem)
 		assertFieldHistoryValidation422(t, status, problem, "scope", "invalid_enum")
 	})
 
@@ -254,7 +255,7 @@ func TestOrgRollupHTTP(t *testing.T) {
 	})
 
 	t.Run("404 nonexistent organization", func(t *testing.T) {
-		status := e.call(t, "GET", "/v1/organizations/"+ids.NewV7().String()+"/hierarchy-rollup", nil, nil, nil)
+		status := e.Call(t, "GET", "/v1/organizations/"+ids.NewV7().String()+"/hierarchy-rollup", nil, nil, nil)
 		if status != http.StatusNotFound {
 			t.Fatalf("nonexistent org rollup status = %d, want 404", status)
 		}

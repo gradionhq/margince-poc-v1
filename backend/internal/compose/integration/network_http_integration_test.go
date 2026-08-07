@@ -12,6 +12,8 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type networkColleagueDTO struct {
@@ -39,18 +41,18 @@ type coverageRiskDTO struct {
 
 type dealCoverageDTO struct {
 	DealID       string            `json:"deal_id"`
-	Stakeholders []anyMap          `json:"stakeholders"`
-	OurSide      []anyMap          `json:"our_side"`
+	Stakeholders []apptest.AnyMap  `json:"stakeholders"`
+	OurSide      []apptest.AnyMap  `json:"our_side"`
 	Risks        []coverageRiskDTO `json:"risks"`
 }
 
 func TestPersonNetworkAnswersHonestlyWhenNobodyKnowsThem(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
-	var person anyMap
-	if status := e.call(t, "POST", "/v1/people",
-		anyMap{"full_name": "Unknown Contact"}, nil, &person); status != http.StatusCreated {
+	var person apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/people",
+		apptest.AnyMap{"full_name": "Unknown Contact"}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("creating the contact: %d", status)
 	}
 	id, _ := person["id"].(string)
@@ -59,7 +61,7 @@ func TestPersonNetworkAnswersHonestlyWhenNobodyKnowsThem(t *testing.T) {
 	// and not an error. "The account is cold" is the useful answer here, and
 	// the surface has to be able to say it.
 	var got personNetworkDTO
-	if status := e.call(t, "GET", "/v1/people/"+id+"/network", nil, nil, &got); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/people/"+id+"/network", nil, nil, &got); status != http.StatusOK {
 		t.Fatalf("network status = %d, want 200", status)
 	}
 	if got.PersonID != id {
@@ -71,13 +73,13 @@ func TestPersonNetworkAnswersHonestlyWhenNobodyKnowsThem(t *testing.T) {
 }
 
 func TestPersonNetworkHidesAContactTheCallerCannotRead(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// A person id that does not exist is indistinguishable from one this
 	// caller may not see — existence is not disclosed, here as everywhere.
-	var body anyMap
-	if status := e.call(t, "GET",
+	var body apptest.AnyMap
+	if status := e.Call(t, "GET",
 		"/v1/people/019fb000-0000-7000-8000-00000000dead/network", nil, nil, &body); status != http.StatusNotFound {
 		t.Errorf("an unknown contact answered %d, want 404 — a network read must not "+
 			"confirm that a record exists when the person read would not", status)
@@ -85,17 +87,17 @@ func TestPersonNetworkHidesAContactTheCallerCannotRead(t *testing.T) {
 }
 
 func TestDealCoverageFlagsAThreadlessDealAndExplainsWhy(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
-	var pipelines anyMap
-	if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
+	var pipelines apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
 		t.Fatalf("listing pipelines: %d", status)
 	}
 	pipeline, stage := firstPipelineAndStage(t, pipelines)
 
-	var deal anyMap
-	if status := e.call(t, "POST", "/v1/deals", anyMap{
+	var deal apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name": "Threadless", "pipeline_id": pipeline, "stage_id": stage, "source": "ui",
 	}, nil, &deal); status != http.StatusCreated {
 		t.Fatalf("creating the deal: %d", status)
@@ -103,7 +105,7 @@ func TestDealCoverageFlagsAThreadlessDealAndExplainsWhy(t *testing.T) {
 	dealID, _ := deal["id"].(string)
 
 	var got dealCoverageDTO
-	if status := e.call(t, "GET", "/v1/deals/"+dealID+"/coverage", nil, nil, &got); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/deals/"+dealID+"/coverage", nil, nil, &got); status != http.StatusOK {
 		t.Fatalf("coverage status = %d, want 200", status)
 	}
 	if got.DealID != dealID {
@@ -128,36 +130,36 @@ func TestDealCoverageFlagsAThreadlessDealAndExplainsWhy(t *testing.T) {
 }
 
 func TestDealCoverageHidesADealTheCallerCannotRead(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// The coverage payload names the deal's people, so a caller who cannot
 	// read the deal must not learn who sits on it.
-	var body anyMap
-	if status := e.call(t, "GET",
+	var body apptest.AnyMap
+	if status := e.Call(t, "GET",
 		"/v1/deals/019fb000-0000-7000-8000-00000000beef/coverage", nil, nil, &body); status != http.StatusNotFound {
 		t.Errorf("an unknown deal answered %d, want 404", status)
 	}
 }
 
 func TestDealCoverageDistinguishesADepartedChampionFromADepartedStakeholder(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-	org, deal := e.dealAtAnAccount(t, "Bär Pharma", "Renewal")
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	org, deal := dealAtAnAccount(e, t, "Bär Pharma", "Renewal")
 
 	// Two people who used to work there and one who still does. The rule
 	// demands EVIDENCE of a departure — an ended employment plus no live one —
 	// so the third person proves the flag is about leaving and not about
 	// having no employment row.
-	gone := e.contactAt(t, org, "Departed Champion", "2026-01-31")
-	alsoGone := e.contactAt(t, org, "Departed Legal", "2026-02-28")
-	stayed := e.contactAt(t, org, "Still There", "")
+	gone := contactAt(e, t, org, "Departed Champion", "2026-01-31")
+	alsoGone := contactAt(e, t, org, "Departed Legal", "2026-02-28")
+	stayed := contactAt(e, t, org, "Still There", "")
 
-	e.stakeholder(t, deal, gone, "champion")
-	e.stakeholder(t, deal, alsoGone, "legal")
-	e.stakeholder(t, deal, stayed, "user")
+	stakeholder(e, t, deal, gone, "champion")
+	stakeholder(e, t, deal, alsoGone, "legal")
+	stakeholder(e, t, deal, stayed, "user")
 
-	risks := e.coverageRisks(t, deal)
+	risks := coverageRisks(e, t, deal)
 	champion := findRisk(risks, "champion_left")
 	if champion == nil {
 		t.Fatalf("the champion left the account and no champion_left risk fired: %+v", risks)
@@ -184,42 +186,42 @@ func TestDealCoverageDistinguishesADepartedChampionFromADepartedStakeholder(t *t
 }
 
 func TestDealCoverageDoesNotCallARehiredStakeholderDeparted(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-	org, deal := e.dealAtAnAccount(t, "Voss Systems", "Expansion")
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	org, deal := dealAtAnAccount(e, t, "Voss Systems", "Expansion")
 
 	// A role change recorded as end-then-start, which is how most CRMs record
 	// a promotion. The closed row is real and so is the live one, and only the
 	// live one decides: flagging this would announce a resignation every time
 	// somebody changed job title.
-	person := e.contactAt(t, org, "Promoted Person", "2026-01-31")
-	e.employ(t, person, org, "2026-02-01", "")
-	e.stakeholder(t, deal, person, "champion")
+	person := contactAt(e, t, org, "Promoted Person", "2026-01-31")
+	employ(e, t, person, org, "2026-02-01", "")
+	stakeholder(e, t, deal, person, "champion")
 
-	risks := e.coverageRisks(t, deal)
+	risks := coverageRisks(e, t, deal)
 	if findRisk(risks, "champion_left") != nil {
 		t.Errorf("a stakeholder with a live employment was reported as departed: %+v", risks)
 	}
 }
 
 func TestGoingColdFiresOnTheReportingWindowAndCarriesTheDayCount(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-	_, deal := e.dealAtAnAccount(t, "Kessler GmbH", "Silent")
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	_, deal := dealAtAnAccount(e, t, "Kessler GmbH", "Silent")
 
 	// A brand-new deal has been silent since it was created, which is zero
 	// days — not cold. The flag must not fire on the day a rep writes a deal
 	// down.
-	if findRisk(e.coverageRisks(t, deal), "going_cold") != nil {
+	if findRisk(coverageRisks(e, t, deal), "going_cold") != nil {
 		t.Error("a deal created moments ago was flagged as going cold")
 	}
 
 	// Age the last touch past REPORT-PARAM-2's window. Written through the
 	// owner connection because no API sets this column — it is maintained by
 	// the capture path, and the point of the test is the read, not the write.
-	e.ageLastTouch(t, deal, 41)
+	ageLastTouch(e, t, deal, 41)
 
-	risks := e.coverageRisks(t, deal)
+	risks := coverageRisks(e, t, deal)
 	cold := findRisk(risks, "going_cold")
 	if cold == nil {
 		t.Fatalf("a deal untouched for 41 days raised no going_cold risk: %+v", risks)
@@ -241,15 +243,15 @@ func TestGoingColdFiresOnTheReportingWindowAndCarriesTheDayCount(t *testing.T) {
 }
 
 func TestAWonDealIsNotGoingCold(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-	_, deal := e.dealAtAnAccount(t, "Brandt Automotive", "Delivered")
-	e.ageLastTouch(t, deal, 400)
-	e.closeWon(t, deal)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	_, deal := dealAtAnAccount(e, t, "Brandt Automotive", "Delivered")
+	ageLastTouch(e, t, deal, 400)
+	closeWon(e, t, deal)
 
 	// Silence after the close is delivery, not decay. Flagging it would train
 	// a rep to ignore the flag on the deals where it means something.
-	if findRisk(e.coverageRisks(t, deal), "going_cold") != nil {
+	if findRisk(coverageRisks(e, t, deal), "going_cold") != nil {
 		t.Error("a won deal silent for 400 days was flagged as going cold")
 	}
 }
@@ -257,10 +259,10 @@ func TestAWonDealIsNotGoingCold(t *testing.T) {
 // --- fixture helpers ---
 
 // coverageRisks reads one deal's findings through the real endpoint.
-func (e *env) coverageRisks(t *testing.T, dealID string) []coverageRiskDTO {
+func coverageRisks(e *apptest.AppEnv, t *testing.T, dealID string) []coverageRiskDTO {
 	t.Helper()
 	var got dealCoverageDTO
-	if status := e.call(t, "GET", "/v1/deals/"+dealID+"/coverage", nil, nil, &got); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/deals/"+dealID+"/coverage", nil, nil, &got); status != http.StatusOK {
 		t.Fatalf("coverage status = %d, want 200", status)
 	}
 	return got.Risks
@@ -278,23 +280,23 @@ func findRisk(risks []coverageRiskDTO, kind string) *coverageRiskDTO {
 // dealAtAnAccount creates an organization and an open deal owned by it — the
 // shape every departure rule needs, since a deal with no account has nobody to
 // have left.
-func (e *env) dealAtAnAccount(t *testing.T, orgName, dealName string) (org, deal string) {
+func dealAtAnAccount(e *apptest.AppEnv, t *testing.T, orgName, dealName string) (org, deal string) {
 	t.Helper()
-	var created anyMap
-	if status := e.call(t, "POST", "/v1/organizations",
-		anyMap{"display_name": orgName, "source": "ui"}, nil, &created); status != http.StatusCreated {
+	var created apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/organizations",
+		apptest.AnyMap{"display_name": orgName, "source": "ui"}, nil, &created); status != http.StatusCreated {
 		t.Fatalf("creating the account: %d", status)
 	}
 	org, _ = created["id"].(string)
 
-	var pipelines anyMap
-	if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
+	var pipelines apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
 		t.Fatalf("listing pipelines: %d", status)
 	}
 	pipeline, stage := firstPipelineAndStage(t, pipelines)
 
-	var made anyMap
-	if status := e.call(t, "POST", "/v1/deals", anyMap{
+	var made apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name": dealName, "pipeline_id": pipeline, "stage_id": stage,
 		"organization_id": org, "source": "ui",
 	}, nil, &made); status != http.StatusCreated {
@@ -311,37 +313,37 @@ const hiredOn = "2020-01-01"
 
 // contactAt creates a person and their employment at the account. An empty
 // endedAt means they still work there.
-func (e *env) contactAt(t *testing.T, org, name, endedAt string) string {
+func contactAt(e *apptest.AppEnv, t *testing.T, org, name, endedAt string) string {
 	t.Helper()
-	var person anyMap
-	if status := e.call(t, "POST", "/v1/people",
-		anyMap{"full_name": name}, nil, &person); status != http.StatusCreated {
+	var person apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/people",
+		apptest.AnyMap{"full_name": name}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("creating %s: %d", name, status)
 	}
 	id, _ := person["id"].(string)
-	e.employ(t, id, org, hiredOn, endedAt)
+	employ(e, t, id, org, hiredOn, endedAt)
 	return id
 }
 
-func (e *env) employ(t *testing.T, person, org, startedAt, endedAt string) {
+func employ(e *apptest.AppEnv, t *testing.T, person, org, startedAt, endedAt string) {
 	t.Helper()
-	body := anyMap{
+	body := apptest.AnyMap{
 		"kind": "employment", "person_id": person, "organization_id": org,
 		"started_at": startedAt, "source": "ui",
 	}
 	if endedAt != "" {
 		body["ended_at"] = endedAt
 	}
-	var out anyMap
-	if status := e.call(t, "POST", "/v1/relationships", body, nil, &out); status != http.StatusCreated {
+	var out apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/relationships", body, nil, &out); status != http.StatusCreated {
 		t.Fatalf("recording employment: %d (%v)", status, out)
 	}
 }
 
-func (e *env) stakeholder(t *testing.T, deal, person, role string) {
+func stakeholder(e *apptest.AppEnv, t *testing.T, deal, person, role string) {
 	t.Helper()
-	var out anyMap
-	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+	var out apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/relationships", apptest.AnyMap{
 		"kind": "deal_stakeholder", "deal_id": deal, "person_id": person,
 		"role": role, "source": "ui",
 	}, nil, &out); status != http.StatusCreated {
@@ -352,25 +354,25 @@ func (e *env) stakeholder(t *testing.T, deal, person, role string) {
 // ageLastTouch backdates the deal's last captured touch. Written as owner
 // because no API writes this column — capture maintains it — and the behaviour
 // under test is how the coverage read interprets it.
-func (e *env) ageLastTouch(t *testing.T, deal string, days int) {
+func ageLastTouch(e *apptest.AppEnv, t *testing.T, deal string, days int) {
 	t.Helper()
-	if _, err := e.owner.Exec(t.Context(),
+	if _, err := e.Owner.Exec(t.Context(),
 		`UPDATE deal SET last_activity_at = now() - make_interval(days => $2) WHERE id = $1`,
 		deal, days); err != nil {
 		t.Fatalf("backdating the deal's last touch: %v", err)
 	}
 }
 
-func (e *env) closeWon(t *testing.T, deal string) {
+func closeWon(e *apptest.AppEnv, t *testing.T, deal string) {
 	t.Helper()
-	if _, err := e.owner.Exec(t.Context(),
+	if _, err := e.Owner.Exec(t.Context(),
 		`UPDATE deal SET status = 'won', closed_at = now() WHERE id = $1`, deal); err != nil {
 		t.Fatalf("closing the deal as won: %v", err)
 	}
 }
 
 // firstPipelineAndStage picks the default pipeline and its first stage.
-func firstPipelineAndStage(t *testing.T, listed anyMap) (pipeline, stage string) {
+func firstPipelineAndStage(t *testing.T, listed apptest.AnyMap) (pipeline, stage string) {
 	t.Helper()
 	data, _ := listed["data"].([]any)
 	if len(data) == 0 {

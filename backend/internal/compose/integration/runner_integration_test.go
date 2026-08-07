@@ -28,9 +28,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -38,7 +38,7 @@ import (
 )
 
 type runnerEnv struct {
-	*env
+	*apptest.AppEnv
 	pool  *pgxpool.Pool
 	svc   *compose.RunnerService
 	store *runner.Store
@@ -51,15 +51,15 @@ type runnerEnv struct {
 
 func setupRunner(t *testing.T) *runnerEnv {
 	t.Helper()
-	e := setup(t)
-	e.slug = "runner-e2e"
+	e := apptest.SetupApp(t)
+	e.Slug = "runner-e2e"
 
-	bootstrapWorkspaceSession(t, e, "Runner E2E", "runner@fable.test", "Admin")
+	apptest.BootstrapWorkspaceSession(t, e, "Runner E2E", "runner@fable.test", "Admin")
 
 	var minted struct {
 		PassportID string `json:"passport_id"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "overnight runner", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -76,7 +76,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 	t.Cleanup(pool.Close)
 
 	var wsRaw string
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = 'runner-e2e'`).Scan(&wsRaw); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = 'runner-e2e'`).Scan(&wsRaw); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 	wsID, err := ids.Parse(wsRaw)
@@ -97,7 +97,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	return &runnerEnv{
-		env:        e,
+		AppEnv:     e,
 		pool:       pool,
 		svc:        compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, nil, logger, nil, compose.SendPath{}),
 		store:      runner.NewStore(pool),
@@ -209,7 +209,7 @@ func TestRunnerConfirmationRequiredSuspendApproveResume(t *testing.T) {
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := re.call(t, "POST", "/v1/people", anyMap{"full_name": "Stale Duplicate"}, nil, &person); status != http.StatusCreated {
+	if status := re.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "Stale Duplicate"}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
 
@@ -229,12 +229,12 @@ func TestRunnerConfirmationRequiredSuspendApproveResume(t *testing.T) {
 	var parked struct {
 		ArchivedAt *string `json:"archived_at"`
 	}
-	if got := re.call(t, "GET", "/v1/people/"+person.ID, nil, nil, &parked); got != http.StatusOK || parked.ArchivedAt != nil {
+	if got := re.Call(t, "GET", "/v1/people/"+person.ID, nil, nil, &parked); got != http.StatusOK || parked.ArchivedAt != nil {
 		t.Fatalf("target mutated while approval pending: GET → %d archived_at=%v", got, parked.ArchivedAt)
 	}
 
 	// A human approves in the same inbox every surface stages into.
-	if got := re.call(t, "POST", "/v1/approvals/"+*approvalID+"/approve", anyMap{}, nil, nil); got != http.StatusOK {
+	if got := re.Call(t, "POST", "/v1/approvals/"+*approvalID+"/approve", apptest.AnyMap{}, nil, nil); got != http.StatusOK {
 		t.Fatalf("approve → %d", got)
 	}
 
@@ -251,7 +251,7 @@ func TestRunnerConfirmationRequiredSuspendApproveResume(t *testing.T) {
 	var after struct {
 		ArchivedAt *string `json:"archived_at"`
 	}
-	if got := re.call(t, "GET", "/v1/people/"+person.ID, nil, nil, &after); got != http.StatusOK || after.ArchivedAt == nil {
+	if got := re.Call(t, "GET", "/v1/people/"+person.ID, nil, nil, &after); got != http.StatusOK || after.ArchivedAt == nil {
 		t.Fatalf("approved archive did not land: GET → %d archived_at=%v; trace: %+v", got, after.ArchivedAt, trace)
 	}
 	// The trace is one continuous record across the approval gap.
@@ -266,7 +266,7 @@ func TestRunnerConfirmationRequiredRejectionReplansWithoutEffect(t *testing.T) {
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := re.call(t, "POST", "/v1/people", anyMap{"full_name": "Keep Me"}, nil, &person); status != http.StatusCreated {
+	if status := re.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "Keep Me"}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
 
@@ -281,7 +281,7 @@ func TestRunnerConfirmationRequiredRejectionReplansWithoutEffect(t *testing.T) {
 	if approvalID == nil {
 		t.Fatal("no staged approval")
 	}
-	if got := re.call(t, "POST", "/v1/approvals/"+*approvalID+"/reject", anyMap{"reason": "not a duplicate"}, nil, nil); got != http.StatusOK {
+	if got := re.Call(t, "POST", "/v1/approvals/"+*approvalID+"/reject", apptest.AnyMap{"reason": "not a duplicate"}, nil, nil); got != http.StatusOK {
 		t.Fatalf("reject → %d", got)
 	}
 	if err := re.svc.HandleEvent(context.Background(), decidedEnvelope(re.wsID, *approvalID, "rejected")); err != nil {
@@ -295,7 +295,7 @@ func TestRunnerConfirmationRequiredRejectionReplansWithoutEffect(t *testing.T) {
 	var after struct {
 		ArchivedAt *string `json:"archived_at"`
 	}
-	if got := re.call(t, "GET", "/v1/people/"+person.ID, nil, nil, &after); got != http.StatusOK || after.ArchivedAt != nil {
+	if got := re.Call(t, "GET", "/v1/people/"+person.ID, nil, nil, &after); got != http.StatusOK || after.ArchivedAt != nil {
 		t.Fatalf("rejected action executed anyway: GET → %d archived_at=%v", got, after.ArchivedAt)
 	}
 }
@@ -355,7 +355,7 @@ func TestRunnerResumeIsClaimedSoARedeliveryIsANoOp(t *testing.T) {
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := re.call(t, "POST", "/v1/people", anyMap{"full_name": "Resume Once"}, nil, &person); status != http.StatusCreated {
+	if status := re.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "Resume Once"}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
 
@@ -373,7 +373,7 @@ func TestRunnerResumeIsClaimedSoARedeliveryIsANoOp(t *testing.T) {
 	if approvalID == nil {
 		t.Fatal("no staged approval")
 	}
-	if got := re.call(t, "POST", "/v1/approvals/"+*approvalID+"/approve", anyMap{}, nil, nil); got != http.StatusOK {
+	if got := re.Call(t, "POST", "/v1/approvals/"+*approvalID+"/approve", apptest.AnyMap{}, nil, nil); got != http.StatusOK {
 		t.Fatalf("approve → %d", got)
 	}
 

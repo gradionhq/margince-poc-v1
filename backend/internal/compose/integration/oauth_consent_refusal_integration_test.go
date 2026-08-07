@@ -27,6 +27,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // consentScreenHandback reads the fragment a refused consent POST answered with
@@ -245,7 +247,7 @@ func TestAnUnauthenticatedAuthorizeGetRoutesTheHumanToSignIn(t *testing.T) {
 	o := setupOAuth(t)
 
 	req, err := http.NewRequest(http.MethodGet,
-		o.ts.URL+"/oauth/authorize?"+o.authorizeQuery(nil).Encode(), nil)
+		o.TS.URL+"/oauth/authorize?"+o.authorizeQuery(nil).Encode(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +257,7 @@ func TestAnUnauthenticatedAuthorizeGetRoutesTheHumanToSignIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("unauthenticated authorize GET → %d, want 302 to the consent screen (a JSON 401 is a dead end)", resp.StatusCode)

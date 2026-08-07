@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -41,10 +42,10 @@ type rosterTeam struct {
 
 // wsID resolves a workspace's id by slug through the owner connection
 // (workspace is the one non-tenant table, so no GUC is needed to read it).
-func wsID(t *testing.T, e *env, slug string) ids.UUID {
+func wsID(t *testing.T, e *apptest.AppEnv, slug string) ids.UUID {
 	t.Helper()
 	var id ids.UUID
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&id); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&id); err != nil {
 		t.Fatalf("resolving workspace %q: %v", slug, err)
 	}
 	return id
@@ -61,10 +62,10 @@ func stmt(sql string, args ...any) seedStmt { return seedStmt{sql: sql, args: ar
 // seedInWorkspace runs setup statements inside a workspace-bound
 // transaction: app_user/team/team_membership are FORCE-RLS tables, so the
 // owner must set app.workspace_id even to insert. Mirrors setWorkspaceSeat.
-func seedInWorkspace(t *testing.T, e *env, ws ids.UUID, stmts ...seedStmt) {
+func seedInWorkspace(t *testing.T, e *apptest.AppEnv, ws ids.UUID, stmts ...seedStmt) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := e.owner.Begin(ctx)
+	tx, err := e.Owner.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
@@ -84,10 +85,10 @@ func seedInWorkspace(t *testing.T, e *env, ws ids.UUID, stmts ...seedStmt) {
 }
 
 func TestRosterReadsUsersAndTeams(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t) // workspace "fable-e2e" + admin ada@example.com, session in the jar
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t) // workspace "fable-e2e" + admin ada@example.com, session in the jar
 
-	wsA := wsID(t, e, e.slug)
+	wsA := wsID(t, e, e.Slug)
 	rep, bob, deskTeam := ids.NewV7(), ids.NewV7(), ids.NewV7()
 	seedInWorkspace(
 		t, e, wsA,
@@ -101,7 +102,7 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	// A second tenant with its own member — its rows must never surface
 	// under workspace A's session (RLS row-scope). Seed workspace B (a
 	// non-tenant row) then its user inside B's GUC.
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other', 'fable-other', 'EUR')`,
 		ids.NewV7()); err != nil {
 		t.Fatalf("seeding workspace B: %v", err)
@@ -129,7 +130,7 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	var users struct {
 		Data []rosterUser `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/users", nil, nil, &users); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/users", nil, nil, &users); status != http.StatusOK {
 		t.Fatalf("list users → %d, want 200", status)
 	}
 	got := map[string]rosterUser{}
@@ -178,7 +179,7 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	var filtered struct {
 		Data []rosterUser `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/users?q=REP", nil, nil, &filtered); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/users?q=REP", nil, nil, &filtered); status != http.StatusOK {
 		t.Fatalf("list users?q=REP → %d, want 200", status)
 	}
 	if len(filtered.Data) != 1 || filtered.Data[0].Email != "rep@example.com" {
@@ -189,7 +190,7 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	var teams struct {
 		Data []rosterTeam `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/teams", nil, nil, &teams); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/teams", nil, nil, &teams); status != http.StatusOK {
 		t.Fatalf("list teams → %d, want 200", status)
 	}
 	var desk *rosterTeam
@@ -215,10 +216,10 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 // the two mappings differ; a regression that inlined the admin mapping into the
 // response loop would pass it and leak here.
 func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t) // admin ada@example.com, session in the jar
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t) // admin ada@example.com, session in the jar
 
-	wsA := wsID(t, e, e.slug)
+	wsA := wsID(t, e, e.Slug)
 	rep := ids.NewV7()
 	seedInWorkspace(
 		t, e, wsA,
@@ -236,7 +237,7 @@ func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
 	var asAdmin struct {
 		Data []rosterUser `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/users", nil, nil, &asAdmin); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/users", nil, nil, &asAdmin); status != http.StatusOK {
 		t.Fatalf("admin list users → %d, want 200", status)
 	}
 	for _, u := range asAdmin.Data {
@@ -249,7 +250,7 @@ func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
 	}
 
 	// Now the deny arm, from the rep's own session.
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "rep@example.com", "password": "correct-horse-battery",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("rep login → %d, want 200", status)
@@ -257,7 +258,7 @@ func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
 	var asRep struct {
 		Data []rosterUser `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/users", nil, nil, &asRep); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/users", nil, nil, &asRep); status != http.StatusOK {
 		t.Fatalf("rep list users → %d, want 200", status)
 	}
 	if len(asRep.Data) == 0 {
@@ -275,7 +276,7 @@ func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
 	var repWidened struct {
 		Data []rosterUser `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/users?include_inactive=true", nil, nil, &repWidened); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/users?include_inactive=true", nil, nil, &repWidened); status != http.StatusOK {
 		t.Fatalf("rep list users (include_inactive) → %d, want 200", status)
 	}
 	for _, u := range repWidened.Data {
@@ -289,15 +290,15 @@ func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
 // transport, but no cookie jar) against each roster endpoint and expects a
 // 401 — both /v1/users and /v1/teams are authenticated-only, and either
 // could lose that gate independently, so both are exercised.
-func assertRosterUnauthorized(t *testing.T, e *env) {
+func assertRosterUnauthorized(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
-	noSession := &http.Client{Transport: e.client.Transport}
+	noSession := &http.Client{Transport: e.Client.Transport}
 	for _, path := range []string{"/v1/users", "/v1/teams"} {
-		req, err := http.NewRequest(http.MethodGet, e.ts.URL+path, nil)
+		req, err := http.NewRequest(http.MethodGet, e.TS.URL+path, nil)
 		if err != nil {
 			t.Fatalf("building request for %s: %v", path, err)
 		}
-		req.Header.Set("X-Workspace-Slug", e.slug)
+		req.Header.Set("X-Workspace-Slug", e.Slug)
 		resp, err := noSession.Do(req)
 		if err != nil {
 			t.Fatalf("GET %s (no session): %v", path, err)

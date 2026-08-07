@@ -14,12 +14,14 @@ import (
 	"context"
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestBootstrapSeedsDefaultRetentionPolicies(t *testing.T) {
 	e := setupRelationships(t)
 
-	rows, err := e.owner.Query(context.Background(), `
+	rows, err := e.Owner.Query(context.Background(), `
 		SELECT object_type, coalesce(category, ''), retain_days, action
 		FROM retention_policy ORDER BY object_type, retain_days`)
 	if err != nil {
@@ -58,12 +60,12 @@ func TestFulfillingAnErasureDSRExecutesTheErasure(t *testing.T) {
 	var dsr struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/data-subject-requests", anyMap{
+	if status := e.Call(t, "POST", "/v1/data-subject-requests", apptest.AnyMap{
 		"kind": "erasure", "subject_ref": e.personID, "due_at": "2026-08-01T00:00:00Z",
 	}, nil, &dsr); status != http.StatusCreated {
 		t.Fatalf("create DSR → %d", status)
 	}
-	if status := e.call(t, "PATCH", "/v1/data-subject-requests/"+dsr.ID, anyMap{
+	if status := e.Call(t, "PATCH", "/v1/data-subject-requests/"+dsr.ID, apptest.AnyMap{
 		"status": "fulfilled", "resolution": "erased per Art. 17",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("fulfill DSR → %d", status)
@@ -72,7 +74,7 @@ func TestFulfillingAnErasureDSRExecutesTheErasure(t *testing.T) {
 	var person struct {
 		FullName string `json:"full_name"`
 	}
-	if status := e.call(t, "GET", "/v1/people/"+e.personID, nil, nil, &person); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/people/"+e.personID, nil, nil, &person); status != http.StatusOK {
 		t.Fatalf("read person → %d", status)
 	}
 	if person.FullName != "Erased Subject" {

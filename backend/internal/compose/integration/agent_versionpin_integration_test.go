@@ -25,18 +25,20 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestApprovedOfferArchiveRefusesAfterTheAgentRewritesTheTerms(t *testing.T) {
-	e := setup(t)
-	e.slug = "offers-pin"
-	bootstrapWorkspaceSession(t, e, "Offers Pin", "pin@fable.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "offers-pin"
+	apptest.BootstrapWorkspaceSession(t, e, "Offers Pin", "pin@fable.test", "Admin")
 	dealID := offerFixture(t, e)
 
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		// The version-pin race this test proves happens inside archive_record's
 		// approval, so the passport must be able to spend `write` to get there.
 		"label": "pin agent", "scopes": []string{"read", "write"},
@@ -52,9 +54,9 @@ func TestApprovedOfferArchiveRefusesAfterTheAgentRewritesTheTerms(t *testing.T) 
 			ID string `json:"id"`
 		} `json:"line_items"`
 	}
-	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
+	if status := e.Call(t, "POST", "/v1/deals/"+dealID+"/offers", apptest.AnyMap{
 		"currency": "EUR", "source": "mcp",
-		"line_items": []anyMap{{"description": "Pilot", "quantity": 1, "unit_price_minor": 250000, "tax_rate": 19.0}},
+		"line_items": []apptest.AnyMap{{"description": "Pilot", "quantity": 1, "unit_price_minor": 250000, "tax_rate": 19.0}},
 	}, bearer, &offer); status != http.StatusCreated {
 		t.Fatalf("agent offer draft → %d", status)
 	}
@@ -68,7 +70,7 @@ func TestApprovedOfferArchiveRefusesAfterTheAgentRewritesTheTerms(t *testing.T) 
 		Code   string `json:"code"`
 		Detail string `json:"detail"`
 	}
-	if status := e.call(t, "DELETE", "/v1/offers/"+offer.ID, nil, bearer, &problem); status != http.StatusForbidden ||
+	if status := e.Call(t, "DELETE", "/v1/offers/"+offer.ID, nil, bearer, &problem); status != http.StatusForbidden ||
 		problem.Code != "approval_required" {
 		t.Fatalf("agent archive → %d %q, want 403 approval_required", status, problem.Code)
 	}
@@ -76,7 +78,7 @@ func TestApprovedOfferArchiveRefusesAfterTheAgentRewritesTheTerms(t *testing.T) 
 
 	// The staged row carries a pin the agent never supplied.
 	var pin *int64
-	if err := e.owner.QueryRow(t.Context(),
+	if err := e.Owner.QueryRow(t.Context(),
 		`SELECT target_version FROM approval WHERE id = $1`, approvalID).Scan(&pin); err != nil {
 		t.Fatal(err)
 	}
@@ -85,13 +87,13 @@ func TestApprovedOfferArchiveRefusesAfterTheAgentRewritesTheTerms(t *testing.T) 
 	}
 
 	// The human approves the offer they were shown: Pilot at 250000 minor.
-	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/approvals/"+approvalID+"/approve", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
 		t.Fatalf("human approve → %d", status)
 	}
 
 	// The agent then rewrites the priced terms through the auto_execute
 	// child route. The offer's version moves; the approval's does not.
-	if status := e.call(t, "PATCH", "/v1/offers/"+offer.ID+"/line-items/"+offer.LineItems[0].ID, anyMap{
+	if status := e.Call(t, "PATCH", "/v1/offers/"+offer.ID+"/line-items/"+offer.LineItems[0].ID, apptest.AnyMap{
 		"unit_price_minor": 100,
 	}, bearer, nil); status != http.StatusOK {
 		t.Fatalf("agent line-item rewrite → %d", status)
@@ -105,14 +107,14 @@ func TestApprovedOfferArchiveRefusesAfterTheAgentRewritesTheTerms(t *testing.T) 
 	var refusal struct {
 		Code string `json:"code"`
 	}
-	if status := e.call(t, "DELETE", "/v1/offers/"+offer.ID, nil, withToken, &refusal); status != http.StatusConflict ||
+	if status := e.Call(t, "DELETE", "/v1/offers/"+offer.ID, nil, withToken, &refusal); status != http.StatusConflict ||
 		refusal.Code != "version_skew" {
 		t.Fatalf("redeeming against rewritten terms → %d %q, want 409 version_skew", status, refusal.Code)
 	}
 
 	// And nothing was archived.
 	var after offerBody
-	if status := e.call(t, "GET", "/v1/offers/"+offer.ID, nil, bearer, &after); status != http.StatusOK || after.Status != "draft" {
+	if status := e.Call(t, "GET", "/v1/offers/"+offer.ID, nil, bearer, &after); status != http.StatusOK || after.Status != "draft" {
 		t.Fatalf("offer status = %q after a refused redemption, want draft", after.Status)
 	}
 }

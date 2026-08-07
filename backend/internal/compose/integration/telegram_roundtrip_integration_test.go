@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -47,7 +48,7 @@ import (
 // registry missing the connector reads as "this installation has no Telegram
 // integration" and parks every reply.
 func (c *telegramEnv) sendRegistry() *capture.Registry {
-	registry := capture.NewRegistry(c.pool, capture.NewSink(c.pool), identity.NewService(c.pool), c.vault)
+	registry := capture.NewRegistry(c.Pool, capture.NewSink(c.Pool), identity.NewService(c.Pool), c.vault)
 	registry.Register(telegram.New(c.api))
 	return registry
 }
@@ -63,7 +64,7 @@ func (c *telegramEnv) grantConsent(t *testing.T, personID, purposeKey string) {
 			Key string `json:"key"`
 		} `json:"data"`
 	}
-	if status := c.call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
+	if status := c.Call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
 		t.Fatalf("list consent purposes → %d", status)
 	}
 	var purposeID string
@@ -75,7 +76,7 @@ func (c *telegramEnv) grantConsent(t *testing.T, personID, purposeKey string) {
 	if purposeID == "" {
 		t.Fatalf("the bootstrap seeded no %q consent purpose", purposeKey)
 	}
-	if status := c.call(t, "POST", "/v1/people/"+personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+personID+"/consent", apptest.AnyMap{
 		"purpose_id": purposeID, "new_state": "granted", "lawful_basis": "consent",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("record consent → %d", status)
@@ -118,7 +119,7 @@ func TestInboundThenReplyRoundTrip(t *testing.T) {
 		Direction string `json:"direction"`
 		Body      string `json:"body"`
 	}
-	status := c.call(t, "POST", "/v1/activities/"+activityID+"/send-message", anyMap{
+	status := c.Call(t, "POST", "/v1/activities/"+activityID+"/send-message", apptest.AnyMap{
 		"body": reply, "consent_purpose": "transactional",
 	}, nil, &sent)
 	if status != http.StatusAccepted {
@@ -180,7 +181,7 @@ func TestCustomerReplyNamesTheChannelItArrivedOn(t *testing.T) {
 	// The rep answers, which is what puts an outbound activity in this chat's
 	// thread for the customer's next message to match against.
 	c.grantConsent(t, personID, "transactional")
-	if status := c.call(t, "POST", "/v1/activities/"+activityID+"/send-message", anyMap{
+	if status := c.Call(t, "POST", "/v1/activities/"+activityID+"/send-message", apptest.AnyMap{
 		"body": repReply, "consent_purpose": "transactional",
 	}, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("the rep's reply → %d, want 202", status)
@@ -198,7 +199,7 @@ func TestCustomerReplyNamesTheChannelItArrivedOn(t *testing.T) {
 		t.Fatalf("%d engagement.reply events, want exactly 1 — the formula emits once per inbound message", n)
 	}
 	var channel, contactID string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT envelope->'payload'->>'channel',
 			       coalesce(envelope->'payload'->>'contact_id', '')
@@ -249,7 +250,7 @@ func TestAnArchivedOutboundIsNotAConversationToReplyInto(t *testing.T) {
 	var sent struct {
 		ID string `json:"id"`
 	}
-	if status := c.call(t, "POST", "/v1/activities/"+activityID+"/send-message", anyMap{
+	if status := c.Call(t, "POST", "/v1/activities/"+activityID+"/send-message", apptest.AnyMap{
 		"body": "We are — hall 4.", "consent_purpose": "transactional",
 	}, nil, &sent); status != http.StatusAccepted {
 		t.Fatalf("the rep's reply → %d, want 202", status)
@@ -258,7 +259,7 @@ func TestAnArchivedOutboundIsNotAConversationToReplyInto(t *testing.T) {
 
 	// The rep takes their message back off the timeline, leaving the thread with
 	// no LIVE outbound in it.
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
 			`UPDATE activity SET archived_at = now() WHERE id = $1`, sent.ID)
 		return err
@@ -320,7 +321,7 @@ func TestAForgedThreadKeyCannotReplyIntoAnotherMediumsConversation(t *testing.T)
 
 	// A real outbound goes into the Telegram conversation.
 	c.grantConsent(t, personID, "transactional")
-	if status := c.call(t, "POST", "/v1/activities/"+activityID+"/send-message", anyMap{
+	if status := c.Call(t, "POST", "/v1/activities/"+activityID+"/send-message", apptest.AnyMap{
 		"body": "Sending it over today.", "consent_purpose": "transactional",
 	}, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("the rep's reply → %d, want 202", status)
@@ -330,7 +331,7 @@ func TestAForgedThreadKeyCannotReplyIntoAnotherMediumsConversation(t *testing.T)
 	// The thread key that outbound is filed under is what an attacker would
 	// forge, so the test reads the real one rather than reconstructing it.
 	var forged string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT thread_key FROM activity WHERE id = $1`, activityID).Scan(&forged)
 	}); err != nil {
@@ -356,7 +357,7 @@ func TestAForgedThreadKeyCannotReplyIntoAnotherMediumsConversation(t *testing.T)
 		},
 		ThreadKey: forged,
 	}
-	if _, err := capture.NewSink(c.pool).Upsert(c.mailConnectorCtx(t), mail); err != nil {
+	if _, err := capture.NewSink(c.Pool).Upsert(c.mailConnectorCtx(t), mail); err != nil {
 		t.Fatalf("capturing the stranger's mail: %v — it must land as an ordinary activity, "+
 			"or this test proves a refusal rather than the thread scan", err)
 	}
@@ -385,7 +386,7 @@ func (c *telegramEnv) assertSubjectAccessDescribesTheReply(t *testing.T, personI
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.pool, person)
+	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.Pool, person)
 	if err != nil {
 		t.Fatalf("AssembleSAR: %v", err)
 	}
@@ -440,7 +441,7 @@ func (c *telegramEnv) assertDeliveryRecorded(t *testing.T, sentActivityID string
 	var recipient, status, deliveryActivity string
 	var providerMessageID *string
 	var subject, messageID *string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			SELECT channel_user_id, status, activity_id::text, provider_message_id, subject, message_id
 			  FROM comms_outbound WHERE channel_user_id IS NOT NULL`).
@@ -470,7 +471,7 @@ func (c *telegramEnv) assertDeliveryRecorded(t *testing.T, sentActivityID string
 	// Capture joins inbound messages against outbound activities on thread_key,
 	// so a reply filed anywhere else reads as a message out of nowhere.
 	var threadKey, linkedPerson string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx,
 			`SELECT coalesce(thread_key, '') FROM activity WHERE id = $1`, sentActivityID).Scan(&threadKey); err != nil {

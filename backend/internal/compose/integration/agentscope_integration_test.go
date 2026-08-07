@@ -23,6 +23,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // scopeRefusalCode is what apperrors.ErrScopeExceeded maps to in
@@ -43,16 +45,16 @@ type capRefusal struct {
 }
 
 func TestEnrichRefusesAPassportWithoutTheEnrichCap(t *testing.T) {
-	e := setup(t)
-	e.slug = "enrich-scope"
-	bootstrapWorkspaceSession(t, e, "Enrich Scope", "enrich@fable.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "enrich-scope"
+	apptest.BootstrapWorkspaceSession(t, e, "Enrich Scope", "enrich@fable.test", "Admin")
 
 	var org struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/organizations", anyMap{
+	if status := e.Call(t, "POST", "/v1/organizations", apptest.AnyMap{
 		"display_name": "Acme GmbH", "source": "ui",
-		"domains": []anyMap{{"domain": "acme.example", "is_primary": true}},
+		"domains": []apptest.AnyMap{{"domain": "acme.example", "is_primary": true}},
 	}, nil, &org); status != http.StatusCreated {
 		t.Fatalf("create org → %d", status)
 	}
@@ -61,7 +63,7 @@ func TestEnrichRefusesAPassportWithoutTheEnrichCap(t *testing.T) {
 	writeOnly := passportBearer(t, e, "write-only agent", "read", "write")
 
 	var refusal capRefusal
-	status := e.call(t, "POST", "/v1/organizations/"+org.ID+"/enrich", nil, writeOnly, &refusal)
+	status := e.Call(t, "POST", "/v1/organizations/"+org.ID+"/enrich", nil, writeOnly, &refusal)
 	if status != http.StatusForbidden || refusal.Code != scopeRefusalCode || refusal.Type != scopeRefusalType {
 		t.Fatalf("enrich on read+write → %d %q %q, want 403 %s / %s",
 			status, refusal.Code, refusal.Type, scopeRefusalCode, scopeRefusalType)
@@ -88,13 +90,13 @@ func TestEnrichRefusesAPassportWithoutTheEnrichCap(t *testing.T) {
 	// request and answers before the handler runs, so no website is fetched
 	// on this path at all.
 	var staged capRefusal
-	status = e.call(t, "POST", "/v1/organizations/"+org.ID+"/enrich", nil, withEnrich, &staged)
+	status = e.Call(t, "POST", "/v1/organizations/"+org.ID+"/enrich", nil, withEnrich, &staged)
 	if status != http.StatusForbidden || staged.Code != "approval_required" {
 		t.Fatalf("enrich with the enrich cap → %d %q, want 403 approval_required (the 🟡 gate)", status, staged.Code)
 	}
 	approvalID := extractStagedApprovalID(t, staged.Detail)
 	var kind string
-	if err := e.owner.QueryRow(t.Context(),
+	if err := e.Owner.QueryRow(t.Context(),
 		`SELECT kind FROM approval WHERE id = $1`, approvalID).Scan(&kind); err != nil {
 		t.Fatal(err)
 	}
@@ -112,9 +114,9 @@ func TestEnrichRefusesAPassportWithoutTheEnrichCap(t *testing.T) {
 // can tell "you may never do this" from "mint a passport with the right
 // cap and retry."
 func TestOfferSendRefusesAnyAgentAsHumanOnly(t *testing.T) {
-	e := setup(t)
-	e.slug = "send-scope"
-	bootstrapWorkspaceSession(t, e, "Send Scope", "send@fable.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "send-scope"
+	apptest.BootstrapWorkspaceSession(t, e, "Send Scope", "send@fable.test", "Admin")
 	dealID := offerFixture(t, e)
 
 	// The broadest passport short of a human session: even every cap the
@@ -124,15 +126,15 @@ func TestOfferSendRefusesAnyAgentAsHumanOnly(t *testing.T) {
 	// Drafting is 🟢 under `write` and still is: send being human-only is
 	// not a blanket tightening of the offer surface.
 	var offer offerBody
-	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
+	if status := e.Call(t, "POST", "/v1/deals/"+dealID+"/offers", apptest.AnyMap{
 		"currency": "EUR", "source": "mcp",
-		"line_items": []anyMap{{"description": "Pilot", "quantity": 1, "unit_price_minor": 250000, "tax_rate": 19.0}},
+		"line_items": []apptest.AnyMap{{"description": "Pilot", "quantity": 1, "unit_price_minor": 250000, "tax_rate": 19.0}},
 	}, bearer, &offer); status != http.StatusCreated {
 		t.Fatalf("agent 🟢 offer draft → %d", status)
 	}
 
 	var refusal capRefusal
-	status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, bearer, &refusal)
+	status := e.Call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, bearer, &refusal)
 	if status != http.StatusForbidden || refusal.Code != "permission_denied" {
 		t.Fatalf("agent send → %d %q, want 403 permission_denied (human-only)", status, refusal.Code)
 	}
@@ -151,19 +153,19 @@ func TestOfferSendRefusesAnyAgentAsHumanOnly(t *testing.T) {
 	// Nothing left the workspace, and nothing is waiting in an inbox to say
 	// it might.
 	var still offerBody
-	if status := e.call(t, "GET", "/v1/offers/"+offer.ID, nil, bearer, &still); status != http.StatusOK || still.Status != "draft" {
+	if status := e.Call(t, "GET", "/v1/offers/"+offer.ID, nil, bearer, &still); status != http.StatusOK || still.Status != "draft" {
 		t.Fatalf("offer after the refused send = %q, want draft", still.Status)
 	}
 }
 
 // passportBearer mints a passport with exactly scopes and returns the
 // Authorization header an agent principal presents.
-func passportBearer(t *testing.T, e *env, label string, scopes ...string) map[string]string {
+func passportBearer(t *testing.T, e *apptest.AppEnv, label string, scopes ...string) map[string]string {
 	t.Helper()
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": label, "scopes": scopes,
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport %q → %d", label, status)
@@ -177,10 +179,10 @@ func passportBearer(t *testing.T, e *env, label string, scopes ...string) map[st
 // assertNothingStaged proves the refusal was a cap refusal and not the 🟡
 // admission wearing the same status: a staged approval is a durable
 // authority object, so its absence is the observable difference.
-func assertNothingStaged(t *testing.T, e *env, what string) {
+func assertNothingStaged(t *testing.T, e *apptest.AppEnv, what string) {
 	t.Helper()
 	var staged int
-	if err := e.owner.QueryRow(t.Context(), `SELECT count(*) FROM approval`).Scan(&staged); err != nil {
+	if err := e.Owner.QueryRow(t.Context(), `SELECT count(*) FROM approval`).Scan(&staged); err != nil {
 		t.Fatal(err)
 	}
 	if staged != 0 {

@@ -14,11 +14,13 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestAutomationCatalogAndCRUD(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	assertAutomationCatalogIsClosed(t, e)
 	assertBootstrapSeededStartersEnabled(t, e)
@@ -27,14 +29,14 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 
 	// Enable under a stale If-Match is refused; the current version wins.
 	stale := map[string]string{"If-Match": "99"}
-	if status := e.call(t, "PATCH", "/v1/automations/"+createdID, anyMap{"status": "enabled"}, stale, nil); status != http.StatusConflict {
+	if status := e.Call(t, "PATCH", "/v1/automations/"+createdID, apptest.AnyMap{"status": "enabled"}, stale, nil); status != http.StatusConflict {
 		t.Fatalf("stale If-Match → %d, want 409 version_skew", status)
 	}
 	var updated struct {
 		Status  string `json:"status"`
 		Version int    `json:"version"`
 	}
-	if status := e.call(t, "PATCH", "/v1/automations/"+createdID, anyMap{"status": "enabled"},
+	if status := e.Call(t, "PATCH", "/v1/automations/"+createdID, apptest.AnyMap{"status": "enabled"},
 		map[string]string{"If-Match": "1"}, &updated); status != http.StatusOK {
 		t.Fatalf("enable → %d", status)
 	}
@@ -43,18 +45,18 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 	}
 
 	// Delete is a soft archive: 204, then the instance reads as absent.
-	if status := e.call(t, "DELETE", "/v1/automations/"+createdID, nil, nil, nil); status != http.StatusNoContent {
+	if status := e.Call(t, "DELETE", "/v1/automations/"+createdID, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("delete → %d", status)
 	}
-	if status := e.call(t, "GET", "/v1/automations/"+createdID, nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/automations/"+createdID, nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("get after delete → %d, want 404", status)
 	}
 
 	// Config is an audited fact end to end.
 	var audit struct {
-		Data []anyMap `json:"data"`
+		Data []apptest.AnyMap `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/audit-log?entity_type=automation", nil, nil, &audit); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/audit-log?entity_type=automation", nil, nil, &audit); status != http.StatusOK {
 		t.Fatalf("audit read → %d", status)
 	}
 	if len(audit.Data) != 3 {
@@ -66,7 +68,7 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 // authorable library — the six seeded templates plus assign_lead_owner
 // and stage_change_create_task (authorable, never seeded) — every
 // entry auto_execute and shipping a params schema for the editor form.
-func assertAutomationCatalogIsClosed(t *testing.T, e *env) {
+func assertAutomationCatalogIsClosed(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	// The catalog is the closed authorable library.
 	var catalog struct {
@@ -76,7 +78,7 @@ func assertAutomationCatalogIsClosed(t *testing.T, e *env) {
 			ParamsSchema map[string]any `json:"params_schema"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/automations/catalog", nil, nil, &catalog); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/automations/catalog", nil, nil, &catalog); status != http.StatusOK {
 		t.Fatalf("catalog → %d", status)
 	}
 	if len(catalog.Data) != 8 {
@@ -95,7 +97,7 @@ func assertAutomationCatalogIsClosed(t *testing.T, e *env) {
 // assertBootstrapSeededStartersEnabled checks the workspace bootstrap
 // seeded EXACTLY the six starter templates already enabled (UAT.md:72)
 // — the recorded deviation from the API path's created-paused rule.
-func assertBootstrapSeededStartersEnabled(t *testing.T, e *env) {
+func assertBootstrapSeededStartersEnabled(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	// Bootstrap seeded the six starters ENABLED (system floor, recorded
 	// deviation from created-paused which governs the API path).
@@ -107,7 +109,7 @@ func assertBootstrapSeededStartersEnabled(t *testing.T, e *env) {
 			Version int    `json:"version"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/automations", nil, nil, &listed); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/automations", nil, nil, &listed); status != http.StatusOK {
 		t.Fatalf("list → %d", status)
 	}
 	if len(listed.Data) != 6 {
@@ -123,21 +125,21 @@ func assertBootstrapSeededStartersEnabled(t *testing.T, e *env) {
 // assertAutomationCreateValidatesParams checks create refuses anything
 // outside the catalog contract: unknown keys, mistyped params, and
 // out-of-schema knobs (the anti-DSL guard) are all 422s.
-func assertAutomationCreateValidatesParams(t *testing.T, e *env) {
+func assertAutomationCreateValidatesParams(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	// An unknown catalog key and out-of-schema params are 422s.
-	if status := e.call(t, "POST", "/v1/automations", anyMap{
-		"key": "invented_type", "name": "Nope", "params": anyMap{},
+	if status := e.Call(t, "POST", "/v1/automations", apptest.AnyMap{
+		"key": "invented_type", "name": "Nope", "params": apptest.AnyMap{},
 	}, nil, nil); status != 422 {
 		t.Fatalf("unknown key → %d, want 422", status)
 	}
-	if status := e.call(t, "POST", "/v1/automations", anyMap{
-		"key": "assign_lead_owner", "name": "Bad params", "params": anyMap{"cap_per_owner": "soon"},
+	if status := e.Call(t, "POST", "/v1/automations", apptest.AnyMap{
+		"key": "assign_lead_owner", "name": "Bad params", "params": apptest.AnyMap{"cap_per_owner": "soon"},
 	}, nil, nil); status != 422 {
 		t.Fatalf("mistyped param → %d, want 422", status)
 	}
-	if status := e.call(t, "POST", "/v1/automations", anyMap{
-		"key": "assign_lead_owner", "name": "Rogue knob", "params": anyMap{"rule_body": "if x then y"},
+	if status := e.Call(t, "POST", "/v1/automations", apptest.AnyMap{
+		"key": "assign_lead_owner", "name": "Rogue knob", "params": apptest.AnyMap{"rule_body": "if x then y"},
 	}, nil, nil); status != 422 {
 		t.Fatalf("out-of-schema param → %d, want 422 (the anti-DSL guard)", status)
 	}
@@ -145,7 +147,7 @@ func assertAutomationCreateValidatesParams(t *testing.T, e *env) {
 
 // createPausedAutomation creates a valid assign_lead_owner instance,
 // asserts it lands paused and round-trips its config, and returns its id.
-func createPausedAutomation(t *testing.T, e *env) string {
+func createPausedAutomation(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	// A valid create lands PAUSED and round-trips.
 	var created struct {
@@ -154,9 +156,9 @@ func createPausedAutomation(t *testing.T, e *env) string {
 		Params  map[string]any `json:"params"`
 		Version int            `json:"version"`
 	}
-	if status := e.call(t, "POST", "/v1/automations", anyMap{
+	if status := e.Call(t, "POST", "/v1/automations", apptest.AnyMap{
 		"key": "assign_lead_owner", "name": "Slow-lane routing",
-		"params": anyMap{"owners": []string{"0198c0de-0000-7000-8000-000000000001"}, "cap_per_owner": 3},
+		"params": apptest.AnyMap{"owners": []string{"0198c0de-0000-7000-8000-000000000001"}, "cap_per_owner": 3},
 	}, nil, &created); status != http.StatusCreated {
 		t.Fatalf("create → %d", status)
 	}
@@ -167,7 +169,7 @@ func createPausedAutomation(t *testing.T, e *env) string {
 		Name   string         `json:"name"`
 		Params map[string]any `json:"params"`
 	}
-	if status := e.call(t, "GET", "/v1/automations/"+created.ID, nil, nil, &fetched); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/automations/"+created.ID, nil, nil, &fetched); status != http.StatusOK {
 		t.Fatalf("get → %d", status)
 	}
 	if fetched.Name != "Slow-lane routing" || fetched.Params["cap_per_owner"] != float64(3) {
@@ -179,21 +181,21 @@ func createPausedAutomation(t *testing.T, e *env) string {
 // An agent passport cannot touch automation config: standing automation
 // authority stays human (the ADR-0055 human-only class).
 func TestAutomationConfigRejectsAgents(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "automation prober", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("mint → %d", status)
 	}
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 
-	if status := e.call(t, "POST", "/v1/automations", anyMap{
-		"key": "assign_lead_owner", "name": "Agent-made", "params": anyMap{},
+	if status := e.Call(t, "POST", "/v1/automations", apptest.AnyMap{
+		"key": "assign_lead_owner", "name": "Agent-made", "params": apptest.AnyMap{},
 	}, bearer, nil); status != http.StatusForbidden {
 		t.Fatalf("agent create automation → %d, want 403", status)
 	}

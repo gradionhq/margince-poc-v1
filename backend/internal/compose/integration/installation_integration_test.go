@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -31,7 +32,7 @@ import (
 func boolPtr(v bool) *bool { return &v }
 
 func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
-	e := setup(t)
+	e := apptest.SetupApp(t)
 	pwFile := filepath.Join(t.TempDir(), "admin-password")
 	if err := os.WriteFile(pwFile, []byte("correct-horse-battery"), 0o600); err != nil {
 		t.Fatal(err)
@@ -57,14 +58,14 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 			BookingPage:        boolPtr(false),
 		},
 	}
-	if err := compose.EnsureInstallation(context.Background(), e.pool, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg); err != nil {
+	if err := compose.EnsureInstallation(context.Background(), e.Pool, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
 	ctx := context.Background()
 
 	// The configured pipeline: the two open stages plus the module-owned
 	// Won/Lost terminal pair, in order.
-	rows, err := e.owner.Query(ctx,
+	rows, err := e.Owner.Query(ctx,
 		`SELECT s.name, s.semantic FROM stage s JOIN pipeline p ON p.id = s.pipeline_id
 		 WHERE p.name = 'Projects' ORDER BY s.position`)
 	if err != nil {
@@ -95,12 +96,12 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 	// The consent catalog: the module-invariant transactional lane plus
 	// exactly the configured purpose.
 	var purposes int
-	if err := e.owner.QueryRow(ctx,
+	if err := e.Owner.QueryRow(ctx,
 		`SELECT count(*) FROM consent_purpose WHERE key IN ('transactional','newsletter')`).Scan(&purposes); err != nil {
 		t.Fatal(err)
 	}
 	var total, automations, bookingPages int
-	if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM consent_purpose`).Scan(&total); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM consent_purpose`).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
 	if purposes != 2 || total != 2 {
@@ -108,10 +109,10 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 	}
 
 	// The toggles: no starter automations, no booking page.
-	if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM automation`).Scan(&automations); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM automation`).Scan(&automations); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM booking_page`).Scan(&bookingPages); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM booking_page`).Scan(&bookingPages); err != nil {
 		t.Fatal(err)
 	}
 	if automations != 0 || bookingPages != 0 {
@@ -121,13 +122,13 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 	// The organization carries the configured currency; the admin signs in
 	// through the normal login.
 	var currency string
-	if err := e.owner.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE name = 'Configured Org'`).Scan(&currency); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE name = 'Configured Org'`).Scan(&currency); err != nil {
 		t.Fatal(err)
 	}
 	if currency != "USD" {
 		t.Fatalf("base_currency = %q, want the configured USD", currency)
 	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "ops@configured.test", "password": "correct-horse-battery",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("configured admin login → %d", status)
@@ -144,7 +145,7 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 		{"installation.timezone", `"Europe/Berlin"`},
 	} {
 		var got string
-		if err := e.pool.QueryRow(context.Background(),
+		if err := e.Pool.QueryRow(context.Background(),
 			`SELECT value::text FROM setting WHERE key = $1`, want.key).Scan(&got); err != nil {
 			t.Fatalf("reading the seeded %s: %v", want.key, err)
 		}
@@ -163,17 +164,17 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 // every one of that workspace's ai_call rows UNPRICED with no operator
 // action able to explain why.
 func TestBootstrapSeedsTheAiModelRatePriceSheet(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	ctx := context.Background()
 
 	var wsID string
-	if err := e.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 
 	var total int
-	if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate WHERE workspace_id = $1`, wsID).Scan(&total); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate WHERE workspace_id = $1`, wsID).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
 	want := len(ai.SeedModelRates(time.Now().UTC()))
@@ -184,7 +185,7 @@ func TestBootstrapSeedsTheAiModelRatePriceSheet(t *testing.T) {
 	// Every seeded row belongs to the ONE workspace the bootstrap created
 	// — no cross-tenant leakage from a missing/blank workspace_id.
 	var other int
-	if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate WHERE workspace_id != $1`, wsID).Scan(&other); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate WHERE workspace_id != $1`, wsID).Scan(&other); err != nil {
 		t.Fatal(err)
 	}
 	if other != 0 {
@@ -193,26 +194,26 @@ func TestBootstrapSeedsTheAiModelRatePriceSheet(t *testing.T) {
 }
 
 func TestSecondActiveWorkspaceTurnsTheSurfaceUnavailable(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// A second active workspace violates the single-organization
 	// invariant. A server binding AFTER that point (fresh process, no
 	// cached singleton) must answer 503 on every request — an operator
 	// condition, never an auth failure.
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Rogue Second', 'rogue-second', 'EUR')`,
 		ids.NewV7()); err != nil {
 		t.Fatal(err)
 	}
-	fresh := httptest.NewServer(compose.New(e.pool, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	fresh := httptest.NewServer(compose.New(e.Pool, slog.New(slog.NewTextHandler(io.Discard, nil))))
 	t.Cleanup(fresh.Close)
 
 	resp, err := fresh.Client().Get(fresh.URL + "/v1/auth/capabilities")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { closeBody(t, resp) })
+	t.Cleanup(func() { apptest.CloseBody(t, resp) })
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("multi-workspace surface answered %d, want 503 (availability, not auth)", resp.StatusCode)
 	}

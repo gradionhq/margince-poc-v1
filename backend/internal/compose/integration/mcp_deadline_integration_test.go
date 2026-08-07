@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -79,7 +80,7 @@ func TestASlowToolCallOutlivesTheServersWriteDeadline(t *testing.T) {
 	// harness's own server has none, so the wall under test would not exist
 	// there; setup runs against that one because a deadline this tight
 	// refuses every ordinary response, including the ones that seed this test.
-	strict := httptest.NewUnstartedServer(e.ts.Config.Handler)
+	strict := httptest.NewUnstartedServer(e.TS.Config.Handler)
 	strict.Config.WriteTimeout = expiredWriteDeadline
 	strict.Start()
 	t.Cleanup(strict.Close)
@@ -89,7 +90,7 @@ func TestASlowToolCallOutlivesTheServersWriteDeadline(t *testing.T) {
 	// cannot reach a client here — without this the test would pass just as
 	// happily against a server that has no deadline at all.
 	if resp, err := client.Get(strict.URL + "/healthz"); err == nil {
-		closeBody(t, resp)
+		apptest.CloseBody(t, resp)
 		t.Fatalf("GET /healthz answered %d although the server write deadline had expired: the wall under test is not armed", resp.StatusCode)
 	}
 
@@ -97,7 +98,7 @@ func TestASlowToolCallOutlivesTheServersWriteDeadline(t *testing.T) {
 	var thread struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/activities", anyMap{
+	if status := e.Call(t, "POST", "/v1/activities", apptest.AnyMap{
 		"kind": "email", "subject": "Renewal terms", "body": "What would renewal look like?",
 		"direction": "inbound",
 	}, nil, &thread); status != http.StatusCreated {
@@ -106,7 +107,7 @@ func TestASlowToolCallOutlivesTheServersWriteDeadline(t *testing.T) {
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "slow caller", "scopes": []string{"read", "draft"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -137,7 +138,7 @@ func TestASlowToolCallOutlivesTheServersWriteDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the held tools/call never delivered a response: %v", err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("reading the held tools/call response: %v", err)

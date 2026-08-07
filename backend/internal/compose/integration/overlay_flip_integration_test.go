@@ -61,6 +61,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
@@ -78,7 +79,7 @@ import (
 // one lead, and one email activity — plus the association edges the
 // detangling asserts on.
 type flipEstate struct {
-	e       *env
+	e       *apptest.AppEnv
 	wsID    ids.UUID
 	adminID ids.UUID
 	mirror  *overlay.MirrorStore
@@ -131,20 +132,20 @@ func flipAdminCtx(ws, user ids.UUID) context.Context {
 func setupFlipEstate(t *testing.T) flipEstate {
 	t.Helper()
 	vault := keyvault.NewMemory()
-	e := setupWithOptions(t, compose.WithKeyvault(vault))
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupAppWithOptions(t, compose.WithKeyvault(vault))
+	e.BootstrapWorkspace(t)
 
-	if status := e.call(t, "POST", "/v1/overlay/connection", anyMap{
+	if status := e.Call(t, "POST", "/v1/overlay/connection", apptest.AnyMap{
 		"incumbent": "hubspot", "region": "eu1", "privateAppToken": "fake-token-never-used",
 	}, nil, nil); status != http.StatusCreated {
 		t.Fatalf("connect overlay = %d", status)
 	}
 
-	var me anyMap
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+	var me apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("/me = %d", status)
 	}
-	user, ok := me["user"].(anyMap)
+	user, ok := me["user"].(apptest.AnyMap)
 	if !ok {
 		t.Fatalf("/me carried no user object: %v", me)
 	}
@@ -157,7 +158,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 		t.Fatalf("parsing admin id: %v", err)
 	}
 	var wsIDStr string
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsIDStr); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsIDStr); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 	wsID, err := ids.Parse(wsIDStr)
@@ -304,7 +305,7 @@ func (f flipEstate) nativeEstateRows(t *testing.T) map[string]int {
 
 func (f flipEstate) workspaceMode(t *testing.T) (mode string, incumbent *string) {
 	t.Helper()
-	if err := f.e.owner.QueryRow(context.Background(),
+	if err := f.e.Owner.QueryRow(context.Background(),
 		`SELECT x_sor_mode, x_incumbent FROM workspace WHERE id = $1`, f.wsID).Scan(&mode, &incumbent); err != nil {
 		t.Fatalf("reading workspace mode: %v", err)
 	}
@@ -318,7 +319,7 @@ func TestOverlayFlipPreflightBlocksHonestly(t *testing.T) {
 	// 1. Everything green EXCEPT the pre-flip export: not ready, the
 	// export_missing reason named, nothing sealed (F1's no-op return).
 	var verdict crmcontracts.OverlayFlipPreflight
-	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK {
+	if code := e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK {
 		t.Fatalf("preflight = %d", code)
 	}
 	if verdict.Ready || !hasBlocking(verdict, "export_missing") {
@@ -332,7 +333,7 @@ func TestOverlayFlipPreflightBlocksHonestly(t *testing.T) {
 	// blocking reason + the emergency disclosure; the workspace stays in
 	// overlay on its last mirror and nothing is partially migrated.
 	f.setConnectionStatus(t, "revoked")
-	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK {
+	if code := e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK {
 		t.Fatalf("preflight (revoked) = %d", code)
 	}
 	if verdict.Ready || !hasBlocking(verdict, "incumbent_unreachable") {
@@ -358,8 +359,8 @@ func TestOverlayFlipPreflightBlocksHonestly(t *testing.T) {
 	}
 
 	// The execute op is blocked with the flip-blocked sentinel.
-	var problem anyMap
-	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+	var problem apptest.AnyMap
+	if code := e.Call(t, "POST", "/v1/overlay/flip", apptest.AnyMap{
 		"confirmation_phrase": "FLIP TO SOR",
 	}, nil, &problem); code != http.StatusConflict {
 		t.Fatalf("execute while blocked = %d %v, want 409", code, problem)
@@ -383,7 +384,7 @@ func TestOverlayFlipPreflightBlocksHonestly(t *testing.T) {
 	// seals the snapshot, and previews parity with ZERO rows written.
 	f.setConnectionStatus(t, "active")
 	f.writePreflipExport(t)
-	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK {
+	if code := e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK {
 		t.Fatalf("preflight (green) = %d", code)
 	}
 	if !verdict.Ready || len(verdict.Blocking) != 0 {
@@ -412,7 +413,7 @@ func TestOverlayFlipPreflightBlocksHonestly(t *testing.T) {
 	}
 
 	// 4. The typed-phrase gate: a wrong phrase never runs the flip.
-	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+	if code := e.Call(t, "POST", "/v1/overlay/flip", apptest.AnyMap{
 		"confirmation_phrase": "flip to sor",
 	}, nil, &problem); code != http.StatusUnprocessableEntity {
 		t.Fatalf("wrong-phrase execute = %d, want 422", code)
@@ -434,12 +435,12 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 	f.writePreflipExport(t)
 
 	var verdict crmcontracts.OverlayFlipPreflight
-	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK || !verdict.Ready {
+	if code := e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK || !verdict.Ready {
 		t.Fatalf("green preflight = %d ready=%v", code, verdict.Ready)
 	}
 
 	var accepted crmcontracts.OverlayFlipAccepted
-	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+	if code := e.Call(t, "POST", "/v1/overlay/flip", apptest.AnyMap{
 		"confirmation_phrase": "FLIP TO SOR",
 	}, nil, &accepted); code != http.StatusAccepted {
 		t.Fatalf("execute = %d %+v", code, accepted)
@@ -531,18 +532,18 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 
 	// The lifecycle ops fall back to mode_not_overlay, /me reports
 	// native, and the native read serves the imported person.
-	if code := e.call(t, "GET", "/v1/overlay/sync-status", nil, nil, nil); code != http.StatusNotFound {
+	if code := e.Call(t, "GET", "/v1/overlay/sync-status", nil, nil, nil); code != http.StatusNotFound {
 		t.Errorf("sync-status after flip = %d, want 404 mode_not_overlay", code)
 	}
-	var me anyMap
-	if code := e.call(t, "GET", "/v1/me", nil, nil, &me); code != http.StatusOK {
+	var me apptest.AnyMap
+	if code := e.Call(t, "GET", "/v1/me", nil, nil, &me); code != http.StatusOK {
 		t.Fatalf("/me = %d", code)
 	}
-	if sor, ok := me["system_of_record"].(anyMap); !ok || sor["mode"] != "native" {
+	if sor, ok := me["system_of_record"].(apptest.AnyMap); !ok || sor["mode"] != "native" {
 		t.Errorf("/me system_of_record = %v, want native", me["system_of_record"])
 	}
 	var people crmcontracts.PersonListResponse
-	if code := e.call(t, "GET", "/v1/people", nil, nil, &people); code != http.StatusOK {
+	if code := e.Call(t, "GET", "/v1/people", nil, nil, &people); code != http.StatusOK {
 		t.Fatalf("GET /v1/people after flip = %d", code)
 	}
 	if len(people.Data) != 3 {
@@ -551,7 +552,7 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 
 	// A second execute is refused: the flip is one-way (the lifecycle op
 	// answers mode_not_overlay once native).
-	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+	if code := e.Call(t, "POST", "/v1/overlay/flip", apptest.AnyMap{
 		"confirmation_phrase": "FLIP TO SOR",
 	}, nil, nil); code != http.StatusNotFound {
 		t.Errorf("second execute = %d, want 404 mode_not_overlay", code)
@@ -565,8 +566,8 @@ func TestOverlayFlipEmergencyCutover(t *testing.T) {
 	// Refused while the incumbent is reachable — the never-substituted
 	// guarantee holds in BOTH directions.
 	f.writePreflipExport(t)
-	var problem anyMap
-	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+	var problem apptest.AnyMap
+	if code := e.Call(t, "POST", "/v1/overlay/flip", apptest.AnyMap{
 		"mode": "emergency", "confirmation_phrase": "FLIP TO SOR",
 	}, nil, &problem); code != http.StatusConflict {
 		t.Fatalf("emergency while reachable = %d, want 409", code)
@@ -581,7 +582,7 @@ func TestOverlayFlipEmergencyCutover(t *testing.T) {
 	f.setConnectionStatus(t, "revoked")
 
 	var accepted crmcontracts.OverlayFlipAccepted
-	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+	if code := e.Call(t, "POST", "/v1/overlay/flip", apptest.AnyMap{
 		"mode": "emergency", "confirmation_phrase": "FLIP TO SOR",
 	}, nil, &accepted); code != http.StatusAccepted {
 		t.Fatalf("emergency execute = %d %+v", code, accepted)
@@ -626,11 +627,11 @@ func TestOverlayExportDownload(t *testing.T) {
 		t.Fatal("no export has happened yet")
 	}
 
-	req, err := http.NewRequest(http.MethodGet, e.ts.URL+"/v1/overlay/export", nil)
+	req, err := http.NewRequest(http.MethodGet, e.TS.URL+"/v1/overlay/export", nil)
 	if err != nil {
 		t.Fatalf("building the export request: %v", err)
 	}
-	resp, err := e.client.Do(req)
+	resp, err := e.Client.Do(req)
 	if err != nil {
 		t.Fatalf("GET /v1/overlay/export: %v", err)
 	}
@@ -682,7 +683,7 @@ func TestOverlayExportDownload(t *testing.T) {
 		t.Errorf("export audit rows = %d, want exactly 1", got)
 	}
 	var verdict crmcontracts.OverlayFlipPreflight
-	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK {
+	if code := e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK {
 		t.Fatalf("preflight after export = %d", code)
 	}
 	if hasBlocking(verdict, "export_missing") {
@@ -720,7 +721,7 @@ func TestAbortedExportDoesNotSatisfyTheFlipGate(t *testing.T) {
 
 	// And the preflight still blocks on it.
 	var verdict crmcontracts.OverlayFlipPreflight
-	if code := f.e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK {
+	if code := f.e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK {
 		t.Fatalf("preflight = %d", code)
 	}
 	if !hasBlocking(verdict, "export_missing") {
@@ -772,11 +773,11 @@ func TestAFlipAdoptsAHalfLandedDealAndFinishesClosingIt(t *testing.T) {
 	})
 
 	var verdict crmcontracts.OverlayFlipPreflight
-	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK || !verdict.Ready {
+	if code := e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK || !verdict.Ready {
 		t.Fatalf("green preflight = %d ready=%v", code, verdict.Ready)
 	}
 	var accepted crmcontracts.OverlayFlipAccepted
-	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+	if code := e.Call(t, "POST", "/v1/overlay/flip", apptest.AnyMap{
 		"confirmation_phrase": "FLIP TO SOR",
 	}, nil, &accepted); code != http.StatusAccepted {
 		t.Fatalf("execute = %d %+v", code, accepted)

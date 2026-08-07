@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -149,13 +150,13 @@ func logInboundReply(t *testing.T, ctx context.Context, activityStore *activitie
 // contract: a human PATCH setting score with no reason answers 422 with
 // the validation-error field shape.
 func TestLeadScoreOverrideRejectsMissingReasonOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var lead struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/leads", anyMap{"full_name": "Otto Lead", "source": "manual"}, nil, &lead); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/leads", apptest.AnyMap{"full_name": "Otto Lead", "source": "manual"}, nil, &lead); status != http.StatusCreated {
 		t.Fatalf("create lead → %d", status)
 	}
 
@@ -168,7 +169,7 @@ func TestLeadScoreOverrideRejectsMissingReasonOverHTTP(t *testing.T) {
 			} `json:"errors"`
 		} `json:"details"`
 	}
-	if status := e.call(t, "PATCH", "/v1/leads/"+lead.ID, anyMap{"score": 80}, nil, &problem); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "PATCH", "/v1/leads/"+lead.ID, apptest.AnyMap{"score": 80}, nil, &problem); status != http.StatusUnprocessableEntity {
 		t.Fatalf("score without reason → %d, want 422", status)
 	}
 	if problem.Code != "validation_error" ||

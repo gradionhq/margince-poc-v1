@@ -16,6 +16,8 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type consumerMailDomainDTO struct {
@@ -29,13 +31,13 @@ type consumerMailDomainListDTO struct {
 }
 
 func TestConsumerMailDomainsOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// A workspace that has said nothing: the shipped baseline decides every
 	// domain, and the list is empty rather than absent.
 	var list consumerMailDomainListDTO
-	if status := e.call(t, "GET", "/v1/capture/consumer-mail-domains", nil, nil, &list); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/capture/consumer-mail-domains", nil, nil, &list); status != http.StatusOK {
 		t.Fatalf("GET → %d, want 200", status)
 	}
 	if len(list.Data) != 0 {
@@ -44,7 +46,7 @@ func TestConsumerMailDomainsOverHTTP(t *testing.T) {
 
 	// A provider the shipped dataset missed, and a domain it wrongly claims.
 	var added consumerMailDomainDTO
-	if status := e.call(t, "POST", "/v1/capture/consumer-mail-domains",
+	if status := e.Call(t, "POST", "/v1/capture/consumer-mail-domains",
 		map[string]string{"domain": "Regional-Mail.Example", "kind": "extra"}, nil, &added); status != http.StatusCreated {
 		t.Fatalf("POST extra → %d, want 201", status)
 	}
@@ -54,7 +56,7 @@ func TestConsumerMailDomainsOverHTTP(t *testing.T) {
 		t.Fatalf("created %+v, want the normalized domain", added)
 	}
 	var carved consumerMailDomainDTO
-	if status := e.call(t, "POST", "/v1/capture/consumer-mail-domains",
+	if status := e.Call(t, "POST", "/v1/capture/consumer-mail-domains",
 		map[string]string{"domain": "mail.gmx.de", "kind": "never"}, nil, &carved); status != http.StatusCreated {
 		t.Fatalf("POST never → %d, want 201", status)
 	}
@@ -63,7 +65,7 @@ func TestConsumerMailDomainsOverHTTP(t *testing.T) {
 		t.Fatalf("carve-out stored as %q, want gmx.de", carved.Domain)
 	}
 
-	if status := e.call(t, "GET", "/v1/capture/consumer-mail-domains", nil, nil, &list); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/capture/consumer-mail-domains", nil, nil, &list); status != http.StatusOK {
 		t.Fatalf("GET → %d, want 200", status)
 	}
 	if len(list.Data) != 2 {
@@ -73,7 +75,7 @@ func TestConsumerMailDomainsOverHTTP(t *testing.T) {
 	// Re-adding the same domain is the same entry, not a second row: a domain
 	// cannot be both added and carved out.
 	var readded consumerMailDomainDTO
-	if status := e.call(t, "POST", "/v1/capture/consumer-mail-domains",
+	if status := e.Call(t, "POST", "/v1/capture/consumer-mail-domains",
 		map[string]string{"domain": "regional-mail.example", "kind": "never"}, nil, &readded); status != http.StatusCreated {
 		t.Fatalf("re-POST → %d, want 201", status)
 	}
@@ -83,13 +85,13 @@ func TestConsumerMailDomainsOverHTTP(t *testing.T) {
 
 	// Withdrawing returns the workspace to the baseline's own answer, and doing
 	// it twice is not an error — the caller's intent is already satisfied.
-	if status := e.call(t, "DELETE", "/v1/capture/consumer-mail-domains/"+added.ID, nil, nil, nil); status != http.StatusNoContent {
+	if status := e.Call(t, "DELETE", "/v1/capture/consumer-mail-domains/"+added.ID, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("DELETE → %d, want 204", status)
 	}
-	if status := e.call(t, "DELETE", "/v1/capture/consumer-mail-domains/"+added.ID, nil, nil, nil); status != http.StatusNoContent {
+	if status := e.Call(t, "DELETE", "/v1/capture/consumer-mail-domains/"+added.ID, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("repeat DELETE → %d, want 204", status)
 	}
-	if status := e.call(t, "GET", "/v1/capture/consumer-mail-domains", nil, nil, &list); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/capture/consumer-mail-domains", nil, nil, &list); status != http.StatusOK {
 		t.Fatalf("GET → %d, want 200", status)
 	}
 	if len(list.Data) != 1 || list.Data[0].Domain != "gmx.de" {
@@ -98,8 +100,8 @@ func TestConsumerMailDomainsOverHTTP(t *testing.T) {
 }
 
 func TestConsumerMailDomainsRefusesWhatTheMatcherCouldNeverRead(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// Each of these would sit in the list looking like a correction while
 	// matching nothing — or, for a bare public suffix, matching a whole TLD.
@@ -110,7 +112,7 @@ func TestConsumerMailDomainsRefusesWhatTheMatcherCouldNeverRead(t *testing.T) {
 		{"domain": "acme.example", "kind": "maybe"},
 		{"domain": "", "kind": "extra"},
 	} {
-		if status := e.call(t, "POST", "/v1/capture/consumer-mail-domains", bad, nil, nil); status != http.StatusUnprocessableEntity {
+		if status := e.Call(t, "POST", "/v1/capture/consumer-mail-domains", bad, nil, nil); status != http.StatusUnprocessableEntity {
 			t.Errorf("POST %v → %d, want 422", bad, status)
 		}
 	}

@@ -23,6 +23,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // connectedClient is a connector that finished the handshake: the harness, the
@@ -48,7 +50,7 @@ func setupConnectedClient(t *testing.T) *connectedClient {
 // answer that sends a client back to the human for consent.
 func (c *connectedClient) callMCP(t *testing.T) int {
 	t.Helper()
-	return c.listTools(t, c.access).StatusCode
+	return listTools(c.AppEnv, t, c.access).StatusCode
 }
 
 // refreshSucceeds reports whether the client can still mint itself a fresh
@@ -74,11 +76,11 @@ func (c *connectedClient) refreshSucceeds(t *testing.T) bool {
 func (c *connectedClient) revokePassport(t *testing.T) {
 	t.Helper()
 	var passportID string
-	if err := c.owner.QueryRow(context.Background(),
+	if err := c.Owner.QueryRow(context.Background(),
 		`SELECT id FROM passport WHERE token_hash = $1`, sha256Hex(c.access)).Scan(&passportID); err != nil {
 		t.Fatalf("reading the passport the client holds: %v", err)
 	}
-	if status := c.call(t, "DELETE", "/v1/passports/"+passportID, nil, nil, nil); status != http.StatusNoContent {
+	if status := c.Call(t, "DELETE", "/v1/passports/"+passportID, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("DELETE /v1/passports/%s → %d", passportID, status)
 	}
 }
@@ -118,7 +120,7 @@ func (o *oauthEnv) deleteClient(t *testing.T) {
 // session, so posting through it exercises the session-authenticated path and
 // says nothing about the one every real client takes.
 func (o *oauthEnv) sessionlessClient() *http.Client {
-	return &http.Client{Transport: o.ts.Client().Transport}
+	return &http.Client{Transport: o.TS.Client().Transport}
 }
 
 // revoke posts one presented token to RFC 7009 and returns the status alone
@@ -131,7 +133,7 @@ func (o *oauthEnv) revoke(t *testing.T, token, tokenTypeHint string) int {
 	if tokenTypeHint != "" {
 		form.Set("token_type_hint", tokenTypeHint)
 	}
-	req, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/revoke", strings.NewReader(form.Encode()))
+	req, err := http.NewRequest(http.MethodPost, o.TS.URL+"/oauth/revoke", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +142,7 @@ func (o *oauthEnv) revoke(t *testing.T, token, tokenTypeHint string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	return resp.StatusCode
 }
 
@@ -151,7 +153,7 @@ func (o *oauthEnv) revoke(t *testing.T, token, tokenTypeHint string) int {
 //craft:ignore naked-any pgx query arguments are untyped by the driver's own signature
 func (o *oauthEnv) cut(t *testing.T, statement string, args ...any) {
 	t.Helper()
-	tag, err := o.owner.Exec(context.Background(), statement, args...)
+	tag, err := o.Owner.Exec(context.Background(), statement, args...)
 	if err != nil {
 		t.Fatalf("cutting the connection off with %s: %v", statement, err)
 	}
@@ -287,7 +289,7 @@ func TestALocallyMintedPassportIsUnaffectedByADeadConnector(t *testing.T) {
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := c.call(t, "POST", "/v1/passports", anyMap{
+	if status := c.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "local agent", "scopes": []string{"read"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue a local passport → %d", status)
@@ -296,7 +298,7 @@ func TestALocallyMintedPassportIsUnaffectedByADeadConnector(t *testing.T) {
 	c.disableClient(t)
 	c.revokeGrant(t)
 
-	if code := c.listTools(t, minted.Token).StatusCode; code != http.StatusOK {
+	if code := listTools(c.AppEnv, t, minted.Token).StatusCode; code != http.StatusOK {
 		t.Fatalf("locally minted passport → %d, want 200: it answers to no grant", code)
 	}
 	if code := c.callMCP(t); code != http.StatusUnauthorized {
@@ -316,7 +318,7 @@ func TestALocallyMintedPassportIsUnaffectedByADeadConnector(t *testing.T) {
 // concluded from what the same client gets away with elsewhere.
 func (o *oauthEnv) sessionlessGet(t *testing.T, path string) int {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, o.ts.URL+path, nil)
+	req, err := http.NewRequest(http.MethodGet, o.TS.URL+path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +326,7 @@ func (o *oauthEnv) sessionlessGet(t *testing.T, path string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	return resp.StatusCode
 }
 
@@ -427,7 +429,7 @@ func TestDiscoveryAdvertisesTheRevocationEndpoint(t *testing.T) {
 	var metadata struct {
 		RevocationEndpoint string `json:"revocation_endpoint"`
 	}
-	if status := o.call(t, "GET", "/.well-known/oauth-authorization-server", nil, nil, &metadata); status != http.StatusOK {
+	if status := o.Call(t, "GET", "/.well-known/oauth-authorization-server", nil, nil, &metadata); status != http.StatusOK {
 		t.Fatalf("discovery → %d", status)
 	}
 	if !strings.HasSuffix(metadata.RevocationEndpoint, "/oauth/revoke") {

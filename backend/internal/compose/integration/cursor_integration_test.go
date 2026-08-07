@@ -17,17 +17,19 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestMalformedCursorAnswers4xxEverywhere(t *testing.T) {
-	e := setup(t)
+	e := apptest.SetupApp(t)
 
-	bootstrapWorkspaceSession(t, e, "Cursor Probe", "admin@cursor.test", "Admin")
-	e.slug = "cursor-probe"
+	apptest.BootstrapWorkspaceSession(t, e, "Cursor Probe", "admin@cursor.test", "Admin")
+	e.Slug = "cursor-probe"
 
 	// /lists/{id}/members needs a real list to point at.
-	var list anyMap
-	if status := e.call(t, "POST", "/v1/lists", anyMap{
+	var list apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/lists", apptest.AnyMap{
 		"name": "Probe", "entity_type": "person",
 	}, nil, &list); status != http.StatusCreated {
 		t.Fatalf("create list = %d %v", status, list)
@@ -47,8 +49,8 @@ func TestMalformedCursorAnswers4xxEverywhere(t *testing.T) {
 		"/v1/search?q=probe&" + garbage,
 	}
 	for _, path := range endpoints {
-		var problem anyMap
-		status := e.call(t, "GET", path, nil, nil, &problem)
+		var problem apptest.AnyMap
+		status := e.Call(t, "GET", path, nil, nil, &problem)
 		if status < 400 || status > 499 {
 			t.Errorf("GET %s with a malformed cursor = %d %v, want a 4xx problem", path, status, problem)
 		}

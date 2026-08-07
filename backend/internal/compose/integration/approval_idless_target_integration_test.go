@@ -17,17 +17,19 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestStagedCreateWithNoTargetIDIsListedAndDecidable(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Northwind")
 
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "create agent", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -36,12 +38,12 @@ func TestStagedCreateWithNoTargetIDIsListedAndDecidable(t *testing.T) {
 
 	// createProject is confirm-first, so the agent's call stages instead of
 	// writing. The identical body is the redemption key, so it is sent twice.
-	body := anyMap{"name": "Warehouse rollout", "organization_id": org, "source": "mcp"}
+	body := apptest.AnyMap{"name": "Warehouse rollout", "organization_id": org, "source": "mcp"}
 	var problem struct {
 		Code   string `json:"code"`
 		Detail string `json:"detail"`
 	}
-	if status := e.call(t, "POST", "/v1/projects", body, bearer, &problem); status != http.StatusForbidden ||
+	if status := e.Call(t, "POST", "/v1/projects", body, bearer, &problem); status != http.StatusForbidden ||
 		problem.Code != "approval_required" {
 		t.Fatalf("agent project create → %d %q, want 403 approval_required", status, problem.Code)
 	}
@@ -50,7 +52,7 @@ func TestStagedCreateWithNoTargetIDIsListedAndDecidable(t *testing.T) {
 	// The shape this test is about: the type the approved call will write, and
 	// no row for a scope probe to resolve.
 	var targetType, targetID *string
-	if err := e.owner.QueryRow(t.Context(),
+	if err := e.Owner.QueryRow(t.Context(),
 		`SELECT target_entity_type, target_entity_id FROM approval WHERE id = $1`,
 		approvalID).Scan(&targetType, &targetID); err != nil {
 		t.Fatal(err)
@@ -65,7 +67,7 @@ func TestStagedCreateWithNoTargetIDIsListedAndDecidable(t *testing.T) {
 	assertDecidableInTheInbox(t, e, approvalID, "project")
 
 	// And the decision releases the identical call, which lands the project.
-	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/approvals/"+approvalID+"/approve", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
 		t.Fatalf("human approve → %d", status)
 	}
 	withToken := map[string]string{
@@ -75,7 +77,7 @@ func TestStagedCreateWithNoTargetIDIsListedAndDecidable(t *testing.T) {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	if status := e.call(t, "POST", "/v1/projects", body, withToken, &created); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/projects", body, withToken, &created); status != http.StatusCreated {
 		t.Fatalf("approved retry → %d, want 201 — the approval must release the staged create", status)
 	}
 	if created.ID == "" || created.Name != "Warehouse rollout" {

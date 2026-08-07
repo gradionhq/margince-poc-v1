@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -35,12 +36,12 @@ type strengthWire struct {
 	ContributingActivityIds []string `json:"contributing_activity_ids"`
 }
 
-func seedStrengthPersonWithActivities(t *testing.T, e *env) string {
+func seedStrengthPersonWithActivities(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Strength Target", "source": "ui",
 	}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
@@ -51,9 +52,9 @@ func seedStrengthPersonWithActivities(t *testing.T, e *env) string {
 	// a live recency/frequency/reciprocity signal rather than a bare
 	// zero-interaction "none" bucket.
 	for _, direction := range []string{"inbound", "outbound"} {
-		if status := e.call(t, "POST", "/v1/activities", anyMap{
+		if status := e.Call(t, "POST", "/v1/activities", apptest.AnyMap{
 			"kind": "email", "subject": "Touch", "source": "ui", "direction": direction,
-			"links": []anyMap{{"entity_id": person.ID, "entity_type": "person"}},
+			"links": []apptest.AnyMap{{"entity_id": person.ID, "entity_type": "person"}},
 		}, nil, nil); status != http.StatusCreated {
 			t.Fatalf("log %s activity → %d", direction, status)
 		}
@@ -66,13 +67,13 @@ func seedStrengthPersonWithActivities(t *testing.T, e *env) string {
 // 0..100, and factors whose product (rounded) equals the score — the
 // same §4 formula the domain computes, just surfaced over the wire.
 func TestPersonStrengthHTTPReconciles(t *testing.T) {
-	e := setup(t)
-	e.slug = "strength-e2e"
-	bootstrapWorkspaceSession(t, e, "Strength E2E", "admin@strength.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "strength-e2e"
+	apptest.BootstrapWorkspaceSession(t, e, "Strength E2E", "admin@strength.test", "Admin")
 	personID := seedStrengthPersonWithActivities(t, e)
 
 	var wire strengthWire
-	if status := e.call(t, "GET", "/v1/people/"+personID+"/strength", nil, nil, &wire); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/people/"+personID+"/strength", nil, nil, &wire); status != http.StatusOK {
 		t.Fatalf("GET strength → %d", status)
 	}
 
@@ -106,11 +107,11 @@ func TestPersonStrengthHTTPReconciles(t *testing.T) {
 // rather than disclosing anything about it — existence-hiding, matching
 // every other row-scoped read.
 func TestPersonStrengthHTTPMissingIs404(t *testing.T) {
-	e := setup(t)
-	e.slug = "strength-404"
-	bootstrapWorkspaceSession(t, e, "Strength 404", "admin@strength404.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "strength-404"
+	apptest.BootstrapWorkspaceSession(t, e, "Strength 404", "admin@strength404.test", "Admin")
 
-	if status := e.call(t, "GET", "/v1/people/"+ids.NewV7().String()+"/strength", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/people/"+ids.NewV7().String()+"/strength", nil, nil, nil); status != http.StatusNotFound {
 		t.Errorf("missing person strength = %d, want 404", status)
 	}
 }
@@ -119,27 +120,27 @@ func TestPersonStrengthHTTPMissingIs404(t *testing.T) {
 // current employees' strength) surfaces the same employee's score it
 // computed for the person-level endpoint above.
 func TestOrganizationStrengthHTTPReconciles(t *testing.T) {
-	e := setup(t)
-	e.slug = "org-strength-e2e"
-	bootstrapWorkspaceSession(t, e, "Org Strength E2E", "admin@orgstrength.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "org-strength-e2e"
+	apptest.BootstrapWorkspaceSession(t, e, "Org Strength E2E", "admin@orgstrength.test", "Admin")
 
 	var org struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/organizations", anyMap{
+	if status := e.Call(t, "POST", "/v1/organizations", apptest.AnyMap{
 		"display_name": "Strength Co", "source": "ui",
 	}, nil, &org); status != http.StatusCreated {
 		t.Fatalf("create organization → %d", status)
 	}
 	personID := seedStrengthPersonWithActivities(t, e)
-	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+	if status := e.Call(t, "POST", "/v1/relationships", apptest.AnyMap{
 		"kind": "employment", "person_id": personID, "organization_id": org.ID,
 	}, nil, nil); status != http.StatusCreated {
 		t.Fatalf("create employment relationship → %d", status)
 	}
 
 	var wire strengthWire
-	if status := e.call(t, "GET", "/v1/organizations/"+org.ID+"/strength", nil, nil, &wire); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/organizations/"+org.ID+"/strength", nil, nil, &wire); status != http.StatusOK {
 		t.Fatalf("GET org strength → %d", status)
 	}
 	if wire.Score <= 0 {
@@ -150,11 +151,11 @@ func TestOrganizationStrengthHTTPReconciles(t *testing.T) {
 // TestOrganizationStrengthHTTPMissingIs404 mirrors the person-level 404:
 // a nonexistent organization id discloses nothing about it either.
 func TestOrganizationStrengthHTTPMissingIs404(t *testing.T) {
-	e := setup(t)
-	e.slug = "org-strength-404"
-	bootstrapWorkspaceSession(t, e, "Org Strength 404", "admin@orgstrength404.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "org-strength-404"
+	apptest.BootstrapWorkspaceSession(t, e, "Org Strength 404", "admin@orgstrength404.test", "Admin")
 
-	if status := e.call(t, "GET", "/v1/organizations/"+ids.NewV7().String()+"/strength", nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/organizations/"+ids.NewV7().String()+"/strength", nil, nil, nil); status != http.StatusNotFound {
 		t.Errorf("missing organization strength = %d, want 404", status)
 	}
 }
