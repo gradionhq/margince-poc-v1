@@ -10,8 +10,8 @@ package agents
 // `required` is the first thing a client reads to build a call, and it was the
 // last of the schema's claims with nothing behind it. The uuid check held
 // presence for id-shaped arguments and the numeric check held ranges, so a
-// missing `q`, `kind` or `segment` reached whichever handler happened to check
-// for it — and the reason one spelling at one chokepoint wins is the reason
+// missing `kind`, `segment` or `record_type` reached whichever handler happened
+// to check for it — and the reason one spelling at one chokepoint wins is the reason
 // idargs.go already gives: thirteen handlers each failed to make their own
 // schema's `required` true, one at a time.
 //
@@ -39,6 +39,15 @@ import (
 // serve, and the schema is a literal in whatever registered the tool — so this
 // fails the BOOT, which is the only moment it can still be fixed, and covers a
 // composed extension unit exactly as it covers a core tool.
+//
+// This rests on an assumption worth stating where it binds: every schema this
+// surface serves is a FLAT literal listing its own properties. JSON Schema also
+// lets `required` name a property supplied by `additionalProperties`,
+// `patternProperties` or an `allOf` branch, none of which this reader walks — so
+// a unit shipping a composed schema would be refused here for a shape that is
+// legitimate. Nothing on this surface writes one today, and assertObjectSchemas
+// does not yet forbid it; the day a unit needs one, this reader is what has to
+// learn about it rather than the unit having to flatten.
 //
 // The id-shaped arguments are left to idargs.go. Both would otherwise refuse the
 // same missing argument, and the caller would be told about it twice, in two
@@ -117,7 +126,7 @@ func (r *Registry) requireDeclaredPresence(name string, args json.RawMessage) er
 	}
 	return &BadArgsError{
 		Cause: errors.New(refusalSubject(missing) + " required by this tool's input schema"),
-		Guidance: fmt.Sprintf("supply %s — the schema tools/list advertises lists %s as required",
+		Guidance: fmt.Sprintf("supply %s — the schema advertised on tools/list names %s as required",
 			refusalNoun(missing), strings.Join(missing, ", ")),
 	}
 }

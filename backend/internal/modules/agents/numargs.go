@@ -22,6 +22,7 @@ package agents
 // buys — and is held where that cost is paid (bookingLinks).
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,19 +80,42 @@ func declaredNumBounds(inputSchema json.RawMessage) []numBound {
 
 // requireDeclaredArgs holds a call to every claim its own tools/list entry makes
 // about its arguments: the required ones are there, the ids name something, and
-// the numbers sit inside the advertised range. Presence comes FIRST — an
-// argument that is missing has no shape and no range to be wrong about, and
-// naming both would tell a caller two things about one mistake. Invoke calls THIS rather than the two checks in turn, so a
-// claim read off the schema later cannot be wired into one of Invoke's two
-// placements and forgotten in the other.
+// the numbers sit inside the advertised range. Invoke calls THIS rather than the
+// three checks in turn, so a claim read off the schema later cannot be wired
+// into one of Invoke's two placements and forgotten in the other.
+//
+// Presence and the ids answer TOGETHER. Each collects faithfully on its own, but
+// they split the required arguments between them — the id-shaped ones belong to
+// idargs.go — so a call missing one of each was refused for the plain argument,
+// and told about the id only after the caller had fixed the first and called
+// again. That is the call-per-field waste all three of these files say the
+// collection exists to end, reappearing at the seam between them.
+//
+// The bounds stay separate: an argument that is missing has no range to be wrong
+// about, so there is nothing to say about it in the same breath.
 func (r *Registry) requireDeclaredArgs(name string, args json.RawMessage) error {
-	if err := r.requireDeclaredPresence(name, args); err != nil {
-		return err
-	}
-	if err := r.requireDeclaredIDs(name, args); err != nil {
+	if err := joinArgRefusals(r.requireDeclaredPresence(name, args), r.requireDeclaredIDs(name, args)); err != nil {
 		return err
 	}
 	return r.requireDeclaredBounds(name, args)
+}
+
+// joinArgRefusals answers with both refusals when both fired, and with whichever
+// one did otherwise.
+//
+// A refusal this surface did not build is passed through UNJOINED. Both checks
+// answer *BadArgsError for an argument the caller got wrong, and anything else —
+// an authority error surfacing from a lookup, a wrapped infrastructure fault —
+// is not a sentence to splice into another one.
+func joinArgRefusals(first, second error) error {
+	var firstArgs, secondArgs *BadArgsError
+	if !errors.As(first, &firstArgs) || !errors.As(second, &secondArgs) {
+		return cmp.Or(first, second)
+	}
+	return &BadArgsError{
+		Cause:    fmt.Errorf("%w; %w", firstArgs.Cause, secondArgs.Cause),
+		Guidance: firstArgs.Guidance,
+	}
 }
 
 // requireDeclaredBounds holds every supplied value to the range its tool
