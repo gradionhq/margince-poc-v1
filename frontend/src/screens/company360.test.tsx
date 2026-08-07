@@ -466,11 +466,15 @@ describe("company view — overlay mode", () => {
     await waitFor(() =>
       expect(screen.getByText(/not assembled here/)).toBeTruthy(),
     );
-    // No half-page: the business rail is absent entirely rather than showing
-    // cards that would each read as an empty account.
-    expect(
-      screen.queryByRole("complementary", { name: "Business" }),
-    ).toBeNull();
+    // No half-page: every card the composite read feeds is absent, rather
+    // than each drawing the empty state that would read as an empty account.
+    const column = screen.getByRole("complementary", { name: "Business" });
+    for (const card of ["People", "Deals", "Signals"]) {
+      expect(within(column).queryByText(card)).toBeNull();
+    }
+    // The account's OWN columns are not what the mirror refused, and a
+    // reader who cannot see the 360 still needs to know whose page this is.
+    expect(within(column).getByText("The company")).toBeTruthy();
   });
 });
 

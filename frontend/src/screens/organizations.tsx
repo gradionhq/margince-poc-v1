@@ -34,7 +34,7 @@ import {
   EvidenceChip,
   ProvenanceTag,
 } from "../design-system/trust";
-import { formatDateTime, formatMoney } from "../format/format";
+import { formatDate, formatDateTime, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
@@ -1710,27 +1710,76 @@ function CompanyIdentityChips({
           {primary.domain}
         </a>
       )}
-      {org.industry && (
-        <span className="co-chip">
-          <Building2 aria-hidden size={12} />
-          {org.industry}
-        </span>
-      )}
-      {org.size_band && (
-        <span className="co-chip">
-          <Users aria-hidden size={12} />
-          {org.size_band}
-        </span>
-      )}
-      <span className="co-chip">
-        <UserRound aria-hidden size={12} />
-        {org.owner_id ? (
-          <EntityRef kind="user" id={org.owner_id} />
-        ) : (
-          t("co.pulse.unowned")
-        )}
-      </span>
+      {/* Industry, size and owner left for the facts card in the column
+          below. Said in both places they were the same four values twice on
+          one screen, and the masthead is the record's identity — its name and
+          the way to reach it — not a second copy of its firmographics. */}
     </div>
+  );
+}
+
+/**
+ * CompanyFactsCard is who this company IS, at the top of the column a reader
+ * scans first: the handful of facts they would otherwise go hunting for
+ * before a call.
+ *
+ * It reads the record's own columns, not the site-read profile — those
+ * sixteen statements are a page of their own on Context. A row is drawn only
+ * when the record carries the value: an "Industry —" line teaches a reader
+ * that the field exists and nothing about the company.
+ */
+function CompanyFactsCard({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const primary = (org.domains ?? []).find((domain) => domain.is_primary);
+  const rows: { key: MessageKey; value: ReactNode }[] = [];
+  if (primary?.domain) {
+    rows.push({
+      key: "co.company.website",
+      value: (
+        <a
+          href={`https://${primary.domain}`}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          {primary.domain}
+        </a>
+      ),
+    });
+  }
+  if (org.legal_name) {
+    rows.push({ key: "co.company.legalName", value: org.legal_name });
+  }
+  if (org.industry) {
+    rows.push({ key: "co.company.industry", value: org.industry });
+  }
+  if (org.size_band) {
+    rows.push({ key: "co.company.size", value: org.size_band });
+  }
+  rows.push({
+    key: "co.company.owner",
+    value: org.owner_id ? (
+      <EntityRef kind="user" id={org.owner_id} />
+    ) : (
+      t("co.pulse.unowned")
+    ),
+  });
+  rows.push({
+    key: "co.company.added",
+    value: formatDate(org.created_at, locale, RECORD_ZONE),
+  });
+  return (
+    <section className="card co-card">
+      <SectionHeader title={t("co.company.title")} />
+      <dl className="co-facts">
+        {rows.map((row) => (
+          <div key={row.key}>
+            <dt>{t(row.key)}</dt>
+            <dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
@@ -2126,14 +2175,23 @@ function CompanyPage({
       // read as an empty account is the half-page the refusal exists to
       // prevent.
       aside={
-        tab === "overview" && !overlay
-          ? businessRail({
-              org,
-              view,
-              failed,
-              readOnly: Boolean(org.archived_at),
-            })
-          : undefined
+        tab === "overview" ? (
+          <>
+            {/* Who they are, before anything about how it is going with
+                them: this is the card a reader doing a ten-second scan came
+                for. It reads the RECORD's own columns, so it survives
+                overlay mode — the mirror refuses the composite read, not the
+                account itself. */}
+            <CompanyFactsCard org={org} />
+            {!overlay &&
+              businessRail({
+                org,
+                view,
+                failed,
+                readOnly: Boolean(org.archived_at),
+              })}
+          </>
+        ) : undefined
       }
       asideFirst
       timelineTitle={t("co.story.title")}
