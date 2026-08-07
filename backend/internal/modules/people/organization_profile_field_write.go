@@ -132,7 +132,11 @@ func (s *Store) writeProfileField(
 		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
 		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
 
-		if err := p.ApplyGuarded(ctx, tx, "organization_profile_field", before.ID, in.IfVersion); err != nil {
+		// A receipt is not archivable: it has no archived_at, because it is
+		// deleted with the organization it describes rather than retired on its
+		// own. IncludeArchived is how that is spelled — see ApplyWithVersionIn.
+		if err := p.ApplyGuardedIn(ctx, tx, "organization_profile_field", before.ID,
+			in.IfVersion, storekit.IncludeArchived); err != nil {
 			return err
 		}
 
