@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Shared helpers for the parallel integration lanes (test-integration-parallel.sh
 # and test-integration-one.sh): parse this repo's owner + app DSNs, clone/drop a
-# throwaway per-package database, and derive a per-slot MinIO bucket. Source
-# this; don't execute it.
+# throwaway per-package database, derive a per-slot MinIO bucket, and resolve the
+# per-package test timeout both lanes answer to. Source this; don't execute it.
 #
 # This repo's clone-per-package test-DB shape:
 #   - TWO roles, not one — MARGINCE_TEST_DSN (owner: migrates + seeds) and
@@ -210,3 +210,37 @@ drop_clone() { local db="$1"; db_admin drop-db --name "$db" >/dev/null; }
 # bucket_for SLOT [BASE] — DNS-compliant private MinIO bucket per slot (the store
 # auto-creates it). Hyphen, never underscore.
 bucket_for() { echo "${2:-${MARGINCE_TEST_BLOBSTORE_BUCKET:-margince-test}}-p${1}"; }
+
+# resolve_it_timeout — set IT_TIMEOUT, the per-package `go test -timeout`, from
+# INTEGRATION_TIMEOUT or the lane default. Both entry points run whole packages
+# against the same suites, so they answer to one budget and one spelling of the
+# rule; a second copy is how the two drift into disagreeing about what a package
+# is allowed to cost. Exits rather than returning on a bad value: a lane that ran
+# on a budget nobody asked for is worse than one that refuses to start.
+#
+# The budget is sized for the slowest package, not the median: compose/integration
+# alone runs within a few seconds of 300s and tips over it under the concurrency
+# the parallel lane itself creates, which reads as a regression in whatever branch
+# happens to be running. 600s is headroom while that package is split.
+#
+# `go test -timeout` also accepts 10m or 1h30s. The parallel lane's budget column
+# reads this as a seconds count, so anything else would price every package
+# against a nonsense denominator and print a percentage nobody can act on.
+# Rejecting the spelling is better than reporting confidently wrong numbers.
+#
+# Zero is rejected separately and matters more: `go test -timeout 0` DISABLES the
+# timeout, so a run that meant to loosen the budget would instead remove the guard
+# entirely and let a hung package sit until the CI job's own limit — the one
+# failure this bound exists to turn into a legible message.
+resolve_it_timeout() {
+  IT_TIMEOUT="${INTEGRATION_TIMEOUT:-600s}"
+  if [[ ! "$IT_TIMEOUT" =~ ^[0-9]+s$ ]]; then
+    echo "FAIL: INTEGRATION_TIMEOUT must be <seconds>s (e.g. 600s), got '${IT_TIMEOUT}'"
+    exit 1
+  fi
+  if (( ${IT_TIMEOUT%s} == 0 )); then
+    echo "FAIL: INTEGRATION_TIMEOUT must be greater than 0s — go test reads 0 as NO timeout, which "\
+"removes the per-package guard rather than widening it"
+    exit 1
+  fi
+}

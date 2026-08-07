@@ -50,8 +50,9 @@
 #                           (discovery/assigned/ran/meta) and per-package binary
 #                           covdata pods for the CI fan-in to reconcile + merge;
 #                           coverage instrumentation is on iff this is set
-#   INTEGRATION_TIMEOUT     per-package go-test timeout, as <seconds>s
-#                           (default 600s; the budget column parses this)
+#   INTEGRATION_TIMEOUT     per-package go-test timeout, as <seconds>s (default
+#                           600s; the budget column parses this). Resolved in
+#                           scripts/lib-testdb.sh, shared with the one-package lane
 #   MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN   owner + app DSNs (Makefile defaults)
 set -euo pipefail
 
@@ -91,31 +92,11 @@ if [[ -n "$SHARD_OUT" ]]; then
   export COVERDIR
 fi
 
-# Per-package go-test timeout. The budget is sized for the slowest package, not
-# the median: `compose/integration` alone runs within a few seconds of 300s and
-# tips over it under the concurrency this lane itself creates, which reads as a
-# regression in whatever branch happens to be running. 600s is headroom while
-# that package is split and per-package timings are reported (issue #538).
-# Overridable via INTEGRATION_TIMEOUT.
-IT_TIMEOUT="${INTEGRATION_TIMEOUT:-600s}"
-# `go test -timeout` also accepts 10m or 1h30s. The budget column below reads
-# this as a seconds count, so anything else would price every package against a
-# nonsense denominator and print a percentage nobody can act on. Rejecting the
-# spelling is better than reporting confidently wrong numbers.
-#
-# Zero is rejected separately and matters more: `go test -timeout 0` DISABLES the
-# timeout, so a run that meant to loosen the budget would instead remove the
-# guard entirely and let a hung package sit until the CI job's own limit — the
-# one failure this bound exists to turn into a legible message.
-if [[ ! "$IT_TIMEOUT" =~ ^[0-9]+s$ ]]; then
-  echo "FAIL: INTEGRATION_TIMEOUT must be <seconds>s (e.g. 600s), got '${IT_TIMEOUT}'"
-  exit 1
-fi
-if (( ${IT_TIMEOUT%s} == 0 )); then
-  echo "FAIL: INTEGRATION_TIMEOUT must be greater than 0s — go test reads 0 as NO timeout, which "\
-"removes the per-package guard rather than widening it"
-  exit 1
-fi
+# Per-package go-test timeout and its budget rule — shared with the one-package
+# lane (scripts/lib-testdb.sh resolve_it_timeout), so both cost a package the same.
+resolve_it_timeout
+# A single-shard coverage run is the one case that executes whole packages WITH
+# instrumentation on top, so it alone earns more than the shared budget.
 if [[ -n "${COVERDIR:-}" && -z "${INTEGRATION_TIMEOUT:-}" ]] && (( SHARD_TOTAL == 1 )); then
   IT_TIMEOUT=900s
 fi
