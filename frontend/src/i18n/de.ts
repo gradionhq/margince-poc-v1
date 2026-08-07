@@ -3446,7 +3446,7 @@ export const de = {
   "ownDomains.sub":
     "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert — auch nicht für Sie.",
   "ownDomains.irreversible":
-    "Eine Domain hier einzutragen wirkt ab der nächsten Nachricht und lässt sich nicht rückgängig machen: Was einmal übersprungen wurde, liefert kein Postfach ein zweites Mal. Bereits erfasste E-Mails bleiben.",
+    "Eine Domain hier einzutragen wirkt ab der nächsten Nachricht. Wird sie später entfernt, wird ab diesem Zeitpunkt wieder erfasst — was übersprungen wurde, solange sie eingetragen war, liefert jedoch kein Postfach ein zweites Mal. Bereits erfasste E-Mails bleiben.",
   "ownDomains.fromCompany": "Aus dem Unternehmensprofil — dort zu ändern:",
   "ownDomains.empty":
     "Keine weiteren Domains eingetragen. Tragen Sie eine ein, wenn Ihr Unternehmen unter mehr als einer Domain schreibt.",

@@ -260,3 +260,57 @@ func TestRemovingADomainLeavesAnotherWorkspacesAlone(t *testing.T) {
 		t.Errorf("the other workspace's set = %+v, want its own row untouched", list.Domains)
 	}
 }
+
+// The registry is workspace CONFIGURATION, not a record, so its writes are
+// audit-only: no outbox envelope, no public event. That makes audit_log the
+// ONLY place a change is recorded, and an unaudited write here would leave a
+// change to what mail the installation stores with nothing to read it back
+// from. Both verbs are checked, because either one alters the set.
+func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
+	ctx, pool := ownDomainWorkspace(t)
+	store := capture.NewOwnDomainStore(pool)
+
+	if _, err := store.Add(ctx, "acme.com"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	assertOwnDomainAudited(ctx, t, pool, "update", "acme.com")
+
+	if err := store.Remove(ctx, "acme.com"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	assertOwnDomainAudited(ctx, t, pool, "archive", "acme.com")
+
+	// Audit-only means exactly that: an event would make workspace configuration
+	// look like a record change to every subscriber.
+	var events int
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM event_outbox
+			  WHERE envelope->>'entity_type' = 'capture_settings'`).Scan(&events)
+	}); err != nil {
+		t.Fatalf("counting outbox rows: %v", err)
+	}
+	if events != 0 {
+		t.Errorf("own-domain writes emitted %d outbox rows, want 0 — this surface is audit-only", events)
+	}
+}
+
+// assertOwnDomainAudited fails unless exactly one audit row records that action
+// against this workspace, naming the domain and the human who did it.
+func assertOwnDomainAudited(ctx context.Context, t *testing.T, pool *pgxpool.Pool, action, domain string) {
+	t.Helper()
+	actor, _ := principal.Actor(ctx)
+	var rows int
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT count(*) FROM audit_log
+			 WHERE entity_type = 'capture_settings' AND action = $1 AND actor_id = $2
+			   AND $3 IN (before->>'own_email_domain', after->>'own_email_domain')`,
+			action, actor.ID, domain).Scan(&rows)
+	}); err != nil {
+		t.Fatalf("reading the audit log: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("audit rows for %s %s = %d, want exactly 1 — audit_log is the only record this write leaves", action, domain, rows)
+	}
+}

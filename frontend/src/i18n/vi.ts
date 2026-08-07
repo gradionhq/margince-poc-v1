@@ -3442,7 +3442,7 @@ export const vi = {
   "ownDomains.sub":
     "Những tên miền thuộc về công ty này. Khi đồng nghiệp viết thư cho nhau, thư đó không được lưu — kể cả với bạn.",
   "ownDomains.irreversible":
-    "Thêm một tên miền sẽ có hiệu lực từ thư kế tiếp và không thể hoàn tác: thư đã bỏ qua sẽ không hộp thư nào gửi lại nữa. Thư đã thu thập thì vẫn còn.",
+    "Thêm một tên miền sẽ có hiệu lực từ thư kế tiếp. Nếu sau này xóa đi, việc thu thập sẽ tiếp tục từ thời điểm đó — nhưng những thư đã bị bỏ qua trong thời gian tên miền còn được đăng ký thì không thể được gửi lại qua bất kỳ hộp thư nào nữa. Thư đã thu thập thì vẫn còn.",
   "ownDomains.fromCompany": "Từ hồ sơ công ty — sửa tại đó:",
   "ownDomains.empty":
     "Chưa đăng ký thêm tên miền nào. Hãy thêm nếu công ty bạn còn gửi thư từ một tên miền khác.",

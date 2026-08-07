@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -204,6 +205,11 @@ func ValidOwnDomain(raw string) (string, error) {
 		return "", errors.New("give a bare domain — no address, scheme or path")
 	case !strings.Contains(domain, "."):
 		return "", fmt.Errorf("%s is not a domain", domain)
+	case net.ParseIP(domain) != nil:
+		// Named before the public-suffix test below, which would otherwise tell
+		// somebody who typed an address that it "is a public suffix" — true of
+		// the lookup and useless to the reader.
+		return "", fmt.Errorf("%s is an IP address; give the domain your mail is addressed to", domain)
 	case len(domain) > 253:
 		return "", errors.New("that domain is too long")
 	}

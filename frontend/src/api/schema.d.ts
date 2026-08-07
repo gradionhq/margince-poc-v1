@@ -2938,6 +2938,10 @@ export interface paths {
          *     adding a domain IS the human vouching for it, so the row is stored verified and takes
          *     effect on the next captured message.
          *
+         *     Admin or ops only. Every other role reads this list and cannot change it: the set
+         *     decides which mail the installation stores at all, so widening it is not a rep's
+         *     decision to make.
+         *
          *     Registering a domain is NOT retroactive, and its effect is NOT reversible: mail already
          *     captured stays, and every connector advances its watermark past a message this
          *     suppresses, so a message dropped under a domain entered by mistake is not offered again.
@@ -2969,6 +2973,8 @@ export interface paths {
          *     nothing already suppressed comes back. Removing a domain the installation's own company
          *     claims has no effect on its own — that claim is read from the company profile, and is
          *     changed there.
+         *
+         *     Admin or ops only, for the same reason registering one is.
          */
         delete: operations["deleteWorkspaceEmailDomain"];
         options?: never;
@@ -6093,8 +6099,9 @@ export interface components {
         };
         CreateWorkspaceEmailDomainRequest: {
             /**
-             * @description A bare domain — no scheme, no path, no `@`. Folded before storage, so one domain
-             *     cannot be registered twice under two spellings.
+             * @description A bare domain — no scheme and no path. A leading `@` is accepted and stripped,
+             *     because that is how people write a mail domain; an address is not. Folded before
+             *     storage, so one domain cannot be registered twice under two spellings.
              */
             domain: string;
         };

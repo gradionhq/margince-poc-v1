@@ -100,12 +100,22 @@ func companyHost(website string) (string, error) {
 
 // companyDomainWouldChange reports whether host differs from the anchor's
 // current primary domain — the only case that alters what counts as internal.
+//
+// FOR UPDATE, because this read DECIDES a permission and the write it decides
+// for happens later in the same transaction. Unlocked, at READ COMMITTED, a
+// concurrent change to the primary domain lands in between: a caller
+// re-submitting what WAS the domain reads "unchanged", skips the
+// capture_settings grant, and then writes a value that is now a change. That
+// is a rep silently reverting the installation's own domain — and the domain
+// decides which mail is stored at all. The lock makes the decision and the
+// write one unit; a competing writer waits and this one re-reads its result.
 func companyDomainWouldChange(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, host string) (bool, error) {
 	var current string
 	err := tx.QueryRow(ctx,
 		`SELECT domain FROM organization_domain
 		  WHERE workspace_id = $1 AND organization_id = $2
-		    AND is_primary AND archived_at IS NULL`,
+		    AND is_primary AND archived_at IS NULL
+		    FOR UPDATE`,
 		workspaceID(ctx), orgID).Scan(&current)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No domain yet: the first one is a change from nothing.

@@ -227,4 +227,11 @@ func queryDomains(ctx context.Context, tx pgx.Tx, query string) (InternalDomains
 
 // Domains returns the normalized domains in the set, for a caller that needs to
 // show them rather than test against them.
-func (d InternalDomains) Domains() []string { return d.domains }
+//
+// A COPY: the set decides which mail is stored, and every other method on it
+// only reads. Handing out the backing slice would let a caller that appends or
+// sorts its display list change what counts as internal, with nothing at the
+// call site to suggest it had.
+func (d InternalDomains) Domains() []string {
+	return append([]string(nil), d.domains...)
+}

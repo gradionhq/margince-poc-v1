@@ -5,7 +5,7 @@
 
 package compose
 
-// The /workspace/email-domains HTTP handlers over a real pool (CAP-WIRE-2a,
+// The /capture/email-domains HTTP handlers over a real pool (CAP-WIRE-2a,
 // ADR-0082/A127). Thin transport, so what is proven here is the transport's
 // own decisions — the wire shape, the human-only gate, and the refusals the
 // handler makes BEFORE the store is reached. The RBAC and audit behaviour
@@ -91,7 +91,7 @@ func TestOwnDomainHandlersRoundTripTheRegistry(t *testing.T) {
 
 	// Removal empties it again.
 	delRec := httptest.NewRecorder()
-	delReq := httptest.NewRequest(http.MethodDelete, "/v1/workspace/email-domains/gradion.de", nil).
+	delReq := httptest.NewRequest(http.MethodDelete, "/v1/capture/email-domains/gradion.de", nil).
 		WithContext(ownDomainAdmin(e))
 	h.DeleteWorkspaceEmailDomain(delRec, delReq, "gradion.de")
 	if delRec.Code != http.StatusNoContent {
@@ -123,7 +123,7 @@ func TestOwnDomainHandlersRefuseBadInputAndAgents(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/workspace/email-domains",
+			req := httptest.NewRequest(http.MethodPost, "/v1/capture/email-domains",
 				strings.NewReader(tc.body)).WithContext(tc.ctx)
 			h.CreateWorkspaceEmailDomain(rec, req)
 			if rec.Code != tc.want {
@@ -135,7 +135,7 @@ func TestOwnDomainHandlersRefuseBadInputAndAgents(t *testing.T) {
 	// The delete side carries the same human-only gate; a set that only writes
 	// are gated on one verb is gated on neither in practice.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/v1/workspace/email-domains/gradion.de", nil).
+	req := httptest.NewRequest(http.MethodDelete, "/v1/capture/email-domains/gradion.de", nil).
 		WithContext(agent)
 	h.DeleteWorkspaceEmailDomain(rec, req, "gradion.de")
 	if rec.Code != http.StatusForbidden {
@@ -148,7 +148,7 @@ func TestOwnDomainHandlersRefuseBadInputAndAgents(t *testing.T) {
 func callOwnDomains(ctx context.Context, handler func(http.ResponseWriter, *http.Request),
 	method string, body io.Reader,
 ) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, "/v1/workspace/email-domains", body)
+	req := httptest.NewRequest(method, "/v1/capture/email-domains", body)
 	rec := httptest.NewRecorder()
 	handler(rec, req.WithContext(ctx))
 	return rec

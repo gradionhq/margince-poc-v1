@@ -3427,7 +3427,7 @@ export const en = {
   "ownDomains.sub":
     "The domains that belong to this company. When colleagues write to each other, that message is not stored — not even for you.",
   "ownDomains.irreversible":
-    "Adding a domain takes effect from the next message and cannot be undone: what was skipped is never offered again by any mailbox. Mail already captured stays.",
+    "Adding a domain takes effect from the next message. Removing it later resumes capture from that point on — but mail skipped while it was registered is never offered again by any mailbox. Mail already captured stays.",
   "ownDomains.fromCompany": "From the company profile — change them there:",
   "ownDomains.empty":
     "No further domains registered. Add one if your company also writes from another domain.",
