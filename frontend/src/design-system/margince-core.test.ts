@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { coreBufferSize } from "./margince-core-liquid";
+import { WINDOW_BLURRED_ATTRIBUTE } from "./window-focus";
 
 // The Core is the product's identity, not a status light. It is ALWAYS the brand
 // green: a sphere that turns amber or red reads as the brand changing character,
@@ -103,6 +104,80 @@ describe("the Core's colour", () => {
       [...coreCss.matchAll(/--coreBeat:\s*([^;]+);/g)].map((m) => m[1].trim()),
     );
     expect(beats.size).toBeGreaterThanOrEqual(5);
+  });
+});
+
+/*
+ * The Core's stillness, derived from the sheet rather than from a list of class
+ * names: both rules below are about EVERY animated part the file happens to
+ * contain, so a part added later is covered by them without being added to a
+ * list first.
+ *
+ * Comments are stripped because a selector is read as the text before a `{`, and
+ * this file explains almost every rule it declares.
+ */
+const sheet = coreCss.replace(/\/\*[\s\S]*?\*\//g, "");
+
+/** Every rule body in the sheet, paired with the selectors it applies to. */
+function rules(): ReadonlyArray<{ selectors: string[]; body: string }> {
+  return [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+    selectors: match[1].split(",").map((one) => one.trim()),
+    body: match[2],
+  }));
+}
+
+/** The parts that START an animation — `animation: none` switches one off. */
+function animatedSelectors(): ReadonlyArray<string> {
+  const found = new Set<string>();
+  for (const { selectors, body } of rules()) {
+    const declared = /animation:\s*([^;]+);/.exec(body)?.[1]?.trim();
+    if (declared === undefined || declared.startsWith("none")) {
+      continue;
+    }
+    for (const selector of selectors) {
+      found.add(selector);
+    }
+  }
+  return [...found];
+}
+
+/** The parts held still while the window is blurred, without that condition. */
+function pausedSelectors(): ReadonlyArray<string> {
+  const prefix = `:root[${WINDOW_BLURRED_ATTRIBUTE}] `;
+  return rules()
+    .filter(({ body }) => /animation-play-state:\s*paused/.test(body))
+    .flatMap(({ selectors }) => selectors)
+    .filter((selector) => selector.startsWith(prefix))
+    .map((selector) => selector.slice(prefix.length));
+}
+
+describe("the Core's stillness", () => {
+  it("holds its position — no part of the Core travels vertically", () => {
+    // The sphere breathes in place. A slow vertical drift on top of the breath
+    // reads as the page moving rather than as the Core living, and next to copy
+    // it is a bug that moves. The feed's `translateX` is the motes arriving,
+    // which is the one thing here that travels on purpose.
+    expect(animatedSelectors().length).toBeGreaterThanOrEqual(3);
+    expect(sheet).not.toMatch(/translateY|translate3d|translate\s*:/);
+  });
+
+  it("pauses every rhythm it starts while the window has no focus", () => {
+    // Nobody is watching a window behind another window. The failure this guards
+    // is a part added later and left running there — one rhythm still moving
+    // while the rest of the Core is still is worse than all of them moving.
+    const paused = pausedSelectors();
+    for (const selector of animatedSelectors()) {
+      expect(paused, `${selector} must go still with the window`).toContain(
+        selector,
+      );
+    }
+  });
+
+  it("pauses them rather than removing them", () => {
+    // `animation: none` snaps the sphere to its unanimated size and brightness,
+    // so clicking away from the window would jump it. Paused holds the frame it
+    // reached, which is what coming back should look like.
+    expect(pausedSelectors().length).toBeGreaterThanOrEqual(3);
   });
 });
 
