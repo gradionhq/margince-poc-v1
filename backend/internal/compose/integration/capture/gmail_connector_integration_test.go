@@ -72,7 +72,6 @@ func gmailStub(t *testing.T, owner string) *httptest.Server {
 	return srv
 }
 
-//craft:ignore naked-any v is an arbitrary canned JSON response body for the stub
 func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 	e := integration.SetupSearch(t)
 	const owner = "rep@ws.example"

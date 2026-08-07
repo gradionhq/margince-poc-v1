@@ -159,10 +159,16 @@ func (e *SearchEnv) AsTeamRep(user, team ids.UUID) context.Context {
 	})
 }
 
-// AsFullUser is a human who may WRITE every record type, unbounded by row scope
-// — Admin's mutating counterpart, for the suites whose subject is an ingest or a
-// scoring pass rather than a visibility rule. Same object vocabulary as the
-// reader, so a suite that swaps one for the other varies only the permission.
+// AsFullUser may create, read and update every record type, unbounded by row
+// scope — the mutating counterpart to Admin, for the suites whose subject is an
+// ingest or a scoring pass rather than a visibility rule. Same object vocabulary
+// as the reader, so a suite that swaps one for the other varies only the
+// permission.
+//
+// Delete is deliberately absent, unlike AdminPerms in harness.go: nothing that
+// rides this fixture deletes, and a grant no caller needs would quietly turn any
+// future erasure test from a proof into a pass. A suite that does need delete
+// should say so by asking for it, not inherit it from a fixture named "full".
 func (e *SearchEnv) AsFullUser() context.Context {
 	grants := map[string]principal.ObjectGrant{}
 	for _, object := range searchObjects {
