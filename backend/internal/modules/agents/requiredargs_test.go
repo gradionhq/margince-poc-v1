@@ -141,3 +141,23 @@ func asBadArgs(err error, target **BadArgsError) bool {
 }
 
 var _ = mcp.ToolSpec{}
+
+// A schema whose `required` is not a list of strings is a defect in whatever
+// registered it — an extension unit, most likely — and it is named while cmd
+// wiring boots rather than on a caller's first request.
+func TestAnUnreadableRequiredListIsRefusedAtRegistration(t *testing.T) {
+	mustPanic(t, "a required list that is not a list of strings cannot be enforced", func() {
+		declaredRequired(json.RawMessage(`{"type":"object","required":"q","properties":{"q":{"type":"string"}}}`))
+	})
+}
+
+// Arguments that are not an object at all carry no members to look for. The
+// shape verdict belongs to the steps that own it — the argument split, then the
+// handler's own decode — each of which names what it wanted; a second, vaguer
+// answer to the same question is worse than none.
+func TestNonObjectArgumentsAreLeftToTheStepsThatOwnTheirShape(t *testing.T) {
+	r := requiringRegistry(t)
+	if err := r.requireDeclaredPresence("requires_things", json.RawMessage(`"a bare string"`)); err != nil {
+		t.Errorf("non-object arguments were refused here as %v, where the shape is not this check's to judge", err)
+	}
+}
