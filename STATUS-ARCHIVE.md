@@ -39,7 +39,7 @@ the bound. The exposure was the unsharded path — `make test-integration`
 locally, and `make test-it` on this one package. That is the inner loop, so the
 flake landed on whoever was iterating.
 
-#537 raised the budget to 600s and taught the cost report to print each
+PR #537 raised the budget to 600s and taught the cost report to print each
 package's share of it, so a margin shrinking toward nothing is visible before
 it crosses rather than after. What that left behind was the sibling call site:
 `scripts/test-integration-one.sh` spelled `-timeout=300s` inline, with no
