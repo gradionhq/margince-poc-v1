@@ -59,6 +59,11 @@ export function MergeAction<Survivor extends { id: string }>({
   // runs debounced and must not depend on the translator, which is a new
   // function every render. It is turned into copy where it is rendered.
   const [searchFailure, setSearchFailure] = useState<unknown>(null);
+  // A request in flight and zero matches both render an empty candidate
+  // list — merge archives the source record, so a reader who reads
+  // "no such account" while the debounce is still running and picks the
+  // wrong survivor cannot undo that. This keeps the two apart.
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -68,9 +73,11 @@ export function MergeAction<Survivor extends { id: string }>({
     if (!query) {
       setCandidates([]);
       setSearchFailure(null);
+      setSearching(false);
       return;
     }
     let cancelled = false;
+    setSearching(true);
     const timer = setTimeout(async () => {
       try {
         const results = await searchTargets(query);
@@ -79,11 +86,13 @@ export function MergeAction<Survivor extends { id: string }>({
             results.filter((candidate) => candidate.id !== sourceId),
           );
           setSearchFailure(null);
+          setSearching(false);
         }
       } catch (error) {
         if (!cancelled) {
           setCandidates([]);
           setSearchFailure(error);
+          setSearching(false);
         }
       }
     }, SEARCH_DEBOUNCE_MS);
@@ -143,6 +152,13 @@ export function MergeAction<Survivor extends { id: string }>({
             {problemMessageOf(searchFailure, t)}
           </p>
         ) : null}
+        {searching && <p className="t-caption">{t("merge.searching")}</p>}
+        {!searching &&
+          !searchFailure &&
+          term.trim() &&
+          candidates.length === 0 && (
+            <p className="t-caption">{t("merge.noMatches")}</p>
+          )}
         <ul style={{ listStyle: "none", margin: "8px 0", padding: 0 }}>
           {candidates.map((candidate) => (
             <li key={candidate.id}>

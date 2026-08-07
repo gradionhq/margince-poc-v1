@@ -579,6 +579,15 @@ describe("company view — a failed read is not an empty account", () => {
     expect(
       within(card).queryByText("No contact linked to this account yet."),
     ).toBeNull();
+    // Health is a card in this rail like People and Deals — a failed read
+    // must not make it vanish while its neighbours state their own refusal.
+    const health = within(card)
+      .getByText("The relationship")
+      .closest("section");
+    if (!health) {
+      throw new Error("the health card has no section wrapper");
+    }
+    expect(within(health).getByText(/Could not be loaded/)).toBeTruthy();
   });
 
   it("distinguishes a section that is missing from one that is empty", async () => {

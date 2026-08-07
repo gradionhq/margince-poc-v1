@@ -1032,6 +1032,33 @@ describe("CompanyScreen — overlay mode write affordances", () => {
     expect(screen.queryByTestId("merge-record")).toBeNull();
   });
 
+  it("does not draw the People card's own refusal under the page-level one", async () => {
+    stubFetch(async (url, method) => {
+      if (url.includes("/me")) {
+        return meResponse();
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      if (method === "PATCH") {
+        return jsonResponse(org);
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/not assembled here/)).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "People" }));
+
+    // The page names the one refusal once. A second "Could not be loaded"
+    // from PeopleCard underneath it would name the same absence twice, for
+    // two different reasons, in the one place a reader is looking.
+    expect(screen.queryByText(/Could not be loaded/)).toBeNull();
+    expect(screen.getByText(/not assembled here/)).toBeTruthy();
+  });
+
   it("Edit's real click path PATCHes and the 360 shows the saved industry", async () => {
     // Mutable so the refetch after a successful save (useUpdateRecord
     // invalidates the record query) reflects the write, not a stale echo —
@@ -1184,6 +1211,60 @@ describe("CompanyScreen — merge into target (P-2)", () => {
     expect(mergeBody).toMatchObject({ target_id: "o-2" });
     expect(mergeHeader).toBe("1");
     expect(window.location.hash).toBe("#/companies/o-2");
+  });
+
+  it("shows a searching state rather than letting an in-flight request read as no matches", async () => {
+    // Merge archives the source record, so a candidate list that looks empty
+    // while a request is still running — and is picked as "no such account"
+    // — cannot be undone. The search response is held open here so the
+    // in-flight window is long enough to assert on.
+    let releaseSearch: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseSearch = resolve;
+    });
+    stubFetch(async (url, method) => {
+      if (method === "POST" && url.includes("/organizations/o-1/merge")) {
+        return jsonResponse({ ...acme, version: 2 });
+      }
+      if (url.includes("/organizations?") && url.includes("q=acme")) {
+        await held;
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await userEvent.click(await openRecordMenu("merge-record"));
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByText("Searching…")).toBeTruthy(),
+    );
+    // The request has not settled yet — "no matches" would be a claim about
+    // an answer that has not arrived.
+    expect(within(dialog).queryByText("No matching records.")).toBeNull();
+
+    releaseSearch?.();
+    await waitFor(() =>
+      expect(within(dialog).getByText("No matching records.")).toBeTruthy(),
+    );
+    expect(within(dialog).queryByText("Searching…")).toBeNull();
   });
 });
 
@@ -1881,6 +1962,69 @@ describe("CompanyScreen — the layout does not shift as the read lands", () => 
     await waitFor(() =>
       expect(container.querySelector(".co-strip")).toBeNull(),
     );
+  });
+});
+
+// The History tab's notice keeps a failed read (retryable) and a withheld
+// section (a settled RBAC boundary) apart. Both leave the timeline with no
+// rows, so the distinction has to come from the words, not the layout.
+describe("CompanyScreen — History separates a withheld section from a failed read", () => {
+  it("invites a retry when the composite read itself failed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/360")) {
+          return jsonResponse({ title: "boom" }, 500);
+        }
+        if (pathname.endsWith("/hierarchy-rollup")) {
+          return jsonResponse(emptyRollup);
+        }
+        if (pathname.endsWith("/organizations/o-1")) {
+          return jsonResponse(org);
+        }
+        return jsonResponse({
+          data: [],
+          page: { has_more: false, next_cursor: null },
+        });
+      }),
+    );
+    render(<CompanyScreen id="o-1" />);
+    await openHistory();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Could not be loaded — this may not be the whole picture",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText("Hidden — your role cannot read this"),
+    ).toBeNull();
+  });
+
+  it("states the RBAC boundary, with no retry wording, when the role cannot read it", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: undefined,
+        sections_omitted: ["activities"],
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+    await openHistory();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Hidden — your role cannot read this"),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText(
+        "Could not be loaded — this may not be the whole picture",
+      ),
+    ).toBeNull();
   });
 });
 

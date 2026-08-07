@@ -222,6 +222,8 @@ export const en = {
   "merge.pickTarget": "Select the surviving record",
   "merge.confirm": "Merge {source} into {target}? {source} will be archived.",
   "merge.submit": "Merge",
+  "merge.searching": "Searching…",
+  "merge.noMatches": "No matching records.",
 
   "tab.overview": "Overview",
   "tab.relationships": "People & companies",
@@ -706,6 +708,7 @@ export const en = {
   "co.ask.q.whats_changed": "What's changed recently?",
   "co.ask.nothing": "Nothing here that you can see would answer that.",
   "co.ask.failed": "That question could not be answered — try it again.",
+  "co.ask.unreadable": "That answer could not be read.",
   "co.suggest.title": "Worth doing next",
   "co.suggest.kind.no_reply": "No reply",
   "co.suggest.kind.stalled_deal": "Stalled deal",

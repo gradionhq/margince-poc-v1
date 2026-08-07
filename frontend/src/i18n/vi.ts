@@ -235,6 +235,8 @@ export const vi = {
   "merge.pickTarget": "Chọn bản ghi được giữ lại",
   "merge.confirm": "Gộp {source} vào {target}? {source} sẽ được lưu trữ.",
   "merge.submit": "Gộp",
+  "merge.searching": "Đang tìm…",
+  "merge.noMatches": "Không có bản ghi phù hợp.",
 
   "tab.overview": "Tổng quan",
   "tab.relationships": "Người & công ty",
@@ -713,6 +715,7 @@ export const vi = {
   "co.ask.q.whats_changed": "Gần đây có gì thay đổi?",
   "co.ask.nothing": "Không có gì bạn xem được ở đây trả lời được câu đó.",
   "co.ask.failed": "Không trả lời được câu hỏi đó — hãy thử lại.",
+  "co.ask.unreadable": "Không đọc được câu trả lời đó.",
   "co.suggest.title": "Đáng làm tiếp theo",
   "co.suggest.kind.no_reply": "Chưa có hồi đáp",
   "co.suggest.kind.stalled_deal": "Deal đình trệ",

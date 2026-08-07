@@ -227,6 +227,8 @@ export const de = {
   "merge.confirm":
     "{source} in {target} zusammenführen? {source} wird archiviert.",
   "merge.submit": "Zusammenführen",
+  "merge.searching": "Suche läuft…",
+  "merge.noMatches": "Keine passenden Datensätze.",
 
   "tab.overview": "Übersicht",
   "tab.relationships": "Personen & Firmen",
@@ -711,6 +713,7 @@ export const de = {
   "co.ask.nothing": "Dazu ist nichts sichtbar, was das beantworten würde.",
   "co.ask.failed":
     "Die Frage konnte nicht beantwortet werden — bitte erneut versuchen.",
+  "co.ask.unreadable": "Diese Antwort konnte nicht gelesen werden.",
   "co.suggest.title": "Das lohnt sich als Nächstes",
   "co.suggest.kind.no_reply": "Keine Antwort",
   "co.suggest.kind.stalled_deal": "Deal steht",

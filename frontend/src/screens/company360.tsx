@@ -19,7 +19,7 @@ import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessageOf, throwProblem } from "./common";
+import { problemCodeOf, problemMessageOf, throwProblem } from "./common";
 import "./company360.css";
 import {
   routesTo,
@@ -1633,13 +1633,27 @@ export function AskSection({
         ))}
       </p>
       {ask.isPending && <Skeleton width="100%" height={40} />}
-      {ask.isError && (
+      {/* A refusal on the RBAC∩Passport intersection is a settled boundary,
+          not a hiccup — "try it again" tells a rep to retry a question that
+          will refuse the same way every time. Every other failure keeps the
+          retry sentence, because the server's own detail on it may name
+          something that resolves (budget exhausted, a malformed request). */}
+      {ask.isError && problemCodeOf(ask.error) === "permission_denied" && (
+        <p className="co-restricted">{t("co.section.restricted")}</p>
+      )}
+      {ask.isError && problemCodeOf(ask.error) !== "permission_denied" && (
         <p className="co-restricted">
           {t("co.ask.failed")}
-          {/* The server's own detail says WHICH failure — budget exhausted reads
-              differently from a malformed request, and a rep can act on one. */}
           {` ${problemMessageOf(ask.error, t)}`}
         </p>
+      )}
+      {/* The mutation succeeded and still left nothing this build can read —
+          a shape the server never promised not to send. Falling through to
+          the readable block below would leave the panel exactly as it stood
+          before the question was asked, which reads as "never asked" rather
+          than as the answer that arrived. */}
+      {ask.isSuccess && !ask.isPending && !readable && (
+        <p className="co-restricted">{t("co.ask.unreadable")}</p>
       )}
       {/* The previous answer is hidden while the next question is in flight.
           Leaving it under the spinner puts a finished answer next to a loading

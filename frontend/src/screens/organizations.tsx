@@ -2250,7 +2250,7 @@ function CompanyPage({
       {/* The People tab gives the account team the whole middle column. The
           rail's card is a summary; this is the roster, with room for the title
           and the last exchange beside each name. */}
-      {tab === "people" && (
+      {!overlay && tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
       <CompanySurfaces
@@ -2666,6 +2666,7 @@ function businessRail({
     <>
       <PeopleCard />
       <DealsCard />
+      <HealthCard />
       <SignalsCard orgId={org.id} />
     </>
   );
@@ -2693,8 +2694,17 @@ function chronologyNotice(
   if (timeline.loading) {
     return <Skeleton width="100%" height={48} />;
   }
-  if (timeline.failed || !timeline.assembled) {
+  // A read that failed outright leaves the section unassembled too — the
+  // composite never arrived, so `view?.activities` is never there to check —
+  // so `failed` is tested first and claims that case as the retryable one.
+  // Only once the read is known to have succeeded does `!assembled` mean
+  // what it says: the payload arrived and this section was withheld from
+  // this caller, which invites no retry.
+  if (timeline.failed) {
     return <EmptyState>{t("co.section.unavailable")}</EmptyState>;
+  }
+  if (!timeline.assembled) {
+    return <EmptyState>{t("co.section.restricted")}</EmptyState>;
   }
   if (count > 0) {
     return undefined;

@@ -9,6 +9,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { approvalKindLabel } from "./approvalkind";
+import { problemCodeOf, problemMessageOf } from "./common";
 import { ApprovalRow, useApprovalTokenSink } from "./inbox";
 import { useTargetApprovals } from "./inbox.queries";
 
@@ -114,8 +115,16 @@ export function CompanyApprovalsPanel({
       {query.isPending && approvals.length === 0 && (
         <Skeleton width="100%" height={64} />
       )}
-      {query.isError && (
-        <p className="co-restricted">{t("co.section.unavailable")}</p>
+      {/* A role that cannot see this account's queue and a queue that simply
+          failed to load are different answers: one is a settled boundary
+          with nothing to retry, the other may resolve on its own. */}
+      {query.isError && problemCodeOf(query.error) === "permission_denied" && (
+        <p className="co-restricted">{t("co.section.restricted")}</p>
+      )}
+      {query.isError && problemCodeOf(query.error) !== "permission_denied" && (
+        <p className="co-restricted">
+          {problemMessageOf(query.error, t, t("co.section.unavailable"))}
+        </p>
       )}
       {/* "Nothing is waiting" is a FACT, and only a read that succeeded knows
           it. A failed read that falls back to an empty 360 page would
