@@ -2680,7 +2680,7 @@ export const vi = {
   "auth.continueWith": "Tiếp tục với {brand}",
   // Labels the password path, not the provider buttons above it: where the
   // installation runs SSO, the form beneath this divider is the fallback door.
-  "auth.orWithEmail": "hoặc bằng email",
+  "auth.orDivider": "hoặc",
   // §7.1 verbatim. The noun is "organization", not "workspace": ADR-0061/A107
   // keeps `workspace` internal and §7.3 removed it from authentication. And the
   // line states that ACCESS is restricted, never that data is safe, encrypted or

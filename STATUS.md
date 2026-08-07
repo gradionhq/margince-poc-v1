@@ -461,17 +461,28 @@ Five reported UI defects. Four are invariants; the fifth is a screen redesign.
   column carries `z-index: 1` for it — the wordmark's own z-index resolves inside
   `.auth-task-in`, a stacking context because of its filling opacity animation,
   so from in there nothing can paint over the identity column) and returns to
-  being the form's first line when the layout stacks. One 400px measure, one left
-  edge for heading, buttons, fields, locale row and fine print, provider buttons
-  stacked full width, and spacing that scales with the viewport off the `--space`
-  scale.
-  - **Phones drop the identity region entirely, sphere included** (≤560px). The
-    68px orb parked beside the disclosure line was the last thing competing with
-    the form for a first look. The disclosure SENTENCE stays — it is the ADR-0076
-    obligation the aside was only one way of meeting.
+  being the form's first line when the layout stacks. Both halves read ONE pair of
+  padding values (`--authPadBlock` / `--authPadInline`, arithmetic on the `--space`
+  scale) at every width above the phone, so the inset does not change when the
+  layout turns from two columns into two rows: the air on this surface comes from a
+  400px column centred in half a screen, not from its gutter, and a viewport clamp
+  only moved the edges while making the desktop and the tablet two different pages.
+  Both columns read down their own centre line, the fields excepted — a label
+  centred over a line of typing points at nothing.
+  - **Phones drop the identity region entirely** (≤560px): the sphere, the limits,
+    and the AI's own sentence with them (founder ruling, 2026-08-07). Everything
+    that introduced the system was competing with the form for the first look, and
+    on a phone the form is the only thing the screen is for.
+  - **That is a partial ADR-0076 Decision 1 below 561px, and it is now total.** The
+    surface discloses nothing about the AI at phone width — the earlier compromise
+    kept the boundary sentence as `.auth-phone-disclosure`; that element is gone.
+    Above the breakpoint the disclosure is intact. The departure is stated in
+    `auth.css` beside the rule that makes it and pinned in both directions by
+    `e2e/ac.spec.ts`, so it cannot drift back by accident — **owed upstream: the
+    spec has to reconcile Decision 1 with a phone surface that is the task alone.**
   - Re-measured at 320 / 390 / 640×400 (200% zoom) / 720 / 1440: zero horizontal
     overflow, the 48px submit inside the viewport at every width, all four limits
-    rendered wherever the region shows.
+    rendered wherever the region shows, axe clean.
 - **An entry animation belongs to the page load, not to the mount.** The staggered
   fades and the typed statement replayed on every React remount of the surface,
   which reads as the page reloading under the reader. `useDocumentIntro`

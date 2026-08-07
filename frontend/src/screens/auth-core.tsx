@@ -230,7 +230,6 @@ export function IdentityRegion({
       <aside className="auth-identity" aria-labelledby={identityId}>
         <div className="auth-identity-copy">
           <p className="auth-kicker" id={identityId}>
-            <span className="auth-kicker-dot" aria-hidden />
             {t("auth.coreDisclosure")}
           </p>
 
@@ -316,33 +315,6 @@ function TypedStatement({ text }: Readonly<{ text: string }>) {
       </span>
     </p>
   );
-}
-
-/**
- * The disclosure that survives the phone layout.
- *
- * Below 561px the surface is the task alone and `aside.auth-identity` is gone,
- * which would otherwise take every word about the AI with it — the Core that
- * remains is `aria-hidden` decoration (WDS-CORE-4), so a phone user, and every
- * screen-reader user on one, would be told nothing at all. Decision 1 does not
- * get to lapse at a breakpoint.
- *
- * The boundary statement is the one line that carries it: it is the limit the
- * system states about itself in the first person, so it discloses the AI and
- * bounds it in the same sentence.
- *
- * It sits in the task column rather than inside `.auth-card` so that ONE
- * insertion covers login, forgot, reset, the outcome notices and the
- * unavailable screen. The wide layout hides it in CSS, which keeps it out of
- * the accessibility tree entirely there — the aside is already saying it, and
- * saying it twice would be worse than not saying it here.
- *
- * Static, with no typewriter: the animated one belongs to the identity region,
- * and two streams of the same sentence would be reading it twice.
- */
-export function PhoneDisclosure() {
-  const t = useT();
-  return <p className="auth-phone-disclosure">{t("auth.coreBoundary")}</p>;
 }
 
 function RuntimePosture({ profile }: Readonly<{ profile: AssistantProfile }>) {

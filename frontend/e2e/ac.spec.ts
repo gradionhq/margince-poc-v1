@@ -829,26 +829,23 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
       // rendered height, because a count alone passes on a hidden node.
       //
       // Where it is NOT — the phone layout — the region is absent by design and
-      // what remains is the task alone: no aside, and no sphere either. But the
-      // DISCLOSURE is not the region's to take with it: the Core is
-      // `aria-hidden`, so dropping the aside without the phone line leaves a
-      // phone user, and every screen-reader user on one, told nothing about the
-      // AI at all. Exactly one of the two statements is live at any width, so
-      // neither branch can pass by saying it twice.
+      // what remains is the task alone: no aside, no sphere, and no second copy
+      // of the region's copy either. The phone surface is the form (founder
+      // ruling, 2026-08-07): the disclosure the aside makes is a property of the
+      // region, and at this width the region is not on the screen for it to be a
+      // property of.
       test("shows the identity region whole, or not at all", async ({
         page,
       }) => {
         await page.goto("/");
         const region = page.locator("aside.auth-identity");
         const limits = page.locator(".auth-limits li");
-        const phoneLine = page.locator(".auth-phone-disclosure");
         if (identity) {
           await expect(region).toBeVisible();
           await expect(limits).toHaveCount(4);
           for (let index = 0; index < 4; index += 1) {
             await expect(limits.nth(index)).toBeVisible();
           }
-          await expect(phoneLine).toBeHidden();
         } else {
           await expect(region).toBeHidden();
           // Hidden, not merely present: the sphere is drawn by the same markup at
@@ -859,8 +856,6 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
           // rail-less screen in a `<main>`, so the task region is a `<div>` —
           // a second `<main>` here would be an invalid, duplicate landmark.
           await expect(page.locator(".auth-task")).toBeVisible();
-          await expect(phoneLine).toBeVisible();
-          await expect(phoneLine).not.toBeEmpty();
         }
       });
     });
@@ -954,7 +949,7 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
 
     // The divider sits between the providers and the form it labels.
     const divider = page.locator(".auth-or");
-    await expect(divider).toHaveText("oder per E-Mail");
+    await expect(divider).toHaveText("oder");
     const buttonsY = (await page.locator(".auth-sso").boundingBox())?.y ?? 0;
     const dividerY = (await divider.boundingBox())?.y ?? 0;
     const fieldsY = (await page.locator(".auth-fields").boundingBox())?.y ?? 0;

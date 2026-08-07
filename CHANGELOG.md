@@ -179,15 +179,18 @@ numbers appear here when releases start.
 - **The sign-in screen is two halves of a page, not a card in a pane.** The
   identity region runs full-bleed and is divided from the form by one
   hairline; the wordmark sits in the page's top-left corner on the split
-  layout and above the form when the layout stacks; the form is a single
-  400px measure with its heading, provider buttons, fields, locale row and
-  fine print all on one left edge, and the provider buttons are stacked
-  full-width so every way in presents the same target. Spacing scales with
-  the viewport off the `--space` scale rather than sitting at fixed pixels.
-  On phones (≤560px) the identity region drops **entirely, sphere
-  included** — the form is the only thing that screen is for — and the
-  boundary statement it is obliged to make stays, as the line above the
-  form.
+  layout and above the form when the layout stacks; each half reads down its
+  own centre line, and both carry the same inset at every width above the
+  phone. The form is a single 400px measure — heading, provider buttons
+  (stacked full width, so every way in presents the same target), fields,
+  locale row and fine print — with the fields the one thing that stays left,
+  because a label centred over a line of typing points at nothing. On phones
+  (≤560px) the identity region drops **entirely**: the sphere, the limits and
+  the AI's own sentence with them, because the form is the only thing that
+  screen is for. That leaves the phone surface disclosing nothing about the
+  AI behind the installation, which is a deliberate departure from
+  ADR-0076 Decision 1 at that width and owed back to the spec; every wider
+  layout still makes the disclosure in full.
 - **The sign-in screen's entry animation belongs to the page load.** The
   staggered fades and the typed statement ran again on every React remount
   of the surface, which reads as the page reloading under the reader. The
