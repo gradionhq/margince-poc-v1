@@ -78,47 +78,58 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON organization_relationship_type TO margin
 -- BACKFILL. lifecycle takes 'unknown' for everything that was not explicitly a
 -- customer: carrying 'prospect' forward would re-assert in the new vocabulary
 -- the same unearned claim the old default made, and waste the split.
-UPDATE organization SET lifecycle = 'customer' WHERE classification = 'customer';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization SET lifecycle = 'customer'
+    WHERE (classification = 'customer')
+      AND organization.workspace_id = ws;
 
--- The type rows the old enum can be read as. tech_vendor/platform are things
--- we buy from. 'prospect' and 'other' name no relationship and produce no row.
---
--- 'partner' is NOT assigned here, and that is the whole subtlety: an org IS a
--- partner iff it carries this type AND a `partner` extension row, and the
--- store now refuses a patch that breaks either direction. Handing the type to
--- every old `agency` and `reseller` — which have no extension row, because
--- nothing ever created one for them — would land those rows in a state the
--- running system rejects, on the first edit anyone made. They map to no type
--- and a human retags them, which is the honest outcome for a column that
--- never had a writer.
-INSERT INTO organization_relationship_type (workspace_id, organization_id, relationship_type, source, captured_by)
-SELECT o.workspace_id, o.id,
-       CASE o.classification
-         WHEN 'customer'    THEN 'customer'
-         WHEN 'competitor'  THEN 'competitor'
-         WHEN 'tech_vendor' THEN 'supplier'
-         WHEN 'platform'    THEN 'supplier'
-       END,
-       'migration', 'migration'
-FROM organization o
-WHERE o.classification IN ('customer','competitor','tech_vendor','platform')
-  AND o.archived_at IS NULL
-ON CONFLICT DO NOTHING;
+    -- The type rows the old enum can be read as. tech_vendor/platform are things
+    -- we buy from. 'prospect' and 'other' name no relationship and produce no row.
+    --
+    -- 'partner' is NOT assigned here, and that is the whole subtlety: an org IS a
+    -- partner iff it carries this type AND a `partner` extension row, and the
+    -- store now refuses a patch that breaks either direction. Handing the type to
+    -- every old `agency` and `reseller` — which have no extension row, because
+    -- nothing ever created one for them — would land those rows in a state the
+    -- running system rejects, on the first edit anyone made. They map to no type
+    -- and a human retags them, which is the honest outcome for a column that
+    -- never had a writer.
+    INSERT INTO organization_relationship_type (workspace_id, organization_id, relationship_type, source, captured_by)
+    SELECT o.workspace_id, o.id,
+           CASE o.classification
+             WHEN 'customer'    THEN 'customer'
+             WHEN 'competitor'  THEN 'competitor'
+             WHEN 'tech_vendor' THEN 'supplier'
+             WHEN 'platform'    THEN 'supplier'
+           END,
+           'migration', 'migration'
+    FROM organization o
+    WHERE o.classification IN ('customer','competitor','tech_vendor','platform')
+      AND o.archived_at IS NULL
+      AND o.workspace_id = ws
+    ON CONFLICT DO NOTHING;
 
--- The partner type comes from the EXTENSION ROW and only from it, which is
--- what makes the moved invariant true of every migrated row (ADR-0079 amending
--- ADR-0032 §Decision 2). A classification of 'partner' without an extension
--- row was already a broken state under ADR-0032; carrying it forward would
--- import that breakage into the vocabulary that now enforces it.
-INSERT INTO organization_relationship_type (workspace_id, organization_id, relationship_type, source, captured_by)
-SELECT p.workspace_id, p.organization_id, 'partner', 'migration', 'migration'
-FROM partner p
-JOIN organization o ON o.id = p.organization_id
--- LIVE partner rows only. An archived extension is not a partnership the
--- partner API will admit to (it filters archived_at IS NULL), so importing one
--- would mint a type row the invariant then refuses to let anyone remove.
-WHERE o.archived_at IS NULL AND p.archived_at IS NULL
-ON CONFLICT DO NOTHING;
+    -- The partner type comes from the EXTENSION ROW and only from it, which is
+    -- what makes the moved invariant true of every migrated row (ADR-0079 amending
+    -- ADR-0032 §Decision 2). A classification of 'partner' without an extension
+    -- row was already a broken state under ADR-0032; carrying it forward would
+    -- import that breakage into the vocabulary that now enforces it.
+    INSERT INTO organization_relationship_type (workspace_id, organization_id, relationship_type, source, captured_by)
+    SELECT p.workspace_id, p.organization_id, 'partner', 'migration', 'migration'
+    FROM partner p
+    JOIN organization o ON o.id = p.organization_id
+    -- LIVE partner rows only. An archived extension is not a partnership the
+    -- partner API will admit to (it filters archived_at IS NULL), so importing one
+    -- would mint a type row the invariant then refuses to let anyone remove.
+    WHERE o.archived_at IS NULL AND p.archived_at IS NULL
+      AND p.workspace_id = ws
+    ON CONFLICT DO NOTHING;
+  END LOOP;
+END $$;
 
 -- classification is RETIRED, not dropped: kept one release, written by
 -- nothing, `deprecated: true` on the wire, so the migration stays reversible

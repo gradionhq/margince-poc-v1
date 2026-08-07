@@ -10,20 +10,28 @@ ALTER TABLE ai_call
 
 -- Existing canonical anchor columns fill only absent provenance rows. This is
 -- intentionally not a crawl and carries no invented evidence.
-INSERT INTO organization_profile_field (
-  workspace_id, organization_id, field, value, evidence_snippet, source_url,
-  confidence, source, captured_by
-)
-SELECT o.workspace_id, o.id, candidate.field, candidate.value,
-       '', '', 1, 'migration', 'system:migration-0105'
-FROM organization o
-CROSS JOIN LATERAL (VALUES
-  ('display_name', o.display_name),
-  ('legal_name', o.legal_name),
-  ('registered_address', o.address_line1),
-  ('industry', o.industry)
-) AS candidate(field, value)
-WHERE o.is_anchor
-  AND o.archived_at IS NULL
-  AND NULLIF(btrim(candidate.value), '') IS NOT NULL
-ON CONFLICT (workspace_id, organization_id, field) DO NOTHING;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    INSERT INTO organization_profile_field (
+      workspace_id, organization_id, field, value, evidence_snippet, source_url,
+      confidence, source, captured_by
+    )
+    SELECT o.workspace_id, o.id, candidate.field, candidate.value,
+           '', '', 1, 'migration', 'system:migration-0105'
+    FROM organization o
+    CROSS JOIN LATERAL (VALUES
+      ('display_name', o.display_name),
+      ('legal_name', o.legal_name),
+      ('registered_address', o.address_line1),
+      ('industry', o.industry)
+    ) AS candidate(field, value)
+    WHERE o.is_anchor
+      AND o.archived_at IS NULL
+      AND NULLIF(btrim(candidate.value), '') IS NOT NULL
+      AND o.workspace_id = ws
+    ON CONFLICT (workspace_id, organization_id, field) DO NOTHING;
+  END LOOP;
+END $$;

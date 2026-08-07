@@ -17,14 +17,22 @@ ALTER TABLE workflow_run ADD COLUMN detail jsonb NULL;
 -- finds and blocks the run it parked before the migration ran — the
 -- backfilled shape and the shape runOne/MarkRunBlocked write from here
 -- on are read through the same decoder (rundetail.go) either way.
-UPDATE workflow_run
-SET detail = CASE
-  WHEN error IS NULL THEN NULL
-  WHEN status = 'requires_approval'
-       AND error ~ '^staged as approval [0-9a-fA-F-]{36}; awaiting the human decision$'
-    THEN jsonb_build_object(
-      'reason', error,
-      'approval_id', substring(error from 'staged as approval ([0-9a-fA-F-]{36})')
-    )
-  ELSE jsonb_build_object('reason', error)
-END;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE workflow_run
+    SET detail = CASE
+      WHEN error IS NULL THEN NULL
+      WHEN status = 'requires_approval'
+           AND error ~ '^staged as approval [0-9a-fA-F-]{36}; awaiting the human decision$'
+        THEN jsonb_build_object(
+          'reason', error,
+          'approval_id', substring(error from 'staged as approval ([0-9a-fA-F-]{36})')
+        )
+      ELSE jsonb_build_object('reason', error)
+    END
+    WHERE workflow_run.workspace_id = ws;
+  END LOOP;
+END $$;

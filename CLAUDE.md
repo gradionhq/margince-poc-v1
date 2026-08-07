@@ -326,7 +326,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 
 - `internal/contracts/api_gen.go`, `internal/compose/stubs_gen.go` —
   generated (`make gen`); the drift gate fails a hand edit.
-- `migrations/core/*` that have shipped — additive migrations only.
+- `migrations/core/*` that have shipped — additive migrations only. An applied
+  version never re-runs, so editing one changes what FRESH installations get
+  while every deployed database keeps the old behaviour: the two diverge
+  silently. The tenant-scope sweep (see the migration-write rule below) is the
+  one authorized exception in this tree's history, and it only holds because it
+  shipped WITH additive repair migrations (core `0190`,
+  custom `20260806120000`) that reach the already-deployed databases. Editing
+  history without that second half is how an installation ends up permanently
+  missing a backfill nobody can see is missing.
 - RLS policies and the `database.WithWorkspaceTx` GUC contract — every
   tenant query goes through it; there is no raw-pool path for tenant data.
 - `internal/shared/apperrors` — the fixed sentinel registry; extend only
@@ -348,6 +356,62 @@ point is RBAC-gated (`auth.Require` + `auth.EnsureVisible` + the list
 scope clauses in `platform/auth`): object denial →
 `apperrors.ErrPermissionDenied` (403), row-scope miss →
 `apperrors.ErrNotFound` (404, existence-hiding).
+
+## A migration that writes tenant DATA binds the workspace first
+
+Schema DDL is free, but the moment a migration writes ROWS to a tenant table it
+must bind `app.workspace_id` — every one of them carries FORCE row-level
+security with deny-on-unset semantics (`0014_rls.up.sql`), and FORCE binds the
+table owner, which is exactly the role migrations run as. Unbound, the policy
+expression resolves to NULL, and the three ways a migration can write part
+company:
+
+- `UPDATE` / `DELETE` are filtered by the policy's `USING` clause: **zero rows,
+  reported as success**. The migration records itself as applied and the data
+  change is silently gone.
+- `INSERT … SELECT` reading a tenant table is filtered on the SOURCE before
+  `WITH CHECK` ever runs: **zero rows, reported as success**, the same silence.
+- `INSERT` of literal rows is judged by `WITH CHECK`, which the NULL fails, so
+  it raises `new row violates row-level security policy` and aborts the
+  migration.
+
+Only the loud one announces itself. The rule below is written for the two that
+do not. The shape, in every migration that needs it:
+
+```sql
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+
+    UPDATE <table> SET ...
+    WHERE (<the original condition>)
+      AND <table>.workspace_id = ws;   -- required, see below
+  END LOOP;
+END $$;
+```
+
+Both halves are mandatory, and they do different jobs. The **binding** makes the
+rows visible; it does **not** scope the statement. An executor RLS does not
+filter — a superuser or a `BYPASSRLS` role, which is what every dev machine and
+CI run as — sees every workspace on every iteration, so without the
+**predicate** the write runs once per workspace: survivable for an idempotent
+`UPDATE`, a unique violation for an `INSERT`. Bind
+inside the loop (hoisting it out names one workspace for all of them), and
+qualify the predicate with the statement's own target (an `INSERT … SELECT` names
+it on the source alias instead, which is where its `workspace_id` comes from).
+
+`workspace` itself is outside RLS, which is what lets the loop enumerate it, and
+`set_config`'s third argument keeps the binding transaction-local. **Nothing
+about this is visible in development**: the dev owner is the Postgres
+container's `POSTGRES_USER`, a superuser, and FORCE does not reach a superuser
+or a `BYPASSRLS` role — the policy is simply not applied to them — so an
+unbound write works on every developer's machine and does nothing in
+production. Two gates hold the line, and both must stay honest:
+`TestTenantWritesInMigrationsAreWorkspaceScoped` (unit, reads every migration)
+and the RBAC upgrade replay in the integration lane, which migrates as a
+deliberately NON-SUPERUSER owner (`migrations/migrationrole_integration_test.go`).
 
 ## Craftsmanship
 

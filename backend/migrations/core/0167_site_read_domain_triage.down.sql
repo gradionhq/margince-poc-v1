@@ -10,19 +10,29 @@ DROP INDEX IF EXISTS uq_site_read_triage_inflight;
 -- could violate uq_site_read_org_inflight when the same organization already
 -- has an active read for this seed — a rollback that fails on a race. An
 -- unfinished read is discarded below with the rest; it evidenced nothing.
-UPDATE site_read SET target_kind = 'organization'
- WHERE target_kind = 'domain_triage'
-   AND organization_id IS NOT NULL
-   AND status NOT IN ('queued', 'deferred', 'running')
-   AND NOT EXISTS (
-     SELECT 1 FROM site_read live
-      WHERE live.workspace_id = site_read.workspace_id
-        AND live.organization_id = site_read.organization_id
-        AND live.seed_url = site_read.seed_url
-        AND live.target_kind = 'organization'
-        AND live.status IN ('queued', 'running'));
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE site_read SET target_kind = 'organization'
+    WHERE (target_kind = 'domain_triage'
+       AND organization_id IS NOT NULL
+       AND status NOT IN ('queued', 'deferred', 'running')
+       AND NOT EXISTS (
+         SELECT 1 FROM site_read live
+          WHERE live.workspace_id = site_read.workspace_id
+            AND live.organization_id = site_read.organization_id
+            AND live.seed_url = site_read.seed_url
+            AND live.target_kind = 'organization'
+            AND live.status IN ('queued', 'running')))
+      AND site_read.workspace_id = ws;
 
-DELETE FROM site_read WHERE target_kind = 'domain_triage';
+    DELETE FROM site_read
+    WHERE (target_kind = 'domain_triage')
+      AND site_read.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE site_read DROP CONSTRAINT site_read_target_shape;
 ALTER TABLE site_read ADD CONSTRAINT site_read_target_shape CHECK (

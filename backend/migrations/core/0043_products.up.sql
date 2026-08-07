@@ -42,18 +42,30 @@ CREATE POLICY product_tenant_isolation ON product
 -- code-side seed). Posture: the rate-card is everyday sales material —
 -- reps create and maintain entries; archiving stays manager/admin/ops
 -- hygiene, mirroring the other record objects.
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,product}',
-  '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-WHERE is_system AND key IN ('admin','ops','manager')
-  AND NOT permissions->'objects' ? 'product';
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,product}',
-  '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key = 'rep'
-  AND NOT permissions->'objects' ? 'product';
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,product}',
-  '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key = 'read_only'
-  AND NOT permissions->'objects' ? 'product';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,product}',
+      '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
+    WHERE (is_system AND key IN ('admin','ops','manager')
+      AND NOT permissions->'objects' ? 'product')
+      AND role.workspace_id = ws;
+
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,product}',
+      '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE (is_system AND key = 'rep'
+      AND NOT permissions->'objects' ? 'product')
+      AND role.workspace_id = ws;
+
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,product}',
+      '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
+    WHERE (is_system AND key = 'read_only'
+      AND NOT permissions->'objects' ? 'product')
+      AND role.workspace_id = ws;
+  END LOOP;
+END $$;

@@ -13,7 +13,15 @@ ALTER TABLE attachment ADD COLUMN scan_status text NOT NULL DEFAULT 'scanning'
 -- 'scanning' default would brick every existing download behind a verdict
 -- no scanner will ever deliver. They are grandfathered 'clean'; only rows
 -- created from here on start 'scanning'.
-UPDATE attachment SET scan_status = 'clean';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE attachment SET scan_status = 'clean'
+    WHERE attachment.workspace_id = ws;
+  END LOOP;
+END $$;
 
 CREATE INDEX idx_attachment_scan_status ON attachment (workspace_id, scan_status)
   WHERE archived_at IS NULL;
