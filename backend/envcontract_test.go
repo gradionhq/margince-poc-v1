@@ -3,13 +3,17 @@
 
 package backendarch
 
-// Environment-variable contract fitness functions. Three obligations, all
+// Environment-variable contract fitness functions. Four obligations, all
 // derived from the tree rather than a maintained list:
 //
 //  1. every MARGINCE_* var the Go code reads is named in
 //     docs/reference/configuration.md — the table of record for the binaries;
 //  2. every MARGINCE_* var .env.template names is still part of the product;
-//  3. every MARGINCE_* var configuration.md names is still part of the product.
+//  3. every MARGINCE_* var configuration.md names is still part of the product;
+//  4. every MARGINCE_* var a deploy entrypoint HARD-REQUIRES is named in
+//     .env.template — that file is the annotated template docs/deployment.md
+//     hands an operator, so a var the container refuses to boot without must
+//     not be discoverable only by reading the entrypoint script.
 //
 // Unstated, all three files drift apart: the template advertises credentials
 // for a process role that no longer exists, a secret an operator must
@@ -215,6 +219,44 @@ func TestEnvTemplateNamesOnlyLiveVars(t *testing.T) {
 // the one free to keep a row for a var that no longer exists.
 func TestConfigurationDocNamesOnlyLiveVars(t *testing.T) {
 	assertNamesOnlyLiveVars(t, configurationDoc)
+}
+
+// entrypointRequired matches the shell form that makes a var mandatory:
+// `: "${MARGINCE_FOO:?message}"` aborts the entrypoint when FOO is unset. The
+// `:-default` form is deliberately NOT matched — a var with a fallback is not
+// something an operator must supply, so requiring it in the template would
+// pull the whole deploy surface in and drown the signal.
+var entrypointRequired = regexp.MustCompile(`\$\{(MARGINCE_[A-Z0-9_]+):\?`)
+
+// TestEntrypointRequiredVarsAreInTheTemplate: a var the container refuses to
+// boot without belongs in the file an operator is handed, not only in the
+// script that rejects them. docs/deployment.md names .env.template as that
+// file, which is what makes this an obligation rather than a nicety.
+func TestEntrypointRequiredVarsAreInTheTemplate(t *testing.T) {
+	offered := namesIn(t, envTemplate)
+
+	required := map[string]string{}
+	walkTextFiles(t, "../scripts/deploy", func(path, text string) {
+		for _, m := range entrypointRequired.FindAllStringSubmatch(text, -1) {
+			if _, seen := required[m[1]]; !seen {
+				required[m[1]] = path
+			}
+		}
+	})
+	if len(required) == 0 {
+		t.Fatal("no `${MARGINCE_…:?}` requirement found under ../scripts/deploy — a sweep that scans nothing passes exactly like a clean one")
+	}
+
+	var missing []string
+	for _, name := range slices.Sorted(maps.Keys(required)) {
+		if !offered[name] {
+			missing = append(missing, name+" (required by "+required[name]+")")
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("%d var(s) a deploy entrypoint refuses to boot without, absent from %s — add them, commented, with the value shape an operator must replace:\n\t%s",
+			len(missing), envTemplate, strings.Join(missing, "\n\t"))
+	}
 }
 
 func assertNamesOnlyLiveVars(t *testing.T, path string) {
