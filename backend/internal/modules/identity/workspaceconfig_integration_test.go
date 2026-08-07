@@ -15,6 +15,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -338,3 +339,63 @@ func readWorkspaceRow(t *testing.T, owner *pgx.Conn, ws ids.UUID) map[string]any
 	}
 	return row
 }
+
+// The empty-column path, which core-only trees take.
+//
+// capture_auto_enrich was core's only configuration column on this row and it
+// moved into `setting`; x_sor_mode and x_incumbent come from the overlay
+// pack's custom migration, which is the fork-owned namespace upstream ships
+// empty. So a vanilla tree reaches the early return, and until now nothing
+// exercised it — the branch was documented as reachable and never reached.
+//
+// Proven by dropping the two fork columns INSIDE a transaction that is then
+// rolled back, so the real schema is untouched and the assertion runs against
+// the real function rather than a stand-in. That is the only way to see a
+// core-only workspace row on a database the overlay pack has already migrated.
+func TestResetWorkspaceConfigOnARowThatIsIdentityAndNothingElse(t *testing.T) {
+	owner, pool := setupIdentityDB(t)
+	ctx := context.Background()
+	ws := seedConfigWorkspace(t, pool, "core-only")
+
+	var nameBefore string
+	if err := owner.QueryRow(ctx,
+		`SELECT name FROM workspace WHERE id = $1`, ws).Scan(&nameBefore); err != nil {
+		t.Fatalf("reading the workspace: %v", err)
+	}
+
+	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
+		// Inside the transaction only: the rollback below puts them back.
+		if _, err := tx.Exec(ctx,
+			`ALTER TABLE workspace DROP COLUMN x_sor_mode, DROP COLUMN x_incumbent`); err != nil {
+			return err
+		}
+		if err := ResetWorkspaceConfig(wsCtx, tx); err != nil {
+			return err
+		}
+		// Deliberately fail the transaction so the columns come back. The
+		// assertion that matters already happened: ResetWorkspaceConfig
+		// returned nil rather than building an UPDATE with no assignments,
+		// which is what an empty column list would otherwise produce.
+		return errRollbackCoreOnlyProbe
+	})
+	if !errors.Is(err, errRollbackCoreOnlyProbe) {
+		t.Fatalf("ResetWorkspaceConfig on an identity-only row: %v — want it to do nothing and succeed", err)
+	}
+
+	// The schema is intact and the row untouched: the probe left no trace.
+	var mode string
+	var nameAfter string
+	if err := owner.QueryRow(ctx,
+		`SELECT x_sor_mode, name FROM workspace WHERE id = $1`, ws).Scan(&mode, &nameAfter); err != nil {
+		t.Fatalf("the rollback did not restore the fork columns: %v", err)
+	}
+	if nameAfter != nameBefore {
+		t.Errorf("name = %q, want %q — the probe wrote to the row it only meant to read", nameAfter, nameBefore)
+	}
+}
+
+// errRollbackCoreOnlyProbe unwinds the schema probe above. A sentinel rather
+// than any error, so a REAL failure inside the transaction is not mistaken for
+// the intended rollback.
+var errRollbackCoreOnlyProbe = errors.New("identity: rolling back the core-only column probe")
