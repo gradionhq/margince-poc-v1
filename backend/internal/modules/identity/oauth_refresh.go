@@ -173,7 +173,7 @@ func (s *Service) rotateRefreshTokenTx(
 	writeCtx := actorCtx(ctx, locked.identity())
 	switch err := presentationVerdict(ctx, tx, locked, in, s.now()); {
 	case errors.Is(err, errRefreshReuse):
-		if err := s.revokeGrantTx(writeCtx, tx, locked.grantID, reuseRevokeReason); err != nil {
+		if err := revokeGrantTx(writeCtx, tx, locked.grantID, reuseRevokeReason); err != nil {
 			return IssuedPassport{}, "", false, err
 		}
 		// The cascade MUST commit: returning the refusal as an error here would

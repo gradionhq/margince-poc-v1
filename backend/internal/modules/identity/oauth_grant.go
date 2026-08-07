@@ -229,7 +229,7 @@ func lockGrant(ctx context.Context, tx pgx.Tx, grantID ids.UUID) error {
 // Idempotent — the revocation of an already-revoked grant is audited once and
 // re-emits nothing, because every write below is conditional on the row it
 // touches still being live.
-func (s *Service) revokeGrantTx(ctx context.Context, tx pgx.Tx, grantID ids.UUID, reason string) error {
+func revokeGrantTx(ctx context.Context, tx pgx.Tx, grantID ids.UUID, reason string) error {
 	// Grant row FIRST, then the refresh rows, then the passports — the lock
 	// order stated above, which rotation also takes, so the two paths queue
 	// instead of deadlocking. Taking it EXPLICITLY, rather than letting the
@@ -296,7 +296,7 @@ func (s *Service) revokeGrantTx(ctx context.Context, tx pgx.Tx, grantID ids.UUID
 // "this human holds no live passport" is not "this human has no live
 // connection". Ordering by id makes the lock sequence deterministic when a
 // human consented more than once.
-func (s *Service) revokeGrantsOfUserTx(ctx context.Context, tx pgx.Tx, userID ids.UserID, reason string) error {
+func revokeGrantsOfUserTx(ctx context.Context, tx pgx.Tx, userID ids.UserID, reason string) error {
 	rows, err := tx.Query(ctx,
 		`SELECT id FROM oauth_grant WHERE user_id = $1 AND revoked_at IS NULL ORDER BY id`, userID)
 	if err != nil {
@@ -309,7 +309,7 @@ func (s *Service) revokeGrantsOfUserTx(ctx context.Context, tx pgx.Tx, userID id
 		return err
 	}
 	for _, grantID := range grantIDs {
-		if err := s.revokeGrantTx(ctx, tx, grantID, reason); err != nil {
+		if err := revokeGrantTx(ctx, tx, grantID, reason); err != nil {
 			return err
 		}
 	}
@@ -409,7 +409,7 @@ func (s *Service) revokeToken(ctx context.Context, in revokeTokenInput) error {
 		// The human attributed is the one who consented, not whoever
 		// presented the token — there is no session on this call, exactly as
 		// a refresh rotation has none (lockedGrant.identity()).
-		return s.revokeGrantTx(actorCtx(ctx, Identity{UserID: userID}), tx, grantID, clientRevokeReason)
+		return revokeGrantTx(actorCtx(ctx, Identity{UserID: userID}), tx, grantID, clientRevokeReason)
 	})
 }
 

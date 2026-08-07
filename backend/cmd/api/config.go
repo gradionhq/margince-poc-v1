@@ -39,6 +39,7 @@ type apiConfig struct {
 	hubspotAppSecret    string
 	connectorStateKey   string
 	webhookKey          string
+	metricsToken        string
 	oauthAccessTokenTTL time.Duration
 }
 
@@ -73,6 +74,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.apiBaseURL, "api-base-url", os.Getenv("MARGINCE_API_BASE_URL"), "the api's externally-reachable base for the OAuth callback redirect_uri; defaults to --public-base-url (same-origin deployments), set only when the api is on a different origin than the SPA (e.g. dev)")
 	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail and Graph connect flows")
 	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the mutating /webhook-subscriptions surface, and (with --inline-relay) the cg:webhooks delivery consumer. Empty = those paths answer 503 and no inline delivery runs. Re-attempting a parked delivery is the worker role's River job, never this one's.")
+	fs.StringVar(&cfg.metricsToken, "metrics-token", os.Getenv("MARGINCE_METRICS_TOKEN"), "shared secret /metrics requires as a Bearer credential; empty (the default) answers 404 for /metrics rather than serving per-workspace job telemetry with no authentication at all")
 	accessTokenTTL, err := envDuration("MARGINCE_OAUTH_ACCESS_TOKEN_TTL")
 	if err != nil {
 		return apiConfig{}, err

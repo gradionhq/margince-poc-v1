@@ -117,6 +117,13 @@ type Server struct {
 	// --public-base-url, never from a request header a caller controls.
 	mcpAllowedOrigin string
 
+	// metricsToken gates /metrics, injected by WithMetricsToken from the
+	// deployment's --metrics-token. Unlike /healthz and /readyz it discloses
+	// per-workspace job-runtime telemetry (queue depth, which connectors are
+	// configured), so it stays off — routes.go answers 404 rather than
+	// serving it — until an operator opts in by setting one.
+	metricsToken string
+
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
 	// ready on Postgres alone.

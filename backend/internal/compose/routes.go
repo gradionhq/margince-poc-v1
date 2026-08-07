@@ -14,6 +14,7 @@ package compose
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -100,18 +102,21 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// /v1 served the configured one — silently, since both compile.
 	authH := srv.authHandlers
 	// The session middleware (authH.Middleware) fronts BOTH /v1 and the
-	// /oauth/ authorization server; the health probes, metrics, discovery
-	// documents, and the provider push webhooks are unauthenticated by
-	// design (each webhook verifies itself).
+	// /oauth/ authorization server; the health probes and discovery
+	// documents are unauthenticated by design, and the provider push
+	// webhooks verify themselves. /metrics is different: it discloses
+	// per-workspace job telemetry (which connectors and GDPR engines this
+	// installation runs, queue depth, connection counts), so it is gated
+	// behind requireMetricsToken rather than left open beside them.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
 	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))
-	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
+	mux.HandleFunc("/metrics", requireMetricsToken(srv.metricsToken, httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,
 		srv.writeAIMetrics,
 		jobMetricsSection(func(ctx context.Context) (jobs.Snapshot, error) { return jobs.Stats(ctx, pool) }),
-		overlayMetricsSection(srv, pool)))
+		overlayMetricsSection(srv, pool))))
 	// The anonymous public edges sit between the session middleware (which
 	// lets /v1/public/ through without session or workspace) and the
 	// router: each resolves its own token/slug → tenant, throttles, and
@@ -178,5 +183,43 @@ func mountProviderPushWebhooks(mux *http.ServeMux, srv Server, log *slog.Logger)
 	}
 	if srv.overlayWebhook != nil {
 		mux.Handle("/webhooks/hubspot", httpserver.Correlate(httpserver.AccessLog(log, srv.overlayWebhook)))
+	}
+}
+
+// requireMetricsToken gates the metrics exposition behind a deployment-
+// configured shared secret. An empty token means the operator never opted
+// in: the route answers the mux's own 404 rather than 401, so an anonymous
+// probe learns nothing (no route there) instead of learning that a
+// protected one exists. A configured token is checked as a bearer
+// credential in constant time, the same comparison the connector-state CSRF
+// nonce uses (connectors_csrf.go), so a scrape's authorization header
+// cannot be timed byte-by-byte against the configured value. The credential
+// is read through httpserver.BearerToken — the one reading of an
+// Authorization header this process uses everywhere else — rather than a
+// second parse that could drift from it and accept or refuse a scheme
+// spelling the rest of the surface disagrees on.
+func requireMetricsToken(token string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if token == "" {
+			http.NotFound(w, r)
+			return
+		}
+		presented := httpserver.BearerToken(r.Header.Get("Authorization"))
+		if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+			httperr.Unauthorized(w, r, "invalid or missing metrics token")
+			return
+		}
+		next(w, r)
+	}
+}
+
+// WithMetricsToken sets the shared secret /metrics requires. Called
+// unconditionally at boot (an empty string is the safe default: the
+// endpoint stays off, matching the worker role's own --observe-addr
+// posture of "no listener at all" until an operator asks for one).
+func WithMetricsToken(token string) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.metricsToken = token
 	}
 }
