@@ -166,7 +166,7 @@ function DownloadState({ doc }: Readonly<{ doc: Attachment }>) {
   return (
     <a
       className="link-button"
-      href={`/v1/attachments/${doc.id}/download`}
+      href={`/v1/attachments/${doc.id}`}
       download={doc.filename}
     >
       {t("docs.download")}
