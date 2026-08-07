@@ -118,7 +118,11 @@ func (s *OwnDomainStore) Add(ctx context.Context, raw string) (OwnDomain, error)
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// The prior state, so the trail distinguishes "an admin registered a new
 		// domain" from "an admin confirmed a candidate a mailbox had seen".
-		var beforeImage map[string]any
+		// `any`, not map[string]any: storekit.marshalOrNil writes SQL NULL only
+		// for an untyped nil. A nil MAP in an any parameter is not nil, so it
+		// marshals to JSON null and every "there was no prior state" query
+		// (before IS NULL) silently misses the row.
+		var beforeImage any
 		var priorSource string
 		var priorVerified bool
 		switch err := tx.QueryRow(ctx,

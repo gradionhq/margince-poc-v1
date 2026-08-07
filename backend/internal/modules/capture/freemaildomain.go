@@ -175,7 +175,10 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 			// thing, so the trail records decisions rather than clicks.
 			return nil
 		}
-		var beforeImage map[string]any
+		// `any`: a nil map is not an untyped nil, so declaring this as
+		// map[string]any would store JSON null instead of SQL NULL for a first
+		// classification (see storekit.marshalOrNil).
+		var beforeImage any
 		if before != nil {
 			beforeImage = map[string]any{auditKeyDomain: base, auditKeyKind: *before}
 		}

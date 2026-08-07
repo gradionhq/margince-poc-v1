@@ -278,14 +278,13 @@ func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
 	if _, err := store.Add(ctx, "acme.com"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	// JSON null, not SQL NULL: storekit marshals an absent before-image, so
-	// `before IS NULL` would never match and coalesce(before, after) would
-	// return the JSON null rather than falling through. Asserting the spelling
-	// keeps the next reader of this trail from writing a query that silently
-	// finds nothing.
+	// A first registration claims NO prior state, and says so the way every
+	// other audit row does: SQL NULL. It used to store JSON null instead,
+	// because a nil map handed to an `any` parameter is not an untyped nil —
+	// which made this row invisible to the obvious "before IS NULL" query.
 	assertOwnDomainAudited(ctx, t, pool, ownDomainAuditRow{
 		action: "update", domain: "acme.com",
-		images: "before = 'null'::jsonb AND after->>'own_email_domain' = $3",
+		images: "before IS NULL AND after->>'own_email_domain' = $3",
 	})
 
 	if err := store.Remove(ctx, "acme.com"); err != nil {
