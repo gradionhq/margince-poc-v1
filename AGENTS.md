@@ -322,10 +322,13 @@ scope clauses in `platform/auth`): object denial →
 
 DDL is free; writing ROWS to a tenant table is not. Tenant tables carry FORCE
 row-level security with deny-on-unset semantics, and FORCE binds the table owner
-— the role migrations run as — so an unbound `UPDATE`/`INSERT`/`DELETE` matches
-**zero rows and reports success**. The migration then records itself as applied
-with its data change silently gone, and development never sees it because the dev
-owner is a superuser and bypasses RLS. Wrap every such write:
+— the role migrations run as. Unbound, the policy expression is NULL, and the two
+verbs fail differently: `UPDATE`/`DELETE` are filtered by `USING`, so they match
+**zero rows and report success** — the migration records itself as applied with
+its data change silently gone; `INSERT` is judged by `WITH CHECK`, which rejects
+the row outright and aborts the migration. Silence is the dangerous half, and
+development sees neither, because the dev owner is the Postgres container's
+superuser and a superuser bypasses RLS even under FORCE. Wrap every such write:
 
 ```sql
 DO $$
@@ -342,10 +345,11 @@ END $$;
 ```
 
 Both halves are mandatory. The binding makes rows VISIBLE; the predicate SCOPES
-the statement — an executor RLS does not filter (any superuser, so dev and CI)
-sees every workspace on every iteration, so without the predicate the write
-repeats N times. Bind inside the loop, and qualify the predicate with the
-statement's own target (an `INSERT … SELECT` names it on the source alias).
+the statement — an executor RLS does not filter (a superuser or a `BYPASSRLS`
+role, which is what dev and CI run as) sees every workspace on every iteration,
+so without the predicate the write repeats N times. Bind inside the loop, and
+qualify the predicate with the statement's own target (an `INSERT … SELECT`
+names it on the source alias).
 
 Two gates hold it: `TestTenantWritesInMigrationsAreWorkspaceScoped` (unit) and
 the RBAC upgrade replay, which migrates as a NON-SUPERUSER owner. Full account in

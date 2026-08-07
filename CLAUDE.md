@@ -362,10 +362,15 @@ scope clauses in `platform/auth`): object denial →
 Schema DDL is free, but the moment a migration writes ROWS to a tenant table it
 must bind `app.workspace_id` — every one of them carries FORCE row-level
 security with deny-on-unset semantics (`0014_rls.up.sql`), and FORCE binds the
-table owner, which is exactly the role migrations run as. An unbound
-`UPDATE`/`INSERT`/`DELETE` matches **zero rows and reports success**, so the
-migration records itself as applied and the data change is silently gone. The
-shape, in every migration that needs it:
+table owner, which is exactly the role migrations run as. Unbound, the policy
+expression resolves to NULL and the verbs part company. `UPDATE` and `DELETE`
+are filtered by the policy's `USING` clause, so they match **zero rows and
+report success** — the migration records itself as applied and the data change
+is silently gone. `INSERT` is judged by `WITH CHECK` instead, which the same
+NULL fails, so it raises `new row violates row-level security policy` and takes
+the migration down with it. Only one of those two is survivable to miss, which
+is why the rule is written for the silent one. The shape, in every migration
+that needs it:
 
 ```sql
 DO $$
@@ -383,9 +388,10 @@ END $$;
 
 Both halves are mandatory, and they do different jobs. The **binding** makes the
 rows visible; it does **not** scope the statement. An executor RLS does not
-filter — any superuser, so every dev machine and CI — sees every workspace on
-every iteration, so without the **predicate** the write runs once per workspace:
-survivable for an idempotent `UPDATE`, a unique violation for an `INSERT`. Bind
+filter — a superuser or a `BYPASSRLS` role, which is what every dev machine and
+CI run as — sees every workspace on every iteration, so without the
+**predicate** the write runs once per workspace: survivable for an idempotent
+`UPDATE`, a unique violation for an `INSERT`. Bind
 inside the loop (hoisting it out names one workspace for all of them), and
 qualify the predicate with the statement's own target (an `INSERT … SELECT` names
 it on the source alias instead, which is where its `workspace_id` comes from).
@@ -393,7 +399,8 @@ it on the source alias instead, which is where its `workspace_id` comes from).
 `workspace` itself is outside RLS, which is what lets the loop enumerate it, and
 `set_config`'s third argument keeps the binding transaction-local. **Nothing
 about this is visible in development**: the dev owner is the Postgres
-container's `POSTGRES_USER`, a superuser, and a superuser bypasses RLS — so an
+container's `POSTGRES_USER`, a superuser, and FORCE does not reach a superuser
+or a `BYPASSRLS` role — the policy is simply not applied to them — so an
 unbound write works on every developer's machine and does nothing in
 production. Two gates hold the line, and both must stay honest:
 `TestTenantWritesInMigrationsAreWorkspaceScoped` (unit, reads every migration)
