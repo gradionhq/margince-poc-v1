@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import {
   Avatar,
@@ -82,6 +83,11 @@ import {
 } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
+import {
+  EvidenceVerdict,
+  factClaim,
+  profileFieldClaim,
+} from "./evidenceverdict";
 import { type FactGroup, factFieldLabelKey, groupFacts } from "./factview";
 import { changeTimeline, RecordHistoryTab, useFieldHistory } from "./history";
 import { mergeChronology } from "./history.logic";
@@ -1155,11 +1161,17 @@ function profileFieldLabel(field: string, t: ReturnType<typeof useT>): string {
 }
 
 function ProfileFieldRow({
+  orgId,
   field,
   onOpenHistory,
-}: Readonly<{ field: CompanyProfileField; onOpenHistory?: () => void }>) {
+}: Readonly<{
+  orgId: string;
+  field: CompanyProfileField;
+  onOpenHistory?: () => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
+  const canEdit = useCan("organization", "update");
   return (
     <div className="co-field">
       <span className="t-label">{profileFieldLabel(field.field, t)}</span>
@@ -1168,6 +1180,15 @@ function ProfileFieldRow({
           value={field.value}
           source={derivedSource(field, locale)}
           onOpenHistory={onOpenHistory}
+        />
+        {/* The verdict beside the value, not inside the mark: the mark says
+            where the value came from, and this says what the reader makes of
+            it. Folding the second into the first would hide the only action on
+            the page that stops a wrong extraction being rewritten tomorrow. */}
+        <EvidenceVerdict
+          orgId={orgId}
+          claim={profileFieldClaim(orgId, field)}
+          canEdit={canEdit}
         />
       </div>
     </div>
@@ -1208,6 +1229,7 @@ function ProfileFieldsCard({
           (fieldsQuery.data ?? []).map((field) => (
             <ProfileFieldRow
               key={field.field}
+              orgId={orgId}
               field={field}
               onOpenHistory={onOpenHistory}
             />
@@ -1255,11 +1277,17 @@ const FACT_SUSPECT_LABELS: Record<FactSuspectReason, MessageKey> = {
 };
 
 function FactRow({
+  orgId,
   fact,
   onOpenHistory,
-}: Readonly<{ fact: OrganizationFact; onOpenHistory?: () => void }>) {
+}: Readonly<{
+  orgId: string;
+  fact: OrganizationFact;
+  onOpenHistory?: () => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
+  const canEdit = useCan("organization", "update");
   return (
     <div className="co-field">
       <span className="t-label">{t(factFieldLabelKey(fact.field))}</span>
@@ -1280,6 +1308,14 @@ function FactRow({
             </Badge>
           </span>
         )}
+        {/* A flagged fact is exactly the one a reader should be able to fix
+            without leaving the page — the flag says the machine doubts itself,
+            and only a person can settle it. */}
+        <EvidenceVerdict
+          orgId={orgId}
+          claim={factClaim(orgId, fact)}
+          canEdit={canEdit}
+        />
       </div>
     </div>
   );
@@ -1289,9 +1325,14 @@ function FactRow({
 // asks for the rest, and the count of what is hidden is on the button — a
 // truncated list with no number reads as "that is everything".
 function FactCategory({
+  orgId,
   group,
   onOpenHistory,
-}: Readonly<{ group: FactGroup; onOpenHistory?: () => void }>) {
+}: Readonly<{
+  orgId: string;
+  group: FactGroup;
+  onOpenHistory?: () => void;
+}>) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const hidden = group.facts.length - FACT_PREVIEW;
@@ -1304,6 +1345,7 @@ function FactCategory({
       {shown.map((fact) => (
         <FactRow
           key={`${fact.field}:${fact.value_key}`}
+          orgId={orgId}
           fact={fact}
           onOpenHistory={onOpenHistory}
         />
@@ -1362,6 +1404,7 @@ function FactsCard({
       {groupFacts(facts).map((group) => (
         <FactCategory
           key={group.category}
+          orgId={orgId}
           group={group}
           onOpenHistory={onOpenHistory}
         />
