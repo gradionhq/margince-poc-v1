@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -196,7 +197,7 @@ func requireMetricsToken(token string, next http.HandlerFunc) http.HandlerFunc {
 		presented, ok := strings.CutPrefix(r.Header.Get("Authorization"), prefix)
 		if !ok || subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			httperr.Unauthorized(w, r, "invalid or missing metrics token")
 			return
 		}
 		next(w, r)
