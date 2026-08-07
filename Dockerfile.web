@@ -1,8 +1,17 @@
+# syntax=docker/dockerfile:1
+
 # The Vite/React SPA — a static build served by nginx. The app talks only to the
 # /v1 contract surface, same-origin (frontend/src/api/client.ts derives its base
 # from location.origin + "/v1"), so there are NO build-time API-base env vars:
 # the D13 ingress routes /v1 (+ /healthz /readyz /metrics) to the api service and
 # / to this one, both under the same host.
+
+# The BuildKit cache mounts below only pay off on a builder whose daemon outlives
+# the build — the D13 Jenkins agent, which is what the deploy pipeline uses. On an
+# ephemeral runner (this repo's own `docker image (web)` CI job, a fresh
+# ubuntu-latest per run) they start empty every time and cost nothing; making
+# those builds faster would need an exported cache (cache-to/cache-from type=gha)
+# or a persistent builder, which is a separate change to the workflow.
 
 # ── Stage 1: build ───────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
@@ -15,7 +24,14 @@ RUN corepack enable
 WORKDIR /app
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/
 WORKDIR /app/frontend
-RUN pnpm install --frozen-lockfile --ignore-scripts
+# The pnpm store and corepack's pnpm download live on BuildKit cache mounts. The
+# store is otherwise empty on every build ("reused 0, downloaded 326"), so a CI
+# run re-fetches the whole dependency set from the registry. The store is
+# content-addressed and the install stays --frozen-lockfile, so what gets
+# installed is unchanged — only where the tarballs come from.
+RUN --mount=type=cache,id=margince-pnpm-store,target=/pnpm-store \
+    --mount=type=cache,id=margince-corepack,target=/root/.cache/node/corepack \
+    pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm-store
 
 # The OpenAPI contract the TS types are generated from (pnpm gen:api reads
 # ../backend/api/*.yaml), then the app source.
@@ -27,7 +43,15 @@ COPY frontend/ ./frontend/
 # the image's types pinned to the contract it was built against rather than
 # trusting the committed schema.d.ts.
 WORKDIR /app/frontend
-RUN pnpm gen:api && pnpm build
+# `tsc -b` dominates this step (~40s of ~51s locally; vite itself is ~6s). Both
+# composite projects write their .tsbuildinfo into node_modules/.tmp, which is
+# discarded with the builder stage, so every build type-checks the whole tree from
+# scratch. Persisting just that directory makes tsc incremental across builds;
+# it keys off recorded file content hashes, so changed files are still re-checked
+# and the type gate over the freshly generated schema.d.ts is unchanged.
+RUN --mount=type=cache,id=margince-tsbuildinfo,target=/app/frontend/node_modules/.tmp \
+    --mount=type=cache,id=margince-corepack,target=/root/.cache/node/corepack \
+    pnpm gen:api && pnpm build
 
 # ── Stage 2: serve ───────────────────────────────────────────────────────────
 # nginx-unprivileged runs as a non-root user (uid 101) and listens on 8080.

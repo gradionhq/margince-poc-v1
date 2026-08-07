@@ -10,10 +10,28 @@
 -- Deleting them is the honest reverse: without the vocabulary these rows cannot
 -- be written, and none of them is the edge itself — each is something hung OFF
 -- an edge, so the relationship table is untouched.
-DELETE FROM custom_field     WHERE object      = 'relationship';
-DELETE FROM field_provenance WHERE object_type = 'relationship';
-DELETE FROM embedding        WHERE entity_type = 'relationship';
-DELETE FROM attachment       WHERE entity_type = 'relationship';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM custom_field
+    WHERE (object      = 'relationship')
+      AND custom_field.workspace_id = ws;
+
+    DELETE FROM field_provenance
+    WHERE (object_type = 'relationship')
+      AND field_provenance.workspace_id = ws;
+
+    DELETE FROM embedding
+    WHERE (entity_type = 'relationship')
+      AND embedding.workspace_id = ws;
+
+    DELETE FROM attachment
+    WHERE (entity_type = 'relationship')
+      AND attachment.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE custom_field DROP CONSTRAINT custom_field_object_check;
 ALTER TABLE custom_field ADD CONSTRAINT custom_field_object_check

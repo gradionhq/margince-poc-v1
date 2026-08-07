@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -40,7 +41,7 @@ func (e *searchEnv) captureSettingsCtx(grant principal.ObjectGrant) context.Cont
 
 func TestCaptureSettingsStore(t *testing.T) {
 	e := setupSearch(t)
-	store := capture.NewSettings(e.Pool)
+	store := capture.NewSettings(compose.NewSettingsStore(e.Pool))
 
 	admin := e.captureSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
 	rep := e.captureSettingsCtx(principal.ObjectGrant{Read: true})

@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Building,
   Building2,
   ChevronDown,
   Coins,
@@ -71,6 +72,7 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
+import { InstallationSettingsCard } from "./installation-settings";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
 import { OverlayCard } from "./overlay";
@@ -116,6 +118,7 @@ const SETTINGS_TABS = [
   { id: "account", icon: Building2, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
   { id: "ai", icon: Sparkles, group: "you" },
+  { id: "installation", icon: Building, group: "org" },
   { id: "company", icon: Factory, group: "org" },
   { id: "users", icon: UsersRound, group: "org" },
   { id: "data", icon: Database, group: "org" },
@@ -139,6 +142,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       return <IdentityCard />;
     case "voice":
       return <VoiceDnaCard />;
+    case "installation":
+      return <InstallationSettingsCard />;
     case "company":
       return <CompanyContextCard />;
     case "users":
@@ -241,6 +246,9 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   // User administration, the DSR queue and the audit log map to no RBAC object
   // at all — the server gates them on the role and on an unbounded row scope,
   // so the role is their own honest predicate rather than a stand-in for one.
+  // The same call InstallationSettingsCard makes, so the tab and the fields
+  // inside it can never disagree about who may edit.
+  const canEditInstallation = useCanWrite("installation_settings", "update");
   const isOrgAdmin = (me.data?.roles ?? []).some(
     (role) => role === "admin" || role === "ops",
   );
@@ -264,6 +272,13 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     // themselves on the overlay_connection grants, so a viewer without them
     // gets the honest read-only view instead of a dead link.
     overlay: true,
+    // Installation is gated on the SAME live grant the card inside asks for,
+    // not on the role name. Deriving it from admin/ops would disagree with the
+    // card in both directions: an admin whose installation_settings grant was
+    // removed would get a tab of disabled fields, and a principal holding the
+    // grant under another role could not reach the surface they may use. The
+    // tab exists to change these values, so it follows the write grant.
+    installation: canEditInstallation,
   };
 }
 

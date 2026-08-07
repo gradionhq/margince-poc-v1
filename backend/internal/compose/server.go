@@ -76,6 +76,7 @@ type Server struct {
 	backfillHandlers
 	captureSettingsHandlers
 	ownDomainHandlers
+	installationSettingsHandlers
 	consumerMailDomainHandlers
 	channelHandlers
 	filteredExportHandlers

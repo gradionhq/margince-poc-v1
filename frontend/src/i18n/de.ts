@@ -10,6 +10,14 @@ export const de = {
     "Ledger Green (ADR-0040) — die kanonischen Werte spiegeln die Spec-Mockups; Tests pinnen sie.",
   "theme.toDark": "Dunkles Design",
   "theme.toLight": "Helles Design",
+  // Die Design-Zeile im Kontomenü: worauf es JETZT steht, und die Aktion, die die
+  // Zeile für einen Screenreader benennt. Die beiden Labels darüber bleiben die
+  // Namen des reinen Icon-Schalters auf Anmeldung und Onboarding, wo kein Satz
+  // in die Zeile passt.
+  "theme.light": "Hell",
+  "theme.dark": "Dunkel",
+  "theme.switchToDark": "Auf dunkles Design umschalten",
+  "theme.switchToLight": "Auf helles Design umschalten",
 
   "section.surfaces": "Flächen",
   "section.accentAi": "Akzent & KI",
@@ -93,6 +101,7 @@ export const de = {
   "shell.collapse": "Seitenleiste einklappen",
   "shell.expand": "Seitenleiste ausklappen",
   "shell.accountAria": "Konto",
+  "shell.theme": "Design",
   "shell.views": "Ansichten",
   "shell.more": "Mehr",
   "agent.title": "Margince KI",
@@ -3407,6 +3416,22 @@ export const de = {
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 
+  "settings.tab.installation": "Installation",
+  "installationSettings.title": "Installation",
+  "installationSettings.sub":
+    "Wie diese Installation heißt und in welcher Zeitzone und Währung jede Auswertung berechnet wird.",
+  "installationSettings.name": "Name der Organisation",
+  "installationSettings.nameHint":
+    "Wird überall dort angezeigt, wo das Produkt Ihre Organisation benennt.",
+  "installationSettings.timezone": "Zeitzone für Auswertungen",
+  "installationSettings.timezoneHint":
+    "IANA-Zonenname (zum Beispiel Europe/Berlin). Periodengrenzen aller Auswertungen werden darin berechnet, unabhängig von Ihrer eigenen Anzeigezeitzone.",
+  "installationSettings.baseCurrency": "Basiswährung",
+  "installationSettings.baseCurrencyHint":
+    "ISO-4217-Code, in den alle Beträge für Auswertungen umgerechnet werden. Änderbar, bis der erste Deal dagegen umgerechnet wurde.",
+  "installationSettings.baseCurrencyLocked":
+    "Gesperrt: Es wurden bereits Deals gegen diese Währung umgerechnet — eine Änderung würde jede darauf aufbauende Auswertung neu bedeuten.",
+  "installationSettings.save": "Speichern",
   "captureSettings.title": "Erfassung",
   "captureSettings.sub":
     "Wie erfasste Unternehmen und Kontakte nach ihrer Erstellung angereichert werden.",

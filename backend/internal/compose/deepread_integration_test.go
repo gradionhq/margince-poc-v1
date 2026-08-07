@@ -99,7 +99,7 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 		// while production asked the question with the wrong authority.
 		authority:  identity.NewService(e.Pool),
 		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
-		settings:   capture.NewSettings(e.Pool),
+		settings:   capture.NewSettings(NewSettingsStore(e.Pool)),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, svc
 }
@@ -788,9 +788,12 @@ func TestDeepReadCancelsAnAutoEnrichJobWhenTheSettingWentOff(t *testing.T) {
 	// if the worker trusted the payload it would skip the check entirely.
 	e.WsExec(t, `UPDATE site_read SET requested_by = $1 WHERE id = $2`, systemAutoEnrichActor, read.ID)
 
-	// Set directly: the subject here is the worker re-reading the flag, not the
-	// admin-only RBAC on the settings endpoint, which has its own test.
-	e.WsExec(t, `UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, e.WS)
+	// Set directly, on the SETTING ROW the worker re-reads (ADR-0090/A135).
+	// The subject here is the worker seeing the flag change mid-flight, not
+	// the admin-only RBAC on the settings endpoint, which has its own test.
+	e.WsExec(t, `
+		INSERT INTO setting (key, value) VALUES ('capture.auto_enrich', to_jsonb(false))
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
 
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("run: %v", err)

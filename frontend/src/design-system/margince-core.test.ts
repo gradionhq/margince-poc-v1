@@ -123,9 +123,18 @@ describe("the Core's render buffer", () => {
 
   it("never drops below the size where filaments hold together", () => {
     // Under this the ridge band aliases into sparkle: the threads stop reading
-    // as threads and start reading as noise on the glass.
-    expect(coreBufferSize(20)).toBe(96);
+    // as threads and start reading as noise on the glass. It applies to a sphere
+    // being UPSCALED, which is what the floor is for.
     expect(coreBufferSize(96)).toBe(96);
+    expect(coreBufferSize(80)).toBe(80);
+  });
+
+  it("never upscales a small Core to reach that floor either", () => {
+    // The shell's rail draws a 32px orb in chrome that is on every screen. There
+    // is no aliasing to protect it from — it is downscaled — so a 96 floor would
+    // buy it nine times the fragments it can show, permanently.
+    expect(coreBufferSize(32)).toBe(32);
+    expect(coreBufferSize(20)).toBe(20);
   });
 
   it("survives being asked before the first layout", () => {

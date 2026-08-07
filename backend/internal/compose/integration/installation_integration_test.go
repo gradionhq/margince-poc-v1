@@ -132,6 +132,27 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("configured admin login → %d", status)
 	}
+
+	// The installation's own settings are seeded from the organization the
+	// same transaction just created (ADR-0090 §8). Without this, a freshly
+	// bootstrapped installation reads its name as the registered default — an
+	// empty string — while its workspace row holds the configured one, and
+	// nothing else in the system notices the difference.
+	for _, want := range []struct{ key, value string }{
+		{"installation.name", `"Configured Org"`},
+		{"installation.base_currency", `"USD"`},
+		{"installation.timezone", `"Europe/Berlin"`},
+	} {
+		var got string
+		if err := e.pool.QueryRow(context.Background(),
+			`SELECT value::text FROM setting WHERE key = $1`, want.key).Scan(&got); err != nil {
+			t.Fatalf("reading the seeded %s: %v", want.key, err)
+		}
+		if got != want.value {
+			t.Errorf("%s = %s, want %s — bootstrap must seed it from the configured organization",
+				want.key, got, want.value)
+		}
+	}
 }
 
 // TestBootstrapSeedsTheAiModelRatePriceSheet proves the A107 boot path

@@ -487,6 +487,14 @@ func (stubs) ProposeFxRateRefresh(w nethttp.ResponseWriter, r *nethttp.Request) 
 	httperr.NotImplemented(w, r, "ProposeFxRateRefresh")
 }
 
+func (stubs) GetInstallationSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetInstallationSettings")
+}
+
+func (stubs) UpdateInstallationSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "UpdateInstallationSettings")
+}
+
 func (stubs) ListLeads(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListLeadsParams) {
 	httperr.NotImplemented(w, r, "ListLeads")
 }

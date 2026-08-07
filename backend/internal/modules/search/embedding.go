@@ -170,6 +170,9 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identit
 				 FROM embedding e JOIN %s t ON t.id = e.entity_id
 				 WHERE e.entity_type = '%s' AND t.archived_at IS NULL AND e.model = $%d`,
 				branch.entity, branch.title, vecPos, branch.table, branch.entity, identityPos)
+			if branch.extraWhere != "" {
+				sql += " AND " + branch.extraWhere
+			}
 			if scope != "" {
 				sql += " AND " + scope
 			}

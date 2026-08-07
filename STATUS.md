@@ -35,6 +35,43 @@ fallback), **#495** (auth rate limits are process-local, so N replicas multiply
 every ceiling by N), **#496** (audit-verb down migrations cannot see the rows
 their refusal probe checks for, under production RLS).
 
+## Open — the integration lane's cost, profiled
+
+The lane is 1828 tests over 25 packages, ~493s summed (~300s wall, parallel).
+Profiled per test on 2026-08-06 because the suite *looked* inflated. It is not
+inflated by count: the slowest decile is 55% of the time and the fastest 1328
+tests together are 29%, so converting the small majority to unit tests would
+delete three-quarters of the suite to recover under a third of the runtime —
+and most of them assert database behaviour (RLS, CHECK→4xx, keyset pagination)
+that has no meaning without Postgres.
+
+Where the cost actually is, and what is worth doing about it:
+
+- **#524** — **closed.** `internal/compose/integration` is half the lane (960
+  tests) and ran 258–302s against a 300s per-package timeout, so it flaked on a
+  loaded machine. CI shards 12 ways and never saw it; the unsharded local lane
+  and `make test-it` did. #537 raised the budget to 600s and made the cost report
+  print each package's share of it, so a margin shrinking to nothing is visible
+  before it crosses. The one-package lane kept a hardcoded `-timeout=300s` that
+  no variable could reach, which left `make test-it` on this package failing at
+  a bound the lane itself had already moved; both lanes now resolve the budget
+  through one `resolve_it_timeout` in `scripts/lib-testdb.sh`.
+- **#539** — that package's setup forks about five Postgres backends per test.
+  Sharing them measured ~18% (170.9s vs a 209.6s baseline) and is **blocked**:
+  the harness drops `cf_*` columns between tests, so a pooled connection
+  outliving that DDL serves a stale plan and fails with SQLSTATE 0A000 in a
+  suite unrelated to custom fields. The issue records the design that would
+  unblock it and the four cheaper approaches that were measured and do not pay.
+- **#535** — table-driven tests calling their harness inside `t.Run`, re-seeding
+  Postgres per case (~44s), which also hides that the property under test is pure.
+- **#536** — a few tests assert pure logic through a booted app; `check-test-lanes.sh`
+  forbids the mirror case (a unit test opening real infra) but cannot see this one.
+
+Two measurement notes for whoever picks this up. Run-to-run variance on the same
+commit is ~15%, so compare within one sitting on an idle machine. And both
+failures found while attempting #539 were order-dependent — they appeared only
+in a full-package or full-lane run, never in isolation.
+
 ## Open — contract drift: the reset's response gained five fields
 
 `backend/api/crm.yaml`'s `resetData` 200 body now declares `jobs_deleted`,
@@ -380,6 +417,78 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
+
+## Session pickup — 2026-08-06 (app chrome: the account menu, the app's scrollbars, and one orb, branch `fix/shell-chrome-and-one-orb`)
+
+Seven reported chrome defects, fixed as five invariants rather than five patches.
+
+- **Language and theme live in the account menu**, which now reads Settings ·
+  Language · Theme · Sign out with the two preferences stating their current
+  value and named by the setting plus the action they perform (WCAG 2.5.3 wants
+  the visible label inside the accessible name). Both keep the menu open (they
+  stop the click from reaching the document dismissal listener) so the theme is
+  visible from the control that set it, and dismissal hands focus back to the
+  avatar rather than dropping it on `<body>`.
+
+  **The language row is #526's three-locale menu, nested.** That PR landed while
+  this branch was in flight: it owns the mechanism (three locales, endonyms,
+  `role="menu"` with arrow movement), this branch owns the placement. Nesting one
+  popover in another has three consequences, each handled at its source — the
+  trigger and the list stop their own clicks, or the outer menu's document-level
+  dismissal closes the popover the list lives in; and **Escape closes one layer**,
+  because the account menu defers while a submenu reports itself expanded. A test
+  pins the layering. Anything else nested in that popover later inherits the same
+  three obligations.
+- **`scrollbar-width: thin` is on every element, not `:root`.** It is the one
+  property in `app.css`'s browser-chrome block that does NOT inherit, so the
+  thin bar applied to the document scroller only while every in-app scroller
+  kept a platform-width bar next to an accent thumb. The universal selector
+  carries zero specificity, so the scrollers that hide their bar still win.
+- **`#/settings/integrations` had two scrollbars because a hidden input escaped
+  its scroller.** The LinkedIn import's visually-hidden file input is
+  `position: absolute` with no positioned ancestor, so its containing block was
+  the viewport: it sized the DOCUMENT to its own offset (189px of dead space) and
+  the window grew a second bar. Fixed at both levels — `.li-import-picker` is
+  now `position: relative`, and `.scroll` is too, so nothing else absolutely
+  positioned inside a screen can leave the scroller again. A sweep of all 21
+  authenticated routes now reports zero document-level scroll and one horizontal
+  scroller (the pipeline board, which should have one).
+- **`.scroll` reserves its gutter (`scrollbar-gutter: stable`)**, so navigating
+  between a short screen and a long one no longer shifts the content column.
+- **The rail's horizontal scrollbar flash is gone.** `overflow-y: auto` with
+  `overflow-x: visible` resolves the second axis to `auto`; expanding animates
+  the grid column from 64px while the labels are already at full width, so the
+  panel overflowed itself for a few frames. `.rail` is now `overflow-x: hidden`
+  (the collapsed state still opts out of clipping for its tooltips).
+- **One orb in the product.** The agent panel drew a CSS lookalike of the Core
+  because the real primitive would have held a render loop for the session. That
+  premise is now false, so the panel shows the Core the sign-in and onboarding
+  surfaces show, sized through the primitive's documented custom properties.
+
+**The Core's loop was rebuilt around the cost, and this is the part to read
+before touching `margince-core-liquid.tsx` again.** Three changes: the buffer
+never exceeds the displayed size (a 32px rail orb was rendering a 96×96 buffer —
+9× the pixels it shows, permanently); a drawn frame schedules the next through a
+timer instead of a rAF chain gated at 24fps, so the main thread wakes ~24×/s
+rather than at the display's 120Hz refresh; and the loop STOPS, not throttles,
+when nothing would change. The rule that fell out of it is written at `seen()`:
+**only a condition whose END has an event may pause the loop.** `document.hidden`
+and the IntersectionObserver qualify; `document.hasFocus()` does not — a window
+can regain focus without a `focus` event reaching the document, and the sphere
+then stays frozen on screen for the session, which is what a broken shader looks
+like. Three tests count `drawArrays` (one frame for a still liquid, ≤30 draws per
+second of animation, zero while hidden and >0 again after `visibilitychange`),
+because the count is the only thing that fails when this regresses.
+
+Verified against a cold `make dev-fresh` install through onboarding: the menu in
+both locales and both themes, the rail toggle in both directions, the integrations
+tab, and a 21-route scroll sweep. `make check`, `make frontend-check` and
+`make frontend-e2e` green.
+
+The e2e lane is the one that caught what `make check` cannot: it is not a `check`
+prerequisite, so a chrome control that moves takes its AC test with it and the
+first sign is a red `uat` job on the PR. Run `make frontend-e2e` before pushing a
+change to the shell.
 
 ## Session pickup — 2026-08-05 (form controls get one spelling, and the design gates widen, branch `feat/streamline-ui-elements`, PR #469)
 

@@ -13,7 +13,7 @@ const mount = (ui: ReactNode) =>
 
 describe("LocaleMenu", () => {
   it("is a single collapsed control until opened", () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.queryByRole("menu")).toBeNull();
   });
@@ -22,7 +22,7 @@ describe("LocaleMenu", () => {
   // the only place a screen-reader or voice-control user learns which language
   // is currently on.
   it("announces the current language, not just that it switches one", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     expect(screen.getByRole("button").getAttribute("aria-label")).toContain(
       translate("en", localeNameKey("en")),
     );
@@ -37,7 +37,7 @@ describe("LocaleMenu", () => {
   });
 
   it("lists every shipped locale and marks the current one", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     await userEvent.click(screen.getByRole("button"));
     const items = screen.getAllByRole("menuitemradio");
     expect(items).toHaveLength(LOCALES.length);
@@ -47,21 +47,26 @@ describe("LocaleMenu", () => {
   });
 
   it("switches the locale and closes", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     await userEvent.click(screen.getByRole("button"));
     await userEvent.click(
       screen.getByRole("menuitemradio", { name: /Deutsch/ }),
     );
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(screen.getByRole("button").textContent).toContain("DE");
+    // The row reports the language it is now on, in that language's own name.
+    expect(screen.getByRole("button").textContent).toContain(
+      translate("de", localeNameKey("de")),
+    );
   });
 
   it("closes on Escape without changing the locale", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     await userEvent.click(screen.getByRole("button"));
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(screen.getByRole("button").textContent).toContain("EN");
+    expect(screen.getByRole("button").textContent).toContain(
+      translate("en", localeNameKey("en")),
+    );
   });
 });
 
@@ -80,7 +85,7 @@ describe("LocaleMenu keyboard model", () => {
   };
 
   it("moves focus into the list, onto the language already in force", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     await open();
     expect(document.activeElement).toBe(
       screen.getByRole("menuitemradio", { name: nameOf("en") }),
@@ -88,7 +93,7 @@ describe("LocaleMenu keyboard model", () => {
   });
 
   it("walks the list with the arrows, wrapping, and jumps with Home and End", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     await open();
     const items = screen.getAllByRole("menuitemradio");
     const last = items.length - 1;
@@ -110,7 +115,7 @@ describe("LocaleMenu keyboard model", () => {
   });
 
   it("carries one tabstop for the whole list, following the focused row", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     await open();
     const items = screen.getAllByRole("menuitemradio");
     await userEvent.keyboard("{ArrowDown}");
@@ -120,23 +125,23 @@ describe("LocaleMenu keyboard model", () => {
   });
 
   it("hands focus back to the trigger when Escape closes it", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     const trigger = await open();
     await userEvent.keyboard("{Escape}");
     expect(document.activeElement).toBe(trigger);
   });
 
   it("hands focus back to the trigger when a language is chosen by keyboard", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     const trigger = await open();
     await userEvent.keyboard("{ArrowDown}{Enter}");
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(trigger);
-    expect(trigger.textContent).toContain("DE");
+    expect(trigger.textContent).toContain(translate("de", localeNameKey("de")));
   });
 
   it("hands focus back to the trigger when a click outside closes it", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     const trigger = await open();
     await userEvent.click(document.body);
     expect(screen.queryByRole("menu")).toBeNull();
@@ -144,7 +149,7 @@ describe("LocaleMenu keyboard model", () => {
   });
 
   it("closes when the reader tabs out, rather than staying expanded behind them", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     const trigger = await open();
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     await userEvent.tab();
@@ -153,7 +158,7 @@ describe("LocaleMenu keyboard model", () => {
   });
 
   it("names the list it opens, so it is not announced as just 'menu'", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     await open();
     expect(
       screen.getByRole("menu", { name: translate("en", "locale.switchLabel") }),
@@ -164,7 +169,7 @@ describe("LocaleMenu keyboard model", () => {
   // 3.1.1). Every name here is in a different one, so each has to say so or a
   // screen reader reads "Tiếng Việt" with English phonemes.
   it("voices each language name in its own language", async () => {
-    mount(<LocaleMenu className="iconbtn" />);
+    mount(<LocaleMenu className="menurow" />);
     await open();
     for (const option of LOCALES) {
       const name = nameOf(option);

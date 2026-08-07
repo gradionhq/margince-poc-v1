@@ -318,6 +318,44 @@ scope clauses in `platform/auth`): object denial →
 `apperrors.ErrPermissionDenied` (403), row-scope miss →
 `apperrors.ErrNotFound` (404, existence-hiding).
 
+## A migration that writes tenant DATA binds the workspace first
+
+DDL is free; writing ROWS to a tenant table is not. Tenant tables carry FORCE
+row-level security with deny-on-unset semantics, and FORCE binds the table owner
+— the role migrations run as. Unbound, the policy expression is NULL and the
+writes fail differently: `UPDATE`/`DELETE`, and an `INSERT … SELECT` whose source
+is a tenant table, match **zero rows and report success** — the migration records
+itself as applied with its data change silently gone; only an `INSERT` of literal
+rows is caught by `WITH CHECK` and aborts loudly. Silence is the dangerous case,
+and development sees none of it, because the dev owner is the Postgres
+container's superuser and FORCE does not reach a superuser or a `BYPASSRLS` role.
+Wrap every such write:
+
+```sql
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+
+    UPDATE <table> SET ...
+    WHERE (<the original condition>)
+      AND <table>.workspace_id = ws;
+  END LOOP;
+END $$;
+```
+
+Both halves are mandatory. The binding makes rows VISIBLE; the predicate SCOPES
+the statement — an executor RLS does not filter (a superuser or a `BYPASSRLS`
+role, which is what dev and CI run as) sees every workspace on every iteration,
+so without the predicate the write repeats N times. Bind inside the loop, and
+qualify the predicate with the statement's own target (an `INSERT … SELECT`
+names it on the source alias).
+
+Two gates hold it: `TestTenantWritesInMigrationsAreWorkspaceScoped` (unit) and
+the RBAC upgrade replay, which migrates as a NON-SUPERUSER owner. Full account in
+[CLAUDE.md](CLAUDE.md).
+
 ## Craftsmanship
 
 Match the spec's `specs/quality/craftsmanship.md` (anti-tell catalog T1–T11). The rule

@@ -238,18 +238,33 @@ func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
 		t.Fatalf("an omitted field was not left as it was: %s, want the first save's value", orAbsent(again.Industry))
 	}
 
-	// The customer-record surface still holds exactly the one organization: the
-	// anchor was updated, not duplicated.
+	// The anchor was updated, not duplicated. Asked for with include_anchor,
+	// because the plain list answers "which companies are we selling to" and
+	// the installation's own company is not one of them (ADR-0082/A127).
 	var orgs struct {
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/organizations", nil, nil, &orgs); status != http.StatusOK {
+	if status := e.call(t, "GET", "/v1/organizations?include_anchor=true", nil, nil, &orgs); status != http.StatusOK {
 		t.Fatalf("list organizations → %d", status)
 	}
 	if len(orgs.Data) != 1 || orgs.Data[0].ID != saved.OrganizationID {
 		t.Fatalf("saving twice left %d organizations, want the one anchor", len(orgs.Data))
+	}
+
+	// And it is absent from the list a rep works, which is the point of the
+	// exclusion: the company running the CRM is not an account in its pipeline.
+	var selling struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/organizations", nil, nil, &selling); status != http.StatusOK {
+		t.Fatalf("list organizations → %d", status)
+	}
+	if len(selling.Data) != 0 {
+		t.Fatalf("the accounts list holds %d organizations, want the own company excluded", len(selling.Data))
 	}
 }
 

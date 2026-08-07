@@ -20,6 +20,12 @@ export const vi = {
     "Ledger Green (ADR-0040) — giá trị chuẩn khớp với bản mockup trong spec; test ghim chúng lại.",
   "theme.toDark": "Giao diện tối",
   "theme.toLight": "Giao diện sáng",
+  // Giao diện đang dùng — dòng trong menu tài khoản. Hai nhãn phía trên là tên
+  // của nút chỉ có biểu tượng trên trang đăng nhập và onboarding.
+  "theme.light": "Sáng",
+  "theme.dark": "Tối",
+  "theme.switchToDark": "Chuyển sang giao diện tối",
+  "theme.switchToLight": "Chuyển sang giao diện sáng",
 
   "section.surfaces": "Bề mặt",
   "section.accentAi": "Màu nhấn & AI",
@@ -103,6 +109,7 @@ export const vi = {
   "shell.collapse": "Thu gọn thanh bên",
   "shell.expand": "Mở rộng thanh bên",
   "shell.accountAria": "Tài khoản",
+  "shell.theme": "Giao diện",
   "shell.views": "Chế độ xem",
   "shell.more": "Thêm",
   "agent.title": "Margince AI",
@@ -3405,6 +3412,22 @@ export const vi = {
   "quotas.archive.confirm":
     "Lưu trữ sẽ đưa chỉ tiêu này ra khỏi danh sách và ngừng theo dõi mức đạt. Chỉ tiêu đã lưu trữ thì không sửa được.",
 
+  "settings.tab.installation": "Cài đặt hệ thống",
+  "installationSettings.title": "Cài đặt hệ thống",
+  "installationSettings.sub":
+    "Tên của bản cài đặt này, cùng múi giờ và đơn vị tiền tệ dùng để tính mọi báo cáo.",
+  "installationSettings.name": "Tên tổ chức",
+  "installationSettings.nameHint":
+    "Hiển thị ở mọi nơi sản phẩm gọi tên tổ chức của bạn.",
+  "installationSettings.timezone": "Múi giờ báo cáo",
+  "installationSettings.timezoneHint":
+    "Tên múi giờ IANA (ví dụ Europe/Berlin). Ranh giới kỳ của mọi báo cáo được tính theo múi giờ này, tách biệt với múi giờ hiển thị của riêng bạn.",
+  "installationSettings.baseCurrency": "Đơn vị tiền tệ cơ sở",
+  "installationSettings.baseCurrencyHint":
+    "Mã ISO-4217 mà mọi số tiền được quy đổi về khi tổng hợp. Có thể thay đổi cho đến khi giao dịch đầu tiên được quy đổi theo nó.",
+  "installationSettings.baseCurrencyLocked":
+    "Đã khoá: đã có giao dịch được quy đổi theo đơn vị tiền tệ này, nên việc thay đổi sẽ làm sai lệch mọi số liệu tổng hợp dựa trên chúng.",
+  "installationSettings.save": "Lưu",
   "captureSettings.title": "Thu thập",
   "captureSettings.sub":
     "Cách các công ty và contact đã thu thập được bổ sung thông tin sau khi tạo.",

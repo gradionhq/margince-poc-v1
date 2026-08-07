@@ -27,10 +27,18 @@ CREATE POLICY person_social_tenant_isolation ON person_social
   WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
 
 -- Backfill from the jsonb map: every key/value pair becomes one row.
-INSERT INTO person_social (workspace_id, person_id, platform, handle)
-SELECT p.workspace_id, p.id, kv.key, kv.value
-FROM person p, jsonb_each_text(p.social) AS kv
-WHERE kv.value IS NOT NULL AND kv.value <> '';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    INSERT INTO person_social (workspace_id, person_id, platform, handle)
+    SELECT p.workspace_id, p.id, kv.key, kv.value
+    FROM person p, jsonb_each_text(p.social) AS kv
+    WHERE (kv.value IS NOT NULL AND kv.value <> '')
+      AND p.workspace_id = ws;
+  END LOOP;
+END $$;
 
 -- The contract's Address shape as columns, on both carriers.
 ALTER TABLE person
@@ -40,15 +48,22 @@ ALTER TABLE person
   ADD COLUMN address_region      text NULL,
   ADD COLUMN address_postal_code text NULL,
   ADD COLUMN address_country     text NULL;  -- ISO-3166 alpha-2
-
-UPDATE person SET
-  address_line1       = address->>'line1',
-  address_line2       = address->>'line2',
-  address_city        = address->>'city',
-  address_region      = address->>'region',
-  address_postal_code = address->>'postal_code',
-  address_country     = address->>'country'
-WHERE address IS NOT NULL;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE person SET
+      address_line1       = address->>'line1',
+      address_line2       = address->>'line2',
+      address_city        = address->>'city',
+      address_region      = address->>'region',
+      address_postal_code = address->>'postal_code',
+      address_country     = address->>'country'
+    WHERE (address IS NOT NULL)
+      AND person.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE organization
   ADD COLUMN address_line1       text NULL,
@@ -57,15 +72,22 @@ ALTER TABLE organization
   ADD COLUMN address_region      text NULL,
   ADD COLUMN address_postal_code text NULL,
   ADD COLUMN address_country     text NULL;  -- ISO-3166 alpha-2
-
-UPDATE organization SET
-  address_line1       = address->>'line1',
-  address_line2       = address->>'line2',
-  address_city        = address->>'city',
-  address_region      = address->>'region',
-  address_postal_code = address->>'postal_code',
-  address_country     = address->>'country'
-WHERE address IS NOT NULL;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization SET
+      address_line1       = address->>'line1',
+      address_line2       = address->>'line2',
+      address_city        = address->>'city',
+      address_region      = address->>'region',
+      address_postal_code = address->>'postal_code',
+      address_country     = address->>'country'
+    WHERE (address IS NOT NULL)
+      AND organization.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE person DROP COLUMN social, DROP COLUMN address;
 ALTER TABLE organization DROP COLUMN address;

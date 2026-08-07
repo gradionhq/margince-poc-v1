@@ -151,6 +151,14 @@ afterEach(() => {
 // this states a budget that survives a loaded machine.
 const SETTLE_MS = 10_000;
 
+// The budget for a test that drives `renderReview`, and it must cover EVERY
+// waiter in there: three run in sequence, each bounded by SETTLE_MS. A test whose
+// own limit is smaller than the sum lets vitest fire while a waiter still has
+// budget, and what surfaces then is an opaque timeout rather than the assertion
+// the test was written to make. Vitest's per-test default is 5s, which is less
+// than one of these waiters alone.
+const TEST_MS = SETTLE_MS * 3;
+
 // The fixture's two selectable changes — the `new` and `machine_change` rows.
 // The human_conflict row is decided by radio and the unchanged row offers
 // nothing, so neither carries a checkbox.
@@ -188,42 +196,50 @@ async function renderReview() {
 }
 
 describe("CompanyContextCard refresh review", () => {
-  it("names the field each change checkbox selects", async () => {
-    await renderReview();
+  it(
+    "names the field each change checkbox selects",
+    async () => {
+      await renderReview();
 
-    // Two checkboxes, two accessible names. getByRole is exact and unique, so
-    // a shared label — every row announcing the same words — fails both
-    // lookups rather than passing one of them.
-    expect(
-      screen.getByRole("checkbox", {
-        name: "Select the What do you sell? change",
-      }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("checkbox", {
-        name: "Select the Registered legal name change",
-      }),
-    ).toBeTruthy();
+      // Two checkboxes, two accessible names. getByRole is exact and unique, so
+      // a shared label — every row announcing the same words — fails both
+      // lookups rather than passing one of them.
+      expect(
+        screen.getByRole("checkbox", {
+          name: "Select the What do you sell? change",
+        }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("checkbox", {
+          name: "Select the Registered legal name change",
+        }),
+      ).toBeTruthy();
 
-    const names = screen
-      .getAllByRole("checkbox")
-      .map((box) => box.getAttribute("aria-label"));
-    expect(new Set(names).size).toBe(names.length);
-  });
+      const names = screen
+        .getAllByRole("checkbox")
+        .map((box) => box.getAttribute("aria-label"));
+      expect(new Set(names).size).toBe(names.length);
+    },
+    TEST_MS,
+  );
 
-  it("offers a checkbox only for a change that can be selected", async () => {
-    await renderReview();
+  it(
+    "offers a checkbox only for a change that can be selected",
+    async () => {
+      await renderReview();
 
-    // A human conflict is decided by radio, not selected by checkbox, and an
-    // unchanged value has nothing to apply — a checkbox on either would write
-    // a change the reviewer never chose.
-    expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE);
-    expect(
-      screen.queryByRole("checkbox", { name: /Ideal customer/ }),
-    ).toBeNull();
-    expect(screen.queryByRole("checkbox", { name: /Industry/ })).toBeNull();
-    expect(screen.getByRole("radio", { name: "Keep current" })).toBeTruthy();
-  });
+      // A human conflict is decided by radio, not selected by checkbox, and an
+      // unchanged value has nothing to apply — a checkbox on either would write
+      // a change the reviewer never chose.
+      expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE);
+      expect(
+        screen.queryByRole("checkbox", { name: /Ideal customer/ }),
+      ).toBeNull();
+      expect(screen.queryByRole("checkbox", { name: /Industry/ })).toBeNull();
+      expect(screen.getByRole("radio", { name: "Keep current" })).toBeTruthy();
+    },
+    TEST_MS,
+  );
 });
 
 // Two failures reach the same paragraph and only one of them was written for

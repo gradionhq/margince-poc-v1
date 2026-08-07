@@ -1,5 +1,15 @@
 -- Reverse 0084.
-DELETE FROM organization_profile_field WHERE field = 'display_name';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM organization_profile_field
+    WHERE (field = 'display_name')
+      AND organization_profile_field.workspace_id = ws;
+  END LOOP;
+END $$;
+
 ALTER TABLE organization_profile_field DROP CONSTRAINT organization_profile_field_field_check;
 ALTER TABLE organization_profile_field
   ADD CONSTRAINT organization_profile_field_field_check

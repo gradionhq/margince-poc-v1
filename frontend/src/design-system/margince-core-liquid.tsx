@@ -25,9 +25,20 @@ import { usePrefersReducedMotion } from "./motion";
  *  - renders into a small internal buffer sized from the DISPLAYED width and
  *    capped at 160 (see `coreBufferSize`), and caps at 24fps — a hero costs
  *    roughly a fifth of what the same sphere would at dpr2@60
- *  - freezes on a hidden tab, an unfocused window, or an off-screen canvas,
- *    so an idle orb behind a modal costs nothing
- *  - one triangle, no MSAA, and no per-frame layout reads
+ *  - the 24fps cap is spent, not polled: each drawn frame schedules the next
+ *    through a timer, so the main thread wakes ~24 times a second instead of at
+ *    the display's refresh rate (120Hz on the machines this is developed on) to
+ *    discard four callbacks out of five
+ *  - STOPS — not throttles — whenever nothing would change: a hidden tab, a
+ *    canvas scrolled or routed off screen, and a state whose liquid does not move
+ *    at all (`unavailable`, or any state under reduced motion, where one composed
+ *    frame IS the whole animation). Each of those has an event that ends it, so
+ *    the loop is woken by the event rather than by asking every frame — the
+ *    layout read this used to do per callback (`canvas.offsetParent`) forced
+ *    style and layout at refresh rate for an answer that only changes when a
+ *    route does.
+ *  - one triangle, no MSAA, no clear (the draw covers every pixel of the
+ *    viewport), and no per-frame layout reads
  */
 
 const FRAGMENT_SHADER = `
@@ -284,6 +295,12 @@ const MAX_BUFFER = 160;
  * clamp at both ends is what keeps that honest — a caller that sizes a Core to
  * fill a page does not get to buy fragments it cannot show.
  *
+ * MIN_BUFFER only ever raises the buffer TOWARD the displayed size, never past
+ * it: it exists because upscaling aliases the filaments, and a sphere drawn at
+ * 32px in the shell's rail is not being upscaled — it is being downscaled, where
+ * fragments beyond 1:1 buy nothing at all. Floored at 96 that orb was rendering
+ * nine times the pixels it shows, permanently, in chrome that is on every screen.
+ *
  * Deliberately NOT multiplied by devicePixelRatio. Matching a 2× display would
  * cost four times the fragments to sharpen a subject that is blurred glass and
  * soft smoke; the shell's highlight and rim are CSS and stay crisp on their own.
@@ -294,7 +311,9 @@ export function coreBufferSize(cssPx: number): number {
   if (!Number.isFinite(cssPx) || cssPx <= 0) {
     return MAX_BUFFER;
   }
-  return Math.min(MAX_BUFFER, Math.max(MIN_BUFFER, Math.round(cssPx * 0.9)));
+  const displayed = Math.round(cssPx);
+  const floor = Math.min(MIN_BUFFER, displayed);
+  return Math.min(MAX_BUFFER, Math.max(floor, Math.round(cssPx * 0.9)));
 }
 
 // Some WebGL-capable hosts (older embedded webviews) have no ResizeObserver,
@@ -315,6 +334,35 @@ function tryCreateResizeObserver(
         onWidth(width);
       }
     });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the canvas is on screen, reported as it changes.
+ *
+ * The same shape of guard as `tryCreateResizeObserver`, for the same hosts and
+ * one more reason: a missing IntersectionObserver must leave the Core RUNNING.
+ * Failing the other way would freeze the sphere on whatever frame it happened to
+ * hold, which is indistinguishable from a broken shader.
+ */
+function tryObserveOnScreen(
+  canvas: HTMLCanvasElement,
+  onChange: (onScreen: boolean) => void,
+): IntersectionObserver | null {
+  if (typeof IntersectionObserver === "undefined") {
+    return null;
+  }
+  try {
+    const observer = new IntersectionObserver((entries) => {
+      const latest = entries[entries.length - 1];
+      if (latest) {
+        onChange(latest.isIntersecting);
+      }
+    });
+    observer.observe(canvas);
+    return observer;
   } catch {
     return null;
   }
@@ -422,6 +470,166 @@ function buildProgram(gl: WebGLRenderingContext): WebGLProgram | null {
   return program;
 }
 
+/**
+ * The draw loop: 24fps while somebody is looking, and NOTHING otherwise.
+ *
+ * Three ideas, each of which was a cost before:
+ *
+ *  - **The frame budget is slept, not polled.** A frame schedules the next one
+ *    through a timer and takes a single rAF to land on a paint. Gating inside a
+ *    self-rescheduling rAF loop instead meant one callback per display refresh —
+ *    120 a second on this machine to draw 24 — and each of those callbacks did
+ *    the visibility check below.
+ *  - **Invisible means stopped, not throttled**, and it is decided by events
+ *    rather than by asking. The old check read `canvas.offsetParent`, which
+ *    forces style and layout, at refresh rate, for an answer that changes when a
+ *    route or a scroll position does — so the cheapest possible frame was also
+ *    the one that made the browser do the most work. Only conditions whose END
+ *    has an event may pause the loop; see `seen()`.
+ *  - **A still liquid draws once.** `unavailable` holds time still, and so does
+ *    reduced motion; there the first composed frame is the entire animation and
+ *    the loop parks after it. `wake()` is how a resize gets one more.
+ *
+ * Returns the handle the effect owns: `stop` releases every listener and pending
+ * callback, `wake` asks for a frame if the loop is parked and can be seen.
+ */
+function runLiquidLoop({
+  gl,
+  canvas,
+  uRes,
+  uT,
+  speed,
+  reduced,
+  bufferSize,
+}: Readonly<{
+  gl: WebGLRenderingContext;
+  canvas: HTMLCanvasElement;
+  uRes: WebGLUniformLocation | null;
+  uT: WebGLUniformLocation | null;
+  /** 0 holds the liquid still — see SPEED. */
+  speed: number;
+  reduced: boolean;
+  /** The buffer edge, read per DRAWN frame — never per callback. */
+  bufferSize: () => number;
+}>): Readonly<{ stop: () => void; wake: () => void }> {
+  // A non-zero seed: at t=0 all three masses sit on top of each other, and the
+  // first frame would be a plain blob.
+  let time = 42.7;
+  let last = performance.now();
+  let frame = 0;
+  let timer = 0;
+  let drawnOnce = false;
+  let onScreen = true;
+  const still = reduced || speed === 0;
+  /*
+   * The buffer edge THIS loop has configured, and why it is not read back off
+   * the canvas: a loop belongs to one program, and every loop starts with none
+   * of its uniforms set. Comparing against `canvas.width` looks equivalent and
+   * is not — a new program over a canvas that is already the right size matches
+   * on the first frame, so the size block is skipped and `uRes` stays at its
+   * default of (0,0). The shader divides by `min(uRes.x, uRes.y)`, so the sphere
+   * comes back empty and stays empty. That is one state change away on any
+   * screen (`quiet` → `working`) and it is what a restored context does too.
+   * Zero means "nothing configured yet", which no real size can be.
+   */
+  let configured = 0;
+
+  const draw = (now: number) => {
+    const delta = Math.min((now - last) / 1000, 0.08);
+    last = now;
+    // Reduced motion and `unavailable` both hold time still, so the canvas shows
+    // a composed frame rather than nothing — the end state, not blank.
+    if (!reduced) {
+      time += delta * speed;
+    }
+    const size = bufferSize();
+    if (configured !== size) {
+      configured = size;
+      canvas.width = size;
+      canvas.height = size;
+      gl.viewport(0, 0, size, size);
+      // With the buffer. It is square, and its edge is all this uniform carries,
+      // so re-sending it every frame was a state change per draw for a value that
+      // changes at a breakpoint.
+      gl.uniform2f(uRes, size, size);
+    }
+    gl.uniform1f(uT, time);
+    // No clear. One triangle covers the whole viewport and the shader writes
+    // every fragment in it — transparent outside the sphere, by its own early
+    // return — so a clear first would be painting the buffer twice.
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    drawnOnce = true;
+  };
+
+  /**
+   * Whether anybody can see the canvas: in the viewport, in a visible tab.
+   *
+   * Deliberately NOT `document.hasFocus()`, which this used to include. A pause
+   * is only safe if something is guaranteed to end it, and these two conditions
+   * each have an event that fires on the way back (the IntersectionObserver,
+   * `visibilitychange`) — focus does not: a window can regain focus without a
+   * `focus` event reaching this document, and a Core that parked on an unfocused
+   * window then stayed frozen on screen for the rest of the session, which is
+   * exactly what a broken shader looks like. An unfocused window is also not an
+   * unwatched one; the tab that nobody is looking at is the hidden one, and that
+   * is the case worth stopping for.
+   */
+  const seen = () => onScreen && !document.hidden;
+
+  const pump = (now: number) => {
+    frame = 0;
+    // A lost context ends the loop rather than pausing it: every object it draws
+    // with belonged to the dead context. CoreLiquid's own listener owns the
+    // recovery, and NOT rescheduling here is what stops this run spinning until
+    // that arrives.
+    if (gl.isContextLost()) {
+      return;
+    }
+    // Freeze on the last drawn frame whenever nobody can see it; an event starts
+    // it again. The FIRST frame is exempt — freezing before anything is drawn
+    // leaves an empty canvas, which is what a page opened in a background tab
+    // would show the moment it is looked at.
+    if (drawnOnce && !seen()) {
+      return;
+    }
+    draw(now);
+    if (still) {
+      return;
+    }
+    timer = window.setTimeout(() => {
+      timer = 0;
+      frame = requestAnimationFrame(pump);
+    }, FRAME_MS);
+  };
+
+  const wake = () => {
+    if (frame || timer || !seen()) {
+      return;
+    }
+    // The clock restarts on resume, so a liquid parked for ten minutes continues
+    // from where it stopped instead of jumping by the length of the pause.
+    last = performance.now();
+    frame = requestAnimationFrame(pump);
+  };
+
+  document.addEventListener("visibilitychange", wake);
+  const onScreenObserver = tryObserveOnScreen(canvas, (visible) => {
+    onScreen = visible;
+    wake();
+  });
+  frame = requestAnimationFrame(pump);
+
+  return {
+    wake,
+    stop: () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", wake);
+      onScreenObserver?.disconnect();
+    },
+  };
+}
+
 export function CoreLiquid({
   state = "idle",
   className = "",
@@ -491,6 +699,12 @@ export function CoreLiquid({
 
     const gl = canvas.getContext("webgl", {
       alpha: true,
+      // A 25px sphere in the shell's rail must not be the reason a laptop switches
+      // to its discrete GPU: that costs battery for the whole session, for a
+      // subject whose entire frame is one triangle. The hint is advisory — a
+      // machine with one GPU ignores it — which is why it is safe to state
+      // unconditionally rather than per call site.
+      powerPreference: "low-power",
       // Off, and not an oversight: the whole frame is ONE triangle covering the
       // clip volume, so there is no geometry edge for MSAA to smooth. It would
       // multiply the samples per pixel to antialias nothing.
@@ -548,76 +762,34 @@ export function CoreLiquid({
       gl.uniform1f(uTintMix, 0);
     }
 
-    const speed = SPEED[state];
-
     // The buffer follows the displayed size, so a Core that changes size — a
     // breakpoint crossing, a layout that re-sizes its column — gets the
     // resolution it now deserves instead of the one it mounted with. Read here
     // rather than every frame because `clientWidth` forces layout.
     let bufferSize = coreBufferSize(canvas.clientWidth);
+    const loop = runLiquidLoop({
+      gl,
+      canvas,
+      uRes,
+      uT,
+      speed: SPEED[state],
+      reduced,
+      bufferSize: () => bufferSize,
+    });
     // A missing or throwing ResizeObserver (see tryCreateResizeObserver)
     // means render continues at the size the canvas mounted with rather than
     // losing the frame entirely.
     const observer = tryCreateResizeObserver((width) => {
       bufferSize = coreBufferSize(width);
+      // A Core whose liquid does not move has already drawn its one frame and
+      // parked; resizing it needs one more, or it keeps showing the old buffer
+      // stretched to the new box.
+      loop.wake();
     });
     observer?.observe(canvas);
 
-    // A non-zero seed: at t=0 all three masses sit on top of each other, and
-    // the first frame would be a plain blob.
-    let time = 42.7;
-    let last = performance.now();
-    let accumulator = 0;
-    let frame = 0;
-
-    let drawnOnce = false;
-
-    const render = (now: number) => {
-      // A lost context ends the loop rather than pausing it: every object above
-      // belongs to the dead context, so there is nothing left to draw with. The
-      // listener at the top of the component owns the recovery, and returning
-      // WITHOUT rescheduling is what stops this run spinning until it arrives.
-      if (gl.isContextLost()) {
-        return;
-      }
-      frame = requestAnimationFrame(render);
-      // Freeze — keeping the last drawn frame — whenever nobody can see it.
-      // The first frame is exempt: freezing before anything has been drawn
-      // leaves an empty canvas, and "window not focused" is the normal state
-      // when the page is opened in a background tab.
-      const unseen =
-        document.hidden || !document.hasFocus() || canvas.offsetParent === null;
-      if (unseen && drawnOnce) {
-        last = now;
-        return;
-      }
-      if (drawnOnce && now - accumulator < FRAME_MS) {
-        return;
-      }
-      drawnOnce = true;
-      accumulator = now;
-      const delta = Math.min((now - last) / 1000, 0.08);
-      last = now;
-      // Reduced motion and `unavailable` both hold time still, so the canvas
-      // shows a composed frame rather than nothing — the end state, not blank.
-      if (!reduced) {
-        time += delta * speed;
-      }
-      if (canvas.width !== bufferSize) {
-        canvas.width = bufferSize;
-        canvas.height = bufferSize;
-        gl.viewport(0, 0, bufferSize, bufferSize);
-      }
-      gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform1f(uT, time);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-    };
-    frame = requestAnimationFrame(render);
-
     return () => {
-      cancelAnimationFrame(frame);
+      loop.stop();
       observer?.disconnect();
       gl.deleteProgram(program);
       gl.deleteBuffer(buffer);

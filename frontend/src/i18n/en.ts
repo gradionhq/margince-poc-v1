@@ -7,6 +7,15 @@ export const en = {
     "Ledger Green (ADR-0040) — canonical values mirror the spec mockups; tests pin them.",
   "theme.toDark": "Dark theme",
   "theme.toLight": "Light theme",
+  // The account menu's theme row: the value it is set to NOW, and the action that
+  // names the row for a screen reader. The two labels above stay the names of the
+  // ICON-ONLY control on sign-in and onboarding, where the surrounding row has no
+  // room for a sentence; in a menu the action is spelled out, so it reads in
+  // parallel with the language row beside it ("Switch to German").
+  "theme.light": "Light",
+  "theme.dark": "Dark",
+  "theme.switchToDark": "Switch to dark theme",
+  "theme.switchToLight": "Switch to light theme",
 
   "section.surfaces": "Surfaces",
   "section.accentAi": "Accent & AI",
@@ -90,6 +99,7 @@ export const en = {
   "shell.collapse": "Collapse sidebar",
   "shell.expand": "Expand sidebar",
   "shell.accountAria": "Account",
+  "shell.theme": "Theme",
   "shell.views": "Views",
   "shell.more": "More",
   "agent.title": "Margince AI",
@@ -3389,6 +3399,22 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
+  "settings.tab.installation": "Installation",
+  "installationSettings.title": "Installation",
+  "installationSettings.sub":
+    "What this installation is called, and the zone and currency every report is computed in.",
+  "installationSettings.name": "Organization name",
+  "installationSettings.nameHint":
+    "Shown wherever the product names your organization.",
+  "installationSettings.timezone": "Reporting timezone",
+  "installationSettings.timezoneHint":
+    "IANA zone name (for example Europe/Berlin). Period boundaries in every report are computed in it, separate from your own display timezone.",
+  "installationSettings.baseCurrency": "Base currency",
+  "installationSettings.baseCurrencyHint":
+    "ISO-4217 code every amount converts to for roll-ups. Changeable until the first deal converts against it.",
+  "installationSettings.baseCurrencyLocked":
+    "Locked: deals have already converted against this currency, so changing it would re-mean every roll-up built on them.",
+  "installationSettings.save": "Save",
   "captureSettings.title": "Capture",
   "captureSettings.sub":
     "How captured companies and contacts are enriched after they are created.",
