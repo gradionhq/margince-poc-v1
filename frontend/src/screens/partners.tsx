@@ -541,8 +541,15 @@ export function PartnersScreen() {
             // The Partner payload carries only organization_id; EntityRef
             // hydrates the company name off the org read and backlinks to
             // its 360.
+            // Named, not linked: the row's own identity link already goes to
+            // this company, and a control inside that link would be invalid
+            // markup offering the same destination twice.
             cell: (partner: Partner) => (
-              <EntityRef kind="organization" id={partner.organization_id} />
+              <EntityRef
+                kind="organization"
+                id={partner.organization_id}
+                asText
+              />
             ),
             fixed: true,
           },

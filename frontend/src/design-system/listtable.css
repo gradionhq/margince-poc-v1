@@ -123,7 +123,7 @@
  * company selects). A bare `.input` is a full-width form control; in the
  * toolbar it is one item in a row of pills, so it takes the same height and
  * silhouette as the chips beside it instead of claiming its own line. */
-.lt-tools select.input,
+.lt-tools .select-control.input,
 .lt-tools input.input {
   width: auto;
   height: 30px;
@@ -264,18 +264,6 @@
   color: var(--danger);
 }
 
-.lt-sortdir:hover {
-  background: var(--bgCard);
-}
-
-/* Ascending is the icon's natural, unrotated reading; descending flips it,
- * the same convention the header's own sort arrow uses. */
-@media (prefers-reduced-motion: reduce) {
-  .lt-sortdir-icon {
-    transition: none;
-  }
-}
-
 /* ---- popover menus ---- */
 
 .lt-menu-wrap {
@@ -401,6 +389,7 @@
  * surface when the columns do not need that much. */
 .lt-table {
   width: 100%;
+  min-width: var(--lt-floor, 0);
   /* The colgroup decides the widths, and fixed layout is what makes it
    * binding: under auto layout the content would still get a vote, which is
    * how one long company name ends up owning half the row. The table's own
@@ -761,7 +750,7 @@
   cursor: default;
 }
 
-.lt-perpage select {
+.lt-perpage .select-control {
   font: inherit;
   font-size: 12px;
   color: var(--textSecondary);
@@ -873,6 +862,13 @@
   /* Cards are already tight; the density control governs the desktop grid. */
   .lt-table.dense td {
     padding: var(--space-1) 0;
+  }
+
+  /* Cards are as wide as the screen and stack, so the columns' combined floor
+     stops applying — left standing it holds the table at desktop width and
+     hands a phone a sideways scroll over clipped cards. */
+  .lt-table {
+    min-width: 0;
   }
 
   /* No frozen column in a stack of cards, so nothing to cast an edge shadow. */

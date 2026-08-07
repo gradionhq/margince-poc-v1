@@ -7,7 +7,13 @@
 // biome-ignore-all lint/a11y/useSemanticElements: the semantic element is already in use
 
 import { Check, ChevronDown, Columns3, Rows3 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useT } from "../i18n";
 import {
   CountLine,
@@ -560,7 +566,11 @@ export function ListTable<Row>({
           ref={head}
           className={`lt-table${dense ? " dense" : ""}`}
           role="table"
-          style={{ minWidth: `${floor}px` }}
+          // Handed over as a custom property rather than as `min-width`
+          // itself: an inline width cannot be overridden by a stylesheet, and
+          // the phone layout has to drop this floor to lay the rows out as
+          // cards that fit the screen.
+          style={{ "--lt-floor": `${floor}px` } as CSSProperties}
         >
           {/* The widths live here rather than on the header cells: under fixed
               layout a col wins over the cell below it, so one place decides
