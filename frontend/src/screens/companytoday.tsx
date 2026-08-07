@@ -200,9 +200,14 @@ type TodayContext = {
   onPrepareMeeting?: (activityId: string) => void;
 };
 
-// The meeting. A null here means none is booked AND the caller could see that —
-// which is not a line worth writing, because "you should book one" belongs to
-// the suggestion engine, the only thing that can name whom.
+// The meeting.
+//
+// ABSENT MEANS TWO THINGS and only `sections_omitted` separates them: named
+// there, the reader has no calendar access; not named, the grant is held and
+// nothing is scheduled. This builder writes a line for neither — a booked
+// meeting is the only thing it has to say — and the withheld footer below is
+// what tells a reader they are missing the calendar. Advising "book one"
+// belongs to the suggestion engine, the only thing that can name whom.
 function bookedMeeting({
   view,
   t,

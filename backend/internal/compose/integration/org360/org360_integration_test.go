@@ -353,7 +353,7 @@ func TestOrganization360NextMeetingSeparatesNoneFromWithheld(t *testing.T) {
 		t.Fatalf("assemble: %v", err)
 	}
 	if view.NextMeeting != nil {
-		t.Errorf("next_meeting = %+v, want null — nothing is scheduled", view.NextMeeting)
+		t.Errorf("next_meeting = %+v, want absent — nothing is scheduled", view.NextMeeting)
 	}
 	if slices.Contains(view.SectionsOmitted, "next_meeting") {
 		t.Error("next_meeting was named as omitted while the caller holds the activity grant — that reads as 'hidden from you' for an account that simply has no meeting")

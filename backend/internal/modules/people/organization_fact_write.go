@@ -114,26 +114,6 @@ func (s *Store) writeFact(
 	return out, err
 }
 
-type factRow struct {
-	ID              ids.UUID
-	Value           string
-	Source          string
-	EvidenceSnippet *string
-	SourceURL       *string
-	Confidence      *float32
-	VerifiedAt      *time.Time
-	VerifiedBy      *ids.UUID
-}
-
-func (r factRow) auditImage() map[string]any {
-	return map[string]any{
-		auditKeyValue: r.Value, auditKeySource: r.Source,
-		auditKeyEvidenceSnippet: r.EvidenceSnippet, auditKeySourceURL: r.SourceURL,
-		auditKeyConfidence: r.Confidence,
-		auditKeyVerifiedAt: r.VerifiedAt, auditKeyVerifiedBy: r.VerifiedBy,
-	}
-}
-
 // splitFactKey reads the `<field>:<value_key>` identity the contract addresses
 // a fact by (FactKey parameter) into the two columns that actually locate the
 // row.
@@ -167,8 +147,8 @@ func errMalformedFactKey() error {
 
 func readFactRow(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, factKey string,
-) (factRow, error) {
-	var r factRow
+) (evidenceRow, error) {
+	var r evidenceRow
 	field, valueKey, ok := splitFactKey(factKey)
 	if !ok {
 		return r, errMalformedFactKey()

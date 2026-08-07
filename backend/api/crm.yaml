@@ -11802,10 +11802,18 @@ components:
         The next meeting with this account that has not happened yet, and who is in it.
 
         It is a FACT, not a suggestion: a meeting is on the calendar or it is not, and the
-        page states which. Absent entirely when the caller has no activity grant, named in
-        `sections_omitted` as `next_meeting`; null when the grant is held and nothing is
-        scheduled — which is a fact about the account, not a missing field, and the
-        distinction is the one a rep acts on.
+        page states which.
+
+        TWO REASONS THIS IS ABSENT, and `sections_omitted` is what tells them apart —
+        read it, never the field alone:
+
+          * absent AND named in `sections_omitted` — the caller has no activity grant.
+            A fact about the READER.
+          * absent and NOT named — the grant is held and nothing is scheduled. A fact
+            about the ACCOUNT, and the one a rep acts on.
+
+        A client that treats a missing field as "no meeting" tells someone with no
+        calendar access to book one that already exists.
 
         Participants carry only the people this caller can already read. A meeting reachable
         through a visible contact must not disclose the colleague's other attendees.

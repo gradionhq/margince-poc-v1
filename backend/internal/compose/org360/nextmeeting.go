@@ -10,10 +10,17 @@ package org360
 // says a meeting is coming and is worth preparing for; this says which one and
 // with whom, so the "Prepare" action has something to prefill from.
 //
-// Null when nothing is scheduled is deliberately different from absent when the
-// caller has no activity grant. "No meeting booked" is a fact a rep acts on;
-// "you cannot see the calendar" is not the same statement, and a page that
-// renders them identically tells someone to book a meeting that already exists.
+// The section is ABSENT for two opposite reasons, and `sections_omitted` is the
+// only thing that separates them: named there, the caller has no activity grant;
+// not named, the grant is held and nothing is scheduled. "No meeting booked" is
+// a fact a rep acts on; "you cannot see the calendar" is not the same statement,
+// and a client that reads the missing field alone tells someone with no calendar
+// access to book a meeting that already exists.
+//
+// The field cannot carry an explicit null to make this easier: the generated
+// wire type is an omitempty pointer, so nil and absent are the same bytes. The
+// omission list is the mechanism, which is also the convention every other
+// section on this payload already follows.
 
 import (
 	"context"

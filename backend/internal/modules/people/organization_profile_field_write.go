@@ -66,6 +66,38 @@ const (
 	auditKeyVerifiedBy      = "verified_by"
 )
 
+// evidenceRow is one sidecar row's before-image, and it is ONE type because a
+// profile field and a fact carry the same claim: a value, who stands behind it,
+// what the machine read to propose it, and whether a human has since agreed.
+//
+// They were two identical structs with two identical auditImage methods. The
+// duplication was not merely repetitive — it let the two audit trails drift, and
+// an audit trail that records a correction differently depending on which
+// sidecar it touched is one nobody can query.
+type evidenceRow struct {
+	ID              ids.UUID
+	Value           string
+	Source          string
+	EvidenceSnippet *string
+	SourceURL       *string
+	Confidence      *float32
+	VerifiedAt      *time.Time
+	VerifiedBy      *ids.UUID
+}
+
+// auditImage is the machine's whole claim, which is what a correction's BEFORE
+// image has to be: the snippet, the source and the confidence survive the
+// human's answer, so "what did it say before I fixed it" stays answerable
+// (PO-AC-N-2).
+func (r evidenceRow) auditImage() map[string]any {
+	return map[string]any{
+		auditKeyValue: r.Value, auditKeySource: r.Source,
+		auditKeyEvidenceSnippet: r.EvidenceSnippet, auditKeySourceURL: r.SourceURL,
+		auditKeyConfidence: r.Confidence,
+		auditKeyVerifiedAt: r.VerifiedAt, auditKeyVerifiedBy: r.VerifiedBy,
+	}
+}
+
 // ProfileFieldWriteInput carries a correction. Value is nil for a confirmation,
 // which is the same act without a value change (PO-AC-N-3).
 type ProfileFieldWriteInput struct {
@@ -235,30 +267,10 @@ func writeCanonicalOrgColumn(
 	return recheckOrgNameForDuplicates(ctx, tx, orgID, editor)
 }
 
-type profileFieldRow struct {
-	ID              ids.UUID
-	Value           string
-	Source          string
-	EvidenceSnippet *string
-	SourceURL       *string
-	Confidence      *float32
-	VerifiedAt      *time.Time
-	VerifiedBy      *ids.UUID
-}
-
-func (r profileFieldRow) auditImage() map[string]any {
-	return map[string]any{
-		auditKeyValue: r.Value, auditKeySource: r.Source,
-		auditKeyEvidenceSnippet: r.EvidenceSnippet, auditKeySourceURL: r.SourceURL,
-		auditKeyConfidence: r.Confidence,
-		auditKeyVerifiedAt: r.VerifiedAt, auditKeyVerifiedBy: r.VerifiedBy,
-	}
-}
-
 func readProfileFieldRow(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, field string,
-) (profileFieldRow, error) {
-	var r profileFieldRow
+) (evidenceRow, error) {
+	var r evidenceRow
 	err := tx.QueryRow(ctx, `
 		SELECT id, value, source, evidence_snippet, source_url, confidence, verified_at, verified_by
 		  FROM organization_profile_field
