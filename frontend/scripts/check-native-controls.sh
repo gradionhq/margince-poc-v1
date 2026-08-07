@@ -23,9 +23,15 @@
 #
 # Comments are stripped before matching: a `<select>` inside a comment is a
 # cross-reference (this replaced that), which is exactly how select.tsx and its
-# neighbours cite the thing they exist to remove. A `//` that follows a colon is
-# NOT a comment — it is the scheme separator in a URL, and treating it as one
-# would blank the rest of a line that may still hold real markup.
+# neighbours cite the thing they exist to remove.
+#
+# STRING LITERALS are stripped first, and that ordering is the whole subtlety: a
+# `//` inside a string is not a comment, and a URL carries them in two places —
+# after the scheme, and in a path (`https://host/a//b`). Treating either as a
+# comment blanks the rest of the line, which for a fail-closed gate means the
+# markup it exists to catch could sit past a URL and never be seen. So the
+# scanner tracks whether it is inside a quote, and only unquoted `//` and `/*`
+# begin a comment.
 #
 # Companion to the vitest suites rather than a substitute: this is the
 # fail-closed grep arm, so the discipline holds even if the test tree regresses.
@@ -65,32 +71,31 @@ strip_comments() {
     {
       line = $0
       out = ""
-      while (length(line) > 0) {
+      quote = ""
+      i = 1
+      n = length(line)
+      while (i <= n) {
+        ch = substr(line, i, 1)
+        two = substr(line, i, 2)
         if (inblock) {
-          close_at = index(line, "*/")
-          if (close_at == 0) { line = ""; break }
-          line = substr(line, close_at + 2)
-          inblock = 0
+          # Inside a block comment: nothing counts until it closes.
+          if (two == "*/") { inblock = 0; i += 2 } else { i += 1 }
           continue
         }
-        block_at = index(line, "/*")
-        eol_at = index(line, "//")
-        # A scheme separator, not a comment: skip past `://` and keep looking.
-        while (eol_at > 1 && substr(line, eol_at - 1, 1) == ":") {
-          out = out substr(line, 1, eol_at + 1)
-          line = substr(line, eol_at + 2)
-          block_at = index(line, "/*")
-          eol_at = index(line, "//")
+        if (quote != "") {
+          # Inside a string: keep it, and let a backslash escape the next char so
+          # a quote it protects does not end the literal early.
+          out = out ch
+          if (ch == "\\" && i < n) { out = out substr(line, i + 1, 1); i += 2; continue }
+          if (ch == quote) { quote = "" }
+          i += 1
+          continue
         }
-        if (eol_at > 0 && (block_at == 0 || eol_at < block_at)) {
-          out = out substr(line, 1, eol_at - 1)
-          line = ""
-          break
-        }
-        if (block_at == 0) { out = out line; line = ""; break }
-        out = out substr(line, 1, block_at - 1)
-        line = substr(line, block_at + 2)
-        inblock = 1
+        if (ch == "\"" || ch == "'"'"'" || ch == "`") { quote = ch; out = out ch; i += 1; continue }
+        if (two == "//") { break }
+        if (two == "/*") { inblock = 1; i += 2; continue }
+        out = out ch
+        i += 1
       }
       print out
     }
