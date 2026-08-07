@@ -165,8 +165,8 @@ describe("the Core's stillness", () => {
     // check that only knew the name.
     expect(animatedSelectors().length).toBeGreaterThanOrEqual(3);
     expect(sheet).not.toMatch(/translateY|translate3d|translate\s*:/);
-    const offsets = [...sheet.matchAll(/\btranslate\(([^)]*)\)/g)].map((match) =>
-      (match[1].split(",")[1] ?? "0").trim(),
+    const offsets = [...sheet.matchAll(/\btranslate\(([^)]*)\)/g)].map(
+      (match) => (match[1].split(",")[1] ?? "0").trim(),
     );
     expect(offsets.filter((y) => !/^0[a-z%]*$/.test(y))).toEqual([]);
   });
