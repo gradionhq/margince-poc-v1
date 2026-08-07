@@ -12,6 +12,54 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open — the settings mirror is a dual-write on ADR-0091's critical path
+
+ADR-0090/A135 shipped (#520): installation settings are rows in `setting`, with
+the catalog in typed Go. Four settings moved — `capture.auto_enrich` and the
+three `installation.*` values — behind a Settings → Installation surface, with
+the base currency freezing once a deal has converted against it (ADR-0085 §7).
+
+What is NOT finished is the read side. Roll-ups, FX conversion, quota
+attainment and the report builder still read `workspace.base_currency` and
+`workspace.timezone` directly — eight files — so `UpdateInstallation` writes the
+setting AND mirrors it onto the column in one transaction. The mirror exists
+only because those readers have not moved; without it the surface would report
+a base currency nothing computes in.
+
+**This is not a settings leftover, it is ADR-0091 phase 4's first step.** That
+phase drops the `workspace` row, so the readers have to move regardless. Doing
+it as its own change gets the dual-write out before the plumbing collapse
+rather than after, and shrinks what phase 4 has to touch. Tracked as **#521**,
+which also covers dropping `capture_auto_enrich`, `name`, `timezone` and
+`base_currency` once nothing reads them.
+
+Also open from the same work: **#551** — the base-currency freeze is atomic
+with its own write but not with the deal transaction that stamps
+`fx_rate_to_base`, so a conversion committing concurrently with a re-base can
+interleave. Narrow, silent, and needs a lock shared with every FX-freeze path,
+which is why it is filed rather than patched.
+
+Not migrated yet: `slug` (no consumer under ADR-0061 — a drop candidate rather
+than a move) and the overlay `x_sor_mode`/`x_incumbent` pair, which needs the
+composite-value shape because its CHECK spans both columns.
+
+## Pick up here — ADR-0091 (A136): retiring the workspace tenant boundary
+
+Ratified upstream (margince-foundation#1253). Phase 1 — the settings table — is
+done, which is what let the `workspace` row's own values move off it.
+
+The sequencing in ADR-0091 §9 is **binding, not advisory**: the Go plumbing
+collapses while RLS is still armed, because the tenant-isolation suite staying
+green is the only mechanical proof that an 887-call-site edit stayed faithful,
+and the schema phase deletes that suite. Do not reorder it.
+
+One lesson from #520 worth carrying: that branch lived long enough for `main` to
+move under it five times — two migration-number collisions, a semantic conflict
+with the data reset (#523, which it would have silently regressed), a new
+Vietnamese locale, and a dependency bump. Four of the five were invisible to the
+branch's own gates. Phase 2 is larger again, so slice it into PRs that land in
+hours rather than days, and read what landed on main before every merge.
+
 ## Open — an install with no mailer AND no public base URL still onboards nobody
 
 ADR-0061 Amendment 1 closed the email-less case: an admin mints a single-use
