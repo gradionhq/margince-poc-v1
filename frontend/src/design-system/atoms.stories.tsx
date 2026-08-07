@@ -17,12 +17,12 @@ import {
   Radio,
   SectionHeader,
   SegmentedControl,
-  Select,
   Skeleton,
   StatCard,
   Textarea,
   TextInput,
 } from "./atoms";
+import { Select } from "./select";
 
 // Stories are the render surface the change-scoped fe-uat capture gate drives
 // (frontend/scripts/fe-uat.mjs): a change to atoms.tsx re-renders these in a
@@ -85,23 +85,36 @@ export const Avatars: Story = {
   ),
 };
 
-// The four field controls in one column, which is the point of the story: a
-// text input, a dropdown and a textarea stacked the way a form stacks them is
-// the only way to see that their type size, padding, height and focus ring
-// actually agree. Reviewed one at a time they always look fine.
+// The field controls in one column, which is the point of the story: a text
+// input, a dropdown and a textarea stacked the way a form stacks them is the
+// only way to see that their type size, padding, height and focus ring actually
+// agree. Reviewed one at a time they always look fine.
+//
+// The dropdown is the Select from select.tsx, and it is here for exactly that
+// comparison — its own states live in select.stories.tsx.
 export const Fields: Story = {
-  render: () => (
+  render: () => <FieldsRow />,
+};
+
+function FieldsRow() {
+  const [stage, setStage] = useState("proposal");
+  return (
     <div className="form-stack" style={{ maxWidth: "22rem" }}>
       <Field label="Deal name">
         {(control) => <TextInput {...control} defaultValue="Globex renewal" />}
       </Field>
       <Field label="Stage" required>
         {(control) => (
-          <Select {...control} defaultValue="proposal">
-            <option value="qualify">Qualify</option>
-            <option value="proposal">Proposal</option>
-            <option value="won">Won</option>
-          </Select>
+          <Select
+            {...control}
+            options={[
+              { value: "qualify", label: "Qualify" },
+              { value: "proposal", label: "Proposal" },
+              { value: "won", label: "Won" },
+            ]}
+            value={stage}
+            onChange={setStage}
+          />
         )}
       </Field>
       <Field label="Note" hint="Only the deal's followers will see this.">
@@ -114,8 +127,8 @@ export const Fields: Story = {
         )}
       </Field>
     </div>
-  ),
-};
+  );
+}
 
 // A disabled control and a long label that wraps — the two states a field
 // catalog usually omits and a real form always reaches.

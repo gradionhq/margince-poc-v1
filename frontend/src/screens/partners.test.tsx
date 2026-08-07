@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { PartnersScreen, PartnerTab } from "./partners";
 
@@ -73,6 +74,7 @@ const partner = {
 
 describe("PartnerTab — not yet a partner", () => {
   it("shows the setup form and PUTs the chosen role with no If-Match", async () => {
+    const user = userEvent.setup();
     let putBody: unknown = null;
     let putHeader: string | null = null;
     stubFetch(async (url, method, request) => {
@@ -92,11 +94,12 @@ describe("PartnerTab — not yet a partner", () => {
     await waitFor(() =>
       expect(screen.getByText("Not a partner yet")).toBeTruthy(),
     );
-    await userEvent.selectOptions(
+    await pickOption(
+      user,
       screen.getByLabelText("Partner role *"),
-      "consulting",
+      "Consulting",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(putBody).toBeTruthy());
     expect(putBody).toMatchObject({ partner_role: "consulting" });
@@ -140,6 +143,7 @@ describe("PartnerTab — existing partner", () => {
 
 describe("PartnersScreen", () => {
   it("lists partners and sends the role filter", async () => {
+    const user = userEvent.setup();
     const { urls } = stubFetch(async () =>
       jsonResponse({
         data: [partner],
@@ -151,10 +155,7 @@ describe("PartnersScreen", () => {
     await waitFor(() => expect(screen.getByText("o-1")).toBeTruthy());
     expect(screen.getByText("Active")).toBeTruthy();
 
-    await userEvent.selectOptions(
-      screen.getByLabelText("Partner role"),
-      "hosting",
-    );
+    await pickOption(user, screen.getByLabelText("Partner role"), "Hosting");
 
     await waitFor(() =>
       expect(urls.some((url) => url.includes("partner_role=hosting"))).toBe(

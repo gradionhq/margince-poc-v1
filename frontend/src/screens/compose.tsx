@@ -8,7 +8,6 @@ import {
   Button,
   Checkbox,
   SectionHeader,
-  Select,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
@@ -17,6 +16,7 @@ import {
   RecordPicker,
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
+import { Select, type SelectOption } from "../design-system/select";
 import { useT } from "../i18n";
 import {
   isConsentNotGranted,
@@ -35,6 +35,7 @@ import "./compose.css";
 // and typed on the backend; this file only calls them.
 
 type Activity = components["schemas"]["Activity"];
+type ConsentPurpose = components["schemas"]["ConsentPurpose"];
 type EmailDraft = components["schemas"]["EmailDraft"];
 type VoiceProfile = components["schemas"]["VoiceProfile"];
 
@@ -458,6 +459,23 @@ function sharedUnsubscribeAhead(
   return addressees.size > 1;
 }
 
+// The purpose list the rep chooses from. The unset entry is a real OPTION
+// rather than the select's placeholder: a placeholder is only a face for an
+// unset value, and a rep who picked a purpose has to be able to come back to
+// none before sending. Its face stays the em dash the field has always shown —
+// a glyph, with no words to translate.
+function purposeOptions(
+  purposes: readonly ConsentPurpose[] | undefined,
+): SelectOption[] {
+  return [
+    { value: "", label: "—" },
+    ...(purposes ?? []).map((purpose) => ({
+      value: purpose.key,
+      label: purpose.label,
+    })),
+  ];
+}
+
 // Send preconditions differ by wire shape: mail needs an addressee and a
 // subject on top of a body; a channel reply carries neither (design §9.3 —
 // the recipient is resolved server-side, and a channel has no subject line),
@@ -864,16 +882,10 @@ export function ComposeModal({
           {t("compose.purpose")}
           <Select
             aria-label={t("compose.purpose")}
+            options={purposeOptions(purposes.data?.data)}
             value={purpose}
-            onChange={(event) => setPurpose(event.target.value)}
-          >
-            <option value="">—</option>
-            {purposes.data?.data.map((option) => (
-              <option key={option.id} value={option.key}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
+            onChange={setPurpose}
+          />
         </label>
         <p className="t-caption">{t("compose.purposeHint")}</p>
 

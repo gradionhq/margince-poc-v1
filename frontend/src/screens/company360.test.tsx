@@ -1063,10 +1063,15 @@ it("does not offer a role the contact already holds on that deal", async () => {
   await userEvent.click(
     await screen.findByRole("button", { name: "Set role" }),
   );
-  const roles = screen.getByLabelText("Role") as HTMLSelectElement;
-  expect([...roles.options].map((option) => option.value)).not.toContain(
-    "champion",
-  );
+  // The offered roles only exist while the control is open, so the list is
+  // opened to be read — and it is read by LABEL, which is what the reader picks
+  // from; the champion role's own label is the word this asserts is absent.
+  await userEvent.click(screen.getByLabelText("Role"));
+  expect(
+    within(screen.getByRole("listbox"))
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).not.toContain("champion");
 });
 
 describe("company view — Partner is not a permanent tab", () => {

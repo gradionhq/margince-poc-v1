@@ -200,10 +200,22 @@ describe("InboxScreen (B-EP09.12a)", () => {
     expect(screen.queryByRole("textbox", { name: "because" })).toBeNull();
 
     // The option's VALUE is the wire enum and its text is what the reader sees;
-    // both matter, and only the value is submitted.
-    expect(screen.getByRole("option", { name: "Disqualified" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "disqualified" })).toBeNull();
-    await userEvent.selectOptions(stage, "disqualified");
+    // both matter, and only the value is submitted. The list is inspected with
+    // the popup OPEN — it is portalled and exists only while the control is
+    // open — which is also why this drives the two steps by hand instead of
+    // through pickOption: the pick has to land on the list already under
+    // assertion.
+    await userEvent.click(stage);
+    const listbox = screen.getByRole("listbox");
+    expect(
+      within(listbox).getByRole("option", { name: "Disqualified" }),
+    ).toBeTruthy();
+    expect(
+      within(listbox).queryByRole("option", { name: "disqualified" }),
+    ).toBeNull();
+    await userEvent.click(
+      within(listbox).getByRole("option", { name: "Disqualified" }),
+    );
     await userEvent.click(
       screen.getByRole("button", { name: "Approve edited" }),
     );

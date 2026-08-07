@@ -1210,6 +1210,7 @@ export const de = {
   "create.organization": "Firma",
   "create.expectedClose": "Erwarteter Abschluss",
 
+  "field.unset": "Nicht gesetzt",
   "field.addEmail": "E-Mail hinzufügen",
   "field.addPhone": "Telefon hinzufügen",
   "field.addDomain": "Domain hinzufügen",

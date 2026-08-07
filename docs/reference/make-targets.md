@@ -94,9 +94,9 @@ root gates (each is a small script; all merge-blocking):
 
 | Target | What it does |
 |---|---|
-| `frontend-check` | The frontend gate: the design-system purity/font-lock/icon-glyph/spacing script gates, a `pnpm gen:api` + `schema.d.ts` drift check, then `pnpm check` (Biome lint + vitest + tsc + vite build) (needs node + pnpm) |
+| `frontend-check` | The frontend gate: the design-system purity/font-lock/icon-glyph/spacing/native-control script gates, a `pnpm gen:api` + `schema.d.ts` drift check, then `pnpm check` (Biome lint + vitest + tsc + vite build) (needs node + pnpm) |
 | `fe-install` / `fe-lint` / `fe-test` / `fe-build` / `fe-format` / `fe-preview` | The individual frontend steps (`pnpm` wrappers) |
-| `ds-purity` / `font-lock` / `icon-lint` / `ds-spacing` | The design-system script gates, runnable alone |
+| `ds-purity` / `font-lock` / `icon-lint` / `ds-spacing` / `native-controls` | The design-system script gates, runnable alone. `native-controls` is the no-browser-drawn-dropdown gate: `<select>`/`<option>` outside `design-system/select.tsx` |
 | `gen-types` / `gen-types-check` | Aliases for backend `gen` / `drift` |
 | `seed-dev` | API-seed the demo workspace against a running stack (idempotent), then the API-less extras (`seed-dev-db`) |
 | `verify-boot` | Prove a running, seeded stack end to end: seeded-admin login, seeded people over `/v1`, frontend production build — pure client, fails loudly |

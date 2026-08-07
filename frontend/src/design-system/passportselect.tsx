@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useT } from "../i18n";
-import { Select } from "./atoms";
+import { Select, type SelectOption } from "./select";
 
 // Shared between the tool console's passport filter and the OAuth consent
 // screen (Task 7) — extracted so the two surfaces cannot drift into
@@ -52,20 +52,24 @@ export function PassportSelect({
   ariaLabel?: string;
 }>) {
   const t = useT();
+  // The empty choice is an OPTION, not the select's placeholder: a placeholder
+  // is a face, and the tool console's reader has to be able to come back to
+  // "all passports" after picking one.
+  const empty: SelectOption[] = allowEmpty
+    ? [{ value: "", label: emptyLabel ?? t("passport.noneOption") }]
+    : [];
   return (
     <Select
       aria-label={ariaLabel ?? t("passport.select")}
+      options={[
+        ...empty,
+        ...options.map((option) => ({
+          value: option.id,
+          label: option.label,
+        })),
+      ]}
       value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {allowEmpty && (
-        <option value="">{emptyLabel ?? t("passport.noneOption")}</option>
-      )}
-      {options.map((option) => (
-        <option key={option.id} value={option.id}>
-          {option.label}
-        </option>
-      ))}
-    </Select>
+      onChange={onChange}
+    />
   );
 }

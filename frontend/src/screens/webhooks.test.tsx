@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { subscribableEventTypeValues } from "../api/public-events";
 import { type GrantSpec, meFixture } from "../app/mefixture";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { WebhooksCard } from "./webhooks";
 
@@ -426,8 +427,7 @@ describe("WebhooksCard — pause/resume + re-target (EditAction)", () => {
     await user.click(await screen.findByTestId("edit-record"));
     // Flip state to paused via the select control; event_types stays as the
     // subscription's current, prefilled selection.
-    const stateSelect = screen.getByLabelText(/^State/);
-    await user.selectOptions(stateSelect, "paused");
+    await pickOption(user, screen.getByLabelText(/^State/), "Paused");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(calls.length).toBe(1));

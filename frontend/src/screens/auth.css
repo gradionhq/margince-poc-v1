@@ -19,15 +19,37 @@
  *  - the identity region shows ALL of itself or none of it. Down to 561px it
  *    keeps every limit (two columns, never dropping any, which is what the old
  *    `.auth-core-trust li:nth-child(n + 2) { display: none }` did); below that
- *    the phone layout drops the region entirely and the surface is one
- *    full-height card with the Core in its header. `e2e/ac.spec.ts` pins both
- *    halves of that split.
+ *    the phone layout drops the region — sphere included — and the surface is
+ *    the task alone. `e2e/ac.spec.ts` pins both halves of that split.
+ *
+ * The two regions are two HALVES OF THE PAGE divided by one hairline, not a card
+ * floating in a pane. A wash that stops short of the edge on all four sides
+ * makes the identity region an object the page is holding, and then the eye has
+ * two shapes to place — the card and the column it sits in — before it reaches
+ * the form. Full-bleed halves and a single rule read as one decision.
  */
 
 .auth-surface {
+  /* The surface's own rhythm, in one place, because both halves have to breathe
+     by the same amount for the hairline between them to read as a division of one
+     page. Built on the --space scale so the gaps stay on the rhythm the rest of
+     the product uses, and clamped against the viewport so a small laptop keeps
+     its content and a wide display does not turn the form into a distant object.
+     The identity half starts lower: the wordmark is parked in its top-left
+     corner, and the cluster below must not reach into it. */
+  --authPadBlock: clamp(var(--space-6), 8vh, calc(var(--space-6) * 3.5));
+  --authPadInline: clamp(var(--space-6), 5vw, calc(var(--space-6) * 4));
+  --authIdentityPadTop: clamp(
+    calc(var(--space-6) * 4),
+    14vh,
+    calc(var(--space-6) * 6)
+  );
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 0.98fr 1.02fr;
+  grid-template-columns: 1fr 1fr;
+  /* The positioning context for the wordmark, which is placed against the PAGE
+     at desktop widths rather than against the column it happens to live in. */
+  position: relative;
   background: var(--bgElevated);
 }
 @supports (min-height: 100dvh) {
@@ -92,29 +114,40 @@
      `.auth-identity-col` already carries this; the task region was the one that
      did not. */
   min-width: 0;
-  padding: 48px 5vw;
+  /* Air, and a lot of it: the form is one narrow measure and everything the eye
+     does not need is empty space around it. */
+  padding: var(--authPadBlock) var(--authPadInline);
   background: var(--bgElevated);
 }
 .auth-task-in {
   /* §6.2: 380 minimum, 400 preferred, 440 maximum. */
   width: 100%;
   min-width: 0;
-  max-width: 440px;
+  max-width: 400px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  /* `auth-rise-fade`, not the shared `auth-rise`: this wrapper holds the
-     primary action, and the shared keyframe's `from` state displaces its
-     content 16px down for the length of the delay — see the keyframe's own
-     comment. */
+  gap: var(--space-6);
+  /* `auth-rise-fade`, not the shared `auth-rise`: this wrapper holds the primary
+     action, and the shared keyframe's `from` state displaces its content 16px
+     down for the length of the delay — see the keyframe's own comment. */
   animation: auth-rise-fade 0.8s 0.1s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
+/*
+ * The wordmark says WHERE you are, and that is a property of the page rather
+ * than of the form — so on the two-column layout it sits in the page's top-left
+ * corner (see the ≥960 block below) and the form column starts at its heading.
+ *
+ * It stays FIRST IN THE DOM, inside the task column, in both layouts: the
+ * corner placement is presentation, and moving the markup into the identity
+ * region to match the picture would put the product's name after the form in
+ * reading order — and behind a media query for whether it exists at all.
+ */
 .auth-wordmark {
   align-self: flex-start;
   display: grid;
   place-items: center;
-  margin: 0 0 4px;
+  margin: 0;
 }
 /* Deliberately smaller than the heading's weight in the column. At 176px the
    wordmark and "Sign in to Margince" were two headlines stacked, competing for
@@ -142,19 +175,25 @@
   box-shadow: none;
   padding: 0;
 }
+/* The one thing on this half of the page that is allowed to be big. It scales
+   with the viewport because the column it sits in does — at a fixed 28px the
+   heading read as a label on a wide display and as a headline on a laptop. */
 .auth-card h1 {
   font-family: var(--f-display);
   font-weight: 600;
-  font-size: 28px;
+  font-size: clamp(27px, 2.2vw, 33px);
   letter-spacing: -0.02em;
   line-height: 1.15;
   color: var(--textPrimary);
 }
+/* --textSecondary, not --textMeta: this line is body copy under the heading, and
+   --textMeta is the small-text role for 11-13px meta. Read at 14.5px it was the
+   quietest thing on a screen with only three sentences on it. */
 .auth-card .card-sub {
-  margin-top: 8px;
-  font-size: 13.5px;
-  color: var(--textMeta);
-  line-height: 1.5;
+  margin-top: var(--space-2);
+  font-size: 14.5px;
+  color: var(--textSecondary);
+  line-height: 1.55;
 }
 
 /* ===== federated sign-in (§11) ========================================== */
@@ -163,17 +202,19 @@
    below can do the spacing. A `display: contents` wrapper would have looked
    equivalent and silently broken that: sibling selectors walk the DOM tree, not
    the box tree. */
+/* STACKED, full width, so every way into this installation — a provider button
+   and the primary submit below the fields — presents the same target on the same
+   left edge. Side by side, two providers made a row of half-width boxes that the
+   eye reads as a segmented control offering a choice between them rather than as
+   two doors; a third would have divided the row again. The phone layout puts them
+   back on one line, where vertical space is the scarce thing (see the ≤560
+   block). */
 .auth-sso {
-  margin-top: 22px;
+  margin-top: var(--space-4);
   display: flex;
-  /* Wraps, and the buttons carry a flex-basis rather than `flex: 1` alone. With
-     one line and no basis, a third provider divides the row into slices narrower
-     than the brand word inside them, and `min-width: 0` on the button then lets
-     it shrink past its own content — so the label overflows the card rather than
-     the row growing a second line. Nothing serves 3 providers today; the layout
-     should not be what discovers that it can. */
+  flex-direction: column;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-2);
 }
 /* Not the Button atom, deliberately: `btn-ghost` contributes a background, a
    colour, a border colour, a radius, a weight and a padding, and this control
@@ -181,11 +222,13 @@
    reuse. If the DS ever wants this look it wants a new Button VARIANT, which is
    a design-system change rather than a screen's business. */
 .auth-social {
-  /* A basis, so a wrapped row breaks into readable buttons instead of dividing
-     one line into slices narrower than the words in them. */
-  flex: 1 1 140px;
+  /* `flex: none` and a full width, because the stack's main axis is VERTICAL: a
+     basis here is a HEIGHT, and `flex: 1 1 140px` made every provider a 140px
+     tall box. The phone layout turns the row back on and sets its own basis. */
+  flex: none;
+  width: 100%;
   min-width: 0;
-  min-height: 44px;
+  min-height: 46px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -247,10 +290,10 @@
 .auth-or {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 18px 0 4px;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 var(--space-1);
   font-family: var(--f-mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -267,18 +310,18 @@
 .auth-fields {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-top: 20px;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
 }
 /* When the federated block is present it already carries the divider's spacing,
    so the fields must not add a second gap on top of it. */
 .auth-or + .auth-fields {
-  margin-top: 14px;
+  margin-top: var(--space-4);
 }
 .auth-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .auth-label-row {
   display: flex;
@@ -291,9 +334,9 @@
    label was reading the decorative tier instead. Caught by the axe sweep the
    moment the login screen was finally in it. */
 .auth-field label {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--textMeta);
 }
@@ -316,8 +359,10 @@
   align-items: center;
   gap: 9px;
   /* §6.5 / §12: 44px is the target floor, and it is a floor rather than a
-     rounded-up number — a 40px control fails the same check on a phone. */
-  min-height: 44px;
+     rounded-up number — a 40px control fails the same check on a phone. 46 sits
+     just over it, matching the provider buttons above so the column reads as one
+     set of controls. */
+  min-height: 46px;
   /* No right padding: the reveal control claims the full inner height so its
      target meets the 44px floor rather than being a 24px icon with air around
      it. The input carries its own right padding instead. */
@@ -354,7 +399,7 @@
   border: 0;
   padding: 11px 13px 11px 0;
   font-family: var(--f-body);
-  font-size: 14.5px;
+  font-size: 15px;
   color: var(--textPrimary);
   background: none;
   outline: 0;
@@ -389,14 +434,14 @@
   outline-offset: -3px;
 }
 .auth-actions {
-  margin-top: 22px;
+  margin-top: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .auth-actions .btn {
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   justify-content: center;
   /* Overrides the atom's `white-space: nowrap`. A nowrap label in a full-width
      button cannot overflow the button — it widens it, and the card with it, until
@@ -463,11 +508,13 @@
 /* The locale switcher: a CONTROL, so it belongs to the card column and stays
    inside `.auth-task-in` (row 1 of the task grid). `.auth-legal` below is the
    other footer — region chrome, row 2 — and the two never meet. */
+/* Left, on the form's own edge, like every other line in this column. Centred it
+   was the one thing on the surface that answered to nothing above it. */
 .auth-footer {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   color: var(--textTertiary);
   margin-top: auto;
 }
@@ -490,14 +537,15 @@
   align-self: end;
   display: flex;
   flex-direction: column;
-  /* Centred at every width, under a card whose own footer row (the locale
-     switcher) is centred too — left-aligned it read as a stray third column. */
-  align-items: center;
-  text-align: center;
-  gap: 6px;
+  /* Left, sharing the form's measure and its left edge: the column has one
+     alignment now, top to bottom, and the fine print is the last line of it
+     rather than a centred block under a left-aligned form. */
+  align-items: flex-start;
+  text-align: left;
+  gap: var(--space-2);
   width: 100%;
-  max-width: 440px;
-  padding-top: 32px;
+  max-width: 400px;
+  padding-top: calc(var(--space-6) * 1.5);
   font-size: 11px;
   line-height: 1.5;
   color: var(--textMeta);
@@ -513,8 +561,7 @@
      It holds at 100%, and a row that only holds at 100% is one text-zoom step
      from pushing the surface wider than the viewport. */
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .auth-legal a {
   color: var(--textContent);
@@ -548,13 +595,12 @@
 .auth-identity-col {
   order: 1;
   position: relative;
-  /* A CARD inset in the page rather than a full-bleed column: the wash reads as
-     an object the surface holds, and the task region gets an edge to sit against
-     that is a gap rather than a hairline. `overflow: hidden` is what makes the
-     radius clip the wash and the Core's halo. */
-  margin: var(--space-6);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
+  /* A FULL-BLEED HALF of the page, divided from the task by one hairline. The
+     wash runs to all four edges, so the region is a side of the page rather than
+     an object on it, and the form's side is plain — which is the whole
+     separation. `overflow: hidden` stays: the Core's halo and its mote field
+     reach past the sphere, and they belong to this side of the rule. */
+  border-right: 1px solid var(--borderSubtle);
   overflow: hidden;
   min-width: 0;
   display: grid;
@@ -565,11 +611,14 @@
      same four things and is right to. */
   grid-template-rows: repeat(2, auto);
   align-content: center;
-  justify-items: center;
-  gap: var(--space-6);
-  padding: 48px 5vw;
-  /* No border: the card's own edge and the gap around it are the separation the
-     hairline used to carry. */
+  /* The WORDS start on the same left edge as the wordmark above them, so this
+     half of the page has one text axis running down it. The sphere is the
+     exception and centres itself (below): it is an object floating in the pane
+     rather than a line of type, and pinned to the text axis its halo met the
+     column's own clipped edge. */
+  justify-items: start;
+  gap: calc(var(--space-6) * 1.5);
+  padding: var(--authIdentityPadTop) var(--authPadInline) var(--authPadBlock);
   /* Four layers, matching the artifact's stack. The port had three and had the
      first one backwards: the artifact's top-left wash is an opaque pale mint
      that LIGHTENS toward white, and a translucent accent wash darkens instead.
@@ -620,6 +669,7 @@
  * second knob.
  */
 .auth-identity-col .core {
+  justify-self: center;
   --coreSize: clamp(150px, 17vw, 230px);
   --coreGlass: calc(var(--coreSize) * 0.748);
 }
@@ -854,6 +904,32 @@
 }
 
 /* ===== breakpoints ====================================================== */
+/* The two-column layout, and the ONE thing that is placed against the page
+   rather than inside a column: the wordmark, in the top-left corner, over the
+   identity half. Out of flow, so the form column has nothing above its heading
+   and centres as one block — which is what gives the task the middle of its half
+   of the screen.
+
+   Bounded to the split deliberately. Below it there is no left half to sit in and
+   no slack to spend: the wordmark goes back to being the first line of the form,
+   where a 640×400 viewport at 200% zoom can still read it. */
+@media (min-width: 960px) {
+  /* The task COLUMN is what has to be lifted, not the wordmark inside it: the
+     wordmark's own `z-index` is resolved inside `.auth-task-in`, which is a
+     stacking context of its own because it carries a filling opacity animation.
+     From in there, no z-index can reach past `.auth-task`'s sibling — and the
+     identity column is that sibling, later in the DOM, so it painted over the
+     product's name. A grid item honours z-index without being positioned, which
+     is what makes this one declaration enough. */
+  .auth-task {
+    z-index: 1;
+  }
+  .auth-wordmark {
+    position: absolute;
+    top: var(--authPadBlock);
+    left: var(--authPadInline);
+  }
+}
 /* Below 960 the regions stack, task region FIRST — which is what the DOM
    already says, so both `order`s go back to their natural value. */
 @media (max-width: 959px) {
@@ -878,14 +954,11 @@
   }
   /* Row two, and no longer `display: contents`: the wrapper has to survive for
      the Core and the words to be one centred cluster instead of two independent
-     rows of the surface. The card chrome is dropped — at this width the region is
-     a band of the page, not an inset card — so the shadow, radius, margin and
-     wash all go, and a hairline carries the separation instead. */
+     rows of the surface. The dividing rule turns with the layout — the halves are
+     stacked here, so the hairline is on top rather than on the side. */
   .auth-identity-col {
     order: 2;
-    margin: 0;
-    border-radius: 0;
-    box-shadow: none;
+    border-right: 0;
     border-top: 1px solid var(--borderSubtle);
     /* The bloom follows the Core rather than the corner it used to sit in. On the
        wrapper, so it is positioned by the same box the sphere is centred in and
@@ -952,12 +1025,12 @@
 
 @media (max-width: 560px) {
   /* The card is the whole screen here, so its top padding is the page's top
-     margin rather than a card inset — and the Core, which sits lower and is
-     positioned against the surface, does not move with it. */
+     margin rather than a card inset. */
   .auth-task {
     padding: 20px 20px 24px;
   }
-  /* Smaller again on a phone, where it shares its row with the Core. */
+  /* Smaller again on a phone, where the screen is the form and the wordmark is
+     the line above it. */
   .auth-wordmark img {
     width: 112px;
   }
@@ -1000,59 +1073,59 @@
   .auth-social-brand {
     display: inline;
   }
+  /* Back to a ROW here, which is the trade the phone makes: two stacked
+     full-width provider buttons spend ~120px of the height the form needs, and
+     the brand words fit side by side at this width (see `.auth-social-brand`
+     above). */
+  .auth-sso {
+    flex-direction: row;
+  }
   .auth-social {
-    /* The task measure is 280px at the 320px floor (see .auth-legal-links'
-       own comment on that number): two buttons at the base 140px basis plus
-       this row's 7px gap need 287px and wrap into two rows even though
-       "Google"/"Microsoft" fit side by side at this width. A smaller basis
-       keeps two providers on one line here while still leaving room for
-       `.auth-sso`'s wrap to catch a future third. */
-    flex-basis: 128px;
+    /* A shared row again, so each button carries a basis. The task measure is
+       280px at the 320px floor (see .auth-legal-links' own comment on that
+       number): two buttons at a 140px basis plus this row's 7px gap need 287px
+       and wrap into two rows even though "Google"/"Microsoft" fit side by side at
+       this width. 128 keeps two providers on one line here while still leaving
+       room for `.auth-sso`'s wrap to catch a future third. */
+    flex: 1 1 128px;
+    width: auto;
     gap: 7px;
     padding-inline: 10px;
   }
   /*
-   * PHONE ONLY: the surface is the task, one card, full height.
+   * PHONE ONLY: the surface is the task. Nothing else.
    *
-   * The identity region does not fit that and does not survive it, so what it
-   * was there to SAY is carried instead by `.auth-phone-disclosure` in the task
-   * column above. Disclosure is the obligation (Decision 1); the aside is only
-   * the wide layout's way of meeting it. Above this breakpoint (tablet, 200%
-   * zoom, desktop) the region is untouched, and there the phone line is the one
-   * that is off — exactly one of the two is ever in the accessibility tree.
-   * The e2e case pins the split in both directions.
+   * The identity region goes, sphere included — the whole column, not just the
+   * words. On a phone the form is the only thing the screen is for, and a 68px
+   * orb parked beside the disclosure line was the last thing left competing with
+   * it for a first look. The wide layout is where the system gets to introduce
+   * itself; here it gets one sentence.
+   *
+   * That sentence is the obligation and it stays: `.auth-phone-disclosure` in the
+   * task column carries what the aside says (Decision 1), because the Core is
+   * `aria-hidden` and dropping the region without the line would leave a phone
+   * reader told nothing about the AI at all. Above this breakpoint (tablet, 200%
+   * zoom, desktop) the region is untouched and the phone line is the one that is
+   * off — exactly one of the two is ever in the accessibility tree, and the e2e
+   * case pins the split in both directions.
    */
   .auth-surface {
     grid-template-rows: 1fr;
   }
-  .auth-identity {
+  .auth-identity-col {
     display: none;
   }
   /* Set as body copy, not as the aside's display-size statement: here it leads
      into the form rather than anchoring a region of its own, and at 32px it
-     would outweigh the h1 naming the task. */
+     would outweigh the h1 naming the task. Full measure, no left lane: there is
+     no sphere beside it to leave room for. */
   .auth-phone-disclosure {
-    /* Flex, so the sentence sits in the MIDDLE of the lane rather than at the top
-       of it. This is the one place on the surface where centring on the block is
-       the correct answer instead of the wrong one: the thing to align with is a
-       68px sphere, not a line of type, and two lines pinned to the top of a 68px
-       lane read as text that has come loose from the orb beside it. A longer
-       translation outgrows the lane, and then min-height stops binding and this
-       is a no-op — which is also right, because the orb is no longer the taller
-       of the two. */
-    display: flex;
-    align-items: center;
+    display: block;
     margin: 0;
     font-family: var(--f-body);
     font-size: 14px;
     line-height: 1.45;
     color: var(--textSecondary);
-    /* The lane is on the LEFT now, and it holds the Core. The sphere and this
-       sentence are one thing — the AI and what it is telling you about itself —
-       so they share a line instead of sitting in opposite corners of the screen.
-       84px = the 68px sphere plus a 16px gutter. */
-    padding-left: 84px;
-    min-height: 68px;
   }
   .auth-task {
     /* The card is the whole screen, so the fill has to come from the row rather
@@ -1062,45 +1135,33 @@
        line still sits in the bottom row. */
     align-self: stretch;
   }
-  /* The wrapper dissolves again at phone width: its band — hairline, padding,
-     bloom — belongs to the identity words, and those are hidden here, so an intact
-     wrapper would render an empty stripe. Dissolving it also restores the Core's
-     positioning context to the surface, which is what the placement below needs. */
-  .auth-identity-col {
-    display: contents;
-  }
-  /*
-   * The Core sits in the disclosure's left lane, not in a corner: it is out of
-   * flow so it costs the form no height, but it is placed to line up with the
-   * sentence it belongs to.
-   *
-   * The offset is spelled as its parts rather than as one number so it stays
-   * auditable against the rules that produce it — change any of the three and the
-   * sum is visibly wrong. It is safe to anchor to the top even though the card
-   * below is centred: the wordmark and this sentence are the top cluster and do
-   * not move, which is why the card centres with margins rather than the column
-   * centring as a whole.
-   */
-  .auth-identity-col .core {
-    position: absolute;
-    /* .auth-task padding-top + .auth-wordmark min-height + .auth-task-in gap */
-    top: calc(20px + 52px + 16px);
-    left: 20px;
-    z-index: 2;
-    /* A fixed lane, not a column — opt out of the viewport cap. */
-    --coreCap: 100%;
-    --coreSize: 68px;
-    --coreGlass: 54px;
-    /* Pulled in hard: at reach 1 the motes cross the sentence beside it. */
-    --coreFeedReach: 0.38;
-  }
-  /* No right lane on either: the sphere is in the sentence's left lane now, so
-     nothing overhangs the wordmark or the heading and both get the full measure
-     back. The wordmark's height stays fixed because the Core's offset is measured
-     from it. */
-  .auth-wordmark {
-    min-height: 52px;
-  }
+}
+
+/*
+ * The intro belongs to the PAGE LOAD, not to this mount.
+ *
+ * Everything above declares its animation unconditionally, and this one rule
+ * takes them all away again once the document has been introduced — so a surface
+ * React rebuilds afterwards (a probe refetching, a notice arriving, a parent
+ * re-branching) renders where the choreography was going instead of running it at
+ * a reader who has already read it. The attribute comes from useDocumentIntro
+ * (design-system/motion.ts), which is also what stops the statement retyping
+ * itself.
+ *
+ * As one rule rather than a gate on each declaration: this way the animations
+ * stay legible as animations, and the reduced-motion block below — which says the
+ * same thing for a different reason — cannot lose a specificity argument to it.
+ */
+.auth-surface[data-auth-intro="done"]
+:is(
+  .auth-task-in,
+  .auth-kicker,
+  .auth-statement,
+  .auth-scope,
+  .auth-limits,
+  .auth-identity-foot
+) {
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { companyContextCapabilitiesQueryKey } from "./company-context";
 import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
@@ -328,25 +329,29 @@ function agentToolsWithPassportsBackend() {
 
 describe("AgentToolsCard passport scoping", () => {
   it("excludes a revoked passport from the selector", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", agentToolsWithPassportsBackend());
     render(<SettingsScreen tab="ai" />);
     await screen.findByText("list_pipelines");
 
-    const select = screen.getByLabelText("All passports");
-    const optionLabels = Array.from(select.querySelectorAll("option")).map(
-      (o) => o.textContent,
-    );
+    // The options only exist while the popup is open — the control renders no
+    // listbox when closed — so reading what it offers means opening it first.
+    await user.click(screen.getByLabelText("All passports"));
+    const optionLabels = screen
+      .getAllByRole("option")
+      .map((option) => option.textContent);
     expect(optionLabels).toContain("Reachable by Scout");
     expect(optionLabels).not.toContain("Reachable by Retired");
   });
 
   it("keeps a scope-free tool reachable once a passport is selected", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", agentToolsWithPassportsBackend());
     render(<SettingsScreen tab="ai" />);
     await screen.findByText("list_pipelines");
 
     const select = screen.getByLabelText("All passports");
-    await userEvent.selectOptions(select, "pp-1");
+    await pickOption(user, select, "Reachable by Scout");
 
     const freeRow = document.querySelector('[data-tool="list_pipelines"]');
     expect(freeRow).toBeTruthy();
@@ -423,12 +428,13 @@ describe("PassportCard revoke (AS-2)", () => {
   // dimmed by a credential the human can no longer choose is a filter with no
   // control, and no way to undo it.
   it("stops scoping the tool console to a passport revoked while it was selected", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", revocablePassportsBackend());
     render(<SettingsScreen tab="ai" />);
     await screen.findByText("send_email");
 
     const select = screen.getByLabelText("All passports");
-    await userEvent.selectOptions(select, "pp-1");
+    await pickOption(user, select, "Reachable by Scout");
     const scopedRow = document.querySelector('[data-tool="send_email"]');
     expect(scopedRow).toBeTruthy();
     // Scout grants "read" only, so the send tool reads as out of scope while
@@ -443,17 +449,19 @@ describe("PassportCard revoke (AS-2)", () => {
     if (!(revokeButton instanceof HTMLButtonElement)) {
       throw new Error("the live passport row offers no revoke control");
     }
-    await userEvent.click(revokeButton);
+    await user.click(revokeButton);
     const dialog = await screen.findByRole("dialog");
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "Revoke" }),
-    );
+    await user.click(within(dialog).getByRole("button", { name: "Revoke" }));
 
-    // The revoked passport leaves the selector...
+    // The revoked passport leaves the selector, which is left offering the
+    // "all passports" choice and nothing else. That list only exists while the
+    // popup is open, so reopen it: it stays mounted and re-renders as the
+    // refetched passports arrive, which is what this waitFor waits for...
+    await user.click(select);
     await waitFor(() =>
       expect(
-        Array.from(select.querySelectorAll("option")).map((o) => o.value),
-      ).toEqual([""]),
+        screen.getAllByRole("option").map((option) => option.textContent),
+      ).toEqual(["All passports"]),
     );
     // ...and the inventory reads unfiltered again, matching what it shows.
     expect(

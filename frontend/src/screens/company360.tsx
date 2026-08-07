@@ -10,10 +10,10 @@ import {
   Field,
   Modal,
   SectionHeader,
-  Select,
   Skeleton,
   StatCard,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { useLocale, useT } from "../i18n";
@@ -622,14 +622,12 @@ function SetRoleAction({
               <Select
                 {...control}
                 value={dealId}
-                onChange={(event) => setDealId(event.target.value)}
-              >
-                {openDeals.map((deal) => (
-                  <option key={deal.id} value={deal.id}>
-                    {deal.name}
-                  </option>
-                ))}
-              </Select>
+                onChange={setDealId}
+                options={openDeals.map((deal) => ({
+                  value: deal.id,
+                  label: deal.name,
+                }))}
+              />
             )}
           </Field>
           <Field label={t("co.role.role")}>
@@ -637,14 +635,12 @@ function SetRoleAction({
               <Select
                 {...control}
                 value={picked ?? ""}
-                onChange={(event) => setRole(event.target.value)}
-              >
-                {offered.map((candidate) => (
-                  <option key={candidate} value={candidate}>
-                    {dealRoleLabel(candidate, t)}
-                  </option>
-                ))}
-              </Select>
+                onChange={setRole}
+                options={offered.map((candidate) => ({
+                  value: candidate,
+                  label: dealRoleLabel(candidate, t),
+                }))}
+              />
             )}
           </Field>
           {save.isError && (

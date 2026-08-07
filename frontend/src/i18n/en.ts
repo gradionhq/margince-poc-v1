@@ -1196,6 +1196,7 @@ export const en = {
   "create.organization": "Company",
   "create.expectedClose": "Expected close",
 
+  "field.unset": "Not set",
   "field.addEmail": "Add email",
   "field.addPhone": "Add phone",
   "field.addDomain": "Add domain",

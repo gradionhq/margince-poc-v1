@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { pickOption } from "../design-system/select-testing";
 import { formatMoney } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import { buildColumns, DealScreen, DealsScreen, mapDealUpdate } from "./deals";
@@ -525,6 +526,7 @@ describe("DealsScreen", () => {
 
 describe("DealsScreen filters", () => {
   it("switching pipeline scopes the deals fetch to that pipeline_id", async () => {
+    const user = userEvent.setup();
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -552,13 +554,14 @@ describe("DealsScreen filters", () => {
     );
     render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
-    await userEvent.selectOptions(screen.getByLabelText("Pipeline"), "pl2");
+    await pickOption(user, screen.getByLabelText("Pipeline"), "Renewals");
     await waitFor(() =>
       expect(urls.some((u) => u.includes("pipeline_id=pl2"))).toBe(true),
     );
   });
 
   it("the stalled filter adds stalled=true to the deals query", async () => {
+    const user = userEvent.setup();
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -566,9 +569,12 @@ describe("DealsScreen filters", () => {
     );
     render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
-    await userEvent.selectOptions(
+    // The control and its only narrowing choice share the "Stalled only" name:
+    // the combobox is named by the filter, the option by what it selects.
+    await pickOption(
+      user,
       screen.getByLabelText("Stalled only"),
-      "true",
+      "Stalled only",
     );
     await waitFor(() =>
       expect(urls.some((u) => u.includes("stalled=true"))).toBe(true),

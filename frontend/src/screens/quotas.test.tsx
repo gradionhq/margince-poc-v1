@@ -1,11 +1,18 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { AttainmentRing } from "../design-system/atoms";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { AttainmentNumbers, PaceLine, QuotasView } from "./quotas";
 import { isOwnerXorTeam, parseEuroMinor } from "./quotas.forms";
@@ -357,11 +364,17 @@ describe("QuotasView", () => {
     });
     mount(<QuotasView />);
     await userEvent.click(await screen.findByTestId("quota-create"));
-    const subjectSelect = await screen.findByRole("combobox");
-    // Wait for the roster-fetched option to render — setting .value before the
-    // matching <option> exists silently no-ops (leaving canSubmit false).
-    await screen.findByRole("option", { name: "Riya Patel" });
-    fireEvent.change(subjectSelect, { target: { value: "u1" } });
+    // The roster arrives from its own fetch, so the option is not there when the
+    // form opens — and picking one that does not exist yet silently no-ops,
+    // leaving the form unsubmittable. pickOption opens the list and clicks the
+    // person by name, so it can only succeed once the roster has landed.
+    await waitFor(async () =>
+      pickOption(
+        userEvent.setup(),
+        await screen.findByRole("combobox"),
+        "Riya Patel",
+      ),
+    );
     const dateInputs = document.querySelectorAll('input[type="date"]');
     fireEvent.change(dateInputs[0], { target: { value: "2026-07-01" } });
     fireEvent.change(dateInputs[1], { target: { value: "2026-09-30" } });

@@ -1,0 +1,133 @@
+/* The Margince select — the trigger's face and its portalled popup.
+ *
+ * The trigger reads `.input` (atoms.css) on top of this: a dropdown and a text
+ * input are the same field on screen, so the surface — font, fill, border,
+ * padding, focus ring — is declared once there, and only the layout the button
+ * needs lives here.
+ *
+ * The popup is `position: fixed` and portalled to the body, so nothing in this
+ * sheet may assume a positioned ancestor: every coordinate arrives as an inline
+ * style from select.tsx, measured against the viewport. */
+
+.select-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  text-align: left;
+  cursor: pointer;
+}
+.select-control:disabled {
+  cursor: not-allowed;
+  color: var(--textTertiary);
+  background: var(--bgCard);
+}
+/* The face never pushes the chevron out of the control: a long label ellipsizes
+   inside the field rather than widening it, which is what a native select does
+   and what a toolbar's fixed column width depends on. */
+.select-face {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A placeholder is not a value, and it must not read like one — but it is text a
+   reader has to be able to read, so it stops at --textMeta, the canonical AA
+   small-text role, rather than the decorative tier below it. This is text on an
+   active control, so 1.4.3's inactive-control exemption does not cover it: the
+   axe sweep failed on `.select-face-placeholder` the moment a screen shipped a
+   control resting on its placeholder. */
+.select-face-placeholder {
+  color: var(--textMeta);
+}
+.select-chevron {
+  flex: none;
+  color: var(--textSecondary);
+  transition: transform 0.15s;
+}
+.select-control[aria-expanded="true"] .select-chevron {
+  transform: rotate(180deg);
+}
+
+/* Above `.overlay` (50) and `.toast-region` (60) in atoms.css: a select inside a
+   dialog has to draw over the dialog it belongs to, and the popup is portalled
+   to the body so stacking context cannot do that for it. */
+.select-popup {
+  position: fixed;
+  z-index: 70;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+  padding: var(--space-1);
+}
+.select-list {
+  display: flex;
+  flex-direction: column;
+}
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-family: var(--f-body);
+  font-size: 13.5px;
+  color: var(--textPrimary);
+  cursor: pointer;
+}
+.select-option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-option-check {
+  flex: none;
+  color: var(--accent);
+}
+/* The ACTIVE option — where the keyboard is, and what a pointer is hovering.
+   One treatment for both, because they are one state: the popup tracks a single
+   active option through `aria-activedescendant`, whichever input moved it. */
+.select-option.is-active {
+  background: var(--bgHover);
+}
+.select-option[aria-selected="true"] {
+  color: var(--accent);
+  font-weight: 500;
+}
+.select-option[aria-selected="true"].is-active {
+  background: var(--accentLight);
+}
+/* A disabled option stays listed and stays readable — a choice this workspace
+   cannot make right now is information — but it takes no hover treatment,
+   because a highlight is a promise that a click will do something. */
+.select-option.is-disabled {
+  color: var(--textTertiary);
+  cursor: not-allowed;
+  background: none;
+}
+
+/* Motion is resolved in select.tsx by usePrefersReducedMotion and arrives here
+   as `data-motion` — deliberately NOT a second `prefers-reduced-motion` media
+   query, which would put the same decision in two places and leave the CSS half
+   of it unassertable by the unit suite. `data-motion="none"` matches no rule
+   below, so the popup is simply at its end state. */
+.select-popup[data-motion="in"] {
+  animation: select-popup-in 0.12s ease-out;
+  transform-origin: top center;
+}
+.select-popup[data-motion="in"][data-above="true"] {
+  transform-origin: bottom center;
+}
+@keyframes select-popup-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}

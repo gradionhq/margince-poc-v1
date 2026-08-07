@@ -85,6 +85,10 @@ default.
 
 ## Layout
 
+- **`src/design-system/README.md` is the catalog — read it before hand-rolling a
+  control.** Every interactive control comes from that directory; a native
+  `<select>` or a hand-rolled dropdown is a defect, and
+  `scripts/check-native-controls.sh` refuses one. `pnpm storybook` shows them all.
 - `src/design-system/` — tokens (Ledger Green canon, pinned by
   `tokens.test.ts`) plus `brand.css`, the DERIVED layer: every value there is a
   `color-mix()` of a canonical token, never a new hex, so it follows the dark

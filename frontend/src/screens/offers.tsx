@@ -11,7 +11,6 @@ import {
   Field,
   Modal,
   SectionHeader,
-  Select,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -20,6 +19,7 @@ import {
   RecordPicker,
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
+import { Select } from "../design-system/select";
 import { formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import {
@@ -198,16 +198,16 @@ function EditOfferHeaderModal({
             <Select
               {...control}
               value={values.currency}
-              onChange={(event) =>
-                setValues((prev) => ({ ...prev, currency: event.target.value }))
+              onChange={(currency) =>
+                setValues((prev) => ({ ...prev, currency }))
               }
-            >
-              {["EUR", "USD", "GBP", "CHF"].map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
+              // A currency code is its own label — an ISO 4217 code is not
+              // copy, so there is nothing to translate.
+              options={["EUR", "USD", "GBP", "CHF"].map((code) => ({
+                value: code,
+                label: code,
+              }))}
+            />
           )}
         </Field>
         <div className="field">
@@ -250,20 +250,20 @@ function EditOfferHeaderModal({
           <Select
             aria-labelledby="offer-template-label"
             value={values.template_id ?? ""}
-            onChange={(event) =>
-              setValues((prev) => ({
-                ...prev,
-                template_id: event.target.value || null,
-              }))
+            onChange={(value) =>
+              setValues((prev) => ({ ...prev, template_id: value || null }))
             }
-          >
-            <option value="">—</option>
-            {(templatesQuery.data ?? []).map((template: OfferTemplate) => (
-              <option key={template.id} value={template.id}>
-                {template.name}
-              </option>
-            ))}
-          </Select>
+            // The dash is a real OPTION for "no template", not the select's
+            // placeholder: a placeholder is only a face for an unset value, and
+            // an offer that picked a template has to be able to drop it again.
+            options={[
+              { value: "", label: "—" },
+              ...(templatesQuery.data ?? []).map((template: OfferTemplate) => ({
+                value: template.id,
+                label: template.name,
+              })),
+            ]}
+          />
         </div>
         <div className="field">
           <span className="t-label" id="offer-intro-label">

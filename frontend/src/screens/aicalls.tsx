@@ -7,8 +7,8 @@ import {
   Button,
   EmptyState,
   SectionHeader,
-  Select,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
@@ -149,12 +149,18 @@ export function AiCallsCard() {
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader title={t("aicalls.title")} sub={t("aicalls.sub")} />
       <QueryStates query={query}>
-        <Select value={task} onChange={(event) => setTask(event.target.value)}>
-          <option value="">{t("aicalls.filter.all")}</option>
-          {tasks.map((value) => (
-            <option key={value}>{value}</option>
-          ))}
-        </Select>
+        <Select
+          value={task}
+          onChange={setTask}
+          // "All tasks" is a real option, not the select's placeholder: a
+          // reader who filtered to one task has to be able to come back.
+          // A task name is a wire value the server owns, so it is its own
+          // label — there is nothing to translate.
+          options={[
+            { value: "", label: t("aicalls.filter.all") },
+            ...tasks.map((value) => ({ value, label: value })),
+          ]}
+        />
         {calls.length === 0 ? (
           <EmptyState>{t("aicalls.empty")}</EmptyState>
         ) : (

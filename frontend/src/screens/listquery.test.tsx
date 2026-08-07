@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import {
   ListGate,
@@ -196,6 +197,7 @@ describe("ListToolbar", () => {
   });
 
   it("updates sort and includeArchived immediately", async () => {
+    const user = userEvent.setup();
     const setQuery = vi.fn();
     render(
       <ListToolbar
@@ -205,20 +207,26 @@ describe("ListToolbar", () => {
       />,
     );
 
-    const sortSelect = screen.getByLabelText("Sort") as HTMLSelectElement;
-    await userEvent.selectOptions(sortSelect, "name");
+    // The sort control's own name and the "name" option's label are both
+    // "Sort" here (the fixture reuses catalog keys as labels) — the control is
+    // the combobox, the choice is the option inside its popup.
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Sort" }),
+      "Sort",
+    );
     expect(setQuery).toHaveBeenCalledWith(
       expect.objectContaining({ sort: "name" }),
     );
 
-    const archived = screen.getByLabelText("Show archived") as HTMLInputElement;
-    await userEvent.click(archived);
+    await user.click(screen.getByLabelText("Show archived"));
     expect(setQuery).toHaveBeenCalledWith(
       expect.objectContaining({ includeArchived: true }),
     );
   });
 
   it("updates a select filter", async () => {
+    const user = userEvent.setup();
     const setQuery = vi.fn();
     render(
       <ListToolbar
@@ -239,14 +247,20 @@ describe("ListToolbar", () => {
       />,
     );
 
-    const statusSelect = screen.getByLabelText("Name") as HTMLSelectElement;
-    await userEvent.selectOptions(statusSelect, "new");
+    // "Sort" is the label of the option whose value is "new" (the fixture
+    // reuses catalog keys as labels).
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Name" }),
+      "Sort",
+    );
     expect(setQuery).toHaveBeenCalledWith(
       expect.objectContaining({ filters: { status: "new" } }),
     );
   });
 
   it("removes a cleared select filter's key instead of storing an empty string", async () => {
+    const user = userEvent.setup();
     const setQuery = vi.fn();
     render(
       <ListToolbar
@@ -267,8 +281,14 @@ describe("ListToolbar", () => {
       />,
     );
 
-    const statusSelect = screen.getByLabelText("Name") as HTMLSelectElement;
-    await userEvent.selectOptions(statusSelect, "");
+    // The unset entry is an option like any other, named by the filter itself
+    // when the spec passes no placeholder — picking it is how a reader comes
+    // back to the unfiltered list.
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Name" }),
+      "Name",
+    );
     expect(setQuery).toHaveBeenCalledWith(
       expect.objectContaining({ filters: {} }),
     );

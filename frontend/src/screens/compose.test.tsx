@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ComposeModal, RelinkModal, TimelineActions } from "./compose";
 
@@ -297,6 +298,22 @@ describe("RelinkModal", () => {
   });
 });
 
+// The two purposes as the rep READS them: a pick names what a person would
+// click, while the ConsentPurpose.key each label stands for is the wire value,
+// asserted on the request body wherever a send is under study.
+const PURPOSE_LABEL = {
+  transactional: "Deal messages",
+  marketing: "Marketing email",
+} as const;
+
+// The composer has exactly one dropdown, so a pick needs nothing but the label.
+// `pickOption` takes a userEvent SESSION, which the bare direct API is not, so
+// it gets a fresh one — the same thing every bare `userEvent.*` call in this
+// file does internally.
+function pickPurpose(label: string) {
+  return pickOption(userEvent.setup(), screen.getByRole("combobox"), label);
+}
+
 // Fills the four Send preconditions (To, subject, body, purpose) so a test can
 // then exercise the send outcome under study.
 async function fillSendableForm() {
@@ -304,8 +321,7 @@ async function fillSendableForm() {
   await userEvent.tab();
   await userEvent.type(screen.getByPlaceholderText("Subject"), "Hi there");
   await userEvent.type(screen.getByPlaceholderText("Body"), "Body content");
-  // The purpose <option> value is the ConsentPurpose.key the wire sends.
-  await userEvent.selectOptions(screen.getByRole("combobox"), "transactional");
+  await pickPurpose(PURPOSE_LABEL.transactional);
 }
 
 describe("ComposeModal", () => {
@@ -749,10 +765,7 @@ describe("ComposeModal draft binding", () => {
       screen.getByRole("button", { name: "Draft with AI" }),
     );
     await screen.findByDisplayValue("Draft A body.");
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -798,10 +811,7 @@ describe("ComposeModal draft binding", () => {
       ).toBe(2),
     );
 
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -832,10 +842,7 @@ describe("ComposeModal draft binding", () => {
     const bodyField = await screen.findByDisplayValue("Draft A body.");
     await userEvent.clear(bodyField);
     await userEvent.type(bodyField, "Written from scratch.");
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -901,10 +908,7 @@ describe("ComposeModal draft binding", () => {
       screen.getByRole("button", { name: "Draft with AI" }),
     );
     await screen.findByDisplayValue("Draft A body.");
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     // The form is sendable before the judgment starts, so the refusal below is
     // the rejection holding the draft rather than an unmet precondition.
     expect(
@@ -960,10 +964,7 @@ describe("ComposeModal draft binding", () => {
     );
     expect(await screen.findByText(/boom/i)).toBeTruthy();
 
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -1004,10 +1005,7 @@ describe("ComposeModal draft binding", () => {
     ).toBeTruthy();
     expect(screen.getByDisplayValue("Draft A body.")).toBeTruthy();
 
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() =>
       expect(
@@ -1349,10 +1347,7 @@ describe("ComposeModal send refusals", () => {
     await userEvent.tab();
 
     expect(screen.queryByText(/more than one addressee/i)).toBeNull();
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "marketing_email",
-    );
+    await pickPurpose(PURPOSE_LABEL.marketing);
 
     expect(await screen.findByText(/more than one addressee/i)).toBeTruthy();
     // A warning, not a gate — and nothing was sent to earn it.
@@ -1366,10 +1361,7 @@ describe("ComposeModal send refusals", () => {
     renderComposer();
     await screen.findByRole("combobox");
     await fillSendableForm();
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "marketing_email",
-    );
+    await pickPurpose(PURPOSE_LABEL.marketing);
 
     expect(screen.queryByText(/more than one addressee/i)).toBeNull();
   });
@@ -1408,10 +1400,7 @@ describe("ComposeModal — telegram channel reply", () => {
     );
     await screen.findByRole("combobox");
     await userEvent.type(screen.getByPlaceholderText("Body"), "On my way.");
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -1526,10 +1515,7 @@ describe("ComposeModal — telegram channel reply", () => {
       screen.getByPlaceholderText("Body"),
       "Call me back please.",
     );
-    await userEvent.selectOptions(
-      screen.getByRole("combobox"),
-      "transactional",
-    );
+    await pickPurpose(PURPOSE_LABEL.transactional);
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText(/has not granted consent/i)).toBeTruthy();

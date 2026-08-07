@@ -12,7 +12,7 @@ import {
   MarginceCoreScene,
   type MarginceCoreState,
 } from "../design-system/margince-core";
-import { useTypeStream } from "../design-system/motion";
+import { useDocumentIntro, useTypeStream } from "../design-system/motion";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 
@@ -112,8 +112,16 @@ export function AuthExperience({
   profile?: AssistantProfile;
   phase: AuthPhase;
 }>) {
+  // The entry choreography belongs to the page load, not to this mount: every
+  // animation below — the staggered rows, the typed statement — is gated on it,
+  // so a remount renders the surface already arrived. See useDocumentIntro.
+  const intro = useDocumentIntro();
   return (
-    <div className="auth-surface" data-auth-phase={phase}>
+    <div
+      className="auth-surface"
+      data-auth-phase={phase}
+      data-auth-intro={intro ? "play" : "done"}
+    >
       {/* A div, NOT a <main>. The frame that hosts this surface already opens a
           <main> (App.tsx's RaillessFrame), and a nested main is invalid HTML that
           puts two "main" entries in a screen reader's landmark rotor — so the
@@ -285,10 +293,17 @@ export function IdentityRegion({
  * no caret.
  */
 function TypedStatement({ text }: Readonly<{ text: string }>) {
-  const { shown, done } = useTypeStream(text, {
+  // Typed once per page load, exactly like the fades around it: a statement
+  // that retypes itself under a reader who has already read it says the page
+  // reloaded, and nothing did. A remount lands on the finished sentence.
+  const intro = useDocumentIntro();
+  const stream = useTypeStream(text, {
     speed: typeSpeedFor(text),
     startDelay: TYPE_START_MS,
+    enabled: intro,
   });
+  const shown = intro ? stream.shown : text;
+  const done = intro ? stream.done : true;
   return (
     <p className="auth-statement">
       <span className="sr-only">{text}</span>

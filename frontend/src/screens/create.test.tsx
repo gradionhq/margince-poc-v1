@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useLayoutEffect, useState } from "react";
@@ -317,11 +318,17 @@ describe("deal create flow", () => {
     );
     render(<DealsScreen startCreating />);
     await waitFor(() => expect(screen.getByLabelText("Stage *")).toBeTruthy());
-    const stageSelect = screen.getByLabelText("Stage *") as HTMLSelectElement;
-    // won/lost stages are not creatable targets — deals are born open
+    // won/lost stages are not creatable targets — deals are born open. The list
+    // only exists while the control is open, so it is opened to be read and shut
+    // again before the form is filled in.
+    const stageSelect = screen.getByLabelText("Stage *");
+    await userEvent.click(stageSelect);
     expect(
-      Array.from(stageSelect.options).map((option) => option.textContent),
+      within(screen.getByRole("listbox"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
     ).toEqual(["Qualify"]);
+    await userEvent.keyboard("{Escape}");
     await userEvent.type(screen.getByLabelText("Deal name *"), "Neuer Deal");
     await userEvent.type(screen.getByLabelText("Value"), "480");
     await userEvent.click(screen.getByRole("button", { name: "Create" }));

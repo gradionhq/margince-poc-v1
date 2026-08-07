@@ -8,10 +8,10 @@ import {
   Button,
   EmptyState,
   SectionHeader,
-  Select,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Select, type SelectOption } from "../design-system/select";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
@@ -28,6 +28,11 @@ const ROLES: readonly Role[] = ["admin", "manager", "rep", "read_only", "ops"];
 // than as a missing-translation marker — the admin still learns what is held.
 const roleLabel = (t: ReturnType<typeof useT>) => (key: string) =>
   isOption(key, ROLES) ? t(`users.role.${key}`) : key;
+
+// The five system roles as pickable options — shared by the invite form and
+// every roster row so the two lists cannot drift apart.
+const roleOptions = (t: ReturnType<typeof useT>): SelectOption[] =>
+  ROLES.map((role) => ({ value: role, label: t(`users.role.${role}`) }));
 
 // Admin member management (org settings). Every user-management write is
 // admin-only server-side, so the whole card is admin-only here — an ops seat in
@@ -172,17 +177,11 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
       <Select
         aria-label={t("users.roleLabel")}
         value={role}
-        onChange={(e) => {
-          const value = e.target.value;
+        onChange={(value) => {
           if (isOption(value, ROLES)) setRole(value);
         }}
-      >
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {t(`users.role.${r}`)}
-          </option>
-        ))}
-      </Select>
+        options={roleOptions(t)}
+      />
       <Button variant="primary" small type="submit" disabled={!canInvite}>
         <UserPlus aria-hidden /> {t("users.invite")}
       </Button>
@@ -310,26 +309,21 @@ function MemberRow({
       <Badge tone={member.status === "active" ? "success" : "warn"}>
         {t(`users.status.${member.status}`)}
       </Badge>
+      {/* The unset state is the select's PLACEHOLDER, not an option: picking it
+          back would set no role, so it belongs on the closed face and nowhere in
+          the list. It is only ever seen when there is no single role to show. */}
       <Select
         aria-label={t("users.setRoleFor", { name: member.display_name })}
         value={inFlightRole ?? currentRole}
+        placeholder={placeholder}
         disabled={pending}
-        onChange={(e) => {
-          const value = e.target.value;
+        onChange={(value) => {
           if (isOption(value, ROLES)) {
             setRole.mutate(value);
           }
         }}
-      >
-        {/* Offered only when there is no single role to show — otherwise it
-            would be a selectable option that does nothing. */}
-        {currentRole === "" && <option value="">{placeholder}</option>}
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {t(`users.role.${r}`)}
-          </option>
-        ))}
-      </Select>
+        options={roleOptions(t)}
+      />
       {/* Only an ACTIVE member can redeem a link — redemption updates an active
           account and refuses otherwise — so offering one on a deactivated row
           would hand the admin a link that is dead on arrival. */}

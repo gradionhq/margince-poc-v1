@@ -19,11 +19,11 @@ import {
   Modal,
   SectionHeader,
   SegmentedControl,
-  Select,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Select } from "../design-system/select";
 import {
   AutonomyDot,
   type ConfidenceLevel,
@@ -655,27 +655,25 @@ export function ApprovalRow({
                   entry.as === "choice" ? (
                     <Select
                       {...control}
-                      value={draft[entry.field] ?? ""}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          [entry.field]: event.target.value,
-                        }))
-                      }
-                    >
-                      {entry.options.map((option) => {
+                      options={entry.options.map((option) => {
                         // The VALUE stays the wire enum — it is what gets
                         // submitted. Only what the reader sees is translated,
                         // and an option the kind declared no label for degrades
                         // to its own words rather than to an identifier.
                         const label = entry.optionLabels?.[option];
-                        return (
-                          <option key={option} value={option}>
-                            {label ? t(label) : humanizeKind(option)}
-                          </option>
-                        );
+                        return {
+                          value: option,
+                          label: label ? t(label) : humanizeKind(option),
+                        };
                       })}
-                    </Select>
+                      value={draft[entry.field] ?? ""}
+                      onChange={(value) =>
+                        setDraft((current) => ({
+                          ...current,
+                          [entry.field]: value,
+                        }))
+                      }
+                    />
                   ) : (
                     <TextInput
                       {...control}

@@ -1207,6 +1207,7 @@ export const vi = {
   "create.organization": "Công ty",
   "create.expectedClose": "Dự kiến chốt",
 
+  "field.unset": "Chưa đặt",
   "field.addEmail": "Thêm email",
   "field.addPhone": "Thêm điện thoại",
   "field.addDomain": "Thêm tên miền",
