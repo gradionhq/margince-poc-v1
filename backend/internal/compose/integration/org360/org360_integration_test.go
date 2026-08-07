@@ -462,7 +462,7 @@ func seedMeeting(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, at 
 // facts, and a page that renders them alike tells a rep an account is
 // unreachable when in truth nobody has picked up the phone.
 func TestOrganization360ContactRoutesSeparateUntriedFromCold(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 
@@ -479,7 +479,7 @@ func TestOrganization360ContactRoutesSeparateUntriedFromCold(t *testing.T) {
 		VALUES ($1, $2, $3, $4, 20, 10, 10)`,
 		e.WS, e.Rep1, reached, org360Clock.Add(-24*time.Hour))
 
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), ids.From[ids.OrganizationKind](org))
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestOrganization360ContactRoutesSeparateUntriedFromCold(t *testing.T) {
 // names the few worth naming and counts the rest, rather than growing a column
 // per colleague.
 func TestOrganization360ContactRoutesNameThreeAndCountTheRest(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Popular Contact", &e.Rep1)
@@ -537,7 +537,7 @@ func TestOrganization360ContactRoutesNameThreeAndCountTheRest(t *testing.T) {
 			e.WS, user, contact, org360Clock.Add(-24*time.Hour), (i+1)*2, i+1)
 	}
 
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), ids.From[ids.OrganizationKind](org))
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}

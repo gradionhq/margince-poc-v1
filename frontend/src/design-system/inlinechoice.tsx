@@ -1,5 +1,6 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { useT } from "../i18n";
+import { Select, type SelectOption } from "./select";
 
 // One value a reader can change without leaving the page they are reading.
 //
@@ -21,8 +22,6 @@ import { useT } from "../i18n";
 //   - Escape reverts and closes, so a reader who opened it to LOOK at the
 //     options can get out without changing anything.
 
-export type InlineChoiceOption = { value: string; label: string };
-
 export function InlineChoice({
   label,
   value,
@@ -36,7 +35,7 @@ export function InlineChoice({
   // header row reads as one more fact among many.
   label: string;
   value: string;
-  options: readonly InlineChoiceOption[];
+  options: readonly SelectOption[];
   canEdit: boolean;
   // Why this is not editable, when there is a reason worth saying — an archived
   // record, an overlay-mirrored one. Absent means "you simply may not", which
@@ -56,17 +55,8 @@ export function InlineChoice({
   const [pending, setPending] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
   const fieldId = useId();
   const errorId = useId();
-
-  // Focus follows the control the click opened, so the keyboard lands where the
-  // mouse did and a screen reader announces the field rather than the page.
-  useEffect(() => {
-    if (editing) {
-      selectRef.current?.focus();
-    }
-  }, [editing]);
 
   if (!canEdit || !editing) {
     return (
@@ -124,40 +114,18 @@ export function InlineChoice({
   return (
     <span>
       <label htmlFor={fieldId}>{label}: </label>
-      <select
-        className="input"
+      <Select
         id={fieldId}
-        ref={selectRef}
         value={chosen}
+        options={options}
         disabled={saving}
-        aria-busy={saving}
         aria-invalid={failure ? true : undefined}
         aria-describedby={failure ? errorId : undefined}
-        onChange={(event) => {
-          setPending(event.target.value);
-          void commit(event.target.value);
+        onChange={(next) => {
+          setPending(next);
+          void commit(next);
         }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setPending(null);
-            setFailure(null);
-            setEditing(false);
-          }
-        }}
-        onBlur={() => {
-          // A failed save keeps the control open: closing on blur would take
-          // the refusal off screen along with the value that caused it.
-          if (!saving && !failure) {
-            setEditing(false);
-          }
-        }}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      />
       {failure && (
         <span id={errorId} role="alert" className="form-error">
           {failure}

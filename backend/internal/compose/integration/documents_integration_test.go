@@ -56,7 +56,7 @@ func TestOrganizationDocumentsHideAFileWhoseParentIsOutOfScope(t *testing.T) {
 	seedDocument(t, e, org, "organization", org, "nda.pdf", "legal", false)
 
 	docs, _, err := store.ListOrganizationDocuments(
-		e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), org, activities.DocumentFilters{})
+		e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms), org, activities.DocumentFilters{})
 	if err != nil {
 		t.Fatalf("list documents: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestOrganizationDocumentsPutPinnedFirstAndFilterByCategory(t *testing.T) {
 	e := Setup(t)
 	store := activities.NewStore(e.Pool)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
-	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
 
 	seedDocument(t, e, org, "organization", org, "old-offer.pdf", "offer", false)
 	seedDocument(t, e, org, "organization", org, "signed-contract.pdf", "contract", true)

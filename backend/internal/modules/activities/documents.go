@@ -83,15 +83,7 @@ func (s *Store) ListOrganizationDocuments(
 			where = append(where, fmt.Sprintf("(at.created_at, at.id) < ($%d, $%d)",
 				arg(c.CreatedAt), arg(c.ID)))
 		}
-		if in.Category != nil {
-			where = append(where, fmt.Sprintf("at.category = $%d", arg(*in.Category)))
-		}
-		if in.DocState != nil {
-			where = append(where, fmt.Sprintf("at.doc_state = $%d", arg(*in.DocState)))
-		}
-		if in.PinnedOnly {
-			where = append(where, "at.pinned")
-		}
+		where = append(where, filterClauses(in, arg)...)
 		visible, err := visibleParentClause(ctx, arg)
 		if err != nil {
 			return err
@@ -134,6 +126,22 @@ func (s *Store) ListOrganizationDocuments(
 	return out, page, err
 }
 
+// filterClauses renders the caller's selections. Each is a SELECTION: an omitted
+// filter is the absence of one, never a filter for the opposite value.
+func filterClauses(in DocumentFilters, arg func(any) int) []string {
+	var where []string
+	if in.Category != nil {
+		where = append(where, fmt.Sprintf("at.category = $%d", arg(*in.Category)))
+	}
+	if in.DocState != nil {
+		where = append(where, fmt.Sprintf("at.doc_state = $%d", arg(*in.DocState)))
+	}
+	if in.PinnedOnly {
+		where = append(where, "at.pinned")
+	}
+	return where
+}
+
 // visibleParentClause renders "this file's own primary parent is one the caller
 // may read", per entity type.
 //
@@ -159,7 +167,7 @@ func visibleParentClause(ctx context.Context, arg func(any) int) (string, error)
 			return "", err
 		}
 		if clause == "" {
-			clause = "TRUE"
+			clause = scopeUnbounded
 		}
 		arms = append(arms, fmt.Sprintf(
 			"(at.entity_type = '%s' AND EXISTS (SELECT 1 FROM %s p WHERE p.id = at.entity_id AND %s))",
@@ -174,12 +182,16 @@ func visibleParentClause(ctx context.Context, arg func(any) int) (string, error)
 	return "(" + strings.Join(arms, " OR ") + ")", nil
 }
 
+// scopeUnbounded is the predicate an unbounded caller's empty row-scope clause
+// renders as, so a disjunction arm stays a valid boolean expression.
+const scopeUnbounded = "TRUE"
+
 // documentParentKinds are the records a document can hang off and be rolled up
 // to an account from. `activity` is deliberately absent: its visibility is the
 // link walk, not a row-scope clause, and expressing it as one here would widen
 // it. Activity-borne files reach the library through the account pointer their
 // activity carries, and are gated in ListAttachments on that activity.
-var documentParentKinds = []string{"organization", "deal", "person"}
+var documentParentKinds = []string{linkEntityOrganization, linkEntityDeal, linkEntityPerson}
 
 // DocumentMetadata is the sparse patch a human makes over what a file MEANS.
 // The bytes, the filename, the checksum and the scan state are absent on
