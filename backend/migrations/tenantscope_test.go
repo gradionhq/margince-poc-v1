@@ -146,6 +146,40 @@ func TestTheTenantScopeCheckSeesEveryUnscopedShapeAndPassesTheLegitimateOnes(t *
 			END LOOP; END $$;`,
 		flagged: false,
 	}, {
+		// DO NOTHING writes only what the source produced, so the source predicate
+		// is still the whole scope.
+		name: "an upsert whose conflict branch writes nothing",
+		sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
+			PERFORM set_config('app.workspace_id', ws::text, true);
+			INSERT INTO activity (workspace_id, subject)
+			SELECT o.workspace_id, o.name FROM organization o WHERE o.workspace_id = ws
+			ON CONFLICT DO NOTHING;
+			END LOOP; END $$;`,
+		flagged: false,
+	}, {
+		// DO UPDATE writes rows already in the target, which the source predicate
+		// says nothing about. Under an executor that bypasses row-level security a
+		// conflict can land on another workspace's row, so the statement has to
+		// name its own target.
+		name: "an upsert whose conflict branch updates rows the source never named",
+		sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
+			PERFORM set_config('app.workspace_id', ws::text, true);
+			INSERT INTO activity (workspace_id, subject)
+			SELECT o.workspace_id, o.name FROM organization o WHERE o.workspace_id = ws
+			ON CONFLICT (workspace_id, subject) DO UPDATE SET subject = EXCLUDED.subject;
+			END LOOP; END $$;`,
+		flagged: true,
+	}, {
+		name: "an upsert whose conflict branch names the workspace it updates",
+		sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
+			PERFORM set_config('app.workspace_id', ws::text, true);
+			INSERT INTO activity (workspace_id, subject)
+			SELECT o.workspace_id, o.name FROM organization o WHERE o.workspace_id = ws
+			ON CONFLICT (workspace_id, subject) DO UPDATE SET subject = EXCLUDED.subject
+			WHERE activity.workspace_id = ws;
+			END LOOP; END $$;`,
+		flagged: false,
+	}, {
 		name: "a predicate that is only a string literal",
 		sql: `DO $$ BEGIN FOR ws IN SELECT id FROM workspace LOOP
 			PERFORM set_config('app.workspace_id', ws::text, true);
@@ -301,9 +335,16 @@ type tenantWrite struct {
 // the loop's workspace. An INSERT is the one exception: it names the workspace on
 // the SOURCE it selects from, and the inserted workspace_id comes from that same
 // row, so any qualifier is the correct one there.
+//
+// The exception stops at ON CONFLICT ... DO UPDATE. That branch updates rows
+// ALREADY in the target, which the source predicate says nothing about, so the
+// statement has to name its own target like any other update. No migration
+// upserts a tenant table that way today; requiring it now is what keeps the
+// exception from quietly widening to cover one that does.
 func (w tenantWrite) namesItsWorkspace() bool {
+	sourceScopedInsert := strings.EqualFold(w.verb, "INSERT INTO") && !conflictUpdatePattern.MatchString(w.text)
 	for _, predicate := range qualifiedPredicatePattern.FindAllStringSubmatch(w.text, -1) {
-		if strings.EqualFold(w.verb, "INSERT INTO") || strings.EqualFold(predicate[1], w.target) {
+		if sourceScopedInsert || strings.EqualFold(predicate[1], w.target) {
 			return true
 		}
 	}
@@ -324,6 +365,12 @@ func writeStatements(sql string) []tenantWrite {
 		// UPDATE` is a lock on a read. The word before the keyword tells them
 		// apart, and `ON` as the apparent target catches the trigger events.
 		if target == "on" || ddlVerbContext[precedingWord(sql, match[0])] {
+			continue
+		}
+		// `ON CONFLICT ... DO UPDATE SET` is not a statement of its own — reading it
+		// as one yields a write against a table called `set`. It is a branch of the
+		// INSERT that opened it, and namesItsWorkspace judges it there.
+		if precedingWord(sql, match[0]) == "do" {
 			continue
 		}
 		text, _, _ := strings.Cut(sql[match[0]:], ";")
@@ -508,4 +555,6 @@ var (
 	identifierPattern  = regexp.MustCompile(`[a-z_][a-z0-9_]*`)
 	// The workspace predicate and the relation it constrains.
 	qualifiedPredicatePattern = regexp.MustCompile(`(?is)\b([a-z_][a-z0-9_]*)\.workspace_id\s*=\s*ws\b`)
+	// The upsert branch that writes rows the INSERT's source never selected.
+	conflictUpdatePattern = regexp.MustCompile(`(?is)\bON\s+CONFLICT\b.*?\bDO\s+UPDATE\b`)
 )
