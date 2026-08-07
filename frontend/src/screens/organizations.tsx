@@ -2149,6 +2149,31 @@ function CompanyPage({
       actions={
         <LogActivityAction entityType="organization" entityId={org.id} />
       }
+      // Where the account stands and the tabs that switch what is read about
+      // it belong to the record's masthead, not to the overview: they were
+      // the same on every tab and still redrew themselves inside each one.
+      strip={
+        view ? (
+          <StateStrip
+            view={view}
+            lifecycleLabel={(value) =>
+              t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
+            }
+            relationshipLabels={(values) =>
+              values
+                .map((value) =>
+                  t(
+                    RELATIONSHIP_TYPE_LABELS[
+                      value as keyof typeof RELATIONSHIP_TYPE_LABELS
+                    ],
+                  ),
+                )
+                .join(" · ")
+            }
+          />
+        ) : undefined
+      }
+      tabs={tabs}
       rail={
         overlay ? undefined : (
           <>
@@ -2191,7 +2216,6 @@ function CompanyPage({
       // The Partner tab is a form, so it does not repeat it under itself.
       {...slots}
     >
-      {tabs}
       {/* Overlay refuses the whole company page, not one tab of it: the
           partner extension and the field history are native records the
           mirror does not hold, so switching tabs must not walk around the
@@ -2207,23 +2231,6 @@ function CompanyPage({
           brief. What a reader acts on comes before what they read. */}
       {tab === "overview" && view && (
         <>
-          <StateStrip
-            view={view}
-            lifecycleLabel={(value) =>
-              t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
-            }
-            relationshipLabels={(values) =>
-              values
-                .map((value) =>
-                  t(
-                    RELATIONSHIP_TYPE_LABELS[
-                      value as keyof typeof RELATIONSHIP_TYPE_LABELS
-                    ],
-                  ),
-                )
-                .join(" · ")
-            }
-          />
           <SinceLastVisitStrip view={view} />
           <NextSteps
             view={view}

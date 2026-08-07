@@ -318,6 +318,32 @@
   margin-block-end: 0.9rem;
 }
 
+/* Inside the masthead the readings are bands of one sheet, not tiles on the
+   page: the card fill and the gaps between them made four small boxes
+   competing with the record's name. Hairlines carry the division instead,
+   and the values drop to reading size — they are where the account stands,
+   not a scoreboard. */
+.record-sheet .co-strip {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0;
+  margin-block-end: 0;
+  border-block-start: 1px solid var(--borderSubtle);
+}
+.record-sheet .co-strip .stat-card {
+  background: none;
+  border: 0;
+  border-inline-start: 1px solid var(--borderSubtle);
+  border-radius: 0;
+  padding: var(--space-3) var(--space-4);
+  gap: var(--space-1);
+}
+.record-sheet .co-strip .stat-card:first-child {
+  border-inline-start: 0;
+}
+.record-sheet .co-strip .stat-card-value {
+  font-size: 15px;
+}
+
 /* The brief under the questions it answers. Sections are separated by space
    rather than rules: a boxed heading reads as a card, and these are parts of
    one reading. */

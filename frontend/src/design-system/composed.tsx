@@ -325,6 +325,8 @@ export function RecordView({
   badges,
   pulse,
   actions,
+  strip,
+  tabs,
   rail,
   aside,
   timeline,
@@ -349,6 +351,14 @@ export function RecordView({
   // The record's verbs, kept beside the identity rather than scattered
   // through the body.
   actions?: ReactNode;
+  // The record's standing — where it is, whose move it is — and the tabs
+  // that switch what is read about it. Given either, the identity block
+  // becomes one bordered sheet holding all of them, so a reader sees one
+  // masthead rather than a name, some floating tiles and a tab strip that
+  // happen to sit near each other. Absent both, the header renders as the
+  // plain heading every other record still uses.
+  strip?: ReactNode;
+  tabs?: ReactNode;
   // The three-zone record page: rail is the left column (what this record
   // IS), children the middle (what is happening), aside the right (the
   // business around it). With neither rail nor aside the layout collapses
@@ -383,18 +393,23 @@ export function RecordView({
   // it reserves the space and leaves the story narrower than the rail
   // beside it.
   const zones = zoneClass(Boolean(rail), Boolean(aside));
+  const sheet = Boolean(strip || tabs);
   return (
     <div>
-      <header className="record-head">
-        <Avatar name={name} src={avatarSrc} size="lg" />
-        <div className="record-id">
-          <h1>{name}</h1>
-          {subtitle && <p className="record-sub">{subtitle}</p>}
-          {pulse && <div className="record-pulse">{pulse}</div>}
-        </div>
-        {badges && <div className="record-badges">{badges}</div>}
-      </header>
-      {actions && <div className="record-actions">{actions}</div>}
+      <div className={sheet ? "record-sheet" : undefined}>
+        <header className="record-head">
+          <Avatar name={name} src={avatarSrc} size="lg" />
+          <div className="record-id">
+            <h1>{name}</h1>
+            {subtitle && <p className="record-sub">{subtitle}</p>}
+            {pulse && <div className="record-pulse">{pulse}</div>}
+          </div>
+          {badges && <div className="record-badges">{badges}</div>}
+          {actions && <div className="record-actions">{actions}</div>}
+        </header>
+        {strip}
+        {tabs && <div className="record-tabs">{tabs}</div>}
+      </div>
       <div className={zones}>
         {rail && (
           <aside className="record-rail" aria-label={t("record.profile")}>

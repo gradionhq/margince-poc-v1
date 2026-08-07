@@ -128,6 +128,36 @@
   color: var(--textPrimary);
 }
 
+/* The masthead: who this record is, where it stands, and the tabs that
+   switch what is read about it — one bordered block rather than three
+   things that happen to sit near each other. Internal hairlines separate
+   the bands, so the sheet reads as one object and the page below it starts
+   clean. */
+.record-sheet {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  margin-bottom: var(--space-4);
+}
+.record-sheet .record-head {
+  padding: var(--space-4);
+  margin-bottom: 0;
+  align-items: flex-start;
+}
+.record-sheet .record-actions {
+  margin: 0;
+  margin-inline-start: auto;
+}
+.record-sheet .record-badges {
+  margin-block-start: var(--space-1);
+}
+.record-tabs {
+  border-block-start: 1px solid var(--borderSubtle);
+  background: var(--bgPage);
+  padding-inline: var(--space-4);
+}
+
 .record-head {
   display: flex;
   align-items: center;
