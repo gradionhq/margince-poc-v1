@@ -29,7 +29,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
-	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -46,16 +46,16 @@ var org360Clock = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
 // org360Service builds the composite read over the harness pool with the
 // pinned clock.
-func org360Service(e *integration.Env) *org360.Service {
-	return org360.NewService(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool),
+func org360Service(e *integration.Env) *org360svc.Service {
+	return org360svc.NewService(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool),
 		func() time.Time { return org360Clock })
 }
 
 // org360SignalPerms is the same rep plus the signal read grant (the helper
 // the graph suite already keeps, org360_graph_integration_test.go). Separate
-// from integration.AccountRepPerms rather than folded into it because several tests read
-// that fixture as "a rep who cannot see signals" to prove a section is
-// withheld — granting it there made those pass without testing anything.
+// from integration.AccountRepPerms rather than folded into it because several
+// tests read that fixture as "a rep who cannot see signals" to prove a section
+// is withheld — granting it there made those pass without testing anything.
 var org360SignalPerms = withSignalRead(integration.AccountRepPerms)
 
 // org360NoDealPerms is the same rep with the deal grant taken away — the
@@ -257,7 +257,7 @@ func TestOrganization360ContactsHonorTheCallersRowScope(t *testing.T) {
 // only exists for mirror-backed ones.
 func TestOrganization360TransportServesANativeWorkspace(t *testing.T) {
 	e := integration.Setup(t)
-	handlers := org360.NewHandlers(org360Service(e),
+	handlers := org360svc.NewHandlers(org360Service(e),
 		func(context.Context) (bool, error) { return false, nil })
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)

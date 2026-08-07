@@ -18,7 +18,7 @@ package org360
 //
 // The placement rules over already-read rows — the owner who also wrote being
 // one node, the cap's drop count — need no database and live in
-// org360/graph_test.go.
+// compose/org360/graph_test.go.
 
 import (
 	"context"
@@ -142,7 +142,7 @@ func TestOrganizationGraphDrawsTheOwnerAndWhoHasBeenInContact(t *testing.T) {
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	integration.Employ(t, e, contact, org, "cto")
+	employ(t, e, contact, org, "cto")
 	// Rep2 shares Team1 with Rep1 and wrote to the contact; Rep1 owns the
 	// account and has written nothing.
 	seedTouch(t, e, owner, "email", &e.Rep2, contact)
@@ -194,7 +194,7 @@ func TestOrganizationGraphDrawsNoContactEdgeForANonInteraction(t *testing.T) {
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	integration.Employ(t, e, contact, org, "cto")
+	employ(t, e, contact, org, "cto")
 	seedTouch(t, e, owner, "email", nil, contact)
 	seedTouch(t, e, owner, "email", nil, contact)
 	seedTouch(t, e, owner, "task", &e.Rep2, contact)
@@ -241,7 +241,7 @@ func TestOrganizationGraphOmitsOurSideWithoutThePersonOrActivityGrant(t *testing
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	integration.Employ(t, e, contact, org, "cto")
+	employ(t, e, contact, org, "cto")
 	seedTouch(t, e, owner, "email", &e.Rep2, contact)
 	orgID := ids.From[ids.OrganizationKind](org)
 
@@ -305,8 +305,8 @@ func TestOrganizationGraphDrawsNoContactEdgeForAnOutOfScopeContact(t *testing.T)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
-	integration.Employ(t, e, mine, org, "cto")
-	integration.Employ(t, e, theirs, org, "cfo")
+	employ(t, e, mine, org, "cto")
+	employ(t, e, theirs, org, "cfo")
 	writerToMine := seedMember(t, owner, e.WS, "Writes To Mine")
 	writerToTheirs := seedMember(t, owner, e.WS, "Writes To Theirs")
 	seedTouch(t, e, owner, "email", &writerToMine, mine)
@@ -359,7 +359,7 @@ func TestOrganizationGraphDrawsNoColleagueWhoNoLongerWorksHere(t *testing.T) {
 			// both would-be edges; Rep1, in the same team, is the caller.
 			org := e.SeedOrg(t, "Acme", &e.Rep2)
 			contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-			integration.Employ(t, e, contact, org, "cto")
+			employ(t, e, contact, org, "cto")
 			seedTouch(t, e, owner, "email", &e.Rep2, contact)
 			teammate := seedMember(t, owner, e.WS, "Live Teammate")
 			seedTouch(t, e, owner, "email", &teammate, contact)
@@ -430,7 +430,7 @@ func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) 
 	outsiders := make([]ids.UUID, 0, undrawn)
 	for i := range undrawn {
 		contact := e.SeedPerson(t, fmt.Sprintf("Undrawn %02d", i), &e.Rep1)
-		integration.Employ(t, e, contact, org, "assistant")
+		employ(t, e, contact, org, "assistant")
 		colleague := seedMember(t, owner, e.WS, fmt.Sprintf("Outsider %02d", i))
 		outsiders = append(outsiders, colleague)
 		seedTouch(t, e, owner, "email", &colleague, contact)
@@ -444,7 +444,7 @@ func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) 
 	var drawnContacts []ids.UUID
 	for i := range graphContactCapSeed {
 		contact := e.SeedPerson(t, fmt.Sprintf("Drawn %02d", i), &e.Rep1)
-		integration.Employ(t, e, contact, org, "cto")
+		employ(t, e, contact, org, "cto")
 		drawnContacts = append(drawnContacts, contact)
 		for range 3 {
 			seedTouch(t, e, owner, "email", &insiderA, contact)
@@ -515,7 +515,7 @@ func TestOrganizationGraphUserCapCountsUsersAndReportsTheRemainder(t *testing.T)
 	// An unassigned account, so the owner edge cannot pad the user count.
 	org := e.SeedOrg(t, "Acme", nil)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	integration.Employ(t, e, contact, org, "cto")
+	employ(t, e, contact, org, "cto")
 	const writers = 13
 	for i := range writers {
 		member := seedMember(t, owner, e.WS, fmt.Sprintf("Colleague %02d", i))

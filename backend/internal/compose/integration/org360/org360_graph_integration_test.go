@@ -12,7 +12,7 @@ package org360
 // assertions both use.
 //
 // The placement rules the graph applies to already-read rows (order, caps,
-// dropped_count) need no database and live in org360/graph_test.go.
+// dropped_count) need no database and live in compose/org360/graph_test.go.
 
 import (
 	"context"
@@ -27,7 +27,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
-	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -138,7 +138,7 @@ func seedOneHop(t *testing.T, e *integration.Env) oneHopFixture {
 		VALUES ($1, 'partner_of', $2, $3, 'manual', 'human:x')`, e.WS, f.org, f.reseller)
 
 	f.employee = e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	integration.Employ(t, e, f.employee, f.org, "cto")
+	employ(t, e, f.employee, f.org, "cto")
 	f.deal = e.SeedDeal(t, "Renewal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, f.deal, f.org)
 	f.stakeholder = e.SeedPerson(t, "Outside Counsel", &e.Rep1)
@@ -150,7 +150,7 @@ func seedOneHop(t *testing.T, e *integration.Env) oneHopFixture {
 	f.grandparent = e.SeedOrg(t, "Grand Holding", &e.Rep1)
 	e.WsExec(t, `UPDATE organization SET parent_org_id = $2 WHERE id = $1`, f.parent, f.grandparent)
 	f.otherEmployer = e.SeedOrg(t, "Side Gig", &e.Rep1)
-	integration.Employ(t, e, f.employee, f.otherEmployer, "advisor")
+	employ(t, e, f.employee, f.otherEmployer, "advisor")
 	return f
 }
 
@@ -345,7 +345,7 @@ func TestOrganizationGraphHierarchyEdgePointsParentToChild(t *testing.T) {
 // workspace must reach it rather than meeting the overlay guard.
 func TestOrganizationGraphTransportServesANativeWorkspace(t *testing.T) {
 	e := integration.Setup(t)
-	handlers := org360.NewHandlers(org360Service(e),
+	handlers := org360svc.NewHandlers(org360Service(e),
 		func(context.Context) (bool, error) { return false, nil })
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms)
@@ -388,7 +388,7 @@ func TestOrganizationGraphTransportServesANativeWorkspace(t *testing.T) {
 // to draw from it — one refusal, not a card that quietly omits everything.
 func TestOrganizationGraphRefusesAnOverlayWorkspace(t *testing.T) {
 	e := integration.Setup(t)
-	handlers := org360.NewHandlers(org360Service(e),
+	handlers := org360svc.NewHandlers(org360Service(e),
 		func(context.Context) (bool, error) { return true, nil })
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 

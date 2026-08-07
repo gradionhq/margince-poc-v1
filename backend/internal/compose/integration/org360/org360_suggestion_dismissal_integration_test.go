@@ -9,7 +9,7 @@ package org360
 //
 // A dismissal is per user and keyed on evidence, so silencing advice must
 // silence it for exactly one rep and stop silencing it when the situation
-// changes — the part the rules alone (org360/suggestions_test.go) cannot state.
+// changes — the part the rules alone (compose/org360/suggestions_test.go) cannot state.
 //
 // Every fixture sets its timestamps explicitly. The read's clock is pinned to
 // org360Clock while the database's now() is not, so a fixture on now() would

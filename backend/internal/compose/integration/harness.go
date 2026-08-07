@@ -9,6 +9,14 @@
 // non-test file so the white-box suites that must stay inside their
 // package (compose root, briefs) can import it; it deliberately imports
 // modules and platform only, never compose, so no import cycle can form.
+//
+// Suites also live in sibling packages that import this one (org360 is the
+// first). That is how the lane gets more than one scheduling slot: one package
+// is one slot, and this package is large enough to be the lane's long pole on
+// its own. Split a group out when it is a closed seam — it rides Env rather
+// than the booted-app fixture in e2e_integration_test.go, and it neither needs
+// nor owes an unexported helper across the boundary. A helper that two such
+// groups need is promoted here; one that only a group needs stays with it.
 package integration
 
 import (
@@ -153,9 +161,10 @@ func OwnerConn(t *testing.T) *pgx.Conn {
 	return conn
 }
 
-// Object names the permission fixtures and the link helpers both spell. Named
-// once so a fixture's grant vocabulary cannot drift from the entity type the
-// seeding helpers write.
+// The two RBAC object keys the permission fixtures below repeat often enough to
+// name. They are identity's policy vocabulary only — deliberately NOT reused for
+// the activity_link.entity_type values seed.go writes, which spell the same two
+// words today from a different namespace and are free to diverge.
 const (
 	objPerson   = "person"
 	objActivity = "activity"
@@ -173,10 +182,13 @@ var (
 		},
 		RowScope: principal.RowScopeTeam,
 	}
-	// AccountRepPerms is RepPerms widened to what the account sections read —
-	// the organization itself, its activities, and the tag/list chips. Row scope
-	// stays team on purpose: the interesting failures here are row-scope ones,
-	// and an unbounded admin short-circuits every scope clause.
+	// AccountRepPerms is the rep the account sections are read by: the
+	// organization itself, its people and deals, its activities, and the tag/list
+	// chips. It is a fixture in its own right rather than RepPerms plus a delta —
+	// RepPerms stays narrow because several suites read it as a rep who CANNOT
+	// see an organization, and widening it would make those pass while proving
+	// nothing. Row scope stays team for the same reason: the interesting failures
+	// here are row-scope ones, and an unbounded admin short-circuits every clause.
 	AccountRepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
@@ -380,7 +392,15 @@ func (e *Env) WsCount(t *testing.T, sql string, args ...any) int {
 // UserID for row scope. An agent with no user id would be refused for the
 // wrong reason and would prove nothing about the human-only rule.
 func AgentWithOrgRead(e *Env) context.Context {
+	// Deep copy, not `perms := AccountRepPerms`: a plain struct copy shares the
+	// Objects map, and this fixture is now read from other packages. A later
+	// grant added here would widen it for every suite at once, which is exactly
+	// how a negative test starts passing without testing anything.
 	perms := AccountRepPerms
+	perms.Objects = make(map[string]principal.ObjectGrant, len(AccountRepPerms.Objects))
+	for object, grant := range AccountRepPerms.Objects {
+		perms.Objects[object] = grant
+	}
 	perms.RowScope = principal.RowScopeAll
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
@@ -390,8 +410,9 @@ func AgentWithOrgRead(e *Env) context.Context {
 	})
 }
 
-// SchedulerPerms is RepPerms plus the activity grant the booking write
-// needs; row scope stays team.
+// SchedulerPerms is the booking write's caller: the person grant it reads and
+// the activity grant it writes, and nothing else — not a superset of RepPerms,
+// which also holds deal and pipeline. Row scope stays team.
 var SchedulerPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{

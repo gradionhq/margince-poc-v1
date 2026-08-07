@@ -15,9 +15,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// The row-seeding helpers the Env-riding suites share: fixtures that put records
-// in front of a test. Kept apart from the harness boot so each file holds one
-// concept — and so growing the seeding vocabulary does not grow harness.go.
+// The raw-SQL seeding helpers, as opposed to the store-mediated fixtures on Env
+// in harness.go: everything here writes rows with its own INSERT rather than
+// going through a module store, which is the line the two files are split on.
+//
+// That line is load-bearing, not tidiness. This file is the identity-mint site
+// backend/dedupespine_test.go sanctions BY PATH, so a direct
+// `INSERT INTO person|organization|lead` belongs here and nowhere else in the
+// package — put one in harness.go and the gate fails, which is the point.
 
 // DealFixture provisions the workspace with the seeded default pipeline
 // and returns the pipeline plus the open + won stage ids.
@@ -60,7 +65,7 @@ func SeedStakeholder(t *testing.T, e *Env, owner *pgx.Conn, deal ids.UUID, direc
 	for _, direction := range directions {
 		touch := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 			VALUES ($1, $2, 'email', 'touch', '2026-06-01T12:00:00Z', '`+direction+`', 'manual', 'human:x')`, e.WS)
-		LinkActivity(t, owner, e.WS, touch, objPerson, person)
+		LinkActivity(t, owner, e.WS, touch, "person", person)
 	}
 	return person
 }
@@ -70,7 +75,7 @@ func SeedStakeholder(t *testing.T, e *Env, owner *pgx.Conn, deal ids.UUID, direc
 func LinkActivity(t *testing.T, owner *pgx.Conn, ws, activity ids.UUID, entityType string, entity ids.UUID) {
 	t.Helper()
 	column := "deal_id"
-	if entityType == objPerson {
+	if entityType == "person" {
 		column = "person_id"
 	}
 	if _, err := owner.Exec(context.Background(),
@@ -96,13 +101,6 @@ func LinkToOrg(t *testing.T, e *Env, activity, org ids.UUID) {
 	t.Helper()
 	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
 		VALUES ($1, $2, 'organization', $3)`, e.WS, activity, org)
-}
-
-// Employ ties a person to an organization as a current employee.
-func Employ(t *testing.T, e *Env, person, org ids.UUID, title string) {
-	t.Helper()
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, role, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, $4, 'manual', 'human:x')`, e.WS, person, org, title)
 }
 
 // AccountMailDirectedAt seeds one message with an explicit direction, which is

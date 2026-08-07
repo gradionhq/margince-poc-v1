@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
-	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -46,7 +46,7 @@ func TestOrganizationViewAckIsMonotonicAndPerUser(t *testing.T) {
 
 	// A second tab whose clock lags must not rewind the mark: the upsert
 	// keeps the later of the two.
-	lagging := org360.NewService(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool),
+	lagging := org360svc.NewService(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool),
 		func() time.Time { return org360Clock.Add(-time.Hour) })
 	second, err := lagging.Acknowledge(rep1, org)
 	if err != nil {

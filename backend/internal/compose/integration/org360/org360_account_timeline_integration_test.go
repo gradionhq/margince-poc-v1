@@ -45,6 +45,14 @@ func accountMailAt(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, a
 	return id
 }
 
+// employ ties a person to an organization as a current employee, in the role
+// the graph draws them in.
+func employ(t *testing.T, e *integration.Env, person, org ids.UUID, title string) {
+	t.Helper()
+	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, role, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, $4, 'manual', 'human:x')`, e.WS, person, org, title)
+}
+
 // employAt ties a person to an organization. endedOn nil is a live employment;
 // a date ends it.
 func employAt(t *testing.T, e *integration.Env, person, org ids.UUID, endedOn *time.Time) {

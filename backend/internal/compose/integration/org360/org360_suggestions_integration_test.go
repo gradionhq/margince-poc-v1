@@ -7,7 +7,7 @@ package org360
 
 // Suggestions end to end, over a real database.
 //
-// The rules themselves are proved without one (org360/suggestions_test.go).
+// The rules themselves are proved without one (compose/org360/suggestions_test.go).
 // What needs the database is the part the rules cannot state: which advice a
 // real account actually raises, in what order the card offers it, and how much
 // of the account the rules still see once the read's own sections have applied
@@ -149,7 +149,7 @@ func TestTheMostUrgentAdviceLeadsAFullCard(t *testing.T) {
 	}
 }
 
-// maxListedSuggestions mirrors the card's own cap (org360.maxSuggestions). Spelled
+// maxListedSuggestions mirrors the card's own cap (org360svc.maxSuggestions). Spelled
 // here because the integration package cannot see the unexported constant, and a
 // test that derived it from the answer could not tell a cap from a coincidence.
 const maxListedSuggestions = 3

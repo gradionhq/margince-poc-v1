@@ -27,7 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
-	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -98,7 +98,7 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 
 	tracer := &countingTracer{}
 	pool := tracedPool(t, tracer)
-	svc := org360.NewService(pool, people.NewStore(pool), approvals.NewService(pool),
+	svc := org360svc.NewService(pool, people.NewStore(pool), approvals.NewService(pool),
 		func() time.Time { return org360Clock })
 	ctx := e.Admin()
 

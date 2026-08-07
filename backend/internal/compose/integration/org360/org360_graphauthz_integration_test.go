@@ -47,7 +47,7 @@ func TestRouteInEdgesRefusesWithoutThePersonGrant(t *testing.T) {
 	e := integration.Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	integration.Employ(t, e, contact, org.UUID, "cto")
+	employ(t, e, contact, org.UUID, "cto")
 
 	noPeople := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
@@ -91,7 +91,7 @@ func TestOrganizationGraphOmitsAGroupTheCallerMayNotRead(t *testing.T) {
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	employee := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	integration.Employ(t, e, employee, org, "cto")
+	employ(t, e, employee, org, "cto")
 	deal := e.SeedDeal(t, "Renewal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org)
 	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, deal_id, role, source, captured_by)
@@ -165,8 +165,8 @@ func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
-	integration.Employ(t, e, mine, org, "cto")
-	integration.Employ(t, e, theirs, org, "cfo")
+	employ(t, e, mine, org, "cto")
+	employ(t, e, theirs, org, "cfo")
 
 	myDeal := e.SeedDeal(t, "My Renewal", pipeline, stage, &e.Rep1)
 	theirDeal := e.SeedDeal(t, "Their Renewal", pipeline, stage, &e.Rep3)
@@ -250,8 +250,8 @@ func TestOrganizationGraphIntroPathNamesTheWarmRoomsContact(t *testing.T) {
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	cold := e.SeedPerson(t, "Cold Contact", &e.Rep1)
 	warm := e.SeedPerson(t, "Warm Contact", &e.Rep1)
-	integration.Employ(t, e, cold, org, "cfo")
-	integration.Employ(t, e, warm, org, "cto")
+	employ(t, e, cold, org, "cfo")
+	employ(t, e, warm, org, "cto")
 	// Only the warm contact has qualifying interactions inside the §4 window,
 	// so the ranking has one honest answer rather than a tie.
 	for _, direction := range []string{"inbound", "outbound"} {
@@ -318,7 +318,7 @@ func TestOrganizationGraphCitesAnOrganizationSubjectSignal(t *testing.T) {
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Warm Contact", &e.Rep1)
-	integration.Employ(t, e, contact, org, "cto")
+	employ(t, e, contact, org, "cto")
 	activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 		VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
 	integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
@@ -348,7 +348,7 @@ func TestOrganizationGraphReportsNoIntroPathWithoutAnOpenSignal(t *testing.T) {
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Warm Contact", &e.Rep1)
-	integration.Employ(t, e, contact, org, "cto")
+	employ(t, e, contact, org, "cto")
 	activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 		VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
 	integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
