@@ -55,7 +55,7 @@ a boot-resolved singleton when the context carries none. It has no consumer:
 paths included, before the `isPublicRequest` branch — so in `cmd/api` nothing
 reaches the database unbound. And `cmd/worker` never calls `EnsureInstallation`,
 so there the pointer stays nil. The fallback fires nowhere while removing the
-loud `ErrNoWorkspace` guard from all 910 call sites.
+loud `ErrNoWorkspace` guard from every one of them.
 
 Two things it also got wrong, worth knowing before anyone tries again.
 `WithWorkspaceTx` hands `fn` the ORIGINAL context, so a fallback-bound
@@ -74,10 +74,14 @@ enumerating. No fallback, no guard removed, one loop per PR.
 
 The sequencing in ADR-0091 §9 is **binding, not advisory**: the Go plumbing
 collapses while RLS is still armed, because the tenant-isolation suite staying
-green is the only mechanical proof that an 887-call-site edit stayed faithful,
+green is the only mechanical proof that an edit of that size stayed faithful,
 and the schema phase deletes that suite. Do not reorder it.
 
-Phase 2 spans 910 `WithWorkspaceTx` call sites across 378 files. Land it in
+Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
+four hundred of them outside tests, across a couple of hundred non-test files.
+Deliberately not a precise count: it moved by eleven while this note was being
+written, so an exact figure here would be wrong by the time anyone read it and
+would invite arguing with the number instead of the shape. Land the work in
 slices small enough to merge the day they are written: a branch open longer than
 that accumulates conflicts with `main` that its own gates cannot see — migration
 numbers, locale key sets, and semantic overlap with whatever else is in flight.
