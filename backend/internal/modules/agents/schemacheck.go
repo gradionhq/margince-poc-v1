@@ -23,6 +23,7 @@ package agents
 // message has to name where in the document it is or a reader cannot find it.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -199,14 +200,24 @@ func isNull(value json.RawMessage) bool { return strings.TrimSpace(string(value)
 // this surface, and a caller told so that receives a fraction has been told
 // something false.
 func checkInteger(value json.RawMessage, at string) string {
-	var number json.Number
-	if err := json.Unmarshal(value, &number); err != nil {
+	// json.Number is a STRING type, so unmarshalling into it accepts a quoted
+	// JSON token as readily as a bare one — `"7"` would parse and then satisfy
+	// Int64. The token is read with UseNumber instead, which decodes a JSON
+	// number as json.Number and a JSON string as a string, so the two stay
+	// apart the way the wire keeps them apart.
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	var token any //craft:ignore naked-any the token is whatever the document holds at this node, which is the question being asked
+	if err := decoder.Decode(&token); err != nil {
 		return fmt.Sprintf("%s: declared an integer, got %s", pathOr(at), summarize(value))
 	}
-	// json.Number keeps the literal, and Int64 parses it as written. Decoding
-	// into float64 and testing for a whole value would lose the distinction
-	// past 2^53 — a large fraction rounds to a whole number and would pass a
-	// gate meant to refuse it.
+	number, isNumber := token.(json.Number)
+	if !isNumber {
+		return fmt.Sprintf("%s: declared an integer, got %s", pathOr(at), summarize(value))
+	}
+	// Int64 parses the literal AS WRITTEN. Decoding into float64 and testing for
+	// a whole value would lose the distinction past 2^53, where a large fraction
+	// rounds to a whole number and passes a gate meant to refuse it.
 	if _, err := number.Int64(); err != nil {
 		return fmt.Sprintf("%s: declared an integer, got %s", pathOr(at), summarize(value))
 	}

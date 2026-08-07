@@ -254,4 +254,14 @@ func TestALargeFractionDoesNotSurviveTheIntegerCheck(t *testing.T) {
 	if defect := ResultDefect(json.RawMessage(schema), json.RawMessage(`{"n":9007199254740993}`)); defect != "" {
 		t.Errorf("a large whole number was reported as %q", defect)
 	}
+	// A QUOTED number is a string, and a client promised an integer that
+	// receives one has been told something false. json.Number is a string type,
+	// so the obvious decode accepts it — this is the case that catches that.
+	if defect := ResultDefect(json.RawMessage(schema), json.RawMessage(`{"n":"7"}`)); defect == "" {
+		t.Error(`a quoted "7" was accepted as a declared integer`)
+	}
+	if defect := ResultDefect(json.RawMessage(`{"type":"object","properties":{"n":{"type":"number"}}}`),
+		json.RawMessage(`{"n":"7.5"}`)); defect == "" {
+		t.Error(`a quoted "7.5" was accepted as a declared number`)
+	}
 }
