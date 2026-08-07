@@ -29,7 +29,7 @@ import (
 // seedStarterAutomations enrolls the starter instances the way the
 // workspace bootstrap does — the engine fires nothing for a workspace
 // with no enabled automation rows (B-E15.4 gating).
-func seedStarterAutomations(t *testing.T, e *searchEnv) {
+func seedStarterAutomations(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return automation.SeedStarterAutomationsTx(context.Background(), tx)
@@ -43,7 +43,7 @@ func seedStarterAutomations(t *testing.T, e *searchEnv) {
 // instance — authorable but NOT one of the six seedStarterAutomations
 // enrolls (automations_catalog.go's Catalog doc), so a suite exercising
 // its own Match semantic must enable it explicitly.
-func enableStageChangeCreateTask(t *testing.T, e *searchEnv) {
+func enableStageChangeCreateTask(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
@@ -61,31 +61,29 @@ func enableStageChangeCreateTask(t *testing.T, e *searchEnv) {
 // enableLeadRouting inserts an ENABLED assign_lead_owner instance with
 // the given routing params — the configured state seedStarterAutomations
 // leaves for an admin to fill in (an unconfigured pool routes nobody).
-func enableLeadRouting(t *testing.T, e *searchEnv, params map[string]any) ids.UUID {
+func enableLeadRouting(t *testing.T, e *SearchEnv, params map[string]any) {
 	t.Helper()
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var automationID ids.UUID
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `
+		_, err := tx.Exec(context.Background(), `
 			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        'assign_lead_owner', 'Assign new leads an owner', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
-			        $1, true)
-			RETURNING id`, paramsJSON).Scan(&automationID)
+			        $1, true)`, paramsJSON)
+		return err
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return automationID
 }
 
 func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	enableLeadRouting(t, e, map[string]any{"owners": []string{e.Rep1.String()}})
-	leadID := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Fresh Lead', 'manual', 'human:x')`)
+	leadID := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Fresh Lead', 'manual', 'human:x')`)
 	engine := compose.NewWorkflowEngine(e.Pool)
 
 	env := kevents.Envelope{
@@ -131,7 +129,7 @@ func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 	// the assignment shipped its lead.updated through the outbox — the
 	// full write shape, not a bare column flip.
 	var actorType, action string
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT actor_type, action FROM audit_log WHERE entity_type = 'lead' AND entity_id = $1
 		 ORDER BY occurred_at DESC LIMIT 1`, leadID).Scan(&actorType, &action); err != nil {
 		t.Fatal(err)
@@ -140,7 +138,7 @@ func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 		t.Fatalf("routing audited as %s/%s, want system/assign", actorType, action)
 	}
 	var outboxed int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'lead.updated'
 		 AND envelope->'entity'->>'id' = $1::text`, leadID).Scan(&outboxed); err != nil {
 		t.Fatal(err)
@@ -154,7 +152,7 @@ func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 // nothing, a paused instance fires nothing, and enabling flips it live
 // on the very next event (no cache) with its params applied.
 func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.Pool)
 
 	dispatch := func(leadID ids.UUID) {
@@ -181,7 +179,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	}
 
 	// No automation rows at all: the registered handler stays silent.
-	first := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Ungated Lead', 'manual', 'human:x')`)
+	first := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Ungated Lead', 'manual', 'human:x')`)
 	dispatch(first)
 	if got := ownerOf(first); got != nil {
 		t.Fatalf("unconfigured workspace assigned owner %v, want none", got)
@@ -200,7 +198,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Paused Lead', 'manual', 'human:x')`)
+	second := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Paused Lead', 'manual', 'human:x')`)
 	dispatch(second)
 	if got := ownerOf(second); got != nil {
 		t.Fatalf("paused instance assigned owner %v, want none", got)
@@ -215,7 +213,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	third := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Live Lead', 'manual', 'human:x')`)
+	third := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Live Lead', 'manual', 'human:x')`)
 	dispatch(third)
 	dispatch(third) // redelivery still applies exactly once
 	if got := ownerOf(third); got == nil || *got != e.Rep3 {
@@ -235,7 +233,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 }
 
 func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedStarterAutomations(t, e)
 	// stage_change_create_task is authorable but not one of the six
 	// seeded templates (automations_catalog.go's Catalog doc) — this
@@ -244,7 +242,7 @@ func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
 	enableStageChangeCreateTask(t, e)
 	e.seedDealFixtures(t, 1, nil)
 	var dealID ids.UUID
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
 		t.Fatal(err)
 	}
 	engine := compose.NewWorkflowEngine(e.Pool)

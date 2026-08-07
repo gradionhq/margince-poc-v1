@@ -87,7 +87,7 @@ func (p *pagedConnector) BackfillPage(_ context.Context, _ connector.Auth, _ tim
 // their run by hand. Run and job still commit together — there is just no job.
 func enqueueNothing(context.Context, pgx.Tx, ids.UUID) error { return nil }
 
-func readBackfillRow(t *testing.T, e *searchEnv, id ids.UUID) (status string, scanned, captured int, cursor []byte) {
+func readBackfillRow(t *testing.T, e *SearchEnv, id ids.UUID) (status string, scanned, captured int, cursor []byte) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
@@ -101,7 +101,7 @@ func readBackfillRow(t *testing.T, e *searchEnv, id ids.UUID) (status string, sc
 }
 
 func TestBackfillLifecycle(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	prov := &pagedConnector{messages: 25, pageSize: 10}
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(prov)
@@ -224,7 +224,7 @@ func TestBackfillLifecycle(t *testing.T) {
 // the two pre-commit failure edges: an unreadable committed cursor (parse
 // error) and a readable cursor the provider then rejects (page error).
 func TestBackfillStepFaultsAreTerminal(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
@@ -285,7 +285,7 @@ func TestBackfillStepFaultsAreTerminal(t *testing.T) {
 // out, and until the user finds that, every retry answers 409 backfill_running.
 // So the run and the job that claims it commit together or not at all.
 func TestStartBackfillRollsBackWhenTheJobCannotBeScheduled(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})

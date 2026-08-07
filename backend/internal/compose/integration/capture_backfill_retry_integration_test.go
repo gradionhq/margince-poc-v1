@@ -46,7 +46,7 @@ func (f *flakyConnector) BackfillPage(ctx context.Context, auth connector.Auth, 
 
 // readBackfillRetryState reads the scheduling half of a run: what the pager
 // must not lose across a transient fault.
-func readBackfillRetryState(t *testing.T, e *searchEnv, id ids.UUID) (status string, failures int, errClass *string, cursor []byte) {
+func readBackfillRetryState(t *testing.T, e *SearchEnv, id ids.UUID) (status string, failures int, errClass *string, cursor []byte) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -62,7 +62,7 @@ func readBackfillRetryState(t *testing.T, e *searchEnv, id ids.UUID) (status str
 
 // startFlakyBackfill connects gmail for Rep1 over a connector with the given
 // page faults and opens a run against it.
-func startFlakyBackfill(t *testing.T, e *searchEnv, faults []error) (*capture.Registry, ids.UUID) {
+func startFlakyBackfill(t *testing.T, e *SearchEnv, faults []error) (*capture.Registry, ids.UUID) {
 	t.Helper()
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&flakyConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}, faults: faults})
@@ -78,7 +78,7 @@ func startFlakyBackfill(t *testing.T, e *searchEnv, faults []error) (*capture.Re
 }
 
 func TestBackfillSurvivesATransientProviderFault(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry, runID := startFlakyBackfill(t, e, []error{&connector.RateLimitedError{}})
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
@@ -141,7 +141,7 @@ func (c *dyingJobConnector) BackfillPage(context.Context, connector.Auth, time.T
 // the run row is the only thing that can bring the import back, and every write
 // that decides its fate has to outlive the context that killed the page.
 func TestABackfillPageWhoseJobContextDiedNeverWedgesTheRun(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &dyingJobConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
 	registry.Register(fake)
@@ -209,7 +209,7 @@ func TestABackfillPageWhoseJobContextDiedNeverWedgesTheRun(t *testing.T) {
 }
 
 func TestBackfillEndsOnAFaultNoRetryCanFix(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry, runID := startFlakyBackfill(t, e, []error{connector.ErrAuthRejected})
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 

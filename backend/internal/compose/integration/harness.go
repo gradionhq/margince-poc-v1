@@ -5,18 +5,25 @@
 
 // Package integration holds the cross-module integration suites — the
 // compose charter exercised end to end over a real migrated Postgres —
-// and the one shared harness they ride. The harness lives in this
-// non-test file so the white-box suites that must stay inside their
-// package (compose root, briefs) can import it; it deliberately imports
-// modules and platform only, never compose, so no import cycle can form.
+// and the shared harnesses they ride: Env here, and SearchEnv in
+// searchenv.go. Both live in non-test files so the white-box suites that
+// must stay inside their package (compose root, briefs) can import them;
+// both deliberately import modules and platform only, never compose, so no
+// import cycle can form.
 //
 // Suites also live in sibling packages that import this one (org360 is the
 // first). That is how the lane gets more than one scheduling slot: one package
 // is one slot, and this package is large enough to be the lane's long pole on
-// its own. Split a group out when it is a closed seam — it rides Env rather
-// than the booted-app fixture in e2e_integration_test.go, and it neither needs
-// nor owes an unexported helper across the boundary. A helper that two such
-// groups need is promoted here; one that only a group needs stays with it.
+// its own. Split a group out when it is a closed seam — it rides an EXPORTED
+// fixture (Env or SearchEnv) rather than the booted-app fixture in
+// e2e_integration_test.go, and it neither needs nor owes an unexported helper
+// across the boundary. A helper that two such groups need is promoted here; one
+// that only a group needs stays with it.
+//
+// A fixture is only importable if its METHODS are in a non-test file too: a
+// method declared in a _test.go file is not part of the package a sibling
+// imports, so a group could hold the fixture and still be unable to build a
+// principal context or seed a row. Promote the methods with the type.
 package integration
 
 import (
@@ -161,13 +168,15 @@ func OwnerConn(t *testing.T) *pgx.Conn {
 	return conn
 }
 
-// The two RBAC object keys the permission fixtures below repeat often enough to
+// The RBAC object keys the permission fixtures below repeat often enough to
 // name. They are identity's policy vocabulary only — deliberately NOT reused for
-// the activity_link.entity_type values seed.go writes, which spell the same two
-// words today from a different namespace and are free to diverge.
+// the activity_link.entity_type values seed.go writes, which spell some of the
+// same words today from a different namespace and are free to diverge.
 const (
 	objPerson   = "person"
 	objActivity = "activity"
+	objDeal     = "deal"
+	objOrg      = "organization"
 )
 
 // permissions fixtures mirror the RBAC matrix rows the suites
@@ -177,7 +186,7 @@ var (
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
 			objPerson:  {Create: true, Read: true, Update: true},
-			"deal":     {Create: true, Read: true, Update: true},
+			objDeal:    {Create: true, Read: true, Update: true},
 			"pipeline": {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
@@ -192,20 +201,20 @@ var (
 	AccountRepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"organization": {Read: true},
-			objPerson:      {Create: true, Read: true, Update: true},
-			"deal":         {Create: true, Read: true, Update: true},
-			objActivity:    {Create: true, Read: true, Update: true},
-			"pipeline":     {Read: true},
-			"tag":          {Read: true},
-			"list":         {Read: true},
+			objOrg:      {Read: true},
+			objPerson:   {Create: true, Read: true, Update: true},
+			objDeal:     {Create: true, Read: true, Update: true},
+			objActivity: {Create: true, Read: true, Update: true},
+			"pipeline":  {Read: true},
+			"tag":       {Read: true},
+			"list":      {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}
 	ReadOnlyPerms = principal.Permissions{
 		RoleKeys: []string{"read_only"},
 		Objects: map[string]principal.ObjectGrant{
-			objPerson: {Read: true}, "deal": {Read: true}, "pipeline": {Read: true},
+			objPerson: {Read: true}, objDeal: {Read: true}, "pipeline": {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
@@ -218,12 +227,12 @@ var (
 	AdminPerms       = principal.Permissions{
 		RoleKeys: []string{"admin"},
 		Objects: map[string]principal.ObjectGrant{
-			objPerson:      {Create: true, Read: true, Update: true, Delete: true},
-			"organization": {Create: true, Read: true, Update: true, Delete: true},
-			"deal":         {Create: true, Read: true, Update: true, Delete: true},
-			"lead":         {Create: true, Read: true, Update: true, Delete: true},
-			objActivity:    {Create: true, Read: true, Update: true, Delete: true},
-			"pipeline":     {Create: true, Read: true, Update: true, Delete: true},
+			objPerson:   {Create: true, Read: true, Update: true, Delete: true},
+			objOrg:      {Create: true, Read: true, Update: true, Delete: true},
+			objDeal:     {Create: true, Read: true, Update: true, Delete: true},
+			"lead":      {Create: true, Read: true, Update: true, Delete: true},
+			objActivity: {Create: true, Read: true, Update: true, Delete: true},
+			"pipeline":  {Create: true, Read: true, Update: true, Delete: true},
 			// computed_field is read-only for every system role, admin
 			// included (RD-AC-7: no runtime formula-authoring surface
 			// exists) — identity/internal/policy.go's real seed, mirrored

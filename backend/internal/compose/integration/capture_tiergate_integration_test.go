@@ -224,7 +224,7 @@ func TestCaptureTierGateReopensASenderWhoseNoiseVerdictHasAged(t *testing.T) {
 
 // resolveDispositionAged puts an address's disposition into a terminal state
 // resolved the given duration ago.
-func resolveDispositionAged(t *testing.T, e *searchEnv, email, status string, ago time.Duration) {
+func resolveDispositionAged(t *testing.T, e *SearchEnv, email, status string, ago time.Duration) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `

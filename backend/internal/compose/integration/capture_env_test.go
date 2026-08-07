@@ -119,7 +119,7 @@ func emailWithListUnsub(from, fromName, to, msgID string) []byte {
 	return []byte(strings.Join(lines, "\r\n"))
 }
 
-func countRows(t *testing.T, e *searchEnv, query string) int {
+func countRows(t *testing.T, e *SearchEnv, query string) int {
 	t.Helper()
 	var n int
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -135,7 +135,7 @@ func countRows(t *testing.T, e *searchEnv, query string) int {
 // derives. The production authority resolves the granting human's LIVE role, so
 // without it the ensure path is denied and every counterparty assertion reads as
 // a resolver bug.
-func seedCaptureRole(t *testing.T, e *searchEnv) {
+func seedCaptureRole(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var roleID string
@@ -161,14 +161,14 @@ func seedCaptureRole(t *testing.T, e *searchEnv) {
 // tier gate are what these tests prove), a connected gmail connection, and the
 // two pull shapes. Built per test so each starts from a clean mailbox.
 type captureEnv struct {
-	e        *searchEnv
+	e        *SearchEnv
 	sync     func(t *testing.T, raws ...[]byte)
 	syncSent func(t *testing.T, sent map[string]bool, raws ...[]byte)
 }
 
 func newCaptureEnv(t *testing.T) captureEnv {
 	t.Helper()
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	conn := &mailBatchConnector{}
 	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{})
 	registry.Register(conn)

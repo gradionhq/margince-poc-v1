@@ -42,7 +42,7 @@ func (v *hangUpVault) Delete(ctx context.Context, ws ids.WorkspaceID, ref keyvau
 }
 
 // connectionCredentialRef reads the ref a connection row currently names.
-func connectionCredentialRef(t *testing.T, e *searchEnv, connID ids.UUID) string {
+func connectionCredentialRef(t *testing.T, e *SearchEnv, connID ids.UUID) string {
 	t.Helper()
 	var ref *string
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -58,7 +58,7 @@ func connectionCredentialRef(t *testing.T, e *searchEnv, connID ids.UUID) string
 }
 
 func TestReconnectDeletesSupersededCredentialWhenTheCallerHangsUp(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	hangUp := &hangUpVault{Vault: vault}
 	registry := newTestCaptureRegistry(e, hangUp)
@@ -85,7 +85,7 @@ func TestReconnectDeletesSupersededCredentialWhenTheCallerHangsUp(t *testing.T) 
 }
 
 func TestDisconnectDeletesTheCredentialWhenTheCallerHangsUp(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	hangUp := &hangUpVault{Vault: vault}
 	registry := newTestCaptureRegistry(e, hangUp)
@@ -130,7 +130,7 @@ type lifecycleAudit struct {
 
 // connectionAudits reads every audit_log row naming a capture_connection, in
 // occurrence order.
-func connectionAudits(t *testing.T, e *searchEnv) []lifecycleAudit {
+func connectionAudits(t *testing.T, e *SearchEnv) []lifecycleAudit {
 	t.Helper()
 	var out []lifecycleAudit
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -157,7 +157,7 @@ func connectionAudits(t *testing.T, e *searchEnv) []lifecycleAudit {
 }
 
 func TestConnectAndDisconnectLeaveAnAttributableAuditRow(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&authAssertingFake{})
 
@@ -213,7 +213,7 @@ func TestConnectAndDisconnectLeaveAnAttributableAuditRow(t *testing.T) {
 
 // connectionGeneration reads the lifecycle fence a deferred sync or backfill
 // page commits its work against.
-func connectionGeneration(t *testing.T, e *searchEnv, connID ids.UUID) int {
+func connectionGeneration(t *testing.T, e *SearchEnv, connID ids.UUID) int {
 	t.Helper()
 	var generation int
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -231,7 +231,7 @@ func connectionGeneration(t *testing.T, e *searchEnv, connID ids.UUID) int {
 // not a second withdrawal: the human withdrew once, so the trail must say so
 // once, and there is no new cycle out at the provider left to fence.
 func TestARetriedDisconnectDoesNotReAuditTheWithdrawal(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&authAssertingFake{})
 
@@ -270,10 +270,10 @@ func TestARetriedDisconnectDoesNotReAuditTheWithdrawal(t *testing.T) {
 // UPDATE on capture_sync_state raise — the cheapest way to fail Connect AFTER
 // its audit row is written. It is statement-level on purpose: a fresh
 // connection has no sidecar row yet, so a row-level trigger would never fire.
-func refuseSyncStateUpdates(t *testing.T, e *searchEnv) {
+func refuseSyncStateUpdates(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		CREATE FUNCTION refuse_sync_state_update() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN RAISE EXCEPTION 'sync state refused by test'; END $$;
 		CREATE TRIGGER refuse_sync_state BEFORE UPDATE ON capture_sync_state
@@ -281,7 +281,7 @@ func refuseSyncStateUpdates(t *testing.T, e *searchEnv) {
 		t.Fatalf("installing the sync-state failure trigger: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := e.owner.Exec(context.Background(), `
+		if _, err := e.Owner.Exec(context.Background(), `
 			DROP TRIGGER refuse_sync_state ON capture_sync_state;
 			DROP FUNCTION refuse_sync_state_update();`); err != nil {
 			t.Errorf("removing the sync-state failure trigger: %v", err)
@@ -293,7 +293,7 @@ func refuseSyncStateUpdates(t *testing.T, e *searchEnv) {
 // to follow it: a connect that fails anywhere in its transaction must leave no
 // trace of a connection that never existed.
 func TestAConnectThatFailsLeavesNoAuditRow(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&authAssertingFake{})
 	refuseSyncStateUpdates(t, e)

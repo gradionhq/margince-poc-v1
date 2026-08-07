@@ -34,7 +34,7 @@ import (
 const gmailPushTopic = "projects/margince/topics/gmail-push"
 
 func TestGmailWatchRegistersRenewsAndLeavesCursor(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	const owner = "rep@ws.example"
 	stub := gmailStub(t, owner)
 
@@ -121,7 +121,7 @@ func TestGmailWatchRegistersRenewsAndLeavesCursor(t *testing.T) {
 // the watch on RunOnStart and writes watch_expires_at — the scheduled path,
 // not a direct RenewWatch call.
 func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ApplyRiverSchema(t)
 	const owner = "rep@ws.example"
 	stub := gmailStub(t, owner)
@@ -199,7 +199,7 @@ func awaitWatchKindCompleted(ctx context.Context, t *testing.T, sub <-chan *rive
 	}
 }
 
-func readCursor(t *testing.T, e *searchEnv, connID ids.UUID) []byte {
+func readCursor(t *testing.T, e *SearchEnv, connID ids.UUID) []byte {
 	t.Helper()
 	var cursor []byte
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -212,7 +212,7 @@ func readCursor(t *testing.T, e *searchEnv, connID ids.UUID) []byte {
 	return cursor
 }
 
-func readWatchExpiry(t *testing.T, e *searchEnv, connID ids.UUID) *time.Time {
+func readWatchExpiry(t *testing.T, e *SearchEnv, connID ids.UUID) *time.Time {
 	t.Helper()
 	var exp *time.Time
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
