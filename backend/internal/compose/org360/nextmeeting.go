@@ -69,6 +69,12 @@ func nextMeetingSection(
 	// Row-scoped per PERSON, not per meeting: the meeting is visible through any
 	// of its links, so a rep who reaches it through their own contact must not
 	// be handed the names of a colleague's contacts who were also in the room.
+	//
+	// DISTINCT because uq_activity_participant is unique on (activity, ROLE,
+	// person): one person legitimately holds several roles on one meeting — a
+	// captured email makes its sender `from` and `attendee`, a reply adds `to` —
+	// and each is its own row. The question here is who is in the room, and the
+	// answer for a person is once.
 	personVisible, err := scopeClause(ctx, "person", "p", arg)
 	if err != nil {
 		return nil, err
@@ -89,7 +95,7 @@ func nextMeetingSection(
 		         SELECT jsonb_agg(jsonb_build_object(
 		                  'person_id', att.id, 'display_name', att.full_name)
 		                ORDER BY att.full_name, att.id)
-		           FROM (SELECT p.id, p.full_name
+		           FROM (SELECT DISTINCT p.id, p.full_name
 		                   FROM activity_participant ap
 		                   JOIN person p ON p.id = ap.person_id
 		                  WHERE ap.activity_id = a.id AND p.archived_at IS NULL AND %[5]s

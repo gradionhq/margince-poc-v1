@@ -419,6 +419,13 @@ func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
 		e.WsExec(t, `INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
 			VALUES ($1, $2, $3, 'attendee')`, e.WS, meeting, person)
 	}
+	// The visible contact ALSO holds a second role. uq_activity_participant is
+	// unique on (activity, role, person), so one person legitimately has several
+	// rows on one meeting — a captured mail makes its sender both `from` and
+	// `attendee`. Without this the fixture has one row per person and cannot
+	// tell a correct answer from one that lists somebody once per role.
+	e.WsExec(t, `INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
+		VALUES ($1, $2, $3, 'from')`, e.WS, meeting, mine)
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -428,7 +435,8 @@ func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
 		t.Fatal("next_meeting = null for a meeting reachable through a visible contact")
 	}
 	if len(view.NextMeeting.Participants) != 1 {
-		t.Fatalf("participants = %+v, want only the contact this caller can read", view.NextMeeting.Participants)
+		t.Fatalf("participants = %+v, want the one contact this caller can read, named once however many roles they hold",
+			view.NextMeeting.Participants)
 	}
 	if ids.UUID(view.NextMeeting.Participants[0].PersonId) != mine {
 		t.Errorf("participants named %q — a meeting visible through one contact must not disclose a colleague's",
