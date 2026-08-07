@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // The connections card's SHAPE: what one hop from an account means, which way
 // each edge runs, and the transport that serves it. What the card may not show
@@ -12,7 +12,7 @@ package integration
 // assertions both use.
 //
 // The placement rules the graph applies to already-read rows (order, caps,
-// dropped_count) need no database and live in org360/graph_test.go.
+// dropped_count) need no database and live in compose/org360/graph_test.go.
 
 import (
 	"context"
@@ -26,7 +26,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -49,11 +50,11 @@ func withSignalRead(base principal.Permissions) principal.Permissions {
 // graphRepPerms is the rep the 360 suite uses, plus the signal grant.
 // Team-scoped on purpose: an unbounded admin short-circuits every scope
 // clause, and the row-scope prune is the whole point of this suite.
-var graphRepPerms = withSignalRead(org360RepPerms)
+var graphRepPerms = withSignalRead(integration.AccountRepPerms)
 
 // graphAdminPerms is the unbounded admin plus the signal grant, for the
 // shape tests where row scope is not what is under examination.
-var graphAdminPerms = withSignalRead(AdminPerms)
+var graphAdminPerms = withSignalRead(integration.AdminPerms)
 
 // graphNodeKinds counts the nodes of each kind, which is how a test states
 // "the contacts are gone" without depending on their order.
@@ -112,13 +113,6 @@ func seedOrgSubjectSignal(t *testing.T, owner *pgx.Conn, ws, org ids.UUID) ids.U
 	return id
 }
 
-// employ ties a person to an organization as a current employee.
-func employ(t *testing.T, e *Env, person, org ids.UUID, title string) {
-	t.Helper()
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, role, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, $4, 'manual', 'human:x')`, e.WS, person, org, title)
-}
-
 // oneHopFixture is an account with one of every edge the card draws, plus two
 // records that sit exactly two hops out.
 type oneHopFixture struct {
@@ -131,9 +125,9 @@ type oneHopFixture struct {
 // seedOneHop builds that account. The two-hop records are seeded here too: a
 // suite that only ever seeds what should appear cannot tell a one-hop walk
 // from a walk with no limit at all.
-func seedOneHop(t *testing.T, e *Env) oneHopFixture {
+func seedOneHop(t *testing.T, e *integration.Env) oneHopFixture {
 	t.Helper()
-	pipeline, stage, _ := DealFixture(t, e)
+	pipeline, stage, _ := integration.DealFixture(t, e)
 	f := oneHopFixture{
 		parent:   e.SeedOrg(t, "Holding", &e.Rep1),
 		org:      e.SeedOrg(t, "Acme", &e.Rep1),
@@ -164,7 +158,7 @@ func seedOneHop(t *testing.T, e *Env) oneHopFixture {
 // the account is the root node, its employees, open deals, deal stakeholders,
 // parent and partner all arrive, and nothing two hops out does.
 func TestOrganizationGraphCentresOnTheAccountAndWalksOneHop(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	f := seedOneHop(t, e)
 
 	graph, err := org360Service(e).Graph(e.As(e.Rep1, nil, graphAdminPerms),
@@ -255,7 +249,7 @@ func assertNoDanglingEdge(t *testing.T, graph crmcontracts.OrganizationGraph) {
 // where the card allows ten, silently, because dropped_count comes off the whole
 // set either way.
 func TestOrganizationGraphRelatedCapCountsCompaniesNotEdges(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 
@@ -315,7 +309,7 @@ func TestOrganizationGraphRelatedCapCountsCompaniesNotEdges(t *testing.T) {
 // against the real column, not against the placement helper: a child drawn as
 // its parent's parent would invert the whole card.
 func TestOrganizationGraphHierarchyEdgePointsParentToChild(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 
 	parent := e.SeedOrg(t, "Holding", &e.Rep1)
@@ -350,8 +344,8 @@ func TestOrganizationGraphHierarchyEdgePointsParentToChild(t *testing.T) {
 // let the service's gates decide, hand back the assembled body — and a native
 // workspace must reach it rather than meeting the overlay guard.
 func TestOrganizationGraphTransportServesANativeWorkspace(t *testing.T) {
-	e := Setup(t)
-	handlers := org360.NewHandlers(org360Service(e),
+	e := integration.Setup(t)
+	handlers := org360svc.NewHandlers(org360Service(e),
 		func(context.Context) (bool, error) { return false, nil })
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms)
@@ -393,8 +387,8 @@ func TestOrganizationGraphTransportServesANativeWorkspace(t *testing.T) {
 // incumbent's records, not our relationship edges, so there is no honest graph
 // to draw from it — one refusal, not a card that quietly omits everything.
 func TestOrganizationGraphRefusesAnOverlayWorkspace(t *testing.T) {
-	e := Setup(t)
-	handlers := org360.NewHandlers(org360Service(e),
+	e := integration.Setup(t)
+	handlers := org360svc.NewHandlers(org360Service(e),
 		func(context.Context) (bool, error) { return true, nil })
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 

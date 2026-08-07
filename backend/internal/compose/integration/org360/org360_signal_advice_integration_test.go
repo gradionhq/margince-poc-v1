@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // Signal-derived advice end to end, over a real database: the conflict between
 // what the record says and what its own correspondence says, and the one signal
@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -29,7 +30,7 @@ import (
 // the reader — but it must state it FIRST, because acting on a stage that is
 // wrong is worse than not acting at all.
 func TestTheRecordAndItsOwnMailAreShownToDisagree(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
@@ -62,7 +63,7 @@ func TestTheRecordAndItsOwnMailAreShownToDisagree(t *testing.T) {
 // says so; it is that mail's conclusion. Firing there would hand every closed
 // account a permanent card nobody can clear.
 func TestAnEndedContractDoesNotContradictAnEndedRelationship(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
@@ -96,7 +97,7 @@ func kindsOf(found []crmcontracts.Organization360Suggestion) []string {
 // is nothing. The rule reads a record the reader has no right to, so it stays
 // silent rather than leaking its existence through advice.
 func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
@@ -104,8 +105,8 @@ func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
 	seedSignal(t, e, org.UUID, "contract_ended", "warn",
 		"They wrote that the contract ends on 31 July.", "2026-05-20T09:00:00Z")
 
-	// org360RepPerms carries no signal grant, which is the point.
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), org)
+	// integration.AccountRepPerms carries no signal grant, which is the point.
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), org)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -117,9 +118,9 @@ func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
 }
 
 // seedSignal writes one open derived signal at a severity and an instant.
-func seedSignal(t *testing.T, e *Env, org ids.UUID, kind, severity, summary, at string) {
+func seedSignal(t *testing.T, e *integration.Env, org ids.UUID, kind, severity, summary, at string) {
 	t.Helper()
-	SeedRow(t, OwnerConn(t), `INSERT INTO signal
+	integration.SeedRow(t, integration.OwnerConn(t), `INSERT INTO signal
 		(id, workspace_id, kind, source_channel, entity_type, entity_id, resolved_org_id,
 		 resolution_state, severity, summary, status, detected_at, source, captured_by)
 		VALUES ($1, $2, '`+kind+`', 'derived', 'organization', '`+org.String()+`',
@@ -131,7 +132,7 @@ func seedSignal(t *testing.T, e *Env, org ids.UUID, kind, severity, summary, at 
 // states the most serious, and among equals the newest — an old warning that
 // has been sitting there is less news than the one that just arrived.
 func TestTheStripStatesTheWorstOpenSignal(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
@@ -164,15 +165,15 @@ func TestTheStripStatesTheWorstOpenSignal(t *testing.T) {
 // there is nothing. The tile is absent, and the difference is what the signals
 // card is for.
 func TestTheStripStatesNoSignalWithoutTheGrant(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
 	seedSignal(t, e, org.UUID, "contract_ended", "warn",
 		"They wrote that the contract ends on 31 July.", "2026-05-21T09:00:00Z")
 
-	// org360RepPerms carries no signal grant, which is the point.
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), org)
+	// integration.AccountRepPerms carries no signal grant, which is the point.
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), org)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}

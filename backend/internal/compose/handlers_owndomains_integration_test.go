@@ -18,6 +18,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,20 +60,21 @@ func TestOwnDomainHandlersRoundTripTheRegistry(t *testing.T) {
 
 	// An empty registry is an empty list, never a null — a client rendering the
 	// screen must not have to tell "none registered" from "no answer".
-	var listed crmcontracts.WorkspaceEmailDomainListResponse
-	if code := callOwnDomains(ownDomainAdmin(e), t, h.ListWorkspaceEmailDomains, http.MethodGet, nil, &listed); code != http.StatusOK {
-		t.Fatalf("GET status = %d, want 200", code)
-	}
+	listed := listOwnDomains(ownDomainAdmin(e), t, h)
 	if listed.Data == nil {
 		t.Fatal("GET returned a null list; an unregistered workspace has zero domains, not an absent answer")
 	}
 
 	// An admin adding a domain IS the human vouching for it, so it comes back
 	// verified and sourced to the admin rather than as a candidate.
+	rec := callOwnDomains(ownDomainAdmin(e), h.CreateWorkspaceEmailDomain,
+		http.MethodPost, strings.NewReader(`{"domain":"Gradion.DE"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST status = %d, want 201 (body %s)", rec.Code, rec.Body)
+	}
 	var created crmcontracts.WorkspaceEmailDomain
-	if code := callOwnDomains(ownDomainAdmin(e), t, h.CreateWorkspaceEmailDomain,
-		http.MethodPost, strings.NewReader(`{"domain":"Gradion.DE"}`), &created); code != http.StatusCreated {
-		t.Fatalf("POST status = %d, want 201", code)
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decoding the created domain: %v (body %s)", err, rec.Body)
 	}
 	if created.Domain != "gradion.de" {
 		t.Errorf("stored domain = %q, want the normalized gradion.de — matching is done on the stored form", created.Domain)
@@ -82,24 +84,20 @@ func TestOwnDomainHandlersRoundTripTheRegistry(t *testing.T) {
 	}
 
 	// The list now carries it, and the wire shape survives the round trip.
-	if code := callOwnDomains(ownDomainAdmin(e), t, h.ListWorkspaceEmailDomains, http.MethodGet, nil, &listed); code != http.StatusOK {
-		t.Fatalf("GET after create = %d, want 200", code)
-	}
+	listed = listOwnDomains(ownDomainAdmin(e), t, h)
 	if len(listed.Data) != 1 || listed.Data[0].Domain != "gradion.de" {
 		t.Fatalf("list = %+v, want exactly the added gradion.de", listed.Data)
 	}
 
 	// Removal empties it again.
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/v1/workspace/email-domains/gradion.de", nil).
+	delRec := httptest.NewRecorder()
+	delReq := httptest.NewRequest(http.MethodDelete, "/v1/workspace/email-domains/gradion.de", nil).
 		WithContext(ownDomainAdmin(e))
-	h.DeleteWorkspaceEmailDomain(rec, req, "gradion.de")
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE status = %d, want 204 (body %s)", rec.Code, rec.Body)
+	h.DeleteWorkspaceEmailDomain(delRec, delReq, "gradion.de")
+	if delRec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE status = %d, want 204 (body %s)", delRec.Code, delRec.Body)
 	}
-	if code := callOwnDomains(ownDomainAdmin(e), t, h.ListWorkspaceEmailDomains, http.MethodGet, nil, &listed); code != http.StatusOK {
-		t.Fatalf("GET after delete = %d, want 200", code)
-	}
+	listed = listOwnDomains(ownDomainAdmin(e), t, h)
 	if len(listed.Data) != 0 {
 		t.Fatalf("list after delete = %+v, want empty", listed.Data)
 	}
@@ -145,23 +143,28 @@ func TestOwnDomainHandlersRefuseBadInputAndAgents(t *testing.T) {
 	}
 }
 
-// callOwnDomains drives one handler and decodes its body, returning the status.
-func callOwnDomains(ctx context.Context, t *testing.T, handler func(http.ResponseWriter, *http.Request),
-	method string, body *strings.Reader, out any,
-) int {
-	t.Helper()
-	var req *http.Request
-	if body == nil {
-		req = httptest.NewRequest(method, "/v1/workspace/email-domains", nil)
-	} else {
-		req = httptest.NewRequest(method, "/v1/workspace/email-domains", body)
-	}
+// callOwnDomains drives one handler and hands back the recorder, so each caller
+// decodes into the concrete wire type the operation actually answers with.
+func callOwnDomains(ctx context.Context, handler func(http.ResponseWriter, *http.Request),
+	method string, body io.Reader,
+) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, "/v1/workspace/email-domains", body)
 	rec := httptest.NewRecorder()
 	handler(rec, req.WithContext(ctx))
-	if rec.Code < 300 && out != nil {
-		if err := json.Unmarshal(rec.Body.Bytes(), out); err != nil {
-			t.Fatalf("decoding the %s response: %v (body %s)", method, err, rec.Body)
-		}
+	return rec
+}
+
+// listOwnDomains reads the registry through the handler, failing the test if
+// the status or the body is not the one the surface promises.
+func listOwnDomains(ctx context.Context, t *testing.T, h ownDomainHandlers) crmcontracts.WorkspaceEmailDomainListResponse {
+	t.Helper()
+	rec := callOwnDomains(ctx, h.ListWorkspaceEmailDomains, http.MethodGet, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200 (body %s)", rec.Code, rec.Body)
 	}
-	return rec.Code
+	var out crmcontracts.WorkspaceEmailDomainListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decoding the list response: %v (body %s)", err, rec.Body)
+	}
+	return out
 }

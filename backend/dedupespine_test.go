@@ -60,7 +60,7 @@ var sanctionedMintSites = gatekit.Waive(map[string]string{
 	"internal/modules/people/lead.go": "the direct lead write shape",
 
 	// Test seeding, not a product path.
-	"internal/compose/integration/harness.go": "integration-harness row seeding",
+	"internal/compose/integration/seed.go": "integration-harness row seeding",
 })
 
 func TestEveryIdentityInsertGoesThroughTheChokepoint(t *testing.T) {

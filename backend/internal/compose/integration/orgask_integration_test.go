@@ -143,7 +143,7 @@ func TestOrganizationAskRefusesAnAgent(t *testing.T) {
 	lane := &countingLane{reply: `{"sentences":[]}`}
 	svc := briefService(e, lane, "routing-1")
 
-	_, err := svc.Ask(agentWithOrgRead(e), org, crmcontracts.WhatsOpen)
+	_, err := svc.Ask(AgentWithOrgRead(e), org, crmcontracts.WhatsOpen)
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("agent question → %v, want ErrPermissionDenied", err)
 	}
