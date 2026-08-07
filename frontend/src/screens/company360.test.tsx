@@ -756,7 +756,7 @@ describe("company view — what is waiting on a decision", () => {
     );
     renderCompany();
     const open = await screen.findByRole("button", {
-      name: "Review 2 waiting",
+      name: "Review 2 decisions",
     });
     open.click();
     await waitFor(() =>

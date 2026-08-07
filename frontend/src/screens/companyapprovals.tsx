@@ -56,9 +56,15 @@ export function DecisionsChip({
   if (count === 0) {
     return null;
   }
+  // Not a primary button, and not in the identity block: solid accent under
+  // the record's name made the loudest thing on the masthead a side errand,
+  // and "Review 1 waiting" never said waiting on WHAT. It reads as a verb
+  // beside the record's other verbs, naming what it opens.
   return (
-    <Button small variant="primary" onClick={onOpen}>
-      {t("co.decisions.open", { count })}
+    <Button small onClick={onOpen}>
+      {t(count === 1 ? "co.decisions.openOne" : "co.decisions.openMany", {
+        count,
+      })}
     </Button>
   );
 }

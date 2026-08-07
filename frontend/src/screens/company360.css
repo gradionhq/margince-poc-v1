@@ -601,3 +601,16 @@ a.co-chip:focus-visible {
 .record-zones .card.co-card:not(.co-lead) {
   padding: var(--space-3) var(--space-4);
 }
+
+/* A card inside a card is a mistake, not a grouping: the double edge reads
+   as a rendering fault, and the inner heading repeats the outer one. Rather
+   than fix each nesting as it is noticed, the inner card loses its chrome
+   wherever it happens on this page — the outer edge is the card, the inner
+   content is just content. */
+.record-zones .card .card,
+.co-context .card .card {
+  border: 0;
+  box-shadow: none;
+  background: none;
+  padding: 0;
+}

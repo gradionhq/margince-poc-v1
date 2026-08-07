@@ -17,7 +17,6 @@ import {
   Badge,
   Button,
   DataTable,
-  Disclosure,
   EmptyState,
   Modal,
   OverflowMenu,
@@ -2146,21 +2145,22 @@ function CompanyPage({
           onSetUpPartner={() => onTab("partner")}
         />
       }
-      // What is waiting on a human decision here, and the way to make it.
-      // The rest of the old pulse line is gone: the way in and the last two
-      // touches are readings the strip and the People card already give, and
-      // said again as a run-on sentence under the name they were the longest
-      // thing in the masthead and the least legible.
-      pulse={
-        tab === "overview" ? (
-          <DecisionsChip view={view} onOpen={() => setDecisionsOpen(true)} />
-        ) : undefined
-      }
+      // The identity block is the record's name and the way to reach it, and
+      // nothing else. The old pulse line — the way in, the last two touches —
+      // said what the strip and the People card already say, and a decision
+      // button under the name made a side errand the loudest thing on the
+      // masthead.
+      //
       // The composer opens from a button rather than standing open above the
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
       actions={
-        <LogActivityAction entityType="organization" entityId={org.id} />
+        <>
+          {tab === "overview" && (
+            <DecisionsChip view={view} onOpen={() => setDecisionsOpen(true)} />
+          )}
+          <LogActivityAction entityType="organization" entityId={org.id} />
+        </>
       }
       // Where the account stands and the tabs that switch what is read about
       // it belong to the record's masthead, not to the overview: they were
@@ -2540,28 +2540,19 @@ function ContextTab({
       <h3 className="co-context-group t-label">{t("co.website.title")}</h3>
       <EnrichCard orgId={org.id} />
       <DeepReadCard orgId={org.id} />
-      {/* How the record is filed. Each is a card in its own right, folded,
-          because a rep opens these to change something rather than to learn
-          something. */}
-      <section className="card co-card">
-        <Disclosure summary={t("co.tags.title")}>
-          <TagsCard
-            view={view}
-            tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
-            listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
-          />
-        </Disclosure>
-      </section>
-      <section className="card co-card">
-        <Disclosure summary={t("co.relationships.title")}>
-          <RelationshipsTab scope={{ organization_id: org.id }} />
-        </Disclosure>
-      </section>
-      <section className="card co-card">
-        <Disclosure summary={t("co.tools.title")}>
-          <CustomFieldsCard object="organization" record={org} />
-        </Disclosure>
-      </section>
+      {/* How the record is filed. Each of these ALREADY renders a card with
+          its own heading, so wrapping them in a disclosure inside a card
+          drew the box twice and the title twice, with the fold's separator
+          rule stranded inside the outer edge. They stand as the cards they
+          are. Context is the reference tab; nothing here needs hiding from
+          a reader who chose to open it. */}
+      <TagsCard
+        view={view}
+        tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
+        listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
+      />
+      <RelationshipsTab scope={{ organization_id: org.id }} />
+      <CustomFieldsCard object="organization" record={org} />
     </div>
   );
 }
