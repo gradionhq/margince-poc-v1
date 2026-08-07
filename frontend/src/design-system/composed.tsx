@@ -535,15 +535,70 @@ function directionClass(direction: TimelineEntry["direction"]): string {
   return direction === "inbound" ? "tl-in" : "";
 }
 
+/**
+ * timelinePeriod buckets an entry by how a reader thinks about when it
+ * happened: this week, last week, or the month it fell in. A run of thirty
+ * rows each stamped with its own date is a list nobody can see the shape of —
+ * whether the account went quiet, and for how long.
+ *
+ * `now` is passed rather than read so the buckets are a function of their
+ * inputs: a test fixes both ends and the boundaries stay assertable.
+ */
+export function timelinePeriod(
+  atIso: string,
+  now: Date,
+): { key: string; monthOf?: Date } {
+  const at = new Date(atIso);
+  const days = Math.floor((now.getTime() - at.getTime()) / 86_400_000);
+  // Calendar weeks, not rolling sevens: a reader who says "last week" means
+  // the week that ended, not the seven days before today.
+  const startOfWeek = (date: Date) => {
+    const start = new Date(date);
+    // Monday-first, and Sunday counts as the end of the week it closes.
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    start.setHours(0, 0, 0, 0);
+    return start;
+  };
+  if (days < 0) {
+    return { key: "timeline.period.upcoming" };
+  }
+  const thisWeek = startOfWeek(now);
+  if (at >= thisWeek) {
+    return { key: "timeline.period.thisWeek" };
+  }
+  const lastWeek = new Date(thisWeek);
+  lastWeek.setDate(lastWeek.getDate() - 7);
+  if (at >= lastWeek) {
+    return { key: "timeline.period.lastWeek" };
+  }
+  return { key: "timeline.period.month", monthOf: at };
+}
+
 function TimelineList({
   entries,
   zone,
 }: Readonly<{ entries: TimelineEntry[]; zone: string }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const now = new Date();
+  let lastHeading: string | null = null;
   return (
     <ul className="timeline">
-      {entries.map((entry) => (
-        <TimelineRow key={entry.id} entry={entry} zone={zone} />
-      ))}
+      {entries.map((entry) => {
+        const heading = periodHeading(entry.atIso, now, t, locale);
+        // The heading is drawn when the period CHANGES, so a run of rows in
+        // one week carries one label rather than repeating it per row.
+        const show = heading !== lastHeading;
+        lastHeading = heading;
+        return (
+          <li key={`p-${entry.id}`} className="tl-period-wrap">
+            {show && <p className="tl-period">{heading}</p>}
+            <ul className="tl-period-rows">
+              <TimelineRow entry={entry} zone={zone} />
+            </ul>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -570,22 +625,54 @@ export function GroupedTimelineList({
   // a caller that cannot complete it — a bulk group has no thread to ask for.
   onOpenThread?: (threadKey: string) => void;
 }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const now = new Date();
+  let lastHeading: string | null = null;
   return (
     <ul className="timeline">
-      {groups.map((group) =>
-        group.kind === "single" ? (
-          <TimelineRow key={group.id} entry={group.entries[0]} zone={zone} />
-        ) : (
-          <TimelineGroupRow
-            key={group.id}
-            group={group}
-            zone={zone}
-            onOpenThread={onOpenThread}
-          />
-        ),
-      )}
+      {groups.map((group) => {
+        // The group is dated by its newest member, which is where it sits in
+        // the chronology and therefore which period it belongs to.
+        const heading = periodHeading(group.entries[0].atIso, now, t, locale);
+        const show = heading !== lastHeading;
+        lastHeading = heading;
+        return (
+          <li key={`p-${group.id}`} className="tl-period-wrap">
+            {show && <p className="tl-period">{heading}</p>}
+            <ul className="tl-period-rows">
+              {group.kind === "single" ? (
+                <TimelineRow entry={group.entries[0]} zone={zone} />
+              ) : (
+                <TimelineGroupRow
+                  group={group}
+                  zone={zone}
+                  onOpenThread={onOpenThread}
+                />
+              )}
+            </ul>
+          </li>
+        );
+      })}
     </ul>
   );
+}
+
+// periodHeading is the words a period bucket renders as: a named week, or the
+// month it fell in written out.
+function periodHeading(
+  atIso: string,
+  now: Date,
+  t: (key: MessageKey) => string,
+  locale: string,
+): string {
+  const period = timelinePeriod(atIso, now);
+  return period.monthOf
+    ? period.monthOf.toLocaleDateString(locale, {
+        month: "long",
+        year: "numeric",
+      })
+    : t(period.key as MessageKey);
 }
 
 // groupCountLabel counts the group's members in words that read. A group of

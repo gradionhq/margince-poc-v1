@@ -269,6 +269,35 @@
   gap: 0;
   margin-top: 8px;
 }
+
+/* The period a run of rows fell in. It is a label on the chronology rather
+   than a row of it, so it sets small and quiet and carries no rule of its
+   own — the rows beneath it already have one. */
+/* The wrapper is a list item of the timeline, which lays its children out in
+   a row — so it says otherwise: the heading belongs ABOVE the rows it names,
+   not beside the first of them. It also carries none of a row's own chrome. */
+.timeline > .tl-period-wrap {
+  display: block;
+  padding: 0;
+  border: 0;
+}
+.tl-period-wrap,
+.tl-period-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tl-period {
+  margin: var(--space-4) 0 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--textTertiary);
+}
+.tl-period-wrap:first-child .tl-period {
+  margin-block-start: var(--space-2);
+}
 .timeline li {
   display: flex;
   align-items: center;

@@ -1124,7 +1124,7 @@ export function NextSteps({
                   <Badge tone="danger">{t("co.next.overdue")}</Badge>
                 )}
                 {!step.overdue && step.due_at && (
-                  <span>
+                  <span className="co-due">
                     {t("co.next.due", {
                       when: formatDate(step.due_at, locale, RECORD_ZONE),
                     })}

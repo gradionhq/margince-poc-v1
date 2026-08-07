@@ -548,6 +548,9 @@ export const vi = {
   "tab.people": "Người",
   "tab.timeline": "Lịch sử",
   "tab.context": "Ngữ cảnh",
+  "timeline.period.thisWeek": "Tuần này",
+  "timeline.period.lastWeek": "Tuần trước",
+  "timeline.period.upcoming": "Sắp tới",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "Họ là ai",
