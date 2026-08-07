@@ -86,6 +86,32 @@ slices small enough to merge the day they are written: a branch open longer than
 that accumulates conflicts with `main` that its own gates cannot see — migration
 numbers, locale key sets, and semantic overlap with whatever else is in flight.
 
+## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
+
+The plan itself is finished: the spec landed as ADR-0082/A127 and all three code
+PRs are on main — #510 stops colleague mail being stored, #542 takes the
+installation's own company out of the prospect surfaces and protects it in the
+schema, #514 gives an administrator the own-domain surface. What shipped is in
+[CHANGELOG.md](CHANGELOG.md); what is still open is here.
+
+- **[#589](https://github.com/gradionhq/margince-poc-v1/issues/589) —
+  `storekit.marshalOrNil` only detects an UNTYPED nil.** A caller that declares
+  its audit image as `map[string]any` and passes it in while nil writes JSON
+  `null` instead of SQL NULL, so `before IS NULL` misses the row and
+  `coalesce(before, after)` returns the null rather than falling through. Three
+  stores had it — capture's own-domain registry and freemail classification,
+  identity's onboarding state — and are fixed. Nothing stops the next caller
+  repeating it: the wrong shape compiles and passes any test that reads `after`.
+  The general fix changes audit representation for every module at once, which
+  is why it is an issue rather than part of #514.
+- **[#570](https://github.com/gradionhq/margince-poc-v1/issues/570) —
+  `company-context.test.tsx` is a load-dependent flake.** It times out waiting
+  for the refresh-review heading on a 10s budget, hits a different test in the
+  file each run, and failed three runs in a row on one head whose only diff was
+  four Go files. It blocks any PR's merge and reads like a real regression to
+  whoever hits it, so re-running is not a workaround anyone should have to
+  learn.
+
 ## Open — an install with no mailer AND no public base URL still onboards nobody
 
 ADR-0061 Amendment 1 closed the email-less case: an admin mints a single-use

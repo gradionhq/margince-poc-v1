@@ -162,6 +162,31 @@ numbers appear here when releases start.
   what the caps left out. The rail's connections card draws it as an ego
   diagram over a keyboard-reachable node list, and the diagram is
   decorative — everything it shows is in the list.
+- **The installation's own company is not one of its prospects**
+  (ADR-0082/A127). The anchor organization is excluded by default from the
+  surfaces that answer "which companies are we selling to" — the
+  organization list, lexical and vector search, dynamic segments and their
+  exports, duplicate detection, and signal candidate resolution — with
+  `include_anchor` as the opt-in on the list, shaped like
+  `include_archived`. It stays reachable by id everywhere, and stays
+  deliberately available where naming it is the point, such as recording
+  that a person works there. `is_anchor` is on the wire so a client can
+  tell it apart, and the governed agent surface learns the id through its
+  company context, since the company operation is human-only. Archiving it
+  or merging in either direction is refused in the schema as well as in the
+  service: losing the anchor makes the company read answer not-found, and
+  the application reads that as a workspace that was never configured.
+- **An administrator can see and change the workspace's own email
+  domains**: `GET`, `POST` and `DELETE` on `/capture/email-domains`,
+  admin/ops and human-only, since the set decides which mail the
+  installation may hold at all. Adding a domain IS the human vouching for
+  it, so it stores verified and takes effect on the next message; adding
+  one a connected mailbox already contributed confirms that candidate
+  rather than failing. The list reports what the company profile claims
+  separately from the registry, because only the second is editable here.
+  The screen states what removal does and does not undo: capture resumes
+  from that point on, and mail skipped meanwhile is never offered again by
+  any mailbox.
 
 ### Changed
 
