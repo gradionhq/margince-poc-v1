@@ -94,7 +94,7 @@ func (t listPipelinesTool) Spec() mcp.ToolSpec {
 		// about it. Spelled in both places the two would drift, and a model
 		// would read the same paragraph twice.
 		InputSchema:  schema(`{"type":"object","properties":{},"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[listPipelinesAnswer](),
 	}
 }
 

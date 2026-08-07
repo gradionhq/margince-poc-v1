@@ -57,12 +57,12 @@ func (stubComms) DraftEmail(context.Context, ids.UUID, string) (string, string, 
 	return "", "", nil
 }
 
-func (stubComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (json.RawMessage, error) {
-	return nil, nil
+func (stubComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (agents.SendEmailResult, error) {
+	return agents.SendEmailResult{}, nil
 }
 
-func (stubComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) (json.RawMessage, error) {
-	return nil, nil
+func (stubComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) (agents.SendMessageResult, error) {
+	return agents.SendMessageResult{}, nil
 }
 
 func (stubComms) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }

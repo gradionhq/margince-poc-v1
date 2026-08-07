@@ -117,7 +117,7 @@ func (r *recordingRelinker) RelinkActivity(
 	_ context.Context, _ ids.UUID, entityType string, _ ids.UUID, _ bool,
 ) (json.RawMessage, error) {
 	r.entityType = entityType
-	return json.RawMessage(`{}`), nil
+	return nil, nil
 }
 
 type unreachableAdvancer struct{}
@@ -135,7 +135,7 @@ func (a *recordingAdvancer) AdvanceProjectPhase(
 	_ context.Context, _ ids.UUID, _ string, _ *string, ifVersion *int64,
 ) (json.RawMessage, error) {
 	a.ifVersion = ifVersion
-	return json.RawMessage(`{}`), nil
+	return nil, nil
 }
 
 // recordingDisqualifier captures the id Handle passed to the store.
@@ -143,7 +143,7 @@ type recordingDisqualifier struct{ id ids.UUID }
 
 func (d *recordingDisqualifier) DisqualifyLead(_ context.Context, id ids.UUID) (json.RawMessage, error) {
 	d.id = id
-	return json.RawMessage(`{}`), nil
+	return nil, nil
 }
 
 // The tool decodes and hands off — the lead's own gates are the store's. What

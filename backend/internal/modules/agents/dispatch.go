@@ -367,6 +367,14 @@ func (s *Dispatcher) structuredContent(name string, out json.RawMessage) (json.R
 		s.log.Error("mcp: tool declares an object outputSchema but returned JSON null", "tool", name)
 		return nil, false
 	}
+	// And then the schema itself, which object-ness used to stand in for while a
+	// bare object schema claimed nothing more. It now names which members are
+	// present and what they hold, so that is what gets checked.
+	if defect := conformsToSchema(spec.OutputSchema, out); defect != "" {
+		s.log.Error("mcp: tool result does not satisfy the schema this server advertised for it",
+			"tool", name, "defect", defect)
+		return nil, false
+	}
 	return out, true
 }
 

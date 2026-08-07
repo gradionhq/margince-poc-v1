@@ -52,7 +52,7 @@ func (t progressDeal) Spec() mcp.ToolSpec {
 			"if_version":{"type":"integer"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved a won/lost move"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[ProgressDealResult](),
 	}
 }
 
@@ -108,7 +108,7 @@ func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	}); err != nil {
 		return nil, err
 	}
-	out := map[string]any{}
+	var result ProgressDealResult
 	if args.Note != nil && strings.TrimSpace(*args.Note) != "" {
 		fields, err := json.Marshal(map[string]any{
 			"kind": "note",
@@ -128,12 +128,12 @@ func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		if err != nil {
 			return nil, fmt.Errorf("crmagents: deal advanced but logging the note failed — the move stands, retry via log_activity: %w", err)
 		}
-		out["note_activity_id"] = ref.ID
+		result.NoteActivityID = &ref.ID
 	}
-	dealJSON, err := readBack(ctx, t.p, datasource.EntityRef{Type: datasource.EntityDeal, ID: args.DealID})
+	deal, err := readBackRecord(ctx, t.p, datasource.EntityRef{Type: datasource.EntityDeal, ID: args.DealID})
 	if err != nil {
 		return nil, err
 	}
-	out["deal"] = json.RawMessage(dealJSON)
-	return json.Marshal(out)
+	result.Deal = deal
+	return json.Marshal(result)
 }

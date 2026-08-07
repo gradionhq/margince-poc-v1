@@ -47,25 +47,31 @@ const anchorSchema = `{"type":"object","required":["record_type","record_id"],"p
 // evidence-carrying wire shape both intent tools share (exported so the
 // composition tests pin the exact shape the tools return).
 func AssembledContextJSON(assembled retrieval.Context) (json.RawMessage, error) {
-	sections := make([]map[string]any, 0, len(assembled.Sections))
+	return json.Marshal(assembledContext(assembled))
+}
+
+// assembledContext is the one place a retrieval.Context becomes tool output, so
+// both intent tools report the same shape and neither can drift into its own.
+func assembledContext(assembled retrieval.Context) AssembledContextResult {
+	sections := make([]ContextSection, 0, len(assembled.Sections))
 	for _, section := range assembled.Sections {
-		items := make([]map[string]any, 0, len(section.Items))
+		items := make([]ContextItem, 0, len(section.Items))
 		for _, item := range section.Items {
-			evidence := make([]map[string]string, 0, len(item.Evidence))
+			evidence := make([]ContextEvidence, 0, len(item.Evidence))
 			for _, ev := range item.Evidence {
-				evidence = append(evidence, map[string]string{"source": ev.Source, "snippet": ev.Snippet})
+				evidence = append(evidence, ContextEvidence{Source: ev.Source, Snippet: ev.Snippet})
 			}
-			items = append(items, map[string]any{
-				"record_type": item.Ref.Type, "record_id": item.Ref.ID,
-				"summary": item.Summary, "evidence": evidence,
+			items = append(items, ContextItem{
+				RecordType: item.Ref.Type, RecordID: item.Ref.ID,
+				Summary: item.Summary, Evidence: evidence,
 			})
 		}
-		sections = append(sections, map[string]any{"name": section.Name, "items": items})
+		sections = append(sections, ContextSection{Name: section.Name, Items: items})
 	}
-	return json.Marshal(map[string]any{
-		"anchor":   map[string]any{"record_type": assembled.Anchor.Type, "record_id": assembled.Anchor.ID},
-		"sections": sections,
-	})
+	return AssembledContextResult{
+		Anchor:   ContextAnchor{RecordType: assembled.Anchor.Type, RecordID: assembled.Anchor.ID},
+		Sections: sections,
+	}
 }
 
 // --- catch_me_up_on (🟢 read) ---
@@ -81,7 +87,7 @@ func (t catchMeUpOn) Spec() mcp.ToolSpec {
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp:    "getPerson/getOrganization/getDeal + listActivities",
 		InputSchema:  schema(anchorSchema),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[AssembledContextResult](),
 	}
 }
 
@@ -112,7 +118,7 @@ func (t prepForMeeting) Spec() mcp.ToolSpec {
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp:    "getPerson/getOrganization/getDeal + listActivities",
 		InputSchema:  schema(anchorSchema),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PrepForMeetingResult](),
 	}
 }
 
@@ -127,10 +133,7 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err != nil {
 		return nil, err
 	}
-	briefing, err := AssembledContextJSON(assembled)
-	if err != nil {
-		return nil, err
-	}
+
 	// The prep affordance: same assembled picture, plus the open items
 	// pulled forward as the meeting's focus list.
 	var focus []retrieval.Item
@@ -139,14 +142,11 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 			focus = append(focus, section.Items...)
 		}
 	}
-	focusItems := make([]map[string]any, 0, len(focus))
+	focusItems := make([]MeetingFocusItem, 0, len(focus))
 	for _, item := range focus {
-		focusItems = append(focusItems, map[string]any{
-			"record_id": item.Ref.ID, "summary": item.Summary,
-		})
+		focusItems = append(focusItems, MeetingFocusItem{RecordID: item.Ref.ID, Summary: item.Summary})
 	}
-	return json.Marshal(map[string]any{
-		"briefing":      json.RawMessage(briefing),
-		"meeting_focus": focusItems,
+	return json.Marshal(PrepForMeetingResult{
+		Briefing: assembledContext(assembled), MeetingFocus: focusItems,
 	})
 }
