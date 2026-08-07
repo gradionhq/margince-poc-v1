@@ -12,11 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -83,9 +85,57 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// ErrNoWorkspace means a domain query was attempted outside a workspace
-// context — a programming error, surfaced before any SQL runs.
+// ErrNoWorkspace means a domain query was attempted with no workspace to bind
+// — before bootstrap has resolved the installation, or from a context that
+// carries none while none is bound process-wide. Surfaced before any SQL runs.
 var ErrNoWorkspace = errors.New("pg: no workspace bound to context")
+
+// installation holds the singleton organization this process serves, resolved
+// once at boot (ADR-0061 §3). It is the fallback WithWorkspaceTx binds when a
+// context carries no workspace of its own — the first step of ADR-0091 §9,
+// which retires the per-request tenant selector without touching the schema.
+//
+// Process-global because the thing it names is: one installation serves one
+// organization, and every transaction in this process binds the same id. It is
+// written once, by the boot path, and read by every transaction after.
+//
+// Nil until BindInstallation runs, so a query before bootstrap still fails
+// loudly rather than guessing. That is deliberate: pre-bootstrap there is no
+// installation to guess AT, and the worker polls this state until the API
+// creates one.
+var installation atomic.Pointer[ids.UUID]
+
+// resolveWorkspace decides which workspace a transaction binds: the context's
+// own if it carries one, otherwise the installation this process serves.
+//
+// Named and separated because it is the decision, not a detail of opening a
+// transaction — it is what ADR-0091 §9 step 3 changes, and it is provable
+// without a database precisely because it happens before any SQL.
+func resolveWorkspace(ctx context.Context) (ids.UUID, error) {
+	if wsID, ok := principal.WorkspaceID(ctx); ok {
+		return wsID, nil
+	}
+	bound := installation.Load()
+	if bound == nil {
+		return ids.UUID{}, ErrNoWorkspace
+	}
+	return *bound, nil
+}
+
+// BindInstallation names the singleton organization every transaction in this
+// process binds. Called once, by the boot path, after the installation is
+// resolved or created.
+//
+// What this changes, stated where a reader meets it: a context that carries no
+// workspace now reads the installation's data instead of failing with
+// ErrNoWorkspace. With one tenant there is nothing to leak ACROSS — the
+// fallback can only ever bind the id every request already binds — but the
+// loud failure that used to catch a path forgetting its workspace is gone.
+// ADR-0091 §4 accepts that trade for the schema phase; it arrives here because
+// the fallback is what lets the fleet loops and their rls-exempt hatches
+// collapse. RBAC is unaffected: auth.Require gates every store entry point
+// regardless of which workspace is bound.
+func BindInstallation(wsID ids.UUID) { installation.Store(&wsID) }
 
 // WithWorkspaceTx runs fn inside a transaction whose app.workspace_id GUC
 // is SET LOCAL to the context's workspace, which is what the RLS policies
@@ -94,9 +144,9 @@ var ErrNoWorkspace = errors.New("pg: no workspace bound to context")
 // checkout (the §1.3 pool-reuse rule). Every domain read and write goes
 // through here; there is no raw-pool path for tenant data.
 func WithWorkspaceTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
-	wsID, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return ErrNoWorkspace
+	wsID, err := resolveWorkspace(ctx)
+	if err != nil {
+		return err
 	}
 
 	tx, err := pool.Begin(ctx)

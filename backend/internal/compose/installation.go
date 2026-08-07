@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
@@ -66,6 +67,13 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 	if err != nil {
 		return err
 	}
+	// Name the singleton every transaction in this process binds (ADR-0091 §9
+	// step 3). Until now a workspace reached the database only by riding a
+	// request context; a worker loop without one had to bind the GUC itself.
+	// Set here, at the one point that has resolved the installation and before
+	// any request or job is served.
+	database.BindInstallation(wsID.UUID)
+
 	if created {
 		log.Info("installation bootstrapped", "workspace_id", wsID.String(), "organization", cfg.Organization.Name)
 	} else {
