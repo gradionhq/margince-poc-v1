@@ -57,7 +57,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE custom_field DROP CONSTRAINT custom_field_object_check;
 ALTER TABLE custom_field ADD CONSTRAINT custom_field_object_check
   CHECK (object IN ('person','organization','deal','lead','activity'));

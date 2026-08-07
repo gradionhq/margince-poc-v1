@@ -11,5 +11,4 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE workspace DROP COLUMN capture_auto_enrich;

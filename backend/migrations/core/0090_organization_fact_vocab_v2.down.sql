@@ -13,7 +13,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE organization_fact DROP CONSTRAINT org_fact_field_vocab;
 ALTER TABLE organization_fact ADD CONSTRAINT org_fact_field_vocab CHECK (
   (category = 'company'  AND field IN ('founded_year','employee_range','phone','contact_email')) OR

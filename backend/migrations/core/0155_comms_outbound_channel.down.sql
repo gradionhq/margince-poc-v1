@@ -13,7 +13,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE comms_outbound DROP CONSTRAINT comms_outbound_shape;
 
 ALTER TABLE comms_outbound

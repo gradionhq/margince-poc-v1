@@ -13,7 +13,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE erasure_suppression DROP CONSTRAINT erasure_suppression_kind_check;
 ALTER TABLE erasure_suppression
   ADD CONSTRAINT erasure_suppression_kind_check CHECK (kind IN ('email'));

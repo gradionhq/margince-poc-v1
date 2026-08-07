@@ -30,7 +30,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE person DROP COLUMN address_line1, DROP COLUMN address_line2, DROP COLUMN address_city,
   DROP COLUMN address_region, DROP COLUMN address_postal_code, DROP COLUMN address_country;
 ALTER TABLE organization DROP COLUMN address_line1, DROP COLUMN address_line2, DROP COLUMN address_city,

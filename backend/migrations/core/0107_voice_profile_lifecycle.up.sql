@@ -29,7 +29,6 @@ BEGIN
     WHERE (status = 'building')
       AND voice_profile.workspace_id = ws;
 
-
     -- The old contract admitted team scope without a team identifier. There is no
     -- faithful team mapping to invent during an upgrade, so quarantine those live
     -- rows instead of widening private style material to workspace visibility.
@@ -48,7 +47,6 @@ BEGIN
       AND voice_profile.workspace_id = ws;
   END LOOP;
 END $$;
-
 
 ALTER TABLE voice_profile
   ALTER COLUMN status SET DEFAULT 'collecting',
@@ -113,7 +111,6 @@ BEGIN
     WHERE voice_corpus_source.workspace_id = ws;
   END LOOP;
 END $$;
-
 
 ALTER TABLE voice_corpus_source
   ALTER COLUMN content_hash SET NOT NULL,
@@ -264,7 +261,6 @@ BEGIN
       AND p.workspace_id = ws;
   END LOOP;
 END $$;
-
 
 CREATE UNIQUE INDEX voice_profile_version_one_active
   ON voice_profile_version(workspace_id, voice_profile_id) WHERE status = 'active';

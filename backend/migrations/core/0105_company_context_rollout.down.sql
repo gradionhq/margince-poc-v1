@@ -9,7 +9,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE ai_call
   DROP COLUMN context_tokens_estimate,
   DROP COLUMN context_bytes;

@@ -18,7 +18,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE ai_call DROP CONSTRAINT ai_call_source_check;
 ALTER TABLE ai_call DROP CONSTRAINT ai_call_kind_check;
 DROP INDEX IF EXISTS ai_call_logical_idx;

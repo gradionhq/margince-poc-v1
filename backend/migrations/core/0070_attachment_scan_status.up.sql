@@ -23,6 +23,5 @@ BEGIN
   END LOOP;
 END $$;
 
-
 CREATE INDEX idx_attachment_scan_status ON attachment (workspace_id, scan_status)
   WHERE archived_at IS NULL;

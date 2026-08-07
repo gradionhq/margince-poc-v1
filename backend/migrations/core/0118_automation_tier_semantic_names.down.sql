@@ -19,6 +19,5 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE automation
   ADD CONSTRAINT automation_tier_check CHECK (tier IN ('green', 'yellow'));

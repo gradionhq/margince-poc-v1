@@ -87,7 +87,6 @@ BEGIN
     WHERE (classification = 'customer')
       AND organization.workspace_id = ws;
 
-
     -- The type rows the old enum can be read as. tech_vendor/platform are things
     -- we buy from. 'prospect' and 'other' name no relationship and produce no row.
     --
@@ -114,7 +113,6 @@ BEGIN
       AND o.workspace_id = ws
     ON CONFLICT DO NOTHING;
 
-
     -- The partner type comes from the EXTENSION ROW and only from it, which is
     -- what makes the moved invariant true of every migrated row (ADR-0079 amending
     -- ADR-0032 §Decision 2). A classification of 'partner' without an extension
@@ -132,7 +130,6 @@ BEGIN
     ON CONFLICT DO NOTHING;
   END LOOP;
 END $$;
-
 
 -- classification is RETIRED, not dropped: kept one release, written by
 -- nothing, `deprecated: true` on the wire, so the migration stays reversible

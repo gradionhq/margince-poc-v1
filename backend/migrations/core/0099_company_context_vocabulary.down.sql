@@ -47,7 +47,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE organization_fact DROP CONSTRAINT org_fact_value_key_cardinality;
 ALTER TABLE organization_fact ADD CONSTRAINT org_fact_value_key_cardinality CHECK (
   (category = 'company' AND field <> 'location' AND value_key = '') OR

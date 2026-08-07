@@ -33,7 +33,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE comms_outbound DROP CONSTRAINT comms_outbound_inflight_is_channel;
 
 ALTER TABLE comms_outbound DROP COLUMN inflight_at;

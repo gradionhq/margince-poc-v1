@@ -34,7 +34,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE site_read DROP CONSTRAINT site_read_target_shape;
 ALTER TABLE site_read ADD CONSTRAINT site_read_target_shape CHECK (
   (target_kind = 'onboarding' AND

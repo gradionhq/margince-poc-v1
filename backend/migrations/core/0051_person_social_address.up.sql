@@ -40,7 +40,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 -- The contract's Address shape as columns, on both carriers.
 ALTER TABLE person
   ADD COLUMN address_line1       text NULL,
@@ -66,7 +65,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE organization
   ADD COLUMN address_line1       text NULL,
   ADD COLUMN address_line2       text NULL,
@@ -90,7 +88,6 @@ BEGIN
       AND organization.workspace_id = ws;
   END LOOP;
 END $$;
-
 
 ALTER TABLE person DROP COLUMN social, DROP COLUMN address;
 ALTER TABLE organization DROP COLUMN address;

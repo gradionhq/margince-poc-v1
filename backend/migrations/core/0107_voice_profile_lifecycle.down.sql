@@ -40,7 +40,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE voice_corpus_source
   ALTER COLUMN content SET NOT NULL,
   ALTER COLUMN weight TYPE numeric(2,1),

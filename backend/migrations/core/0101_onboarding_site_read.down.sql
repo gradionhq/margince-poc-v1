@@ -16,7 +16,6 @@ BEGIN
   END LOOP;
 END $$;
 
-
 ALTER TABLE site_read
   ALTER COLUMN organization_id SET NOT NULL,
   DROP COLUMN confirmed_at,
