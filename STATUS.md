@@ -41,18 +41,36 @@ closes the door on manually entered financial figures that plan §4.6 left ajar.
 
 - **Slice B1** (`ADR-0085`): `organization.linkedin_url` as a validated,
   live-unique column; the readable website stays derived from the primary
-  `organization_domain` row rather than gaining a second store; both evidence
-  sidecars gain `retrieved_at` / `verified_at` / `verified_by`; correct/confirm
-  on profile fields and facts, where a correction moves the canonical column
-  and not just its receipt. Migration 0193.
-- **The base-currency freeze probe** now counts sent offers as well as closed
-  deals, and refuses a change while the rate sheet is priced against the old
-  base. The deal-only count was live in merged main, not just here.
-- **PR 1** (page shell): lifecycle and owner edit in place in the header; the
-  label is "Account lifecycle" rather than "Stage", which is also a deal's
-  stage on the same page; address and LinkedIn joined the edit form; "Add task"
-  is its own button; `organizations.tsx` split from 2,733 lines into 2,237 plus
-  `companyheader.tsx`.
+  `organization_domain` row; both evidence sidecars gain `retrieved_at` /
+  `verified_at` / `verified_by`; correct/confirm on profile fields and facts,
+  where a correction moves the canonical column and not just its receipt.
+  Migration 0193.
+- **The base-currency freeze probe** counts sent offers as well as closed deals,
+  and refuses a change while the rate sheet is priced against the old base. The
+  deal-only count was live in merged main, not just here.
+- **PR 1** — page shell: lifecycle and owner edit in place; "Stage" becomes
+  "Account lifecycle"; address and LinkedIn join the form; "Add task" is its own
+  button; `organizations.tsx` split with `companyheader.tsx`.
+- **PR 2** — Today on this account: new 360 section `next_meeting`, and a card
+  that labels facts, assessments and recommendations apart.
+- **PR 3 (part)** — confirm and correct wired to B1's endpoints, on every
+  profile field and fact. The dossier itself is not built; see below.
+- **PR 7** — coverage: each contact names the strongest few colleagues who have
+  actually exchanged messages, plus `+N`, with untried distinguished from cold;
+  and a coverage explorer over up to eight colleagues the reader picks.
+
+**Next, and the one to read before starting it: PR 4 (growth fit) is a module,
+not a slice.** `company-dossier.md` specifies the dossier and growth fit
+together — two tables, six wire operations, an AI lane with a deterministic
+floor, per-reader caching with an input fingerprint, field masking, evidence
+receipts. Its sibling `compose/orgbrief` is 3,235 lines. Growth fit's
+deterministic floor is *abstention*, so building the floor first yields a panel
+that always says "not enough evidence": the model lane is not optional for this
+slice to be worth anything.
+
+Still unbuilt beyond that: PR 5 (documents), PR 6 (attachments, `ADR-0086`),
+PR 8 (account-started email, `ADR-0087`), PR 9/10 (finance, `ADR-0083`). Each
+needs a backend capability built from scratch.
 
 `make check`, `make craft-static`, `check-fe` and the integration lane (0
 skips) are green. Nothing is pushed: this work stays in the worktree until it
