@@ -12,40 +12,56 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
-## In flight — company record page V2, slice B1 (draft PR #553)
+## In flight — company record page V2
 
 The approved product direction and the full implementation handoff live in
 `docs/explanation/company-record-page-v2-implementation-plan.md` (untracked on
 purpose — it is a working handoff, not a repo doc, and `.gitignore` carries it
-together with its four state mockups). Read it before picking any of this up:
-it specifies the page hierarchy, lifecycle-dependent behaviour, dossier and
-growth-fit evidence, scalable coverage for 40+ reps, documents and email
-attachments, finance ingestion, permissions, honest empty/withheld/stale
-states, contracts and data models, PR slices, tests, and definition of done.
+together with its four state mockups). Read it before picking any of this up.
+Read §15 of it first: it says what Gate 0's real state is, and the rest of the
+document is older than the spec it depends on.
 
-**What slice B1 settles** (PR #553, draft): the canonical company fields and
-field-level evidence. `organization.linkedin_url` becomes a validated,
-live-unique column; the readable website stays derived from the primary
-`organization_domain` row rather than gaining a second store; both evidence
-sidecars gain `retrieved_at` / `verified_at` / `verified_by`; and five contract
-operations land — the base currency setting plus correct/confirm on profile
-fields and facts. The rule the slice encodes: for any fact that is a column on
-`organization`, the column IS the value and the sidecar holds a proposal plus
-its evidence, joined at read.
+**Gate 0 is written, not signed.** Every decision the plan asked for was
+authored upstream in `margince-foundation` PR #1251 on the same day the plan
+was written — `ADR-0083` (finance is an ingested mirror), `ADR-0085` (canonical
+company values and provenance), `ADR-0086` (attachment transport is a declared
+capability), `ADR-0087` (account-started outbound), `ADR-0088` (overlay posture
+for composite surfaces), `ADR-0089` (role mailbox is a stored assertion), plus
+the chapters `finance-ingestion.md`, `documents-and-files.md` and
+`company-dossier.md`. All seven anchors `A128`–`A134` are recorded in
+`DECISIONS.md` as `PROPOSED (2026-08-06)`; the rest of that file is ratified
+and these are not. So build against them and expect them to hold, but a slice
+whose ADR moves on sign-off is a slice that gets reworked.
 
-Kept as a draft because the rest of Gate 0 is still upstream. Before further
-slices touch schema or contract:
+Where the plan and an ADR disagree, the ADR wins — it was written later and
+with more of the system in view. Several are deliberately stricter: `ADR-0083`
+closes the door on manually entered financial figures that plan §4.6 left ajar.
 
-- distinguish read-only ERP/finance ingestion from the standing prohibition on
-  building accounting/e-invoice creation inside Margince;
-- ratify the dossier and growth-fit response shapes, and evidence correction
-  semantics beyond what B1 already writes;
-- ratify account-started email plus inbound/outbound file attachments;
-- define finance/document RBAC, retention, erasure and overlay behaviour.
+**Landed so far**, on `feat/company-v2-b1-canonical-fields`, local only:
 
-The implementation must not begin those slices as a local POC workaround. A
-frontend card backed by fake or local-only finance data is explicitly not an
-acceptable interim step.
+- **Slice B1** (`ADR-0085`): `organization.linkedin_url` as a validated,
+  live-unique column; the readable website stays derived from the primary
+  `organization_domain` row rather than gaining a second store; both evidence
+  sidecars gain `retrieved_at` / `verified_at` / `verified_by`; correct/confirm
+  on profile fields and facts, where a correction moves the canonical column
+  and not just its receipt. Migration 0193.
+- **The base-currency freeze probe** now counts sent offers as well as closed
+  deals, and refuses a change while the rate sheet is priced against the old
+  base. The deal-only count was live in merged main, not just here.
+- **PR 1** (page shell): lifecycle and owner edit in place in the header; the
+  label is "Account lifecycle" rather than "Stage", which is also a deal's
+  stage on the same page; address and LinkedIn joined the edit form; "Add task"
+  is its own button; `organizations.tsx` split from 2,733 lines into 2,237 plus
+  `companyheader.tsx`.
+
+`make check`, `make craft-static`, `check-fe` and the integration lane (0
+skips) are green. Nothing is pushed: this work stays in the worktree until it
+is tested locally.
+
+**Next**, in plan order: PR 2 (Today on this account), PR 3 (dossier, full
+facts, evidence drawer), PR 4 (growth fit), PR 5 (documents), PR 7 (scalable
+coverage), then PR 6/8 (attachments, account-started email) and PR 9/10
+(finance) against their ADRs.
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 
