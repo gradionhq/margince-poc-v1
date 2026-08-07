@@ -238,7 +238,7 @@ func (s *Service) revokePassportTx(
 		// button would otherwise turn their revoke into a no-op: the
 		// credential they aimed at is gone, and the connection they meant
 		// keeps serving calls under its successor.
-		if err := s.revokeGrantTx(ctx, tx, *grantID, passportRevokedReason); err != nil {
+		if err := revokeGrantTx(ctx, tx, *grantID, passportRevokedReason); err != nil {
 			return err
 		}
 	}

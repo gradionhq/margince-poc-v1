@@ -114,6 +114,76 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	}
 }
 
+// TestPasswordResetRevokesPassportsToo pins F-002: a completed reset must
+// end every credential that could act as the account, not just the session
+// cookie that prompted the recovery. Before the fix this passed with the
+// passport still live — the whole point of the finding.
+func TestPasswordResetRevokesPassportsToo(t *testing.T) {
+	e := setupRevocationEnv(t, "reset-passport-cascade")
+	ctx := e.wsOnlyCtx()
+
+	issued, err := e.svc.IssuePassport(ctx, e.member, IssuePassportInput{Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatalf("issue passport: %v", err)
+	}
+	if _, err := e.svc.AuthenticateAgent(ctx, issued.Token); err != nil {
+		t.Fatalf("passport must authenticate before the reset: %v", err)
+	}
+
+	rawToken, err := e.svc.CreatePasswordReset(ctx, e.member.Email)
+	if err != nil || rawToken == "" {
+		t.Fatalf("CreatePasswordReset: token=%q err=%v", rawToken, err)
+	}
+	if err := e.svc.RedeemPasswordReset(ctx, rawToken, "a brand new recovery password"); err != nil {
+		t.Fatalf("RedeemPasswordReset: %v", err)
+	}
+
+	if _, err := e.svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("passport minted before the reset still authenticates: err = %v, want not-found", err)
+	}
+	var livePassports int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM passport WHERE on_behalf_of = $1 AND revoked_at IS NULL`,
+		e.member.UserID).Scan(&livePassports); err != nil {
+		t.Fatal(err)
+	}
+	if livePassports != 0 {
+		t.Fatalf("reset left %d live passports, want 0", livePassports)
+	}
+}
+
+// TestOperatorResetPasswordRevokesPassportsToo is the same F-002 cascade
+// proven over the operator-CLI recovery path (reset.go's OperatorResetPassword).
+func TestOperatorResetPasswordRevokesPassportsToo(t *testing.T) {
+	e := setupRevocationEnv(t, "operator-reset-passport-cascade")
+	ctx := e.wsOnlyCtx()
+
+	issued, err := e.svc.IssuePassport(ctx, e.member, IssuePassportInput{Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatalf("issue passport: %v", err)
+	}
+
+	tx, err := e.owner.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(context.Background(), `SELECT set_config('app.workspace_id', $1, true)`, e.admin.WorkspaceID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := OperatorResetPassword(context.Background(), tx, e.admin.WorkspaceID, e.member.Email, "operator recovery password"); err != nil {
+		t.Fatalf("OperatorResetPassword: %v", err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := e.svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("passport minted before the operator reset still authenticates: err = %v, want not-found", err)
+	}
+}
+
 func TestPasswordResetRequestIsEnumerationResistant(t *testing.T) {
 	e := setupRevocationEnv(t, "reset-enum")
 	ctx := e.wsOnlyCtx()

@@ -291,13 +291,17 @@ func (s *Service) RedeemPasswordReset(ctx context.Context, rawToken, newPassword
 			`UPDATE auth_token SET used_at = now() WHERE id = $1`, tokenID); err != nil {
 			return err
 		}
-		// A completed reset ends every existing session: whoever held a
-		// stolen cookie is out the moment the owner recovers the account.
-		if _, err := tx.Exec(ctx,
-			`UPDATE session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+		// A completed reset ends every credential that could act as the
+		// account, not just the session cookie that may have been stolen:
+		// OAuth grants (and their refresh chains), unconsumed authorization
+		// codes, sessions, and locally minted passports (F-002). Possession
+		// of the token IS the authority here (see the doc comment above), so
+		// the cascade is attributed to the account owner themselves — there
+		// is no admin actor on this call the way DeactivateUser has one.
+		if err := endCredentialAuthority(passwordOwnerCtx(ctx, userID), tx, userID, passwordResetRevokeReason); err != nil {
 			return err
 		}
-		return logAuthEvent(ctx, tx, wsID, userID, "password_reset", "password reset completed; sessions revoked")
+		return logAuthEvent(ctx, tx, wsID, userID, "password_reset", "password reset completed; every borrowed credential revoked")
 	})
 }
 
@@ -340,13 +344,47 @@ func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID,
 		 WHERE id = $1`, userID, hash); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+	// Same cascade the HTTP redemption runs (F-002): an operator recovering
+	// a locked-out or compromised account must end every credential that
+	// could still act as it, not just the session.
+	if err := endCredentialAuthority(operatorCtx(ctx, wsID, userID), tx, userID, operatorResetRevokeReason); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-		 VALUES ($1, 'system', 'operator-cli', 'password_reset', jsonb_build_object('detail', 'operator password reset; sessions revoked', 'user_id', $2::text))`,
+		 VALUES ($1, 'system', 'operator-cli', 'password_reset', jsonb_build_object('detail', 'operator password reset; every borrowed credential revoked', 'user_id', $2::text))`,
 		wsID, userID.String())
 	return err
+}
+
+// passwordResetRevokeReason and operatorResetRevokeReason are what the
+// oauth_grant audit rows say when a connection died because the human
+// recovered account control, rather than an admin ending it for them.
+const (
+	passwordResetRevokeReason = "the account was recovered via password reset"
+	operatorResetRevokeReason = "the account was recovered via an operator-issued password reset"
+)
+
+// passwordOwnerCtx binds the account owner as the storekit actor for the
+// credential cascade a self-service reset triggers. There is no session or
+// resolved Identity on this call — the redeemed token IS the authority
+// (ResetPassword's doc comment) — so this carries only what the audit trail
+// and the passport.revoked event need: which human it was.
+func passwordOwnerCtx(ctx context.Context, userID ids.UserID) context.Context {
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + userID.String(), UserID: userID.UUID,
+	})
+}
+
+// operatorCtx binds the operator-cli system actor and the target workspace
+// for the credential cascade OperatorResetPassword triggers. The caller's tx
+// already runs under the workspace GUC (cmd/migrate sets it); this only
+// supplies what storekit.AuditWithEvidence reads off ctx rather than the
+// GUC — the wsID column value and the actor attribution — mirroring the
+// system_log row this function already writes by hand.
+func operatorCtx(ctx context.Context, wsID ids.WorkspaceID, userID ids.UserID) context.Context {
+	ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "operator-cli", UserID: userID.UUID,
+	})
 }
