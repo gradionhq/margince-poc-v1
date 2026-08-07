@@ -700,6 +700,7 @@ export const de = {
   "co.assistant.aiTag": "KI-gestützt",
   "co.decisions.openOne": "1 Entscheidung prüfen",
   "co.decisions.openMany": "{count} Entscheidungen prüfen",
+  "co.decisions.review": "Prüfen",
   "co.decisions.title": "Offene Entscheidungen",
   "co.decisions.group": "{count} × {kind}",
   "co.decisions.empty": "Hier wartet nichts auf eine Entscheidung.",

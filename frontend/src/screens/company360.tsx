@@ -892,7 +892,7 @@ export function DealsCard({
       actions={actions}
     >
       <ul className="co-list">
-        {(deals?.data ?? []).map((deal) => (
+        {dealsByUrgency(deals?.data ?? []).map((deal) => (
           <DealRow key={deal.deal_id} deal={deal} />
         ))}
       </ul>
@@ -1110,13 +1110,16 @@ export function NextSteps({
               {onOpenTask ? (
                 <button
                   type="button"
-                  className="co-rowlink"
+                  className="co-rowlink co-row-subject"
                   onClick={() => onOpenTask(step)}
+                  title={step.subject}
                 >
                   {step.subject}
                 </button>
               ) : (
-                <span>{step.subject}</span>
+                <span className="co-row-subject" title={step.subject}>
+                  {step.subject}
+                </span>
               )}
               <span className="co-row-meta">
                 {step.overdue && (
@@ -1773,12 +1776,13 @@ const ENGAGEMENT_TONE: Partial<
   dormant: "warn",
 };
 
-// The deal a rep would open first: the one closing soonest, undated ones
-// last. The strip names one deal because a name is actionable where a count
-// is only a size.
-function nearestOpenDeal(view?: Organization360): Deal360 | undefined {
-  const open = view?.deals?.data ?? [];
-  return [...open].sort((a, b) => {
+/**
+ * Nearest-closing open deal first, undated ones last. Both the strip's named
+ * deal and the deals list order off this one rule, so the deal the strip
+ * calls out is always the list's first row.
+ */
+export function dealsByUrgency(deals: readonly Deal360[]): Deal360[] {
+  return [...deals].sort((a, b) => {
     if (!a.expected_close_date) {
       return b.expected_close_date ? 1 : 0;
     }
@@ -1786,7 +1790,13 @@ function nearestOpenDeal(view?: Organization360): Deal360 | undefined {
       return -1;
     }
     return a.expected_close_date.localeCompare(b.expected_close_date);
-  })[0];
+  });
+}
+
+// The deal a rep would open first. The strip names one deal because a name
+// is actionable where a count is only a size.
+function nearestOpenDeal(view?: Organization360): Deal360 | undefined {
+  return dealsByUrgency(view?.deals?.data ?? [])[0];
 }
 
 /**
@@ -1877,6 +1887,28 @@ function CommitmentsCell({ view }: Readonly<{ view?: Organization360 }>) {
         overdue > 0 ? t("co.strip.overdueCount", { count: overdue }) : undefined
       }
     />
+  );
+}
+
+// The cells the strip most commonly draws, reserved while the 360 is still
+// assembling: RecordView columns the whole page off which zones are
+// present, so a strip that only appears once the read lands steps the tab
+// row and everything below it down mid-scan. This skeleton is purely
+// visual — it names no fact about the account, which is why StateStrip
+// itself (below) returns null, not a skeleton, once the read has resolved
+// with nothing to show.
+const STATE_STRIP_SKELETON_CELLS = ["a", "b", "c", "d"] as const;
+
+export function StateStripSkeleton() {
+  return (
+    <section className="co-strip" aria-hidden="true">
+      {STATE_STRIP_SKELETON_CELLS.map((cell) => (
+        <section className="stat-card" key={cell}>
+          <Skeleton width="60%" height={11} />
+          <Skeleton width="80%" height={18} />
+        </section>
+      ))}
+    </section>
   );
 }
 

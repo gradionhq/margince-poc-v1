@@ -1158,9 +1158,10 @@ describe("company view — the visit baseline", () => {
 });
 
 describe("company view — where the account stands, and what it is to us", () => {
-  it("shows the lifecycle and every relationship type as separate badges", async () => {
-    // Not "partner": that type also raises the Partner tab, and the badge and
-    // the tab would then share a label, which tells the test nothing.
+  it("does not repeat lifecycle and relationship type as masthead badges", async () => {
+    // Not "partner": that type also raises the Partner tab, and a leftover
+    // badge would share its label with the tab, which would tell this test
+    // nothing about the masthead specifically.
     stub(view(), 200, {
       ...org,
       lifecycle: "former_customer",
@@ -1169,11 +1170,12 @@ describe("company view — where the account stands, and what it is to us", () =
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
-    // The retired classification held ONE value, which is how an account whose
-    // contract had ended still read as "Prospect" while it was also a partner.
-    expect(screen.getByText("Former customer")).toBeTruthy();
-    expect(screen.getByText("Customer")).toBeTruthy();
-    expect(screen.getByText("Supplier")).toBeTruthy();
+    // The state strip's Account cell and the facts card below both state
+    // these already — a masthead badge for the same two facts was a third
+    // reading of the same values, not a new one.
+    expect(screen.queryByText("Former customer")).toBeNull();
+    expect(screen.queryByText("Customer")).toBeNull();
+    expect(screen.queryByText("Supplier")).toBeNull();
   });
 
   it("draws no badge for an account nobody has assessed", async () => {
@@ -1333,6 +1335,23 @@ describe("company view — the state strip", () => {
     expect(within(strip).getByText("Rollout APAC")).toBeTruthy();
     expect(within(strip).getByText(/\+1 more/)).toBeTruthy();
     expect(within(strip).queryByText("2 open")).toBeNull();
+
+    // The deals list orders off the same rule the strip named its deal from,
+    // so the row it calls out is the row the list leads with — not a second
+    // deal the API happened to return first.
+    const businessCard = screen.getByRole("complementary", {
+      name: "Business",
+    });
+    const dealsCard = within(businessCard)
+      .getByText("Deals")
+      .closest("section");
+    if (!dealsCard) {
+      throw new Error("the deals card has no section wrapper");
+    }
+    const names = within(dealsCard)
+      .getAllByRole("button", { name: /Renewal|Rollout APAC/ })
+      .map((button) => button.textContent);
+    expect(names).toEqual(["Rollout APAC", "Renewal"]);
   });
 
   it("counts open commitments off the tasks it lists, overdue named", async () => {

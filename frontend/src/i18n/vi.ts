@@ -703,6 +703,7 @@ export const vi = {
   "co.assistant.aiTag": "Có AI hỗ trợ",
   "co.decisions.openOne": "Xem 1 quyết định",
   "co.decisions.openMany": "Xem {count} quyết định",
+  "co.decisions.review": "Xem",
   "co.decisions.title": "Quyết định đang chờ",
   "co.decisions.group": "{count} × {kind}",
   "co.decisions.empty": "Ở đây không có gì đang chờ quyết định.",

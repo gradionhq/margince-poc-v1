@@ -696,6 +696,7 @@ export const en = {
   "co.assistant.aiTag": "AI-assisted",
   "co.decisions.openOne": "Review 1 decision",
   "co.decisions.openMany": "Review {count} decisions",
+  "co.decisions.review": "Review",
   "co.decisions.title": "Decisions waiting",
   "co.decisions.group": "{count} × {kind}",
   "co.decisions.empty": "Nothing is waiting on a decision here.",

@@ -1843,6 +1843,45 @@ describe("CompanyScreen — the layout does not shift as the read lands", () => 
       ),
     );
   });
+
+  it("reserves the state strip's height while the 360 is still in flight, and drops it once resolved with nothing to show", async () => {
+    let releaseView: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseView = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/360")) {
+          await held;
+          return jsonResponse({ ...org360, state_strip: null });
+        }
+        if (pathname.endsWith("/hierarchy-rollup")) {
+          return jsonResponse(emptyRollup);
+        }
+        if (pathname.endsWith("/organizations/o-1")) {
+          return jsonResponse(org);
+        }
+        return jsonResponse({
+          data: [],
+          page: { has_more: false, next_cursor: null },
+        });
+      }),
+    );
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+    // Still in flight: a skeleton occupies the strip's slot so the tab row
+    // beneath it does not step down once the read lands.
+    expect(container.querySelector(".co-strip .skeleton")).toBeTruthy();
+    releaseView?.();
+    // Resolved, but this read carried no strip to show. A lingering skeleton
+    // here would claim data is being withheld from a reader who may see it —
+    // the strip must be gone outright, not merely finished loading.
+    await waitFor(() =>
+      expect(container.querySelector(".co-strip")).toBeNull(),
+    );
+  });
 });
 
 // The 360 caps its activities section. A capped list that says nothing reads

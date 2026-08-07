@@ -53,6 +53,20 @@
 }
 .co-plate .co-row-meta {
   margin-inline-start: auto;
+  /* The overdue badge, due date and Done/Snooze buttons are the controls
+     this row exists for — they keep their natural width so a long subject
+     truncates instead of squeezing them off the card. */
+  flex-shrink: 0;
+}
+/* The nowrap row has no width limit of its own, so without a shrinkable,
+   zero-basis subject a long task name pushes the meta cluster's controls
+   toward the card's edge instead of yielding to them. */
+.co-plate .co-row-subject {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* A due date is read against the other due dates in the list, so it sets in
    the face that keeps them aligned. */

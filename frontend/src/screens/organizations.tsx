@@ -68,6 +68,7 @@ import {
   SignalsCard,
   SinceLastVisitStrip,
   StateStrip,
+  StateStripSkeleton,
   type SuggestionAction,
   SuggestionsSection,
   TagsCard,
@@ -1398,21 +1399,12 @@ function CompanyActionBadges({
   // 404. Its history stays readable — what happened to a record is exactly
   // what a reader wants after it has been put away.
   const writable = !org.archived_at;
+  // Lifecycle and relationship type were drawn here too, but the state strip
+  // right below the masthead already carries them (its Account/Stage cell),
+  // and the facts card states the rest — a reader hit the same two facts
+  // three times before reaching the page's own content.
   return (
     <>
-      {/* Where the account stands, then what it is to us. Two badges, because
-          they answer two questions — the retired classification held one value
-          and so could answer only one, which is how an account whose contract
-          had ended still read as "Prospect". `unknown` is not drawn: a badge
-          saying nobody has assessed this yet is noise on every new record. */}
-      {org.lifecycle && org.lifecycle !== "unknown" && (
-        <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
-      )}
-      {(org.relationship_types ?? []).map((relType) => (
-        <Badge key={relType} tone="accent">
-          {t(RELATIONSHIP_TYPE_LABELS[relType])}
-        </Badge>
-      ))}
       {org.archived_at && <Badge tone="warn">{t("record.archived")}</Badge>}
       {/* An archived record read from a mirror offers nothing at all: every
           write is refused and the history is a native read the mirror has no
@@ -2171,7 +2163,17 @@ function CompanyPage({
       // Where the account stands and the tabs that switch what is read about
       // it belong to the record's masthead, not to the overview: they were
       // the same on every tab and still redrew themselves inside each one.
-      strip={view ? <CompanyStanding view={view} /> : undefined}
+      // The skeleton is drawn while the 360 is still in flight, not merely
+      // while there is no view: an overlay refusal or a failed read also
+      // leaves `view` undefined, and both are settled answers, not a strip
+      // still loading.
+      strip={
+        loading ? (
+          <StateStripSkeleton />
+        ) : view ? (
+          <CompanyStanding view={view} />
+        ) : undefined
+      }
       tabs={tabs}
       // No full-width band above the columns. Spanning the page, the plate
       // and the brief pushed the account itself below the fold, so a reader

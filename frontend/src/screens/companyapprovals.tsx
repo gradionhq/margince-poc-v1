@@ -1,6 +1,12 @@
 import { useId } from "react";
 import type { components } from "../api/schema";
-import { Button, EmptyState, Modal, Skeleton } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Modal,
+  Skeleton,
+} from "../design-system/atoms";
 import { useT } from "../i18n";
 import { approvalKindLabel } from "./approvalkind";
 import { ApprovalRow, useApprovalTokenSink } from "./inbox";
@@ -59,12 +65,20 @@ export function DecisionsChip({
   // Not a primary button, and not in the identity block: solid accent under
   // the record's name made the loudest thing on the masthead a side errand,
   // and "Review 1 waiting" never said waiting on WHAT. It reads as a verb
-  // beside the record's other verbs, naming what it opens.
+  // beside the record's other verbs, naming what it opens — but the count
+  // still needs to look owed, not routine, or it is indistinguishable from
+  // "Log activity" beside it. The warn-toned Badge carries that without
+  // repeating the accent-filled button this replaced.
   return (
-    <Button small onClick={onOpen}>
-      {t(count === 1 ? "co.decisions.openOne" : "co.decisions.openMany", {
-        count,
-      })}
+    <Button
+      small
+      onClick={onOpen}
+      aria-label={t(
+        count === 1 ? "co.decisions.openOne" : "co.decisions.openMany",
+        { count },
+      )}
+    >
+      {t("co.decisions.review")} <Badge tone="warn">{count}</Badge>
     </Button>
   );
 }
