@@ -65,6 +65,14 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 					}
 				}
 
+				// A second workspace whose admin already holds every one of these
+				// objects, deliberately NARROWED. The repair's only-if-absent guard is
+				// the single thing standing between it and overwriting an operator's
+				// decision on every installation that upgrades, and a guard is only
+				// proved by a row it has to skip.
+				narrowed := seedWorkspace(t, admin, "repair-narrowed-"+namespace.Name+"-"+repair.Version)
+				seedRole(t, admin, narrowed, "admin", true, documentGranting(t, objects, alteredGrant))
+
 				// Executed directly rather than through Up: the version is already
 				// recorded, and skipping recorded versions is the behaviour that makes
 				// the repair necessary in the first place.
@@ -88,6 +96,25 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 								"this hands every upgrading installation a privilege it should not have",
 								role, object, held)
 						}
+					}
+
+					if held, present := readGrant(ctx, t, admin, narrowed, "admin", object); !present ||
+						held != alteredGrant {
+						t.Errorf("the repair rewrote admin's existing %s grant to %+v; it was %+v, which an "+
+							"operator set deliberately. The only-if-absent guard is what keeps a repair "+
+							"from overruling every installation it touches", object, held, alteredGrant)
+					}
+				}
+
+				// The repair patches one key per object. A jsonb_set on the wrong path,
+				// or a SET that replaced the document instead of patching it, would
+				// take the rest of the row with it and lock every user out of person.
+				for _, role := range systemRoleKeys {
+					if held, present := readGrant(ctx, t, admin, workspace, role, "person"); !present ||
+						held != crud {
+						t.Errorf("%q lost its person grant (%+v, present=%v) to a repair that should only "+
+							"have added keys; the repair is rewriting documents, not patching them",
+							role, held, present)
 					}
 				}
 			})
@@ -115,6 +142,24 @@ func grantsWrittenBy(t *testing.T, repair dbmigrate.Migration) map[rbacGrant]gra
 		decoded[key] = verbs
 	}
 	return decoded
+}
+
+// documentGranting builds a permissions document holding every object at the
+// same grant — the fixture the repair's only-if-absent guard has to skip.
+func documentGranting(t *testing.T, objects []string, held grant) []byte {
+	t.Helper()
+	document := struct {
+		Objects  map[string]grant `json:"objects"`
+		RowScope string           `json:"row_scope"`
+	}{Objects: make(map[string]grant, len(objects)), RowScope: "all"}
+	for _, object := range objects {
+		document.Objects[object] = held
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("building the narrowed fixture document: %v", err)
+	}
+	return raw
 }
 
 // objectsIn lists the distinct objects a repair touches, in a stable order.
