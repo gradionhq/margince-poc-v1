@@ -362,15 +362,17 @@ func TestStagingRefusesASendOrBookingExecutionWouldRefuse(t *testing.T) {
 			wantNamed: "`to` is empty",
 		},
 		{
-			name:      "a meeting that ends before it starts is not bookable",
-			tool:      "book_meeting",
-			args:      `{"start":"2026-08-10T15:00:00Z","end":"2026-08-10T14:00:00Z","subject":"s"}`,
+			name: "a meeting that ends before it starts is not bookable",
+			tool: "book_meeting",
+			args: fmt.Sprintf(`{"start":"2026-08-10T15:00:00Z","end":"2026-08-10T14:00:00Z","subject":"s",`+
+				`"links":[{"entity_type":"person","entity_id":%q}]}`, anchor),
 			wantNamed: "does not follow `start`",
 		},
 		{
-			name:      "a meeting of zero length is not bookable either",
-			tool:      "book_meeting",
-			args:      `{"start":"2026-08-10T15:00:00Z","end":"2026-08-10T15:00:00Z","subject":"s"}`,
+			name: "a meeting of zero length is not bookable either",
+			tool: "book_meeting",
+			args: fmt.Sprintf(`{"start":"2026-08-10T15:00:00Z","end":"2026-08-10T15:00:00Z","subject":"s",`+
+				`"links":[{"entity_type":"person","entity_id":%q}]}`, anchor),
 			wantNamed: "does not follow `start`",
 		},
 	} {

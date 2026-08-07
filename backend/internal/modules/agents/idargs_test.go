@@ -40,6 +40,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // errSeamReached stands for "the tool accepted these arguments and called me".
@@ -248,13 +249,68 @@ func uuidProps(t *testing.T, name string, inputSchema json.RawMessage) (all, req
 // malformedCall renders a tools/call putting a non-canonical UUID in prop and
 // nothing else. Only the offending property is set: the refusal under test has
 // to happen while the arguments decode, before any other validation.
-func malformedCall(tool, prop string) json.RawMessage {
+func malformedCall(t *testing.T, spec mcp.ToolSpec, prop string) json.RawMessage {
+	t.Helper()
 	const notAUUID = `"not-a-uuid"`
-	args := fmt.Sprintf(`{%q:%s}`, prop, notAUUID)
+	// Every OTHER required argument is supplied, plausibly, so the call reaches
+	// the id check. The registry holds `required` before it holds shapes — an
+	// argument that is missing has no shape to be wrong about — so a call
+	// carrying only the malformed id would be refused for the arguments it also
+	// omitted, and this walk would stop testing what it is named for.
+	args := placeholdersForRequired(t, spec, prop)
 	if outer, nested, isNested := strings.Cut(prop, "[]."); isNested {
-		args = fmt.Sprintf(`{%q:[{%q:%s}]}`, outer, nested, notAUUID)
+		args[outer] = json.RawMessage(fmt.Sprintf(`[{%q:%s}]`, nested, notAUUID))
+	} else {
+		args[prop] = json.RawMessage(notAUUID)
 	}
-	return json.RawMessage(fmt.Sprintf(`{"name":%q,"arguments":%s}`, tool, args))
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("building a call for %s: %v", spec.Name, err)
+	}
+	return json.RawMessage(fmt.Sprintf(`{"name":%q,"arguments":%s}`, spec.Name, encoded))
+}
+
+// placeholdersForRequired fills every required argument but `except` with a
+// value of the type its schema declares. The values are deliberately valid: this
+// walk is about ONE malformed id, so everything around it has to be right.
+func placeholdersForRequired(t *testing.T, spec mcp.ToolSpec, except string) map[string]json.RawMessage {
+	t.Helper()
+	var schema struct {
+		Required   []string `json:"required"`
+		Properties map[string]struct {
+			Type   string            `json:"type"`
+			Format string            `json:"format"`
+			Enum   []json.RawMessage `json:"enum"`
+			Items  json.RawMessage   `json:"items"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(spec.InputSchema, &schema); err != nil {
+		t.Fatalf("reading %s's schema: %v", spec.Name, err)
+	}
+	args := map[string]json.RawMessage{}
+	for _, name := range schema.Required {
+		prop, declared := schema.Properties[name]
+		if !declared || name == except || strings.HasPrefix(except, name+"[].") {
+			continue
+		}
+		switch {
+		case len(prop.Enum) > 0:
+			args[name] = prop.Enum[0]
+		case prop.Format == "uuid":
+			args[name] = json.RawMessage(`"0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e11"`)
+		case prop.Type == "array":
+			args[name] = json.RawMessage(`[]`)
+		case prop.Type == "object":
+			args[name] = json.RawMessage(`{}`)
+		case prop.Type == "integer", prop.Type == "number":
+			args[name] = json.RawMessage(`1`)
+		case prop.Type == "boolean":
+			args[name] = json.RawMessage(`true`)
+		default:
+			args[name] = json.RawMessage(`"placeholder"`)
+		}
+	}
+	return args
 }
 
 func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
@@ -274,7 +330,7 @@ func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
 		allProps, _ := uuidProps(t, name, tool.Spec().InputSchema)
 		for _, prop := range allProps {
 			probed++
-			res := s.call(ctx, malformedCall(name, prop))
+			res := s.call(ctx, malformedCall(t, tool.Spec(), prop))
 			if res["isError"] != true {
 				t.Errorf("%s accepted %q as a UUID", name, prop)
 				continue
