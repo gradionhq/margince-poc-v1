@@ -51,23 +51,21 @@ COMMENT ON TABLE setting IS
 -- The column itself is deliberately NOT dropped here. Readers switch first,
 -- the drop follows once nothing reads it — which keeps this migration
 -- reversible without a data-restoring down. Tracked as issue #521.
--- Refuses rather than guesses when several live workspaces exist. ADR-0061 §3
--- makes that state unreachable at runtime — the API will not start on it — but
--- a database can still hold it, and there aggregating "is any of them off?"
--- would hand the installation the posture of a workspace an operator may be
--- about to discard. Which one is retained is an operator decision, so the
--- migration stops and says so instead of picking.
-DO $$
-DECLARE live int;
-BEGIN
-  SELECT count(*) INTO live FROM workspace WHERE archived_at IS NULL;
-  IF live > 1 THEN
-    RAISE EXCEPTION 'cannot carry settings across: % live workspaces exist, and which one the installation keeps is an operator decision (ADR-0061 §3)', live;
-  END IF;
-
-  INSERT INTO setting (key, value)
-  SELECT 'capture.auto_enrich', to_jsonb(false)
-    FROM workspace
-   WHERE archived_at IS NULL AND capture_auto_enrich = false
-      ON CONFLICT (key) DO NOTHING;
-END $$;
+-- Carried across only when the installation is UNAMBIGUOUS: exactly one live
+-- workspace. A database holding several is not an installation yet — ADR-0061
+-- §3 refuses to serve one, while deliberately keeping the schema able to hold
+-- them so cross-tenant isolation tests can seed a second — and which row an
+-- operator retains is their decision, not this migration's. Aggregating "is
+-- any of them off?" would hand the installation the posture of a workspace
+-- that may be about to be discarded.
+--
+-- In that state the setting is simply left unset, which reads as its
+-- registered default. Nothing consumes it before an operator resolves the
+-- ambiguity, because the API will not start until they have.
+INSERT INTO setting (key, value)
+SELECT 'capture.auto_enrich', to_jsonb(false)
+  FROM workspace w
+ WHERE w.archived_at IS NULL
+   AND w.capture_auto_enrich = false
+   AND (SELECT count(*) FROM workspace WHERE archived_at IS NULL) = 1
+    ON CONFLICT (key) DO NOTHING;
