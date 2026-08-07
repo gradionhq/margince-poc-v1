@@ -151,14 +151,13 @@ afterEach(() => {
 // this states a budget that survives a loaded machine.
 const SETTLE_MS = 10_000;
 
-// The budget a test that uses `renderReview` gets, and it MUST exceed the budget
-// of the waiters inside it. Vitest's per-test default is 5s: a waiter allowed 10s
-// inside a test allowed 5s cannot succeed at its own limit, only fail late — so
-// the moment a loaded runner pushed the chain past 5s (the coverage lane, where
-// the whole suite takes ~3 minutes), the test failed with vitest's timeout rather
-// than with anything about the card. Twice the settle budget, because two awaited
-// waiters run in sequence in there.
-const TEST_MS = SETTLE_MS * 2;
+// The budget for a test that drives `renderReview`, and it must cover EVERY
+// waiter in there: three run in sequence, each bounded by SETTLE_MS. A test whose
+// own limit is smaller than the sum lets vitest fire while a waiter still has
+// budget, and what surfaces then is an opaque timeout rather than the assertion
+// the test was written to make. Vitest's per-test default is 5s, which is less
+// than one of these waiters alone.
+const TEST_MS = SETTLE_MS * 3;
 
 // The fixture's two selectable changes — the `new` and `machine_change` rows.
 // The human_conflict row is decided by radio and the unchanged row offers
