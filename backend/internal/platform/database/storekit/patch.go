@@ -28,6 +28,15 @@ const (
 	// IncludeArchived resolves archived rows too: archived and merged
 	// records stay fetchable by id.
 	IncludeArchived
+	// NoArchiveColumn is for a table that has no archived_at at all — a
+	// dependent row deleted with its parent rather than retired on its own,
+	// such as the organization evidence sidecars. It renders the same empty
+	// predicate as IncludeArchived and is a separate value on purpose: at a
+	// call site, IncludeArchived reads as "this write deliberately reaches
+	// archived rows", which for such a table is a claim about rows that cannot
+	// exist. Stating which of the two a caller means is the whole point of this
+	// type.
+	NoArchiveColumn
 )
 
 // Patch accumulates a partial UPDATE: only fields the client sent, plus
@@ -113,10 +122,10 @@ func (p *Patch) Empty() bool { return len(p.sets) == 0 }
 // row lock share, so a lock and the update it authorizes can never resolve
 // different row sets.
 func liveClause(archived ArchivedFilter) string {
-	if archived == IncludeArchived {
-		return ""
+	if archived == LiveOnly {
+		return " AND archived_at IS NULL"
 	}
-	return " AND archived_at IS NULL"
+	return ""
 }
 
 // Before and After expose the audit diff the accumulated Set calls built.
@@ -130,18 +139,16 @@ func (p *Patch) After() map[string]any  { return p.after }
 // client-driven edits, or a held RowLock (ApplyLocked) for internal
 // flows. An unguarded update is not expressible.
 func (p *Patch) ApplyWithVersion(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, version int64) error {
-	return p.ApplyWithVersionIn(ctx, tx, table, id, version, LiveOnly)
+	return p.applyWithVersionIn(ctx, tx, table, id, version, LiveOnly)
 }
 
-// ApplyWithVersionIn is ApplyWithVersion for a table whose rows have no
-// archived_at at all — a dependent row that is deleted with its parent rather
-// than retired on its own, such as the organization evidence sidecars. Passing
-// IncludeArchived there is not a request to reach archived rows; it is the
-// truthful answer to "which archive states does this table have", which is one.
-// LiveOnly against such a table renders a clause naming a column that does not
-// exist, and the write fails as a SQL error rather than as anything a caller
-// can act on.
-func (p *Patch) ApplyWithVersionIn(
+// applyWithVersionIn is ApplyWithVersion against a chosen archive filter. It
+// exists for NoArchiveColumn: LiveOnly against a table with no archived_at
+// renders a predicate naming a column that is not there, and the write fails as
+// a SQL error rather than as anything a caller can act on. Unexported because
+// ApplyGuardedIn is the only way in — a caller choosing the filter is also a
+// caller who may be handed an If-Match.
+func (p *Patch) applyWithVersionIn(
 	ctx context.Context, tx pgx.Tx, table string, id ids.UUID, version int64, archived ArchivedFilter,
 ) error {
 	live := liveClause(archived)
@@ -188,12 +195,12 @@ func (p *Patch) ApplyGuarded(ctx context.Context, tx pgx.Tx, table string, id id
 }
 
 // ApplyGuardedIn is ApplyGuarded against a chosen archive filter, for the
-// tables that have no archived_at column — see ApplyWithVersionIn.
+// tables that have no archived_at column — pass NoArchiveColumn.
 func (p *Patch) ApplyGuardedIn(
 	ctx context.Context, tx pgx.Tx, table string, id ids.UUID, ifVersion *int64, archived ArchivedFilter,
 ) error {
 	if ifVersion != nil {
-		return p.ApplyWithVersionIn(ctx, tx, table, id, *ifVersion, archived)
+		return p.applyWithVersionIn(ctx, tx, table, id, *ifVersion, archived)
 	}
 	lock, err := LockRow(ctx, tx, table, id, archived)
 	if err != nil {
@@ -278,7 +285,11 @@ func LockPair(ctx context.Context, tx pgx.Tx, table string, a, b ids.UUID) (la, 
 	if !locked[a] || !locked[b] {
 		return RowLock{}, RowLock{}, apperrors.ErrNotFound
 	}
-	return RowLock{table: table, id: a}, RowLock{table: table, id: b}, nil
+	// LiveOnly explicitly, not by the zero value: the pair is a merge's two
+	// sides and both must be live, and a reader should not have to know which
+	// constant iota lands on to be sure of it.
+	return RowLock{table: table, id: a, archived: LiveOnly},
+		RowLock{table: table, id: b, archived: LiveOnly}, nil
 }
 
 // ApplyLocked runs the patch under an already-held row lock. Zero rows

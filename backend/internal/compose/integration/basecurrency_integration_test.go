@@ -15,6 +15,9 @@ package integration
 import (
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -30,7 +33,7 @@ func TestTheBaseCurrencyIsCorrectableWhileNoDealHasFrozenARate(t *testing.T) {
 		t.Fatalf("read base currency: %v", err)
 	}
 	if before.Locked {
-		t.Fatalf("a fresh workspace has no frozen rates, got locked with %d", before.FrozenDeals)
+		t.Fatalf("a fresh workspace has no frozen rates, got locked with %d", before.FrozenRecords)
 	}
 
 	after, err := e.Deals.SetBaseCurrency(ctx, "chf")
@@ -70,13 +73,72 @@ func TestTheBaseCurrencyLocksOnceADealHasFrozenARateAgainstIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read base currency: %v", err)
 	}
-	if !status.Locked || status.FrozenDeals != 1 {
-		t.Fatalf("status = %+v, want locked with 1 frozen deal — a surface must be able to say so before the refusal", status)
+	if !status.Locked || status.FrozenRecords != 1 {
+		t.Fatalf("status = %+v, want locked with 1 frozen record — a surface must be able to say so before the refusal", status)
 	}
 
 	_, err = e.Deals.SetBaseCurrency(ctx, "CHF")
 	if !errors.Is(err, apperrors.ErrBaseCurrencyLocked) {
 		t.Fatalf("got %v, want the locked sentinel — changing the base would restate a closed deal's worth", err)
+	}
+}
+
+// An offer freezes the same column at send, and its figure has already left
+// the building in a customer's PDF. A guard that counted only deals would let a
+// workspace that has sent offers and closed nothing restate every one of them.
+func TestTheBaseCurrencyLocksOnASentOfferToo(t *testing.T) {
+	e := Setup(t)
+	ctx := e.Admin()
+
+	st := seedRollupStages(t, e)
+	dealID := ids.NewV7()
+	e.WsExec(t, `
+		INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id, status, source, captured_by)
+		VALUES ($1, $2, 'Voltaq retrofit', 250000, 'EUR', $3, $4, 'open', 'manual', 'human:test')`,
+		dealID, e.WS, st.pipeline, st.open)
+	e.WsExec(t, `
+		INSERT INTO offer (id, workspace_id, deal_id, offer_number, currency, status,
+			fx_rate_to_base, fx_rate_date, source, captured_by)
+		VALUES ($1, $2, $3, 'AN-2026-001', 'EUR', 'sent', 1, DATE '2026-01-15', 'manual', 'human:test')`,
+		ids.NewV7(), e.WS, dealID)
+
+	status, err := e.Deals.BaseCurrencyStatus(ctx)
+	if err != nil {
+		t.Fatalf("read base currency: %v", err)
+	}
+	if !status.Locked || status.FrozenRecords != 1 {
+		t.Fatalf("status = %+v, want locked with 1 frozen record — the sent offer holds a rate against this base", status)
+	}
+	if _, err := e.Deals.SetBaseCurrency(ctx, "CHF"); !errors.Is(err, apperrors.ErrBaseCurrencyLocked) {
+		t.Fatalf("got %v, want the locked sentinel", err)
+	}
+}
+
+// A rate stores the base it converts INTO. Moving the base does not rewrite
+// those rows and nobody can restate a EUR→USD rate as a CHF→USD one, so the
+// change is refused rather than left to be served as a wrong figure.
+func TestTheBaseCurrencyWillNotMoveOutFromUnderAPricedRateSheet(t *testing.T) {
+	e := Setup(t)
+	ctx := e.Admin()
+
+	// Entered through the real writer, so the row carries whatever the sheet's
+	// own write shape stamps on it rather than what this test guessed.
+	e.Deals.WithClock(func() time.Time { return fxTestNow })
+	if _, err := e.Deals.SetFxRate(ctx, deals.SetFxRateInput{
+		FromCurrency: "USD", Rate: "0.9150", EffectiveDate: fxTestNow.Truncate(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("seed a rate: %v", err)
+	}
+
+	_, err := e.Deals.SetBaseCurrency(ctx, "CHF")
+	if !errors.Is(err, apperrors.ErrBaseCurrencyLocked) {
+		t.Fatalf("got %v, want the locked sentinel — the sheet's USD→EUR rate cannot be read as USD→CHF", err)
+	}
+
+	// Re-adopting the base already in force is not a change, so a priced sheet
+	// does not make the endpoint refuse an idempotent call.
+	if _, err := e.Deals.SetBaseCurrency(ctx, "EUR"); err != nil {
+		t.Fatalf("re-setting the current base: %v", err)
 	}
 }
 

@@ -9359,15 +9359,19 @@ paths:
       operationId: setBaseCurrency
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Change the workspace base currency, while no deal has frozen a rate against it.
+      summary: Change the workspace base currency, while nothing has frozen a rate against it.
       description: |
-        AAD-PARAM-N-2 / AAD-AC-N-2..N-5. Every closed deal freezes a conversion rate
-        AGAINST the base currency, so changing it afterwards would silently reinterpret
-        what those deals were worth — a financial claim the product has no authority to
-        restate. The change is therefore accepted only while no frozen rate exists, and
-        refused after with `base_currency_locked`, which carries how many rows block it
-        so the refusal explains itself instead of merely denying. Governed by the same
-        grant as the rate sheet: one authority over the currency substrate, not two.
+        AAD-PARAM-N-2 / AAD-AC-N-2..N-5. A closed deal and a sent offer both freeze a
+        conversion rate AGAINST the base currency, so changing it afterwards would
+        silently reinterpret what those records were worth — a financial claim the
+        product has no authority to restate, and in the offer's case one already sent to
+        a customer. The change is therefore accepted only while no frozen rate exists AND
+        no rate in the sheet is priced against the current base (a `USD→EUR` rate cannot
+        be restated as a `USD→CHF` one). Both refusals are `base_currency_locked`,
+        carrying how many rows block it so the refusal explains itself instead of merely
+        denying. Governed by the same grant as the rate sheet: one authority over the
+        currency substrate, not two. This is the day-one correction path — an
+        installation that put the wrong currency in its configuration file.
       requestBody:
         required: true
         content:
@@ -9383,8 +9387,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409':
           description: >-
-            A deal has already frozen a conversion rate against the current base currency,
-            so it can no longer change (`code: base_currency_locked`).
+            A deal or sent offer has already frozen a conversion rate against the current
+            base currency, or the rate sheet is priced against it, so it can no longer
+            change (`code: base_currency_locked`).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -9889,9 +9894,11 @@ components:
         locked:
           type: boolean
           description: >-
-            True once at least one deal has frozen a conversion rate against this base,
-            after which it can never change. Rendered so the surface can state the
-            constraint before a user attempts the edit rather than only refusing it.
+            True once at least one deal or sent offer has frozen a conversion rate
+            against this base, after which it can never change. Rendered so the surface
+            can state the constraint before a user attempts the edit rather than only
+            refusing it. A priced rate sheet blocks the change too, but is repairable, so
+            it does not set this flag.
     UpdateOrganizationProfileFieldRequest:
       type: object
       description: 'A human correction. The canonical store changes; the machine''s proposal and its evidence survive in history (PO-AC-N-1/N-2).'

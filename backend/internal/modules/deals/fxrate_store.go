@@ -275,8 +275,8 @@ func (s *Store) ListLatestFxRates(ctx context.Context) ([]FxRateRow, error) {
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		r, err := tx.Query(ctx, `
 			SELECT DISTINCT ON (from_currency) from_currency, to_currency, rate::text, rate_date
-			FROM fx_rate
-			ORDER BY from_currency, rate_date DESC`)
+			FROM fx_rate WHERE to_currency = (SELECT base_currency FROM workspace WHERE id = $1)
+			ORDER BY from_currency, rate_date DESC`, storekit.MustWorkspace(ctx))
 		if err != nil {
 			return fmt.Errorf("list fx_rate: %w", err)
 		}
@@ -303,8 +303,10 @@ func (s *Store) ListEffectiveFxRates(ctx context.Context) ([]FxRateRow, error) {
 		// connection across UTC midnight must not list yesterday's cutoff.
 		r, err := tx.Query(ctx, `
 			SELECT DISTINCT ON (from_currency) from_currency, to_currency, rate::text, rate_date
-			FROM fx_rate WHERE rate_date <= $1
-			ORDER BY from_currency, rate_date DESC`, s.todayUTC())
+			FROM fx_rate
+			 WHERE rate_date <= $1
+			   AND to_currency = (SELECT base_currency FROM workspace WHERE id = $2)
+			ORDER BY from_currency, rate_date DESC`, s.todayUTC(), storekit.MustWorkspace(ctx))
 		if err != nil {
 			return fmt.Errorf("list effective fx_rate: %w", err)
 		}
@@ -368,6 +370,11 @@ func (s *Store) WorkspaceBaseCurrency(ctx context.Context) (string, error) {
 
 // FxRateHistory returns every effective-dated row for one pair, newest
 // first (read-only history). Admin/ops read gate.
+//
+// Unfiltered by base, unlike the two sheet reads: this is the record of what
+// was entered, and each row carries the ToCurrency it was entered against. A
+// base change is refused while any rate is priced against the old one
+// (refuseWhenRateSheetIsPriced), so mixed bases cannot arise going forward.
 func (s *Store) FxRateHistory(ctx context.Context, fromCurrency string) ([]FxRateRow, error) {
 	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
 		return nil, err

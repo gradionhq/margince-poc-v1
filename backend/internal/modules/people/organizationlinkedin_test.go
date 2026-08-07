@@ -69,6 +69,11 @@ func TestNormalizeOrgLinkedInURLRefusesWhatIsNotACompanyURL(t *testing.T) {
 		{"a company path with no company", "https://www.linkedin.com/company/", "linkedin_url_not_company"},
 		{"the company index itself", "https://www.linkedin.com/company", "linkedin_url_not_company"},
 		{"another network entirely", "https://xing.com/company/voltaq", "linkedin_url_not_linkedin"},
+		// Both of these pass a suffix test and fail the column's own regex, so
+		// accepting them would turn a bad URL into a constraint violation.
+		{"a lookalike domain", "https://notlinkedin.com/company/voltaq", "linkedin_url_not_linkedin"},
+		{"a real LinkedIn host outside the shape", "https://jobs.linkedin.com/company/voltaq", "linkedin_url_not_linkedin"},
+		{"a numeric subdomain", "https://d3.linkedin.com/company/voltaq", "linkedin_url_not_linkedin"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := normalizeOrgLinkedInURL(tc.raw)

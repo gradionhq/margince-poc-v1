@@ -115,3 +115,42 @@ func TestADisagreementAboutTheIdentifierIsNotMerged(t *testing.T) {
 		t.Errorf("the core value was overwritten by the catalog one: args[0] = %v", p.args[0])
 	}
 }
+
+// The archive predicate is rendered once and shared by a lock and the update it
+// authorizes, so the two can never resolve different row sets. Which filter
+// yields which predicate is the whole contract, and it is invisible in SQL that
+// runs fine either way — a missing liveness clause does not fail, it just
+// silently widens what a write can reach.
+func TestLiveClauseGuardsOnlyTheTablesThatCanArchive(t *testing.T) {
+	const predicate = " AND archived_at IS NULL"
+	for _, tc := range []struct {
+		name    string
+		filter  ArchivedFilter
+		want    string
+		because string
+	}{
+		{"LiveOnly", LiveOnly, predicate,
+			"the default write posture must not reach a retired record"},
+		{"IncludeArchived", IncludeArchived, "",
+			"a flow that deliberately touches an archived row asks for it explicitly"},
+		{"NoArchiveColumn", NoArchiveColumn, "",
+			"a table with no archived_at cannot be filtered on one — the predicate is a SQL error, not a narrower write"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := liveClause(tc.filter); got != tc.want {
+				t.Errorf("liveClause(%s) = %q, want %q — %s", tc.name, got, tc.want, tc.because)
+			}
+		})
+	}
+}
+
+// A lock and the update it authorizes must agree, so the lock carries the
+// filter it was taken under rather than letting ApplyLocked assume one.
+func TestARowLockRemembersTheFilterItWasTakenUnder(t *testing.T) {
+	for _, filter := range []ArchivedFilter{LiveOnly, IncludeArchived, NoArchiveColumn} {
+		lock := RowLock{table: "organization_fact", archived: filter}
+		if got := liveClause(lock.archived); got != liveClause(filter) {
+			t.Errorf("a lock taken under %v applies through %q, want %q", filter, got, liveClause(filter))
+		}
+	}
+}

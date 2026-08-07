@@ -16,7 +16,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -68,9 +67,9 @@ func evidenceOrg(ctx context.Context, t *testing.T, e *dedupeEnv) ids.Organizati
 
 // orgColumn reads one column off the organization row, so a test can assert on
 // the record itself rather than on what a read model chose to report.
-func orgColumn[T any](ctx context.Context, t *testing.T, e *dedupeEnv, orgID ids.OrganizationID, column string) T {
+func orgColumn(ctx context.Context, t *testing.T, e *dedupeEnv, orgID ids.OrganizationID, column string) string {
 	t.Helper()
-	var v T
+	var v string
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT `+column+` FROM organization WHERE id = $1`, orgID).Scan(&v)
@@ -118,7 +117,7 @@ func TestCorrectingAProfileFieldMovesTheCompanyRecordNotOnlyItsReceipt(t *testin
 	}
 	// The half that makes the correction real: without it the header keeps
 	// showing the value the user just corrected.
-	if got := orgColumn[string](ctx, t, e, orgID, "display_name"); got != corrected {
+	if got := orgColumn(ctx, t, e, orgID, "display_name"); got != corrected {
 		t.Errorf("organization.display_name = %q, want %q — the sidecar moved and the record did not", got, corrected)
 	}
 }
@@ -127,7 +126,7 @@ func TestCorrectingAProfileFieldWithNoCanonicalColumnTouchesNoOrganizationColumn
 	e := setupDedupe(t)
 	ctx := e.as()
 	orgID := evidenceOrg(ctx, t, e)
-	nameBefore := orgColumn[string](ctx, t, e, orgID, "display_name")
+	nameBefore := orgColumn(ctx, t, e, orgID, "display_name")
 
 	corrected := "Mid-market industrial manufacturers"
 	if _, err := e.store.UpdateOrganizationProfileField(ctx, orgID, "icp",
@@ -135,7 +134,7 @@ func TestCorrectingAProfileFieldWithNoCanonicalColumnTouchesNoOrganizationColumn
 		t.Fatalf("correct icp: %v", err)
 	}
 
-	if got := orgColumn[string](ctx, t, e, orgID, "display_name"); got != nameBefore {
+	if got := orgColumn(ctx, t, e, orgID, "display_name"); got != nameBefore {
 		t.Errorf("display_name moved to %q while correcting icp — a field with no column must write only its sidecar", got)
 	}
 }
@@ -170,8 +169,12 @@ func TestConfirmingAProfileFieldKeepsTheValueAndTheMachinesEvidence(t *testing.T
 	if *out.VerifiedBy != e.rep.String() {
 		t.Errorf("verified_by = %v, want the calling rep %v", *out.VerifiedBy, e.rep)
 	}
-	if time.Since(*out.VerifiedAt) > time.Hour {
-		t.Errorf("verified_at = %v, want the transaction's own clock", *out.VerifiedAt)
+	// Not "verified_at is close to now" — a container clock an hour off the host would
+	// fail that for a reason unrelated to the confirmation. What the field must
+	// say is that the human looked at the claim AFTER the machine retrieved it.
+	if out.RetrievedAt != nil && out.VerifiedAt.Before(*out.RetrievedAt) {
+		t.Errorf("verified_at %v precedes retrieved_at %v — a human cannot have confirmed a claim before it was read",
+			*out.VerifiedAt, *out.RetrievedAt)
 	}
 }
 
@@ -264,20 +267,21 @@ func TestAMultiValueFactIsAddressedByItsValueKey(t *testing.T) {
 	}
 }
 
-func TestAFactKeyMissingItsValueKeySeparatorIsRefusedAsMalformed(t *testing.T) {
+// The refusal's shape is a unit test (organization_fact_write_test.go). What
+// needs a database is that it happens before anything is written.
+func TestAMalformedFactKeyIsRefusedBeforeTheWrite(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
 	orgID := evidenceOrg(ctx, t, e)
 
 	corrected := "+49 30 9999"
-	_, err := e.store.UpdateOrganizationFact(ctx, orgID, "phone", FactWriteInput{Value: &corrected})
-
 	var parse *values.ParseError
-	if !errors.As(err, &parse) {
+	if _, err := e.store.UpdateOrganizationFact(ctx, orgID, "phone",
+		FactWriteInput{Value: &corrected}); !errors.As(err, &parse) {
 		t.Fatalf("got %v, want a 422 naming the malformed key — a not-found would read as though the fact had been deleted", err)
 	}
-	if parse.Code != "fact_key_malformed" {
-		t.Errorf("code = %q, want fact_key_malformed", parse.Code)
+	if got := factValue(ctx, t, e, orgID, "phone", ""); got != "+49 30 1234" {
+		t.Errorf("phone = %q — the refused correction landed anyway", got)
 	}
 }
 
@@ -303,12 +307,17 @@ func TestConfirmingAFactKeepsTheExtractionsClaimInTheAuditTrail(t *testing.T) {
 		t.Fatalf("confirm phone: %v", err)
 	}
 
+	// Filtered by the fact's own id, not "the newest organization_fact audit
+	// row": the seed writes none today, so an unfiltered read passes by luck,
+	// and would start asserting against a neighbour's audit the moment the
+	// fixture seeds through a real writer.
 	var before map[string]any
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			SELECT before FROM audit_log
-			 WHERE entity_type = 'organization_fact'
-			 ORDER BY id DESC LIMIT 1`).Scan(&before)
+			SELECT a.before FROM audit_log a
+			  JOIN organization_fact f ON f.id = a.entity_id
+			 WHERE a.entity_type = 'organization_fact'
+			   AND f.organization_id = $1 AND f.field = 'phone'`, orgID).Scan(&before)
 	}); err != nil {
 		t.Fatalf("read audit row: %v", err)
 	}
@@ -322,5 +331,104 @@ func TestConfirmingAFactKeepsTheExtractionsClaimInTheAuditTrail(t *testing.T) {
 	}
 	if before["confidence"] == nil {
 		t.Error("the audit's before image dropped the extraction's confidence")
+	}
+}
+
+// Every assertion above holds even if the two sidecar reads dropped their
+// workspace_id clause, because a single-workspace fixture cannot tell the
+// difference. This one can: it corrects through a store bound to workspace A
+// while the fact lives in workspace B.
+func TestEvidenceOfAnotherWorkspacesOrganizationIsNotReachable(t *testing.T) {
+	owner := setupDedupe(t)
+	orgID := evidenceOrg(owner.as(), t, owner)
+
+	stranger := setupDedupe(t)
+	corrected := "+49 30 9999"
+	_, err := stranger.store.UpdateOrganizationFact(stranger.as(), orgID, "phone:",
+		FactWriteInput{Value: &corrected})
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("got %v, want not found — another workspace's fact must be existence-hidden, never corrected", err)
+	}
+	if _, err := stranger.store.UpdateOrganizationProfileField(stranger.as(), orgID, "icp",
+		ProfileFieldWriteInput{Value: &corrected}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("got %v, want not found", err)
+	}
+	if got := factValue(owner.as(), t, owner, orgID, "phone", ""); got != "+49 30 1234" {
+		t.Errorf("phone = %q — a foreign correction reached the row", got)
+	}
+}
+
+// PATCH /organizations/{id} refuses an archived record, so a correction routed
+// through its receipt must refuse it too — otherwise the sidecar is a way to
+// edit a company the ordinary path says is gone. The refusal does not depend on
+// whether the field has a canonical column behind it.
+func TestAnArchivedOrganizationsEvidenceIsReadableButNotCorrectable(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	orgID := evidenceOrg(ctx, t, e)
+	// Archived by column rather than through ArchiveOrganization: the rep this
+	// suite runs as holds no organization delete grant, and widening it would
+	// change what every other test in the package is proving. The state under
+	// test is the archived row, not how it got there.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE organization SET archived_at = now() WHERE id = $1`, orgID)
+		return err
+	}); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+
+	// Still readable: this is the record of what was known when it was retired.
+	if _, err := e.store.ListOrganizationProfileFields(ctx, orgID); err != nil {
+		t.Fatalf("an archived company's evidence must stay readable, got %v", err)
+	}
+
+	corrected := "Voltaq Systems GmbH & Co. KG"
+	for _, tc := range []struct {
+		name string
+		call func() error
+	}{
+		{"a field with a canonical column", func() error {
+			_, err := e.store.UpdateOrganizationProfileField(ctx, orgID, "display_name",
+				ProfileFieldWriteInput{Value: &corrected})
+			return err
+		}},
+		{"a field with none", func() error {
+			_, err := e.store.UpdateOrganizationProfileField(ctx, orgID, "icp",
+				ProfileFieldWriteInput{Value: &corrected})
+			return err
+		}},
+		{"a fact", func() error {
+			_, err := e.store.UpdateOrganizationFact(ctx, orgID, "phone:",
+				FactWriteInput{Value: &corrected})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.call(); !errors.Is(err, apperrors.ErrNotFound) {
+				t.Fatalf("got %v, want not found", err)
+			}
+		})
+	}
+	if got := orgColumn(ctx, t, e, orgID, "display_name"); got != "Voltaq Systems GmbH" {
+		t.Errorf("display_name = %q — a refused correction rewrote an archived record", got)
+	}
+}
+
+// A corrected display name is a rename, and a rename owes the record the same
+// two things a rename through the edit form owes it: the provenance stamp that
+// stops the next enrichment run overwriting the human, and the duplicate
+// recheck that notices the new name colliding with an existing company.
+func TestCorrectingTheDisplayNameIsTreatedAsAHumanRename(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	orgID := evidenceOrg(ctx, t, e)
+
+	corrected := "Brandt Industrieservice GmbH"
+	if _, err := e.store.UpdateOrganizationProfileField(ctx, orgID, "display_name",
+		ProfileFieldWriteInput{Value: &corrected}); err != nil {
+		t.Fatalf("correct display_name: %v", err)
+	}
+	if got := orgColumn(ctx, t, e, orgID, "name_source"); got != "human" {
+		t.Errorf("name_source = %q, want human — an unstamped correction is overwritten by the next enrichment run", got)
 	}
 }

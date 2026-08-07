@@ -34,7 +34,10 @@ const baseCurrencyColumn = "base_currency"
 type BaseCurrencyState struct {
 	BaseCurrency string
 	Locked       bool
-	FrozenDeals  int
+	// FrozenRecords counts the deals and sent offers already expressed against
+	// this base. It is what makes Locked explainable — "3 records hold a rate
+	// against EUR" rather than a bare no.
+	FrozenRecords int
 }
 
 // SetBaseCurrency adopts a new workspace base currency, while that is still
@@ -63,22 +66,32 @@ func (s *Store) SetBaseCurrency(ctx context.Context, code string) (BaseCurrencyS
 	}
 
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// FOR UPDATE before the count, not after: a freeze samples the base with
+		// a shared lock on this same row (freezeFx), so taking it exclusively
+		// here is what makes the count and the write one decision. Without it
+		// the two transactions never touch a common row, and at READ COMMITTED a
+		// deal closing concurrently would freeze against the base this one is
+		// about to replace — leaving a rate pinned to a base that no longer
+		// exists, which the guard can never afterwards detect.
+		var before string
+		if err := tx.QueryRow(ctx,
+			`SELECT base_currency FROM workspace WHERE id = $1 FOR UPDATE`,
+			storekit.MustWorkspace(ctx)).Scan(&before); err != nil {
+			return fmt.Errorf("read current base currency: %w", err)
+		}
 		frozen, err := frozenRateCount(ctx, tx)
 		if err != nil {
 			return err
 		}
 		if frozen > 0 {
-			// The count travels with the refusal so the message can say why
-			// rather than only saying no.
-			out.FrozenDeals = frozen
-			return fmt.Errorf("%d closed deal(s) already froze a rate against the current base: %w",
+			// The count is in the message rather than the returned state: the
+			// caller discards the state on error, and this is the only place a
+			// human learns WHY the base stopped moving.
+			return fmt.Errorf("%d record(s) already froze a rate against the current base: %w",
 				frozen, apperrors.ErrBaseCurrencyLocked)
 		}
-		var before string
-		if err = tx.QueryRow(ctx,
-			`SELECT base_currency FROM workspace WHERE id = $1`,
-			storekit.MustWorkspace(ctx)).Scan(&before); err != nil {
-			return fmt.Errorf("read current base currency: %w", err)
+		if err := refuseWhenRateSheetIsPriced(ctx, tx, before, normalized); err != nil {
+			return err
 		}
 		if before == normalized {
 			out.BaseCurrency = before
@@ -119,20 +132,66 @@ func (s *Store) BaseCurrencyStatus(ctx context.Context) (BaseCurrencyState, erro
 		if err != nil {
 			return err
 		}
-		out.FrozenDeals = frozen
+		out.FrozenRecords = frozen
 		out.Locked = frozen > 0
 		return nil
 	})
 	return out, err
 }
 
-// frozenRateCount counts the deals whose worth is already expressed against the
-// current base. One is enough to lock it; the count exists for the message.
-func frozenRateCount(ctx context.Context, tx pgx.Tx) (int, error) {
-	var n int
-	if err := tx.QueryRow(ctx,
-		`SELECT count(*) FROM deal WHERE fx_rate_to_base IS NOT NULL`).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count frozen conversion rates: %w", err)
+// refuseWhenRateSheetIsPriced stops a base change that would leave the existing
+// rate sheet lying.
+//
+// Every fx_rate row stores the base it converts INTO as `to_currency`, fixed
+// when the rate was entered. Moving the base does not rewrite them, so a sheet
+// entered against EUR would go on being served beside a base of USD — the read
+// side would report USD rates that are in fact EUR ones. Re-targeting them is
+// not available either: nobody can restate a EUR→USD rate as a CHF→USD one.
+//
+// So the base moves only while nothing is priced against it. That is exactly
+// the case this write exists for — an installation correcting the currency it
+// put in its configuration file on day one, before it entered any rates.
+func refuseWhenRateSheetIsPriced(ctx context.Context, tx pgx.Tx, before, wanted string) error {
+	if before == wanted {
+		return nil
 	}
-	return n, nil
+	var priced int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM fx_rate WHERE to_currency = $1`, before).Scan(&priced); err != nil {
+		return fmt.Errorf("count rates priced against the current base: %w", err)
+	}
+	if priced == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"%d rate(s) convert into %s and cannot be restated as %s rates; clear the rate sheet first: %w",
+		priced, before, wanted, apperrors.ErrBaseCurrencyLocked)
+}
+
+// frozenRateTables are every table holding an `fx_rate_to_base` — the column
+// that expresses one record's worth against the base in force when it froze.
+// A deal freezes on close; an offer freezes on send, and its figure has already
+// left the building in a PDF. Counting only deals would let a workspace that has
+// sent offers and closed nothing flip the base and restate all of them.
+//
+// TestTheBaseCurrencyGuardCountsEveryFrozenRate derives this list from the
+// schema, so a future table carrying the column fails that test rather than
+// quietly widening the hole.
+var frozenRateTables = []string{"deal", "offer"}
+
+// frozenRateCount counts the records whose worth is already expressed against
+// the current base. One is enough to lock it; the count exists for the message.
+func frozenRateCount(ctx context.Context, tx pgx.Tx) (int, error) {
+	total := 0
+	for _, table := range frozenRateTables {
+		var n int
+		// The table name comes from the package-level list above, never from a
+		// caller, so the interpolation carries nothing a request chose.
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM `+table+` WHERE fx_rate_to_base IS NOT NULL`).Scan(&n); err != nil {
+			return 0, fmt.Errorf("count frozen conversion rates in %s: %w", table, err)
+		}
+		total += n
+	}
+	return total, nil
 }

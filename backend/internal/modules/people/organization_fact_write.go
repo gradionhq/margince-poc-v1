@@ -67,7 +67,7 @@ func (s *Store) writeFact(
 	}
 
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureOrgReadable(ctx, tx, orgID); err != nil {
+		if err := ensureOrgWritable(ctx, tx, orgID); err != nil {
 			return err
 		}
 		var now time.Time
@@ -85,14 +85,14 @@ func (s *Store) writeFact(
 		}
 		// The extraction's snippet, source and confidence stay put; the before
 		// image carries them into the audit trail (PO-AC-N-2).
-		p.Set(auditKeySource, before.Source, sourceHuman)
+		p.Set(auditKeySource, before.Source, companySourceHuman)
 		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
 		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
 
 		// No archived_at on this sidecar either — the fact is deleted with its
-		// organization, never retired alone. See ApplyWithVersionIn.
+		// organization, never retired alone.
 		if err := p.ApplyGuardedIn(ctx, tx, "organization_fact", before.ID,
-			in.IfVersion, storekit.IncludeArchived); err != nil {
+			in.IfVersion, storekit.NoArchiveColumn); err != nil {
 			return err
 		}
 
@@ -128,7 +128,7 @@ type factRow struct {
 func (r factRow) auditImage() map[string]any {
 	return map[string]any{
 		auditKeyValue: r.Value, auditKeySource: r.Source,
-		"evidence_snippet": r.EvidenceSnippet, "source_url": r.SourceURL,
+		auditKeyEvidenceSnippet: r.EvidenceSnippet, auditKeySourceURL: r.SourceURL,
 		auditKeyConfidence: r.Confidence,
 		auditKeyVerifiedAt: r.VerifiedAt, auditKeyVerifiedBy: r.VerifiedBy,
 	}

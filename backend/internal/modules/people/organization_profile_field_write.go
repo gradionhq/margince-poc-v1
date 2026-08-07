@@ -19,6 +19,18 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// ensureOrgWritable is ensureOrgReadable's write-side twin: same row-scope and
+// existence hiding, plus the liveness the read deliberately does not require.
+//
+// The evidence of an archived company stays READABLE — that is the record of
+// what was known when it was retired. Correcting it is a different act, and
+// PATCH /organizations/{id} refuses it. Both evidence writers gate here so the
+// refusal does not depend on whether the corrected field happens to have a
+// canonical column behind it.
+func ensureOrgWritable(ctx context.Context, tx pgx.Tx, id ids.OrganizationID) error {
+	return auth.EnsureVisibleLive(ctx, tx, "organization", id.UUID)
+}
+
 // canonicalOrgColumn maps a profile field onto the organization column that
 // actually holds the value (ADR-0085 / A130). Where a mapping exists, THE
 // COLUMN IS THE VALUE and the sidecar row is only its receipt — so a
@@ -42,16 +54,16 @@ func canonicalOrgColumn(field string) (string, bool) {
 	}
 }
 
-// Audit-image keys the two evidence sidecars share. A correction's before
-// image is the machine's whole claim, so both files write the same shape and
-// the spelling lives in one place.
+// Audit-image keys the two evidence sidecars share. A correction's before image
+// is the machine's whole claim, so both sidecars write the same shape and each
+// key is spelled once. auditKeySource, auditKeySourceURL and companySourceHuman
+// already exist in company.go and are reused rather than respelled here.
 const (
 	auditKeyValue           = "value"
 	auditKeyEvidenceSnippet = "evidence_snippet"
 	auditKeyConfidence      = "confidence"
 	auditKeyVerifiedAt      = "verified_at"
 	auditKeyVerifiedBy      = "verified_by"
-	sourceHuman             = "human"
 )
 
 // ProfileFieldWriteInput carries a correction. Value is nil for a confirmation,
@@ -106,7 +118,7 @@ func (s *Store) writeProfileField(
 	}
 
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureOrgReadable(ctx, tx, orgID); err != nil {
+		if err := ensureOrgWritable(ctx, tx, orgID); err != nil {
 			return err
 		}
 		// The transaction's own clock, so every row this write stamps agrees
@@ -128,15 +140,15 @@ func (s *Store) writeProfileField(
 		// source_url and confidence stay exactly as extracted, and the before
 		// image below carries them into the audit trail (PO-AC-N-2). What
 		// changes is who now stands behind the value.
-		p.Set(auditKeySource, before.Source, string(crmcontracts.CompanyProfileFieldSourceHuman))
+		p.Set(auditKeySource, before.Source, companySourceHuman)
 		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
 		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
 
 		// A receipt is not archivable: it has no archived_at, because it is
 		// deleted with the organization it describes rather than retired on its
-		// own. IncludeArchived is how that is spelled — see ApplyWithVersionIn.
+		// own. NoArchiveColumn is how that is spelled.
 		if err := p.ApplyGuardedIn(ctx, tx, "organization_profile_field", before.ID,
-			in.IfVersion, storekit.IncludeArchived); err != nil {
+			in.IfVersion, storekit.NoArchiveColumn); err != nil {
 			return err
 		}
 
@@ -168,23 +180,59 @@ func (s *Store) writeProfileField(
 	return out, err
 }
 
-// writeCanonicalOrgColumn moves the value the sidecar was only describing, and
-// stamps the name provenance the rename recheck reads, so a corrected display
-// name is treated as human-set exactly like one typed into the edit form.
+// writeCanonicalOrgColumn moves the value the sidecar was only describing.
+//
+// A correction here IS an organization edit, so it owes the record everything
+// UpdateOrganization owes it — the same four obligations, or a correction
+// becomes a back door that reaches the same columns with fewer rules:
+//
+//   - LIVE ONLY. PATCH /organizations/{id} refuses an archived record; without
+//     the same filter, correcting its display_name through the receipt would
+//     rewrite a record the ordinary path says is gone.
+//   - THE VERSION MOVES, so another editor holding the organization's If-Match
+//     is told the row changed under them. trg_organization_updated does that
+//     for any UPDATE on the row, which is why nothing here sets it.
+//   - name_source = 'human'. A human naming the company is the top of the
+//     provenance lattice (ADR-0072/A118). Left unstamped, the next enrichment
+//     run overwrites the correction as though no one had made it.
+//   - THE RENAME RECHECK RUNS. A new name can collide with an existing company,
+//     and the duplicate queue only learns about it if this asks.
 func writeCanonicalOrgColumn(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, column, value string,
 ) error {
+	renamed := column == fieldDisplayName || column == fieldLegalName
+	if renamed {
+		// Workspace-wide, and taken before the row write for the ordering rule
+		// on lockOrgNameWrites. Only a rename pays for it.
+		if err := lockOrgNameWrites(ctx, tx); err != nil {
+			return err
+		}
+	}
 	// The column name comes from canonicalOrgColumn's closed switch, never from
 	// caller input, so the interpolation cannot carry anything a request chose.
+	// name_source rides the same statement rather than a second UPDATE: one
+	// write, so the value and its provenance cannot land apart.
+	nameSource := ""
+	if renamed {
+		nameSource = ", name_source = 'human'"
+	}
 	tag, err := tx.Exec(ctx,
-		`UPDATE organization SET `+column+` = $2 WHERE id = $1`, orgID, value)
+		`UPDATE organization SET `+column+` = $2`+nameSource+`
+		  WHERE id = $1 AND archived_at IS NULL`, orgID, value)
 	if err != nil {
 		return fmt.Errorf("write canonical organization column: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return apperrors.ErrNotFound
 	}
-	return nil
+	if !renamed {
+		return nil
+	}
+	editor, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return err
+	}
+	return recheckOrgNameForDuplicates(ctx, tx, orgID, editor)
 }
 
 type profileFieldRow struct {
@@ -201,7 +249,7 @@ type profileFieldRow struct {
 func (r profileFieldRow) auditImage() map[string]any {
 	return map[string]any{
 		auditKeyValue: r.Value, auditKeySource: r.Source,
-		"evidence_snippet": r.EvidenceSnippet, "source_url": r.SourceURL,
+		auditKeyEvidenceSnippet: r.EvidenceSnippet, auditKeySourceURL: r.SourceURL,
 		auditKeyConfidence: r.Confidence,
 		auditKeyVerifiedAt: r.VerifiedAt, auditKeyVerifiedBy: r.VerifiedBy,
 	}

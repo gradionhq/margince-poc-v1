@@ -35,11 +35,11 @@ func normalizeOrgLinkedInURL(raw string) (string, error) {
 		return "", err
 	}
 	host, path, ok := splitLinkedInHostPath(normalized)
-	if !ok || !strings.HasSuffix(host, linkedInHost) {
+	if !ok || !isLinkedInCompanyHost(host) {
 		return "", &values.ParseError{
 			Field:   linkedInField,
 			Code:    "linkedin_url_not_linkedin",
-			Message: "a company URL is on linkedin.com",
+			Message: "a company URL is on linkedin.com, optionally under a country subdomain",
 		}
 	}
 	slug, isCompany := strings.CutPrefix(path, linkedInCompanyPrefix)
@@ -72,6 +72,28 @@ func orgLinkedInPatchValue(raw string) (*string, error) {
 		return nil, err
 	}
 	return &normalized, nil
+}
+
+// isLinkedInCompanyHost answers whether a host is one the stored column can
+// hold, matching organization_linkedin_url_shape's `([a-z]{2,3}\.)?linkedin\.com`
+// exactly. A suffix test would not: it admits `notlinkedin.com`, and
+// `jobs.linkedin.com` — a real LinkedIn host, four letters, outside the CHECK.
+// Both would be accepted here and then refused by the database, turning a bad
+// URL into a constraint violation where the caller deserves a 422.
+func isLinkedInCompanyHost(host string) bool {
+	if host == linkedInHost {
+		return true
+	}
+	sub, found := strings.CutSuffix(host, "."+linkedInHost)
+	if !found || len(sub) < 2 || len(sub) > 3 {
+		return false
+	}
+	for _, r := range sub {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
 }
 
 // splitLinkedInHostPath separates the already-normalized URL back into host and

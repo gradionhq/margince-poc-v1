@@ -9446,7 +9446,7 @@ type BackfillStatusWindow string
 type BaseCurrencyResponse struct {
 	BaseCurrency string `json:"base_currency"`
 
-	// Locked True once at least one deal has frozen a conversion rate against this base, after which it can never change. Rendered so the surface can state the constraint before a user attempts the edit rather than only refusing it.
+	// Locked True once at least one deal or sent offer has frozen a conversion rate against this base, after which it can never change. Rendered so the surface can state the constraint before a user attempts the edit rather than only refusing it. A priced rate sheet blocks the change too, but is repairable, so it does not set this flag.
 	Locked bool `json:"locked"`
 }
 
@@ -25082,7 +25082,7 @@ type ServerInterface interface {
 	// Set an FX rate effective today or later (append-forward).
 	// (POST /fx-rates)
 	SetFxRate(w http.ResponseWriter, r *http.Request)
-	// Change the workspace base currency, while no deal has frozen a rate against it.
+	// Change the workspace base currency, while nothing has frozen a rate against it.
 	// (PUT /fx-rates/base-currency)
 	SetBaseCurrency(w http.ResponseWriter, r *http.Request)
 	// Enqueue an async FX-rate refresh (stages 🟡 proposals).
@@ -26369,7 +26369,7 @@ func (_ Unimplemented) SetFxRate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Change the workspace base currency, while no deal has frozen a rate against it.
+// Change the workspace base currency, while nothing has frozen a rate against it.
 // (PUT /fx-rates/base-currency)
 func (_ Unimplemented) SetBaseCurrency(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
