@@ -376,17 +376,17 @@ func passwordOwnerCtx(ctx context.Context, userID ids.UserID) context.Context {
 	})
 }
 
-// operatorCtx binds the operator-cli system actor, the target workspace, and
-// a correlation id for the credential cascade OperatorResetPassword
-// triggers. The caller's tx already runs under the workspace GUC (cmd/migrate
-// sets it); the workspace binding here only supplies what
-// storekit.AuditWithEvidence reads off ctx rather than the GUC — the wsID
-// column value and the actor attribution — mirroring the system_log row this
-// function already writes by hand. The correlation id is not optional: if
-// the reset user holds a live OAuth grant, the cascade's passport.revoked
-// events go through storekit.Emit, which refuses to stage an event with none
-// bound — and cmd/migrate's bare command context carries no operation scope
-// of its own the way an HTTP request or a bus consumer would.
+// operatorCtx binds the operator-driven system actor, the target workspace,
+// and a correlation id for the credential cascade OperatorResetPassword
+// triggers. The workspace binding supplies what storekit.AuditWithEvidence
+// reads off ctx rather than off the GUC the caller's transaction already
+// runs under — the wsID column value and the actor attribution — mirroring
+// the system_log row this function already writes by hand. The correlation
+// id is not optional: if the reset user holds a live OAuth grant, the
+// cascade's passport.revoked events go through storekit.Emit, which refuses
+// to stage an event with none bound, and an operator-driven call carries no
+// operation scope of its own the way an HTTP request or a bus consumer
+// would — one has to be minted here.
 func operatorCtx(ctx context.Context, wsID ids.WorkspaceID, userID ids.UserID) context.Context {
 	ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
