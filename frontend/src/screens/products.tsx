@@ -1,7 +1,7 @@
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { Badge, DataTable, SectionHeader } from "../design-system/atoms";
+import { Badge } from "../design-system/atoms";
 import { formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
@@ -9,10 +9,9 @@ import { throwProblem } from "./common";
 import { CreateAction, type CreateField } from "./create";
 import { EditAction } from "./edit";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 
@@ -144,112 +143,99 @@ export function ProductsScreen() {
 
   return (
     <div className="wrap narrow">
-      <SectionHeader
-        title={t("product.title")}
-        sub={t("product.settingsSub")}
-      />
-      <div className="list-head">
-        <CreateAction
-          label={t("product.new")}
-          invalidate="products"
-          screen="products"
-          create={createProduct}
-          fields={PRODUCT_FIELDS}
-        />
-      </div>
-      <ListToolbar
-        query={list.query}
-        setQuery={list.setQuery}
-        sortOptions={[
-          { value: "name", label: "product.sortName" },
-          { value: "-created_at", label: "product.sortCreated" },
-        ]}
-        filters={[
+      <ListTable
+        state={list}
+        unit="nav.products"
+        caption="product.settingsSub"
+        action={
+          <CreateAction
+            label={t("product.new")}
+            invalidate="products"
+            screen="products"
+            create={createProduct}
+            fields={PRODUCT_FIELDS}
+          />
+        }
+        columns={[
           {
-            kind: "select",
+            key: "name",
+            header: t("product.name"),
+            cell: (p: Product) => p.name,
+            fixed: true,
+          },
+          {
+            key: "sku",
+            header: t("product.sku"),
+            cell: (p: Product) => p.sku ?? "",
+          },
+          {
+            key: "price",
+            header: t("product.unitPrice"),
+            cell: (p: Product) => (
+              <span className="t-mono">
+                {formatMoney(p.unit_price_minor, p.currency, locale)}
+              </span>
+            ),
+            numeric: true,
+          },
+          {
+            key: "active",
+            header: t("product.active"),
+            cell: (p: Product) =>
+              p.archived_at ? (
+                <Badge tone="danger">{t("product.archived")}</Badge>
+              ) : p.active ? (
+                <Badge tone="success">{t("product.active")}</Badge>
+              ) : (
+                <Badge>{t("product.inactive")}</Badge>
+              ),
+          },
+          {
+            key: "actions",
+            header: "",
+            cell: (p: Product) => (
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <EditAction
+                  label={t("product.edit")}
+                  invalidate="products"
+                  recordKey="product"
+                  record={{
+                    ...p,
+                    unit_price: (p.unit_price_minor / 100).toFixed(2),
+                  }}
+                  update={updateProduct(p)}
+                  fields={PRODUCT_FIELDS}
+                />
+                <ArchiveAction
+                  label={t("product.archive")}
+                  confirmText={t("product.archiveConfirm")}
+                  invalidate="products"
+                  recordKey="product"
+                  onArchived={() => list.refetch()}
+                  archive={async () => {
+                    const { data, error } = await api.DELETE("/products/{id}", {
+                      params: { path: { id: p.id } },
+                    });
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data ?? p;
+                  }}
+                />
+              </div>
+            ),
+          },
+        ]}
+        rowKey={(p) => p.id}
+        chips={[
+          {
             key: "active",
             label: "product.activeFilter",
+            allLabel: "product.activeFilterAll",
             options: [{ value: "true", label: "product.active" }],
           },
         ]}
       />
-      <ListGate state={list} empty={t("product.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "name",
-                header: t("product.name"),
-                render: (p: Product) => p.name,
-              },
-              {
-                key: "sku",
-                header: t("product.sku"),
-                render: (p: Product) => p.sku ?? "",
-              },
-              {
-                key: "price",
-                header: t("product.unitPrice"),
-                render: (p: Product) => (
-                  <span className="t-mono">
-                    {formatMoney(p.unit_price_minor, p.currency, locale)}
-                  </span>
-                ),
-              },
-              {
-                key: "active",
-                header: t("product.active"),
-                render: (p: Product) =>
-                  p.archived_at ? (
-                    <Badge tone="danger">{t("product.archived")}</Badge>
-                  ) : p.active ? (
-                    <Badge tone="success">{t("product.active")}</Badge>
-                  ) : (
-                    <Badge>{t("product.inactive")}</Badge>
-                  ),
-              },
-              {
-                key: "actions",
-                header: "",
-                render: (p: Product) => (
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <EditAction
-                      label={t("product.edit")}
-                      invalidate="products"
-                      recordKey="product"
-                      record={{
-                        ...p,
-                        unit_price: (p.unit_price_minor / 100).toFixed(2),
-                      }}
-                      update={updateProduct(p)}
-                      fields={PRODUCT_FIELDS}
-                    />
-                    <ArchiveAction
-                      label={t("product.archive")}
-                      confirmText={t("product.archiveConfirm")}
-                      invalidate="products"
-                      recordKey="product"
-                      onArchived={() => list.refetch()}
-                      archive={async () => {
-                        const { data, error } = await api.DELETE(
-                          "/products/{id}",
-                          { params: { path: { id: p.id } } },
-                        );
-                        if (error) {
-                          throwProblem(error);
-                        }
-                        return data ?? p;
-                      }}
-                    />
-                  </div>
-                ),
-              },
-            ]}
-            rows={rows}
-            rowKey={(p) => p.id}
-          />
-        )}
-      </ListGate>
     </div>
   );
 }

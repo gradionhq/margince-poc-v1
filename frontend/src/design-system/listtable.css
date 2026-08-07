@@ -1,0 +1,962 @@
+/*
+ * The list surface (design-system/listtable.tsx): header, controls, scrolling
+ * table, footer. One card-shaped block so the dials read as part of the data
+ * rather than as loose controls above it.
+ *
+ * Every colour reads a token (ADR-0040) and every gap reads the --space-*
+ * scale, so the surface re-themes with the rest of the app and keeps the
+ * app's vertical rhythm.
+ */
+
+.lt {
+  display: flex;
+  flex-direction: column;
+  /* min-height:0 is what lets the scrolling body actually shrink inside a
+   * flex column; without it the table pushes the surface past the viewport. */
+  min-height: 0;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+/* ---- header: views, count, primary action ---- */
+
+.lt-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.lt-views {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.lt-vtab {
+  border: 0;
+  background: transparent;
+  color: var(--textSecondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--r-full);
+  cursor: pointer;
+}
+.lt-vtab:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.lt-vtab.on {
+  background: var(--accentLight);
+  color: var(--accent);
+}
+
+/* Pushed to the right of the views, but stays left of the action. */
+.lt-count {
+  margin-left: auto;
+  /* Holds its line while the rows are loading, so the header does not resize
+   * under the reader when the count appears. */
+  min-height: 1em;
+  font-size: 12px;
+  color: var(--textMeta);
+  white-space: nowrap;
+}
+
+.lt-caption {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--borderSubtle);
+  font-size: 12.5px;
+  color: var(--textMeta);
+}
+
+/* ---- toolbar: search, chips, column picker, density ---- */
+
+.lt-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--borderSubtle);
+  background: var(--bgPage);
+}
+
+.lt-spacer {
+  flex: 1;
+}
+
+.lt-search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  height: 30px;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-full);
+  color: var(--textTertiary);
+}
+.lt-search:focus-within {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.lt-search-input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--textPrimary);
+  width: 180px;
+}
+.lt-search-input::placeholder {
+  color: var(--textTertiary);
+}
+
+/* Controls a body brings with it (the deals pipeline picker and its stage and
+ * company selects). A bare `.input` is a full-width form control; in the
+ * toolbar it is one item in a row of pills, so it takes the same height and
+ * silhouette as the chips beside it instead of claiming its own line. */
+.lt-tools select.input,
+.lt-tools input.input {
+  width: auto;
+  height: 30px;
+  padding: 0 var(--space-3);
+  font-size: 12.5px;
+  border-radius: var(--r-full);
+  border-color: var(--borderSubtle);
+}
+
+.lt-note {
+  font-size: 12px;
+  color: var(--textMeta);
+}
+
+.lt-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--textSecondary);
+  cursor: pointer;
+}
+
+/* Chips and buttons share a height and a pill silhouette so the toolbar reads
+ * as one row of controls rather than several kinds of thing. */
+.lt-chip,
+.lt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 30px;
+  padding: 0 var(--space-3);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-full);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--textSecondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lt-chip:hover,
+.lt-btn:hover {
+  border-color: var(--borderStrong);
+  color: var(--textPrimary);
+}
+.lt-chip.active,
+.lt-btn.on {
+  border-color: var(--accentMed);
+  background: var(--accentLight);
+  color: var(--accent);
+}
+
+.lt-chip-value {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* An applied filter's compound row: attribute, condition, value and the "⋮"
+ * menu inside one bordered pill, so the four read as one control rather than
+ * three orphan buttons beside a chip. */
+.lt-frow {
+  /* A <fieldset> carries default browser border/padding/margin and a
+   * min-width that fights an inline-flex pill — reset all four before the
+   * row's own look applies. */
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: stretch;
+  height: 30px;
+  background: var(--bgElevated);
+  border: 1px solid var(--accentMed);
+  border-radius: var(--r-full);
+  overflow: hidden;
+  font-size: 12.5px;
+}
+
+.lt-frow-attr {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  background: var(--accentLight);
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lt-frow-seg {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-left: 1px solid var(--borderSubtle);
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--textSecondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lt-frow-seg:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+
+.lt-frow-value {
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+
+.lt-frow-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  border: 0;
+  border-left: 1px solid var(--borderSubtle);
+  background: transparent;
+  color: var(--textSecondary);
+  cursor: pointer;
+}
+.lt-frow-more:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+
+/* A relation filter's search step: the honest states between typing and a
+ * result — nothing typed yet, searching, no matches, failed. */
+.lt-fvalue-status {
+  margin: 0;
+  padding: var(--space-2) var(--space-2);
+  font-size: 12.5px;
+  color: var(--textMeta);
+}
+.lt-fvalue-status.error {
+  color: var(--danger);
+}
+
+.lt-sortdir:hover {
+  background: var(--bgCard);
+}
+
+/* Ascending is the icon's natural, unrotated reading; descending flips it,
+ * the same convention the header's own sort arrow uses. */
+@media (prefers-reduced-motion: reduce) {
+  .lt-sortdir-icon {
+    transition: none;
+  }
+}
+
+/* ---- popover menus ---- */
+
+.lt-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.lt-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 20;
+  display: none;
+  min-width: 180px;
+  /* A workspace has more companies than fit on a screen, so the menu scrolls
+   * rather than running off the bottom of the page. */
+  max-height: 300px;
+  overflow-y: auto;
+  padding: var(--space-1);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+}
+.lt-menu.right {
+  left: auto;
+  right: 0;
+}
+.lt-menu.open {
+  display: block;
+}
+
+.lt-mhead {
+  padding: var(--space-1) var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--textMeta);
+}
+
+/* The attribute search, at the top of the Filter button's first step. Full
+ * width of the menu rather than the fixed 180px of the search box in the
+ * toolbar itself — this one has no icon competing for the space. */
+.lt-fsearch {
+  display: block;
+  padding: var(--space-1) var(--space-2);
+}
+.lt-fsearch-input {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgPage);
+  font: inherit;
+  font-size: 13px;
+  color: var(--textPrimary);
+}
+.lt-fsearch-input:focus {
+  outline: 0;
+  border-color: var(--accent);
+}
+
+.lt-mi {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 13px;
+  color: var(--textContent);
+  text-align: left;
+  cursor: pointer;
+}
+.lt-mi:hover {
+  background: var(--bgHover);
+}
+
+/* The tick box is always laid out, and only its glyph appears when selected —
+ * a checkmark that inserts itself would shift every label on selection. */
+.lt-cb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 14px;
+  flex: none;
+  border: 1px solid var(--borderStrong);
+  border-radius: 4px;
+  color: var(--textOnAccent);
+}
+.lt-mi .lt-cb > svg {
+  visibility: hidden;
+}
+.lt-mi.on .lt-cb {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.lt-mi.on .lt-cb > svg {
+  visibility: visible;
+}
+
+/* ---- the table ---- */
+
+/* The body scrolls under a stuck header, so a long list keeps its column names.
+ * It takes whatever height is left rather than a fixed cap: the surface is sized
+ * by the viewport, not by the number of rows. */
+.lt-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* The table is as wide as its columns need, not as wide as the viewport. Widening
+ * one column pushes the total past the surface and the body scrolls sideways,
+ * rather than every other column giving up room to compensate — which is what
+ * makes the pinned identity column worth having. min-width keeps it filling the
+ * surface when the columns do not need that much. */
+.lt-table {
+  width: 100%;
+  /* The colgroup decides the widths, and fixed layout is what makes it
+   * binding: under auto layout the content would still get a vote, which is
+   * how one long company name ends up owning half the row. The table's own
+   * min-width (set per render from the columns on screen) is the floor. */
+  table-layout: fixed;
+  /* separate, not collapse: a collapsed table refuses to paint box-shadow on
+   * its cells, and the pinned column needs one to cast over the content that
+   * scrolls under it. Zero spacing keeps the grid looking the same. */
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+}
+
+/* With explicit widths in play a cell clips rather than growing a row: the row
+ * rhythm survives a column narrowed past its content. */
+.lt-table th,
+.lt-table td {
+  overflow: hidden;
+}
+.lt-table td {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lt-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--textMeta);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bgElevated);
+  border-bottom: 1px solid var(--borderStrong);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.lt-table td {
+  padding: var(--space-3);
+  /* Every cell centres on the row, so a cell carrying a chip and a cell
+   * carrying one line of text read as the same row rather than two. */
+  vertical-align: middle;
+  border-bottom: 1px solid var(--borderSubtle);
+  color: var(--textContent);
+}
+
+/* Column dividers. The rows already have horizontal rules, so the verticals turn
+ * the table into a real grid and let the eye track one column down the page.
+ * Lighter than the row rule on purpose: they separate, they do not frame. The
+ * empty-state cell spans everything, so it takes none. */
+.lt-table th:not(:last-child),
+.lt-table td:not(:last-child) {
+  border-right: 1px solid
+    color-mix(in srgb, var(--borderSubtle) 65%, transparent);
+}
+
+/* The trailing gap. Zero wide until the reader has pinned every column, at
+ * which point it takes whatever width the columns did not ask for — so the
+ * grid keeps the widths it was given instead of stretching to fill the page.
+ * It holds nothing, so it takes no padding and no divider before it (that rule
+ * fires on the last real column, which is now second to last). */
+.lt-slack {
+  padding: 0;
+}
+.lt-table th:nth-last-child(2),
+.lt-table td:nth-last-child(2) {
+  border-right: 0;
+}
+/* The header's gap is a td, so the row's sticky rule does not reach it and the
+ * strip would break open above it as soon as the list scrolls. */
+.lt-table thead .lt-slack {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bgElevated);
+  border-bottom: 1px solid var(--borderStrong);
+}
+
+/* Placeholder rows: the list keeps its shape while the first page arrives, so
+ * the header and the controls do not sit above an empty box. */
+.lt-bone {
+  display: block;
+  height: 10px;
+  border-radius: var(--r-full);
+  background: var(--bgCard);
+}
+.lt-loading td {
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.lt-empty td {
+  border-right: 0;
+}
+
+.lt-table tbody tr:hover td {
+  background: var(--bgHover);
+}
+
+.lt-rowlink {
+  cursor: pointer;
+}
+
+/* The identity cell's link fills its cell, so the whole cell is the target and
+ * the cell's own truncation still governs. It reads as the record's name, not
+ * as a link — the row already says it is clickable. */
+.lt-cellink {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lt-cellink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+}
+
+.lt-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The identity column stays put while the rest scrolls sideways: with enough
+ * columns to need scrolling, a row whose name has scrolled away is a row you
+ * can no longer tell apart. It carries its own background because the cells it
+ * slides over would otherwise show through, and a divider so the frozen edge
+ * is legible. */
+.lt-table .lt-identity {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bgElevated);
+  border-right: 1px solid var(--borderSubtle);
+}
+
+/*
+ * The frozen edge's shadow: one element, sticking to the left of the scrolling
+ * body and spanning its visible height, so the shade runs unbroken down the
+ * column instead of restarting at every row.
+ *
+ * It only shows once columns have actually slid under the edge — at rest there
+ * is nothing behind it, and a shadow over open space reads as a seam.
+ */
+.lt-freeze {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  height: 0;
+  pointer-events: none;
+}
+.lt-freeze::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--lt-freeze, 0);
+  width: 14px;
+  height: var(--lt-body, 0);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--overlayScrim) 30%, transparent),
+    transparent
+  );
+}
+.lt-scroll.shifted .lt-freeze::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lt-freeze::after {
+    transition: none;
+  }
+}
+
+.lt-table th.lt-identity {
+  /* Above the other headers: this one is stuck to both edges. */
+  z-index: 3;
+}
+.lt-table tbody tr:hover td.lt-identity {
+  background: var(--bgHover);
+}
+
+/* Compact tightens the row, so the chips in it come down to match: a 28px mark
+ * against a 20px row is what makes one row taller than its neighbours. */
+.lt-table.dense .avatar {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+
+/* Compact: the rows tighten, the type does not. Shrinking the text too would
+ * trade a density control for a legibility problem. */
+.lt-table.dense td {
+  padding: var(--space-1) var(--space-3);
+}
+
+/* The grip on a column's trailing edge. Its hit area is wider than the line it
+ * draws, so it can be grabbed without hunting for a 1px target. */
+.lt-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: col-resize;
+  touch-action: none;
+}
+.lt-grip::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  right: 4px;
+  width: 1px;
+  height: 50%;
+  background: var(--borderStrong);
+}
+.lt-grip:hover::after,
+.lt-grip:focus-visible::after {
+  top: 0;
+  height: 100%;
+  width: 2px;
+  background: var(--accent);
+}
+
+.lt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.lt-sort:hover {
+  color: var(--textPrimary);
+}
+.lt-sort.on {
+  color: var(--accent);
+}
+
+/* The arrow occupies its slot at all times and only becomes visible on the
+ * sorted column, so clicking a header never nudges the other headers sideways. */
+.lt-arrow {
+  visibility: hidden;
+  transition: transform 120ms ease;
+}
+.lt-sort.on .lt-arrow {
+  visibility: visible;
+}
+.lt-arrow.up {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lt-arrow {
+    transition: none;
+  }
+}
+
+.lt-empty td {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--textSecondary);
+}
+
+.lt-linkish {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---- footer ---- */
+
+.lt-agg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--borderSubtle);
+  background: var(--bgPage);
+  font-size: 12.5px;
+  color: var(--textSecondary);
+}
+
+/* The paging slot the caller fills with its keyset "Load more". */
+.lt > .btn,
+.lt > button {
+  margin: var(--space-3) var(--space-4);
+}
+
+/* The pending ladder the bound list renders in place of the surface. */
+.list-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ---- pager ---- */
+
+/* Centred numbered pager with the page size on the right: the reader's eye goes
+ * to the page they are on, and the size control stays out of that path. */
+.lt-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--borderSubtle);
+  flex: none;
+}
+
+.lt-pager {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 auto;
+}
+
+.lt-pager button {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--textSecondary);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.lt-pager button:hover:not(:disabled) {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.lt-pager button.on {
+  background: var(--accent);
+  color: var(--textOnAccent);
+  font-weight: 600;
+}
+.lt-pager button:disabled {
+  color: var(--textTertiary);
+  cursor: default;
+}
+
+.lt-perpage select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--textSecondary);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-sm);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+/* One page and nothing more to fetch: the pager has nothing to say, but it keeps
+ * its space so the page-size control does not jump when a filter is cleared. */
+.lt-foot.single .lt-pager {
+  visibility: hidden;
+}
+
+/* ---- phone: rows become cards ---- */
+
+/*
+ * A phone list is read to FIND a record and act on it, not to compare values
+ * across rows, so the row stops being a row: each one becomes a card with the
+ * identity as its heading and every remaining field as a labelled line. That
+ * shows the whole record without a horizontal scrollbar hiding half of it, and
+ * without dropping columns the reader might have needed.
+ *
+ * The table element keeps its markup and its explicit roles, so what changes
+ * here is the layout, not the semantics.
+ */
+@media (max-width: 720px) {
+  .lt-table,
+  .lt-table thead,
+  .lt-table tbody,
+  .lt-table tr,
+  .lt-table th,
+  .lt-table td {
+    display: block;
+  }
+
+  /* The header row has nothing to label once the columns are stacked; each cell
+   * carries its own label instead. */
+  .lt-table thead {
+    display: none;
+  }
+
+  .lt-table tbody tr {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--borderSubtle);
+  }
+  .lt-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .lt-table tbody tr:hover td {
+    background: none;
+  }
+
+  /* No verticals in a stack: the label/value pairs already read as rows. */
+  .lt-table td:not(:last-child),
+  .lt-table th:not(:last-child) {
+    border-right: 0;
+  }
+
+  /* A card has vertical room, so its values wrap instead of being clipped. */
+  .lt-table td {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: var(--space-1) 0;
+    border-bottom: 0;
+    text-align: left;
+    white-space: normal;
+    overflow: visible;
+  }
+
+  /* A field with no value has nothing to label: on a desktop row the empty cell
+   * holds the grid together, but in a card it would read as a missing answer to
+   * a question nobody asked. */
+  .lt-table td:empty {
+    display: none;
+  }
+
+  /* The field name, taken from the column header the card no longer shows. */
+  .lt-table td::before {
+    content: attr(data-label);
+    flex: 0 0 38%;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--textMeta);
+  }
+
+  /* The identity cell is the card's heading: no label, full width, and it reads
+   * as the thing you tapped rather than as one field among several. */
+  .lt-table td.lt-identity {
+    display: block;
+    padding-bottom: var(--space-2);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--textPrimary);
+  }
+  .lt-table td.lt-identity::before {
+    content: none;
+  }
+
+  /* A number in a stack belongs beside its label, not against the far edge. */
+  .lt-table td.lt-num {
+    text-align: left;
+  }
+
+  /* Cards are already tight; the density control governs the desktop grid. */
+  .lt-table.dense td {
+    padding: var(--space-1) 0;
+  }
+
+  /* No frozen column in a stack of cards, so nothing to cast an edge shadow. */
+  .lt-freeze {
+    display: none;
+  }
+
+  /* A card is as wide as the screen, so there is no slack to take — and an
+     empty cell in a stack is an empty line at the bottom of every card. */
+  .lt-slack {
+    display: none;
+  }
+
+  .lt-empty td {
+    display: block;
+    text-align: center;
+  }
+  .lt-empty td::before {
+    content: none;
+  }
+
+  .lt-head,
+  .lt-tools,
+  .lt-foot {
+    flex-wrap: wrap;
+  }
+
+  /* The count stops competing with the tabs for the same line. */
+  .lt-count {
+    order: 9;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .lt-search {
+    flex: 1 1 100%;
+  }
+  .lt-search-input {
+    width: 100%;
+  }
+
+  .lt-head,
+  .lt-tools,
+  .lt-caption,
+  .lt-agg,
+  .lt-foot {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+}
+
+/* ---- the pipeline board, inside the same surface as the table ---- */
+
+/* The board (design-system/composed.tsx) is the other body the list surface
+ * carries, and it needs the same fill-and-scroll shape the table's own
+ * `.lt-scroll` gets: grow into whatever height the surface has, rather than
+ * push the surface past the viewport. The board itself still scrolls
+ * horizontally across stages (composed.css's `.board`); what changes here is
+ * that it also gives up its intrinsic height so a stage with many deals
+ * scrolls its own cards instead of stretching every column to match it. */
+.lt > .board {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  /* The stages sit inside the surface rather than against its edges, on the
+   * same rhythm the toolbar above them uses. */
+  padding: var(--space-3) var(--space-4);
+}
+.lt > .board .board-col {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* A phone swipes between stages rather than showing them all: one stage takes
+ * most of the width and the next one peeks, which is what says "there is more
+ * to the right" without a scrollbar. Snapping stops a swipe leaving the reader
+ * between two columns. */
+@media (max-width: 720px) {
+  .lt > .board {
+    grid-auto-columns: 85%;
+    scroll-snap-type: x mandatory;
+    padding: var(--space-3);
+  }
+  .lt > .board .board-col {
+    scroll-snap-align: start;
+  }
+}

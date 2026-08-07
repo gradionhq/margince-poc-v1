@@ -590,7 +590,7 @@ describe("DealsScreen filters", () => {
         ],
       }),
     );
-    render(<DealsScreen />);
+    const { container } = render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
 
     await user.click(screen.getByLabelText("Pipeline"));
@@ -601,30 +601,50 @@ describe("DealsScreen filters", () => {
     ).toEqual(["Sales", "Renewals"]);
     await user.keyboard("{Escape}");
 
-    await user.click(screen.getByLabelText("Stage"));
+    // Stage is a filter chip now rather than a picker of its own, so its
+    // all-stages entry sits one step inside the Filter menu — and it still has
+    // to be there, because that entry is how a chosen stage is cleared.
+    // "Stage" also names a column header, so the attribute is picked from
+    // inside the menu that is open rather than by a plain name match.
+    await user.click(screen.getByRole("button", { name: "Table" }));
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    const menu = container.querySelector<HTMLElement>(".lt-menu.open");
+    if (!menu) {
+      throw new Error("the Filter menu did not open");
+    }
+    await user.click(within(menu).getByRole("button", { name: "Stage" }));
     expect(
-      within(screen.getByRole("listbox")).getByRole("option", {
-        name: "All stages",
-      }),
+      within(menu).getByRole("button", { name: "All stages" }),
     ).toBeTruthy();
   });
 
   it("the stalled filter adds stalled=true to the deals query", async () => {
-    const user = userEvent.setup();
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
       stubBackend([deal({})], { onDealsUrl: (u) => urls.push(u) }),
     );
-    render(<DealsScreen />);
+    const { container } = render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
-    // The control and its only narrowing choice share the "Stalled only" name:
-    // the combobox is named by the filter, the option by what it selects.
-    await pickOption(
-      user,
-      screen.getByLabelText("Stalled only"),
-      "Stalled only",
+    // The stalled filter lives on the table view, not the board.
+    await userEvent.click(screen.getByRole("button", { name: "Table" }));
+
+    // The Filter button's attribute step and its value step both carry the
+    // "Stalled only" label — the chip's option shares the attribute's own
+    // name — so each step is picked from inside the menu that is open at
+    // that moment rather than by a plain (ambiguous) name match.
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const menu = container.querySelector<HTMLElement>(".lt-menu.open");
+    if (!menu) {
+      throw new Error("the Filter menu did not open");
+    }
+    await userEvent.click(
+      within(menu).getByRole("button", { name: "Stalled only" }),
     );
+    await userEvent.click(
+      within(menu).getByRole("button", { name: "Stalled only" }),
+    );
+
     await waitFor(() =>
       expect(urls.some((u) => u.includes("stalled=true"))).toBe(true),
     );

@@ -5,12 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
-import {
-  Badge,
-  DataTable,
-  SectionHeader,
-  SegmentedControl,
-} from "../design-system/atoms";
+import { Badge, SegmentedControl } from "../design-system/atoms";
 import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -33,10 +28,9 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
@@ -453,79 +447,70 @@ export function ContactsScreen() {
     initialSort: "-created_at",
     fetchPage: fetchPeoplePage,
   });
-  const { query, setQuery } = state;
 
   return (
     <div className="wrap">
-      <div className="list-head">
-        <SectionHeader title={t("nav.contacts")} />
-        <CreateAction
-          label={t("create.contact")}
-          invalidate="people"
-          screen="contacts"
-          create={(values, rows) =>
-            createContact(values, rows, cf.toBody(values), t)
-          }
-          resolveExisting={(_code, id) => ({ screen: "contacts", id })}
-          fields={[...contactCreateFields(t), ...cf.formFields]}
-        />
-      </div>
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        sortOptions={[
-          { value: "full_name", label: "people.name" },
-          { value: "-created_at", label: "list.sortNewest" },
+      <ListTable
+        state={state}
+        unit="nav.contacts"
+        action={
+          <CreateAction
+            label={t("create.contact")}
+            invalidate="people"
+            screen="contacts"
+            create={(values, rows) =>
+              createContact(values, rows, cf.toBody(values), t)
+            }
+            resolveExisting={(_code, id) => ({ screen: "contacts", id })}
+            fields={[...contactCreateFields(t), ...cf.formFields]}
+          />
+        }
+        columns={[
+          {
+            key: "name",
+            header: t("people.name"),
+            cell: (person: Person) => (
+              <span>
+                <strong>{person.full_name}</strong>
+                {person.title && (
+                  <span className="t-caption"> · {person.title}</span>
+                )}
+                {person.archived_at && (
+                  <Badge tone="warn">{t("record.archived")}</Badge>
+                )}
+              </span>
+            ),
+            sort: "full_name",
+            fixed: true,
+          },
+          {
+            key: "email",
+            header: t("people.email"),
+            cell: (person: Person) => (
+              <span className="t-mono">
+                {person.emails?.find((email) => email.is_primary)?.email ??
+                  person.emails?.[0]?.email ??
+                  ""}
+              </span>
+            ),
+          },
+          {
+            key: "provenance",
+            header: t("people.capturedBy"),
+            cell: (person: Person) => (
+              <ProvenanceTag
+                provenance={provenanceOf(person.captured_by, viewerId)}
+              />
+            ),
+          },
+        ]}
+        rowKey={(person) => person.id}
+        rowRoute={(person) => ({ screen: "contacts", id: person.id })}
+        views={[
+          { label: "list.viewAll", sort: "-created_at" },
+          { label: "list.viewAZ", sort: "full_name" },
         ]}
       />
-      <ListGate state={state} empty={t("common.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "name",
-                header: t("people.name"),
-                render: (person: Person) => (
-                  <span>
-                    <strong>{person.full_name}</strong>
-                    {person.title && (
-                      <span className="t-caption"> · {person.title}</span>
-                    )}
-                    {person.archived_at && (
-                      <Badge tone="warn">{t("record.archived")}</Badge>
-                    )}
-                  </span>
-                ),
-              },
-              {
-                key: "email",
-                header: t("people.email"),
-                render: (person: Person) => (
-                  <span className="t-mono">
-                    {person.emails?.find((email) => email.is_primary)?.email ??
-                      person.emails?.[0]?.email ??
-                      ""}
-                  </span>
-                ),
-              },
-              {
-                key: "provenance",
-                header: t("people.capturedBy"),
-                render: (person: Person) => (
-                  <ProvenanceTag
-                    provenance={provenanceOf(person.captured_by, viewerId)}
-                  />
-                ),
-              },
-            ]}
-            rows={rows}
-            rowKey={(person) => person.id}
-            onRowClick={(person) =>
-              navigate({ screen: "contacts", id: person.id })
-            }
-          />
-        )}
-      </ListGate>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { Badge, DataTable, SectionHeader } from "../design-system/atoms";
+import { Badge } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -9,10 +9,9 @@ import { throwProblem } from "./common";
 import { CreateAction, type CreateField } from "./create";
 import { EditAction } from "./edit";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 
@@ -128,101 +127,91 @@ export function OfferTemplatesScreen() {
 
   return (
     <div className="wrap narrow">
-      <SectionHeader
-        title={t("template.title")}
-        sub={t("template.settingsSub")}
-      />
-      <div className="list-head">
-        <CreateAction
-          label={t("template.new")}
-          invalidate="offer-templates"
-          screen="offer-templates"
-          create={createTemplate}
-          fields={TEMPLATE_FIELDS}
-        />
-      </div>
-      <ListToolbar
-        query={list.query}
-        setQuery={list.setQuery}
+      <ListTable
+        state={list}
+        unit="nav.offerTemplates"
         searchable={false}
-        sortOptions={[{ value: "name", label: "template.sortName" }]}
-        filters={[
+        caption="template.settingsSub"
+        action={
+          <CreateAction
+            label={t("template.new")}
+            invalidate="offer-templates"
+            screen="offer-templates"
+            create={createTemplate}
+            fields={TEMPLATE_FIELDS}
+          />
+        }
+        columns={[
           {
-            kind: "select",
+            key: "name",
+            header: t("template.name"),
+            cell: (tpl: OfferTemplate) => tpl.name,
+            fixed: true,
+          },
+          {
+            key: "locale",
+            header: t("template.locale"),
+            cell: (tpl: OfferTemplate) => tpl.locale,
+          },
+          {
+            key: "is_default",
+            header: t("template.isDefault"),
+            cell: (tpl: OfferTemplate) =>
+              tpl.is_default ? (
+                <Badge tone="success">{t("template.isDefault")}</Badge>
+              ) : null,
+          },
+          {
+            key: "actions",
+            header: "",
+            cell: (tpl: OfferTemplate) => (
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <EditAction
+                  label={t("template.edit")}
+                  invalidate="offer-templates"
+                  recordKey="offer-template"
+                  record={{
+                    ...tpl,
+                    is_default: String(tpl.is_default),
+                    header:
+                      (tpl.layout as Record<string, unknown>).header ?? "",
+                    footer:
+                      (tpl.layout as Record<string, unknown>).footer ?? "",
+                  }}
+                  update={updateTemplate(tpl)}
+                  fields={TEMPLATE_FIELDS}
+                />
+                <ArchiveAction
+                  label={t("template.archive")}
+                  confirmText={t("template.archiveConfirm")}
+                  invalidate="offer-templates"
+                  recordKey="offer-template"
+                  onArchived={() => list.refetch()}
+                  archive={async () => {
+                    const { data, error } = await api.DELETE(
+                      "/offer-templates/{id}",
+                      { params: { path: { id: tpl.id } } },
+                    );
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data ?? tpl;
+                  }}
+                />
+              </div>
+            ),
+          },
+        ]}
+        rowKey={(tpl) => tpl.id}
+        chips={[
+          {
             key: "locale",
             label: "template.localeFilter",
+            allLabel: "template.localeFilterAll",
             options: LOCALE_FILTER_OPTIONS,
           },
         ]}
       />
-      <ListGate state={list} empty={t("template.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "name",
-                header: t("template.name"),
-                render: (tpl: OfferTemplate) => tpl.name,
-              },
-              {
-                key: "locale",
-                header: t("template.locale"),
-                render: (tpl: OfferTemplate) => tpl.locale,
-              },
-              {
-                key: "is_default",
-                header: t("template.isDefault"),
-                render: (tpl: OfferTemplate) =>
-                  tpl.is_default ? (
-                    <Badge tone="success">{t("template.isDefault")}</Badge>
-                  ) : null,
-              },
-              {
-                key: "actions",
-                header: "",
-                render: (tpl: OfferTemplate) => (
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <EditAction
-                      label={t("template.edit")}
-                      invalidate="offer-templates"
-                      recordKey="offer-template"
-                      record={{
-                        ...tpl,
-                        is_default: String(tpl.is_default),
-                        header:
-                          (tpl.layout as Record<string, unknown>).header ?? "",
-                        footer:
-                          (tpl.layout as Record<string, unknown>).footer ?? "",
-                      }}
-                      update={updateTemplate(tpl)}
-                      fields={TEMPLATE_FIELDS}
-                    />
-                    <ArchiveAction
-                      label={t("template.archive")}
-                      confirmText={t("template.archiveConfirm")}
-                      invalidate="offer-templates"
-                      recordKey="offer-template"
-                      onArchived={() => list.refetch()}
-                      archive={async () => {
-                        const { data, error } = await api.DELETE(
-                          "/offer-templates/{id}",
-                          { params: { path: { id: tpl.id } } },
-                        );
-                        if (error) {
-                          throwProblem(error);
-                        }
-                        return data ?? tpl;
-                      }}
-                    />
-                  </div>
-                ),
-              },
-            ]}
-            rows={rows}
-            rowKey={(tpl) => tpl.id}
-          />
-        )}
-      </ListGate>
     </div>
   );
 }

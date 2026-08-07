@@ -6,15 +6,14 @@ import {
   useEffect,
   useState,
 } from "react";
+import { navigate, type Route, routeHash } from "../app/router";
+import { Button } from "../design-system/atoms";
 import {
-  Button,
-  Checkbox,
-  EmptyState,
-  SearchField,
-  Skeleton,
-  TextInput,
-} from "../design-system/atoms";
-import { Select } from "../design-system/select";
+  type ListChip,
+  type ListColumn,
+  ListTable as ListSurface,
+  type ListView,
+} from "../design-system/listtable";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, useSorMode } from "./common";
@@ -23,7 +22,7 @@ import { problemMessageOf, useSorMode } from "./common";
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
 // limit:50, and paginates by keyset (never offset — the workspace's rows
 // mutate under a live feed). useListQuery owns the react-query wiring;
-// ListToolbar owns the controls. Screens compose both in Tasks 1.6–1.8.
+// ListTable binds that query to the list surface, which owns the controls.
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -39,35 +38,21 @@ export type ListPage<Row> = {
   page: { next_cursor: string | null; has_more: boolean };
 };
 
-export type SortOption = { value: string; label: MessageKey };
+/** A filter chip, declared in the screen's own message keys. */
+export type FilterSpec = {
+  key: string;
+  label: MessageKey;
+  /** The "no filter" entry, which is also how a chosen value is cleared. */
+  allLabel: MessageKey;
+  options: { value: string; label: MessageKey }[];
+};
 
-export type FilterSpec =
-  | {
-      kind: "select";
-      key: string;
-      label: MessageKey;
-      // Names the empty (unset) option so the control names the filter at
-      // rest; re-selecting it clears the filter. Absent, the filter's own
-      // label names that option — an option a reader cannot read is an option
-      // they cannot come back to.
-      placeholder?: MessageKey;
-      options: { value: string; label: MessageKey }[];
-    }
-  | { kind: "text"; key: string; label: MessageKey };
-
-// A blank choice CLEARS the filter rather than storing an empty string: the
-// query object is what each screen builds its request from, and `status=""`
-// would send an empty filter where none was meant. Shared by both filter
-// controls below so the select and the text input cannot drift on it.
-function withFilter(query: ListQuery, key: string, value: string): ListQuery {
-  const filters = { ...query.filters };
-  if (value) {
-    filters[key] = value;
-  } else {
-    delete filters[key];
-  }
-  return { ...query, filters };
-}
+/** A saved view: a named sort + filter preset, shown as a tab. */
+export type ViewSpec = {
+  label: MessageKey;
+  sort?: string;
+  filters?: Record<string, string>;
+};
 
 export function useListQuery<Row>({
   key,
@@ -82,8 +67,8 @@ export function useListQuery<Row>({
   initialSort?: string;
 }>) {
   // In overlay mode the incumbent mirror refuses sort/filter dials (422), so
-  // list reads must carry neither: seed an empty sort (ListToolbar hides the
-  // control to match). Native mode keeps the screen's default sort.
+  // list reads must carry neither: seed an empty sort (ListTable hides the
+  // controls to match). Native mode keeps the screen's default sort.
   const overlay = useSorMode() === "overlay";
   const [query, setQuery] = useState<ListQuery>({
     q: "",
@@ -114,36 +99,91 @@ export function useListQuery<Row>({
   };
 }
 
-export function ListToolbar({
-  query,
-  setQuery,
-  sortOptions,
-  filters,
-  searchable = true,
-  showArchivedToggle = true,
-}: Readonly<{
+export type ListState<Row> = Readonly<{
+  rows: Row[];
   query: ListQuery;
   setQuery: Dispatch<SetStateAction<ListQuery>>;
-  sortOptions: SortOption[];
-  filters?: FilterSpec[];
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  refetch: () => void;
+  hasMore: boolean;
+  loadMore: () => void;
+}>;
+
+/**
+ * The list surface bound to the server query: the state ladder every screen
+ * renders identically (skeletons while pending, an error with a retry,
+ * otherwise the table), with search, sort and filters reported straight back
+ * into the ListQuery so the server answers them.
+ *
+ * The empty case belongs to the table rather than to this ladder: the table
+ * knows whether the list is empty because nothing exists yet or because the
+ * filters excluded everything, and only the second one should offer to clear
+ * them.
+ */
+export function ListTable<Row>({
+  state,
+  columns,
+  rowKey,
+  rowRoute,
+  unit,
+  chips = [],
+  dataChips = [],
+  views = [],
+  action,
+  caption,
+  footer,
+  searchable = true,
+  showArchivedToggle = true,
+  tools,
+}: Readonly<{
+  state: ListState<Row>;
+  columns: readonly ListColumn<Row>[];
+  rowKey: (row: Row) => string;
+  /**
+   * Where a row's record lives. One declaration drives both ways in: clicking
+   * the row navigates, and the identity cell becomes a real link that opens in
+   * a new tab. Declaring them separately is how the two drift apart.
+   */
+  rowRoute?: (row: Row) => Route;
+  /** Message key for the plural noun in the count and the empty state. */
+  unit: MessageKey;
+  chips?: readonly FilterSpec[];
+  /**
+   * Chips whose options are runtime record names rather than message keys — the
+   * stages of a pipeline, the companies on the workspace. Already translated by
+   * definition, since the server is what named them.
+   */
+  dataChips?: readonly ListChip[];
+  views?: readonly ViewSpec[];
+  action?: ReactNode;
+  /** What this list is, for the lists that need saying. Never the screen name. */
+  caption?: MessageKey;
+  footer?: ReactNode;
+  /** False for a list whose GET has no `q` param, e.g. /partners. */
   searchable?: boolean;
   showArchivedToggle?: boolean;
-}>) {
+  /** Passed straight through to the surface's own tools slot, alongside the
+   * Columns and Compact buttons — for the one screen (deals) whose board and
+   * table views share a pipeline picker that lives beside them. */
+  tools?: ReactNode;
+}>): ReactNode {
   const t = useT();
-  const [localSearch, setLocalSearch] = useState(query.q);
-  // Overlay mode reads a mirror that cannot sort or filter (the server 422s
-  // those dials), so we render neither control — only what the mirror can
-  // honestly answer: search, and the archived toggle (the mirror holds no
-  // archived rows, so it is a harmless no-op there). This is the honest half
-  // of "render only what works"; the sort/filter dials return with a flip.
+  // Overlay reads a mirror that cannot sort or filter (the server 422s those
+  // dials), so the table is handed neither, and a note says why. Search and
+  // the archived toggle survive: the mirror answers the first and holds no
+  // archived rows, so the second is a harmless no-op.
   const overlay = useSorMode() === "overlay";
+  const { rows, query, setQuery, isPending, isError, error, refetch } = state;
+  const [localSearch, setLocalSearch] = useState(query.q);
+  const [view, setView] = useState(0);
 
   // A functional updater reads the query at commit time, not at the time the
-  // timer was scheduled: a concurrent sort/filter/includeArchived toggle
+  // timer was scheduled: a concurrent sort/filter/includeArchived change
   // (which sets query immediately, before this timer fires) is preserved
-  // instead of being silently reverted by a stale closure over `query`.
-  // Skipped entirely when the screen isn't searchable (e.g. /partners, whose
-  // GET has no `q` param) — there is no debounce to race in that case.
+  // instead of being reverted by a stale closure over `query`. Skipped when
+  // the screen isn't searchable — there is no debounce to race in that case.
   useEffect(() => {
     if (!searchable) {
       return;
@@ -156,158 +196,113 @@ export function ListToolbar({
     return () => clearTimeout(timer);
   }, [localSearch, setQuery, searchable]);
 
+  // Neither state replaces the surface: the header, the dials and the primary
+  // action belong to the screen rather than to the response, so they stay put
+  // and only the body reports what happened.
+  const problem = isError ? (
+    <>
+      <p>{t("common.error")}</p>
+      <p className="t-mono" style={{ marginTop: "var(--space-1)" }}>
+        {problemMessageOf(error, t)}
+      </p>
+      <Button
+        small
+        onClick={() => refetch()}
+        style={{ marginTop: "var(--space-2)" }}
+      >
+        {t("common.retry")}
+      </Button>
+    </>
+  ) : undefined;
+
+  const setFilter = (key: string, value: string) =>
+    setQuery((prev) => {
+      const filters = { ...prev.filters };
+      if (value) {
+        filters[key] = value;
+      } else {
+        delete filters[key];
+      }
+      return { ...prev, filters };
+    });
+
   return (
-    <div className="list-toolbar">
-      {searchable && (
-        <SearchField
-          placeholder={t("list.search")}
-          aria-label={t("list.search")}
-          value={localSearch}
-          onChange={(event) => setLocalSearch(event.target.value)}
-        />
-      )}
-      {overlay ? (
-        <span className="list-toolbar-note">{t("list.overlayReadOnly")}</span>
-      ) : (
-        <Select
-          aria-label={t("list.sort")}
-          // A screen that opens on no explicit sort has nothing to show as the
-          // chosen one, and an unlabelled control reads as a control that failed
-          // to load. The face says what the control is FOR until it has an answer;
-          // the server's own default ordering is what the list is showing.
-          placeholder={t("list.sort")}
-          value={query.sort}
-          onChange={(sort) => setQuery({ ...query, sort })}
-          options={sortOptions.map((option) => ({
-            value: option.value,
-            label: t(option.label),
-          }))}
-        />
-      )}
-      {showArchivedToggle && (
-        <Checkbox
-          label={t("list.showArchived")}
-          checked={query.includeArchived}
-          onChange={(event) =>
-            setQuery({ ...query, includeArchived: event.target.checked })
-          }
-        />
-      )}
-      {!overlay &&
-        filters?.map((filter) =>
-          filter.kind === "select" ? (
-            <Select
-              key={filter.key}
-              aria-label={t(filter.label)}
-              value={query.filters[filter.key] ?? ""}
-              onChange={(value) =>
-                setQuery(withFilter(query, filter.key, value))
-              }
-              // The unset entry is a real OPTION, not the select's placeholder:
-              // a placeholder is only a face for an unset value, and a reader
-              // who narrowed the list has to be able to come back to all of it.
-              options={[
-                { value: "", label: t(filter.placeholder ?? filter.label) },
-                ...filter.options.map((option) => ({
-                  value: option.value,
-                  label: t(option.label),
-                })),
-              ]}
-            />
-          ) : (
-            <TextInput
-              key={filter.key}
-              type="text"
-              aria-label={t(filter.label)}
-              value={query.filters[filter.key] ?? ""}
-              onChange={(event) =>
-                setQuery(withFilter(query, filter.key, event.target.value))
-              }
-            />
-          ),
-        )}
-    </div>
+    <ListSurface<Row>
+      rows={rows}
+      columns={columns}
+      rowKey={rowKey}
+      onRowClick={rowRoute ? (row) => navigate(rowRoute(row)) : undefined}
+      rowHref={rowRoute ? (row) => routeHash(rowRoute(row)) : undefined}
+      unit={t(unit)}
+      // An empty overlay list is far more often a mirror row whose HubSpot
+      // owner email has no matching workspace user (so mirror_visibility never
+      // grants it to anyone) than a genuinely empty HubSpot portal — name that
+      // cause rather than letting the generic empty copy imply "there is
+      // nothing here".
+      emptyNote={overlay ? t("overlay.emptyOwnerHint") : undefined}
+      action={action}
+      caption={caption ? t(caption) : undefined}
+      footer={footer}
+      tools={tools}
+      note={overlay ? t("list.overlayReadOnly") : undefined}
+      search={
+        searchable
+          ? { value: localSearch, onChange: setLocalSearch }
+          : undefined
+      }
+      sort={
+        overlay
+          ? undefined
+          : {
+              value: query.sort,
+              onChange: (next) => setQuery((prev) => ({ ...prev, sort: next })),
+            }
+      }
+      chips={
+        overlay
+          ? []
+          : [...chips.map((chip) => translateChip(chip, t)), ...dataChips]
+      }
+      chosen={query.filters}
+      onChipChange={setFilter}
+      views={views.map((spec) => translateView(spec, t))}
+      activeView={view}
+      onViewChange={setView}
+      archived={
+        showArchivedToggle
+          ? {
+              checked: query.includeArchived,
+              onChange: (next) =>
+                setQuery((prev) => ({ ...prev, includeArchived: next })),
+            }
+          : undefined
+      }
+      // An overlay mirror pages by cursor like the native store, so paging is
+      // the one dial that behaves identically in both modes.
+      hasMore={state.hasMore}
+      onLoadMore={state.loadMore}
+      // The unit key names the table for the widths it remembers.
+      widthsKey={unit}
+      pending={isPending}
+      problem={problem}
+    />
   );
 }
 
-export type ListGateState<Row> = Readonly<{
-  rows: Row[];
-  isPending: boolean;
-  isError: boolean;
-  error: unknown;
-  refetch: () => void;
-  hasMore: boolean;
-  loadMore: () => void;
-}>;
+type Translate = ReturnType<typeof useT>;
 
-// The shared list-state ladder every list screen renders identically:
-// skeletons while pending, an EmptyState+retry on error, an EmptyState when
-// the page is empty, otherwise the caller's rows plus a keyset "Load more".
-// Extracted so contacts/companies/leads (Tasks 1.6-1.8) stay in lockstep
-// instead of hand-rolling the same four branches three times.
-export function ListGate<Row>({
-  state,
-  empty,
-  children,
-}: Readonly<{
-  state: ListGateState<Row>;
-  empty: string;
-  children: (rows: Row[]) => ReactNode;
-}>): ReactNode {
-  const t = useT();
-  const overlay = useSorMode() === "overlay";
-  const { rows, isPending, isError, error, refetch, hasMore, loadMore } = state;
+function translateChip(chip: FilterSpec, t: Translate): ListChip {
+  return {
+    key: chip.key,
+    label: t(chip.label),
+    allLabel: t(chip.allLabel),
+    options: chip.options.map((option) => ({
+      value: option.value,
+      label: t(option.label),
+    })),
+  };
+}
 
-  if (isPending) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Skeleton width="60%" />
-        <Skeleton width="90%" />
-        <Skeleton width="75%" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <EmptyState>
-        <p>{t("common.error")}</p>
-        <p className="t-mono" style={{ marginTop: 6 }}>
-          {problemMessageOf(error, t)}
-        </p>
-        <Button small onClick={() => refetch()} style={{ marginTop: 10 }}>
-          {t("common.retry")}
-        </Button>
-      </EmptyState>
-    );
-  }
-
-  if (rows.length === 0) {
-    return (
-      <EmptyState>
-        <p>{empty}</p>
-        {/* An empty overlay list is far more often a mirror row whose
-            HubSpot owner email has no matching workspace user (so
-            mirror_visibility never grants it to anyone) than a genuinely
-            empty HubSpot portal — name that cause rather than leaving the
-            caller's generic empty copy to imply "there is nothing here". */}
-        {overlay && (
-          <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
-            {t("overlay.emptyOwnerHint")}
-          </p>
-        )}
-      </EmptyState>
-    );
-  }
-
-  return (
-    <>
-      {children(rows)}
-      {hasMore && (
-        <Button small onClick={() => loadMore()} style={{ marginTop: 10 }}>
-          {t("list.loadMore")}
-        </Button>
-      )}
-    </>
-  );
+function translateView(spec: ViewSpec, t: Translate): ListView {
+  return { label: t(spec.label), sort: spec.sort, filters: spec.filters };
 }

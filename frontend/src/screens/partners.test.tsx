@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -141,21 +142,43 @@ describe("PartnerTab — existing partner", () => {
   });
 });
 
+// The columns picker also offers a "Partner role"/"Certification status"
+// checkbox (one per column, sharing the column header text), so a plain
+// name match is ambiguous — scope both the attribute pick and the value
+// pick to the Filter button's own open menu.
+async function openFilterMenu(container: HTMLElement): Promise<HTMLElement> {
+  await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+  const menu = container.querySelector<HTMLElement>(".lt-menu.open");
+  if (!menu) {
+    throw new Error("the Filter menu did not open");
+  }
+  return menu;
+}
+
+async function pickFilter(
+  container: HTMLElement,
+  attribute: string,
+  value: string,
+) {
+  const menu = await openFilterMenu(container);
+  await userEvent.click(within(menu).getByRole("button", { name: attribute }));
+  await userEvent.click(within(menu).getByRole("button", { name: value }));
+}
+
 describe("PartnersScreen", () => {
   it("lists partners and sends the role filter", async () => {
-    const user = userEvent.setup();
     const { urls } = stubFetch(async () =>
       jsonResponse({
         data: [partner],
         page: { next_cursor: null, has_more: false },
       }),
     );
-    render(<PartnersScreen />);
+    const { container } = render(<PartnersScreen />);
 
     await waitFor(() => expect(screen.getByText("o-1")).toBeTruthy());
     expect(screen.getByText("Active")).toBeTruthy();
 
-    await pickOption(user, screen.getByLabelText("Partner role"), "Hosting");
+    await pickFilter(container, "Partner role", "Hosting");
 
     await waitFor(() =>
       expect(urls.some((url) => url.includes("partner_role=hosting"))).toBe(
@@ -171,14 +194,19 @@ describe("PartnersScreen", () => {
         page: { next_cursor: null, has_more: false },
       }),
     );
-    render(<PartnersScreen />);
+    const { container } = render(<PartnersScreen />);
 
     await waitFor(() => expect(screen.getByText("o-1")).toBeTruthy());
 
-    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByPlaceholderText("Search")).toBeNull();
     expect(screen.queryByLabelText("Show archived")).toBeNull();
-    expect(screen.getByLabelText("Partner role")).toBeTruthy();
-    expect(screen.getByLabelText("Certification status")).toBeTruthy();
+    const menu = await openFilterMenu(container);
+    expect(
+      within(menu).getByRole("button", { name: "Partner role" }),
+    ).toBeTruthy();
+    expect(
+      within(menu).getByRole("button", { name: "Certification status" }),
+    ).toBeTruthy();
   });
 
   it("navigates to the org's 360 on row click", async () => {

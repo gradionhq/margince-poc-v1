@@ -6,10 +6,8 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { navigate } from "../app/router";
 import {
   Button,
-  DataTable,
   EmptyState,
   Field,
   SectionHeader,
@@ -21,10 +19,9 @@ import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { EntityRef } from "./entityref";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 
@@ -529,83 +526,71 @@ export function PartnersScreen() {
     initialSort: "-created_at",
     fetchPage: fetchPartnersPage,
   });
-  const { query, setQuery } = state;
 
   return (
     <div className="wrap">
-      <div className="list-head">
-        <SectionHeader title={t("nav.partners")} />
-      </div>
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        sortOptions={[{ value: "-created_at", label: "list.sortNewest" }]}
+      <ListTable
+        state={state}
+        unit="nav.partners"
         searchable={false}
         showArchivedToggle={false}
-        filters={[
+        columns={[
           {
-            kind: "select",
+            key: "org",
+            header: t("partner.organization"),
+            // The Partner payload carries only organization_id; EntityRef
+            // hydrates the company name off the org read and backlinks to
+            // its 360.
+            cell: (partner: Partner) => (
+              <EntityRef kind="organization" id={partner.organization_id} />
+            ),
+            fixed: true,
+          },
+          {
+            key: "role",
+            header: t("partner.role"),
+            cell: (partner: Partner) =>
+              partner.partner_role ? t(ROLE_LABELS[partner.partner_role]) : "",
+          },
+          {
+            key: "cert",
+            header: t("partner.certStatus"),
+            cell: (partner: Partner) => t(CERT_LABELS[partner.cert_status]),
+          },
+          {
+            key: "stage",
+            header: t("partner.stage"),
+            cell: (partner: Partner) =>
+              t(STAGE_LABELS[partner.relationship_stage]),
+          },
+        ]}
+        rowKey={(partner) => partner.organization_id}
+        rowRoute={(partner) => ({
+          screen: "companies",
+          id: partner.organization_id,
+        })}
+        chips={[
+          {
             key: "partner_role",
             label: "partner.role",
+            allLabel: "partner.roleAll",
             options: PARTNER_ROLES.map((role) => ({
               value: role,
               label: ROLE_LABELS[role],
             })),
           },
           {
-            kind: "select",
             key: "cert_status",
             label: "partner.certStatus",
+            allLabel: "partner.certStatusAll",
             options: CERT_STATUSES.map((status) => ({
               value: status,
               label: CERT_LABELS[status],
             })),
           },
         ]}
+        views={[{ label: "list.sortNewest", sort: "-created_at" }]}
       />
-      <ListGate state={state} empty={t("common.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "org",
-                header: t("partner.organization"),
-                // The Partner payload carries only organization_id; EntityRef
-                // hydrates the company name off the org read and backlinks to
-                // its 360.
-                render: (partner: Partner) => (
-                  <EntityRef kind="organization" id={partner.organization_id} />
-                ),
-              },
-              {
-                key: "role",
-                header: t("partner.role"),
-                render: (partner: Partner) =>
-                  partner.partner_role
-                    ? t(ROLE_LABELS[partner.partner_role])
-                    : "",
-              },
-              {
-                key: "cert",
-                header: t("partner.certStatus"),
-                render: (partner: Partner) =>
-                  t(CERT_LABELS[partner.cert_status]),
-              },
-              {
-                key: "stage",
-                header: t("partner.stage"),
-                render: (partner: Partner) =>
-                  t(STAGE_LABELS[partner.relationship_stage]),
-              },
-            ]}
-            rows={rows}
-            rowKey={(partner) => partner.organization_id}
-            onRowClick={(partner) =>
-              navigate({ screen: "companies", id: partner.organization_id })
-            }
-          />
-        )}
-      </ListGate>
     </div>
   );
 }

@@ -434,6 +434,11 @@ export function TopBar({
           The name resolves through EntityRef's cache and falls back to the raw
           id in mono when it cannot, rather than showing a blank crumb. */}
       <span className="crumb">
+        {/* The nav item's own icon, so the bar names the screen the same way the
+            rail does and the two read as one place rather than two labels. */}
+        {navItem && (
+          <navItem.icon size={16} strokeWidth={1.8} aria-hidden="true" />
+        )}
         {route.id ? (
           <a href={routeHash({ screen: route.screen })}>{title}</a>
         ) : (

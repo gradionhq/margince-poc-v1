@@ -78,6 +78,9 @@ export type BoardDeal = {
   id: string;
   name: string;
   org: string;
+  /** The company's resolved mark. Absent leaves the monogram, which is the
+   *  floor rather than a fallback. */
+  orgLogoUrl?: string | null;
   valueMinor: number;
   currency: string;
   ageMs: number;
@@ -128,7 +131,12 @@ export function DealCard({
       {...dragHandlers}
     >
       <span className="deal-name">{deal.name}</span>
-      <span className="deal-org">{deal.org}</span>
+      {deal.org && (
+        <span className="deal-org">
+          <Avatar name={deal.org} src={deal.orgLogoUrl} tinted />
+          {deal.org}
+        </span>
+      )}
       <span className="deal-meta">
         <span className="deal-value">
           {formatMoney(deal.valueMinor, deal.currency, locale)}
@@ -184,10 +192,17 @@ export function PipelineBoard({
             <span className="stage">{column.label}</span>
             <span className="prob">{column.probabilityPct}%</span>
           </div>
+          {/* The stage's total is the figure being scanned down the board, so it
+              leads with the deal count beside it; the weighted figure is derived
+              from it and reads underneath rather than competing on the line. */}
           <div className="board-col-sub">
-            <span>{t("board.count", { count: column.deals.length })}</span>
-            <span>{formatMoney(column.rawMinor, column.currency, locale)}</span>
-            <span>
+            <span className="board-col-total">
+              <span className="board-col-money">
+                {formatMoney(column.rawMinor, column.currency, locale)}
+              </span>
+              <span>{t("board.count", { count: column.deals.length })}</span>
+            </span>
+            <span className="board-col-weighted">
               {t("board.weighted", {
                 value: formatMoney(
                   column.weightedMinor,
