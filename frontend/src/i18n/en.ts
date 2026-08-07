@@ -1039,6 +1039,8 @@ export const en = {
   "deals.sortClose": "Close date",
   "deals.sortAmount": "Largest",
   "deals.unit": "deals",
+  "deals.capped":
+    "Showing the deals loaded so far. Narrow the list to reach the rest.",
 
   "deal.offers": "Offers",
   "deal.newOffer": "New offer",

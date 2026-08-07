@@ -260,24 +260,17 @@ function stubFetch(
 // shares its header text with the filter attribute's label), so a plain
 // name match is ambiguous — scope both the attribute pick and the value
 // pick to the Filter button's own open menu.
-async function pickFilter(
-  container: HTMLElement,
-  attribute: string,
-  value: string,
-) {
+// The menu names the step it is on — "Filter" while it lists attributes, then
+// the attribute once one is picked — so each click is scoped to the menu as it
+// stands at that moment rather than to a class name.
+async function pickFilter(attribute: string, value: string) {
   await userEvent.click(screen.getByRole("button", { name: "Filter" }));
-  const openMenu = () => {
-    const menu = container.querySelector<HTMLElement>(".lt-menu.open");
-    if (!menu) {
-      throw new Error("the Filter menu did not open");
-    }
-    return menu;
-  };
+  const step = (name: string) => screen.getByRole("group", { name });
   await userEvent.click(
-    within(openMenu()).getByRole("button", { name: attribute }),
+    within(step("Filter")).getByRole("button", { name: attribute }),
   );
   await userEvent.click(
-    within(openMenu()).getByRole("button", { name: value }),
+    within(step(attribute)).getByRole("button", { name: value }),
   );
 }
 
@@ -313,10 +306,10 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
 
   it("sends status=working when the status filter is set", async () => {
     const { urls } = stubFetch(async () => emptyPage());
-    const { container } = render(<LeadsScreen />);
+    render(<LeadsScreen />);
     await waitFor(() => expect(urls.length).toBeGreaterThan(0));
 
-    await pickFilter(container, "Status", "Working");
+    await pickFilter("Status", "Working");
 
     await waitFor(() =>
       expect(urls.some((url) => url.includes("status=working"))).toBe(true),

@@ -273,6 +273,10 @@
 }
 
 .lt-menu {
+  /* A fieldset carries its own margin and a min-inline-size that would fight
+   * the popup's own width — both reset before its look applies. */
+  margin: 0;
+  min-inline-size: 0;
   position: absolute;
   top: calc(100% + var(--space-1));
   left: 0;
@@ -742,7 +746,9 @@
 }
 .lt-pager button.on {
   background: var(--accent);
-  color: var(--textOnAccent);
+  /* A filled control, so it takes the control foreground: dark mode lightens
+     the accent fill, and the non-control token goes thin against it. */
+  color: var(--textOnAccentControl);
   font-weight: 600;
 }
 .lt-pager button:disabled {

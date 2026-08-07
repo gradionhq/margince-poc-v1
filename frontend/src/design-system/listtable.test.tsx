@@ -762,9 +762,10 @@ describe("a row as a link", () => {
         onRowClick={onRowClick}
       />,
     );
-    // A modifier-click opens a tab and must not also move this one. The row's
-    // handler is what would move it, so the link keeps the click to itself.
-    fireEvent.click(screen.getByRole("link"));
+    // A modifier-click is what opens the new tab, and it must not also move
+    // this one — the row's handler is what would move it, so the link keeps
+    // the click to itself.
+    fireEvent.click(screen.getByRole("link"), { metaKey: true });
     expect(onRowClick).not.toHaveBeenCalled();
   });
 });

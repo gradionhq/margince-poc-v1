@@ -143,26 +143,24 @@ describe("PartnerTab — existing partner", () => {
 });
 
 // The columns picker also offers a "Partner role"/"Certification status"
-// checkbox (one per column, sharing the column header text), so a plain
-// name match is ambiguous — scope both the attribute pick and the value
-// pick to the Filter button's own open menu.
-async function openFilterMenu(container: HTMLElement): Promise<HTMLElement> {
+// checkbox (one per column, sharing the column header text), so a plain name
+// match is ambiguous — each click is scoped to the filter menu, which names
+// the step it is on: "Filter" while listing attributes, the attribute once one
+// is picked.
+async function openFilterMenu(): Promise<HTMLElement> {
   await userEvent.click(screen.getByRole("button", { name: "Filter" }));
-  const menu = container.querySelector<HTMLElement>(".lt-menu.open");
-  if (!menu) {
-    throw new Error("the Filter menu did not open");
-  }
-  return menu;
+  return screen.getByRole("group", { name: "Filter" });
 }
 
-async function pickFilter(
-  container: HTMLElement,
-  attribute: string,
-  value: string,
-) {
-  const menu = await openFilterMenu(container);
-  await userEvent.click(within(menu).getByRole("button", { name: attribute }));
-  await userEvent.click(within(menu).getByRole("button", { name: value }));
+async function pickFilter(attribute: string, value: string) {
+  await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+  const step = (name: string) => screen.getByRole("group", { name });
+  await userEvent.click(
+    within(step("Filter")).getByRole("button", { name: attribute }),
+  );
+  await userEvent.click(
+    within(step(attribute)).getByRole("button", { name: value }),
+  );
 }
 
 describe("PartnersScreen", () => {
@@ -173,12 +171,12 @@ describe("PartnersScreen", () => {
         page: { next_cursor: null, has_more: false },
       }),
     );
-    const { container } = render(<PartnersScreen />);
+    render(<PartnersScreen />);
 
     await waitFor(() => expect(screen.getByText("o-1")).toBeTruthy());
     expect(screen.getByText("Active")).toBeTruthy();
 
-    await pickFilter(container, "Partner role", "Hosting");
+    await pickFilter("Partner role", "Hosting");
 
     await waitFor(() =>
       expect(urls.some((url) => url.includes("partner_role=hosting"))).toBe(
@@ -194,13 +192,13 @@ describe("PartnersScreen", () => {
         page: { next_cursor: null, has_more: false },
       }),
     );
-    const { container } = render(<PartnersScreen />);
+    render(<PartnersScreen />);
 
     await waitFor(() => expect(screen.getByText("o-1")).toBeTruthy());
 
     expect(screen.queryByPlaceholderText("Search")).toBeNull();
     expect(screen.queryByLabelText("Show archived")).toBeNull();
-    const menu = await openFilterMenu(container);
+    const menu = await openFilterMenu();
     expect(
       within(menu).getByRole("button", { name: "Partner role" }),
     ).toBeTruthy();

@@ -1045,6 +1045,8 @@ export const de = {
   "deals.sortClose": "Abschlussdatum",
   "deals.sortAmount": "Größte",
   "deals.unit": "Deals",
+  "deals.capped":
+    "Zeigt die bisher geladenen Deals. Grenzen Sie die Liste ein, um die übrigen zu erreichen.",
 
   "deal.offers": "Angebote",
   "deal.newOffer": "Neues Angebot",

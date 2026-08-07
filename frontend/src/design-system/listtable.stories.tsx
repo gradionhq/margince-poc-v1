@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { type ReactNode, useState } from "react";
+import { formatMoney } from "../format/format";
 import { Button } from "./atoms";
 import type { ListChip } from "./listsurface";
 import { ListTable } from "./listtable";
@@ -63,8 +64,10 @@ const columns = [
     header: "Pipeline",
     numeric: true,
     sort: "amount_minor",
-    cell: (row: Company) =>
-      `€${(row.valueMinor / 100).toLocaleString("en-US")}`,
+    // Through the repo's money formatter, like a real screen: this file is the
+    // reference copy of the surface, so a hand-rolled currency string here is
+    // the version somebody else copies.
+    cell: (row: Company) => formatMoney(row.valueMinor, "EUR", "en"),
   },
 ];
 

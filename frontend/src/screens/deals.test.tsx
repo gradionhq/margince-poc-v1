@@ -588,7 +588,7 @@ describe("DealsScreen filters", () => {
         ],
       }),
     );
-    const { container } = render(<DealsScreen />);
+    render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
 
     await user.click(screen.getByLabelText("Pipeline"));
@@ -606,10 +606,7 @@ describe("DealsScreen filters", () => {
     // inside the menu that is open rather than by a plain name match.
     await user.click(screen.getByRole("button", { name: "Table" }));
     await user.click(screen.getByRole("button", { name: "Filter" }));
-    const menu = container.querySelector<HTMLElement>(".lt-menu.open");
-    if (!menu) {
-      throw new Error("the Filter menu did not open");
-    }
+    const menu = screen.getByRole("group", { name: "Filter" });
     await user.click(within(menu).getByRole("button", { name: "Stage" }));
     expect(
       within(menu).getByRole("button", { name: "All stages" }),
@@ -622,7 +619,7 @@ describe("DealsScreen filters", () => {
       "fetch",
       stubBackend([deal({})], { onDealsUrl: (u) => urls.push(u) }),
     );
-    const { container } = render(<DealsScreen />);
+    render(<DealsScreen />);
     await screen.findByText("Fleet retrofit");
     // The stalled filter lives on the table view, not the board.
     await userEvent.click(screen.getByRole("button", { name: "Table" }));
@@ -632,10 +629,7 @@ describe("DealsScreen filters", () => {
     // name — so each step is picked from inside the menu that is open at
     // that moment rather than by a plain (ambiguous) name match.
     await userEvent.click(screen.getByRole("button", { name: "Filter" }));
-    const menu = container.querySelector<HTMLElement>(".lt-menu.open");
-    if (!menu) {
-      throw new Error("the Filter menu did not open");
-    }
+    const menu = screen.getByRole("group", { name: "Filter" });
     await userEvent.click(
       within(menu).getByRole("button", { name: "Stalled only" }),
     );

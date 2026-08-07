@@ -142,6 +142,12 @@
 .deal-card .deal-org > .avatar {
   flex: none;
 }
+.deal-card .deal-org-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 /* A stage column is narrow, so the meta line wraps as whole items: a value or a
  * badge broken across two lines is harder to read than one that moved down. */
 .deal-card .deal-meta {

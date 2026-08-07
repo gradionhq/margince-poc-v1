@@ -141,7 +141,10 @@ export function DealCard({
       {deal.org && (
         <span className="deal-org">
           <Avatar name={deal.org} src={deal.orgLogoUrl} tinted />
-          {deal.org}
+          {/* The name needs a box of its own to be truncated in: a bare text
+              node has nothing for the ellipsis to apply to, and wraps under
+              its own mark instead. */}
+          <span className="deal-org-name">{deal.org}</span>
         </span>
       )}
       <span className="deal-meta">

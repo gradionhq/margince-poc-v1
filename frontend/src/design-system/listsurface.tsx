@@ -117,6 +117,7 @@ export function ListSurface({
 }>) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   useCloseOnOutsideClick(() => setOpenMenu(null));
+  useCloseOnEscape(openMenu !== null, () => setOpenMenu(null));
 
   return (
     <div className="lt">
@@ -187,6 +188,7 @@ function FilterValueList({
       <button
         type="button"
         className={`lt-mi${value ? "" : " on"}`}
+        aria-pressed={!value}
         onClick={() => onPick("", chip.allLabel)}
       >
         <span className="lt-cb">
@@ -199,6 +201,7 @@ function FilterValueList({
           type="button"
           key={option.value}
           className={`lt-mi${option.value === value ? " on" : ""}`}
+          aria-pressed={option.value === value}
           onClick={() => onPick(option.value, option.label)}
         >
           <span className="lt-cb">
@@ -284,6 +287,7 @@ function AsyncFilterValueList({
       <button
         type="button"
         className={`lt-mi${value ? "" : " on"}`}
+        aria-pressed={!value}
         onClick={() => onPick("", chip.allLabel)}
       >
         <span className="lt-cb">
@@ -321,6 +325,7 @@ function AsyncFilterValueList({
           type="button"
           key={option.value}
           className={`lt-mi${option.value === value ? " on" : ""}`}
+          aria-pressed={option.value === value}
           onClick={() => onPick(option.value, option.label)}
         >
           <span className="lt-cb">
@@ -599,15 +604,19 @@ export function Menu({
   children: ReactNode;
 }>) {
   return (
-    <div
+    // A fieldset because that is what this is: a set of controls that belong
+    // together. Named with it, so both a screen reader and a test can say
+    // which menu — and which step of it — they are in.
+    <fieldset
       className={`lt-menu${open ? " open" : ""}${align === "right" ? " right" : ""}`}
       // A closed menu leaves the tab order entirely; otherwise Tab walks every
       // option of every filter before reaching the body below it.
       inert={!open}
+      aria-label={head}
     >
       <div className="lt-mhead">{head}</div>
       {children}
-    </div>
+    </fieldset>
   );
 }
 
@@ -619,6 +628,40 @@ export function Menu({
  * render — a document-level listener that churns is a real cost on a page
  * this size.
  */
+/**
+ * Escape closes the open popup and hands focus back to whatever opened it.
+ *
+ * Without it the only way out of a filter or column menu is a pointer click
+ * elsewhere — and a reader who tabbed into the menu would be returned to the
+ * top of the document when it closed, rather than to the control they were
+ * standing on.
+ */
+function useCloseOnEscape(open: boolean, close: () => void) {
+  const latest = useRef(close);
+  latest.current = close;
+  // Captured while the menu is open, so the trigger is still the element that
+  // had focus before the reader stepped into the popup.
+  const opener = useRef<Element | null>(null);
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    opener.current = document.activeElement;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      latest.current();
+      const back = opener.current;
+      if (back instanceof HTMLElement && back.isConnected) {
+        back.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+}
+
 export function useCloseOnOutsideClick(close: () => void) {
   const latest = useRef(close);
   latest.current = close;

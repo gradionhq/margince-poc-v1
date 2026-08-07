@@ -923,6 +923,14 @@ export function DealsScreen({
           chips={dealChips}
           chosen={query.filters}
           onChipChange={(key, value) => setOrClearFilter(setQuery, key, value)}
+          // The board shows archived deals on the same toggle the table uses:
+          // without it, a deal archived by mistake could only be found — and
+          // so only be restored — by leaving the board.
+          archived={{
+            checked: query.includeArchived,
+            onChange: (next) =>
+              setQuery((q) => ({ ...q, includeArchived: next })),
+          }}
         >
           <QueryGate query={pipelinesQuery}>
             {() =>
@@ -953,6 +961,15 @@ export function DealsScreen({
           rowKey={(deal) => deal.id}
           rowRoute={(deal) => ({ screen: "deals", id: deal.id })}
           searchable={false}
+          // The board and this table read one shared screenful rather than a
+          // keyset walk, so when the server says it held rows back, the table
+          // says so too — a capped list that looks complete is the one thing
+          // this surface must not do.
+          footer={
+            dealsQuery.data?.page?.has_more ? (
+              <p className="lt-note">{t("deals.capped")}</p>
+            ) : undefined
+          }
           action={createAction}
           tools={dealTools}
           dataChips={dealChips}
