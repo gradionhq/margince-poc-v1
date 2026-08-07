@@ -8843,6 +8843,85 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/documents:
+    get:
+      tags: [Attachments]
+      operationId: listOrganizationDocuments
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Every document that rolls up to this account, pinned first (DOC-WIRE-1).
+      description: |
+        The account's library. A document reachable from a company may hang off a deal, a
+        person, an activity or the company itself, and each of those has its own
+        visibility.
+
+        **Every candidate is scoped through its own primary parent**, so a contract on a
+        deal the viewer cannot see does not appear AND does not contribute to the count.
+        Scoping at the parent rather than filtering afterwards is what keeps the count
+        honest: a total that includes invisible rows tells the viewer something about them.
+
+        Ordered pinned first, then newest.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: category
+          in: query
+          schema: { type: string, enum: [contract, offer, legal, email_attachment, other] }
+        - name: doc_state
+          in: query
+          schema: { type: string, enum: [draft, current, final, superseded] }
+        - name: pinned_only
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The account's documents.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttachmentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /attachments/{id}/metadata:
+    patch:
+      tags: [Attachments]
+      operationId: updateAttachmentMetadata
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
+      description: |
+        Version-guarded. The bytes, the filename, the checksum and the scan state are NOT
+        patchable here — they are what arrived, and a surface that let a human edit them
+        would make the record a description of itself rather than of the file.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAttachmentMetadataRequest' }
+      responses:
+        '200':
+          description: The document after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attachment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: >-
+            `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a
+            value outside the closed vocabulary.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /attachments/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -13233,6 +13312,18 @@ components:
         data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
+    UpdateAttachmentMetadataRequest:
+      type: object
+      description: |
+        A sparse patch. An absent field is untouched; `title` and `supersedes_id` accept
+        null to clear, because clearing either is an edit a human makes deliberately.
+      properties:
+        category: { type: string, enum: [contract, offer, legal, email_attachment, other] }
+        title: { type: [string, 'null'] }
+        doc_state: { type: string, enum: [draft, current, final, superseded] }
+        pinned: { type: boolean }
+        supersedes_id: { type: [string, 'null'], format: uuid }
+
     Attachment:
       type: object
       description: |
@@ -13249,6 +13340,36 @@ components:
         content_type: { type: [string, 'null'] }
         byte_size: { type: [integer, 'null'], format: int64 }
         checksum: { type: [string, 'null'], description: 'sha256 of the bytes, for integrity/dedupe.' }
+        category:
+          type: string
+          enum: [contract, offer, legal, email_attachment, other]
+          description: What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+        title:
+          type: [string, 'null']
+          description: A display name distinct from the filename — what a reader looks for, rather than what arrived.
+        doc_state:
+          type: string
+          enum: [draft, current, final, superseded]
+          description: >-
+            ASSERTED, never inferred. A human or the producing source sets it. Nothing
+            derives currency from the newest upload date or a filename containing "final":
+            the most recent upload is very often a draft, and an inference would be a
+            confident wrong answer to the exact question this field exists to answer.
+        pinned:
+          type: boolean
+          description: Held at the top of the account's library. An assertion by a human, like the state.
+        supersedes_id:
+          type: [string, 'null']
+          format: uuid
+          description: The document this one replaces. Refused when it would close a cycle.
+        organization_id:
+          type: [string, 'null']
+          format: uuid
+          readOnly: true
+          description: >-
+            The account this file rolls up to — a READ PATH, not a second parent. Visibility
+            stays the primary parent's, and this is maintained on relink and merge so a file
+            follows the record it belongs to.
         scan_status:
           type: string
           enum: [scanning, clean, blocked]

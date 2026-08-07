@@ -67,6 +67,7 @@ import {
 } from "./company360";
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
+import { CompanyDocumentsCard } from "./companydocuments";
 import {
   CompanyActionBadges,
   CompanyPrimaryActions,
@@ -1934,6 +1935,12 @@ function CompanyPage({
                 nobody read before a call. */}
             <Disclosure summary={t("co.profile.title")}>
               <ProfileFieldsCard orgId={org.id} onOpenHistory={showChanges} />
+            </Disclosure>
+            {/* The account's contracts, offers and legal files. Folded away
+                like the rest of the rail: a reader opens it when they are
+                looking for a document, not on every page load. */}
+            <Disclosure summary={t("docs.title")}>
+              <CompanyDocumentsCard orgId={org.id} />
             </Disclosure>
             <Disclosure summary={t("co.evidence.title")}>
               <FactsCard orgId={org.id} onOpenHistory={showChanges} />

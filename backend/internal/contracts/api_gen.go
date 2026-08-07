@@ -735,6 +735,57 @@ func (e AssistantProfileState) Valid() bool {
 	}
 }
 
+// Defines values for AttachmentCategory.
+const (
+	AttachmentCategoryContract        AttachmentCategory = "contract"
+	AttachmentCategoryEmailAttachment AttachmentCategory = "email_attachment"
+	AttachmentCategoryLegal           AttachmentCategory = "legal"
+	AttachmentCategoryOffer           AttachmentCategory = "offer"
+	AttachmentCategoryOther           AttachmentCategory = "other"
+)
+
+// Valid indicates whether the value is a known member of the AttachmentCategory enum.
+func (e AttachmentCategory) Valid() bool {
+	switch e {
+	case AttachmentCategoryContract:
+		return true
+	case AttachmentCategoryEmailAttachment:
+		return true
+	case AttachmentCategoryLegal:
+		return true
+	case AttachmentCategoryOffer:
+		return true
+	case AttachmentCategoryOther:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AttachmentDocState.
+const (
+	AttachmentDocStateCurrent    AttachmentDocState = "current"
+	AttachmentDocStateDraft      AttachmentDocState = "draft"
+	AttachmentDocStateFinal      AttachmentDocState = "final"
+	AttachmentDocStateSuperseded AttachmentDocState = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the AttachmentDocState enum.
+func (e AttachmentDocState) Valid() bool {
+	switch e {
+	case AttachmentDocStateCurrent:
+		return true
+	case AttachmentDocStateDraft:
+		return true
+	case AttachmentDocStateFinal:
+		return true
+	case AttachmentDocStateSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AttachmentEntityType.
 const (
 	AttachmentEntityTypeActivity     AttachmentEntityType = "activity"
@@ -6465,6 +6516,57 @@ func (e TaggableEntityType) Valid() bool {
 	}
 }
 
+// Defines values for UpdateAttachmentMetadataRequestCategory.
+const (
+	UpdateAttachmentMetadataRequestCategoryContract        UpdateAttachmentMetadataRequestCategory = "contract"
+	UpdateAttachmentMetadataRequestCategoryEmailAttachment UpdateAttachmentMetadataRequestCategory = "email_attachment"
+	UpdateAttachmentMetadataRequestCategoryLegal           UpdateAttachmentMetadataRequestCategory = "legal"
+	UpdateAttachmentMetadataRequestCategoryOffer           UpdateAttachmentMetadataRequestCategory = "offer"
+	UpdateAttachmentMetadataRequestCategoryOther           UpdateAttachmentMetadataRequestCategory = "other"
+)
+
+// Valid indicates whether the value is a known member of the UpdateAttachmentMetadataRequestCategory enum.
+func (e UpdateAttachmentMetadataRequestCategory) Valid() bool {
+	switch e {
+	case UpdateAttachmentMetadataRequestCategoryContract:
+		return true
+	case UpdateAttachmentMetadataRequestCategoryEmailAttachment:
+		return true
+	case UpdateAttachmentMetadataRequestCategoryLegal:
+		return true
+	case UpdateAttachmentMetadataRequestCategoryOffer:
+		return true
+	case UpdateAttachmentMetadataRequestCategoryOther:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateAttachmentMetadataRequestDocState.
+const (
+	UpdateAttachmentMetadataRequestDocStateCurrent    UpdateAttachmentMetadataRequestDocState = "current"
+	UpdateAttachmentMetadataRequestDocStateDraft      UpdateAttachmentMetadataRequestDocState = "draft"
+	UpdateAttachmentMetadataRequestDocStateFinal      UpdateAttachmentMetadataRequestDocState = "final"
+	UpdateAttachmentMetadataRequestDocStateSuperseded UpdateAttachmentMetadataRequestDocState = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the UpdateAttachmentMetadataRequestDocState enum.
+func (e UpdateAttachmentMetadataRequestDocState) Valid() bool {
+	switch e {
+	case UpdateAttachmentMetadataRequestDocStateCurrent:
+		return true
+	case UpdateAttachmentMetadataRequestDocStateDraft:
+		return true
+	case UpdateAttachmentMetadataRequestDocStateFinal:
+		return true
+	case UpdateAttachmentMetadataRequestDocStateSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateAutomationRequestStatus.
 const (
 	UpdateAutomationRequestStatusEnabled     UpdateAutomationRequestStatus = "enabled"
@@ -6989,31 +7091,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -7898,28 +8000,28 @@ func (e ListDealsParamsStatus) Valid() bool {
 
 // Defines values for ListDealOffersParamsStatus.
 const (
-	Accepted   ListDealOffersParamsStatus = "accepted"
-	Draft      ListDealOffersParamsStatus = "draft"
-	Expired    ListDealOffersParamsStatus = "expired"
-	Rejected   ListDealOffersParamsStatus = "rejected"
-	Sent       ListDealOffersParamsStatus = "sent"
-	Superseded ListDealOffersParamsStatus = "superseded"
+	ListDealOffersParamsStatusAccepted   ListDealOffersParamsStatus = "accepted"
+	ListDealOffersParamsStatusDraft      ListDealOffersParamsStatus = "draft"
+	ListDealOffersParamsStatusExpired    ListDealOffersParamsStatus = "expired"
+	ListDealOffersParamsStatusRejected   ListDealOffersParamsStatus = "rejected"
+	ListDealOffersParamsStatusSent       ListDealOffersParamsStatus = "sent"
+	ListDealOffersParamsStatusSuperseded ListDealOffersParamsStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the ListDealOffersParamsStatus enum.
 func (e ListDealOffersParamsStatus) Valid() bool {
 	switch e {
-	case Accepted:
+	case ListDealOffersParamsStatusAccepted:
 		return true
-	case Draft:
+	case ListDealOffersParamsStatusDraft:
 		return true
-	case Expired:
+	case ListDealOffersParamsStatusExpired:
 		return true
-	case Rejected:
+	case ListDealOffersParamsStatusRejected:
 		return true
-	case Sent:
+	case ListDealOffersParamsStatusSent:
 		return true
-	case Superseded:
+	case ListDealOffersParamsStatusSuperseded:
 		return true
 	default:
 		return false
@@ -8190,6 +8292,57 @@ func (e ListOrganizationsParamsRelationshipType) Valid() bool {
 	case ListOrganizationsParamsRelationshipTypePortfolioCompany:
 		return true
 	case ListOrganizationsParamsRelationshipTypeSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListOrganizationDocumentsParamsCategory.
+const (
+	ListOrganizationDocumentsParamsCategoryContract        ListOrganizationDocumentsParamsCategory = "contract"
+	ListOrganizationDocumentsParamsCategoryEmailAttachment ListOrganizationDocumentsParamsCategory = "email_attachment"
+	ListOrganizationDocumentsParamsCategoryLegal           ListOrganizationDocumentsParamsCategory = "legal"
+	ListOrganizationDocumentsParamsCategoryOffer           ListOrganizationDocumentsParamsCategory = "offer"
+	ListOrganizationDocumentsParamsCategoryOther           ListOrganizationDocumentsParamsCategory = "other"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationDocumentsParamsCategory enum.
+func (e ListOrganizationDocumentsParamsCategory) Valid() bool {
+	switch e {
+	case ListOrganizationDocumentsParamsCategoryContract:
+		return true
+	case ListOrganizationDocumentsParamsCategoryEmailAttachment:
+		return true
+	case ListOrganizationDocumentsParamsCategoryLegal:
+		return true
+	case ListOrganizationDocumentsParamsCategoryOffer:
+		return true
+	case ListOrganizationDocumentsParamsCategoryOther:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListOrganizationDocumentsParamsDocState.
+const (
+	ListOrganizationDocumentsParamsDocStateCurrent    ListOrganizationDocumentsParamsDocState = "current"
+	ListOrganizationDocumentsParamsDocStateDraft      ListOrganizationDocumentsParamsDocState = "draft"
+	ListOrganizationDocumentsParamsDocStateFinal      ListOrganizationDocumentsParamsDocState = "final"
+	ListOrganizationDocumentsParamsDocStateSuperseded ListOrganizationDocumentsParamsDocState = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationDocumentsParamsDocState enum.
+func (e ListOrganizationDocumentsParamsDocState) Valid() bool {
+	switch e {
+	case ListOrganizationDocumentsParamsDocStateCurrent:
+		return true
+	case ListOrganizationDocumentsParamsDocStateDraft:
+		return true
+	case ListOrganizationDocumentsParamsDocStateFinal:
+		return true
+	case ListOrganizationDocumentsParamsDocStateSuperseded:
 		return true
 	default:
 		return false
@@ -9140,14 +9293,26 @@ type Attachment struct {
 	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
 	CapturedBy *string `json:"captured_by,omitempty"`
 
+	// Category What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+	Category *AttachmentCategory `json:"category,omitempty"`
+
 	// Checksum sha256 of the bytes, for integrity/dedupe.
-	Checksum    *string              `json:"checksum,omitempty"`
-	ContentType *string              `json:"content_type,omitempty"`
-	CreatedAt   time.Time            `json:"created_at"`
-	EntityId    openapi_types.UUID   `json:"entity_id"`
-	EntityType  AttachmentEntityType `json:"entity_type"`
-	Filename    string               `json:"filename"`
-	Id          openapi_types.UUID   `json:"id"`
+	Checksum    *string   `json:"checksum,omitempty"`
+	ContentType *string   `json:"content_type,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+
+	// DocState ASSERTED, never inferred. A human or the producing source sets it. Nothing derives currency from the newest upload date or a filename containing "final": the most recent upload is very often a draft, and an inference would be a confident wrong answer to the exact question this field exists to answer.
+	DocState   *AttachmentDocState  `json:"doc_state,omitempty"`
+	EntityId   openapi_types.UUID   `json:"entity_id"`
+	EntityType AttachmentEntityType `json:"entity_type"`
+	Filename   string               `json:"filename"`
+	Id         openapi_types.UUID   `json:"id"`
+
+	// OrganizationId The account this file rolls up to — a READ PATH, not a second parent. Visibility stays the primary parent's, and this is maintained on relink and merge so a file follows the record it belongs to.
+	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
+
+	// Pinned Held at the top of the account's library. An assertion by a human, like the state.
+	Pinned *bool `json:"pinned,omitempty"`
 
 	// ScanStatus Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
 	// byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
@@ -9155,10 +9320,22 @@ type Attachment struct {
 	// `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
 	// row itself is always disclosed regardless of scan_status; only the download
 	// stream is withheld.
-	ScanStatus  *AttachmentScanStatus `json:"scan_status,omitempty"`
-	Source      string                `json:"source"`
-	WorkspaceId openapi_types.UUID    `json:"workspace_id"`
+	ScanStatus *AttachmentScanStatus `json:"scan_status,omitempty"`
+	Source     string                `json:"source"`
+
+	// SupersedesId The document this one replaces. Refused when it would close a cycle.
+	SupersedesId *openapi_types.UUID `json:"supersedes_id,omitempty"`
+
+	// Title A display name distinct from the filename — what a reader looks for, rather than what arrived.
+	Title       *string            `json:"title,omitempty"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
 }
+
+// AttachmentCategory What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+type AttachmentCategory string
+
+// AttachmentDocState ASSERTED, never inferred. A human or the producing source sets it. Nothing derives currency from the newest upload date or a filename containing "final": the most recent upload is very often a draft, and an inference would be a confident wrong answer to the exact question this field exists to answer.
+type AttachmentDocState string
 
 // AttachmentEntityType defines model for Attachment.EntityType.
 type AttachmentEntityType string
@@ -14873,6 +15050,22 @@ type UpdateActivityRequest struct {
 	Subject  *string    `json:"subject,omitempty"`
 }
 
+// UpdateAttachmentMetadataRequest A sparse patch. An absent field is untouched; `title` and `supersedes_id` accept
+// null to clear, because clearing either is an edit a human makes deliberately.
+type UpdateAttachmentMetadataRequest struct {
+	Category     *UpdateAttachmentMetadataRequestCategory `json:"category,omitempty"`
+	DocState     *UpdateAttachmentMetadataRequestDocState `json:"doc_state,omitempty"`
+	Pinned       *bool                                    `json:"pinned,omitempty"`
+	SupersedesId *openapi_types.UUID                      `json:"supersedes_id,omitempty"`
+	Title        *string                                  `json:"title,omitempty"`
+}
+
+// UpdateAttachmentMetadataRequestCategory defines model for UpdateAttachmentMetadataRequest.Category.
+type UpdateAttachmentMetadataRequestCategory string
+
+// UpdateAttachmentMetadataRequestDocState defines model for UpdateAttachmentMetadataRequest.DocState.
+type UpdateAttachmentMetadataRequestDocState string
+
 // UpdateAutomationRequest Any subset; omit a field to leave it unchanged. `status` flips enable/pause.
 type UpdateAutomationRequest struct {
 	Name   *string                        `json:"name,omitempty"`
@@ -15986,6 +16179,16 @@ type UploadAttachmentMultipartBody struct {
 
 // UploadAttachmentMultipartBodyEntityType defines parameters for UploadAttachment.
 type UploadAttachmentMultipartBodyEntityType string
+
+// UpdateAttachmentMetadataParams defines parameters for UpdateAttachmentMetadata.
+type UpdateAttachmentMetadataParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
 
 // ListAuditLogParams defines parameters for ListAuditLog.
 type ListAuditLogParams struct {
@@ -17203,6 +17406,31 @@ type AskAboutOrganizationJSONBody struct {
 	// `whats_changed` — what has moved on this account recently.
 	Question OrganizationQuestion `json:"question"`
 }
+
+// ListOrganizationDocumentsParams defines parameters for ListOrganizationDocuments.
+type ListOrganizationDocumentsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit      *Limit                                   `form:"limit,omitempty" json:"limit,omitempty"`
+	Category   *ListOrganizationDocumentsParamsCategory `form:"category,omitempty" json:"category,omitempty"`
+	DocState   *ListOrganizationDocumentsParamsDocState `form:"doc_state,omitempty" json:"doc_state,omitempty"`
+	PinnedOnly *bool                                    `form:"pinned_only,omitempty" json:"pinned_only,omitempty"`
+}
+
+// ListOrganizationDocumentsParamsCategory defines parameters for ListOrganizationDocuments.
+type ListOrganizationDocumentsParamsCategory string
+
+// ListOrganizationDocumentsParamsDocState defines parameters for ListOrganizationDocuments.
+type ListOrganizationDocumentsParamsDocState string
 
 // UpdateOrganizationFactParams defines parameters for UpdateOrganizationFact.
 type UpdateOrganizationFactParams struct {
@@ -18795,6 +19023,9 @@ type UploadAttachmentMultipartRequestBody UploadAttachmentMultipartBody
 
 // AcceptAttachmentExtractionJSONRequestBody defines body for AcceptAttachmentExtraction for application/json ContentType.
 type AcceptAttachmentExtractionJSONRequestBody = AcceptExtractionRequest
+
+// UpdateAttachmentMetadataJSONRequestBody defines body for UpdateAttachmentMetadata for application/json ContentType.
+type UpdateAttachmentMetadataJSONRequestBody = UpdateAttachmentMetadataRequest
 
 // RequestPasswordResetJSONRequestBody defines body for RequestPasswordReset for application/json ContentType.
 type RequestPasswordResetJSONRequestBody RequestPasswordResetJSONBody
@@ -24963,6 +25194,9 @@ type ServerInterface interface {
 	// Accept staged extraction fields onto the attachment's deal (deal-scoped attachments only).
 	// (POST /attachments/{id}/extraction:accept)
 	AcceptAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id)
+	// Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
+	// (PATCH /attachments/{id}/metadata)
+	UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request, id Id, params UpdateAttachmentMetadataParams)
 	// Request access to a restricted attachment (audit row only — no notification system).
 	// (POST /attachments/{id}/request-access)
 	RequestAttachmentAccess(w http.ResponseWriter, r *http.Request, id Id)
@@ -25371,6 +25605,9 @@ type ServerInterface interface {
 	// Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
 	// (POST /organizations/{id}/deep-read)
 	DeepReadCompany(w http.ResponseWriter, r *http.Request, id Id)
+	// Every document that rolls up to this account, pinned first (DOC-WIRE-1).
+	// (GET /organizations/{id}/documents)
+	ListOrganizationDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationDocumentsParams)
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
@@ -25998,6 +26235,12 @@ func (_ Unimplemented) GetAttachmentExtraction(w http.ResponseWriter, r *http.Re
 // Accept staged extraction fields onto the attachment's deal (deal-scoped attachments only).
 // (POST /attachments/{id}/extraction:accept)
 func (_ Unimplemented) AcceptAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
+// (PATCH /attachments/{id}/metadata)
+func (_ Unimplemented) UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request, id Id, params UpdateAttachmentMetadataParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -26814,6 +27057,12 @@ func (_ Unimplemented) RegenerateOrganizationBrief(w http.ResponseWriter, r *htt
 // Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
 // (POST /organizations/{id}/deep-read)
 func (_ Unimplemented) DeepReadCompany(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Every document that rolls up to this account, pinned first (DOC-WIRE-1).
+// (GET /organizations/{id}/documents)
+func (_ Unimplemented) ListOrganizationDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationDocumentsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29100,6 +29349,62 @@ func (siw *ServerInterfaceWrapper) AcceptAttachmentExtraction(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AcceptAttachmentExtraction(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAttachmentMetadata operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateAttachmentMetadataParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAttachmentMetadata(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -35034,6 +35339,106 @@ func (siw *ServerInterfaceWrapper) DeepReadCompany(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeepReadCompany(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizationDocuments operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationDocuments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrganizationDocumentsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "doc_state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "doc_state", r.URL.Query(), &params.DocState, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "doc_state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pinned_only" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pinned_only", r.URL.Query(), &params.PinnedOnly, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pinned_only"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pinned_only", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationDocuments(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -42593,6 +42998,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/attachments/{id}/extraction:accept", wrapper.AcceptAttachmentExtraction)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/attachments/{id}/metadata", wrapper.UpdateAttachmentMetadata)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/attachments/{id}/request-access", wrapper.RequestAttachmentAccess)
 	})
 	r.Group(func(r chi.Router) {
@@ -42999,6 +43407,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/deep-read", wrapper.DeepReadCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/documents", wrapper.ListOrganizationDocuments)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)

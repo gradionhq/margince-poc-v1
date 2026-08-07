@@ -147,6 +147,10 @@ func (stubs) AcceptAttachmentExtraction(w nethttp.ResponseWriter, r *nethttp.Req
 	httperr.NotImplemented(w, r, "AcceptAttachmentExtraction")
 }
 
+func (stubs) UpdateAttachmentMetadata(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateAttachmentMetadataParams) {
+	httperr.NotImplemented(w, r, "UpdateAttachmentMetadata")
+}
+
 func (stubs) RequestAttachmentAccess(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "RequestAttachmentAccess")
 }
@@ -689,6 +693,10 @@ func (stubs) RegenerateOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Re
 
 func (stubs) DeepReadCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "DeepReadCompany")
+}
+
+func (stubs) ListOrganizationDocuments(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListOrganizationDocumentsParams) {
+	httperr.NotImplemented(w, r, "ListOrganizationDocuments")
 }
 
 func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {

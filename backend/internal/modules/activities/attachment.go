@@ -48,7 +48,8 @@ type AttachmentInput struct {
 }
 
 const attachmentColumns = `at.id, at.workspace_id, at.entity_type, at.entity_id, at.filename,
-	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at, at.scan_status`
+	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at, at.scan_status,
+	at.category, at.title, at.doc_state, at.pinned, at.supersedes_id, at.organization_id`
 
 // attachmentSource marks how the row was captured; a direct upload is "upload".
 const attachmentSource = "upload"
@@ -346,9 +347,14 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 		checksum    *string
 		capturedBy  string
 		scanStatus  string
+		category    string
+		docState    string
+		supersedes  *ids.UUID
+		orgID       *ids.UUID
 	)
 	if err := row.Scan(&aid, &wsID, &entityType, &entityID, &att.Filename,
-		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt, &scanStatus); err != nil {
+		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt, &scanStatus,
+		&category, &att.Title, &docState, &att.Pinned, &supersedes, &orgID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return crmcontracts.Attachment{}, apperrors.ErrNotFound
 		}
@@ -364,7 +370,23 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 	att.CapturedBy = &capturedBy
 	status := crmcontracts.AttachmentScanStatus(scanStatus)
 	att.ScanStatus = &status
+	cat := crmcontracts.AttachmentCategory(category)
+	att.Category = &cat
+	state := crmcontracts.AttachmentDocState(docState)
+	att.DocState = &state
+	att.SupersedesId = uuidOrNil(supersedes)
+	att.OrganizationId = uuidOrNil(orgID)
 	return att, nil
+}
+
+// uuidOrNil maps an absent tenant-local pointer onto the wire's optional uuid
+// without inventing a zero id for it.
+func uuidOrNil(id *ids.UUID) *openapi_types.UUID {
+	if id == nil {
+		return nil
+	}
+	out := openapi_types.UUID(*id)
+	return &out
 }
 
 // nullIfEmpty maps an absent content-type to a SQL NULL rather than an empty

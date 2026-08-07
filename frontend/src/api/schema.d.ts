@@ -5372,6 +5372,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every document that rolls up to this account, pinned first (DOC-WIRE-1).
+         * @description The account's library. A document reachable from a company may hang off a deal, a
+         *     person, an activity or the company itself, and each of those has its own
+         *     visibility.
+         *
+         *     **Every candidate is scoped through its own primary parent**, so a contract on a
+         *     deal the viewer cannot see does not appear AND does not contribute to the count.
+         *     Scoping at the parent rather than filtering afterwards is what keeps the count
+         *     honest: a total that includes invisible rows tells the viewer something about them.
+         *
+         *     Ordered pinned first, then newest.
+         */
+        get: operations["listOrganizationDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/{id}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
+         * @description Version-guarded. The bytes, the filename, the checksum and the scan state are NOT
+         *     patchable here — they are what arrived, and a surface that let a human edit them
+         *     would make the record a description of itself rather than of the file.
+         */
+        patch: operations["updateAttachmentMetadata"];
+        trace?: never;
+    };
     "/attachments/{id}": {
         parameters: {
             query?: never;
@@ -9110,6 +9161,20 @@ export interface components {
             page: components["schemas"]["PageInfo"];
         };
         /**
+         * @description A sparse patch. An absent field is untouched; `title` and `supersedes_id` accept
+         *     null to clear, because clearing either is an edit a human makes deliberately.
+         */
+        UpdateAttachmentMetadataRequest: {
+            /** @enum {string} */
+            category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+            title?: string | null;
+            /** @enum {string} */
+            doc_state?: "draft" | "current" | "final" | "superseded";
+            pinned?: boolean;
+            /** Format: uuid */
+            supersedes_id?: string | null;
+        };
+        /**
          * @description A file hung off an entity. Mirrors the `attachment` table: the row is the
          *     system of record and the tenant anchor; the bytes live in object storage,
          *     addressed by an internal object key that is never exposed on the wire.
@@ -9129,6 +9194,30 @@ export interface components {
             byte_size?: number | null;
             /** @description sha256 of the bytes, for integrity/dedupe. */
             checksum?: string | null;
+            /**
+             * @description What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+             * @enum {string}
+             */
+            category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+            /** @description A display name distinct from the filename — what a reader looks for, rather than what arrived. */
+            title?: string | null;
+            /**
+             * @description ASSERTED, never inferred. A human or the producing source sets it. Nothing derives currency from the newest upload date or a filename containing "final": the most recent upload is very often a draft, and an inference would be a confident wrong answer to the exact question this field exists to answer.
+             * @enum {string}
+             */
+            doc_state?: "draft" | "current" | "final" | "superseded";
+            /** @description Held at the top of the account's library. An assertion by a human, like the state. */
+            pinned?: boolean;
+            /**
+             * Format: uuid
+             * @description The document this one replaces. Refused when it would close a cycle.
+             */
+            supersedes_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The account this file rolls up to — a READ PATH, not a second parent. Visibility stays the primary parent's, and this is maintained on relink and merge so a file follows the record it belongs to.
+             */
+            readonly organization_id?: string | null;
             /**
              * @description Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
              *     byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
@@ -23735,6 +23824,99 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listOrganizationDocuments: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+                doc_state?: "draft" | "current" | "final" | "superseded";
+                pinned_only?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account's documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateAttachmentMetadata: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAttachmentMetadataRequest"];
+            };
+        };
+        responses: {
+            /** @description The document after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a value outside the closed vocabulary. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     downloadAttachment: {
