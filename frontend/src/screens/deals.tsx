@@ -401,8 +401,7 @@ export function buildColumns(
         currency: currency ?? "EUR",
         deals: stageDeals.map((deal) => toBoardDeal(deal, orgs)),
         sumHidden: raw === null,
-        semantic: stage.semantic,
-      } as BoardColumn & { sumHidden: boolean; semantic: Stage["semantic"] };
+      };
     });
 }
 
@@ -600,28 +599,27 @@ function DealViewTools({
           table: t("deals.viewTable"),
         }}
       />
-      {/* Which pipeline is being read only decides the stages the board draws;
-          the table lists deals across the workspace, so the picker would be a
-          dial with nothing to change there. */}
-      {view === "board" && (
-        <Select
-          className="input"
-          aria-label={t("deals.pipeline")}
-          placeholder={t("deals.pipeline")}
-          value={pipelineId}
-          onChange={(next) => {
-            // A stage belongs to one pipeline; switching pipeline strands any
-            // stage_id filter (the chip blanks out but useDeals would still
-            // forward the old id and filter a foreign stage → 0 rows).
-            setPipelineId(next);
-            setOrClearFilter(setQuery, "stage_id", "");
-          }}
-          options={pipelines.map((pipeline) => ({
-            value: pipeline.id,
-            label: pipeline.name,
-          }))}
-        />
-      )}
+      {/* Both views read one pipeline: the table binds the same query the
+          board does, and its stage chip offers that pipeline's stages. So the
+          picker stands in both — hidden on the table it locked the reader to a
+          pipeline they could neither see nor change. */}
+      <Select
+        className="input"
+        aria-label={t("deals.pipeline")}
+        placeholder={t("deals.pipeline")}
+        value={pipelineId}
+        onChange={(next) => {
+          // A stage belongs to one pipeline; switching pipeline strands any
+          // stage_id filter (the chip blanks out but useDeals would still
+          // forward the old id and filter a foreign stage → 0 rows).
+          setPipelineId(next);
+          setOrClearFilter(setQuery, "stage_id", "");
+        }}
+        options={pipelines.map((pipeline) => ({
+          value: pipeline.id,
+          label: pipeline.name,
+        }))}
+      />
     </>
   );
 }
@@ -879,8 +877,11 @@ export function DealsScreen({
     />
   );
   const dealChips = dealFilterChips(stages, t);
-  // The companies this screen already read for its filter chip carry their
-  // resolved marks, so the board can show them without a second read.
+  // The companies this screen already read for the create form's picker carry
+  // their resolved marks, so the board can show them without a second read.
+  // That read is capped, so a deal whose company falls outside it draws its
+  // card without a company row — the company filter is a separate search and
+  // is not what fills this map.
   const orgMarks: OrgMarks = new Map(
     (orgsQuery.data?.data ?? []).map((org) => [
       org.id,

@@ -180,14 +180,14 @@ function FilterValueList({
 }: Readonly<{
   chip: ListChip;
   value: string;
-  onPick: (value: string) => void;
+  onPick: (value: string, label: string) => void;
 }>) {
   return (
     <>
       <button
         type="button"
         className={`lt-mi${value ? "" : " on"}`}
-        onClick={() => onPick("")}
+        onClick={() => onPick("", chip.allLabel)}
       >
         <span className="lt-cb">
           <Check size={10} strokeWidth={3} aria-hidden="true" />
@@ -199,7 +199,7 @@ function FilterValueList({
           type="button"
           key={option.value}
           className={`lt-mi${option.value === value ? " on" : ""}`}
-          onClick={() => onPick(option.value)}
+          onClick={() => onPick(option.value, option.label)}
         >
           <span className="lt-cb">
             <Check size={10} strokeWidth={3} aria-hidden="true" />
@@ -226,7 +226,7 @@ function AsyncFilterValueList({
 }: Readonly<{
   chip: ListChip;
   value: string;
-  onPick: (value: string) => void;
+  onPick: (value: string, label: string) => void;
 }>) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -284,7 +284,7 @@ function AsyncFilterValueList({
       <button
         type="button"
         className={`lt-mi${value ? "" : " on"}`}
-        onClick={() => onPick("")}
+        onClick={() => onPick("", chip.allLabel)}
       >
         <span className="lt-cb">
           <Check size={10} strokeWidth={3} aria-hidden="true" />
@@ -321,7 +321,7 @@ function AsyncFilterValueList({
           type="button"
           key={option.value}
           className={`lt-mi${option.value === value ? " on" : ""}`}
-          onClick={() => onPick(option.value)}
+          onClick={() => onPick(option.value, option.label)}
         >
           <span className="lt-cb">
             <Check size={10} strokeWidth={3} aria-hidden="true" />
@@ -342,7 +342,7 @@ function ChipValueList({
 }: Readonly<{
   chip: ListChip;
   value: string;
-  onPick: (value: string) => void;
+  onPick: (value: string, label: string) => void;
 }>) {
   return chip.search ? (
     <AsyncFilterValueList chip={chip} value={value} onPick={onPick} />
@@ -365,6 +365,7 @@ function FilterMenu({
   chips,
   chosen,
   onChipChange,
+  onRemember,
   open,
   onToggle,
   hasApplied,
@@ -372,6 +373,8 @@ function FilterMenu({
   chips: readonly ListChip[];
   chosen: Readonly<Record<string, string>>;
   onChipChange?: (key: string, value: string) => void;
+  /** Reports the label a value was picked under, for a searched chip. */
+  onRemember: (key: string, value: string, label: string) => void;
   open: boolean;
   onToggle: () => void;
   hasApplied: boolean;
@@ -422,7 +425,8 @@ function FilterMenu({
           <ChipValueList
             chip={attribute}
             value={chosen[attribute.key] ?? ""}
-            onPick={(value) => {
+            onPick={(value, label) => {
+              onRemember(attribute.key, value, label);
               onChipChange?.(attribute.key, value);
               onToggle();
             }}
@@ -521,6 +525,7 @@ function openRowSegment(
 function FilterRow({
   chip,
   value,
+  pickedLabel,
   openSegment,
   onToggleSegment,
   onPick,
@@ -528,14 +533,20 @@ function FilterRow({
 }: Readonly<{
   chip: ListChip;
   value: string;
+  /**
+   * What the reader picked, when the chip searched for it rather than listing
+   * it. A searched chip carries no `options` to look the value back up in, so
+   * without this the row would name a company by its id.
+   */
+  pickedLabel?: string;
   openSegment: FilterRowSegment | null;
   onToggleSegment: (segment: FilterRowSegment) => void;
-  onPick: (value: string) => void;
+  onPick: (value: string, label: string) => void;
   onDelete: () => void;
 }>) {
   const t = useT();
   const active = chip.options.find((option) => option.value === value);
-  const valueLabel = active?.label ?? value;
+  const valueLabel = active?.label ?? pickedLabel ?? value;
   return (
     <fieldset className="lt-frow" aria-label={`${chip.label}: ${valueLabel}`}>
       <span className="lt-frow-attr">{chip.label}</span>
@@ -706,6 +717,17 @@ function Toolbar({
 }>) {
   const t = useT();
   const applied = chips.filter((chip) => chosen[chip.key]);
+  // The label a searched value was picked under, kept only while that value is
+  // still the one applied — the filter can also be changed by a saved view, by
+  // Clear filters or by the reader deleting the row, and a label held past that
+  // would name the wrong record.
+  const [picked, setPicked] = useState<Record<string, [string, string]>>({});
+  const labelFor = (key: string, value: string) => {
+    const remembered = picked[key];
+    return remembered && remembered[0] === value ? remembered[1] : undefined;
+  };
+  const remember = (key: string, value: string, label: string) =>
+    setPicked((prev) => ({ ...prev, [key]: [value, label] }));
   return (
     <div className="lt-tools">
       {search && (
@@ -726,12 +748,14 @@ function Toolbar({
           key={chip.key}
           chip={chip}
           value={chosen[chip.key] ?? ""}
+          pickedLabel={labelFor(chip.key, chosen[chip.key] ?? "")}
           openSegment={openRowSegment(openMenu, chip.key)}
           onToggleSegment={(next) => {
             const key = `row:${chip.key}:${next}`;
             setOpenMenu(openMenu === key ? null : key);
           }}
-          onPick={(value) => {
+          onPick={(value, label) => {
+            remember(chip.key, value, label);
             onChipChange?.(chip.key, value);
             setOpenMenu(null);
           }}
@@ -747,6 +771,7 @@ function Toolbar({
           chips={chips}
           chosen={chosen}
           onChipChange={onChipChange}
+          onRemember={remember}
           open={openMenu === "filter"}
           onToggle={() => setOpenMenu(openMenu === "filter" ? null : "filter")}
           hasApplied={applied.length > 0}

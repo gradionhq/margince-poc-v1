@@ -98,6 +98,13 @@ export type BoardColumn = {
   weightedMinor: number;
   currency: string;
   deals: BoardDeal[];
+  /**
+   * The stage holds deals in more than one currency, so it has no total to
+   * state — native minor units are never summed across currencies. The column
+   * then reports how many deals it holds and no figure at all, rather than a
+   * zero that reads as an empty stage.
+   */
+  sumHidden?: boolean;
 };
 
 export function DealCard({
@@ -197,20 +204,24 @@ export function PipelineBoard({
               from it and reads underneath rather than competing on the line. */}
           <div className="board-col-sub">
             <span className="board-col-total">
-              <span className="board-col-money">
-                {formatMoney(column.rawMinor, column.currency, locale)}
-              </span>
+              {!column.sumHidden && (
+                <span className="board-col-money">
+                  {formatMoney(column.rawMinor, column.currency, locale)}
+                </span>
+              )}
               <span>{t("board.count", { count: column.deals.length })}</span>
             </span>
-            <span className="board-col-weighted">
-              {t("board.weighted", {
-                value: formatMoney(
-                  column.weightedMinor,
-                  column.currency,
-                  locale,
-                ),
-              })}
-            </span>
+            {!column.sumHidden && (
+              <span className="board-col-weighted">
+                {t("board.weighted", {
+                  value: formatMoney(
+                    column.weightedMinor,
+                    column.currency,
+                    locale,
+                  ),
+                })}
+              </span>
+            )}
           </div>
           {column.deals.map((deal) => (
             <DealCard

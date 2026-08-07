@@ -86,7 +86,11 @@ export function Avatar({
   // otherwise show the initials through it. Tracked by src for the same reason
   // as the failure above.
   const [paintedSrc, setPaintedSrc] = useState<string | null>(null);
-  const painted = Boolean(src) && paintedSrc === src;
+  // A mark that painted once and then failed on a later load is no longer on
+  // screen, so it stops holding the monogram down: without the `!broken` the
+  // image is removed while the fallback stays suppressed, and the avatar is
+  // simply empty.
+  const painted = Boolean(src) && paintedSrc === src && !broken;
   const initials = name
     .split(/\s+/)
     .filter(Boolean)

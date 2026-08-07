@@ -254,8 +254,10 @@ describe("ListTable: query vocabulary", () => {
       />,
     );
 
-    const statusChip = await screen.findByRole("button", { name: "Status" });
-    await userEvent.click(statusChip);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Filter" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Status" }));
     await userEvent.click(screen.getByRole("button", { name: "New" }));
 
     expect(

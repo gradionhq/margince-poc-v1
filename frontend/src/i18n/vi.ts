@@ -1044,7 +1044,7 @@ export const vi = {
   "deals.sortNewest": "Mới nhất",
   "deals.sortClose": "Ngày chốt",
   "deals.sortAmount": "Lớn nhất",
-  "deals.unit": "deals",
+  "deals.unit": "deal",
 
   "deal.offers": "Báo giá",
   "deal.newOffer": "Báo giá mới",

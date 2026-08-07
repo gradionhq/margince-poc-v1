@@ -777,17 +777,14 @@
 }
 /* A section that is only the route back does not compete with the record it
  * leads away from. */
-.topbar .crumb a {
-  font-weight: 400;
-}
-.topbar .crumb a {
-  font-size: inherit;
-}
-/* On a record the section name is the way back to its list. */
+/* It is also the way back to its list. Stated once: split across rules, the
+ * last weight won and the crumb kept the emphasis this is meant to take off
+ * it. */
 .topbar .crumb a {
   color: var(--textMeta);
   text-decoration: none;
-  font-weight: 500;
+  font-size: inherit;
+  font-weight: 400;
 }
 .topbar .crumb a:hover {
   color: var(--textPrimary);

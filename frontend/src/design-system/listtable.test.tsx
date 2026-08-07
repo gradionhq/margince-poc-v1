@@ -815,14 +815,16 @@ describe("empty state", () => {
     // A filtered-empty table already explains itself, so the note would only
     // blame the data source for what the reader's own filter did.
     rerender(
-      <ListTable
-        rows={[]}
-        columns={columns}
-        rowKey={(row) => row.id}
-        unit="rows"
-        emptyNote="No owner here maps to a workspace user."
-        search={{ value: "acme", onChange: () => {} }}
-      />,
+      <LocaleProvider initial="en">
+        <ListTable
+          rows={[]}
+          columns={columns}
+          rowKey={(row) => row.id}
+          unit="rows"
+          emptyNote="No owner here maps to a workspace user."
+          search={{ value: "acme", onChange: () => {} }}
+        />
+      </LocaleProvider>,
     );
     expect(
       screen.queryByText("No owner here maps to a workspace user."),

@@ -189,9 +189,7 @@ describe("buildColumns", () => {
     ]);
     expect(columns[0].rawMinor).toBe(300_000);
     expect(columns[0].weightedMinor).toBe(60_000);
-    expect((columns[1] as unknown as { sumHidden: boolean }).sumHidden).toBe(
-      true,
-    );
+    expect(columns[1].sumHidden).toBe(true);
   });
 });
 
