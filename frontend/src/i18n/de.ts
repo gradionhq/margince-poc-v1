@@ -3444,15 +3444,15 @@ export const de = {
 
   "ownDomains.title": "Eigene E-Mail-Domains",
   "ownDomains.sub":
-    "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert — auch nicht für Sie.",
+    "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert. Auch nicht für Sie.",
   "ownDomains.irreversible":
-    "Eine Domain hier einzutragen wirkt ab der nächsten Nachricht. Wird sie später entfernt, wird ab diesem Zeitpunkt wieder erfasst — was übersprungen wurde, solange sie eingetragen war, liefert jedoch kein Postfach ein zweites Mal. Bereits erfasste E-Mails bleiben.",
-  "ownDomains.fromCompany": "Aus dem Unternehmensprofil — dort zu ändern:",
+    "Eine Domain hier einzutragen wirkt ab der nächsten Nachricht. Wird sie später entfernt, wird ab diesem Zeitpunkt wieder erfasst. Was übersprungen wurde, solange sie eingetragen war, liefert kein Postfach ein zweites Mal. Bereits erfasste E-Mails bleiben.",
+  "ownDomains.fromCompany": "Aus dem Unternehmensprofil. Dort zu ändern:",
   "ownDomains.empty":
     "Keine weiteren Domains eingetragen. Tragen Sie eine ein, wenn Ihr Unternehmen unter mehr als einer Domain schreibt.",
   "ownDomains.confirmed": "bestätigt",
   "ownDomains.candidate":
-    "aus einem verbundenen Postfach — noch nicht bestätigt",
+    "aus einem verbundenen Postfach, noch nicht bestätigt",
   "ownDomains.add": "Hinzufügen",
   "ownDomains.addLabel": "Eigene Domain hinzufügen",
   "ownDomains.placeholder": "beispiel.de",

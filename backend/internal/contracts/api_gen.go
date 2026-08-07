@@ -10536,9 +10536,14 @@ type CreateWebhookSubscriptionRequest struct {
 
 // CreateWorkspaceEmailDomainRequest defines model for CreateWorkspaceEmailDomainRequest.
 type CreateWorkspaceEmailDomainRequest struct {
-	// Domain A bare domain — no scheme and no path. A leading `@` is accepted and stripped,
-	// because that is how people write a mail domain; an address is not. Folded before
-	// storage, so one domain cannot be registered twice under two spellings.
+	// Domain A bare domain: no scheme and no path. A leading `@` is accepted and stripped,
+	// because that is how people write a mail domain. An address is not accepted.
+	// Folded before storage, so one domain cannot be registered twice under two
+	// spellings.
+	//
+	// 254, not 253, because the limit here counts the raw value: a domain is at most
+	// 253 characters and the optional `@` is one more. The stored domain is checked
+	// against 253 after the prefix is stripped.
 	Domain string `json:"domain"`
 }
 
