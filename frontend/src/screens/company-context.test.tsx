@@ -149,14 +149,7 @@ afterEach(() => {
 // scheduler runs it. What varies is only how quickly that is, and the default
 // one-second budget is not enough when the whole suite runs in parallel, so
 // this states a budget that survives a loaded machine.
-//
-// Generous on purpose, and the size is the point rather than a guess: this file
-// shares a machine with every other suite, and the slowest lane — coverage
-// instrumentation over the whole tree — runs about an order of magnitude behind a
-// developer's own `vitest run`. A budget picked against the fast case turns a
-// scheduler that was merely busy into a failure that names an element instead of
-// the load, which is a test reporting on the machine rather than on the card.
-const SETTLE_MS = 20_000;
+const SETTLE_MS = 10_000;
 
 // The budget for a test that drives `renderReview`, and it must cover EVERY
 // waiter in there: three run in sequence, each bounded by SETTLE_MS. A test whose
