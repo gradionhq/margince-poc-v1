@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // A sync and a backfill page both read a connection, spend real time at the
 // provider, and write back afterwards. Disconnect is instant. These pin what
@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -59,7 +60,7 @@ func (c *interruptedConnector) BackfillPage(ctx context.Context, auth connector.
 
 // readConnectionSyncState reads the two facts a superseded cycle must not
 // touch: the connection's watermark and the sidecar's health verdict.
-func readConnectionSyncState(t *testing.T, e *SearchEnv, connID ids.UUID) (status string, cursor []byte, lastSynced *time.Time) {
+func readConnectionSyncState(t *testing.T, e *integration.SearchEnv, connID ids.UUID) (status string, cursor []byte, lastSynced *time.Time) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -75,13 +76,13 @@ func readConnectionSyncState(t *testing.T, e *SearchEnv, connID ids.UUID) (statu
 }
 
 func TestASyncDisconnectedMidFlightCommitsNothing(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &interruptedConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
 	registry.Register(fake)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -112,13 +113,13 @@ func TestASyncDisconnectedMidFlightCommitsNothing(t *testing.T) {
 }
 
 func TestABackfillPageDisconnectedMidFlightCommitsNothing(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &interruptedConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
 	registry.Register(fake)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

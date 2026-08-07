@@ -19,8 +19,9 @@ import {
 // steps the unit tests use, keeping the captured frame faithful to a real run.
 
 // One consent purpose is enough to satisfy the Send precondition and populate
-// the purpose <select>; its `key` ("transactional") is the wire value a send
-// carries. Mirrors compose.test.tsx's PURPOSES, not an invented shape.
+// the purpose dropdown; its `label` is what the story clicks and its `key`
+// ("transactional") is the wire value a send carries. Mirrors compose.test.tsx's
+// PURPOSES, not an invented shape.
 const PURPOSES = {
   data: [
     {
@@ -121,7 +122,13 @@ async function fillAndSend(canvasElement: HTMLElement) {
   await userEvent.tab();
   await userEvent.type(canvas.getByPlaceholderText("Subject"), "Following up");
   await userEvent.type(canvas.getByPlaceholderText("Body"), "As promised.");
-  await userEvent.selectOptions(canvas.getByRole("combobox"), "transactional");
+  // The purpose control is a button plus a listbox the component portals to the
+  // body, so the option is reached OUTSIDE the story canvas — and by the label a
+  // reader clicks, never by the wire key behind it.
+  await userEvent.click(canvas.getByRole("combobox"));
+  await userEvent.click(
+    within(document.body).getByRole("option", { name: PURPOSES.data[0].label }),
+  );
   await userEvent.click(canvas.getByRole("button", { name: "Send" }));
 }
 

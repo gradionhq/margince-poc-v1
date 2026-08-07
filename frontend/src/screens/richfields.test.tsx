@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { type CreateField, type FormRows, RecordFormBody } from "./create";
 
@@ -75,16 +76,17 @@ describe("repeatable-row fields", () => {
   });
 
   it("updates a row's values as the user types and selects", async () => {
+    const user = userEvent.setup();
     render(<Harness fields={[emailsField]} onSubmit={vi.fn()} />);
-    await userEvent.click(screen.getByText("Add email"));
-    await userEvent.type(screen.getByLabelText("Email *"), "a@x.test");
-    await userEvent.selectOptions(screen.getByLabelText("Type"), "work");
+    await user.click(screen.getByText("Add email"));
+    await user.type(screen.getByLabelText("Email *"), "a@x.test");
+    await pickOption(user, screen.getByLabelText("Type"), "Work");
     expect((screen.getByLabelText("Email *") as HTMLInputElement).value).toBe(
       "a@x.test",
     );
-    expect((screen.getByLabelText("Type") as HTMLSelectElement).value).toBe(
-      "work",
-    );
+    // The dropdown carries its value on its closed face, not in a `value`
+    // property — the trigger's only text is the label of what is chosen.
+    expect(screen.getByLabelText("Type").textContent).toBe("Work");
   });
 
   it("marks exactly one row primary", async () => {
@@ -113,13 +115,14 @@ describe("repeatable-row fields", () => {
   });
 
   it("collects the rows for submission", async () => {
+    const user = userEvent.setup();
     const onSubmit = vi.fn();
     render(<Harness fields={[emailsField]} onSubmit={onSubmit} />);
-    await userEvent.click(screen.getByText("Add email"));
-    await userEvent.type(screen.getByLabelText("Email *"), "a@x.test");
-    await userEvent.selectOptions(screen.getByLabelText("Type"), "work");
-    await userEvent.click(screen.getByRole("radio", { name: "Primary" }));
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByText("Add email"));
+    await user.type(screen.getByLabelText("Email *"), "a@x.test");
+    await pickOption(user, screen.getByLabelText("Type"), "Work");
+    await user.click(screen.getByRole("radio", { name: "Primary" }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
     expect(onSubmit).toHaveBeenCalledWith(
       {},
       {

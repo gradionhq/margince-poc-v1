@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // One human, one provider, one row — but not necessarily one mailbox. A person
 // who connects a second account over the first is not resuming the first: the
@@ -18,7 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -54,13 +55,13 @@ func (c *accountBoundConnector) BackfillPage(ctx context.Context, auth connector
 // reconnectAs while the page is out at the provider, and returns the run's row
 // afterwards. It is the whole race in one helper: the only difference between a
 // reauth and a rebind is whether the second grant names the same mailbox.
-func startImportReconnectingMidPage(t *testing.T, e *SearchEnv, account, reconnectAs string) (status string, scanned int, cursor []byte) {
+func startImportReconnectingMidPage(t *testing.T, e *integration.SearchEnv, account, reconnectAs string) (status string, scanned int, cursor []byte) {
 	t.Helper()
 	seedCaptureRole(t, e)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &accountBoundConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
 	registry.Register(fake)
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth(account)); err != nil {
 		t.Fatalf("connecting %s: %v", account, err)
 	}
@@ -85,7 +86,7 @@ func startImportReconnectingMidPage(t *testing.T, e *SearchEnv, account, reconne
 // to the same account and the same import it always did — fencing it off would
 // report the import the human was told to repair as "cancelled".
 func TestAReauthOfTheSameAccountLetsAnInFlightPageCommit(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	status, scanned, cursor := startImportReconnectingMidPage(t, e, "same@example.com", "same@example.com")
 	if status != "running" {
 		t.Fatalf("status = %s, want running — a routine reauth must not end the import it was meant to keep alive", status)
@@ -99,7 +100,7 @@ func TestAReauthOfTheSameAccountLetsAnInFlightPageCommit(t *testing.T) {
 // a mailbox this connection no longer points at, so its counters and its cursor
 // are not history the new account gets to inherit.
 func TestRebindingToAnotherAccountFencesAnInFlightPage(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	status, scanned, cursor := startImportReconnectingMidPage(t, e, "first@example.com", "second@example.com")
 	if scanned != 0 || len(cursor) != 0 {
 		t.Fatalf("the second mailbox was credited with the first one's page: scanned=%d cursor=%q", scanned, cursor)
@@ -111,7 +112,7 @@ func TestRebindingToAnotherAccountFencesAnInFlightPage(t *testing.T) {
 
 // readConnectionAccount reads what a connection is currently bound to and where
 // it is up to.
-func readConnectionAccount(t *testing.T, e *SearchEnv, connID ids.UUID) (label *string, cursor []byte) {
+func readConnectionAccount(t *testing.T, e *integration.SearchEnv, connID ids.UUID) (label *string, cursor []byte) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -126,9 +127,9 @@ func readConnectionAccount(t *testing.T, e *SearchEnv, connID ids.UUID) (label *
 
 // connectAndSync grants the provider under the given account and pulls once, so
 // the connection carries a real watermark before anything reconnects.
-func connectAndSync(t *testing.T, registry *capture.Registry, e *SearchEnv, account string) ids.UUID {
+func connectAndSync(t *testing.T, registry *capturemod.Registry, e *integration.SearchEnv, account string) ids.UUID {
 	t.Helper()
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth(account))
 	if err != nil {
 		t.Fatalf("connecting %s: %v", account, err)
@@ -143,14 +144,14 @@ func connectAndSync(t *testing.T, registry *capture.Registry, e *SearchEnv, acco
 }
 
 func TestReconnectingADifferentAccountDropsTheFirstAccountsWatermark(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&accountBoundConnector{pagedConnector: &pagedConnector{messages: 5, pageSize: 10}})
 
 	connID := connectAndSync(t, registry, e, "first@example.com")
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("second@example.com")); err != nil {
 		t.Fatalf("reconnecting as a different account: %v", err)
 	}
@@ -165,14 +166,14 @@ func TestReconnectingADifferentAccountDropsTheFirstAccountsWatermark(t *testing.
 }
 
 func TestReconnectingTheSameAccountKeepsItsWatermark(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&accountBoundConnector{pagedConnector: &pagedConnector{messages: 5, pageSize: 10}})
 
 	connID := connectAndSync(t, registry, e, "same@example.com")
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("same@example.com")); err != nil {
 		t.Fatalf("re-granting the same account: %v", err)
 	}
@@ -183,12 +184,12 @@ func TestReconnectingTheSameAccountKeepsItsWatermark(t *testing.T) {
 }
 
 func TestANewAccountMayImportANarrowerWindowThanTheOldOne(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&accountBoundConnector{pagedConnector: &pagedConnector{messages: 5, pageSize: 10}})
 	rep := ids.From[ids.UserKind](e.Rep1)
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
 	connectAndSync(t, registry, e, "first@example.com")
@@ -210,7 +211,7 @@ func TestANewAccountMayImportANarrowerWindowThanTheOldOne(t *testing.T) {
 	// narrow — refusing here would leave the human with no way to import it at
 	// all short of importing a year of a mailbox they just connected.
 	if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 3, 5, enqueueNothing); err != nil {
-		if errors.Is(err, capture.ErrWindowNarrowing) {
+		if errors.Is(err, capturemod.ErrWindowNarrowing) {
 			t.Fatal("the new account inherited the previous account's import window")
 		}
 		t.Fatalf("the second account's three-month import: %v", err)

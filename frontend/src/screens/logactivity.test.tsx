@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { LogActivity } from "./logactivity";
 import { PersonScreen } from "./people";
@@ -200,7 +201,7 @@ describe("log activity from a 360", () => {
     // Reserved means VISIBLE-but-disabled. `hidden` is display:none, which
     // collapses the row and reintroduces the reflow this test exists to stop.
     expect(due.closest("div")?.hasAttribute("hidden")).toBe(false);
-    await userEvent.selectOptions(screen.getByLabelText("Type"), "task");
+    await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
     expect(
       screen
         .getByLabelText("Due date", { selector: "input" })
@@ -212,7 +213,7 @@ describe("log activity from a 360", () => {
     const captured: Captured[] = [];
     stubApi({ "POST /activities": createdActivity }, captured);
     render(<LogActivity entityType="organization" entityId="o1" />);
-    await userEvent.selectOptions(screen.getByLabelText("Type"), "task");
+    await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
     await userEvent.type(screen.getByLabelText("Due date"), "2026-07-10");
     await userEvent.type(screen.getByLabelText("Subject *"), "Send proposal");
     await userEvent.click(screen.getByRole("button", { name: "Log" }));

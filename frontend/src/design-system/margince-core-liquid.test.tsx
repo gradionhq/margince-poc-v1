@@ -6,6 +6,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreLiquid } from "./margince-core-liquid";
+import { WINDOW_BLURRED_ATTRIBUTE } from "./window-focus";
 
 // vite.config.ts doesn't enable globals, so @testing-library/react's own
 // auto-cleanup never runs here: without this, the rendered CoreLiquid is
@@ -75,6 +76,12 @@ describe("CoreLiquid", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
       fakeGl(),
     );
+    // jsdom's document never has focus, and an unfocused window parks the Core
+    // (see window-focus.ts) — so left alone every case here would measure a
+    // parked loop and the counts below would stop meaning anything. The default
+    // fixture is therefore a window somebody is looking at; the cases about
+    // losing focus say so themselves.
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -215,6 +222,130 @@ describe("CoreLiquid", () => {
       // And the pause ENDS. A stop with no guaranteed way back is a frozen
       // sphere, which is indistinguishable from a shader that failed.
       expect(draws).toBeGreaterThan(whileVisible);
+    });
+
+    it("stops while the window has no focus and resumes when it comes back", () => {
+      render(<CoreLiquid state="working" />);
+      vi.advanceTimersByTime(300);
+      const whileFocused = draws;
+      expect(whileFocused).toBeGreaterThan(0);
+
+      window.dispatchEvent(new Event("blur"));
+      vi.advanceTimersByTime(5000);
+      // A window sitting behind another one is not being watched, and the tab is
+      // still "visible" the whole time — so `document.hidden` cannot see this
+      // case at all.
+      expect(draws).toBe(whileFocused);
+
+      window.dispatchEvent(new Event("focus"));
+      vi.advanceTimersByTime(300);
+      expect(draws).toBeGreaterThan(whileFocused);
+    });
+
+    it("draws its first frame even when it mounts into an unfocused window", () => {
+      // The one read of `hasFocus` there is: seeding the state at subscribe time.
+      vi.spyOn(document, "hasFocus").mockReturnValue(false);
+      render(<CoreLiquid state="working" />);
+      vi.advanceTimersByTime(2000);
+      // Exactly one frame, and then nothing. An undrawn canvas is blank, and a
+      // blank sphere is indistinguishable from a broken one, so the first frame
+      // is owed even to a Core nobody is looking at yet; the next two seconds of
+      // them are not.
+      expect(draws).toBe(1);
+      // One rAF for the frame it drew, at most one more for the callback that
+      // found nobody watching and parked. A loop still running would be ~48.
+      expect(wakeups).toBeLessThanOrEqual(2);
+
+      // `hasFocus` stays mocked false on purpose: the resume must come from the
+      // EVENT. A predicate that polled `document.hasFocus()` instead would never
+      // see this window come back.
+      window.dispatchEvent(new Event("focus"));
+      vi.advanceTimersByTime(300);
+      expect(draws).toBeGreaterThan(1);
+    });
+
+    it("resumes only once BOTH the hidden tab and the lost focus have ended", () => {
+      render(<CoreLiquid state="working" />);
+      vi.advanceTimersByTime(300);
+      const whileWatched = draws;
+      expect(whileWatched).toBeGreaterThan(0);
+
+      // Switching to another window's tab is both at once, and the two end
+      // separately — a Core that treated either event as "watched again" would
+      // start drawing into a tab that is still hidden.
+      hidden = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("blur"));
+      vi.advanceTimersByTime(2000);
+      expect(draws).toBe(whileWatched);
+
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(2000);
+      expect(draws).toBe(whileWatched);
+
+      window.dispatchEvent(new Event("focus"));
+      vi.advanceTimersByTime(300);
+      expect(draws).toBeGreaterThan(whileWatched);
+    });
+  });
+
+  /*
+   * The stylesheet's half of the same stillness.
+   *
+   * A paused CSS animation is not observable here — jsdom runs no animations at
+   * all — so what a test can honestly pin is the SIGNAL the stylesheet reads:
+   * the attribute on the root element, and the fact that a Core leaves none of
+   * it behind. The rule that consumes the attribute is pinned against the
+   * stylesheet text in margince-core.test.ts.
+   */
+  describe("its stillness signal", () => {
+    it("marks the document while the window has no focus, and unmarks it on return", () => {
+      render(<CoreLiquid state="working" />);
+      expect(document.documentElement).not.toHaveAttribute(
+        WINDOW_BLURRED_ATTRIBUTE,
+      );
+
+      window.dispatchEvent(new Event("blur"));
+      expect(document.documentElement).toHaveAttribute(
+        WINDOW_BLURRED_ATTRIBUTE,
+      );
+
+      window.dispatchEvent(new Event("focus"));
+      expect(document.documentElement).not.toHaveAttribute(
+        WINDOW_BLURRED_ATTRIBUTE,
+      );
+    });
+
+    it("marks it on the non-GPU rung too, where CSS is the whole Core", () => {
+      // WDS-CORE-3's lower rung: no context, so no draw loop is ever built. The
+      // breath, the halo and the feed are then the only motion there is, and
+      // they are exactly what must stop.
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+      render(<CoreLiquid state="working" />);
+      expect(document.querySelector("canvas")).toHaveClass("off");
+
+      window.dispatchEvent(new Event("blur"));
+      expect(document.documentElement).toHaveAttribute(
+        WINDOW_BLURRED_ATTRIBUTE,
+      );
+    });
+
+    it("leaves nothing behind once the last Core unmounts", () => {
+      const { unmount } = render(<CoreLiquid state="working" />);
+      window.dispatchEvent(new Event("blur"));
+      unmount();
+
+      // The attribute goes with the listeners. Left behind, it would pause the
+      // animations of the next Core mounted into a focused window, with no event
+      // coming to release them.
+      expect(document.documentElement).not.toHaveAttribute(
+        WINDOW_BLURRED_ATTRIBUTE,
+      );
+      window.dispatchEvent(new Event("blur"));
+      expect(document.documentElement).not.toHaveAttribute(
+        WINDOW_BLURRED_ATTRIBUTE,
+      );
     });
   });
 

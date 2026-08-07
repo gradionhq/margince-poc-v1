@@ -7,10 +7,19 @@ import {
   Field,
   OverflowMenu,
   Radio,
-  Select,
   Textarea,
   TextInput,
 } from "./atoms";
+import { Select } from "./select";
+
+// The dropdown these cases pair with a Field is the Select from select.tsx — a
+// button and a portalled listbox, not a native `<select>`. Its own behaviour is
+// specified in select.test.tsx; here it stands in for "a control a Field wires
+// up", which is the only thing these cases are about.
+const STAGES = [
+  { value: "won", label: "Won" },
+  { value: "lost", label: "Lost" },
+];
 
 afterEach(cleanup);
 
@@ -93,22 +102,11 @@ it("keeps Radios sharing a name mutually exclusive", async () => {
 // `.share-reason`). Dropping either class silently unstyles the control, so the
 // merge is asserted rather than assumed.
 it("merges a caller's className with the atom's own", () => {
-  render(
-    <>
-      <Textarea aria-label="Body" className="compose-body" />
-      <Select aria-label="Stage" className="stage-picker">
-        <option value="won">Won</option>
-      </Select>
-    </>,
-  );
+  render(<Textarea aria-label="Body" className="compose-body" />);
 
   expect([...screen.getByLabelText("Body").classList].sort()).toEqual([
     "compose-body",
     "textarea",
-  ]);
-  expect([...screen.getByLabelText("Stage").classList].sort()).toEqual([
-    "input",
-    "stage-picker",
   ]);
 });
 
@@ -124,9 +122,12 @@ it("pairs a Field's label with its control, and two Fields never collide", () =>
       </Field>
       <Field label="Stage">
         {(control) => (
-          <Select {...control}>
-            <option value="won">Won</option>
-          </Select>
+          <Select
+            {...control}
+            options={STAGES}
+            value="won"
+            onChange={() => {}}
+          />
         )}
       </Field>
     </>,
@@ -167,9 +168,12 @@ it("marks a required Field once for the eye and once for the control", () => {
   render(
     <Field label="Role" required>
       {(control) => (
-        <Select {...control}>
-          <option value="admin">Admin</option>
-        </Select>
+        <Select
+          {...control}
+          options={[{ value: "admin", label: "Admin" }]}
+          value="admin"
+          onChange={() => {}}
+        />
       )}
     </Field>,
   );
@@ -179,6 +183,8 @@ it("marks a required Field once for the eye and once for the control", () => {
   // Queried by label TEXT it would read "Role *" — which is the visible string,
   // not the announced one.
   const control = screen.getByRole("combobox", { name: "Role" });
-  expect(control.hasAttribute("required")).toBe(true);
+  // aria-required, not `required`: the trigger is a button, and a button carries
+  // no constraint validation for the attribute to drive.
+  expect(control.getAttribute("aria-required")).toBe("true");
   expect(screen.getByText("*").getAttribute("aria-hidden")).toBe("true");
 });

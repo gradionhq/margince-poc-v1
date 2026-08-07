@@ -15,7 +15,7 @@ package integration
 // Start), never a sleep or a poll — the same idiom
 // no_activity_reminder_workqueue_integration_test.go established for
 // this package's other real-worker suites (applyRiverSchema/
-// awaitKindCompleted are that file's helpers, reused here unchanged).
+// AwaitKindCompleted are that file's helpers, reused here unchanged).
 //
 // The 409-vs-202 split rides the marker's own claim, proven here through
 // the real handler, not asserted against the store directly —
@@ -395,7 +395,7 @@ func TestEmbedReindexConfirmLifecycle(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
 
 	status, final, _ := embedStatus(t, e)
 	if status != http.StatusOK {
@@ -517,7 +517,7 @@ func TestEmbedReindexIdentityMismatchedJobCancels(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
 
 	var jobState string
 	if err := e.owner.QueryRow(context.Background(),
@@ -581,7 +581,7 @@ func TestEmbedReindexForceReindexWhenNotNeeded(t *testing.T) {
 	startEmbedReindexRunner(t, runner2)
 	waitCtx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel2()
-	awaitKindCompleted(waitCtx2, t, sub2, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx2, t, sub2, "embed_reindex_workspace")
 
 	status, final, _ := embedStatus(t, e)
 	if status != http.StatusOK || final.Status != "idle" || final.ReindexNeeded {

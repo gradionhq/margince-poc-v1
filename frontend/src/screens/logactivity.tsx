@@ -7,10 +7,10 @@ import {
   Field,
   Modal,
   SectionHeader,
-  Select,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
@@ -110,16 +110,15 @@ export function LogActivityForm({
           {(control) => (
             <Select
               {...control}
+              options={[
+                { value: "note", label: t("log.kindNote") },
+                { value: "task", label: t("log.kindTask") },
+              ]}
               value={draft.kind}
-              onChange={(event) =>
-                setField({
-                  kind: event.target.value === "task" ? "task" : "note",
-                })
+              onChange={(value) =>
+                setField({ kind: value === "task" ? "task" : "note" })
               }
-            >
-              <option value="note">{t("log.kindNote")}</option>
-              <option value="task">{t("log.kindTask")}</option>
-            </Select>
+            />
           )}
         </Field>
         {/* Only a task carries a due date, but the field stays in place for a

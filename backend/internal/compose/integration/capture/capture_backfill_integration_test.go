@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The ADR-0063 bounded backfill over a real migrated Postgres: preview
 // estimates before anything spends, start is widen-only with one live run
@@ -20,7 +20,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -87,7 +88,7 @@ func (p *pagedConnector) BackfillPage(_ context.Context, _ connector.Auth, _ tim
 // their run by hand. Run and job still commit together — there is just no job.
 func enqueueNothing(context.Context, pgx.Tx, ids.UUID) error { return nil }
 
-func readBackfillRow(t *testing.T, e *SearchEnv, id ids.UUID) (status string, scanned, captured int, cursor []byte) {
+func readBackfillRow(t *testing.T, e *integration.SearchEnv, id ids.UUID) (status string, scanned, captured int, cursor []byte) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
@@ -101,12 +102,12 @@ func readBackfillRow(t *testing.T, e *SearchEnv, id ids.UUID) (status string, sc
 }
 
 func TestBackfillLifecycle(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	prov := &pagedConnector{messages: 25, pageSize: 10}
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(prov)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestBackfillLifecycle(t *testing.T) {
 		if msgs != 25 {
 			t.Fatalf("estimate = %d msgs, want 25", msgs)
 		}
-		if _, err := registry.EstimateBackfill(grantCtx, "gmail", rep, 5); !errors.Is(err, capture.ErrWindowInvalid) {
+		if _, err := registry.EstimateBackfill(grantCtx, "gmail", rep, 5); !errors.Is(err, capturemod.ErrWindowInvalid) {
 			t.Fatalf("a 5-month window must be refused, got %v", err)
 		}
 	})
@@ -131,7 +132,7 @@ func TestBackfillLifecycle(t *testing.T) {
 	}
 
 	t.Run("one live run per connection", func(t *testing.T) {
-		if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing); !errors.Is(err, capture.ErrBackfillRunning) {
+		if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing); !errors.Is(err, capturemod.ErrBackfillRunning) {
 			t.Fatalf("second start while running = %v, want ErrBackfillRunning", err)
 		}
 	})
@@ -184,7 +185,7 @@ func TestBackfillLifecycle(t *testing.T) {
 	})
 
 	t.Run("windows only widen", func(t *testing.T) {
-		if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 3, 25, enqueueNothing); !errors.Is(err, capture.ErrWindowNarrowing) {
+		if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 3, 25, enqueueNothing); !errors.Is(err, capturemod.ErrWindowNarrowing) {
 			t.Fatalf("narrowing 6m→3m = %v, want ErrWindowNarrowing", err)
 		}
 		wider, err := registry.StartBackfill(grantCtx, "gmail", rep, 12, 25, enqueueNothing)
@@ -224,10 +225,10 @@ func TestBackfillLifecycle(t *testing.T) {
 // the two pre-commit failure edges: an unreadable committed cursor (parse
 // error) and a readable cursor the provider then rejects (page error).
 func TestBackfillStepFaultsAreTerminal(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -285,10 +286,10 @@ func TestBackfillStepFaultsAreTerminal(t *testing.T) {
 // out, and until the user finds that, every retry answers 409 backfill_running.
 // So the run and the job that claims it commit together or not at all.
 func TestStartBackfillRollsBackWhenTheJobCannotBeScheduled(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

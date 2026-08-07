@@ -15,7 +15,6 @@ import {
   Field,
   SectionHeader,
   SegmentedControl,
-  Select,
   Skeleton,
   Textarea,
   TextInput,
@@ -25,6 +24,7 @@ import {
   RecordPicker,
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
+import { Select, type SelectOption } from "../design-system/select";
 import { formatDate } from "../format/format";
 import { useNow } from "../format/now";
 import { type Locale, useLocale, useT } from "../i18n";
@@ -334,18 +334,15 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
           {(control) => (
             <Select
               {...control}
+              options={DSR_KINDS.map((value) => ({
+                value,
+                label: humanizeToken(value),
+              }))}
               value={kind}
-              onChange={(event) => {
-                const value = event.target.value;
+              onChange={(value) => {
                 if (isOption(value, DSR_KINDS)) changeKind(value);
               }}
-            >
-              {DSR_KINDS.map((value) => (
-                <option key={value} value={value}>
-                  {humanizeToken(value)}
-                </option>
-              ))}
-            </Select>
+            />
           )}
         </Field>
 
@@ -384,10 +381,9 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
 
         <Field label={t("privacy.dueAt")}>
           {(control) => (
-            <input
+            <TextInput
               {...control}
               type="date"
-              className="input"
               value={dueAt}
               onChange={(event) => {
                 setDueAt(event.target.value);
@@ -437,6 +433,20 @@ function transitionLabelKey(status: DsrStatus): MessageKey {
   if (status === "in_progress") return "privacy.inProgress";
   if (status === "fulfilled") return "privacy.fulfil";
   return "privacy.reject";
+}
+
+// Who a request can be assigned to, led by the unassigned entry. That entry is
+// DISABLED, and it is still an option rather than the select's placeholder: the
+// server's update coalesces an omitted assignee onto the stored one, so nothing
+// an empty selection sent could unassign anybody — and an entry a reader can
+// aim at has to be able to change something. Kept in the list because it is the
+// face an unassigned request shows, and the state has to stay legible even
+// where it is not actionable. The em dash carries no words to translate.
+function assigneeOptions(users: readonly User[]): SelectOption[] {
+  return [
+    { value: "", label: "—", disabled: true },
+    ...users.map((user) => ({ value: user.id, label: user.display_name })),
+  ];
 }
 
 // One DSR row: collapsed summary + (on click) the case-work panel — subject,
@@ -584,26 +594,11 @@ function DsrRow({
               </label>
               <Select
                 id={assigneeFieldId}
+                options={assigneeOptions(assignableUsers)}
                 value={dsr.assignee_id ?? ""}
                 disabled={patch.isPending}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  // No "unassign" option: coalesce($3, assignee_id) treats an
-                  // explicit null as a no-op, so there is nothing an empty
-                  // selection could legitimately send.
-                  if (!value) {
-                    return;
-                  }
-                  patch.mutate({ assignee_id: value });
-                }}
-              >
-                <option value="">—</option>
-                {assignableUsers.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.display_name}
-                  </option>
-                ))}
-              </Select>
+                onChange={(value) => patch.mutate({ assignee_id: value })}
+              />
               <p className="t-caption">{t("privacy.assigneeUnassignable")}</p>
               {patch.isPending && (
                 <p className="t-caption">{t("common.saving")}</p>

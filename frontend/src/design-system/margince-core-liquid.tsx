@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { MarginceCoreState } from "./margince-core";
 import { usePrefersReducedMotion } from "./motion";
+import {
+  isWindowFocused,
+  retainWindowFocusSignal,
+  subscribeToWindowFocus,
+} from "./window-focus";
 
 /**
  * The Core's liquid, drawn in WebGL.
@@ -30,13 +35,13 @@ import { usePrefersReducedMotion } from "./motion";
  *    the display's refresh rate (120Hz on the machines this is developed on) to
  *    discard four callbacks out of five
  *  - STOPS — not throttles — whenever nothing would change: a hidden tab, a
- *    canvas scrolled or routed off screen, and a state whose liquid does not move
- *    at all (`unavailable`, or any state under reduced motion, where one composed
- *    frame IS the whole animation). Each of those has an event that ends it, so
- *    the loop is woken by the event rather than by asking every frame — the
- *    layout read this used to do per callback (`canvas.offsetParent`) forced
- *    style and layout at refresh rate for an answer that only changes when a
- *    route does.
+ *    window that does not have focus, a canvas scrolled or routed off screen, and
+ *    a state whose liquid does not move at all (`unavailable`, or any state under
+ *    reduced motion, where one composed frame IS the whole animation). Each of
+ *    those has an event that ends it, so the loop is woken by the event rather
+ *    than by asking every frame — the layout read this used to do per callback
+ *    (`canvas.offsetParent`) forced style and layout at refresh rate for an
+ *    answer that only changes when a route does.
  *  - one triangle, no MSAA, no clear (the draw covers every pixel of the
  *    viewport), and no per-frame layout reads
  */
@@ -520,6 +525,10 @@ function runLiquidLoop({
   let timer = 0;
   let drawnOnce = false;
   let onScreen = true;
+  // Seeded by the subscription below, which opens by delivering the state it
+  // already holds. The initial value is what that delivery is compared against,
+  // so it reads the same source rather than assuming focus.
+  let windowFocused = isWindowFocused();
   const still = reduced || speed === 0;
   /*
    * The buffer edge THIS loop has configured, and why it is not read back off
@@ -562,19 +571,22 @@ function runLiquidLoop({
   };
 
   /**
-   * Whether anybody can see the canvas: in the viewport, in a visible tab.
+   * Whether anybody is watching the canvas: in the viewport, in a visible tab,
+   * in a window that has focus.
    *
-   * Deliberately NOT `document.hasFocus()`, which this used to include. A pause
-   * is only safe if something is guaranteed to end it, and these two conditions
-   * each have an event that fires on the way back (the IntersectionObserver,
-   * `visibilitychange`) — focus does not: a window can regain focus without a
-   * `focus` event reaching this document, and a Core that parked on an unfocused
-   * window then stayed frozen on screen for the rest of the session, which is
-   * exactly what a broken shader looks like. An unfocused window is also not an
-   * unwatched one; the tab that nobody is looking at is the hidden one, and that
-   * is the case worth stopping for.
+   * A pause is only safe if something is guaranteed to END it, so every term
+   * here is a condition whose end arrives as an event — the
+   * IntersectionObserver, `visibilitychange`, and the window's own `focus`.
+   * Focus qualifies because it is TRACKED rather than asked: `window-focus.ts`
+   * holds the `focus`/`blur` pair and pushes each change in here, and the only
+   * time it reads `document.hasFocus()` is to seed the state at subscribe time.
+   * Polling it inside this predicate instead would be a stop with no guaranteed
+   * way back — the answer is only true for the instant it is asked, so a resume
+   * that lands between two frames is never observed and the sphere stays frozen
+   * on screen for the rest of the session, which is exactly what a broken shader
+   * looks like.
    */
-  const seen = () => onScreen && !document.hidden;
+  const seen = () => onScreen && !document.hidden && windowFocused;
 
   const pump = (now: number) => {
     frame = 0;
@@ -613,10 +625,25 @@ function runLiquidLoop({
   };
 
   document.addEventListener("visibilitychange", wake);
+  // The subscription opens by restating the state it already holds, which is what
+  // seeds `windowFocused` above. A restatement is not a resume: waking on it would
+  // buy a frame for a loop that has not started yet, and one for every Core that
+  // mounts into a window that never lost focus.
+  const releaseFocus = subscribeToWindowFocus((focused) => {
+    if (focused === windowFocused) {
+      return;
+    }
+    windowFocused = focused;
+    wake();
+  });
   const onScreenObserver = tryObserveOnScreen(canvas, (visible) => {
     onScreen = visible;
     wake();
   });
+  // Not through `wake()`: the first frame is owed even to a Core that mounts
+  // into a blurred or hidden tab, because an undrawn canvas is blank and a blank
+  // sphere is indistinguishable from a broken one. `pump` grants exactly that
+  // one and then parks (see `drawnOnce` there).
   frame = requestAnimationFrame(pump);
 
   return {
@@ -625,6 +652,7 @@ function runLiquidLoop({
       cancelAnimationFrame(frame);
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", wake);
+      releaseFocus();
       onScreenObserver?.disconnect();
     },
   };
@@ -679,6 +707,19 @@ export function CoreLiquid({
       canvas.removeEventListener("webglcontextrestored", onRestored);
     };
   }, []);
+
+  /*
+   * The stylesheet's half of the same stillness: `margince-core.css` pauses the
+   * breath, the sheen, the halo and the feed off `data-window-blurred`, and that
+   * attribute only exists while something holds the signal.
+   *
+   * Held here, for the canvas's whole life, rather than inside the draw loop:
+   * the loop is never created on the non-GPU rung (WDS-CORE-3) or in a host with
+   * no WebGL at all, and that is precisely where the CSS rhythms ARE the Core.
+   * Every Core mounts exactly one of these (WDS-CORE-1), so the signal is live
+   * whenever a Core is on the page and released with the last one.
+   */
+  useEffect(retainWindowFocusSignal, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies(contextEpoch): the effect never reads it, which is the point. It is the rebuild trigger, bumped by the `webglcontextrestored` listener above once the GPU hands the context back.
   useEffect(() => {

@@ -17,9 +17,9 @@ import {
   Modal,
   SearchField,
   SectionHeader,
-  Select,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
@@ -376,18 +376,15 @@ function AddRelationshipAction({
               <Select
                 {...control}
                 value={kind}
-                onChange={(event) => {
-                  const value = event.target.value;
+                onChange={(value) => {
                   const kinds = options.map((o) => o.kind);
                   if (isOption(value, kinds)) selectKind(value);
                 }}
-              >
-                {options.map((option) => (
-                  <option key={option.kind} value={option.kind}>
-                    {t(KIND_LABELS[option.kind])}
-                  </option>
-                ))}
-              </Select>
+                options={options.map((option) => ({
+                  value: option.kind,
+                  label: t(KIND_LABELS[option.kind]),
+                }))}
+              />
             )}
           </Field>
           <Field label={t("rel.role")}>

@@ -3,8 +3,11 @@ import { Mail, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import { useCanWrite } from "../app/capability";
-import { SectionHeader, Select } from "../design-system/atoms";
+import { isOption } from "../app/options";
+import { SectionHeader } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import "./settings.css";
 
@@ -18,7 +21,16 @@ import "./settings.css";
 // list exists and what is on it, which is what makes the capture posture
 // legible to the people whose mail it governs.
 
-type Kind = "extra" | "never";
+// The two things an entry can say, as ONE list: the type is derived from it and
+// the control's options are built from it, so the offered choices, their labels
+// and the runtime narrowing cannot drift apart (same shape as overlay.tsx's
+// region list).
+const KINDS = ["extra", "never"] as const;
+type Kind = (typeof KINDS)[number];
+const kindLabel: Record<Kind, MessageKey> = {
+  extra: "consumerMail.kind.extra",
+  never: "consumerMail.kind.never",
+};
 
 function useConsumerMailDomains() {
   return useQuery({
@@ -121,14 +133,18 @@ export function ConsumerMailDomainsCard() {
         <Select
           className="consumer-mail-kind"
           aria-label={t("consumerMail.kindLabel")}
-          data-testid="consumer-mail-kind-select"
           value={kind}
           disabled={!canManage}
-          onChange={(e) => setKind(e.target.value as Kind)}
-        >
-          <option value="extra">{t("consumerMail.kind.extra")}</option>
-          <option value="never">{t("consumerMail.kind.never")}</option>
-        </Select>
+          onChange={(value) => {
+            if (isOption(value, KINDS)) {
+              setKind(value);
+            }
+          }}
+          options={KINDS.map((value) => ({
+            value,
+            label: t(kindLabel[value]),
+          }))}
+        />
         <button type="submit" disabled={!canManage || add.isPending}>
           {t("consumerMail.add")}
         </button>

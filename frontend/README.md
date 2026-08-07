@@ -85,6 +85,10 @@ default.
 
 ## Layout
 
+- **`src/design-system/README.md` is the catalog — read it before hand-rolling a
+  control.** Every interactive control comes from that directory; a native
+  `<select>` or a hand-rolled dropdown is a defect, and
+  `scripts/check-native-controls.sh` refuses one. `pnpm storybook` shows them all.
 - `src/design-system/` — tokens (Ledger Green canon, pinned by
   `tokens.test.ts`) plus `brand.css`, the DERIVED layer: every value there is a
   `color-mix()` of a canonical token, never a new hex, so it follows the dark
@@ -146,11 +150,23 @@ default.
 6. The service worker never caches or fabricates a `/v1` response.
 7. WCAG 2.2 AA (axe) + the perceived-perf budget in the e2e lane.
 8. The unauthenticated surface at 390px / 320px / 200% zoom (ADR-0076): no
-   horizontal scroll, the primary action reachable, nothing hidden to fit, the
-   task region above the identity region below 960px, one h1 and it is the task,
-   the Core out of the a11y tree, and axe. The rest of the §3.8 sweep walks
-   authenticated routes only, so login had never been measured at any width —
-   the first run of this found a contrast defect in the field labels.
+   horizontal scroll, the primary action reachable, the identity region whole
+   wherever it is shown at all, the task region above it below 960px, one h1 and
+   it is the task, the Core out of the a11y tree, and axe. The rest of the §3.8
+   sweep walks authenticated routes only, so login had never been measured at any
+   width — the first run of this found a contrast defect in the field labels.
+
+   **One deliberate departure, at phone width.** Below 561px the surface is the
+   task alone: the identity region is dropped whole — the sphere, the limits and
+   the AI's own sentence — because on a phone the form is the only thing the
+   screen is for (founder ruling, 2026-08-07). So this surface does NOT disclose
+   the AI at that width, which ADR-0076 Decision 1 asks for at every width. It is
+   a departure rather than a defect: stated in `src/screens/auth.css` beside the
+   rule that makes it, pinned in both directions by `e2e/ac.spec.ts` so it cannot
+   drift back, and owed upstream for the spec to reconcile (issue #562). Every
+   wider layout makes the disclosure in full. Where the region IS shown it shows
+   all of itself — no limit dropped to fit, which is the rule this replaced a
+   `display: none` sweep to get.
 
 ## Working agreements
 

@@ -4,14 +4,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import {
-  Button,
-  Field,
-  Modal,
-  Radio,
-  Select,
-  TextInput,
-} from "../design-system/atoms";
+import { Button, Field, Modal, Radio, TextInput } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import { ProblemError, problemMessageOf, throwProblem } from "./common";
@@ -201,19 +195,22 @@ function SetTargetModal({
             <Select
               {...control}
               value={subjectId}
-              onChange={(event) => setSubjectId(event.target.value)}
-            >
-              <option value="" disabled>
-                {side === "owner"
-                  ? t("quotas.pickOwner")
-                  : t("quotas.pickTeam")}
-              </option>
-              {(roster.data ?? []).map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {subjectLabel(entry)}
-                </option>
-              ))}
-            </Select>
+              onChange={setSubjectId}
+              options={[
+                {
+                  value: "",
+                  label:
+                    side === "owner"
+                      ? t("quotas.pickOwner")
+                      : t("quotas.pickTeam"),
+                  disabled: true,
+                },
+                ...(roster.data ?? []).map((entry) => ({
+                  value: entry.id,
+                  label: subjectLabel(entry),
+                })),
+              ]}
+            />
           )}
         </Field>
 

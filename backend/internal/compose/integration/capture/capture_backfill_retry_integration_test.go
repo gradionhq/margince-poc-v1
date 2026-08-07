@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // A backfill spans hours of a real mailbox, and a provider that rate-limits or
 // blinks mid-run is weather, not a fault: the run keeps its committed cursor,
@@ -18,7 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -46,7 +47,7 @@ func (f *flakyConnector) BackfillPage(ctx context.Context, auth connector.Auth, 
 
 // readBackfillRetryState reads the scheduling half of a run: what the pager
 // must not lose across a transient fault.
-func readBackfillRetryState(t *testing.T, e *SearchEnv, id ids.UUID) (status string, failures int, errClass *string, cursor []byte) {
+func readBackfillRetryState(t *testing.T, e *integration.SearchEnv, id ids.UUID) (status string, failures int, errClass *string, cursor []byte) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -62,11 +63,11 @@ func readBackfillRetryState(t *testing.T, e *SearchEnv, id ids.UUID) (status str
 
 // startFlakyBackfill connects gmail for Rep1 over a connector with the given
 // page faults and opens a run against it.
-func startFlakyBackfill(t *testing.T, e *SearchEnv, faults []error) (*capture.Registry, ids.UUID) {
+func startFlakyBackfill(t *testing.T, e *integration.SearchEnv, faults []error) (*capturemod.Registry, ids.UUID) {
 	t.Helper()
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&flakyConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}, faults: faults})
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -78,7 +79,7 @@ func startFlakyBackfill(t *testing.T, e *SearchEnv, faults []error) (*capture.Re
 }
 
 func TestBackfillSurvivesATransientProviderFault(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry, runID := startFlakyBackfill(t, e, []error{&connector.RateLimitedError{}})
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
@@ -141,12 +142,12 @@ func (c *dyingJobConnector) BackfillPage(context.Context, connector.Auth, time.T
 // the run row is the only thing that can bring the import back, and every write
 // that decides its fate has to outlive the context that killed the page.
 func TestABackfillPageWhoseJobContextDiedNeverWedgesTheRun(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &dyingJobConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
 	registry.Register(fake)
 	rep := ids.From[ids.UserKind](e.Rep1)
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestABackfillPageWhoseJobContextDiedNeverWedgesTheRun(t *testing.T) {
 }
 
 func TestBackfillEndsOnAFaultNoRetryCanFix(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry, runID := startFlakyBackfill(t, e, []error{connector.ErrAuthRejected})
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 

@@ -11,10 +11,12 @@
 // both deliberately import modules and platform only, never compose, so no
 // import cycle can form.
 //
-// Suites also live in sibling packages that import this one (org360 is the
-// first). That is how the lane gets more than one scheduling slot: one package
-// is one slot, and this package is large enough to be the lane's long pole on
-// its own. Split a group out when it is a closed seam — it rides an EXPORTED
+// Suites also live in sibling packages that import this one. That is how the
+// lane gets more than one scheduling slot: one package is one slot, and this
+// package is large enough to be the lane's long pole on its own. The set of such
+// packages is the subdirectories of this one, which is where to look rather than
+// a list here that the next split would have to remember to extend.
+// Split a group out when it is a closed seam — it rides an EXPORTED
 // fixture (Env or SearchEnv) rather than the booted-app fixture in
 // e2e_integration_test.go, and it neither needs nor owes an unexported helper
 // across the boundary. A helper that two such groups need is promoted here; one

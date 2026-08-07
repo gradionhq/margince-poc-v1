@@ -13,9 +13,9 @@ import {
   EmptyState,
   Field,
   SectionHeader,
-  Select,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
@@ -237,20 +237,17 @@ function PartnerForm({
           <Select
             {...control}
             value={values.partner_role}
-            onChange={(event) =>
+            onChange={(value) =>
               setValues({
                 ...values,
-                partner_role:
-                  asPartnerRole(event.target.value) ?? values.partner_role,
+                partner_role: asPartnerRole(value) ?? values.partner_role,
               })
             }
-          >
-            {PARTNER_ROLES.map((role) => (
-              <option key={role} value={role}>
-                {t(ROLE_LABELS[role])}
-              </option>
-            ))}
-          </Select>
+            options={PARTNER_ROLES.map((role) => ({
+              value: role,
+              label: t(ROLE_LABELS[role]),
+            }))}
+          />
         )}
       </Field>
       <Field label={t("partner.certStatus")}>
@@ -258,20 +255,17 @@ function PartnerForm({
           <Select
             {...control}
             value={values.cert_status}
-            onChange={(event) =>
+            onChange={(value) =>
               setValues({
                 ...values,
-                cert_status:
-                  asCertStatus(event.target.value) ?? values.cert_status,
+                cert_status: asCertStatus(value) ?? values.cert_status,
               })
             }
-          >
-            {CERT_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {t(CERT_LABELS[status])}
-              </option>
-            ))}
-          </Select>
+            options={CERT_STATUSES.map((status) => ({
+              value: status,
+              label: t(CERT_LABELS[status]),
+            }))}
+          />
         )}
       </Field>
       <Field label={t("partner.marginTier")}>
@@ -279,22 +273,26 @@ function PartnerForm({
           <Select
             {...control}
             value={values.margin_tier}
-            onChange={(event) =>
+            onChange={(value) =>
               setValues({
                 ...values,
-                margin_tier: event.target.value
-                  ? (asMarginTier(event.target.value) ?? values.margin_tier)
+                margin_tier: value
+                  ? (asMarginTier(value) ?? values.margin_tier)
                   : "",
               })
             }
-          >
-            <option value="" />
-            {MARGIN_TIERS.map((tier) => (
-              <option key={tier} value={tier}>
-                {t(MARGIN_TIER_LABELS[tier])}
-              </option>
-            ))}
-          </Select>
+            // The clearing entry is a real choice, not a placeholder: a tier once
+            // set has to be clearable back to "no tier agreed" (the wire's null).
+            // It carries a LABEL — a blank one is an unreadable strip in a drawn
+            // list and silence to a screen reader.
+            options={[
+              { value: "", label: t("field.unset") },
+              ...MARGIN_TIERS.map((tier) => ({
+                value: tier,
+                label: t(MARGIN_TIER_LABELS[tier]),
+              })),
+            ]}
+          />
         )}
       </Field>
       <Field label={t("partner.stage")}>
@@ -302,21 +300,18 @@ function PartnerForm({
           <Select
             {...control}
             value={values.relationship_stage}
-            onChange={(event) =>
+            onChange={(value) =>
               setValues({
                 ...values,
                 relationship_stage:
-                  asRelationshipStage(event.target.value) ??
-                  values.relationship_stage,
+                  asRelationshipStage(value) ?? values.relationship_stage,
               })
             }
-          >
-            {RELATIONSHIP_STAGES.map((stage) => (
-              <option key={stage} value={stage}>
-                {t(STAGE_LABELS[stage])}
-              </option>
-            ))}
-          </Select>
+            options={RELATIONSHIP_STAGES.map((stage) => ({
+              value: stage,
+              label: t(STAGE_LABELS[stage]),
+            }))}
+          />
         )}
       </Field>
       <Field label={t("partner.nextStep")}>

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The Gmail capture connector end to end against a stubbed Google: connect
 // (OAuth code→refresh token, sealed to the vault), then an incremental sync
@@ -15,7 +15,6 @@ package integration
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -24,6 +23,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -43,19 +43,19 @@ func gmailStub(t *testing.T, owner string) *httptest.Server {
 		if r.Form.Get("grant_type") == "authorization_code" {
 			body["refresh_token"] = "refresh-tok"
 		}
-		writeJSON(w, body)
+		integration.WriteJSON(w, body)
 	})
 	mux.HandleFunc("/profile", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"emailAddress": owner, "historyId": "1001"})
+		integration.WriteJSON(w, map[string]any{"emailAddress": owner, "historyId": "1001"})
 	})
 	mux.HandleFunc("/messages", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"messages": []map[string]string{{"id": "m1"}}})
+		integration.WriteJSON(w, map[string]any{"messages": []map[string]string{{"id": "m1"}}})
 	})
 	mux.HandleFunc("/watch", func(w http.ResponseWriter, _ *http.Request) {
 		// A watch that expires 7 days out (Gmail's cap), as the ms-since-epoch
 		// string Gmail returns — so a renewed connection is no longer "due".
 		exp := time.Now().Add(7 * 24 * time.Hour).UnixMilli()
-		writeJSON(w, map[string]any{"historyId": "1001", "expiration": strconv.FormatInt(exp, 10)})
+		integration.WriteJSON(w, map[string]any{"historyId": "1001", "expiration": strconv.FormatInt(exp, 10)})
 	})
 	mux.HandleFunc("/messages/m1", func(w http.ResponseWriter, _ *http.Request) {
 		rfc822 := "From: Alice <alice@acme.com>\r\n" +
@@ -65,22 +65,15 @@ func gmailStub(t *testing.T, owner string) *httptest.Server {
 			"Message-ID: <m1@acme.com>\r\n" +
 			"Content-Type: text/plain; charset=utf-8\r\n\r\n" +
 			"Please send pricing."
-		writeJSON(w, map[string]any{"id": "m1", "raw": base64.RawURLEncoding.EncodeToString([]byte(rfc822))})
+		integration.WriteJSON(w, map[string]any{"id": "m1", "raw": base64.RawURLEncoding.EncodeToString([]byte(rfc822))})
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
 }
 
-//craft:ignore naked-any v is an arbitrary canned JSON response body for the stub
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	//craft:ignore swallowed-errors test stub write; an encode failure surfaces as the client-side decode error the assertion checks
-	_ = json.NewEncoder(w).Encode(v)
-}
-
 func TestGmailConnectorSyncsAnActivity(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	const owner = "rep@ws.example"
 	stub := gmailStub(t, owner)
 
@@ -90,7 +83,7 @@ func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(gmail.New(oauth, api))
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 
 	// The callback's own path: exchange the code for an auth bundle, then
 	// persist it under the granting human.

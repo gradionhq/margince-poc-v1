@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The Sink's row scope: a captured record resolves onto an INCUMBENT row —
 // the lead a new address collides with, the activity a replayed natural key
@@ -17,7 +17,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -59,9 +60,9 @@ func (f *scopeFake) HealthCheck(context.Context, connector.Auth) error { return 
 
 // recordingStager stands in for the approvals engine so a merge proposal the
 // Sink must NOT raise is observable.
-type recordingStager struct{ staged []capture.MergeProposal }
+type recordingStager struct{ staged []capturemod.MergeProposal }
 
-func (s *recordingStager) StageMerge(_ context.Context, in capture.MergeProposal) (ids.UUID, error) {
+func (s *recordingStager) StageMerge(_ context.Context, in capturemod.MergeProposal) (ids.UUID, error) {
 	s.staged = append(s.staged, in)
 	return ids.NewV7(), nil
 }
@@ -69,17 +70,17 @@ func (s *recordingStager) StageMerge(_ context.Context, in capture.MergeProposal
 // newScopeCaptureRegistry wires the registry over a Sink with a recording
 // merge stager — the default test registry has none, and "no proposal was
 // staged" is only an assertion when staging is wired.
-func newScopeCaptureRegistry(t *testing.T, e *SearchEnv, fake *scopeFake) (*capture.Registry, *recordingStager) {
+func newScopeCaptureRegistry(t *testing.T, e *integration.SearchEnv, fake *scopeFake) (*capturemod.Registry, *recordingStager) {
 	t.Helper()
 	stager := &recordingStager{}
-	sink := capture.NewSink(e.Pool).WithStager(stager)
-	registry := capture.NewRegistry(e.Pool, sink, fakeAuthority{}, newTestKeyvault(t, e))
+	sink := capturemod.NewSink(e.Pool).WithStager(stager)
+	registry := capturemod.NewRegistry(e.Pool, sink, fakeAuthority{}, newTestKeyvault(t, e))
 	registry.Register(fake)
 	return registry, stager
 }
 
 func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	// A lead owned by team2's rep — outside the team1 granting human's scope.
 	e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, email, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Hidden Prospect', 'collide@scope.test', $3, 'manual', 'human:x')`, e.Rep3)
@@ -87,12 +88,12 @@ func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 	fake := &scopeFake{records: []connector.NormalizedRecord{{
 		EntityType: datasource.EntityLead,
 		NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "sender-9"},
-		Fields:     capture.LeadFields{FullName: "Same Address", Email: "collide@scope.test"},
+		Fields:     capturemod.LeadFields{FullName: "Same Address", Email: "collide@scope.test"},
 		Source:     "graph", CapturedBy: "connector:graph",
 	}}}
 	registry, stager := newScopeCaptureRegistry(t, e, fake)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
@@ -118,19 +119,19 @@ func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 }
 
 func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Foreign Counterparty', $3, 'manual', 'human:x')`, e.Rep3)
 
 	fake := &scopeFake{records: []connector.NormalizedRecord{{
 		EntityType: datasource.EntityActivity,
 		NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-9"},
-		Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote", OccurredAt: fixedCaptureTime, Direction: "inbound"},
+		Fields:     capturemod.ActivityFields{Kind: "email", Subject: "Quote", OccurredAt: fixedCaptureTime, Direction: "inbound"},
 		Source:     "graph", CapturedBy: "connector:graph",
 	}}}
 	registry, _ := newScopeCaptureRegistry(t, e, fake)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)

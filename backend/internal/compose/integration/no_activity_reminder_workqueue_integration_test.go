@@ -63,7 +63,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -127,7 +126,7 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, compose.TimeScanWorkspaceArgs{}.Kind())
+	AwaitKindCompleted(waitCtx, t, sub, compose.TimeScanWorkspaceArgs{}.Kind())
 
 	// The firing must have cleared Sam's own gate as 'applied', not
 	// 'blocked' — if the seeded role above did not actually grant
@@ -167,22 +166,6 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 	}
 	if taskListContains(strangerTasks, taskID) {
 		t.Fatalf("an unrelated rep's Tasks screen surfaced Sam's reminder task %s — the scope clause is not actually row-limited", taskID)
-	}
-}
-
-// awaitKindCompleted blocks until a job of the given kind reports
-// completion, or the context deadline fires. No polling, no sleep.
-func awaitKindCompleted(ctx context.Context, t *testing.T, sub <-chan *river.Event, kind string) {
-	t.Helper()
-	for {
-		select {
-		case <-ctx.Done():
-			t.Fatalf("timed out waiting for %q to complete: %v", kind, ctx.Err())
-		case ev := <-sub:
-			if ev != nil && ev.Job != nil && ev.Job.Kind == kind {
-				return
-			}
-		}
 	}
 }
 

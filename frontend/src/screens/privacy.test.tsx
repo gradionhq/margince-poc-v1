@@ -13,6 +13,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 
@@ -103,6 +104,13 @@ function stubRoutes(
     }),
   );
   return sent;
+}
+
+// Drives one of this screen's dropdowns by the label a reader sees. `pickOption`
+// needs a userEvent session, so it gets a fresh one — the same thing every bare
+// `userEvent.*` call in this file does internally.
+function choose(control: HTMLElement, optionLabel: string) {
+  return pickOption(userEvent.setup(), control, optionLabel);
 }
 
 beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
@@ -474,10 +482,18 @@ describe("PrivacyInboxCard", () => {
       await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
     );
     const picker = await screen.findByLabelText(/assignee/i);
+    // The agent seat's absence is a property of the LIST, and the list only
+    // exists while the popup is open — so the picker is opened here and the pick
+    // lands on the very list under assertion (which is why this drives the two
+    // steps by hand rather than through pickOption).
+    await userEvent.click(picker);
+    const roster = screen.getByRole("listbox");
     expect(
-      screen.queryByRole("option", { name: "Bot" }),
+      within(roster).queryByRole("option", { name: "Bot" }),
     ).not.toBeInTheDocument();
-    await userEvent.selectOptions(picker, "u1");
+    await userEvent.click(
+      within(roster).getByRole("option", { name: "Dana DPO" }),
+    );
     await waitFor(() =>
       expect(
         sent.filter((s) => s.key === "PATCH /data-subject-requests/d1"),
@@ -493,6 +509,42 @@ describe("PrivacyInboxCard", () => {
       (s) => s.key === "PATCH /data-subject-requests/d1",
     );
     expect(patches[0]?.body).toEqual({ assignee_id: "u1" });
+  });
+
+  // The unassigned entry is a state, not an action: the server's update
+  // coalesces an omitted assignee onto the stored one, so nothing an empty
+  // selection sent could unassign anybody. It stays in the list, disabled, so
+  // the state is legible without being offered.
+  it("shows the unassigned entry but does not offer it as a choice", async () => {
+    const sent = stubRoutes({
+      "GET /users": () =>
+        jsonResponse({
+          data: [
+            {
+              id: "u1",
+              workspace_id: "w",
+              email: "dpo@acme.test",
+              display_name: "Dana DPO",
+              status: "active",
+              is_agent: false,
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    await userEvent.click(await screen.findByLabelText(/assignee/i));
+    const unassigned = within(screen.getByRole("listbox")).getByRole("option", {
+      name: "—",
+    });
+    expect(unassigned).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(unassigned);
+    expect(
+      sent.filter((s) => s.key === "PATCH /data-subject-requests/d1"),
+    ).toHaveLength(0);
   });
 
   // The assignee select and the row's own status-transition buttons share
@@ -531,7 +583,7 @@ describe("PrivacyInboxCard", () => {
       await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
     );
     const picker = await screen.findByLabelText(/assignee/i);
-    await userEvent.selectOptions(picker, "u1");
+    await choose(picker, "Dana DPO");
     const row = await findDsrRow("8f3a-person-uuid");
     expect(
       await within(row).findByText(
@@ -566,7 +618,7 @@ describe("opening a DSR (G-2)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /new request/i }),
     );
-    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "erasure");
+    await choose(screen.getByLabelText(/kind/i), "erasure");
     expect(screen.getByLabelText(/person/i)).toBeInTheDocument();
     expect(
       screen.queryByLabelText(/subject reference/i),
@@ -579,7 +631,7 @@ describe("opening a DSR (G-2)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /new request/i }),
     );
-    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    await choose(screen.getByLabelText(/kind/i), "access");
     expect(screen.getByLabelText(/subject reference/i)).toBeInTheDocument();
   });
 
@@ -589,7 +641,7 @@ describe("opening a DSR (G-2)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /new request/i }),
     );
-    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    await choose(screen.getByLabelText(/kind/i), "access");
     expect(screen.getByText(/fulfilled by hand/i)).toBeInTheDocument();
   });
 
@@ -599,7 +651,7 @@ describe("opening a DSR (G-2)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /new request/i }),
     );
-    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    await choose(screen.getByLabelText(/kind/i), "access");
     await userEvent.type(
       screen.getByLabelText(/subject reference/i),
       "anna@acme.test",
@@ -649,7 +701,7 @@ describe("opening a DSR (G-2)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /new request/i }),
     );
-    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "erasure");
+    await choose(screen.getByLabelText(/kind/i), "erasure");
     await userEvent.type(screen.getByLabelText(/person/i), "anna");
     await userEvent.click(await screen.findByText("Anna Weber"));
     // type="date" only accepts a programmatic value change in jsdom (same
@@ -703,7 +755,7 @@ describe("opening a DSR (G-2)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /new request/i }),
     );
-    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    await choose(screen.getByLabelText(/kind/i), "access");
     await userEvent.type(
       screen.getByLabelText(/subject reference/i),
       "anna@acme.test",
@@ -755,7 +807,7 @@ describe("opening a DSR (G-2)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /new request/i }),
     );
-    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    await choose(screen.getByLabelText(/kind/i), "access");
     await userEvent.type(
       screen.getByLabelText(/subject reference/i),
       "anna@acme.test",

@@ -11,6 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import {
   LeadScreen,
@@ -133,12 +134,16 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "Promote to contact" }),
     );
-    expect(
-      (screen.getByLabelText("Promotion trigger") as HTMLSelectElement).value,
-    ).toBe("human_qualify");
+    // The control is a button whose face IS the selected option's label, so
+    // the default choice is read the way the user reads it — human_qualify's
+    // label — rather than off a `value` property no button carries.
+    expect(screen.getByLabelText("Promotion trigger").textContent).toBe(
+      "Human qualified",
+    );
   });
 
   it("promote posts the picked trigger + note and lands on the resulting person 360", async () => {
+    const user = userEvent.setup();
     let promoteBody: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/leads/l-1/promote")) {
@@ -148,18 +153,19 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
       return jsonResponse(lead);
     });
     render(<LeadScreen id="l-1" />);
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: "Promote to contact" }),
     );
-    await userEvent.selectOptions(
+    await pickOption(
+      user,
       screen.getByLabelText("Promotion trigger"),
-      "meeting_booked",
+      "Meeting booked",
     );
-    await userEvent.type(
+    await user.type(
       screen.getByLabelText("Evidence note (optional)"),
       "Booked via calendly",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Promote" }));
+    await user.click(screen.getByRole("button", { name: "Promote" }));
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-1"));
     expect(promoteBody).toEqual({
       trigger: "meeting_booked",
@@ -280,11 +286,12 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
   });
 
   it("sends status=working when the status filter is set", async () => {
+    const user = userEvent.setup();
     const { urls } = stubFetch(async () => emptyPage());
     render(<LeadsScreen />);
     await waitFor(() => expect(urls.length).toBeGreaterThan(0));
 
-    await userEvent.selectOptions(screen.getByLabelText("Status"), "working");
+    await pickOption(user, screen.getByLabelText("Status"), "Working");
 
     await waitFor(() =>
       expect(urls.some((url) => url.includes("status=working"))).toBe(true),

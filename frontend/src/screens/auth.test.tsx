@@ -426,7 +426,7 @@ describe("federated sign-in", () => {
     expect(
       screen.queryByRole("button", { name: "Continue with Google" }),
     ).toBeNull();
-    expect(screen.queryByText("or with email")).toBeNull();
+    expect(screen.queryByText("or")).toBeNull();
     cleanup();
 
     stubApi(
@@ -448,7 +448,7 @@ describe("federated sign-in", () => {
       screen.getByRole("button", { name: "Continue with Microsoft" }),
     ).toBeTruthy();
     // The divider labels the PASSWORD path below it, not the buttons above.
-    expect(screen.getByText("or with email")).toBeTruthy();
+    expect(screen.getByText("or")).toBeTruthy();
   });
 
   // The UI-preview switch (app/ui-preview.ts), on the screen rather than on the

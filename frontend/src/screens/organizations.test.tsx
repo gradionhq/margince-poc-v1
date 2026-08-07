@@ -12,6 +12,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import {
   CompaniesScreen,
@@ -627,6 +628,7 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
 
 describe("CompaniesScreen — rich create (P-15)", () => {
   it("posts display_name + size_band + domains + source:manual on submit", async () => {
+    const user = userEvent.setup();
     let posted: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/organizations")) {
@@ -636,18 +638,15 @@ describe("CompaniesScreen — rich create (P-15)", () => {
       return emptyPage();
     });
     render(<CompaniesScreen />);
-    await userEvent.click(screen.getByTestId("new-record"));
-    await userEvent.type(
+    await user.click(screen.getByTestId("new-record"));
+    await user.type(
       screen.getByLabelText("Company name *"),
       "Otto Fischer GmbH",
     );
-    await userEvent.selectOptions(
-      screen.getByLabelText("Company size"),
-      "11-50",
-    );
-    await userEvent.click(screen.getByText("Add domain"));
-    await userEvent.type(screen.getByLabelText("Domain *"), "otto.example");
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await pickOption(user, screen.getByLabelText("Company size"), "11-50");
+    await user.click(screen.getByText("Add domain"));
+    await user.type(screen.getByLabelText("Domain *"), "otto.example");
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted).toMatchObject({
@@ -1431,6 +1430,7 @@ describe("CompanyScreen — archived is read-only (P-3)", () => {
 
 describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
   it("offers org↔org kinds (not deal_stakeholder) from a company and POSTs counterparty_org_id", async () => {
+    const user = userEvent.setup();
     let posted: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/relationships")) {
@@ -1456,20 +1456,23 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
     });
     render(<CompanyScreen id="o-1" />);
     const peopleTab = await screen.findByRole("button", { name: "People" });
-    await userEvent.click(peopleTab);
+    await user.click(peopleTab);
     expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByTestId("add-relationship"));
+    await user.click(screen.getByTestId("add-relationship"));
 
     // An org anchors employment + the org↔org kinds; deal_stakeholder needs a
-    // person endpoint and must not be offered here.
+    // person endpoint and must not be offered here. The kinds only exist in the
+    // DOM while the popup is open, so the absence is asserted on an open list.
     const kind = screen.getByLabelText("Kind");
-    expect(within(kind).queryByText("Deal stakeholder")).toBeNull();
-    await userEvent.selectOptions(kind, "partner_of");
+    await user.click(kind);
+    const kinds = screen.getByRole("listbox");
+    expect(within(kinds).queryByText("Deal stakeholder")).toBeNull();
+    await user.click(within(kinds).getByRole("option", { name: "Partner of" }));
 
-    await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
+    await user.type(screen.getByPlaceholderText("Search…"), "acme");
     vi.useFakeTimers();
     try {
       act(() => {
@@ -1479,8 +1482,8 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       vi.useRealTimers();
     }
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
-    await userEvent.click(screen.getByText("Acme Corp"));
-    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+    await user.click(screen.getByText("Acme Corp"));
+    await user.click(screen.getByTestId("add-relationship-submit"));
 
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted).toMatchObject({

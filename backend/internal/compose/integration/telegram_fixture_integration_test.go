@@ -544,5 +544,5 @@ func awaitJobKind(t *testing.T, sub <-chan *river.Event, kind string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	awaitKindCompleted(ctx, t, sub, kind)
+	AwaitKindCompleted(ctx, t, sub, kind)
 }

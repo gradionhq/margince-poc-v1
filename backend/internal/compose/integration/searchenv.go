@@ -27,11 +27,10 @@ import (
 // their own; it is the second one a sibling package can import.)
 //
 // Most of its riders take it for the migrated database and the seeded workspace
-// rather than for the store: the capture suites reference Store zero times, as do
-// the connector, leadscore and export suites. The name records where it was first
-// needed, not what it now is, and it is due a better one — the reason it has not
-// been renamed here is only that this change is already a rename of everything
-// else, and one rename per pass is easier to verify than two.
+// rather than for the store: the leadscore and export suites reference Store zero
+// times, as did the capture and connector suites before they moved out. The name
+// records where it was first needed rather than what it is, so read "Search" here
+// as the fixture's origin, not as a restriction on who may use it.
 type SearchEnv struct {
 	Owner *pgx.Conn
 	Pool  *pgxpool.Pool
@@ -119,13 +118,19 @@ func (e *SearchEnv) Seed(t *testing.T, sql string, args ...any) ids.UUID {
 	return id
 }
 
+// searchObjects is the record vocabulary this fixture's principals reach. Named
+// once because the read and write grant sets must cover the same objects — if
+// they drifted, a suite comparing a reader against a writer would be comparing
+// two different vocabularies and attributing the difference to permissions.
+var searchObjects = []string{objPerson, objOrg, objDeal, "lead", objActivity}
+
 // searchReadGrants is read on every record type this fixture's principals can
 // reach. Read-only on purpose: the suites riding it assert what a caller may SEE,
 // so a grant that could write would let a fixture change the rows under its own
 // assertion.
 func searchReadGrants() map[string]principal.ObjectGrant {
 	grants := map[string]principal.ObjectGrant{}
-	for _, object := range []string{objPerson, objOrg, objDeal, "lead", objActivity} {
+	for _, object := range searchObjects {
 		grants[object] = principal.ObjectGrant{Read: true}
 	}
 	return grants
@@ -151,5 +156,28 @@ func (e *SearchEnv) AsTeamRep(user, team ids.UUID) context.Context {
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
 		TeamIDs:     []ids.UUID{team},
 		Permissions: principal.Permissions{Objects: searchReadGrants(), RowScope: principal.RowScopeTeam},
+	})
+}
+
+// AsFullUser may create, read and update every record type, unbounded by row
+// scope — the mutating counterpart to Admin, for the suites whose subject is an
+// ingest or a scoring pass rather than a visibility rule. Same object vocabulary
+// as the reader, so a suite that swaps one for the other varies only the
+// permission.
+//
+// Delete is deliberately absent, unlike AdminPerms in harness.go: nothing that
+// rides this fixture deletes, and a grant no caller needs would quietly turn any
+// future erasure test from a proof into a pass. A suite that does need delete
+// should say so by asking for it, not inherit it from a fixture named "full".
+func (e *SearchEnv) AsFullUser() context.Context {
+	grants := map[string]principal.ObjectGrant{}
+	for _, object := range searchObjects {
+		grants[object] = principal.ObjectGrant{Create: true, Read: true, Update: true}
+	}
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
+		Permissions: principal.Permissions{Objects: grants, RowScope: principal.RowScopeAll},
 	})
 }
