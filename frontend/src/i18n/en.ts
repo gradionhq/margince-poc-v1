@@ -3424,6 +3424,21 @@ export const en = {
     "When on, each new company created from captured mail gets an automatic web dossier — its site is read and its profile filled in. Runs under a daily limit.",
   "captureSettings.adminOnly": "Only an admin or ops can change this.",
 
+  "ownDomains.title": "Own email domains",
+  "ownDomains.sub":
+    "The domains that belong to this company. When colleagues write to each other, that message is not stored. Not even for you.",
+  "ownDomains.irreversible":
+    "Adding a domain takes effect from the next message. Removing it later resumes capture from that point on. Mail skipped while it was registered is never offered again by any mailbox. Mail already captured stays.",
+  "ownDomains.fromCompany": "From the company profile. Change them there:",
+  "ownDomains.empty":
+    "No further domains registered. Add one if your company also writes from another domain.",
+  "ownDomains.confirmed": "confirmed",
+  "ownDomains.candidate": "seen on a connected mailbox, not confirmed yet",
+  "ownDomains.add": "Add",
+  "ownDomains.addLabel": "Add an own domain",
+  "ownDomains.placeholder": "example.com",
+  "ownDomains.remove": "Remove {domain}",
+
   "webhooks.title": "Webhooks",
   "webhooks.sub":
     "Outbound subscriptions that receive signed HTTP POSTs for chosen events.",

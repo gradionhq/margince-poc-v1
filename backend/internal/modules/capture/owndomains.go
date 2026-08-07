@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 // normalizeDomain folds a mail domain to the one form the own-domain set is
@@ -53,19 +54,37 @@ type InternalDomains struct {
 	domains []string
 }
 
-// NewInternalDomains normalizes and de-duplicates the registered domains.
+// NewInternalDomains normalizes and de-duplicates the registered domains, and
+// drops any that are not a domain someone can own.
+//
+// The public-suffix filter lives HERE, where the set is built, rather than only
+// where an administrator types one in. The set is fed from three places — the
+// admin surface, the mailbox seed, and the company's own registered domains —
+// and the company's come from a website field a human filled in during cold
+// start, which no validation of this kind has ever seen. A `co.uk` reaching the
+// set from any of them would make every company beneath it internal and stop
+// the workspace keeping their correspondence, unrecoverably. Filtering at
+// construction makes that impossible to reintroduce by adding a fourth writer.
 func NewInternalDomains(raw []string) InternalDomains {
 	seen := make(map[string]bool, len(raw))
 	out := make([]string, 0, len(raw))
 	for _, d := range raw {
 		n := normalizeDomain(d)
-		if n == "" || seen[n] {
+		if n == "" || seen[n] || !ownableDomain(n) {
 			continue
 		}
 		seen[n] = true
 		out = append(out, n)
 	}
 	return InternalDomains{domains: out}
+}
+
+// ownableDomain reports whether a domain is one somebody registers, as opposed
+// to a public suffix under which anyone may register. EffectiveTLDPlusOne fails
+// for exactly the latter.
+func ownableDomain(domain string) bool {
+	_, err := publicsuffix.EffectiveTLDPlusOne(domain)
+	return err == nil
 }
 
 // Empty reports whether the workspace has registered no own domain at all.
@@ -204,4 +223,15 @@ func queryDomains(ctx context.Context, tx pgx.Tx, query string) (InternalDomains
 		return InternalDomains{}, fmt.Errorf("capture: reading the own-domain set: %w", err)
 	}
 	return NewInternalDomains(raw), nil
+}
+
+// Domains returns the normalized domains in the set, for a caller that needs to
+// show them rather than test against them.
+//
+// A COPY: the set decides which mail is stored, and every other method on it
+// only reads. Handing out the backing slice would let a caller that appends or
+// sorts its display list change what counts as internal, with nothing at the
+// call site to suggest it had.
+func (d InternalDomains) Domains() []string {
+	return append([]string(nil), d.domains...)
 }

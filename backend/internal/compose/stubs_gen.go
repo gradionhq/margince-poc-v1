@@ -247,6 +247,18 @@ func (stubs) RemoveConsumerMailDomain(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "RemoveConsumerMailDomain")
 }
 
+func (stubs) ListWorkspaceEmailDomains(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListWorkspaceEmailDomains")
+}
+
+func (stubs) CreateWorkspaceEmailDomain(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateWorkspaceEmailDomain")
+}
+
+func (stubs) DeleteWorkspaceEmailDomain(w nethttp.ResponseWriter, r *nethttp.Request, domain string) {
+	httperr.NotImplemented(w, r, "DeleteWorkspaceEmailDomain")
+}
+
 func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCaptureSettings")
 }

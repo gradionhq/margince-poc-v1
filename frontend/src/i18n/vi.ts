@@ -3439,6 +3439,21 @@ export const vi = {
   "captureSettings.adminOnly":
     "Chỉ quản trị viên hoặc vận hành mới đổi được mục này.",
 
+  "ownDomains.title": "Tên miền email của công ty",
+  "ownDomains.sub":
+    "Những tên miền thuộc về công ty này. Khi đồng nghiệp viết thư cho nhau, thư đó không được lưu. Kể cả với bạn.",
+  "ownDomains.irreversible":
+    "Thêm một tên miền sẽ có hiệu lực từ thư kế tiếp. Nếu sau này xóa đi, việc thu thập sẽ tiếp tục từ thời điểm đó. Những thư đã bị bỏ qua trong thời gian tên miền còn được đăng ký thì không thể được gửi lại qua bất kỳ hộp thư nào nữa. Thư đã thu thập thì vẫn còn.",
+  "ownDomains.fromCompany": "Từ hồ sơ công ty. Sửa tại đó:",
+  "ownDomains.empty":
+    "Chưa đăng ký thêm tên miền nào. Hãy thêm nếu công ty bạn còn gửi thư từ một tên miền khác.",
+  "ownDomains.confirmed": "đã xác nhận",
+  "ownDomains.candidate": "thấy trên một hộp thư đã kết nối, chưa xác nhận",
+  "ownDomains.add": "Thêm",
+  "ownDomains.addLabel": "Thêm tên miền của công ty",
+  "ownDomains.placeholder": "vidu.com",
+  "ownDomains.remove": "Xóa {domain}",
+
   "webhooks.title": "Webhook",
   "webhooks.sub":
     "Các đăng ký gửi ra, nhận HTTP POST có chữ ký cho những sự kiện được chọn.",

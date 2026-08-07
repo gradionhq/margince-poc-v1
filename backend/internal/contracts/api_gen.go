@@ -7425,6 +7425,24 @@ func (e WebhookSubscriptionState) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceEmailDomainSource.
+const (
+	Admin   WorkspaceEmailDomainSource = "admin"
+	Mailbox WorkspaceEmailDomainSource = "mailbox"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceEmailDomainSource enum.
+func (e WorkspaceEmailDomainSource) Valid() bool {
+	switch e {
+	case Admin:
+		return true
+	case Mailbox:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WrittenBy.
 const (
 	Deterministic WrittenBy = "deterministic"
@@ -10514,6 +10532,19 @@ type CreateWebhookSubscriptionRequest struct {
 
 	// TargetUrl HTTPS-only; http:// is rejected (the contract enforces the scheme, matching the store's check).
 	TargetUrl string `json:"target_url"`
+}
+
+// CreateWorkspaceEmailDomainRequest defines model for CreateWorkspaceEmailDomainRequest.
+type CreateWorkspaceEmailDomainRequest struct {
+	// Domain A bare domain: no scheme and no path. A leading `@` is accepted and stripped,
+	// because that is how people write a mail domain. An address is not accepted.
+	// Folded before storage, so one domain cannot be registered twice under two
+	// spellings.
+	//
+	// 254, not 253, because the limit here counts the raw value: a domain is at most
+	// 253 characters and the optional `@` is one more. The stored domain is checked
+	// against 253 after the prefix is stripped.
+	Domain string `json:"domain"`
 }
 
 // CustomField A workspace-defined runtime field on an existing core object. Mirrors the
@@ -15318,6 +15349,36 @@ type WebhookSubscriptionListResponse struct {
 	Page            PageInfo `json:"page"`
 }
 
+// WorkspaceEmailDomain defines model for WorkspaceEmailDomain.
+type WorkspaceEmailDomain struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Domain The domain, IDNA-folded and lowercased. Covers its subdomains.
+	Domain string `json:"domain"`
+
+	// Source Who contributed the row. `mailbox` was observed from a connected account and is a
+	// candidate; `admin` was entered by a human.
+	Source WorkspaceEmailDomainSource `json:"source"`
+
+	// Verified Whether a human vouched for this domain. Only a verified domain — or one the
+	// installation's own company claims — suppresses storage.
+	Verified bool `json:"verified"`
+}
+
+// WorkspaceEmailDomainSource Who contributed the row. `mailbox` was observed from a connected account and is a
+// candidate; `admin` was entered by a human.
+type WorkspaceEmailDomainSource string
+
+// WorkspaceEmailDomainListResponse defines model for WorkspaceEmailDomainListResponse.
+type WorkspaceEmailDomainListResponse struct {
+	// AnchorDomains The domains the installation's own company claims, read from the company profile.
+	// They suppress storage whether or not they appear in `data`, and are changed on the
+	// company page rather than here — listed so the surface can show what is already in
+	// force without implying it can be removed from this screen.
+	AnchorDomains *[]string              `json:"anchor_domains,omitempty"`
+	Data          []WorkspaceEmailDomain `json:"data"`
+}
+
 // WrittenBy Which writer produced a piece of generated prose. `model` — the configured model
 // lane. `deterministic` — the structured fallback, used when no lane is configured
 // or the workspace's AI budget is exhausted. Never silently interchangeable: a
@@ -18394,6 +18455,9 @@ type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
 
 // AddConsumerMailDomainJSONRequestBody defines body for AddConsumerMailDomain for application/json ContentType.
 type AddConsumerMailDomainJSONRequestBody = AddConsumerMailDomainRequest
+
+// CreateWorkspaceEmailDomainJSONRequestBody defines body for CreateWorkspaceEmailDomain for application/json ContentType.
+type CreateWorkspaceEmailDomainJSONRequestBody = CreateWorkspaceEmailDomainRequest
 
 // UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
 type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
@@ -24556,6 +24620,15 @@ type ServerInterface interface {
 	// Withdraw a consumer-mail list entry (admin/ops).
 	// (DELETE /capture/consumer-mail-domains/{id})
 	RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request, id Id)
+	// The workspace's own email domains.
+	// (GET /capture/email-domains)
+	ListWorkspaceEmailDomains(w http.ResponseWriter, r *http.Request)
+	// Register one of the workspace's own email domains.
+	// (POST /capture/email-domains)
+	CreateWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request)
+	// Stop treating a domain as the workspace's own.
+	// (DELETE /capture/email-domains/{domain})
+	DeleteWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request, domain string)
 	// The workspace's capture settings.
 	// (GET /capture/settings)
 	GetCaptureSettings(w http.ResponseWriter, r *http.Request)
@@ -25645,6 +25718,24 @@ func (_ Unimplemented) AddConsumerMailDomain(w http.ResponseWriter, r *http.Requ
 // Withdraw a consumer-mail list entry (admin/ops).
 // (DELETE /capture/consumer-mail-domains/{id})
 func (_ Unimplemented) RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The workspace's own email domains.
+// (GET /capture/email-domains)
+func (_ Unimplemented) ListWorkspaceEmailDomains(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register one of the workspace's own email domains.
+// (POST /capture/email-domains)
+func (_ Unimplemented) CreateWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stop treating a domain as the workspace's own.
+// (DELETE /capture/email-domains/{domain})
+func (_ Unimplemented) DeleteWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request, domain string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29483,6 +29574,78 @@ func (siw *ServerInterfaceWrapper) RemoveConsumerMailDomain(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RemoveConsumerMailDomain(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceEmailDomains operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceEmailDomains(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceEmailDomains(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkspaceEmailDomain operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkspaceEmailDomain(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteWorkspaceEmailDomain operation middleware
+func (siw *ServerInterfaceWrapper) DeleteWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "domain" -------------
+	var domain string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "domain", chi.URLParam(r, "domain"), &domain, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "domain", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteWorkspaceEmailDomain(w, r, domain)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -41629,6 +41792,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/capture/consumer-mail-domains/{id}", wrapper.RemoveConsumerMailDomain)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/email-domains", wrapper.ListWorkspaceEmailDomains)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/capture/email-domains", wrapper.CreateWorkspaceEmailDomain)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/capture/email-domains/{domain}", wrapper.DeleteWorkspaceEmailDomain)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/settings", wrapper.GetCaptureSettings)
