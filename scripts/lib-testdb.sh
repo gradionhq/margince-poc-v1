@@ -66,13 +66,32 @@ export TEMPLATE_NAME="${TEMPLATE_NAME:-margince_test}"
 owner_clone_dsn() { local db="$1"; echo "${O_PREFIX}/${db}${O_QUERY:+?$O_QUERY}"; }
 app_clone_dsn()   { local db="$1"; echo "${A_PREFIX}/${db}${A_QUERY:+?$A_QUERY}"; }
 
-# migrate_template — bring the template to head with the same embedded migration
-# set the app uses (cmd/migrate → migrations.Core/Custom, then River). Idempotent
-# by construction: the runner compares the tracking tables against the embedded
-# set, so at head it applies nothing. Prints what it applied — a heal is worth a
-# line, and a silent one reads exactly like a no-op.
+# migrate_template — apply any embedded migration the template has not recorded
+# (cmd/migrate → migrations.Core/Custom, then River). Idempotent: the runner
+# compares the tracking tables against the embedded set, so with nothing missing
+# it applies nothing.
+#
+# It reports a heal and stays SILENT otherwise, and the asymmetry is the point.
+# `migrate up` ends with "schema is at head", which is a stronger claim than it
+# can make: dbmigrate.Up appends versions absent from the tracking table and
+# skips every version already recorded, without checksumming what was applied.
+# A template carrying an EDITED migration, or one whose migration no longer
+# exists at this head, records the version either way — so that line would
+# announce currency over exactly the stale schema this function exists to catch.
+# Passing it through would re-create the silent-staleness bug one level up.
+# What is printed instead says only what actually happened.
 migrate_template() {
-  ( cd backend && go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$TEMPLATE_NAME")" )
+  # rc, not `status`: zsh makes that name read-only, and these helpers are
+  # sourced from an interactive shell often enough to care.
+  local out rc=0
+  out="$( cd backend && go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$TEMPLATE_NAME")" 2>&1 )" || rc=$?
+  if (( rc != 0 )); then
+    echo "$out" >&2
+    return "$rc"
+  fi
+  if [[ "$out" != "applied 0 core+custom + 0 river"* ]]; then
+    echo "test-db: template ${TEMPLATE_NAME} was behind — ${out%%; *}"
+  fi
 }
 
 # build_template — (re)create margince_test and migrate it to head. Fresh each
@@ -94,12 +113,15 @@ build_template() {
 # change you pulled. The full lane never shows it — that path calls
 # build_template — so it bites exactly when you are iterating on one package.
 #
-# Migrating rather than rebuilding is the cheap fix: at head the runner applies
-# nothing, and behind it applies only the delta. What this does NOT heal is a
-# template that has diverged rather than fallen behind — an edited migration, or
-# a checkout that no longer has one the template already applied. Migrations are
-# additive by repo rule, so falling behind is the case that happens; for the
-# other, `make test-db-up` rebuilds from scratch.
+# Migrating rather than rebuilding is the cheap fix: with nothing missing the
+# runner applies nothing, and behind it applies only the delta. What this does
+# NOT heal is a template that has DIVERGED rather than fallen behind — an edited
+# migration, or a checkout that no longer carries one the template already
+# applied. The tracking table records a version, not a checksum, so neither case
+# is even detectable here; migrate_template's silence means "nothing was
+# missing", never "the schema is correct". Migrations are additive by repo rule,
+# so falling behind is the case that happens; for the other, `make test-db-up`
+# rebuilds from scratch.
 #
 # db-exists separates "absent" (prints false) from "could not ask" (non-zero
 # exit) exactly so this caller can too: a failed probe propagates with its
@@ -119,11 +141,43 @@ ensure_template() {
 }
 
 # make_clone db — drop any stale clone, then copy the migrated template (a fast
-# file copy; no re-migration). CREATE ... TEMPLATE needs no session connected to
-# the template, which holds: nothing connects to margince_test after build.
+# file copy; no re-migration).
+#
+# CREATE ... TEMPLATE refuses while ANY session is connected to the source, and
+# one now can be: ensure_template migrates the template on every inner-loop run,
+# so a second `make test-it` started alongside the first can reach its clone
+# while that migration still holds the connection. Before, the inner loop only
+# probed for existence over the maintenance database and never touched the
+# template at all.
+#
+# Retried rather than locked, because the two callers want opposite things from
+# a lock: the parallel lane clones 25 times at once and must not serialize,
+# while the migration must exclude clones. A reader/writer lock in portable
+# shell buys a correctness problem of its own. The window here is one `migrate
+# up` against a template that is nearly always at head — sub-second, and hit
+# only by an overlapping start — so backing off and retrying closes it without
+# constraining the lane. The last failure propagates with its stderr: a clone
+# that cannot be made is fatal, never silently skipped.
+# The retry budget is read INSIDE the function, not from a script-level
+# variable: make_clone is `export -f`'d into xargs worker subshells, which
+# inherit exported variables only — TEMPLATE_NAME above is exported for exactly
+# that reason, and a bare one here would arrive empty in every lane worker.
 make_clone() {
-  local db="$1"
-  db_admin recreate-db --name "$db" --template "$TEMPLATE_NAME" >/dev/null
+  local db="$1" retries="${CLONE_RETRIES:-3}" attempt=1 out rc
+  while :; do
+    rc=0
+    out="$(db_admin recreate-db --name "$db" --template "$TEMPLATE_NAME" 2>&1)" || rc=$?
+    if (( rc == 0 )); then
+      return 0
+    fi
+    if (( attempt >= retries )); then
+      echo "$out" >&2
+      echo "FAIL: could not clone ${TEMPLATE_NAME} into ${db} after ${retries} attempts" >&2
+      return "$rc"
+    fi
+    sleep 1
+    attempt=$(( attempt + 1 ))
+  done
 }
 
 # drop_clone db — remove a throwaway clone. Failures propagate (stderr and
