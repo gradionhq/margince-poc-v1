@@ -66,10 +66,18 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 		var amountMinor *int64
 		var currency *string
 		var createdAt time.Time
-		var lastActivityAt, waitUntil *time.Time
+		var expectedClose, lastActivityAt, waitUntil *time.Time
+		// The wire type is a date, but the SCAN target is a time: pgx decodes
+		// a binary DATE into time.Time and has no path into the contract's
+		// Date wrapper, so scanning the field directly fails the whole 360 on
+		// any account holding a dated deal. Every other reader of this column
+		// spells it this way (deals/deal_read.go).
 		if err := row.Scan(&id, &d.Name, &status, &stageIDPtr, &d.StageName, &amountMinor, &currency,
-			&d.ExpectedCloseDate, &createdAt, &lastActivityAt, &waitUntil); err != nil {
+			&expectedClose, &createdAt, &lastActivityAt, &waitUntil); err != nil {
 			return d, err
+		}
+		if expectedClose != nil {
+			d.ExpectedCloseDate = &openapi_types.Date{Time: *expectedClose}
 		}
 		d.DealId = openapi_types.UUID(id)
 		d.Status = crmcontracts.Organization360DealStatus(status)

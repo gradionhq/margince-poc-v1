@@ -364,3 +364,34 @@ func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
 		t.Errorf("linked_person_id = %v, want the visible contact %v", step.LinkedPersonId, mine)
 	}
 }
+
+// A dated deal used to fail the scan for the WHOLE composite read — the
+// section's target was the contract's Date wrapper, which pgx cannot decode a
+// binary DATE into — so an account with a close date on its deal served a 500
+// and the page rendered nothing at all. The date is the point of the
+// assertion, and so is the fact that the rest of the view survives with it.
+func TestOrganization360ServesADealThatCarriesACloseDate(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipeline, stage, _ := DealFixture(t, e)
+
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	deal := e.SeedDeal(t, "Rollout DACH", pipeline, stage, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2, expected_close_date = DATE '2026-10-30' WHERE id = $1`,
+		deal, org)
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble an account whose open deal has a close date: %v", err)
+	}
+	if view.Deals == nil || len(view.Deals.Data) != 1 {
+		t.Fatalf("deals = %+v, want the one open deal on this account", view.Deals)
+	}
+	got := view.Deals.Data[0]
+	if got.ExpectedCloseDate == nil {
+		t.Fatal("expected_close_date is absent on a deal that has one — the reader cannot tell it from a deal with no date")
+	}
+	if want := "2026-10-30"; got.ExpectedCloseDate.Format(time.DateOnly) != want {
+		t.Errorf("expected_close_date = %s, want %s", got.ExpectedCloseDate.Format(time.DateOnly), want)
+	}
+}
