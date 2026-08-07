@@ -347,6 +347,14 @@ func TestAServedToolWithNoDescriptionIsRefusedAtTheDeclaration(t *testing.T) {
 	if _, err := deriveSynthetic(t, "x", unit(base)); err != nil {
 		t.Fatalf("an undescribed INERT tool must still derive: %v", err)
 	}
+	// The two spellings of an inert handler. Both reach the adapter as the same
+	// nil function value, so a reader that recognised only one would refuse a
+	// declaration the runtime serves nothing for.
+	for _, spelling := range []string{"nil", "extension.ToolHandler(nil)", "(nil)"} {
+		if _, err := deriveSynthetic(t, "x", unit(base+"\n\t\t\tHandle: "+spelling+",")); err != nil {
+			t.Errorf("an undescribed tool with Handle: %s must derive as inert: %v", spelling, err)
+		}
+	}
 	described := base + "\n\t\t\tDescription: \"Keeps the contacts in step, and reads nothing else.\",\n\t\t\tHandle: handle,"
 	if _, err := deriveSynthetic(t, "x", unit(described)); err != nil {
 		t.Fatalf("a described served tool must derive: %v", err)

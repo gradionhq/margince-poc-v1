@@ -196,10 +196,11 @@ const windowListingDivisor = 2
 // are estimated by the ~4-bytes rule the window itself estimates with, so this
 // holds the real string against the real ceiling.
 //
-// It measures the surface an installation actually serves, extension tools
-// included. They ride the same never-elided listing as the core tools, and a
-// unit is free to write as much prose as it likes — so a gate that counted only
-// the core catalog would report headroom the shipped prompt does not have.
+// It measures the CORE catalog — see servedSurface for why it stops there, and
+// for the per-tool bound Register applies to extension tools in its place. The
+// headroom this reports is therefore the core surface's, not an installation's:
+// a tree that adds units has to do that arithmetic itself, which is what the
+// bound at the door makes survivable.
 func TestTheToolListingLeavesTheRunRoomInTheWindow(t *testing.T) {
 	tokens := len(runner.ToolListing(servedSurface(t).Specs())) / 4
 	if budget := runner.PromptTokenCeiling / windowListingDivisor; tokens > budget {

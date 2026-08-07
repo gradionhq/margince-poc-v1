@@ -229,8 +229,9 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			// request that does not. A declared `Handle: nil` is inert — it is
 			// how the seam spells "declare it, serve nothing", and the runtime
 			// adapter skips exactly that — so the field's presence is not the
-			// question; its value being non-nil is.
-			served = !isNilIdent(kv.Value)
+			// question; its value being non-nil is. See isStaticallyNil for the
+			// spellings that count as nil.
+			served = !isStaticallyNil(kv.Value)
 		case "InputSchema", "OutputSchema":
 			// Client-facing I/O docs — recognized and skipped. The manifest
 			// records the governance descriptor, not the advertised schemas.
@@ -254,11 +255,29 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 	})
 }
 
-// isNilIdent reports whether an expression is the literal `nil`. It is the one
-// value of Handle that declares a tool and serves nothing.
-func isNilIdent(expr ast.Expr) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == "nil"
+// isStaticallyNil reports whether an expression is nil at the declaration —
+// which is how a Tools entry says "declare it, serve nothing", and what the
+// runtime adapter skips on.
+//
+// Two spellings, because both reach the adapter as the same nil function value:
+// the bare `nil`, and a conversion of it (`extension.ToolHandler(nil)`), which a
+// unit author writes when the surrounding literal needs the type to be obvious.
+// Anything else — a function name, a literal, a call — is a handler this reader
+// must treat as served, since it cannot evaluate it to find out otherwise.
+func isStaticallyNil(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name == "nil"
+	case *ast.CallExpr:
+		// A conversion has exactly one argument; a call with one argument that
+		// is nil is indistinguishable from one syntactically, and reading it as
+		// inert is the conservative half — it asks for a description less
+		// often, and the composition still refuses a served tool without one.
+		return len(e.Args) == 1 && isStaticallyNil(e.Args[0])
+	case *ast.ParenExpr:
+		return isStaticallyNil(e.X)
+	}
+	return false
 }
 
 // declaredTool is one Tools entry as the source states it, before the

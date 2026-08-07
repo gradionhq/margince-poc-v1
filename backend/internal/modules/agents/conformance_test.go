@@ -402,7 +402,7 @@ func TestRegisterRefusesWireDefects(t *testing.T) {
 	// The bound has to admit what the surface actually ships, or it is a rule
 	// against writing the descriptions this change exists to write.
 	longest := 0
-	for _, spec := range coreSpecsForBounds() {
+	for _, spec := range fullRegistry(t).Specs() {
 		if n := len([]rune(spec.Description)); n > longest {
 			longest = n
 		}
@@ -573,12 +573,3 @@ var probeReportCatalog = []ReportCatalogEntry{{
 	Aggregates: []string{"amount_minor"},
 	Defaults:   "count as deals grouped by stage_id",
 }}
-
-// coreSpecsForBounds is every tool this package registers over stub seams, which
-// is enough to read their specs: Register runs the bounds, and a spec's written
-// text does not depend on what it was wired to.
-func coreSpecsForBounds() []mcp.ToolSpec {
-	r := NewRegistry(nil, nil)
-	RegisterCoreTools(r, nil, nil, nil, nil)
-	return r.Specs()
-}
