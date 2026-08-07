@@ -12,6 +12,80 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open — the settings mirror is a dual-write on ADR-0091's critical path
+
+ADR-0090/A135 shipped (#520): installation settings are rows in `setting`, with
+the catalog in typed Go. Four settings moved — `capture.auto_enrich` and the
+three `installation.*` values — behind a Settings → Installation surface, with
+the base currency freezing once a deal has converted against it (ADR-0085 §7).
+
+What is NOT finished is the read side. Roll-ups, FX conversion, quota
+attainment and the report builder still read `workspace.base_currency` and
+`workspace.timezone` directly — eight files — so `UpdateInstallation` writes the
+setting AND mirrors it onto the column in one transaction. The mirror exists
+only because those readers have not moved; without it the surface would report
+a base currency nothing computes in.
+
+**This is not a settings leftover, it is ADR-0091 phase 4's first step.** That
+phase drops the `workspace` row, so the readers have to move regardless. Doing
+it as its own change gets the dual-write out before the plumbing collapse
+rather than after, and shrinks what phase 4 has to touch. Tracked as **#521**,
+which also covers dropping `capture_auto_enrich`, `name`, `timezone` and
+`base_currency` once nothing reads them.
+
+Also open from the same work: **#551** — the base-currency freeze is atomic
+with its own write but not with the deal transaction that stamps
+`fx_rate_to_base`, so a conversion committing concurrently with a re-base can
+interleave. Narrow, silent, and needs a lock shared with every FX-freeze path,
+which is why it is filed rather than patched.
+
+Not migrated yet: `slug` (no consumer under ADR-0061 — a drop candidate rather
+than a move) and the overlay `x_sor_mode`/`x_incumbent` pair, which needs the
+composite-value shape because its CHECK spans both columns.
+
+## Pick up here — ADR-0091 (A136): retiring the workspace tenant boundary
+
+Ratified upstream (margince-foundation#1253). Phase 1 — the settings table — is
+done, which is what let the `workspace` row's own values move off it.
+
+**A process-wide installation fallback in `platform/database` is the wrong first
+slice — tried and withdrawn (#557).** The idea was for `WithWorkspaceTx` to bind
+a boot-resolved singleton when the context carries none. It has no consumer:
+`identity/middleware.go` binds the singleton into EVERY request context, public
+paths included, before the `isPublicRequest` branch — so in `cmd/api` nothing
+reaches the database unbound. And `cmd/worker` never calls `EnsureInstallation`,
+so there the pointer stays nil. The fallback fires nowhere while removing the
+loud `ErrNoWorkspace` guard from every one of them.
+
+Two things it also got wrong, worth knowing before anyone tries again.
+`WithWorkspaceTx` hands `fn` the ORIGINAL context, so a fallback-bound
+transaction has the GUC set to the installation while `storekit.MustWorkspace`
+returns the zero UUID — the domain row and its audit/outbox rows would name
+different tenants, and `LockWriteIdentity` would key its advisory lock on zero.
+Two comments in `storekit` state that invariant verbatim. And the global leaks
+across the `compose/integration` binary: 155 sites bootstrap, nothing unbinds,
+`testdb.Reset` truncates between tests, so the pointer ends up naming a deleted
+workspace in the one lane that owns the isolation proofs.
+
+**What to do instead.** The value in §9 step 3 is the fleet loops, and they need
+no global: they already bind explicitly by ENUMERATING workspaces. Under a
+singleton each should resolve `identity.InstallationWorkspace` once and stop
+enumerating. No fallback, no guard removed, one loop per PR.
+
+The sequencing in ADR-0091 §9 is **binding, not advisory**: the Go plumbing
+collapses while RLS is still armed, because the tenant-isolation suite staying
+green is the only mechanical proof that an edit of that size stayed faithful,
+and the schema phase deletes that suite. Do not reorder it.
+
+Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
+four hundred of them outside tests, across a couple of hundred non-test files.
+Deliberately not a precise count: it moved by eleven while this note was being
+written, so an exact figure here would be wrong by the time anyone read it and
+would invite arguing with the number instead of the shape. Land the work in
+slices small enough to merge the day they are written: a branch open longer than
+that accumulates conflicts with `main` that its own gates cannot see — migration
+numbers, locale key sets, and semantic overlap with whatever else is in flight.
+
 ## Open — an install with no mailer AND no public base URL still onboards nobody
 
 ADR-0061 Amendment 1 closed the email-less case: an admin mints a single-use
