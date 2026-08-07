@@ -69,15 +69,24 @@ func stillDue(t *testing.T, e *integration.Env, domain string) bool {
 	return false
 }
 
+// setAutoEnrich flips the posture by writing the SETTING ROW, which is what
+// production reads (ADR-0090/A135). Writing workspace.capture_auto_enrich
+// would set a column nothing consults, leaving the off-arms of these tests
+// asserting against the registered default and the on-arms passing only
+// because the default happens to agree.
+//
+// Written directly rather than through the store, deliberately: the subject of
+// these tests is the triage path reading the flag, not the admin/ops RBAC on
+// the settings endpoint, which has its own test. Going through the store would
+// make every one of them depend on the fixture principal holding
+// capture_settings:update — a grant they do not otherwise need, and whose
+// absence reports as a permission error rather than as the behaviour under
+// test.
 func setAutoEnrich(t *testing.T, e *integration.Env, on bool) {
 	t.Helper()
-	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(),
-			`UPDATE workspace SET capture_auto_enrich = $2 WHERE id = $1`, e.WS, on)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	e.WsExec(t, `
+		INSERT INTO setting (key, value) VALUES ('capture.auto_enrich', to_jsonb($1::boolean))
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, on)
 }
 
 func budgetSpent(t *testing.T, e *integration.Env) int {

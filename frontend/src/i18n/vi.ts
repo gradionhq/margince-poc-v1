@@ -3412,6 +3412,22 @@ export const vi = {
   "quotas.archive.confirm":
     "Lưu trữ sẽ đưa chỉ tiêu này ra khỏi danh sách và ngừng theo dõi mức đạt. Chỉ tiêu đã lưu trữ thì không sửa được.",
 
+  "settings.tab.installation": "Cài đặt hệ thống",
+  "installationSettings.title": "Cài đặt hệ thống",
+  "installationSettings.sub":
+    "Tên của bản cài đặt này, cùng múi giờ và đơn vị tiền tệ dùng để tính mọi báo cáo.",
+  "installationSettings.name": "Tên tổ chức",
+  "installationSettings.nameHint":
+    "Hiển thị ở mọi nơi sản phẩm gọi tên tổ chức của bạn.",
+  "installationSettings.timezone": "Múi giờ báo cáo",
+  "installationSettings.timezoneHint":
+    "Tên múi giờ IANA (ví dụ Europe/Berlin). Ranh giới kỳ của mọi báo cáo được tính theo múi giờ này, tách biệt với múi giờ hiển thị của riêng bạn.",
+  "installationSettings.baseCurrency": "Đơn vị tiền tệ cơ sở",
+  "installationSettings.baseCurrencyHint":
+    "Mã ISO-4217 mà mọi số tiền được quy đổi về khi tổng hợp. Có thể thay đổi cho đến khi giao dịch đầu tiên được quy đổi theo nó.",
+  "installationSettings.baseCurrencyLocked":
+    "Đã khoá: đã có giao dịch được quy đổi theo đơn vị tiền tệ này, nên việc thay đổi sẽ làm sai lệch mọi số liệu tổng hợp dựa trên chúng.",
+  "installationSettings.save": "Lưu",
   "captureSettings.title": "Thu thập",
   "captureSettings.sub":
     "Cách các công ty và contact đã thu thập được bổ sung thông tin sau khi tạo.",

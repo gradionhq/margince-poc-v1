@@ -411,6 +411,60 @@ func TestResetRestoresWorkspaceLevelSettings(t *testing.T) {
 	}
 }
 
+// The same obligation for the settings that moved off the workspace row into
+// `setting` (ADR-0090/A135). That table carries no workspace_id, so the reset's
+// table sweep — derived from the tables that do — never had it as a candidate
+// either: without an explicit restore every setting outlives the wipe exactly
+// as capture_auto_enrich did.
+//
+// The split is what this proves. Configuration goes back to its registered
+// default; the installation's IDENTITY does not, because a reset wipes an
+// installation's data without re-creating the installation.
+func TestResetRestoresSettingRowsButKeepsTheInstallationsIdentity(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	// Configuration a human changed, and identity bootstrap wrote.
+	e.WsExec(t, `
+		INSERT INTO setting (key, value) VALUES ('capture.auto_enrich', 'false'::jsonb)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
+	e.WsExec(t, `
+		INSERT INTO setting (key, value) VALUES ('installation.name', '"Brandt Automotive"'::jsonb)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// Configuration is gone, so a read resolves to the registered default —
+	// an absent row and a row holding the default read identically, and the
+	// absence keeps "has anyone changed this?" answerable.
+	var configRows int
+	if err := e.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM setting WHERE key = 'capture.auto_enrich'`).Scan(&configRows); err != nil {
+		t.Fatalf("reading the configuration setting back: %v", err)
+	}
+	if configRows != 0 {
+		t.Error("capture.auto_enrich survived the reset — a configuration setting must return to its default")
+	}
+
+	// Identity survives: the installation is the same installation afterwards.
+	var name string
+	if err := e.Pool.QueryRow(ctx,
+		`SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'`).Scan(&name); err != nil {
+		t.Fatalf("the installation lost its name in a reset that preserves the installation: %v", err)
+	}
+	if name != "Brandt Automotive" {
+		t.Errorf("installation.name = %q after a reset, want it preserved", name)
+	}
+}
+
 // TestResetLeavesANativeWorkspaceAlone: the flip is conditional, so a native
 // installation's reset claims no mode change in its evidence.
 func TestResetLeavesANativeWorkspaceAlone(t *testing.T) {

@@ -808,7 +808,10 @@ describe("SettingsScreen Organization group", () => {
   it("gives ops the three objectless tabs while it holds no object grant at all", async () => {
     // The mirror of the case above: those three surfaces have no RBAC object
     // for a grant to name, so the role is what the server checks and what the
-    // nav must check.
+    // nav must check. Installation is deliberately NOT among them: it carries
+    // its own `installation_settings` object (ADR-0090/A135), so it follows
+    // the grant like catalog and rates do, and an ops principal holding no
+    // object grant does not get it.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["ops"] }));
     render(<SettingsScreen />);
     await waitFor(() =>
