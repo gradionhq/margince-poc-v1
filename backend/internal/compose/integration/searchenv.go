@@ -119,13 +119,19 @@ func (e *SearchEnv) Seed(t *testing.T, sql string, args ...any) ids.UUID {
 	return id
 }
 
+// searchObjects is the record vocabulary this fixture's principals reach. Named
+// once because the read and write grant sets must cover the same objects — if
+// they drifted, a suite comparing a reader against a writer would be comparing
+// two different vocabularies and attributing the difference to permissions.
+var searchObjects = []string{objPerson, objOrg, objDeal, "lead", objActivity}
+
 // searchReadGrants is read on every record type this fixture's principals can
 // reach. Read-only on purpose: the suites riding it assert what a caller may SEE,
 // so a grant that could write would let a fixture change the rows under its own
 // assertion.
 func searchReadGrants() map[string]principal.ObjectGrant {
 	grants := map[string]principal.ObjectGrant{}
-	for _, object := range []string{objPerson, objOrg, objDeal, "lead", objActivity} {
+	for _, object := range searchObjects {
 		grants[object] = principal.ObjectGrant{Read: true}
 	}
 	return grants
@@ -151,5 +157,22 @@ func (e *SearchEnv) AsTeamRep(user, team ids.UUID) context.Context {
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
 		TeamIDs:     []ids.UUID{team},
 		Permissions: principal.Permissions{Objects: searchReadGrants(), RowScope: principal.RowScopeTeam},
+	})
+}
+
+// AsFullUser is a human who may WRITE every record type, unbounded by row scope
+// — Admin's mutating counterpart, for the suites whose subject is an ingest or a
+// scoring pass rather than a visibility rule. Same object vocabulary as the
+// reader, so a suite that swaps one for the other varies only the permission.
+func AsFullUser(e *SearchEnv) context.Context {
+	grants := map[string]principal.ObjectGrant{}
+	for _, object := range searchObjects {
+		grants[object] = principal.ObjectGrant{Create: true, Read: true, Update: true}
+	}
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
+		Permissions: principal.Permissions{Objects: grants, RowScope: principal.RowScopeAll},
 	})
 }

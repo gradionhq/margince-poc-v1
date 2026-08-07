@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The disposition ledger's two safety properties (ADR-0072 §5), both of which
 // are about an adversary rather than a bug: an OUTSIDER creates ledger rows by
@@ -18,7 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -82,7 +83,7 @@ func TestCaptureLedgerStopsDeferringAtTheWorkspaceCeiling(t *testing.T) {
 func TestCaptureLedgerRefusesAVerdictFromAnExpiredClaim(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
-	store := capture.NewPendingStore(e.Pool)
+	store := capturemod.NewPendingStore(e.Pool)
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
 	sync(t, email("contested@stranger.example", "Contested", captureOwner, "led3@stranger.example", ""))
@@ -113,13 +114,13 @@ func TestCaptureLedgerRefusesAVerdictFromAnExpiredClaim(t *testing.T) {
 	}
 
 	// The zombie finishes and reports. It must lose.
-	resolved := resolveWith(t, e, store, stale[0], capture.PendingStatusReal)
+	resolved := resolveWith(t, e, store, stale[0], capturemod.PendingStatusReal)
 	if resolved {
 		t.Fatal("a worker with an expired claim resolved a row another worker now holds")
 	}
 	// And the live holder must still be able to resolve it — a token that
 	// rejected everyone would pass the test above and deadlock the queue.
-	if !resolveWith(t, e, store, fresh[0], capture.PendingStatusNoise) {
+	if !resolveWith(t, e, store, fresh[0], capturemod.PendingStatusNoise) {
 		t.Fatal("the live claim could not resolve its own row")
 	}
 	if n := countRows(t, e, `
@@ -131,7 +132,7 @@ func TestCaptureLedgerRefusesAVerdictFromAnExpiredClaim(t *testing.T) {
 
 // resolveWith runs one Resolve on its own transaction, as the verdict engine
 // does, and reports whether this caller was the one that closed the row.
-func resolveWith(t *testing.T, e *SearchEnv, store *capture.PendingStore, p capture.PendingCounterparty, status string) bool {
+func resolveWith(t *testing.T, e *integration.SearchEnv, store *capturemod.PendingStore, p capturemod.PendingCounterparty, status string) bool {
 	t.Helper()
 	var resolved bool
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -147,7 +148,7 @@ func resolveWith(t *testing.T, e *SearchEnv, store *capture.PendingStore, p capt
 
 // expireClaimLease backdates a row's lease so it is claimable again — the state
 // a crashed or stalled worker leaves behind.
-func expireClaimLease(t *testing.T, e *SearchEnv, id ids.UUID) {
+func expireClaimLease(t *testing.T, e *integration.SearchEnv, id ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
@@ -164,7 +165,7 @@ func expireClaimLease(t *testing.T, e *SearchEnv, id ids.UUID) {
 // fillLedgerToCeiling tops the workspace up to exactly its open-disposition
 // ceiling, leaving the queue full but not over — so the next capture is the
 // first one the cap refuses.
-func fillLedgerToCeiling(t *testing.T, e *SearchEnv, activityID, ownerID ids.UUID) {
+func fillLedgerToCeiling(t *testing.T, e *integration.SearchEnv, activityID, ownerID ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var live int
@@ -178,7 +179,7 @@ func fillLedgerToCeiling(t *testing.T, e *SearchEnv, activityID, ownerID ids.UUI
 			  (workspace_id, email, domain, activity_id, owner_id, status, next_attempt_at)
 			SELECT $1, 'filler' || g || '@flood.example', 'flood.example', $2, $3, 'pending', now()
 			  FROM generate_series(1, $4) g`,
-			e.WS, activityID, ownerID, capture.PendingDeferralCap-live)
+			e.WS, activityID, ownerID, capturemod.PendingDeferralCap-live)
 		return err
 	})
 	if err != nil {
@@ -234,7 +235,7 @@ func TestCaptureLedgerStopsDeferringOneFloodingDomain(t *testing.T) {
 // fillDomainToShare tops one domain up to exactly its share of the ceiling,
 // leaving it full but not over — so the next message from it is the first the
 // per-domain cap refuses.
-func fillDomainToShare(t *testing.T, e *SearchEnv, domain string, activityID, ownerID ids.UUID) {
+func fillDomainToShare(t *testing.T, e *integration.SearchEnv, domain string, activityID, ownerID ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var live int
@@ -248,7 +249,7 @@ func fillDomainToShare(t *testing.T, e *SearchEnv, domain string, activityID, ow
 			  (workspace_id, email, domain, activity_id, owner_id, status, next_attempt_at)
 			SELECT $1, 'domfill' || g || '@' || $5, $5, $2, $3, 'pending', now()
 			  FROM generate_series(1, $4) g`,
-			e.WS, activityID, ownerID, capture.PendingDeferralDomainCap-live, domain)
+			e.WS, activityID, ownerID, capturemod.PendingDeferralDomainCap-live, domain)
 		return err
 	})
 	if err != nil {

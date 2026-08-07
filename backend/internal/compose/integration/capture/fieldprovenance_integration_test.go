@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // Field-level provenance (B-E02.12): one shared, RLS-scoped
 // field_provenance table covers every core captured object; the
@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -26,14 +27,14 @@ import (
 )
 
 func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &mailFake{linkTo: personID}
 	registry.Register(fake)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +83,7 @@ func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
 // assertCaptureStampedBothObjectTypes checks the capture stamped
 // field-level provenance for BOTH object types it created (activity +
 // lead), under the connector's identity.
-func assertCaptureStampedBothObjectTypes(t *testing.T, e *SearchEnv) {
+func assertCaptureStampedBothObjectTypes(t *testing.T, e *integration.SearchEnv) {
 	t.Helper()
 	type stampRow struct {
 		objectType, field, source, capturedBy string
@@ -123,7 +124,7 @@ func assertCaptureStampedBothObjectTypes(t *testing.T, e *SearchEnv) {
 // JSONB provenance column (gate Q1) — derived from the live schema so a
 // future object cannot quietly reintroduce the rejected shape.
 func TestNoPerObjectJSONBProvenanceBacking(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	var offenders int
 	err := e.Owner.QueryRow(context.Background(), `
 		SELECT count(*) FROM information_schema.columns

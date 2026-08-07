@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The auto-create pipeline end to end over a real migrated Postgres
 // (ADR-0063, AC3.1/3.2): a captured thread yields exactly one person, one
@@ -19,7 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -267,7 +267,7 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 		// principal: the capture itself must land, the ensure must refuse
 		// honestly (RC-8 — created rows need a human owner), and the fault
 		// must be a system_log line the nightly reconcile can find.
-		sink := capture.NewSink(e.Pool).WithEnsurer(recordingEnsurer{}, capture.NewTransactionalList(nil, nil))
+		sink := capturemod.NewSink(e.Pool).WithEnsurer(recordingEnsurer{}, capturemod.NewTransactionalList(nil, nil))
 		ownerless := principal.WithCorrelationID(principal.WithActor(
 			principal.WithWorkspaceID(context.Background(), e.WS), principal.Principal{
 				Type: principal.PrincipalConnector, ID: "connector:gmail",
@@ -303,6 +303,6 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 // case; the sink's own gates must refuse before it is ever reached.
 type recordingEnsurer struct{}
 
-func (recordingEnsurer) EnsureCounterparty(context.Context, capture.EnsureRequest) (capture.EnsureOutcome, error) {
-	return capture.EnsureOutcome{}, nil
+func (recordingEnsurer) EnsureCounterparty(context.Context, capturemod.EnsureRequest) (capturemod.EnsureOutcome, error) {
+	return capturemod.EnsureOutcome{}, nil
 }

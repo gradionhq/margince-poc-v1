@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // What a backfill reports as its reach must be what IT created. The hero number
 // on the activation screen is the user's evidence that the import was worth its
@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -102,7 +103,7 @@ func (m *mailPageConnector) BackfillPage(ctx context.Context, _ connector.Auth, 
 }
 
 func TestBackfillCountsOnlyTheCounterpartiesItsOwnPagesCreated(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	// The production wiring, because the counters under test are filled by the
 	// real auto-create resolver: a bare Sink creates nothing to count.
@@ -120,7 +121,7 @@ func TestBackfillCountsOnlyTheCounterpartiesItsOwnPagesCreated(t *testing.T) {
 		sent: map[string]bool{"y3@myco.example": true},
 	})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -168,7 +169,7 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 	// organization as it creates one, so the two numbers beside "emails
 	// captured" have to move during the page as well — a screen where only the
 	// mail count advances tells the user the import found nobody.
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &mailPageConnector{
 		raws: [][]byte{
@@ -184,7 +185,7 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 		WithProgressPacing(0)
 	registry.Register(prov)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -230,7 +231,7 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 // count would wrongly credit to the run under test: three counterparties
 // indistinguishable from a second gmail connection's captures, and one person a
 // human typed in.
-func seedForeignCounterparties(t *testing.T, e *SearchEnv) {
+func seedForeignCounterparties(t *testing.T, e *integration.SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		for _, q := range []string{
@@ -254,7 +255,7 @@ func seedForeignCounterparties(t *testing.T, e *SearchEnv) {
 	}
 }
 
-func readBackfillYieldColumns(t *testing.T, e *SearchEnv, id ids.UUID) (people, organizations int) {
+func readBackfillYieldColumns(t *testing.T, e *integration.SearchEnv, id ids.UUID) (people, organizations int) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -274,7 +275,7 @@ func TestBackfillYieldsSurviveATransientFault(t *testing.T) {
 	// people and companies the failed attempt minted are counted by that
 	// attempt or by nobody — dropping them with the rest of its tally
 	// undercounts the run for good.
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &mailPageConnector{
 		raws: [][]byte{
@@ -287,7 +288,7 @@ func TestBackfillYieldsSurviveATransientFault(t *testing.T) {
 		WithProgressPacing(0)
 	registry.Register(prov)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -343,14 +344,14 @@ func TestBackfillYieldsSurviveACancelUnderTheRunningPage(t *testing.T) {
 	// that carries the run's STATE is fenced on the live statuses, so after the
 	// cancel none of them match — and the page's counterparties, which exist
 	// and which no replay will offer again, were credited by nobody.
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &mailPageConnector{raws: yieldFixture(), sent: map[string]bool{"y3@myco.example": true}}
 	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{}).
 		WithProgressPacing(0)
 	registry.Register(prov)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -389,7 +390,7 @@ func TestBackfillYieldsAreCreditedOnceAtTheRetryCeiling(t *testing.T) {
 	// A page that fails transiently AT the ceiling runs two writes: the
 	// failure ladder and the terminal one. When both credited the yields, the
 	// run reported twice the people it actually created.
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &mailPageConnector{
 		raws: yieldFixture(),
@@ -401,7 +402,7 @@ func TestBackfillYieldsAreCreditedOnceAtTheRetryCeiling(t *testing.T) {
 		WithProgressPacing(0)
 	registry.Register(prov)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -431,7 +432,7 @@ func TestBackfillYieldsAreCreditedOnceAtTheRetryCeiling(t *testing.T) {
 }
 
 // readRunAndYields reads the run's state and its committed yield columns.
-func readRunAndYields(t *testing.T, e *SearchEnv, id ids.UUID) (status string, people, organizations int) {
+func readRunAndYields(t *testing.T, e *integration.SearchEnv, id ids.UUID) (status string, people, organizations int) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -447,7 +448,7 @@ func readRunAndYields(t *testing.T, e *SearchEnv, id ids.UUID) (status string, p
 // seedBackfillFailuresAtCeiling puts the run one fault below
 // backfillMaxConsecutiveFailures (10), so the next fault is the one that both
 // climbs the ladder and ends the run — the interleaving that double-credited.
-func seedBackfillFailuresAtCeiling(t *testing.T, e *SearchEnv, id ids.UUID) {
+func seedBackfillFailuresAtCeiling(t *testing.T, e *integration.SearchEnv, id ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(e.Admin(), `
