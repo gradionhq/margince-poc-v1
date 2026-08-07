@@ -609,9 +609,6 @@ func executedRegions(sql string) (topLevel, doBlocks []region) {
 	return topLevel, doBlocks
 }
 
-// stripComments blanks out `--` and `/* */` comments and the contents of string
-// literals, preserving every offset so the loop-scope arithmetic still lines up.
-// Literals go because a table name or a `workspace_id = ws` inside quotes is
 // stripComments blanks comments AND single-quoted literals — the view the write
 // scan reads. A table name or a `workspace_id = ws` inside quotes is text, not
 // SQL, and must neither raise a finding nor satisfy one. Offsets are preserved

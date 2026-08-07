@@ -102,8 +102,18 @@ IT_TIMEOUT="${INTEGRATION_TIMEOUT:-600s}"
 # this as a seconds count, so anything else would price every package against a
 # nonsense denominator and print a percentage nobody can act on. Rejecting the
 # spelling is better than reporting confidently wrong numbers.
+#
+# Zero is rejected separately and matters more: `go test -timeout 0` DISABLES the
+# timeout, so a run that meant to loosen the budget would instead remove the
+# guard entirely and let a hung package sit until the CI job's own limit — the
+# one failure this bound exists to turn into a legible message.
 if [[ ! "$IT_TIMEOUT" =~ ^[0-9]+s$ ]]; then
   echo "FAIL: INTEGRATION_TIMEOUT must be <seconds>s (e.g. 600s), got '${IT_TIMEOUT}'"
+  exit 1
+fi
+if (( ${IT_TIMEOUT%s} == 0 )); then
+  echo "FAIL: INTEGRATION_TIMEOUT must be greater than 0s — go test reads 0 as NO timeout, which "\
+"removes the per-package guard rather than widening it"
   exit 1
 fi
 if [[ -n "${COVERDIR:-}" && -z "${INTEGRATION_TIMEOUT:-}" ]] && (( SHARD_TOTAL == 1 )); then
