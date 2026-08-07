@@ -1761,6 +1761,12 @@ function CompanyFactsCard({
         {chips.map((chip) => (
           <span key={chip.key} className="co-chip" title={chip.label}>
             {chip.icon}
+            {/* The visible chip is icon + value only — the label lives in
+                `title`, which a touch user can never trigger and a screen
+                reader does not reliably announce on a span. This carries the
+                field name into the accessible name without adding a second
+                visible label. */}
+            <span className="sr-only">{chip.label}: </span>
             {chip.value}
           </span>
         ))}
@@ -2614,7 +2620,7 @@ function businessRail({
         {/* How the relationship stands, in parts — the decomposition that
             replaced the header's 0-100 score — and what is currently flagged
             about it. Both are readings of the account's condition. */}
-        <HealthCard health={view?.health} />
+        <HealthCard view={view} />
         <SignalsCard orgId={org.id} />
         {/* Connections is deliberately not here. It listed the account owner
             and the same employees the People card already names, against two

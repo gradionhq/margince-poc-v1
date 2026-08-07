@@ -576,10 +576,9 @@ export const de = {
   "co.brief.nature.recommendation": "Vorschlag",
   "co.health.title": "Die Beziehung",
   "co.website.title": "Ihre Website lesen",
+  "co.health.empty": "Nichts Auffälliges zu melden.",
   "co.health.sinceInbound": "Sie schrieben zuletzt vor {days} Tagen",
   "co.health.replyBalance": "{percent}% des Austauschs kam von ihnen",
-  "co.health.activeContacts": "{count} Personen hier hatten je Kontakt",
-  "co.health.openCommitments": "{count} offene Zusage(n)",
   "co.health.singleThreaded": "Ein Kontakt trägt diesen Account",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
@@ -652,8 +651,6 @@ export const de = {
   "co.next.assignee": "Zuständig",
   "co.people.title": "Personen",
   "co.people.empty": "Noch kein Kontakt mit diesem Account verknüpft.",
-  "co.people.singleThread":
-    "Nur ein Kontakt \u2014 der Account hängt an einer Person",
   "co.people.consentGranted": "Kontakt erlaubt",
   "co.people.consentWithdrawn": "Widerrufen",
   "co.people.consentUnknown": "Keine Einwilligung hinterlegt",

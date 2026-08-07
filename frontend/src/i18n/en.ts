@@ -569,10 +569,9 @@ export const en = {
   "co.brief.nature.recommendation": "Suggested",
   "co.health.title": "The relationship",
   "co.website.title": "Read their website",
+  "co.health.empty": "Nothing notable to report.",
   "co.health.sinceInbound": "They last wrote {days} days ago",
   "co.health.replyBalance": "{percent}% of the exchange came from them",
-  "co.health.activeContacts": "{count} people here have ever interacted",
-  "co.health.openCommitments": "{count} open commitment(s)",
   "co.health.singleThreaded": "One contact carries this account",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
@@ -646,8 +645,6 @@ export const en = {
   "co.next.assignee": "Assignee",
   "co.people.title": "People",
   "co.people.empty": "No contact linked to this account yet.",
-  "co.people.singleThread":
-    "One contact only \u2014 the account is single-threaded",
   "co.people.consentGranted": "May contact",
   "co.people.consentWithdrawn": "Withdrawn",
   "co.people.consentUnknown": "No consent on file",

@@ -101,8 +101,14 @@
   font-style: italic;
 }
 
+/* Plain text, not a pill: these are sentences (missing committee roles, an
+   untried contact), and a 12px single-line Badge wraps a sentence across
+   three lines inside a shape never built to hold that much. --textMeta marks
+   them as a note rather than body copy without borrowing Badge's tone. */
 .co-callout {
-  margin-top: 8px;
+  margin-top: var(--space-2);
+  font-size: 12.5px;
+  color: var(--textMeta);
 }
 
 .co-since {
