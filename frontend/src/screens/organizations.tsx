@@ -9,7 +9,6 @@ import {
   Avatar,
   Badge,
   Button,
-  DataTable,
   Disclosure,
   EmptyState,
   Modal,
@@ -94,10 +93,9 @@ import { changeTimeline, RecordHistoryTab, useFieldHistory } from "./history";
 import { mergeChronology } from "./history.logic";
 import { confidenceLevel } from "./inbox";
 import {
-  ListGate,
   type ListPage,
   type ListQuery,
-  ListToolbar,
+  ListTable,
   useListQuery,
 } from "./listquery";
 import { LogActivityAction } from "./logactivity";
@@ -536,90 +534,83 @@ export function CompaniesScreen() {
     initialSort: "-created_at",
     fetchPage: fetchOrganizationsPage,
   });
-  const { query, setQuery } = state;
 
   return (
     <div className="wrap">
-      <div className="list-head">
-        <SectionHeader title={t("nav.companies")} />
-        <div className="list-head-actions">
-          <Button small onClick={() => navigate({ screen: "partners" })}>
-            {t("nav.partners")}
-          </Button>
-          <CreateAction
-            label={t("create.company")}
-            invalidate="organizations"
-            screen="companies"
-            create={(values, rows) =>
-              createCompany(values, rows, cf.toBody(values), t)
-            }
-            resolveExisting={(_code, id) => ({ screen: "companies", id })}
-            fields={[...companyCreateFields, ...cf.formFields]}
-          />
-        </div>
-      </div>
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        sortOptions={[
-          { value: "display_name", label: "org.name" },
-          { value: "-created_at", label: "list.sortNewest" },
+      <ListTable
+        state={state}
+        unit="unit.companies"
+        action={
+          <>
+            <Button small onClick={() => navigate({ screen: "partners" })}>
+              {t("nav.partners")}
+            </Button>
+            <CreateAction
+              label={t("create.company")}
+              invalidate="organizations"
+              screen="companies"
+              create={(values, rows) =>
+                createCompany(values, rows, cf.toBody(values), t)
+              }
+              resolveExisting={(_code, id) => ({ screen: "companies", id })}
+              fields={[...companyCreateFields, ...cf.formFields]}
+            />
+          </>
+        }
+        columns={[
+          {
+            key: "name",
+            header: t("org.name"),
+            cell: (org: Organization) => (
+              <span className="avatar-row">
+                <Avatar name={org.display_name} src={org.logo_url} tinted />
+                <strong>{org.display_name}</strong>
+                {org.archived_at && (
+                  <Badge tone="warn">{t("record.archived")}</Badge>
+                )}
+              </span>
+            ),
+            sort: "display_name",
+            fixed: true,
+          },
+          {
+            key: "industry",
+            header: t("org.industry"),
+            cell: (org: Organization) => org.industry ?? "",
+          },
+          {
+            key: "size",
+            header: t("org.size"),
+            cell: (org: Organization) => org.size_band ?? "",
+          },
+          {
+            key: "class",
+            header: t("org.lifecycle"),
+            // classification is retired and no longer written by anything,
+            // so a column reading it would show whatever it happened to
+            // hold when the split shipped, forever.
+            cell: (org: Organization) =>
+              org.lifecycle && org.lifecycle !== "unknown" ? (
+                <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
+              ) : null,
+          },
+          {
+            key: "provenance",
+            header: t("people.capturedBy"),
+            cell: (org: Organization) => (
+              <ProvenanceTag
+                provenance={provenanceOf(org.captured_by, viewerId)}
+              />
+            ),
+          },
+        ]}
+        rowKey={(org) => org.id}
+        rowRoute={(org) => ({ screen: "companies", id: org.id })}
+        views={[
+          { label: "list.viewAll", sort: "-created_at" },
+          { label: "list.viewAZ", sort: "display_name" },
         ]}
       />
-      <ListGate state={state} empty={t("common.empty")}>
-        {(rows) => (
-          <DataTable
-            columns={[
-              {
-                key: "name",
-                header: t("org.name"),
-                render: (org: Organization) => (
-                  <span className="avatar-row">
-                    <Avatar name={org.display_name} src={org.logo_url} tinted />
-                    <strong>{org.display_name}</strong>
-                    {org.archived_at && (
-                      <Badge tone="warn">{t("record.archived")}</Badge>
-                    )}
-                  </span>
-                ),
-              },
-              {
-                key: "industry",
-                header: t("org.industry"),
-                render: (org: Organization) => org.industry ?? "",
-              },
-              {
-                key: "size",
-                header: t("org.size"),
-                render: (org: Organization) => org.size_band ?? "",
-              },
-              {
-                key: "class",
-                header: t("org.lifecycle"),
-                // classification is retired and no longer written by anything,
-                // so a column reading it would show whatever it happened to
-                // hold when the split shipped, forever.
-                render: (org: Organization) =>
-                  org.lifecycle && org.lifecycle !== "unknown" ? (
-                    <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
-                  ) : null,
-              },
-              {
-                key: "provenance",
-                header: t("people.capturedBy"),
-                render: (org: Organization) => (
-                  <ProvenanceTag
-                    provenance={provenanceOf(org.captured_by, viewerId)}
-                  />
-                ),
-              },
-            ]}
-            rows={rows}
-            rowKey={(org) => org.id}
-            onRowClick={(org) => navigate({ screen: "companies", id: org.id })}
-          />
-        )}
-      </ListGate>
     </div>
   );
 }

@@ -2,8 +2,16 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button } from "./atoms";
-import { RecordView, type TimelineEntry } from "./composed";
+import { Button, SegmentedControl } from "./atoms";
+import {
+  type BoardColumn,
+  type BoardDeal,
+  PipelineBoard,
+  RecordView,
+  type TimelineEntry,
+} from "./composed";
+import { ListSurface } from "./listsurface";
+import { Select } from "./select";
 
 // RecordView's timeline gained an optional per-row `actions` slot (the Reply /
 // Relink cluster the 360 screens mount). These stories exercise both shapes:
@@ -81,4 +89,135 @@ export const WithRowActions: Story = {
       noteEntry,
     ],
   },
+};
+
+// PipelineBoard inside ListSurface (design-system/listsurface.tsx) — the same
+// shell the record tables render into, so the board's header, count and tools
+// row read exactly as a table's would. Four open stages plus one won stage,
+// and Proposal carries no deals — the honest empty-column case a stage sees
+// between a lead qualifying and the next one reaching it.
+function boardDeal(
+  id: string,
+  name: string,
+  valueMinor: number,
+  ageDays: number,
+  extra?: Partial<BoardDeal>,
+): BoardDeal {
+  return {
+    id,
+    name,
+    org: "Acme GmbH",
+    valueMinor,
+    currency: "EUR",
+    ageMs: ageDays * 24 * 60 * 60 * 1000,
+    ...extra,
+  };
+}
+
+const boardColumns: BoardColumn[] = [
+  {
+    stage: "discovery",
+    label: "Discovery",
+    probabilityPct: 10,
+    rawMinor: 450_00,
+    weightedMinor: 45_00,
+    currency: "EUR",
+    deals: [
+      boardDeal("d1", "Contoso renewal", 120_00, 3),
+      boardDeal("d2", "Fabrikam expansion", 330_00, 9, { stalled: true }),
+    ],
+  },
+  {
+    stage: "qualified",
+    label: "Qualified",
+    probabilityPct: 30,
+    rawMinor: 280_00,
+    weightedMinor: 84_00,
+    currency: "EUR",
+    deals: [boardDeal("d3", "Globex onboarding", 280_00, 14)],
+  },
+  {
+    stage: "proposal",
+    label: "Proposal",
+    probabilityPct: 60,
+    rawMinor: 0,
+    weightedMinor: 0,
+    currency: "EUR",
+    deals: [],
+  },
+  {
+    stage: "negotiation",
+    label: "Negotiation",
+    probabilityPct: 80,
+    rawMinor: 540_00,
+    weightedMinor: 432_00,
+    currency: "EUR",
+    deals: [
+      boardDeal("d4", "Initech upgrade", 540_00, 21, {
+        singleThreaded: true,
+      }),
+    ],
+  },
+  {
+    stage: "won",
+    label: "Closed Won",
+    probabilityPct: 100,
+    rawMinor: 610_00,
+    weightedMinor: 610_00,
+    currency: "EUR",
+    deals: [boardDeal("d5", "Umbrella Corp", 610_00, 2)],
+  },
+];
+
+export const BoardInSurface: StoryObj = {
+  render: () => (
+    <ListSurface
+      count="5 deals"
+      search={{ value: "", onChange: () => undefined }}
+      action={<Button small>New deal</Button>}
+      // The board brings its own controls rather than the table's: which
+      // pipeline is shown, and whether it is read as stages or as rows.
+      tools={
+        <>
+          <SegmentedControl
+            options={["board", "table"] as const}
+            value="board"
+            onChange={() => undefined}
+            labels={{ board: "Board", table: "Table" }}
+          />
+          <Select
+            className="input"
+            aria-label="Pipeline"
+            value="sales"
+            onChange={() => undefined}
+            options={[
+              { value: "sales", label: "Sales" },
+              { value: "partner", label: "Partner" },
+            ]}
+          />
+        </>
+      }
+      // The stage and company filters read as the same chip as any other,
+      // even though a pipeline named their options rather than a catalog.
+      chips={[
+        {
+          key: "stage_id",
+          label: "Stage",
+          allLabel: "All stages",
+          options: [
+            { value: "discovery", label: "Discovery" },
+            { value: "qualified", label: "Qualified" },
+          ],
+        },
+        {
+          key: "organization_id",
+          label: "Company",
+          allLabel: "All companies",
+          options: [{ value: "acme", label: "Acme GmbH" }],
+        },
+      ]}
+    >
+      <PipelineBoard columns={boardColumns} />
+    </ListSurface>
+  ),
 };

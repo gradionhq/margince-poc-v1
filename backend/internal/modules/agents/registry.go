@@ -39,6 +39,11 @@ type Registry struct {
 	// supplied value to it, so `minimum`/`maximum` bind the surface instead of
 	// describing an intention.
 	numArgs map[string][]numBound
+	// requiredArgs[tool] is what that tool's schema says it cannot run without,
+	// read off the schema once at registration. Invoke holds a call to it, so
+	// `required` binds the surface rather than describing an intention that
+	// each handler then re-states in its own words.
+	requiredArgs map[string][]string
 	// approvals closes the 🟡 loop (stage on refusal, redeem on retry).
 	// Nil is a legal composition — the gate still refuses; refused calls
 	// just have nowhere to land.
@@ -51,11 +56,12 @@ type Registry struct {
 
 func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 	return &Registry{
-		tools:     map[string]mcp.Tool{},
-		idArgs:    map[string]idArgSpec{},
-		numArgs:   map[string][]numBound{},
-		approvals: approvals,
-		gate:      gate,
+		tools:        map[string]mcp.Tool{},
+		idArgs:       map[string]idArgSpec{},
+		numArgs:      map[string][]numBound{},
+		requiredArgs: map[string][]string{},
+		approvals:    approvals,
+		gate:         gate,
 	}
 }
 
@@ -134,6 +140,7 @@ func (r *Registry) Register(t mcp.Tool) {
 	r.tools[spec.Name] = t
 	r.idArgs[spec.Name] = declaredIDArgs(spec.InputSchema)
 	r.numArgs[spec.Name] = declaredNumBounds(spec.InputSchema)
+	r.requiredArgs[spec.Name] = declaredRequired(spec.InputSchema)
 }
 
 // Invoke runs the admission gate, then the tool. There is no other path

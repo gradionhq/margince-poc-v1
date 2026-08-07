@@ -73,12 +73,30 @@
   font-size: 11px;
   color: var(--textMeta);
 }
+/* Two lines rather than three figures fighting for one: a stage column is
+ * narrow by design, and a money figure broken across lines is unreadable. */
 .board-col-sub {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: var(--space-1);
   font-size: 11.5px;
   color: var(--textMeta);
   padding: 0 4px 4px;
+}
+.board-col-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+.board-col-money {
+  font-weight: 600;
+  color: var(--textContent);
+  font-variant-numeric: tabular-nums;
+}
+.board-col-weighted {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .deal-card {
@@ -112,15 +130,36 @@
   color: var(--textPrimary);
 }
 .deal-card .deal-org {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: 12px;
   color: var(--textMeta);
+  min-width: 0;
 }
+/* The card is one line of company in a narrow column, so a long name elides
+ * rather than wrapping under its own mark. */
+.deal-card .deal-org > .avatar {
+  flex: none;
+}
+.deal-card .deal-org-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A stage column is narrow, so the meta line wraps as whole items: a value or a
+ * badge broken across two lines is harder to read than one that moved down. */
 .deal-card .deal-meta {
   display: flex;
   align-items: center;
-  gap: 7px;
+  flex-wrap: wrap;
+  gap: var(--space-1) 7px;
   font-size: 12px;
   color: var(--textMeta);
+}
+.deal-card .deal-meta > * {
+  white-space: nowrap;
 }
 .deal-card .deal-value {
   font-family: var(--f-mono);
@@ -350,6 +389,15 @@
 .stepper .step.current {
   background: var(--accent);
   color: var(--textOnAccentControl);
+}
+
+/* The deals table's signal cell: the age, and the flag when the server says the
+ * deal has gone quiet, kept on one line so the column stays scannable. */
+.deal-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
 }
 
 /* The message under a timeline row. Two lines by default: enough to recognise

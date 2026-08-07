@@ -573,3 +573,40 @@ var probeReportCatalog = []ReportCatalogEntry{{
 	Aggregates: []string{"amount_minor"},
 	Defaults:   "count as deals grouped by stage_id",
 }}
+
+// A result that misses its own declared schema is OUR defect, and the client
+// must not be handed structuredContent that violates what this server just
+// advertised. It still gets the whole answer in the text block — the omission
+// is a statement about the structured member, not a refusal to answer.
+func TestAResultThatMissesItsSchemaIsReportedAndLeftOutOfStructuredContent(t *testing.T) {
+	spec := objectSpec("misdeclared", principal.ScopeRead)
+	spec.OutputSchema = json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`)
+	var log strings.Builder
+	s := dispatchWith(t, echoTool{spec: spec, out: json.RawMessage(`{"count":"seven"}`)}, &log)
+
+	res := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"misdeclared","arguments":{}}`))
+	if _, structured := res["structuredContent"]; structured {
+		t.Error("a result violating its declared schema was served as structuredContent")
+	}
+	content, ok := res["content"].([]map[string]any)
+	if !ok || len(content) == 0 || !strings.Contains(content[0][fieldText].(string), "seven") {
+		t.Errorf("the caller lost the answer entirely: %#v", res)
+	}
+	if !strings.Contains(log.String(), "does not satisfy the schema") {
+		t.Errorf("the operator was not told which promise was broken: %s", log.String())
+	}
+}
+
+// And the other direction, so the check cannot pass by refusing everything: a
+// result that KEEPS its schema is served as structuredContent.
+func TestAConformingResultIsServedAsStructuredContent(t *testing.T) {
+	spec := objectSpec("conforming", principal.ScopeRead)
+	spec.OutputSchema = json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`)
+	var log strings.Builder
+	s := dispatchWith(t, echoTool{spec: spec, out: json.RawMessage(`{"count":7}`)}, &log)
+
+	res := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"conforming","arguments":{}}`))
+	if _, structured := res["structuredContent"]; !structured {
+		t.Errorf("a conforming result was withheld from structuredContent: %#v", res)
+	}
+}

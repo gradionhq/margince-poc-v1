@@ -91,7 +91,7 @@ type recordingEnricher struct {
 
 func (e *recordingEnricher) EnrichCompany(_ context.Context, _ ids.UUID, url, depth string) (json.RawMessage, error) {
 	e.url, e.depth = url, depth
-	return json.RawMessage(`{}`), nil
+	return nil, nil
 }
 
 func TestEnrichHandlePassesTheAdmittedArgumentsThrough(t *testing.T) {

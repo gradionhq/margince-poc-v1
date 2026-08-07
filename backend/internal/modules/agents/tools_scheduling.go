@@ -42,7 +42,7 @@ func (t checkAvailability) Spec() mcp.ToolSpec {
 			"to":{"type":"string","format":"date-time"` + timestampNote + `},
 			"duration_minutes":{"type":"integer","minimum":15,"maximum":480}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[AvailabilityResult](),
 	}
 }
 
@@ -56,7 +56,7 @@ func (t checkAvailability) Handle(ctx context.Context, in json.RawMessage) (json
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	return t.comms.Availability(ctx, args.HostUserID, args.From, args.To, args.DurationMinutes)
+	return marshalResult(t.comms.Availability(ctx, args.HostUserID, args.From, args.To, args.DurationMinutes))
 }
 
 // --- book_meeting (🟡: commits a slot + implies an invite) ---
@@ -91,7 +91,7 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 				"description":"Who and what the meeting is about; at least one. The booking is refused without it."},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
 }
 
