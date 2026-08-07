@@ -94,26 +94,3 @@ func (h Handlers) SetFxRate(w http.ResponseWriter, r *http.Request) {
 	}
 	httperr.WriteJSON(w, http.StatusCreated, toContractFxRate(row))
 }
-
-// SetBaseCurrency serves the guarded base-currency change. It is refused once a
-// deal has frozen a conversion rate against the current base, because changing
-// it then would restate what those deals were worth (AAD-AC-N-3/N-5).
-func (h Handlers) SetBaseCurrency(w http.ResponseWriter, r *http.Request) {
-	if err := auth.RequireHuman(r.Context()); err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	var req crmcontracts.SetBaseCurrencyRequest
-	if !httperr.Decode(w, r, &req) {
-		return
-	}
-	state, err := h.store.SetBaseCurrency(r.Context(), req.BaseCurrency)
-	if err != nil {
-		writeStoreErr(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.BaseCurrencyResponse{
-		BaseCurrency: state.BaseCurrency,
-		Locked:       state.Locked,
-	})
-}

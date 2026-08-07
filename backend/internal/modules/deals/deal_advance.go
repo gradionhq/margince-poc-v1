@@ -253,16 +253,8 @@ func (e *MissingFxRateError) MessageFault() (code, message string) {
 func freezeFx(ctx context.Context, tx pgx.Tx, currency string, asOf time.Time) (string, time.Time, error) {
 	asOfDate := asOf.UTC().Truncate(24 * time.Hour)
 	var base string
-	// FOR SHARE, because this read decides a value that outlives the
-	// transaction: the rate written here is read forever after as "against the
-	// base". SetBaseCurrency takes the same row FOR UPDATE, so the shared lock
-	// is what makes the two mutually exclusive — without it neither transaction
-	// touches a row the other does, and a freeze can commit against a base that
-	// a concurrent change is replacing. Shared, not exclusive: concurrent
-	// closes must still freeze in parallel; only a base change waits.
 	if err := tx.QueryRow(ctx,
-		`SELECT base_currency FROM workspace WHERE id = $1 FOR SHARE`,
-		storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
+		`SELECT base_currency FROM workspace WHERE id = $1`, storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
 		return "", time.Time{}, err
 	}
 	if currency == base {

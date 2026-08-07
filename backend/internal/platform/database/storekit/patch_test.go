@@ -129,12 +129,18 @@ func TestLiveClauseGuardsOnlyTheTablesThatCanArchive(t *testing.T) {
 		want    string
 		because string
 	}{
-		{"LiveOnly", LiveOnly, predicate,
-			"the default write posture must not reach a retired record"},
-		{"IncludeArchived", IncludeArchived, "",
-			"a flow that deliberately touches an archived row asks for it explicitly"},
-		{"NoArchiveColumn", NoArchiveColumn, "",
-			"a table with no archived_at cannot be filtered on one — the predicate is a SQL error, not a narrower write"},
+		{
+			"LiveOnly", LiveOnly, predicate,
+			"the default write posture must not reach a retired record",
+		},
+		{
+			"IncludeArchived", IncludeArchived, "",
+			"a flow that deliberately touches an archived row asks for it explicitly",
+		},
+		{
+			"NoArchiveColumn", NoArchiveColumn, "",
+			"a table with no archived_at cannot be filtered on one — the predicate is a SQL error, not a narrower write",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := liveClause(tc.filter); got != tc.want {
@@ -148,7 +154,7 @@ func TestLiveClauseGuardsOnlyTheTablesThatCanArchive(t *testing.T) {
 // filter it was taken under rather than letting ApplyLocked assume one.
 func TestARowLockRemembersTheFilterItWasTakenUnder(t *testing.T) {
 	for _, filter := range []ArchivedFilter{LiveOnly, IncludeArchived, NoArchiveColumn} {
-		lock := RowLock{table: "organization_fact", archived: filter}
+		lock := RowLock{archived: filter}
 		if got := liveClause(lock.archived); got != liveClause(filter) {
 			t.Errorf("a lock taken under %v applies through %q, want %q", filter, got, liveClause(filter))
 		}

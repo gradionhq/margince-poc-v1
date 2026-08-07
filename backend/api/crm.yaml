@@ -9353,48 +9353,6 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
-  /fx-rates/base-currency:
-    put:
-      tags: [Rates]
-      operationId: setBaseCurrency
-      security: [ { cookieAuth: [] } ]
-      x-agent-access: human-only
-      summary: Change the workspace base currency, while nothing has frozen a rate against it.
-      description: |
-        AAD-PARAM-N-2 / AAD-AC-N-2..N-5. A closed deal and a sent offer both freeze a
-        conversion rate AGAINST the base currency, so changing it afterwards would
-        silently reinterpret what those records were worth — a financial claim the
-        product has no authority to restate, and in the offer's case one already sent to
-        a customer. The change is therefore accepted only while no frozen rate exists AND
-        no rate in the sheet is priced against the current base (a `USD→EUR` rate cannot
-        be restated as a `USD→CHF` one). Both refusals are `base_currency_locked`,
-        carrying how many rows block it so the refusal explains itself instead of merely
-        denying. Governed by the same grant as the rate sheet: one authority over the
-        currency substrate, not two. This is the day-one correction path — an
-        installation that put the wrong currency in its configuration file.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SetBaseCurrencyRequest' }
-      responses:
-        '200':
-          description: The workspace base currency after the change.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/BaseCurrencyResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409':
-          description: >-
-            A deal or sent offer has already frozen a conversion rate against the current
-            base currency, or the rate sheet is priced against it, so it can no longer
-            change (`code: base_currency_locked`).
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
   /fx-rates/propose-refresh:
     post:
       tags: [Rates]
@@ -9875,30 +9833,6 @@ components:
 
   # ------------------------------- schemas ----------------------------------
   schemas:
-    SetBaseCurrencyRequest:
-      type: object
-      required: [base_currency]
-      properties:
-        base_currency:
-          type: string
-          pattern: '^[A-Za-z]{3}$'
-          description: The 3-letter ISO-4217 code to adopt as the workspace base.
-
-    BaseCurrencyResponse:
-      type: object
-      required: [base_currency, locked]
-      properties:
-        base_currency:
-          type: string
-          pattern: '^[A-Z]{3}$'
-        locked:
-          type: boolean
-          description: >-
-            True once at least one deal or sent offer has frozen a conversion rate
-            against this base, after which it can never change. Rendered so the surface
-            can state the constraint before a user attempts the edit rather than only
-            refusing it. A priced rate sheet blocks the change too, but is repairable, so
-            it does not set this flag.
     UpdateOrganizationProfileFieldRequest:
       type: object
       description: 'A human correction. The canonical store changes; the machine''s proposal and its evidence survive in history (PO-AC-N-1/N-2).'

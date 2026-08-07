@@ -348,7 +348,6 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/webhook-subscriptions/{id}/deliveries/{deliveryId}/replay": {Op: "replayWebhookDelivery", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/webhook-subscriptions/{id}/rotate-secret":                  {Op: "rotateWebhookSecret", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PUT /v1/company":                                                    {Op: "putCompany", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
-	"PUT /v1/fx-rates/base-currency":                                     {Op: "setBaseCurrency", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PUT /v1/me/linkedin-account":                                        {Op: "saveMyLinkedInAccount", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PUT /v1/offer-templates/{id}":                                       {Op: "updateOfferTemplate", Access: "tool", Tool: "update_record", RecordType: "offer_template", Tier: "auto_execute", Scope: "write"},
 	"PUT /v1/onboarding/state":                                           {Op: "putOnboardingState", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
