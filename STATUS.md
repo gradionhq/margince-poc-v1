@@ -35,6 +35,40 @@ fallback), **#495** (auth rate limits are process-local, so N replicas multiply
 every ceiling by N), **#496** (audit-verb down migrations cannot see the rows
 their refusal probe checks for, under production RLS).
 
+## Open — the integration lane's cost, profiled
+
+The lane is 1828 tests over 25 packages, ~493s summed (~300s wall, parallel).
+Profiled per test on 2026-08-06 because the suite *looked* inflated. It is not
+inflated by count: the slowest decile is 55% of the time and the fastest 1328
+tests together are 29%, so converting the small majority to unit tests would
+delete three-quarters of the suite to recover under a third of the runtime —
+and most of them assert database behaviour (RLS, CHECK→4xx, keyset pagination)
+that has no meaning without Postgres.
+
+Where the cost actually is, and what is worth doing about it:
+
+- **#524** — `internal/compose/integration` is half the lane (960 tests) and
+  runs 258–302s against a 300s per-package timeout, so it flakes on a loaded
+  machine. CI shards 12 ways and never sees it; the unsharded local lane and
+  `make test-it` do. The 300s default is documented against the sharded
+  assumption, and the script already bumps to 900s for the whole-package case
+  but gates that on `COVERDIR` rather than on `SHARD_TOTAL == 1`.
+- **#539** — that package's setup forks about five Postgres backends per test.
+  Sharing them measured ~18% (170.9s vs a 209.6s baseline) and is **blocked**:
+  the harness drops `cf_*` columns between tests, so a pooled connection
+  outliving that DDL serves a stale plan and fails with SQLSTATE 0A000 in a
+  suite unrelated to custom fields. The issue records the design that would
+  unblock it and the four cheaper approaches that were measured and do not pay.
+- **#535** — table-driven tests calling their harness inside `t.Run`, re-seeding
+  Postgres per case (~44s), which also hides that the property under test is pure.
+- **#536** — a few tests assert pure logic through a booted app; `check-test-lanes.sh`
+  forbids the mirror case (a unit test opening real infra) but cannot see this one.
+
+Two measurement notes for whoever picks this up. Run-to-run variance on the same
+commit is ~15%, so compare within one sitting on an idle machine. And both
+failures found while attempting #539 were order-dependent — they appeared only
+in a full-package or full-lane run, never in isolation.
+
 ## Open — contract drift: the reset's response gained five fields
 
 `backend/api/crm.yaml`'s `resetData` 200 body now declares `jobs_deleted`,
