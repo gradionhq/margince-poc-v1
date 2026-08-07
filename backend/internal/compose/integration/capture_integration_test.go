@@ -105,7 +105,7 @@ func (m *mailFake) HealthCheck(context.Context, connector.Auth) error { return n
 // one workspace-bound transaction.
 type captureCounts struct{ activities, leads, raws, audits int }
 
-func readCaptureCounts(t *testing.T, e *searchEnv) captureCounts {
+func readCaptureCounts(t *testing.T, e *SearchEnv) captureCounts {
 	t.Helper()
 	var got captureCounts
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -127,7 +127,7 @@ func readCaptureCounts(t *testing.T, e *searchEnv) captureCounts {
 }
 
 func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
@@ -154,7 +154,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	// Raw capture is evidence: the replay carried DIFFERENT bytes, and
 	// the stored original must not have moved.
 	var payload string
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT payload->>'sync' FROM raw_capture WHERE source_id = 'msg-1'`).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	}
 	// The captured event went through the outbox exactly once.
 	var captured int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'activity.captured'`).Scan(&captured); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 }
 
 func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&mailFake{scopes: []principal.Scope{principal.ScopeRead, principal.ScopeSend}})
 
@@ -222,7 +222,7 @@ func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
 }
 
 func TestReconnectUnarchivesTheConnection(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&mailFake{})
 
@@ -263,7 +263,7 @@ func TestReconnectUnarchivesTheConnection(t *testing.T) {
 }
 
 func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	// A person owned by team2 — invisible to the team1 granting human.
 	foreignPerson := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Foreign Target', $3, 'manual', 'human:x')`, e.Rep3)
 
@@ -290,10 +290,10 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	}
 }
 
-// humanWithScopes builds a human principal in the searchEnv workspace
+// humanWithScopes builds a human principal in the SearchEnv workspace
 // carrying rep-grade RBAC (team scope) plus explicit verb scopes for
 // the connector grant check.
-func (e *searchEnv) humanWithScopes(user ids.UUID, scopes []principal.Scope) context.Context {
+func (e *SearchEnv) humanWithScopes(user ids.UUID, scopes []principal.Scope) context.Context {
 	scopeSet := principal.NewScopeSet()
 	for _, s := range scopes {
 		scopeSet[s] = struct{}{}
@@ -335,6 +335,6 @@ func (fakeAuthority) SeatType(context.Context, ids.UUID, ids.UUID) (principal.Se
 	return principal.SeatFull, nil
 }
 
-func newTestCaptureRegistry(e *searchEnv, vault keyvault.Vault) *capture.Registry {
+func newTestCaptureRegistry(e *SearchEnv, vault keyvault.Vault) *capture.Registry {
 	return capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), fakeAuthority{}, vault)
 }

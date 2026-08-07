@@ -23,15 +23,15 @@ import (
 )
 
 func TestSeedBindingOnEmptyStoreHasNoFirstBootWart(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/seed@1024"
 
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	populated, status, _, err := e.store.PopulatedIdentity(ctx)
+	populated, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestSeedBindingOnEmptyStoreHasNoFirstBootWart(t *testing.T) {
 		t.Fatalf("status = %q, want idle", status)
 	}
 
-	needed, err := e.store.ReindexNeeded(ctx, identity)
+	needed, err := e.Store.ReindexNeeded(ctx, identity)
 	if err != nil {
 		t.Fatalf("ReindexNeeded: %v", err)
 	}
@@ -52,11 +52,11 @@ func TestSeedBindingOnEmptyStoreHasNoFirstBootWart(t *testing.T) {
 }
 
 func TestReindexNeededAfterStaleIdentityRow(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/current@1024"
 
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
@@ -64,14 +64,14 @@ func TestReindexNeededAfterStaleIdentityRow(t *testing.T) {
 	// A row stamped under a DIFFERENT identity than currentIdentity — the
 	// entity has an embedding row, just not a current one, so it must
 	// still count as pending (the swap case, distinct from "no row at all").
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'stale-hash', 'fake/old@1024', '[1,2,3]'::vector)`,
 		e.WS, personID); err != nil {
 		t.Fatalf("seeding the stale-identity row: %v", err)
 	}
 
-	pending, err := e.store.EntitiesPending(ctx, identity)
+	pending, err := e.Store.EntitiesPending(ctx, identity)
 	if err != nil {
 		t.Fatalf("EntitiesPending: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestReindexNeededAfterStaleIdentityRow(t *testing.T) {
 		t.Fatalf("EntitiesPending = %d, want 1 (the stale-identity row must count as pending)", pending)
 	}
 
-	needed, err := e.store.ReindexNeeded(ctx, identity)
+	needed, err := e.Store.ReindexNeeded(ctx, identity)
 	if err != nil {
 		t.Fatalf("ReindexNeeded: %v", err)
 	}
@@ -89,18 +89,18 @@ func TestReindexNeededAfterStaleIdentityRow(t *testing.T) {
 }
 
 func TestSeedBindingIsIdempotentAndConcurrentSafe(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const first = "fake/first@1024"
 	const second = "fake/second@1024"
 
-	if err := e.store.SeedBinding(ctx, first); err != nil {
+	if err := e.Store.SeedBinding(ctx, first); err != nil {
 		t.Fatalf("first SeedBinding: %v", err)
 	}
-	if err := e.store.SeedBinding(ctx, second); err != nil {
+	if err := e.Store.SeedBinding(ctx, second); err != nil {
 		t.Fatalf("second SeedBinding must no-op, not error: %v", err)
 	}
-	populated, _, _, err := e.store.PopulatedIdentity(ctx)
+	populated, _, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -110,14 +110,14 @@ func TestSeedBindingIsIdempotentAndConcurrentSafe(t *testing.T) {
 
 	// Two concurrent seeds against a fresh (unseeded) store both succeed —
 	// ON CONFLICT DO NOTHING arbitrates the race inside Postgres, not here.
-	e2 := setupSearch(t)
+	e2 := SetupSearch(t)
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
 	for i := range errs {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = e2.store.SeedBinding(context.Background(), "fake/concurrent@1024")
+			errs[i] = e2.Store.SeedBinding(context.Background(), "fake/concurrent@1024")
 		}(i)
 	}
 	wg.Wait()
@@ -135,15 +135,15 @@ func TestSeedBindingIsIdempotentAndConcurrentSafe(t *testing.T) {
 // second claim, and it is refused by name (ErrReembeddingInFlight) rather than
 // by a bare zero row count that could equally mean an unseeded marker.
 func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRun(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/claim@1024"
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
 	var ran bool
-	err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
+	err := e.Store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
 		ran = true
 		return nil
 	})
@@ -153,7 +153,7 @@ func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRun(t *testing.T) {
 	if !ran {
 		t.Fatal("the enqueue callback must run inside the claim transaction")
 	}
-	_, status, _, err := e.store.PopulatedIdentity(ctx)
+	_, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRun(t *testing.T) {
 	}
 
 	ran = false
-	err = e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
+	err = e.Store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
 		ran = true
 		return nil
 	})
@@ -179,13 +179,13 @@ func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRun(t *testing.T) {
 // holding the marker, and the two answer different status codes — so they must
 // not collapse into one error.
 //
-// Its own test because setupSearch RESETS the database. Asserting this inside
+// Its own test because SetupSearch RESETS the database. Asserting this inside
 // the single-flight test would mean tearing down the very claim that test is
 // about, and would hold only for as long as it stayed the last assertion in the
 // function.
 func TestClaimAndEnqueueReembeddingNamesAnUnseededMarker(t *testing.T) {
-	e := setupSearch(t)
-	err := e.store.ClaimAndEnqueueReembedding(context.Background(),
+	e := SetupSearch(t)
+	err := e.Store.ClaimAndEnqueueReembedding(context.Background(),
 		claimOf("fake/unseeded@1024"), func(pgx.Tx) error { return nil })
 	if !errors.Is(err, search.ErrBindingNotSeeded) {
 		t.Fatalf("claim against an unseeded marker = %v, want ErrBindingNotSeeded", err)
@@ -193,15 +193,15 @@ func TestClaimAndEnqueueReembeddingNamesAnUnseededMarker(t *testing.T) {
 }
 
 func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/rollback@1024"
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
 	enqueueErr := errors.New("enqueue exploded")
-	err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
+	err := e.Store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
 		return enqueueErr
 	})
 	if !errors.Is(err, enqueueErr) {
@@ -210,7 +210,7 @@ func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
 
 	// The CAS must have rolled back with the failed callback — status
 	// stays idle, never left stranded in reembedding with no live job.
-	_, status, _, err := e.store.PopulatedIdentity(ctx)
+	_, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -231,20 +231,20 @@ func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
 // so populated_identity means "last released under" (search's
 // releaseReembeddingTx).
 func TestReleaseReembeddingOnlyEverActsOnItsOwnRun(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const original = "fake/orig@1024"
 	const claimed = "fake/claimed@1024"
-	if err := e.store.SeedBinding(ctx, original); err != nil {
+	if err := e.Store.SeedBinding(ctx, original); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
 	// Releasing while no run holds the marker must be a no-op: nothing was
 	// claimed, so nothing should read populated under a never-run job's identity.
-	if err := e.store.ReleaseReembedding(ctx, ids.NewV7()); err != nil {
+	if err := e.Store.ReleaseReembedding(ctx, ids.NewV7()); err != nil {
 		t.Fatalf("ReleaseReembedding with no run in flight: %v", err)
 	}
-	populated, status, _, err := e.store.PopulatedIdentity(ctx)
+	populated, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -253,13 +253,13 @@ func TestReleaseReembeddingOnlyEverActsOnItsOwnRun(t *testing.T) {
 	}
 
 	run := ids.NewV7()
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, search.ReembedClaim{Run: run, TargetIdentity: claimed}, func(tx pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, search.ReembedClaim{Run: run, TargetIdentity: claimed}, func(tx pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
 	}
-	if err := e.store.ReleaseReembedding(ctx, ids.NewV7()); err != nil {
+	if err := e.Store.ReleaseReembedding(ctx, ids.NewV7()); err != nil {
 		t.Fatalf("ReleaseReembedding under a run that does not hold the marker: %v", err)
 	}
-	populated, status, _, err = e.store.PopulatedIdentity(ctx)
+	populated, status, _, err = e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -267,10 +267,10 @@ func TestReleaseReembeddingOnlyEverActsOnItsOwnRun(t *testing.T) {
 		t.Fatalf("a run that does not hold the marker released it: populated=%q status=%q", populated, status)
 	}
 
-	if err := e.store.ReleaseReembedding(ctx, run); err != nil {
+	if err := e.Store.ReleaseReembedding(ctx, run); err != nil {
 		t.Fatalf("ReleaseReembedding from the claiming run: %v", err)
 	}
-	populated, status, _, err = e.store.PopulatedIdentity(ctx)
+	populated, status, _, err = e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -283,17 +283,17 @@ func TestReleaseReembeddingOnlyEverActsOnItsOwnRun(t *testing.T) {
 }
 
 func TestReindexNeededOnDimsOnlyDifference(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	// Same provider/model, different width — a real operator scenario
 	// (widening the embed dimension), not a different model at all.
 	const populated = "gemini/embed-001@1024"
 	const configured = "gemini/embed-001@768"
 
-	if err := e.store.SeedBinding(ctx, populated); err != nil {
+	if err := e.Store.SeedBinding(ctx, populated); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	needed, err := e.store.ReindexNeeded(ctx, configured)
+	needed, err := e.Store.ReindexNeeded(ctx, configured)
 	if err != nil {
 		t.Fatalf("ReindexNeeded: %v", err)
 	}
@@ -303,17 +303,17 @@ func TestReindexNeededOnDimsOnlyDifference(t *testing.T) {
 }
 
 func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/agg@1024"
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
 	// A sibling workspace search's own setup does not create — proves the
 	// fleet enumeration (not just the harness's one workspace) is real.
 	ws2 := ids.NewV7()
-	if _, err := e.owner.Exec(ctx, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Search Two', 'search-two', 'EUR')`, ws2); err != nil {
+	if _, err := e.Owner.Exec(ctx, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Search Two', 'search-two', 'EUR')`, ws2); err != nil {
 		t.Fatalf("seeding the sibling workspace: %v", err)
 	}
 
@@ -328,7 +328,7 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 	e.seed(t, `INSERT INTO lead (id, workspace_id, source, captured_by) VALUES ($1, $2, 'manual', 'human:x')`)
 	// Already covered at the current identity: must not count as pending.
 	coveredID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Already Covered', 'manual', 'human:x')`)
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'covered-hash', $3, '[1,2,3]'::vector)`,
 		e.WS, coveredID, identity); err != nil {
@@ -336,20 +336,20 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 	}
 
 	ws2PersonID := ids.NewV7()
-	if _, err := e.owner.Exec(ctx, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
+	if _, err := e.Owner.Exec(ctx, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
 		ws2PersonID, ws2, nameTwo); err != nil {
 		t.Fatalf("seeding the sibling workspace's person: %v", err)
 	}
 
-	counts, err := e.store.PendingByWorkspace(ctx, identity)
+	counts, err := e.Store.PendingByWorkspace(ctx, identity)
 	if err != nil {
 		t.Fatalf("PendingByWorkspace: %v", err)
 	}
-	tokens, err := e.store.TokenSumByWorkspace(ctx, identity)
+	tokens, err := e.Store.TokenSumByWorkspace(ctx, identity)
 	if err != nil {
 		t.Fatalf("TokenSumByWorkspace: %v", err)
 	}
-	total, err := e.store.EntitiesPending(ctx, identity)
+	total, err := e.Store.EntitiesPending(ctx, identity)
 	if err != nil {
 		t.Fatalf("EntitiesPending: %v", err)
 	}

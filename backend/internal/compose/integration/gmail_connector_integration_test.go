@@ -80,7 +80,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func TestGmailConnectorSyncsAnActivity(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	const owner = "rep@ws.example"
 	stub := gmailStub(t, owner)
 

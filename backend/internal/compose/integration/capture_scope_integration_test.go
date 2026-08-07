@@ -69,7 +69,7 @@ func (s *recordingStager) StageMerge(_ context.Context, in capture.MergeProposal
 // newScopeCaptureRegistry wires the registry over a Sink with a recording
 // merge stager — the default test registry has none, and "no proposal was
 // staged" is only an assertion when staging is wired.
-func newScopeCaptureRegistry(t *testing.T, e *searchEnv, fake *scopeFake) (*capture.Registry, *recordingStager) {
+func newScopeCaptureRegistry(t *testing.T, e *SearchEnv, fake *scopeFake) (*capture.Registry, *recordingStager) {
 	t.Helper()
 	stager := &recordingStager{}
 	sink := capture.NewSink(e.Pool).WithStager(stager)
@@ -79,7 +79,7 @@ func newScopeCaptureRegistry(t *testing.T, e *searchEnv, fake *scopeFake) (*capt
 }
 
 func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	// A lead owned by team2's rep — outside the team1 granting human's scope.
 	e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, email, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Hidden Prospect', 'collide@scope.test', $3, 'manual', 'human:x')`, e.Rep3)
@@ -118,7 +118,7 @@ func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 }
 
 func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	foreign := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Foreign Counterparty', $3, 'manual', 'human:x')`, e.Rep3)
 
@@ -141,11 +141,11 @@ func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t 
 	// The activity is later linked to a record the granting human cannot see,
 	// which takes the activity itself out of their scope (the link walk).
 	var activityID ids.UUID
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT id FROM activity WHERE source_system = 'graph' AND source_id = 'msg-9'`).Scan(&activityID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.owner.Exec(context.Background(), `
+	if _, err := e.Owner.Exec(context.Background(), `
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
 		VALUES ($1, $2, 'person', $3)`, e.WS, activityID, foreign); err != nil {
 		t.Fatal(err)

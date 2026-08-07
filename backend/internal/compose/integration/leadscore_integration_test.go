@@ -28,7 +28,7 @@ import (
 )
 
 // asFullUser binds a principal that may log activities and work leads.
-func (e *searchEnv) asFullUser() context.Context {
+func (e *SearchEnv) asFullUser() context.Context {
 	grants := map[string]principal.ObjectGrant{}
 	for _, object := range []string{"person", "organization", "deal", "lead", "activity"} {
 		grants[object] = principal.ObjectGrant{Create: true, Read: true, Update: true}
@@ -42,7 +42,7 @@ func (e *searchEnv) asFullUser() context.Context {
 }
 
 func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.Pool)
 	ctx := e.asFullUser()
 
@@ -89,7 +89,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE activity SET meeting_status = 'held' WHERE id = $1`, ids.UUID(meeting.Id)); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 
 	// The recompute emitted the catalog's lead.updated with the score delta.
 	var events int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'lead.updated'
 		   AND envelope->'payload'->'changed_fields'->'delta' ? 'score'`).Scan(&events); err != nil {
 		t.Fatal(err)
@@ -137,10 +137,10 @@ func dispatchActivityCaptured(t *testing.T, engine *automation.WorkflowEngine, w
 }
 
 // currentLeadScore reads the lead's score through the owner connection.
-func currentLeadScore(t *testing.T, e *searchEnv, leadID ids.UUID) int {
+func currentLeadScore(t *testing.T, e *SearchEnv, leadID ids.UUID) int {
 	t.Helper()
 	var score int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT score FROM lead WHERE id = $1`, leadID).Scan(&score); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func currentLeadScore(t *testing.T, e *searchEnv, leadID ids.UUID) int {
 // assertRecomputeRanExactlyOnce checks a redelivered event applied
 // nothing twice: one workflow run row and exactly one audited lead
 // score update.
-func assertRecomputeRanExactlyOnce(t *testing.T, e *searchEnv) {
+func assertRecomputeRanExactlyOnce(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	var runs, audits int
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {

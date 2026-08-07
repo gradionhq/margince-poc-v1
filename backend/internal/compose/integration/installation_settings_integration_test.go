@@ -40,7 +40,7 @@ import (
 
 // installationSettingsCtx builds a human principal in the env workspace with a
 // specific installation_settings grant.
-func (e *searchEnv) installationSettingsCtx(grant principal.ObjectGrant) context.Context {
+func (e *SearchEnv) installationSettingsCtx(grant principal.ObjectGrant) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
@@ -52,7 +52,7 @@ func (e *searchEnv) installationSettingsCtx(grant principal.ObjectGrant) context
 	})
 }
 
-func installationAuditCount(t *testing.T, e *searchEnv) int {
+func installationAuditCount(t *testing.T, e *SearchEnv) int {
 	t.Helper()
 	var n int
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -65,7 +65,7 @@ func installationAuditCount(t *testing.T, e *searchEnv) int {
 }
 
 func TestInstallationSettingsReadWriteAndGate(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := identity.NewInstallationSettings(e.Pool, compose.NewSettingsStore(e.Pool))
 
 	admin := e.installationSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
@@ -134,7 +134,7 @@ func TestInstallationSettingsReadWriteAndGate(t *testing.T) {
 }
 
 func TestInstallationSettingsRefuseValuesTheOwningModuleRejects(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := identity.NewInstallationSettings(e.Pool, compose.NewSettingsStore(e.Pool))
 	admin := e.installationSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
 
@@ -173,7 +173,7 @@ func TestInstallationSettingsRefuseValuesTheOwningModuleRejects(t *testing.T) {
 // a test that creates a deal carrying a frozen conversion rate can tell a
 // working guard from an absent one.
 func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := identity.NewInstallationSettings(e.Pool, compose.NewSettingsStore(e.Pool))
 	admin := e.installationSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
 

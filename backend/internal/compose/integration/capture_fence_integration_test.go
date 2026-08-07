@@ -59,7 +59,7 @@ func (c *interruptedConnector) BackfillPage(ctx context.Context, auth connector.
 
 // readConnectionSyncState reads the two facts a superseded cycle must not
 // touch: the connection's watermark and the sidecar's health verdict.
-func readConnectionSyncState(t *testing.T, e *searchEnv, connID ids.UUID) (status string, cursor []byte, lastSynced *time.Time) {
+func readConnectionSyncState(t *testing.T, e *SearchEnv, connID ids.UUID) (status string, cursor []byte, lastSynced *time.Time) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -75,7 +75,7 @@ func readConnectionSyncState(t *testing.T, e *searchEnv, connID ids.UUID) (statu
 }
 
 func TestASyncDisconnectedMidFlightCommitsNothing(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedCaptureRole(t, e)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &interruptedConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
@@ -112,7 +112,7 @@ func TestASyncDisconnectedMidFlightCommitsNothing(t *testing.T) {
 }
 
 func TestABackfillPageDisconnectedMidFlightCommitsNothing(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedCaptureRole(t, e)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &interruptedConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}

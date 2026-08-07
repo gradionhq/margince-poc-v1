@@ -32,8 +32,8 @@ import (
 
 // newTestKeyvault builds the local (config-backed) provider over the test
 // pool with a fresh random root key. The vault_secret table exists because
-// setupSearch migrated the schema.
-func newTestKeyvault(t *testing.T, e *searchEnv) keyvault.Vault {
+// SetupSearch migrated the schema.
+func newTestKeyvault(t *testing.T, e *SearchEnv) keyvault.Vault {
 	t.Helper()
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
@@ -78,7 +78,7 @@ func (f *authAssertingFake) Normalize(context.Context, connector.RawRecord) ([]c
 func (f *authAssertingFake) HealthCheck(context.Context, connector.Auth) error { return nil }
 
 func TestConnectSealsCredentialInVaultNotOnTheRow(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	registry := newTestCaptureRegistry(e, vault)
 	registry.Register(&authAssertingFake{})
@@ -116,7 +116,7 @@ func TestConnectSealsCredentialInVaultNotOnTheRow(t *testing.T) {
 }
 
 func TestSyncResolvesCredentialFromVault(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	registry := newTestCaptureRegistry(e, vault)
 	fake := &authAssertingFake{}
@@ -139,7 +139,7 @@ func TestSyncResolvesCredentialFromVault(t *testing.T) {
 // memory fake does, plus surface a wrong-root-key decrypt as an error (not
 // absence) without leaking the plaintext.
 func TestLocalVaultIsolationAndWrongKeyOnRealPostgres(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	ctx := context.Background()
 	wsA := ids.From[ids.WorkspaceKind](e.WS)
@@ -187,7 +187,7 @@ func TestLocalVaultIsolationAndWrongKeyOnRealPostgres(t *testing.T) {
 }
 
 func TestBackfillMigratesLegacyAuthRowOntoTheVault(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	registry := newTestCaptureRegistry(e, vault)
 	fake := &authAssertingFake{}

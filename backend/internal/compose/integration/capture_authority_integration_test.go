@@ -27,14 +27,14 @@ import (
 )
 
 func TestConnectRefusesAGrantFromADeactivatedHuman(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	// The production resolver, not the always-live harness fake: liveness is
 	// exactly what is under test.
 	registry := capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), identity.NewService(e.Pool), newTestKeyvault(t, e))
 	registry.Register(&scopeFake{})
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
 
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, e.Rep1); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestConnectRefusesAGrantFromADeactivatedHuman(t *testing.T) {
 		t.Errorf("the refused grant persisted %d connections, want 0", n)
 	}
 	var sealed int
-	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM vault_secret`).Scan(&sealed); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM vault_secret`).Scan(&sealed); err != nil {
 		t.Fatal(err)
 	}
 	if sealed != 0 {
@@ -55,7 +55,7 @@ func TestConnectRefusesAGrantFromADeactivatedHuman(t *testing.T) {
 
 	// The control: the same call from a live human still connects, so the
 	// refusal above is about liveness and not about the wiring.
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE app_user SET status = 'active' WHERE id = $1`, e.Rep1); err != nil {
 		t.Fatal(err)
 	}

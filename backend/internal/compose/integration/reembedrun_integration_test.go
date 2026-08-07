@@ -41,40 +41,40 @@ func claimOf(identity string) search.ReembedClaim {
 // emptied it, release a marker whose own children are still working. That is the
 // fleet reporting itself re-embedded while it is not.
 func TestAStragglerOfAFinishedRunCannotActOnTheRunThatReplacedIt(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/same-identity@1024"
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	ws := ids.From[ids.WorkspaceKind](e.WS)
 
 	finished := claimOf(identity)
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, finished, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, finished, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming the first run: %v", err)
 	}
-	if err := e.store.SeedReembeddingFleet(ctx, finished.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.SeedReembeddingFleet(ctx, finished.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("seeding the first run: %v", err)
 	}
-	if err := e.store.FinishWorkspaceReembedding(ctx, finished.Run, ws); err != nil {
+	if err := e.Store.FinishWorkspaceReembedding(ctx, finished.Run, ws); err != nil {
 		t.Fatalf("finishing the first run's only workspace: %v", err)
 	}
 
 	// The replacement run: same identity, as `force` produces.
 	current := claimOf(identity)
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, current, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, current, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming the replacement run: %v", err)
 	}
-	if err := e.store.SeedReembeddingFleet(ctx, current.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.SeedReembeddingFleet(ctx, current.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("seeding the replacement run: %v", err)
 	}
 
 	// The first run's straggler finally returns.
-	if err := e.store.FinishWorkspaceReembedding(ctx, finished.Run, ws); err != nil {
+	if err := e.Store.FinishWorkspaceReembedding(ctx, finished.Run, ws); err != nil {
 		t.Fatalf("the straggler must be a no-op, got: %v", err)
 	}
 
-	_, status, _, err := e.store.PopulatedIdentity(ctx)
+	_, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestAStragglerOfAFinishedRunCannotActOnTheRunThatReplacedIt(t *testing.T) {
 	// releasing would leave the replacement run holding a marker its own child
 	// can no longer account for, which the status alone does not show.
 	var pending int
-	if err := e.owner.QueryRow(ctx,
+	if err := e.Owner.QueryRow(ctx,
 		`SELECT cardinality(reembedding_pending) FROM embed_store_binding WHERE singleton`).Scan(&pending); err != nil {
 		t.Fatalf("reading the replacement run's pending set: %v", err)
 	}
@@ -93,10 +93,10 @@ func TestAStragglerOfAFinishedRunCannotActOnTheRunThatReplacedIt(t *testing.T) {
 		t.Fatalf("the replacement run has %d workspaces outstanding, want 1 — a straggler of the previous run took one out of a set that was never its own", pending)
 	}
 	// And the replacement's own child still empties its set when it reports.
-	if err := e.store.FinishWorkspaceReembedding(ctx, current.Run, ws); err != nil {
+	if err := e.Store.FinishWorkspaceReembedding(ctx, current.Run, ws); err != nil {
 		t.Fatalf("finishing the replacement run's workspace: %v", err)
 	}
-	if _, status, _, err = e.store.PopulatedIdentity(ctx); err != nil {
+	if _, status, _, err = e.Store.PopulatedIdentity(ctx); err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
 	if status != "idle" {
@@ -111,23 +111,23 @@ func TestAStragglerOfAFinishedRunCannotActOnTheRunThatReplacedIt(t *testing.T) {
 // still running — leaving those workspaces in the set with nothing left to take
 // them out.
 func TestASecondFanOutOfTheSameRunIsRefused(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/seed-once@1024"
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	claim := claimOf(identity)
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, claim, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, claim, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming: %v", err)
 	}
 	fleet := []ids.WorkspaceID{ids.From[ids.WorkspaceKind](e.WS)}
-	if err := e.store.SeedReembeddingFleet(ctx, claim.Run, fleet, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.SeedReembeddingFleet(ctx, claim.Run, fleet, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("first seed: %v", err)
 	}
 
 	var reFannedOut bool
-	err := e.store.SeedReembeddingFleet(ctx, claim.Run, fleet, func(pgx.Tx) error {
+	err := e.Store.SeedReembeddingFleet(ctx, claim.Run, fleet, func(pgx.Tx) error {
 		reFannedOut = true
 		return nil
 	})
@@ -153,10 +153,10 @@ func steppingClock(step time.Duration) func() time.Time {
 
 // markerAge is how long ago the binding marker last moved, measured by the
 // database's own clock — the same comparison the steal predicate makes.
-func markerAge(t *testing.T, e *searchEnv) time.Duration {
+func markerAge(t *testing.T, e *SearchEnv) time.Duration {
 	t.Helper()
 	var seconds float64
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT extract(epoch FROM now() - updated_at)::float8 FROM embed_store_binding WHERE singleton`).Scan(&seconds); err != nil {
 		t.Fatalf("reading the marker's age: %v", err)
 	}
@@ -166,9 +166,9 @@ func markerAge(t *testing.T, e *searchEnv) time.Duration {
 // ageMarkerPastTheStealWindow puts the marker's last movement two hours back,
 // which is what a run that stopped reporting leaves behind. Aged rather than
 // waited out: a suite that waits an hour is a suite nobody runs.
-func ageMarkerPastTheStealWindow(t *testing.T, e *searchEnv) {
+func ageMarkerPastTheStealWindow(t *testing.T, e *SearchEnv) {
 	t.Helper()
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
 		t.Fatalf("ageing the marker past the steal window: %v", err)
 	}
@@ -184,21 +184,21 @@ func ageMarkerPastTheStealWindow(t *testing.T, e *searchEnv) {
 // two children re-embedding the same corpus at once, doubling model spend on the
 // largest tenant in the fleet.
 func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
 	embedder := fakeEmbedderNamed(t, fake, "model-slow-but-healthy")
 	identity, _ := embedder.EmbedIdentity()
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	ws := ids.From[ids.WorkspaceKind](e.WS)
 
 	working := claimOf(identity)
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, working, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, working, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming the run: %v", err)
 	}
-	if err := e.store.SeedReembeddingFleet(ctx, working.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.SeedReembeddingFleet(ctx, working.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("seeding the run: %v", err)
 	}
 
@@ -217,11 +217,11 @@ func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
 	// nothing here finishes the workspace.
 	slow := steppingClock(search.ReembedProgressStaleness + time.Minute)
 	pass := search.ReembedPass{Run: working.Run, Identity: identity, Now: slow}
-	if err := e.store.ReembedWorkspace(ctx, pass, ws, embedder); err != nil {
+	if err := e.Store.ReembedWorkspace(ctx, pass, ws, embedder); err != nil {
 		t.Fatalf("the healthy pass: %v", err)
 	}
 
-	err := e.store.ClaimAndEnqueueReembedding(ctx,
+	err := e.Store.ClaimAndEnqueueReembedding(ctx,
 		search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity, StealAfter: time.Hour},
 		func(pgx.Tx) error { return nil })
 	if !errors.Is(err, search.ErrReembeddingInFlight) {
@@ -263,21 +263,21 @@ func (p *probingEmbedder) Embed(ctx context.Context, req model.EmbedRequest) (mo
 // does to it. By the time the pass reaches its first embed, a forced confirm
 // must find a marker fresh enough to refuse.
 func TestReembedReportsProgressBeforeItsScanAndItsFirstEmbed(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
 	delegate := fakeEmbedderNamed(t, fake, "model-slow-first-entity")
 	identity, _ := delegate.EmbedIdentity()
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	ws := ids.From[ids.WorkspaceKind](e.WS)
 
 	working := claimOf(identity)
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, working, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, working, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming the run: %v", err)
 	}
-	if err := e.store.SeedReembeddingFleet(ctx, working.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.SeedReembeddingFleet(ctx, working.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("seeding the run: %v", err)
 	}
 	for i := range 2 {
@@ -310,13 +310,13 @@ func TestReembedReportsProgressBeforeItsScanAndItsFirstEmbed(t *testing.T) {
 
 	var stealDuringFirstEmbed error
 	embedder := &probingEmbedder{Embedder: delegate, probe: func() {
-		stealDuringFirstEmbed = e.store.ClaimAndEnqueueReembedding(ctx,
+		stealDuringFirstEmbed = e.Store.ClaimAndEnqueueReembedding(ctx,
 			search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity, StealAfter: time.Hour},
 			func(pgx.Tx) error { return nil })
 	}}
 
 	pass := search.ReembedPass{Run: working.Run, Identity: identity, Now: slowScan}
-	if err := e.store.ReembedWorkspace(ctx, pass, ws, embedder); err != nil {
+	if err := e.Store.ReembedWorkspace(ctx, pass, ws, embedder); err != nil {
 		t.Fatalf("the healthy pass: %v", err)
 	}
 	if !embedder.probed {
@@ -336,17 +336,17 @@ func TestReembedReportsProgressBeforeItsScanAndItsFirstEmbed(t *testing.T) {
 // explain why. An ordinary confirm must still be refused, so the escape hatch
 // cannot be mistaken for the normal path.
 func TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/stuck@1024"
-	if err := e.store.SeedBinding(ctx, identity); err != nil {
+	if err := e.Store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 	stuck := claimOf(identity)
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, stuck, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, stuck, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming the run that will wedge: %v", err)
 	}
-	if err := e.store.SeedReembeddingFleet(ctx, stuck.Run,
+	if err := e.Store.SeedReembeddingFleet(ctx, stuck.Run,
 		[]ids.WorkspaceID{ids.From[ids.WorkspaceKind](e.WS)}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("seeding the wedged run: %v", err)
 	}
@@ -355,22 +355,22 @@ func TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving(t *testing.T) {
 	// marker has not moved since.
 	ageMarkerPastTheStealWindow(t, e)
 
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(pgx.Tx) error { return nil }); !errors.Is(err, search.ErrReembeddingInFlight) {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(pgx.Tx) error { return nil }); !errors.Is(err, search.ErrReembeddingInFlight) {
 		t.Fatalf("an ordinary confirm over a stale marker = %v, want ErrReembeddingInFlight — stealing must be something a human asked for", err)
 	}
 
 	taking := search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity, StealAfter: time.Hour}
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, taking, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx, taking, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("a forced confirm over a marker nothing is moving: %v", err)
 	}
 	// The taken-over marker belongs to the new run outright: the wedged run's
 	// pending set is gone, so its own straggler's BOOKKEEPING moves nothing.
 	// It says nothing about that straggler's embedding work, which a steal does
 	// not stop (search.ReembedClaim.StealAfter).
-	if err := e.store.FinishWorkspaceReembedding(ctx, stuck.Run, ids.From[ids.WorkspaceKind](e.WS)); err != nil {
+	if err := e.Store.FinishWorkspaceReembedding(ctx, stuck.Run, ids.From[ids.WorkspaceKind](e.WS)); err != nil {
 		t.Fatalf("the dispossessed run's straggler must be a no-op, got: %v", err)
 	}
-	_, status, _, err := e.store.PopulatedIdentity(ctx)
+	_, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving(t *testing.T) {
 	}
 
 	// A run that IS moving keeps its marker, however old the wedged one was.
-	if err := e.store.ClaimAndEnqueueReembedding(ctx,
+	if err := e.Store.ClaimAndEnqueueReembedding(ctx,
 		search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity, StealAfter: time.Hour},
 		func(pgx.Tx) error { return nil }); !errors.Is(err, search.ErrReembeddingInFlight) {
 		t.Fatalf("a forced confirm over a freshly claimed marker = %v, want ErrReembeddingInFlight", err)

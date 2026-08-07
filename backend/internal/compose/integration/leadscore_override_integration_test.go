@@ -33,11 +33,11 @@ func intp(i int) *int       { return &i }
 // override columns exist and lead still carries FORCE row-level security
 // (ADD COLUMN never relaxes it).
 func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	ctx := context.Background()
 
 	var forced bool
-	if err := e.owner.QueryRow(ctx,
+	if err := e.Owner.QueryRow(ctx,
 		`SELECT relforcerowsecurity FROM pg_class WHERE relname = 'lead'`).Scan(&forced); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
 	}
 
 	var cols int
-	if err := e.owner.QueryRow(ctx,
+	if err := e.Owner.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.columns
 		   WHERE table_name = 'lead' AND column_name IN ('score_override_reason', 'score_computed')`).Scan(&cols); err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
 }
 
 func TestLeadScoreOverrideIsSticky(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.Pool)
 	ctx := e.asFullUser()
 	store := people.NewStore(e.Pool)

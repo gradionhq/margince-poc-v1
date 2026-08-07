@@ -39,7 +39,7 @@ type filteredDealFixture struct {
 	matchOther ids.UUID // rep3, forecast 'commit' — matches but invisible to rep1
 }
 
-func (e *searchEnv) seedFilteredDeals(t *testing.T) filteredDealFixture {
+func (e *SearchEnv) seedFilteredDeals(t *testing.T) filteredDealFixture {
 	t.Helper()
 	pipelineID := e.seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
 	stageID := e.seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
@@ -65,7 +65,7 @@ func commitDeals() storekit.Predicate {
 // both visible to them and match the predicate — excluding invisible rows
 // AND non-matching rows.
 func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	f := e.seedFilteredDeals(t)
 
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
@@ -98,7 +98,7 @@ func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 // and carry the same slice, and that the export operation writes one
 // audit_log row describing what slice was exported.
 func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 	writer := compose.NewFilteredExportWriter(e.Pool)
 
@@ -155,7 +155,7 @@ func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
 // TestFilteredExportEmptyResultIsHonest: a predicate that matches nothing
 // yields a valid CSV with only the header row, not an error.
 func TestFilteredExportEmptyResultIsHonest(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
@@ -181,7 +181,7 @@ func TestFilteredExportEmptyResultIsHonest(t *testing.T) {
 // resource's §13.5 allow-list is a PredicateError the transport maps to
 // 422 — the filter can never reach an arbitrary column.
 func TestFilteredExportRejectsOutOfVocabularyPredicate(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 
 	_, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
@@ -200,10 +200,10 @@ func TestFilteredExportRejectsOutOfVocabularyPredicate(t *testing.T) {
 // lastSystemLog reads the most recent system_log row for an action inside
 // the workspace-bound GUC (FORCE RLS applies even to the table owner), so the
 // suite can assert the export was recorded.
-func lastSystemLog(t *testing.T, e *searchEnv, action string) (gotAction string, detail map[string]any) {
+func lastSystemLog(t *testing.T, e *SearchEnv, action string) (gotAction string, detail map[string]any) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := e.owner.Begin(ctx)
+	tx, err := e.Owner.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}

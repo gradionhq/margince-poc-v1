@@ -28,8 +28,9 @@ import (
 
 // seedDealFixtures plants a pipeline, one open stage, an organization
 // and n open deals owned by the given user (nil = ownerless).
-func (e *searchEnv) seedDealFixtures(t *testing.T, n int, owner *ids.UUID) (orgID ids.UUID) {
+func (e *SearchEnv) seedDealFixtures(t *testing.T, n int, owner *ids.UUID) {
 	t.Helper()
+	var orgID ids.UUID
 	pipelineID := e.seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
 	stageID := e.seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
 	orgID = e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Report Org', 'manual', 'human:x')`)
@@ -38,11 +39,10 @@ func (e *searchEnv) seedDealFixtures(t *testing.T, n int, owner *ids.UUID) (orgI
 			VALUES ($1, $2, 'Deal %d', $3, $4, $5, $6, 100000, 'EUR', 'manual', 'human:x')`, i),
 			pipelineID, stageID, orgID, owner)
 	}
-	return orgID
 }
 
 func TestAdHocReportPlanCountsUnderRowScope(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedDealFixtures(t, 3, &e.Rep3) // owned by team2's rep
 	provider := compose.NewProvider(e.Pool)
 
@@ -71,7 +71,7 @@ func TestAdHocReportPlanCountsUnderRowScope(t *testing.T) {
 }
 
 func TestSchemaIntrospectionServesDescriptors(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	provider := compose.NewProvider(e.Pool)
 	objects, err := provider.ListObjects(context.Background())
 	if err != nil {
@@ -177,7 +177,7 @@ func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 }
 
 func TestRunReportToolThroughGovernedRegistry(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedDealFixtures(t, 2, nil)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 	out, err := registry.Invoke(e.Admin(), "run_report", []byte(`{"report":"deals-by-stage"}`))
@@ -190,10 +190,10 @@ func TestRunReportToolThroughGovernedRegistry(t *testing.T) {
 }
 
 func TestAssembleContextFixedDepthWalk(t *testing.T) {
-	e := setupSearch(t)
-	orgID := e.seedDealFixtures(t, 1, nil)
+	e := SetupSearch(t)
+	e.seedDealFixtures(t, 1, nil)
 	var dealID ids.UUID
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
 		t.Fatal(err)
 	}
 	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Graph Contact', 'manual', 'human:x')`)
@@ -212,7 +212,7 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLocalModelPath: %v", err)
 	}
-	retriever := search.NewRetriever(e.store, modelPath.Embedder)
+	retriever := search.NewRetriever(e.Store, modelPath.Embedder)
 	assembled, err := retriever.AssembleContext(e.Admin(),
 		datasource.EntityRef{Type: datasource.EntityDeal, ID: dealID}, retrieval.AssembleOptions{MaxItems: 5})
 	if err != nil {
@@ -239,7 +239,6 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 		// the fixed-depth walk only follows conversation links.
 		t.Logf("note: org appears only when linked through an activity: %+v", sections["related_organizations"])
 	}
-	_ = orgID
 
 	// An anchor outside the caller's row scope assembles nothing.
 	foreignDeal := e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id, source, captured_by)

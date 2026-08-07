@@ -26,7 +26,7 @@ import (
 // The widening itself is a platform/auth property, so it is asserted at
 // the store layer where scoped principals are cheap to mint.
 func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	foreign := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Shared Secret', $3, 'manual', 'human:x')`, e.Rep3)
 
 	repCtx := e.asTeamRep(e.Rep1, e.Team1)
@@ -37,7 +37,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 		t.Fatal("foreign person visible before any grant")
 	}
 	// A search misses it too.
-	page, err := e.store.Search(repCtx, search.Input{Query: "Shared Secret"})
+	page, err := e.Store.Search(repCtx, search.Input{Query: "Shared Secret"})
 	if err != nil || len(page.Hits) != 0 {
 		t.Fatalf("pre-grant search: %v %+v", err, page.Hits)
 	}
@@ -50,7 +50,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	if _, err := peopleStore.GetPerson(repCtx, personIDOf(foreign), storekit.LiveOnly); err != nil {
 		t.Fatalf("granted person still hidden: %v", err)
 	}
-	page, err = e.store.Search(repCtx, search.Input{Query: "Shared Secret"})
+	page, err = e.Store.Search(repCtx, search.Input{Query: "Shared Secret"})
 	if err != nil || len(page.Hits) != 1 {
 		t.Fatalf("post-grant search: %v %+v", err, page.Hits)
 	}

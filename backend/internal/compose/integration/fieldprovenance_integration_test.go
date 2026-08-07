@@ -26,7 +26,7 @@ import (
 )
 
 func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
@@ -82,7 +82,7 @@ func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
 // assertCaptureStampedBothObjectTypes checks the capture stamped
 // field-level provenance for BOTH object types it created (activity +
 // lead), under the connector's identity.
-func assertCaptureStampedBothObjectTypes(t *testing.T, e *searchEnv) {
+func assertCaptureStampedBothObjectTypes(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	type stampRow struct {
 		objectType, field, source, capturedBy string
@@ -123,9 +123,9 @@ func assertCaptureStampedBothObjectTypes(t *testing.T, e *searchEnv) {
 // JSONB provenance column (gate Q1) — derived from the live schema so a
 // future object cannot quietly reintroduce the rejected shape.
 func TestNoPerObjectJSONBProvenanceBacking(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	var offenders int
-	err := e.owner.QueryRow(context.Background(), `
+	err := e.Owner.QueryRow(context.Background(), `
 		SELECT count(*) FROM information_schema.columns
 		WHERE table_schema = 'public'
 		  AND data_type = 'jsonb'

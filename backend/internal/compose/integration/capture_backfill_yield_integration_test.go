@@ -102,7 +102,7 @@ func (m *mailPageConnector) BackfillPage(ctx context.Context, _ connector.Auth, 
 }
 
 func TestBackfillCountsOnlyTheCounterpartiesItsOwnPagesCreated(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedCaptureRole(t, e)
 	// The production wiring, because the counters under test are filled by the
 	// real auto-create resolver: a bare Sink creates nothing to count.
@@ -168,7 +168,7 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 	// organization as it creates one, so the two numbers beside "emails
 	// captured" have to move during the page as well — a screen where only the
 	// mail count advances tells the user the import found nobody.
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &mailPageConnector{
 		raws: [][]byte{
@@ -230,7 +230,7 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 // count would wrongly credit to the run under test: three counterparties
 // indistinguishable from a second gmail connection's captures, and one person a
 // human typed in.
-func seedForeignCounterparties(t *testing.T, e *searchEnv) {
+func seedForeignCounterparties(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		for _, q := range []string{
@@ -254,7 +254,7 @@ func seedForeignCounterparties(t *testing.T, e *searchEnv) {
 	}
 }
 
-func readBackfillYieldColumns(t *testing.T, e *searchEnv, id ids.UUID) (people, organizations int) {
+func readBackfillYieldColumns(t *testing.T, e *SearchEnv, id ids.UUID) (people, organizations int) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -274,7 +274,7 @@ func TestBackfillYieldsSurviveATransientFault(t *testing.T) {
 	// people and companies the failed attempt minted are counted by that
 	// attempt or by nobody — dropping them with the rest of its tally
 	// undercounts the run for good.
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &mailPageConnector{
 		raws: [][]byte{
@@ -343,7 +343,7 @@ func TestBackfillYieldsSurviveACancelUnderTheRunningPage(t *testing.T) {
 	// that carries the run's STATE is fenced on the live statuses, so after the
 	// cancel none of them match — and the page's counterparties, which exist
 	// and which no replay will offer again, were credited by nobody.
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &mailPageConnector{raws: yieldFixture(), sent: map[string]bool{"y3@myco.example": true}}
 	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{}).
@@ -389,7 +389,7 @@ func TestBackfillYieldsAreCreditedOnceAtTheRetryCeiling(t *testing.T) {
 	// A page that fails transiently AT the ceiling runs two writes: the
 	// failure ladder and the terminal one. When both credited the yields, the
 	// run reported twice the people it actually created.
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	seedCaptureRole(t, e)
 	prov := &mailPageConnector{
 		raws: yieldFixture(),
@@ -431,7 +431,7 @@ func TestBackfillYieldsAreCreditedOnceAtTheRetryCeiling(t *testing.T) {
 }
 
 // readRunAndYields reads the run's state and its committed yield columns.
-func readRunAndYields(t *testing.T, e *searchEnv, id ids.UUID) (status string, people, organizations int) {
+func readRunAndYields(t *testing.T, e *SearchEnv, id ids.UUID) (status string, people, organizations int) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.Admin(), `
@@ -447,7 +447,7 @@ func readRunAndYields(t *testing.T, e *searchEnv, id ids.UUID) (status string, p
 // seedBackfillFailuresAtCeiling puts the run one fault below
 // backfillMaxConsecutiveFailures (10), so the next fault is the one that both
 // climbs the ladder and ends the run — the interleaving that double-credited.
-func seedBackfillFailuresAtCeiling(t *testing.T, e *searchEnv, id ids.UUID) {
+func seedBackfillFailuresAtCeiling(t *testing.T, e *SearchEnv, id ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(e.Admin(), `

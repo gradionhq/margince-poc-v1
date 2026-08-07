@@ -38,7 +38,7 @@ func exportReadGrants() map[string]principal.ObjectGrant {
 	return grants
 }
 
-func (e *searchEnv) exportAdmin() context.Context {
+func (e *SearchEnv) exportAdmin() context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
@@ -46,7 +46,7 @@ func (e *searchEnv) exportAdmin() context.Context {
 	})
 }
 
-func (e *searchEnv) exportRep(user, team ids.UUID) context.Context {
+func (e *SearchEnv) exportRep(user, team ids.UUID) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
@@ -67,7 +67,7 @@ type exportFixture struct {
 	rep3Activity           ids.UUID
 }
 
-func (e *searchEnv) seedExportFixture(t *testing.T) exportFixture {
+func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 	t.Helper()
 	pipelineID := e.seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
 	stageID := e.seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
@@ -177,7 +177,7 @@ func csvColumn(t *testing.T, raw []byte, column string) []string {
 }
 
 func TestExportBundleCompleteAndValidOpenFormat(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	f := e.seedExportFixture(t)
 
 	var buf bytes.Buffer
@@ -246,7 +246,7 @@ func TestExportBundleCompleteAndValidOpenFormat(t *testing.T) {
 // exactly its own records and none of the other team's — across every
 // scoped member (records, edges, activities, files, audit).
 func TestExportRowScopeExcludesInvisibleRecords(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	f := e.seedExportFixture(t)
 
 	var buf bytes.Buffer
@@ -301,7 +301,7 @@ func TestExportRowScopeExcludesInvisibleRecords(t *testing.T) {
 // RBAC bounds what the export contains: an object with no read grant is
 // omitted from the bundle entirely, not silently dumped.
 func TestExportOmitsObjectsWithoutReadGrant(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	e.seedExportFixture(t)
 
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
