@@ -195,6 +195,9 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	// registry rebuilds in WithKeyvault/WithGraphCapture apply it too — not just
 	// the Gmail path WithGmailCapture threads it into (ADR-0072).
 	opts = append(opts, compose.WithCaptureConfig(capCfg))
+	// Always applied, including the empty default: /metrics stays off until
+	// an operator sets --metrics-token, never silently open.
+	opts = append(opts, compose.WithMetricsToken(cfg.metricsToken))
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
 		// The canonical MCP resource (RFC 9728) is the same configured

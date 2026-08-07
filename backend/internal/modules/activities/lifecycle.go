@@ -190,6 +190,20 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 			return err
 		}
 		if tag.RowsAffected() > 0 {
+			// Touch the activity ROW itself, not just its link table: a
+			// staged approval pins activity.version (versionTables includes
+			// objectActivity), and that pin is the only defense between an
+			// approved "send this body on this conversation" and the
+			// conversation being silently repointed to someone else before
+			// the approval is redeemed. A relink that changes who the
+			// activity reaches must therefore move the version the pin
+			// re-checks, or a stale approval keeps redeeming as if nothing
+			// had changed. The trigger (set_updated_at_bump_version,
+			// 0008_activity.up.sql) does the actual bump; this only has to
+			// be a genuine UPDATE of the row.
+			if _, err := tx.Exec(ctx, `UPDATE activity SET updated_at = now() WHERE id = $1`, id); err != nil {
+				return err
+			}
 			auditID, err := storekit.Audit(ctx, tx, "activity_relink", "activity", id.UUID, nil, map[string]any{
 				"entity_type": in.EntityType, "entity_id": in.EntityID, "replaced": in.ReplaceExistingOfType,
 			})

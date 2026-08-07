@@ -113,7 +113,7 @@ func (g *LinkedInMatchGen) HandleEvent(ctx context.Context, env events.Envelope)
 func (g *LinkedInMatchGen) matchPerson(ctx context.Context, workspace, person ids.UUID) error {
 	return forEachGhostOwner(ctx, g.pool, g.authority, workspace,
 		func(ownerCtx context.Context, owner ids.UUID) error {
-			matched, err := g.store.MatchLinkedInConnectionsForPerson(ownerCtx, person)
+			matched, err := g.store.MatchLinkedInConnectionsForPerson(ownerCtx, owner, person)
 			if err != nil {
 				return err
 			}
