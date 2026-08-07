@@ -15,6 +15,10 @@ fixture:
       content: 'Open deals for owner_id=user_42: deal_1, deal_2, deal_3 — three open right now.'
   tools:
     - name: list_open_deals
+      description: >-
+        List the deals this rep currently has open. It returns the deals themselves,
+        not a count or a summary of them, and it needs the owner whose deals are
+        wanted.
       input_schema:
         type: object
         properties:

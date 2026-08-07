@@ -98,7 +98,11 @@ type agentLoopGrounding struct {
 // executes nothing. A fixture carrying it would describe authority the certified
 // turn never exercises.
 type agentLoopTool struct {
-	Name        string          `json:"name"`
+	Name string `json:"name"`
+	// Description is what the window tells the model this tool is for, and it
+	// is here for the reason the schema is: the prompt prints it, so a fixture
+	// without one builds a prompt the product never sends.
+	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
 }
 
@@ -156,8 +160,9 @@ func (agentLoopCases) Prepare(fixture, expected json.RawMessage) (aitasks.Prepar
 // agentLoopToolSpecs rebuilds the offered tool surface, refusing one the registry
 // could never advertise. Every clause is a bound the tool surface already holds:
 // a registered tool has a name, the registry holds one entry per name, and every
-// entry advertises an input schema — which the window prints verbatim, so a
-// fixture without one sends a prompt the product never sends.
+// entry carries a written description and an input schema — both of which the
+// window prints, so a fixture missing either sends a prompt the product never
+// sends.
 func agentLoopToolSpecs(tools []agentLoopTool) ([]mcp.ToolSpec, error) {
 	specs := make([]mcp.ToolSpec, 0, len(tools))
 	seen := make(map[string]bool, len(tools))
@@ -175,13 +180,19 @@ func agentLoopToolSpecs(tools []agentLoopTool) ([]mcp.ToolSpec, error) {
 			return nil, fmt.Errorf(
 				"%s: the fixture offers a tool named %q, which is the step protocol's own word for ending a run — "+
 					"an expectation could not tell the two apart", agentLoopSite, agentLoopFinalStep)
+		case strings.TrimSpace(tool.Description) == "":
+			return nil, fmt.Errorf(
+				"%s: tool %q carries no description, and the window prints the description the model chooses it by",
+				agentLoopSite, tool.Name)
 		case !agentLoopSchemaObject(tool.InputSchema):
 			return nil, fmt.Errorf(
 				"%s: tool %q advertises no input schema object, and the window prints the schema the model has to "+
 					"call it by", agentLoopSite, tool.Name)
 		}
 		seen[tool.Name] = true
-		specs = append(specs, mcp.ToolSpec{Name: tool.Name, InputSchema: tool.InputSchema})
+		specs = append(specs, mcp.ToolSpec{
+			Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema,
+		})
 	}
 	return specs, nil
 }

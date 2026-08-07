@@ -73,8 +73,16 @@ func (s *fakeSurface) Invoke(_ context.Context, name string, args json.RawMessag
 
 func (s *fakeSurface) Specs() []mcp.ToolSpec {
 	return []mcp.ToolSpec{
-		{Name: "read_record", InputSchema: json.RawMessage(`{"type":"object"}`)},
-		{Name: "send_email", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{
+			Name:        "read_record",
+			Description: "Read one record's own stored fields when you already know which record you mean.",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		},
+		{
+			Name:        "send_email",
+			Description: "Put a mail on the wire to a real recipient, exactly as it is given.",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		},
 	}
 }
 
@@ -431,7 +439,7 @@ func TestWindowBoundingElidesOldestKeepsGoal(t *testing.T) {
 		win.observe("read_record", strings.Repeat("x", 4000)+fmt.Sprintf("-%d", i))
 	}
 	req := win.asRequest(1000)
-	if got := estimateTokens(req.System, req.Messages); got > windowPromptTokenCeiling {
+	if got := estimateTokens(req.System, req.Messages); got > PromptTokenCeiling {
 		t.Fatalf("window not bounded: %d tokens", got)
 	}
 	if !strings.Contains(req.Messages[0].Content, "the goal survives") {

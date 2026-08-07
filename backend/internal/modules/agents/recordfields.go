@@ -389,7 +389,7 @@ const timestampNote = `,"description":"RFC 3339 with a zone offset — 2026-07-3
 // semantic half is here because it is what decides the tier — a caller that
 // picks a stage without reading it cannot tell an immediate move from one that
 // will wait on a human.
-const stageIDNote = `,"description":"The target stage. Obtain it from list_pipelines — no other tool yields a stage id. That stage's semantic decides what happens next: open executes immediately, won or lost is staged for a human's approval."`
+const stageIDNote = `,"description":"The target stage, by id — obtain it from list_pipelines, since a deal you have read carries only the stage it is already IN. That stage's semantic decides what happens next: open executes immediately, won or lost is staged for a human's approval."`
 
 // jsonString renders s as a JSON string literal so a description built at init
 // time can be spliced into a hand-written schema literal safely.

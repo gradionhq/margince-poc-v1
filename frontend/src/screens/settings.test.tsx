@@ -220,12 +220,18 @@ function agentToolsBackend() {
         data: [
           {
             name: "search_records",
+            title: "Search records",
+            description:
+              'Find people, organizations, deals, leads and projects by name. (Governance: runs immediately; requires passport scope "read".)',
             required_scope: "read",
             tier: "auto_execute",
             egress: false,
           },
           {
             name: "send_email",
+            title: "Send an email",
+            description:
+              'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
             required_scope: "send",
             tier: "confirmation_required",
             egress: true,
@@ -262,6 +268,53 @@ describe("AgentToolsCard (IT-1)", () => {
     expect(
       searchRow && within(searchRow as HTMLElement).queryByText("reaches out"),
     ).toBeNull();
+  });
+
+  // The console's own promise is that it shows the surface an MCP client sees,
+  // and a verb with an autonomy dot beside it is not that: what an agent
+  // selects on is the written description the server serves, so the row has to
+  // show it rather than leave an operator to guess what their agents are told.
+  it("shows each tool's written display name and the text an agent selects it by", async () => {
+    vi.stubGlobal("fetch", agentToolsBackend());
+    render(<SettingsScreen tab="ai" />);
+
+    await waitFor(() =>
+      expect(screen.getAllByText("search_records").length).toBe(1),
+    );
+    const searchRow = document.querySelector(
+      '[data-tool="search_records"]',
+    ) as HTMLElement | null;
+    expect(searchRow).toBeTruthy();
+    expect(
+      searchRow && within(searchRow).getByText("Search records"),
+    ).toBeTruthy();
+    expect(
+      searchRow &&
+        within(searchRow).getByText(/Find people, organizations, deals/),
+    ).toBeTruthy();
+    // Governance travels with it, because the server appends it to the same
+    // string — the console must not show a shortened reading of what an agent
+    // was actually told.
+    expect(
+      searchRow && within(searchRow).getByText(/Governance: runs immediately/),
+    ).toBeTruthy();
+
+    // The confirm-first row too, and not only the 🟢 one: a regression that
+    // dropped the title or the description from the row an operator most needs
+    // to read — the one that leaves the workspace — would otherwise pass here.
+    const sendRow = document.querySelector(
+      '[data-tool="send_email"]',
+    ) as HTMLElement | null;
+    expect(sendRow).toBeTruthy();
+    expect(sendRow && within(sendRow).getByText("Send an email")).toBeTruthy();
+    expect(
+      sendRow && within(sendRow).getByText(/Put a mail on the wire/),
+    ).toBeTruthy();
+    expect(
+      sendRow &&
+        within(sendRow).getByText(/Governance: a person approves every call/),
+    ).toBeTruthy();
+    expect(sendRow && within(sendRow).getByText("send")).toBeTruthy();
   });
 });
 
@@ -307,12 +360,18 @@ function agentToolsWithPassportsBackend() {
         data: [
           {
             name: "list_pipelines",
+            title: "List pipelines and their stages",
+            description:
+              'Every pipeline with its live stages. (Governance: runs immediately; requires passport scope "read".)',
             required_scope: null,
             tier: "auto_execute",
             egress: false,
           },
           {
             name: "send_email",
+            title: "Send an email",
+            description:
+              'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
             required_scope: "send",
             tier: "confirmation_required",
             egress: true,
@@ -408,6 +467,9 @@ function revocablePassportsBackend() {
         data: [
           {
             name: "send_email",
+            title: "Send an email",
+            description:
+              'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
             required_scope: "send",
             tier: "confirmation_required",
             egress: true,

@@ -83,10 +83,11 @@ type searchRecords struct {
 func (t searchRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "search_records", Title: "Search records", Version: toolVersionV1,
+		Description:   searchRecordsCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
 		InputSchema: schema(`{"type":"object","properties":{
-			"q":{"type":"string","description":"Full-text query over names/titles"},
+			"q":{"type":"string","description":"What to match against the text stored on the record. It does not reach a timeline: message bodies, call notes and meeting content are not searched."},
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep all five"},
 			"limit":{"type":"integer","minimum":1,"maximum":50},
 			"cursor":{"type":"string","description":"Keyset cursor (single record_type only)"}},
@@ -166,6 +167,7 @@ type readRecord struct {
 func (t readRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "read_record", Title: "Read a record", Version: toolVersionV1,
+		Description:   readRecordCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity/getProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
@@ -200,6 +202,7 @@ type createRecord struct {
 func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "create_record", Title: "Create a record", Version: toolVersionV1,
+		Description:   createRecordCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject/createRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
@@ -241,6 +244,7 @@ type logActivity struct {
 func (t logActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "log_activity", Title: "Log an activity", Version: toolVersionV1,
+		Description:   logActivityCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "logActivity",
 		// The two vocabularies are SPLICED from the contract, never spelled
@@ -297,6 +301,7 @@ type advanceDeal struct {
 func (t advanceDeal) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "advance_deal", Title: "Advance a deal to a stage", Version: toolVersionV1,
+		Description:   advanceDealCopy.render(),
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierDynamic,
 		TierResolver:  advanceDealTier,

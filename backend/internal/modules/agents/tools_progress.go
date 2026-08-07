@@ -37,6 +37,7 @@ type progressDeal struct {
 func (t progressDeal) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "progress_deal", Title: "Progress a deal with a note", Version: toolVersionV1,
+		Description:   progressDealCopy.render(),
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierDynamic,
 		// The SAME resolver as advance_deal: the intent composition never

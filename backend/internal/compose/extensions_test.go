@@ -175,7 +175,7 @@ func TestRegisterExtensionsPreflightsTools(t *testing.T) {
 	badTier := RegisterExtensions([]extension.Extension{{
 		Name:    "bad-tier-tool",
 		Version: "0.0.1",
-		Tools:   []extension.Tool{{Name: "ping", Version: "1.0.0", Tier: "dynamic", RequestedScope: extension.ScopeRead}},
+		Tools:   []extension.Tool{{Name: "ping", Description: unitToolDescription, Version: "1.0.0", Tier: "dynamic", RequestedScope: extension.ScopeRead}},
 	}})
 	if badTier == nil || !strings.Contains(badTier.Error(), "not one an extension may request") {
 		t.Fatalf("err = %v, want the tier rejection", badTier)
@@ -185,7 +185,7 @@ func TestRegisterExtensionsPreflightsTools(t *testing.T) {
 		Name:    "dup-tool",
 		Version: "0.0.1",
 		Tools: []extension.Tool{
-			{Name: "ping", Version: "1.0.0", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead},
+			{Name: "ping", Description: unitToolDescription, Version: "1.0.0", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead},
 			{Name: "ping", Version: "2.0.0", Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite},
 		},
 	}})

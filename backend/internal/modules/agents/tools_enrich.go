@@ -68,6 +68,7 @@ type enrichCompany struct {
 func (t enrichCompany) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "enrich", Title: "Enrich an organization from its website", Version: toolVersionV1,
+		Description:   enrichCopy.render(),
 		RequiredScope: principal.ScopeEnrich, Tier: mcp.TierConfirmationRequired, Egress: true,
 		OpenAPIOp: "scrapeCompany/deepReadCompany",
 		InputSchema: schema(`{"type":"object","required":["organization_id"],"properties":{

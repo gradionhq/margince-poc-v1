@@ -41,9 +41,15 @@ func (e echoTool) Handle(context.Context, json.RawMessage) (json.RawMessage, err
 	return e.out, nil
 }
 
+// describedForRegistration is the stand-in description a fake tool carries so
+// registration admits it at all. Register refuses a description-less tool, and
+// every fake in this package is registered to exercise something else.
+const describedForRegistration = "A stand-in tool, offered so the registry has something to admit."
+
 func objectSpec(name string, scope principal.Scope) mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: name, Title: name, RequiredScope: scope, Tier: mcp.TierAutoExecute,
+		Name: name, Title: name, Description: name + " does the thing the test needs it to do.",
+		RequiredScope: scope, Tier: mcp.TierAutoExecute,
 		InputSchema:  json.RawMessage(`{"type":"object"}`),
 		OutputSchema: json.RawMessage(`{"type":"object"}`),
 	}
@@ -376,12 +382,35 @@ func TestEveryConfirmFirstToolAdvertisesItsApprovalArgument(t *testing.T) {
 
 // Registration is where a spec defect has to stop: past it, the defect is a
 // served response. A title-less tool would render its identifier as its
-// display name, and a non-object output schema is a promise tools/call cannot
-// keep, because structuredContent is typed as an object.
+// display name, a description-less one leaves a client with nothing to choose
+// it on but that identifier, and a non-object output schema is a promise
+// tools/call cannot keep, because structuredContent is typed as an object.
 func TestRegisterRefusesWireDefects(t *testing.T) {
 	mustPanic(t, "a title-less tool has no display name but the one it was trying to improve on", func() {
 		NewRegistry(nil, nil).Register(echoTool{spec: mcp.ToolSpec{Name: "untitled", Tier: mcp.TierAutoExecute}})
 	})
+	mustPanic(t, "a description-less tool can only be selected by the shape of its name", func() {
+		spec := objectSpec("undescribed", principal.ScopeRead)
+		spec.Description = "  "
+		NewRegistry(nil, nil).Register(echoTool{spec: spec})
+	})
+	mustPanic(t, "a runaway description is spent out of every run's prompt, which never elides it", func() {
+		spec := objectSpec("verbose", principal.ScopeRead)
+		spec.Description = strings.Repeat("a", maxDescriptionRunes+1)
+		NewRegistry(nil, nil).Register(echoTool{spec: spec})
+	})
+	// The bound has to admit what the surface actually ships, or it is a rule
+	// against writing the descriptions this change exists to write.
+	longest := 0
+	for _, spec := range fullRegistry(t).Specs() {
+		if n := len([]rune(spec.Description)); n > longest {
+			longest = n
+		}
+	}
+	if longest >= maxDescriptionRunes {
+		t.Errorf("the longest shipped description is %d runes against a %d ceiling — the bound is "+
+			"refusing prose this surface already writes", longest, maxDescriptionRunes)
+	}
 	mustPanic(t, "an array output schema can never be answered with structuredContent", func() {
 		spec := objectSpec("lists_things", principal.ScopeRead)
 		spec.OutputSchema = json.RawMessage(`{"type":"array"}`)
