@@ -19,7 +19,13 @@ afterEach(cleanup);
 // stubbed to null globally (WDS-CORE-3's fallback-to-CSS case); this test
 // needs the OTHER branch, where a context exists and the shader "compiles",
 // so the effect reaches the ResizeObserver line this guards.
-function fakeGl(): WebGLRenderingContext {
+// `onResolution` observes the ONE uniform the sphere cannot render without: the
+// shader divides by `min(uRes.x, uRes.y)`, so a program that never receives it
+// draws an empty canvas rather than an obviously broken one.
+function fakeGl(
+  onDraw: () => void = () => {},
+  onResolution: () => void = () => {},
+): WebGLRenderingContext {
   const gl = {
     VERTEX_SHADER: 1,
     FRAGMENT_SHADER: 2,
@@ -50,12 +56,12 @@ function fakeGl(): WebGLRenderingContext {
     vertexAttribPointer: () => {},
     getUniformLocation: () => ({}),
     uniform1f: () => {},
-    uniform2f: () => {},
+    uniform2f: onResolution,
     uniform3f: () => {},
     isContextLost: () => false,
     clearColor: () => {},
     clear: () => {},
-    drawArrays: () => {},
+    drawArrays: onDraw,
     viewport: () => {},
   };
   return gl as unknown as WebGLRenderingContext;
@@ -88,6 +94,128 @@ describe("CoreLiquid", () => {
     } finally {
       globalThis.ResizeObserver = original;
     }
+  });
+
+  // What these count is the component's whole cost: the frames it DRAWS, and the
+  // times it WAKES THE MAIN THREAD to decide whether to. A reader sees one sphere
+  // either way, so a count is the only thing that can fail when either regresses.
+  describe("its draw loop", () => {
+    let draws = 0;
+    let wakeups = 0;
+    let resolutions = 0;
+    let hidden = false;
+
+    beforeEach(() => {
+      draws = 0;
+      wakeups = 0;
+      resolutions = 0;
+      hidden = false;
+      // `document.hidden` is a getter on Document.prototype; redefining it here
+      // is what lets a test say "the tab went away" without a real tab.
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: () => hidden,
+      });
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+        fakeGl(
+          () => {
+            draws += 1;
+          },
+          () => {
+            resolutions += 1;
+          },
+        ),
+      );
+      vi.useFakeTimers({
+        toFake: [
+          "requestAnimationFrame",
+          "cancelAnimationFrame",
+          "setTimeout",
+          "clearTimeout",
+          "performance",
+        ],
+      });
+      // Counted AFTER the fake timers install, because installing them replaces
+      // the global this wraps. Every scheduled frame is one main-thread wakeup,
+      // which is the quantity the timer-paced loop exists to reduce — the draw
+      // count alone cannot see it, since a per-refresh loop drawing on a 24fps
+      // gate produces the same drawn frames from four times the callbacks.
+      const scheduled = globalThis.requestAnimationFrame;
+      vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
+        wakeups += 1;
+        return scheduled(cb);
+      });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      // @ts-expect-error - handing `hidden` back to jsdom's own implementation
+      delete document.hidden;
+    });
+
+    it("draws ONE frame for a liquid that does not move, then parks", () => {
+      // `unavailable` holds time still (SPEED), so every later frame would be the
+      // same pixels. A loop that kept running here is invisible in a screenshot
+      // and permanent in a profile — this is the assertion that sees it.
+      render(<CoreLiquid state="unavailable" />);
+      vi.advanceTimersByTime(2000);
+      expect(draws).toBe(1);
+      // And it asked for exactly the one frame it drew: parking means scheduling
+      // nothing, not scheduling a callback that returns early.
+      expect(wakeups).toBe(1);
+    });
+
+    it("wakes the main thread once per frame it draws, not once per refresh", () => {
+      render(<CoreLiquid state="working" />);
+      vi.advanceTimersByTime(1000);
+      // ~62 animation frames are available in that second at jsdom's 16ms tick.
+      // The old loop rescheduled on every one of them and used a third, so its
+      // wakeups ran well ahead of its draws; this one asks for a frame only when
+      // it intends to draw, so the two counts track each other. Slack of one for
+      // the frame in flight when time stopped.
+      expect(draws).toBeGreaterThan(0);
+      expect(wakeups).toBeLessThanOrEqual(draws + 1);
+      // The 24fps ceiling itself, which is the other half of the cost.
+      expect(draws).toBeLessThanOrEqual(30);
+    });
+
+    it("gives every program its resolution, so a state change cannot blank the sphere", () => {
+      // A state change tears the render effect down and builds a NEW program, and
+      // a new program has none of its uniforms set. The buffer is usually already
+      // the right size at that moment, so a size-changed check that reads the
+      // canvas back skips the upload — and the shader divides by uRes, so the
+      // sphere renders empty for the rest of the session. One `quiet` → `working`
+      // is all it takes.
+      const { rerender } = render(<CoreLiquid state="quiet" />);
+      vi.advanceTimersByTime(200);
+      expect(resolutions).toBe(1);
+      const drawnBefore = draws;
+
+      rerender(<CoreLiquid state="working" />);
+      vi.advanceTimersByTime(200);
+      expect(draws).toBeGreaterThan(drawnBefore);
+      expect(resolutions).toBe(2);
+    });
+
+    it("stops in a hidden tab and resumes when it is shown again", () => {
+      render(<CoreLiquid state="working" />);
+      vi.advanceTimersByTime(300);
+      const whileVisible = draws;
+      expect(whileVisible).toBeGreaterThan(0);
+
+      hidden = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(5000);
+      // Nothing at all for five seconds of a tab nobody can see.
+      expect(draws).toBe(whileVisible);
+
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(300);
+      // And the pause ENDS. A stop with no guaranteed way back is a frozen
+      // sphere, which is indistinguishable from a shader that failed.
+      expect(draws).toBeGreaterThan(whileVisible);
+    });
   });
 
   it("still paints the shader when the ResizeObserver constructor throws", () => {

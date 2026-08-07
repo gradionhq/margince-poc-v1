@@ -2,10 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   LogOut,
   Menu,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
   Settings,
+  Sun,
   X,
 } from "lucide-react";
 import {
@@ -17,6 +19,7 @@ import {
   useState,
 } from "react";
 import type { components } from "../api/schema";
+import { MarginceCoreScene } from "../design-system/margince-core";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useLogout, useMe } from "../screens/common";
@@ -35,7 +38,7 @@ import {
 import { paletteHotkeyLabel } from "./palette";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
-import { ThemeToggle } from "./theme-toggle";
+import { useTheme } from "./theme";
 import "./shell.css";
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -137,13 +140,20 @@ function BrandBlock() {
 // line is example data until a list operation exists behind it (the AI activity
 // list has no handler), and it says so on screen rather than passing as real.
 //
-// The orb is pure CSS, deliberately NOT the Core primitive: the Core paints its
-// interior on a canvas, and this sits in permanent chrome on every screen, so it
-// would run a render loop for the whole session. The glass shell here uses the
-// same technique the Core's own shell does — color-mix over tokens, no literal
-// colours — and the interior is layered radial gradients instead of a shader.
+// The orb is the Core primitive (WDS-CORE-1), the same sphere sign-in and
+// onboarding show — there is one orb in the product, and a CSS lookalike in
+// permanent chrome was a second. It sits here rather than on the hero surfaces
+// only, because the Core now costs what it displays: the loop stops when the
+// panel is off screen or the window is away, and the buffer follows the 32px it
+// is drawn at (margince-core-liquid.tsx).
+//
+// `quiet` is the honest state and not merely the cheapest beat: the panel states
+// that routing is CONFIGURED, and the runtime does not continuously prove a
+// provider is reachable, so the sphere must not look busy. The feed is off — a
+// mote drifting across the rail's card is not atmosphere, it is a moving speck in
+// the navigation.
 function AgentOrb() {
-  return <span className="agentorb" aria-hidden />;
+  return <MarginceCoreScene state="quiet" feed={false} className="agentorb" />;
 }
 
 function AgentPanel({ collapsed }: Readonly<{ collapsed: boolean }>) {
@@ -151,8 +161,20 @@ function AgentPanel({ collapsed }: Readonly<{ collapsed: boolean }>) {
   if (collapsed) {
     return (
       <div className="agentfield collapsed">
-        <span className="agentcard" title={t("agent.title")}>
+        {/* Collapsed, the orb is the whole panel — and the orb is `aria-hidden`,
+            which WDS-CORE-4 only permits because the surface around it states in
+            text every state it shows. Expanded, the two lines below do that; here
+            there is no room for them, so they are present for a screen reader and
+            clipped for the eye. The `title` is the pointer's version of the same
+            sentence. */}
+        <span
+          className="agentcard"
+          title={`${t("agent.title")} — ${t("agent.configured")}`}
+        >
           <AgentOrb />
+          <span className="sr-only">
+            {t("agent.title")} — {t("agent.configured")}
+          </span>
         </span>
       </div>
     );
@@ -442,25 +464,92 @@ export function TopBar({
           <span className="searchhint">{t("shell.searchHint")}</span>
           <kbd className="t-mono">{paletteHotkeyLabel(navigator.platform)}</kbd>
         </button>
-        <LocaleMenu className="iconbtn" />
-        {/* The top bar's own 32px chrome sizing wins over the control's
-            portable default — `.topbar .iconbtn` outranks `.theme-toggle`. */}
-        <ThemeToggle className="iconbtn" />
+        {/* Language and theme are preferences, not screen actions: they live in
+            the account menu with the rest of what belongs to this person, so the
+            bar carries only search and the one account affordance. */}
         <AccountMenu logout={logout} />
       </div>
     </header>
   );
 }
 
-// The avatar owns Settings and sign-out. A menu rather than
-// two chrome buttons: the prototype's top bar carries one account affordance,
-// and sign-out beside every screen invites a misclick.
+// The two preference rows: language, then theme, each naming the setting and
+// stating what it is set to. Both halves of the name are load-bearing — a menu
+// item has to say what activating it does, or the name describes a state rather
+// than a control, and WCAG 2.5.3 (Label in Name) requires the visible label to be
+// part of the name, or a speech-input user who says the word they can read
+// ("Language") activates nothing.
+//
+// Both keep the account menu OPEN: they stop the click from reaching the document
+// listener that dismisses it. Changing a preference is a thing you may want to do
+// twice, or undo immediately, and a menu that closed under you took the theme
+// you just picked out of view along with the control that picked it. Settings and
+// sign-out leave the menu on purpose — they leave the screen.
+function MenuPreferences() {
+  const t = useT();
+  const [theme, toggleTheme] = useTheme();
+  const light = theme === "light";
+  return (
+    <>
+      {/* Language is a menu of its own, not a toggle — three locales ship, and a
+          toggle cannot say where the next click lands. It brings its own list,
+          its own keyboard movement and its own focus handling (localemenu.tsx);
+          what it takes from here is the row's chrome. */}
+      <LocaleMenu className="menurow" />
+      <button
+        type="button"
+        aria-label={`${t("shell.theme")}: ${
+          light ? t("theme.switchToDark") : t("theme.switchToLight")
+        }`}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleTheme();
+        }}
+      >
+        {light ? <Sun size={15} aria-hidden /> : <Moon size={15} aria-hidden />}
+        {t("shell.theme")}
+        <span className="menuvalue">
+          {light ? t("theme.light") : t("theme.dark")}
+        </span>
+      </button>
+    </>
+  );
+}
+
+// The avatar owns everything that belongs to this person: the settings surface,
+// their language and theme, and the way out. A menu rather than a row of chrome
+// buttons — the prototype's top bar carries one account affordance, and sign-out
+// beside every screen invites a misclick.
 function AccountMenu({
   logout,
 }: Readonly<{ logout: ReturnType<typeof useLogout> }>) {
   const t = useT();
   const me = useMe();
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  /**
+   * Close, and put focus back where it can be used.
+   *
+   * Dismissing the menu unmounts whatever row was focused, and an unmounted
+   * focus owner leaves the document focused on `<body>` — from there a keyboard
+   * user's next Tab starts at the top of the page, having lost the top bar they
+   * were standing in. The avatar is where they came from, so it is where they go
+   * back to.
+   *
+   * Only when the menu actually HELD focus, which is the difference between
+   * restoring focus and stealing it: an outside click usually lands on something
+   * focusable of its own (a field, a rail link), and pulling focus onto the avatar
+   * after it would undo what the click just did.
+   */
+  const dismiss = useCallback(() => {
+    const held = menu.current?.contains(document.activeElement) ?? false;
+    setOpen(false);
+    if (held) {
+      trigger.current?.focus();
+    }
+  }, []);
 
   const identity = me.data?.user;
   const label = identity?.display_name || identity?.email || "";
@@ -481,11 +570,25 @@ function AccountMenu({
       return;
     }
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
+      if (event.key !== "Escape") {
+        return;
       }
+      // One keystroke closes one layer. The language row opens a submenu inside
+      // this popover, and both dismissals listen on the document, so without this
+      // a single Escape would collapse the submenu AND the menu around it —
+      // leaving the reader two layers away from where they were. The submenu
+      // announces itself through the trigger it expanded; when one is open it owns
+      // Escape, and the second press reaches here.
+      if (
+        menu.current?.querySelector(
+          '[aria-haspopup="menu"][aria-expanded="true"]',
+        )
+      ) {
+        return;
+      }
+      dismiss();
     };
-    const onClick = () => setOpen(false);
+    const onClick = () => dismiss();
     document.addEventListener("keydown", onKey);
     const timer = window.setTimeout(
       () => document.addEventListener("click", onClick),
@@ -496,13 +599,14 @@ function AccountMenu({
       window.clearTimeout(timer);
       document.removeEventListener("click", onClick);
     };
-  }, [open]);
+  }, [open, dismiss]);
 
   return (
     <div className="account">
       <button
         type="button"
         className="user"
+        ref={trigger}
         aria-label={t("shell.accountAria")}
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -510,11 +614,14 @@ function AccountMenu({
         {initials ?? <Settings size={15} aria-hidden />}
       </button>
       {open && (
-        <div className="accountmenu">
+        <div className="accountmenu" ref={menu}>
           <a href="#/settings">
             <Settings size={15} aria-hidden />
             {t("nav.settings")}
           </a>
+          <hr />
+          <MenuPreferences />
+          <hr />
           <button
             type="button"
             disabled={logout.isPending}

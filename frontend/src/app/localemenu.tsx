@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { Check } from "lucide-react";
+import { Check, Languages } from "lucide-react";
 import {
   type KeyboardEvent,
   useCallback,
@@ -72,6 +72,11 @@ function LocaleList({
       // and nothing else — the reader is told a list opened but not of what.
       aria-label={t("locale.switchLabel")}
       onKeyDown={onKeyDown}
+      // Choosing a language must not dismiss the menu this list is nested in:
+      // the account menu closes on any click that reaches the document, and the
+      // row it opened from is where the chosen language is then reported. This
+      // list closes itself through `onSelect` instead, so nothing is lost.
+      onClick={(event) => event.stopPropagation()}
     >
       {LOCALES.map((option, index) => (
         <button
@@ -103,15 +108,23 @@ function LocaleList({
 }
 
 /**
- * The language control in the top bar.
+ * The language control, a row in the account menu.
  *
  * A menu rather than a toggle: with more than two locales a toggle cannot say
  * where the next click lands, which is exactly the reader least able to guess.
- * It ships behaviour, not chrome: the top bar dresses both of its menus in one
- * rule (`shell.css`), so this file has no stylesheet of its own and `className`
- * is required — the trigger's chrome is the host's to name. The sign-in screen
+ * It ships behaviour, not chrome: the top bar dresses its menus in one rule
+ * (`shell.css`), so this file has no stylesheet of its own and `className` is
+ * required — the trigger's chrome is the host's to name. The sign-in screen
  * shares no stylesheet with the top bar and offers its languages as a footer
  * row of its own instead.
+ *
+ * It sits INSIDE the account menu, next to the theme row, because a language is
+ * a preference of this person rather than an action on the screen. Two things
+ * follow from being nested in another popover, and both are load-bearing: the
+ * trigger stops its own click, or the host's document-level dismissal would
+ * close the account menu — and this list with it — on the way to opening; and
+ * the list opens BESIDE the account menu rather than under its own row, which
+ * would cover the rows below it (`shell.css`).
  */
 export function LocaleMenu({ className }: Readonly<{ className: string }>) {
   const t = useT();
@@ -172,16 +185,33 @@ export function LocaleMenu({ className }: Readonly<{ className: string }>) {
         type="button"
         ref={trigger}
         className={className}
-        // The visible face is a two-letter code, which a screen reader spells
-        // out and a voice-control user cannot say. Naming the current language
-        // in full keeps the control's purpose AND its present state audible —
-        // the toggle it replaced announced the state for free (WCAG 2.5.3).
+        // The row reads "Language — Deutsch", and the name says the same thing
+        // rather than only what the control does: a reader who arrives on it is
+        // told BOTH its purpose and the language currently in force, and a
+        // voice-control user can say the word they can see (WCAG 2.5.3).
         aria-label={`${t("locale.switchLabel")}: ${t(localeNameKey(locale))}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => (open ? close() : setOpen(true))}
+        // Nested in the account menu, whose dismissal listens on the document:
+        // without this the click that opens the list also closes the popover the
+        // list lives in. Harmless when the trigger is not nested.
+        onClick={(event) => {
+          event.stopPropagation();
+          if (open) {
+            close();
+          } else {
+            setOpen(true);
+          }
+        }}
       >
-        <span className="t-mono">{locale.toUpperCase()}</span>
+        <Languages size={15} aria-hidden />
+        {t("locale.switchLabel")}
+        {/* The endonym carries its own `lang`, for the same reason the rows in
+            the list below do: read with the phonemes of the current locale,
+            "Tiếng Việt" is not the name of anything. */}
+        <span className="menuvalue" lang={locale}>
+          {t(localeNameKey(locale))}
+        </span>
       </button>
       {open && (
         <LocaleList

@@ -7,6 +7,15 @@ export const en = {
     "Ledger Green (ADR-0040) — canonical values mirror the spec mockups; tests pin them.",
   "theme.toDark": "Dark theme",
   "theme.toLight": "Light theme",
+  // The account menu's theme row: the value it is set to NOW, and the action that
+  // names the row for a screen reader. The two labels above stay the names of the
+  // ICON-ONLY control on sign-in and onboarding, where the surrounding row has no
+  // room for a sentence; in a menu the action is spelled out, so it reads in
+  // parallel with the language row beside it ("Switch to German").
+  "theme.light": "Light",
+  "theme.dark": "Dark",
+  "theme.switchToDark": "Switch to dark theme",
+  "theme.switchToLight": "Switch to light theme",
 
   "section.surfaces": "Surfaces",
   "section.accentAi": "Accent & AI",
@@ -90,6 +99,7 @@ export const en = {
   "shell.collapse": "Collapse sidebar",
   "shell.expand": "Expand sidebar",
   "shell.accountAria": "Account",
+  "shell.theme": "Theme",
   "shell.views": "Views",
   "shell.more": "More",
   "agent.title": "Margince AI",
