@@ -10,9 +10,9 @@ import (
 	"net/http"
 )
 
-// WriteJSON answers a stub provider's HTTP request with a JSON body. The suites
-// that stand up fake Gmail, Calendar and delivery endpoints all need it, and they
-// now live on both sides of the capture split.
+// WriteJSON answers a stub provider's HTTP request with a JSON body. Both this
+// package and the capture suite package stand up fake provider endpoints —
+// delivery here, Gmail and Calendar there.
 //
 //craft:ignore naked-any the parameter is handed straight to json.Encoder.Encode, whose own signature is any; a stub answers whatever shape the endpoint it fakes returns, and there is no narrower type that admits all of them
 func WriteJSON(w http.ResponseWriter, v any) {

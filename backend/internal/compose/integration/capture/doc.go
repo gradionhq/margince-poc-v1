@@ -8,10 +8,11 @@
 // connectors that feed it, the keyvault the connectors read credentials from,
 // backfill, and the tier and scope gates around all of it.
 //
-// It is a suite package split out of internal/compose/integration to give the
-// lane a second scheduling slot — one package is one slot, and the parent was
-// large enough to be the lane's long pole by itself. It rides the exported
-// SearchEnv fixture from the parent and owns everything else it needs.
+// It is a suite package split out of internal/compose/integration so the lane
+// has another scheduling slot: one package is one slot, and the parent is large
+// enough to be the lane's long pole by itself. It rides the parent's exported
+// fixtures (SearchEnv mostly, Env in one suite) and its shared seed, job-wait and
+// HTTP-stub helpers; it owns its own connector stubs, seeding and assertions.
 //
 // One capture suite did NOT come along: capturedbykind_http_integration_test.go
 // drives the booted-app fixture in the parent's e2e_integration_test.go, which is

@@ -17,9 +17,10 @@ import (
 // subscription, so the test waits exactly as long as the job takes instead of
 // guessing at a duration that turns into a flake on a slow machine.
 //
-// Exported because suites on both sides of the capture split wait on jobs — the
-// alternative was a copy per package of a loop whose whole point is that it does
-// not sleep, which is the kind of thing that decays into one that does.
+// Exported because this package and the capture suite package both drive real
+// River jobs. A copy per package would be a copy of a loop whose whole point is
+// that it does not sleep, which is the kind of thing that decays into one that
+// does.
 func AwaitKindCompleted(ctx context.Context, t *testing.T, sub <-chan *river.Event, kind string) {
 	t.Helper()
 	for {

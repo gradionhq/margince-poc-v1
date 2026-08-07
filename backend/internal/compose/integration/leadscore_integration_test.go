@@ -26,11 +26,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// asFullUser binds a principal that may log activities and work leads.
 func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.Pool)
-	ctx := AsFullUser(e)
+	ctx := e.AsFullUser()
 
 	// A working lead with a decision-maker title from a high-intent
 	// source: fit = 15 + 8 = 23 (§3.1). Inserted with score 0 so the

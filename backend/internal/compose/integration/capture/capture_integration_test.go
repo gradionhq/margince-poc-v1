@@ -291,7 +291,7 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	}
 }
 
-// humanWithScopes builds a human principal in the integration.SearchEnv workspace
+// humanWithScopes builds a human principal in the SearchEnv workspace
 // carrying rep-grade RBAC (team scope) plus explicit verb scopes for
 // the connector grant check.
 func humanWithScopes(e *integration.SearchEnv, user ids.UUID, scopes []principal.Scope) context.Context {

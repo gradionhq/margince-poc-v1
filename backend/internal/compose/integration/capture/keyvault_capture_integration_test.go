@@ -33,7 +33,7 @@ import (
 
 // newTestKeyvault builds the local (config-backed) provider over the test
 // pool with a fresh random root key. The vault_secret table exists because
-// integration.SetupSearch migrated the schema.
+// SetupSearch migrated the schema.
 func newTestKeyvault(t *testing.T, e *integration.SearchEnv) keyvault.Vault {
 	t.Helper()
 	key := make([]byte, 32)

@@ -272,7 +272,7 @@ func (discardSendStager) StageTx(context.Context, pgx.Tx, activities.DeliveryReq
 func TestCaptureTierGateHonorsCorrespondenceFromACRMOriginatedSend(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
-	ctx := integration.AsFullUser(e)
+	ctx := e.AsFullUser()
 
 	anchorID := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {

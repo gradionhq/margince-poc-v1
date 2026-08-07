@@ -26,6 +26,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// boolPtr addresses a literal for the optional-bool fields the settings
+// endpoints take.
+func boolPtr(v bool) *bool { return &v }
+
 // captureSettingsCtx builds a human principal in the env workspace with a
 // specific capture_settings grant.
 func captureSettingsCtx(e *integration.SearchEnv, grant principal.ObjectGrant) context.Context {

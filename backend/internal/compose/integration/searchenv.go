@@ -27,11 +27,10 @@ import (
 // their own; it is the second one a sibling package can import.)
 //
 // Most of its riders take it for the migrated database and the seeded workspace
-// rather than for the store: the capture suites reference Store zero times, as do
-// the connector, leadscore and export suites. The name records where it was first
-// needed, not what it now is, and it is due a better one — the reason it has not
-// been renamed here is only that this change is already a rename of everything
-// else, and one rename per pass is easier to verify than two.
+// rather than for the store: the leadscore and export suites reference Store zero
+// times, as did the capture and connector suites before they moved out. The name
+// records where it was first needed rather than what it is, so read "Search" here
+// as the fixture's origin, not as a restriction on who may use it.
 type SearchEnv struct {
 	Owner *pgx.Conn
 	Pool  *pgxpool.Pool
@@ -164,7 +163,7 @@ func (e *SearchEnv) AsTeamRep(user, team ids.UUID) context.Context {
 // — Admin's mutating counterpart, for the suites whose subject is an ingest or a
 // scoring pass rather than a visibility rule. Same object vocabulary as the
 // reader, so a suite that swaps one for the other varies only the permission.
-func AsFullUser(e *SearchEnv) context.Context {
+func (e *SearchEnv) AsFullUser() context.Context {
 	grants := map[string]principal.ObjectGrant{}
 	for _, object := range searchObjects {
 		grants[object] = principal.ObjectGrant{Create: true, Read: true, Update: true}
