@@ -267,6 +267,58 @@
   margin-top: var(--space-3);
 }
 
+/* The plate: the open tasks and the account's advice as one surface. The
+   parts keep their own headings — they answer different questions — but
+   share an edge, and the hairline between them says they belong to the
+   same reading. This is the page's only elevated block: it is the one a
+   reader acts from. */
+.co-plate {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  margin-bottom: var(--space-3);
+}
+.co-plate > .card,
+.co-plate > .co-part {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+}
+.co-plate > * + * {
+  border-block-start: 1px solid var(--borderSubtle);
+}
+
+/* Cards that answer one question share one edge. The rail was five boxes
+   down a narrow column, each with its own border and its own gap, which
+   read as five subjects to weigh rather than two readings to take. */
+.co-group {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.co-group > .card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.co-group > * + * {
+  border-block-start: 1px solid var(--borderSubtle);
+}
+
+/* The brief is a reading, so it sits on the same ground as everything else
+   it is read beside. Borderless it floated between the plate above it and
+   the ask below, belonging to neither. */
+.co-brief {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+}
+
 /* What moved while the reader was away, first on the page. The tint is the
    AI-authorship indigo at whisper volume: the strip reports work the account
    did without them, and that provenance is the point of it. */

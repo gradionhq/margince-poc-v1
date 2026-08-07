@@ -2232,28 +2232,34 @@ function CompanyPage({
       {tab === "overview" && view && (
         <>
           <SinceLastVisitStrip view={view} />
-          <NextSteps
-            view={view}
-            onOpenTask={(step) => setOpenTaskId(step.activity_id)}
-            renderAction={(step) => (
-              <TaskQuickActions
-                activityId={step.activity_id}
-                dueAt={step.due_at}
-                update={taskUpdate}
-              />
-            )}
-          />
-          <SuggestionsSection
-            orgId={org.id}
-            view={view}
-            onOpenRecord={openCitation}
-            onPerform={(action) =>
-              performSuggestion(action, {
-                compose: setReplyToActivityId,
-                logTask: () => setTaskFormOpen(true),
-              })
-            }
-          />
+          {/* What this reader owes and what the account advises are one
+              block: both are work waiting on them, and as two cards each
+              carrying its own edge the reader assembled the plate
+              themselves. The page spends its only elevation here. */}
+          <div className="co-plate">
+            <NextSteps
+              view={view}
+              onOpenTask={(step) => setOpenTaskId(step.activity_id)}
+              renderAction={(step) => (
+                <TaskQuickActions
+                  activityId={step.activity_id}
+                  dueAt={step.due_at}
+                  update={taskUpdate}
+                />
+              )}
+            />
+            <SuggestionsSection
+              orgId={org.id}
+              view={view}
+              onOpenRecord={openCitation}
+              onPerform={(action) =>
+                performSuggestion(action, {
+                  compose: setReplyToActivityId,
+                  logTask: () => setTaskFormOpen(true),
+                })
+              }
+            />
+          </div>
           <AccountBrief
             orgId={org.id}
             view={view}
@@ -2413,22 +2419,30 @@ function businessRail({
             the account is filed rather than anything about the account. */}
         {/* Roles are a write, so the card offers them on the same terms as
             every other verb on this page: never on an archived record. */}
-        <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
-        <DealsCard
-          view={view}
-          // The verb sits under the list it changes: a rep who has just read
-          // "no open deal on this account" is one click from opening one,
-          // rather than leaving for the board to re-find this company there.
-          actions={
-            readOnly ? undefined : (
-              <NewDealAction orgId={org.id} orgName={org.display_name} />
-            )
-          }
-        />
+        {/* Who and what the money is: one surface, because a rep weighing an
+            account reads them together. Five separately-edged boxes down one
+            column read as five subjects and scrolled like it. */}
+        <div className="co-group">
+          <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
+          <DealsCard
+            view={view}
+            // The verb sits under the list it changes: a rep who has just read
+            // "no open deal on this account" is one click from opening one,
+            // rather than leaving for the board to re-find this company there.
+            actions={
+              readOnly ? undefined : (
+                <NewDealAction orgId={org.id} orgName={org.display_name} />
+              )
+            }
+          />
+        </div>
         {/* How the relationship stands, in parts — the decomposition that
-            replaced the header's 0-100 score. */}
-        <HealthCard health={view?.health} />
-        <SignalsCard orgId={org.id} />
+            replaced the header's 0-100 score — and what is currently flagged
+            about it. Both are readings of the account's condition. */}
+        <div className="co-group">
+          <HealthCard health={view?.health} />
+          <SignalsCard orgId={org.id} />
+        </div>
         {/* Connections is deliberately not here. It listed the account owner
             and the same employees the People card already names, against two
             different strength scales and a bare "2" nobody could read — the

@@ -198,6 +198,29 @@
   margin: 12px 0 16px;
 }
 
+/* Inside a record, a card is a group of facts rather than a thing that
+   floats: the shadow under every one of them turned a column of related
+   readings into a stack of competing objects. Hairline and ground carry the
+   grouping, and elevation is spent once, on the block a reader acts from. */
+.record-zones .card {
+  box-shadow: none;
+  padding: var(--space-3) var(--space-4);
+}
+/* A card's title is a label for what is inside it, not a heading competing
+   with the record's own name: small, uppercase, and quiet enough that the
+   values under it read first. */
+.record-zones .card > .section-header h2,
+.record-zones .card > .list-head > .section-header h2 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--textTertiary);
+}
+.record-zones .card > .section-header {
+  margin-bottom: var(--space-2);
+}
+
 /* The three-zone record page: what this record IS on the left, what is
    happening in the middle, the business around it on the right. The middle
    column is the one that grows, so the rails keep a fixed share and the
