@@ -1103,8 +1103,11 @@ export function NextSteps({
     return null;
   }
   return (
-    <section className="card co-card">
-      <SectionHeader title={t("co.next.title")} />
+    <section className="card co-card co-lead">
+      {/* The right column's one lead: the only card on the page that is a
+          DEMAND rather than a reading, so it says its name at reading size
+          while the readings around it stay quiet. */}
+      <h2 className="co-lead-title">{t("co.next.title")}</h2>
       {state === "unavailable" && (
         <p className="co-restricted">{t("co.section.unavailable")}</p>
       )}

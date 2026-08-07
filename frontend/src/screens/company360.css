@@ -550,3 +550,54 @@ a.co-chip:focus-visible {
 .co-context-group:first-child {
   margin-block-start: 0;
 }
+
+/* ── Visual hierarchy ───────────────────────────────────────────────────
+   Every card carried the same 11px uppercase grey label, so five stacked
+   readings had no entry point and the eye had nowhere to land. Each column
+   now has exactly ONE lead card — the company on the left, the work on the
+   right — that states its name at reading size in ink, and the supporting
+   cards keep the quiet label. Two levels, applied by role, not by taste. */
+.co-lead-title {
+  font-family: var(--f-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0 0 var(--space-3);
+  color: var(--textPrimary);
+}
+.co-lead {
+  padding: var(--space-4);
+}
+
+/* The company's facts as chips: compact, wrapping, each self-contained, the
+   icon carrying what a label column used to spend 6.5rem saying. */
+.co-factchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.co-factchips .co-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+/* The legal name sits under the chips as plain text: it is the one fact with
+   no meaningful icon and no short form. */
+.co-legalname {
+  margin: var(--space-3) 0 0;
+  color: var(--textMeta);
+  font-size: 0.8125rem;
+}
+/* Grounded statements are sentences, so they stay rows — separated from the
+   chips above by a rule, because they are a different KIND of knowing: read
+   from the site rather than recorded about the record. */
+.co-lead .co-facts {
+  margin-block-start: var(--space-3);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--borderSubtle);
+}
+
+/* A one-sentence reading does not need a card's full padding: two of them
+   stacked at full height read as empty boxes rather than as quiet facts. */
+.record-zones .card.co-card:not(.co-lead) {
+  padding: var(--space-3) var(--space-4);
+}

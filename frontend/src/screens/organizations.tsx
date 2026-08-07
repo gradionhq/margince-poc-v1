@@ -1,5 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Building2, Globe, UserRound, Users } from "lucide-react";
+import {
+  Building2,
+  CalendarClock,
+  Globe,
+  UserRound,
+  Users,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
@@ -145,7 +151,6 @@ type CreateOrganizationRequest =
   components["schemas"]["CreateOrganizationRequest"];
 type UpdateOrganizationRequest =
   components["schemas"]["UpdateOrganizationRequest"];
-type CompanyProfileField = components["schemas"]["CompanyProfileField"];
 type Organization360View = components["schemas"]["Organization360"];
 type OrganizationFact = components["schemas"]["OrganizationFact"];
 
@@ -1089,26 +1094,6 @@ function profileFieldLabel(field: string, t: ReturnType<typeof useT>): string {
   return key ? t(key) : coldFieldLabel(field, t);
 }
 
-function ProfileFieldRow({
-  field,
-  onOpenHistory,
-}: Readonly<{ field: CompanyProfileField; onOpenHistory?: () => void }>) {
-  const t = useT();
-  const { locale } = useLocale();
-  return (
-    <div className="co-field">
-      <span className="t-label">{profileFieldLabel(field.field, t)}</span>
-      <div>
-        <EvidenceMark
-          value={field.value}
-          source={derivedSource(field, locale)}
-          onOpenHistory={onOpenHistory}
-        />
-      </div>
-    </div>
-  );
-}
-
 // Facts read from the site, grouped into the four fixed categories. Empty
 // categories are omitted and an empty read renders nothing at all — the
 // profile card above already carries the region's honest empty state, so a
@@ -1651,7 +1636,6 @@ function CompanyRecord({
 function CompanyIdentityChips({
   org,
 }: Readonly<{ org: Organization }>): ReactNode {
-  const t = useT();
   const primary = (org.domains ?? []).find((domain) => domain.is_primary);
   return (
     <div className="co-chips">
@@ -1709,10 +1693,22 @@ function CompanyFactsCard({
     },
   });
   const primary = (org.domains ?? []).find((domain) => domain.is_primary);
-  const rows: { key: MessageKey; value: ReactNode }[] = [];
+  // The facts are CHIPS, not a form. Six label-and-value rows down a narrow
+  // column read as something to fill in; the same six as chips read as a
+  // company, and the icon carries what the label used to say. The grounded
+  // statements below stay rows — they are sentences, and a sentence in a
+  // pill is just a pill nobody can scan.
+  const chips: {
+    key: string;
+    icon: ReactNode;
+    label: string;
+    value: ReactNode;
+  }[] = [];
   if (primary?.domain) {
-    rows.push({
-      key: "co.company.website",
+    chips.push({
+      key: "website",
+      icon: <Globe aria-hidden size={12} />,
+      label: t("co.company.website"),
       value: (
         <a
           href={`https://${primary.domain}`}
@@ -1724,51 +1720,69 @@ function CompanyFactsCard({
       ),
     });
   }
-  if (org.legal_name) {
-    rows.push({ key: "co.company.legalName", value: org.legal_name });
-  }
   if (org.industry) {
-    rows.push({ key: "co.company.industry", value: org.industry });
+    chips.push({
+      key: "industry",
+      icon: <Building2 aria-hidden size={12} />,
+      label: t("co.company.industry"),
+      value: org.industry,
+    });
   }
   if (org.size_band) {
-    rows.push({ key: "co.company.size", value: org.size_band });
+    chips.push({
+      key: "size",
+      icon: <Users aria-hidden size={12} />,
+      label: t("co.company.size"),
+      value: org.size_band,
+    });
   }
-  rows.push({
-    key: "co.company.owner",
+  chips.push({
+    key: "owner",
+    icon: <UserRound aria-hidden size={12} />,
+    label: t("co.company.owner"),
     value: org.owner_id ? (
       <EntityRef kind="user" id={org.owner_id} />
     ) : (
       t("co.pulse.unowned")
     ),
   });
-  rows.push({
-    key: "co.company.added",
+  chips.push({
+    key: "added",
+    icon: <CalendarClock aria-hidden size={12} />,
+    label: t("co.company.added"),
     value: formatDate(org.created_at, locale, RECORD_ZONE),
   });
+  // The legal name is the one fact with no icon that means anything and no
+  // short form, so it reads under the chips rather than inside one.
   const grounded = groundedQuery.data ?? [];
   return (
-    <section className="card co-card">
-      <SectionHeader title={t("co.company.title")} />
-      <dl className="co-facts">
-        {rows.map((row) => (
-          <div key={row.key}>
-            <dt>{t(row.key)}</dt>
-            <dd>{row.value}</dd>
-          </div>
+    <section className="card co-card co-lead">
+      <h2 className="co-lead-title">{t("co.company.title")}</h2>
+      <div className="co-factchips">
+        {chips.map((chip) => (
+          <span key={chip.key} className="co-chip" title={chip.label}>
+            {chip.icon}
+            {chip.value}
+          </span>
         ))}
-        {grounded.map((field) => (
-          <div key={field.field}>
-            <dt>{profileFieldLabel(field.field, t)}</dt>
-            <dd>
-              <EvidenceMark
-                value={field.value}
-                source={derivedSource(field, locale)}
-                onOpenHistory={onOpenHistory}
-              />
-            </dd>
-          </div>
-        ))}
-      </dl>
+      </div>
+      {org.legal_name && <p className="co-legalname">{org.legal_name}</p>}
+      {grounded.length > 0 && (
+        <dl className="co-facts">
+          {grounded.map((field) => (
+            <div key={field.field}>
+              <dt>{profileFieldLabel(field.field, t)}</dt>
+              <dd>
+                <EvidenceMark
+                  value={field.value}
+                  source={derivedSource(field, locale)}
+                  onOpenHistory={onOpenHistory}
+                />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
       {/* The read's own three states, each said rather than collapsed into
           the record rows above: a failed read that rendered as "no grounded
           fields" would tell the reader this company has never been read. */}
