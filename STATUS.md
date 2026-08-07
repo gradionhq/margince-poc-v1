@@ -381,6 +381,36 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-07 (the company overview reads decision-first, branch `feat/company-overview-decision-first`, NOT pushed)
+
+**The company page restructured to the sheet layout the design sprint settled
+on** (identity band with chips, a four-cell state strip, underline tabs, the
+chronology on the Overview beside the business rail, deep-read output on a
+Context tab). Frontend-only by design: every reading derives from sections
+`Organization360` already serves, and a withheld section renders no cell
+rather than a zero. 10 commits local, nothing pushed, no PR yet.
+
+The state strip now leads with the nearest-closing open deal (name, value,
+close date) off the `deals` section, and counts open commitments off
+`next_steps` with overdue named; the bare counts stay as fallbacks when the
+listing sections are withheld.
+
+Verified in the browser on an isolated `DEV_SLUG=fdraft` stack — the shared
+`:8080` was serving a different worktree's frontend at the time, which is
+exactly the stale-stack trap CLAUDE.md warns about.
+
+### Found on the way
+
+- **#560** — `GET /organizations/{id}/360` returns 500 the moment an open
+  deal carries `expected_close_date` (pgx cannot scan a binary date into
+  `**types.Date`), which blanks the entire company page. Filed, not fixed
+  (backend, out of this branch's scope). The strip's close-date rendering is
+  unit-tested but cannot be seen live until this is fixed.
+- `scripts/seed-dev.sh` still hard-defaults to `localhost:8080` and ignores
+  `DEV_SLUG` (already noted under the PR #392 pickup); seed a slugged stack
+  with `API_BASE=http://localhost:<api-port> ./scripts/seed-dev.sh` plus
+  `make -C backend seed-dev-db DB_NAME=margince_dev_<slug>`.
+
 ## Session pickup — 2026-08-05 (form controls get one spelling, and the design gates widen, branch `feat/streamline-ui-elements`, PR #469)
 
 **The frontend's form controls are now atoms rather than a convention.**
