@@ -40,7 +40,7 @@ func (t qualifyLead) Spec() mcp.ToolSpec {
 		InputSchema: schema(`{"type":"object","required":["record_id"],"properties":{
 			"record_id":{"type":"string","format":"uuid","description":"The lead to qualify"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[QualifyLeadResult](),
 	}
 }
 
@@ -67,16 +67,14 @@ func (t qualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	}
 
 	patch := map[string]string{}
-	filled := map[string]any{}
+	filled := map[string]QualifiedField{}
 	if isBlank(lead.CompanyName) && !isBlank(lead.Email) {
 		if company, ok := companyFromEmailDomain(*lead.Email); ok {
 			patch["company_name"] = company
 			lead.CompanyName = &company
-			filled["company_name"] = map[string]any{
-				"value": company,
-				"evidence": []map[string]string{
-					{"source": "lead.email", "snippet": *lead.Email},
-				},
+			filled["company_name"] = QualifiedField{
+				Value:    company,
+				Evidence: []ContextEvidence{{Source: "lead.email", Snippet: *lead.Email}},
 			}
 		}
 	}
@@ -118,11 +116,7 @@ func (t qualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 			gaps = append(gaps, field)
 		}
 	}
-	return json.Marshal(map[string]any{
-		"record_id": args.RecordID,
-		"filled":    filled,
-		"gaps":      gaps,
-	})
+	return json.Marshal(QualifyLeadResult{RecordID: args.RecordID, Filled: filled, Gaps: gaps})
 }
 
 func isBlank(s *string) bool { return s == nil || strings.TrimSpace(*s) == "" }

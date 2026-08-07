@@ -92,7 +92,7 @@ func (t searchRecords) Spec() mcp.ToolSpec {
 			"limit":{"type":"integer","minimum":1,"maximum":50},
 			"cursor":{"type":"string","description":"Keyset cursor (single record_type only)"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[SearchRecordsResult](),
 	}
 }
 
@@ -146,16 +146,12 @@ func newWireRecord(rec datasource.Record) wireRecord {
 	return w
 }
 
-func searchResult(res datasource.SearchResult) map[string]any {
+func searchResult(res datasource.SearchResult) SearchRecordsResult {
 	records := make([]wireRecord, 0, len(res.Records))
 	for _, r := range res.Records {
 		records = append(records, newWireRecord(r))
 	}
-	out := map[string]any{"records": records}
-	if res.NextCursor != "" {
-		out["next_cursor"] = res.NextCursor
-	}
-	return out
+	return SearchRecordsResult{Records: records, NextCursor: res.NextCursor}
 }
 
 // --- read_record (🟢 read) ---
@@ -174,7 +170,7 @@ func (t readRecord) Spec() mcp.ToolSpec {
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
 			"id":{"type":"string","format":"uuid"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[wireRecord](),
 	}
 }
 
@@ -209,7 +205,7 @@ func (t createRecord) Spec() mcp.ToolSpec {
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
 			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes, createRecordShapes)) + `}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[wireRecord](),
 	}
 }
 
@@ -266,7 +262,7 @@ func (t logActivity) Spec() mcp.ToolSpec {
 				"description":"What the activity is about. Omit it and the activity is stored unattached to any record — it will not appear on a person's, company's or deal's timeline."},
 			"source_system":{"type":"string"},"source_id":{"type":"string"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[wireRecord](),
 	}
 }
 
@@ -313,7 +309,7 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 			"if_version":{"type":"integer"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved a won/lost move"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[wireRecord](),
 	}
 }
 
@@ -391,9 +387,16 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 // needs the post-write state (server-derived fields, bumped version)
 // without a second round-trip.
 func readBack(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) (json.RawMessage, error) {
+	return marshalResult(readBackRecord(ctx, p, ref))
+}
+
+// readBackRecord is the same read, answered as the record rather than as its
+// bytes — for the callers that carry it INSIDE a larger result and would
+// otherwise have to splice one encoded document into another.
+func readBackRecord(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) (wireRecord, error) {
 	rec, err := p.Read(ctx, ref)
 	if err != nil {
-		return nil, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
+		return wireRecord{}, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
 	}
-	return json.Marshal(newWireRecord(rec))
+	return newWireRecord(rec), nil
 }

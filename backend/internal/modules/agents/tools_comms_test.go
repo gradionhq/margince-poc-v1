@@ -34,12 +34,12 @@ func (c *recordingComms) DraftEmail(context.Context, ids.UUID, string) (string, 
 	return "", "", nil
 }
 
-func (c *recordingComms) SendEmail(context.Context, ids.UUID, SendEmailArgs) (json.RawMessage, error) {
-	return nil, nil
+func (c *recordingComms) SendEmail(context.Context, ids.UUID, SendEmailArgs) (SendEmailResult, error) {
+	return SendEmailResult{}, nil
 }
 
-func (c *recordingComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (json.RawMessage, error) {
-	return nil, nil
+func (c *recordingComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (AvailabilityResult, error) {
+	return AvailabilityResult{}, nil
 }
 
 func (c *recordingComms) BookMeeting(_ context.Context, args BookMeetingArgs) (json.RawMessage, error) {
@@ -47,9 +47,9 @@ func (c *recordingComms) BookMeeting(_ context.Context, args BookMeetingArgs) (j
 	return nil, nil
 }
 
-func (c *recordingComms) SendMessage(_ context.Context, anchor ids.UUID, in SendMessageArgs) (json.RawMessage, error) {
+func (c *recordingComms) SendMessage(_ context.Context, anchor ids.UUID, in SendMessageArgs) (SendMessageResult, error) {
 	c.anchor, c.args = anchor, in
-	return json.RawMessage(`{"status":"accepted"}`), nil
+	return SendMessageResult{Status: "accepted"}, nil
 }
 
 // IsChannelKind mirrors activities.IsChannelKind's answer for this
@@ -224,8 +224,13 @@ func TestSendMessageToolPassesTheAnchorAndArgsToTheSeam(t *testing.T) {
 	if comms.args.Body != "on my way" || comms.args.ConsentPurpose != "support" {
 		t.Errorf("args = %+v, want body %q purpose %q", comms.args, "on my way", "support")
 	}
-	if string(out) != `{"status":"accepted"}` {
-		t.Errorf("out = %s, want the seam's own answer", out)
+	// The seam answers with a typed result and the tool encodes it, so the
+	// wire carries every field of that type — the status the seam set, and the
+	// activity id it left zero. Asserting the whole document rather than a
+	// fragment is what makes a field silently vanishing from the result a
+	// failure here.
+	if string(out) != `{"activity_id":"00000000-0000-0000-0000-000000000000","status":"accepted"}` {
+		t.Errorf("out = %s, want the seam's own answer encoded whole", out)
 	}
 }
 

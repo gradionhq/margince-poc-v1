@@ -79,6 +79,13 @@ func (t enrichCompany) Spec() mcp.ToolSpec {
 				"description":"page reads one page and returns a staged proposal; site queues a multi-page crawl and returns its read id"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
+		// The other declared exception. This tool answers one of two different
+		// things depending on the depth it was called with — a page read comes
+		// back as a staged field proposal, a site read as the id of a crawl that
+		// has not finished — and each half is the shape of the engine that
+		// produced it, not of anything this module owns. A schema for one would
+		// be wrong for the other, and a union of both would tell every caller to
+		// handle a case its own arguments rule out.
 		OutputSchema: schema(`{"type":"object"}`),
 	}
 }
