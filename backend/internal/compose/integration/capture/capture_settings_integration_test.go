@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The workspace capture-settings store end to end (CAP-WIRE-7, ADR-0072/A118):
 // every role reads the auto-enrich posture; only a holder of the
@@ -18,16 +18,21 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// boolPtr addresses a literal for the optional-bool fields the settings
+// endpoints take.
+func boolPtr(v bool) *bool { return &v }
+
 // captureSettingsCtx builds a human principal in the env workspace with a
 // specific capture_settings grant.
-func (e *SearchEnv) captureSettingsCtx(grant principal.ObjectGrant) context.Context {
+func captureSettingsCtx(e *integration.SearchEnv, grant principal.ObjectGrant) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
@@ -40,12 +45,12 @@ func (e *SearchEnv) captureSettingsCtx(grant principal.ObjectGrant) context.Cont
 }
 
 func TestCaptureSettingsStore(t *testing.T) {
-	e := SetupSearch(t)
-	store := capture.NewSettings(compose.NewSettingsStore(e.Pool))
+	e := integration.SetupSearch(t)
+	store := capturemod.NewSettings(compose.NewSettingsStore(e.Pool))
 
-	admin := e.captureSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
-	rep := e.captureSettingsCtx(principal.ObjectGrant{Read: true})
-	none := e.captureSettingsCtx(principal.ObjectGrant{})
+	admin := captureSettingsCtx(e, principal.ObjectGrant{Read: true, Update: true})
+	rep := captureSettingsCtx(e, principal.ObjectGrant{Read: true})
+	none := captureSettingsCtx(e, principal.ObjectGrant{})
 
 	auditCount := func() int {
 		var n int

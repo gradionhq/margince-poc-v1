@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The captured-organization auto-enrich sweep over the REAL River runner
 // (ADR-0072/A118): compose.NewJobRunner registers the sweep RunOnStart exactly
@@ -26,12 +26,13 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	orgID := ids.NewV7()
 	// A captured, domain-named org (name_source='domain') with a live primary
 	// domain — the shape the sweep enriches. The capture_auto_enrich flag is ON
@@ -51,7 +52,7 @@ func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
 		t.Fatalf("seeding the captured org: %v", err)
 	}
 
-	ApplyRiverSchema(t)
+	integration.ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner, err := compose.NewJobRunner(e.Pool, quiet, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
@@ -80,7 +81,7 @@ func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
 	defer cancel()
 	// The WORKSPACE job, not the dispatcher: a dispatcher completes as soon as
 	// its fan-out is enqueued, so waiting on it would race the work.
-	awaitKindCompleted(waitCtx, t, sub, compose.CaptureAutoEnrichWorkspaceArgs{}.Kind())
+	integration.AwaitKindCompleted(waitCtx, t, sub, compose.CaptureAutoEnrichWorkspaceArgs{}.Kind())
 
 	// The sweep created a system-requested dossier for the org...
 	var readCount int

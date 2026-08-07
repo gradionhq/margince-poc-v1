@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // A connector runs on borrowed authority, so the grant itself requires live
 // authority: the registry resolves the granting human against identity at
@@ -18,7 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -27,12 +28,12 @@ import (
 )
 
 func TestConnectRefusesAGrantFromADeactivatedHuman(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	// The production resolver, not the always-live harness fake: liveness is
 	// exactly what is under test.
-	registry := capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), identity.NewService(e.Pool), newTestKeyvault(t, e))
+	registry := capturemod.NewRegistry(e.Pool, capturemod.NewSink(e.Pool), identity.NewService(e.Pool), newTestKeyvault(t, e))
 	registry.Register(&scopeFake{})
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 
 	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, e.Rep1); err != nil {

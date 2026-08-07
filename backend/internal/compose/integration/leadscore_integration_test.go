@@ -24,27 +24,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// asFullUser binds a principal that may log activities and work leads.
-func (e *SearchEnv) asFullUser() context.Context {
-	grants := map[string]principal.ObjectGrant{}
-	for _, object := range []string{"person", "organization", "deal", "lead", "activity"} {
-		grants[object] = principal.ObjectGrant{Create: true, Read: true, Update: true}
-	}
-	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	return principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
-		Permissions: principal.Permissions{Objects: grants, RowScope: principal.RowScopeAll},
-	})
-}
 
 func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	e := SetupSearch(t)
 	engine := compose.NewWorkflowEngine(e.Pool)
-	ctx := e.asFullUser()
+	ctx := e.AsFullUser()
 
 	// A working lead with a decision-maker title from a high-intent
 	// source: fit = 15 + 8 = 23 (§3.1). Inserted with score 0 so the

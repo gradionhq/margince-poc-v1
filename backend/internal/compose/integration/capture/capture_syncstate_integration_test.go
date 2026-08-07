@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The ADR-0063 scheduling state machine over a real migrated Postgres: a
 // transient failure backs off but never kills the connection, a rate limit
@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -64,7 +65,7 @@ type syncStateRow struct {
 	class    *string
 }
 
-func readSyncState(t *testing.T, e *SearchEnv, connID ids.UUID) (string, syncStateRow) {
+func readSyncState(t *testing.T, e *integration.SearchEnv, connID ids.UUID) (string, syncStateRow) {
 	t.Helper()
 	var status string
 	var row syncStateRow
@@ -85,12 +86,12 @@ func readSyncState(t *testing.T, e *SearchEnv, connID ids.UUID) (string, syncSta
 }
 
 func TestSyncFailureNeverKillsAConnection(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	moody := &moodyConnector{name: "gmail"}
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(moody)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -222,7 +223,7 @@ func TestSyncFailureNeverKillsAConnection(t *testing.T) {
 }
 
 // forceDue moves the connection's pacing clock into the past.
-func forceDue(t *testing.T, e *SearchEnv, connID ids.UUID) {
+func forceDue(t *testing.T, e *integration.SearchEnv, connID ids.UUID) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),

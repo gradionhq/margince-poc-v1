@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The keyvault seam end to end: a connector credential is
 // sealed in the vault at Connect and resolved from it at Sync, so the
@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -33,7 +34,7 @@ import (
 // newTestKeyvault builds the local (config-backed) provider over the test
 // pool with a fresh random root key. The vault_secret table exists because
 // SetupSearch migrated the schema.
-func newTestKeyvault(t *testing.T, e *SearchEnv) keyvault.Vault {
+func newTestKeyvault(t *testing.T, e *integration.SearchEnv) keyvault.Vault {
 	t.Helper()
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
@@ -78,12 +79,12 @@ func (f *authAssertingFake) Normalize(context.Context, connector.RawRecord) ([]c
 func (f *authAssertingFake) HealthCheck(context.Context, connector.Auth) error { return nil }
 
 func TestConnectSealsCredentialInVaultNotOnTheRow(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	registry := newTestCaptureRegistry(e, vault)
 	registry.Register(&authAssertingFake{})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatal(err)
@@ -116,13 +117,13 @@ func TestConnectSealsCredentialInVaultNotOnTheRow(t *testing.T) {
 }
 
 func TestSyncResolvesCredentialFromVault(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	registry := newTestCaptureRegistry(e, vault)
 	fake := &authAssertingFake{}
 	registry.Register(fake)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +140,7 @@ func TestSyncResolvesCredentialFromVault(t *testing.T) {
 // memory fake does, plus surface a wrong-root-key decrypt as an error (not
 // absence) without leaking the plaintext.
 func TestLocalVaultIsolationAndWrongKeyOnRealPostgres(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	ctx := context.Background()
 	wsA := ids.From[ids.WorkspaceKind](e.WS)
@@ -187,7 +188,7 @@ func TestLocalVaultIsolationAndWrongKeyOnRealPostgres(t *testing.T) {
 }
 
 func TestBackfillMigratesLegacyAuthRowOntoTheVault(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	registry := newTestCaptureRegistry(e, vault)
 	fake := &authAssertingFake{}
@@ -240,7 +241,7 @@ func TestBackfillMigratesLegacyAuthRowOntoTheVault(t *testing.T) {
 	}
 
 	// Sync now resolves the migrated credential through the vault.
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if err := registry.SyncOnce(grantCtx, connID); err != nil {
 		t.Fatal(err)
 	}

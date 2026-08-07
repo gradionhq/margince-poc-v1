@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -106,10 +107,12 @@ func email(from, fromName, to, msgID, refs string) []byte {
 
 // emailWithListUnsub builds a message carrying an RFC 2369 List-Unsubscribe
 // header — the bulk-mail corroboration the transactional prefix rule needs.
-func emailWithListUnsub(from, fromName, to, msgID string) []byte {
+// Always addressed to captureOwner: these scenarios vary the SENDER, and a
+// recipient parameter every caller filled the same way only implied otherwise.
+func emailWithListUnsub(from, fromName, msgID string) []byte {
 	lines := []string{
 		fmt.Sprintf("From: %s <%s>", fromName, from),
-		"To: " + to,
+		"To: " + captureOwner,
 		"Subject: newsletter",
 		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
 		"Message-ID: <" + msgID + ">",
@@ -119,7 +122,7 @@ func emailWithListUnsub(from, fromName, to, msgID string) []byte {
 	return []byte(strings.Join(lines, "\r\n"))
 }
 
-func countRows(t *testing.T, e *SearchEnv, query string) int {
+func countRows(t *testing.T, e *integration.SearchEnv, query string) int {
 	t.Helper()
 	var n int
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -135,7 +138,7 @@ func countRows(t *testing.T, e *SearchEnv, query string) int {
 // derives. The production authority resolves the granting human's LIVE role, so
 // without it the ensure path is denied and every counterparty assertion reads as
 // a resolver bug.
-func seedCaptureRole(t *testing.T, e *SearchEnv) {
+func seedCaptureRole(t *testing.T, e *integration.SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var roleID string
@@ -161,21 +164,21 @@ func seedCaptureRole(t *testing.T, e *SearchEnv) {
 // tier gate are what these tests prove), a connected gmail connection, and the
 // two pull shapes. Built per test so each starts from a clean mailbox.
 type captureEnv struct {
-	e        *SearchEnv
+	e        *integration.SearchEnv
 	sync     func(t *testing.T, raws ...[]byte)
 	syncSent func(t *testing.T, sent map[string]bool, raws ...[]byte)
 }
 
 func newCaptureEnv(t *testing.T) captureEnv {
 	t.Helper()
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	conn := &mailBatchConnector{}
 	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{})
 	registry.Register(conn)
 
 	seedCaptureRole(t, e)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
