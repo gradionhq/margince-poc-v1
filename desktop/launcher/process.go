@@ -1,0 +1,188 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
+	"time"
+)
+
+// child is one supervised service process. Every service the bundle runs is
+// a child of the launcher rather than a daemon, so quitting the app cannot
+// leave an orphaned Postgres holding the data directory — the failure that
+// makes the next launch report a stale lock file the user cannot interpret.
+type child struct {
+	name string
+	cmd  *exec.Cmd
+	log  *os.File
+}
+
+// startChild launches bin and streams its output to logDir/<name>.log.
+//
+// Service output goes to a file rather than the launcher's stdout because
+// the shipped app has no terminal attached; when something fails at a
+// customer's desk, that file is the only evidence there is.
+func startChild(name, bin string, args, env []string, logDir string) (*child, error) {
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create log directory: %w", err)
+	}
+	logPath := filepath.Join(logDir, name+".log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", logPath, err)
+	}
+
+	cmd := exec.Command(bin, args...)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	if err := cmd.Start(); err != nil {
+		if closeErr := logFile.Close(); closeErr != nil {
+			return nil, fmt.Errorf("start %s: %w (and closing its log failed: %v)", name, err, closeErr)
+		}
+		return nil, fmt.Errorf("start %s: %w", name, err)
+	}
+	return &child{name: name, cmd: cmd, log: logFile}, nil
+}
+
+// stop signals the process and waits for it to exit, giving up after grace.
+//
+// The signal is a parameter because Postgres does not use the conventional
+// one: SIGTERM asks it to wait for every client to disconnect, which never
+// completes while the api still holds its pool, so the postmaster gets
+// SIGINT (fast shutdown) instead.
+func (c *child) stop(sig syscall.Signal, grace time.Duration) error {
+	if c == nil || c.cmd == nil || c.cmd.Process == nil {
+		return nil
+	}
+	if err := c.cmd.Process.Signal(sig); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return fmt.Errorf("signal %s: %w", c.name, err)
+	}
+
+	exited := make(chan error, 1)
+	go func() { exited <- c.cmd.Wait() }()
+
+	var stopErr error
+	select {
+	case err := <-exited:
+		// A service killed by our own signal exited as instructed; only an
+		// unexpected failure is worth surfacing.
+		if err != nil && !isSignaled(err, sig) {
+			stopErr = fmt.Errorf("%s exited: %w", c.name, err)
+		}
+	case <-time.After(grace):
+		if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			stopErr = fmt.Errorf("kill %s after %s: %w", c.name, grace, err)
+		} else {
+			stopErr = fmt.Errorf("%s did not exit within %s and was killed", c.name, grace)
+		}
+		<-exited
+	}
+
+	if err := c.log.Close(); err != nil && stopErr == nil {
+		stopErr = fmt.Errorf("close %s log: %w", c.name, err)
+	}
+	return stopErr
+}
+
+// isSignaled reports whether err is the process dying from sig — the normal
+// outcome of stop(), not a fault to report.
+func isSignaled(err error, sig syscall.Signal) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	return ok && status.Signaled() && status.Signal() == sig
+}
+
+// exited reports whether the process is already gone, so a readiness wait can
+// fail immediately with the real reason instead of polling a dead service
+// until its timeout expires.
+func (c *child) exited() bool {
+	return c.cmd.ProcessState != nil
+}
+
+// waitUntil polls probe until it succeeds, the context ends, or timeout
+// elapses. dead lets the caller abandon the wait the moment the service it is
+// waiting for has crashed.
+func waitUntil(ctx context.Context, what string, timeout time.Duration, dead func() bool, probe func() error) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	var last error
+	for {
+		if last = probe(); last == nil {
+			return nil
+		}
+		if dead != nil && dead() {
+			return fmt.Errorf("%s exited before becoming ready (last probe: %w)", what, last)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s not ready after %s (last probe: %w)", what, timeout, last)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// dialTCP probes a listening socket.
+func dialTCP(addr string) error {
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	return conn.Close()
+}
+
+// httpOK probes an endpoint that must answer 200 — the readiness contract
+// /readyz already implements.
+func httpOK(url string) error {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// The body is drained by Close here; a failure to close leaks a
+		// connection but must not mask a successful probe.
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s returned %s", url, resp.Status)
+	}
+	return nil
+}
+
+// freePort reserves an ephemeral port by binding and releasing it.
+//
+// The gap between release and the service binding is a real race, but the
+// alternative — passing an inherited listener — is not something the shipped
+// binaries accept, and on a single-user desktop the collision window is
+// microseconds against a machine with no other process hunting for ports.
+func freePort() (int, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("reserve a local port: %w", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		return 0, fmt.Errorf("release reserved port %d: %w", port, err)
+	}
+	return port, nil
+}
