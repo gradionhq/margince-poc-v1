@@ -6,7 +6,7 @@ package people
 // The installation's own company outlives every ordinary record operation
 // (ADR-0082/A127).
 //
-// The schema refuses the write either way (0190). These checks exist so a human
+// The schema refuses the write either way (0193). These checks exist so a human
 // gets a sentence naming what they tried and why it is refused, instead of a
 // constraint violation — and so the refusal is decided before a merge has taken
 // its locks and rewritten half a customer's history.

@@ -1,6 +1,6 @@
--- Reverses 0190's GUARDS. The anchor becomes archivable and mergeable again.
+-- Reverses 0193's GUARDS. The anchor becomes archivable and mergeable again.
 --
--- 0190's data repair is deliberately ONE-WAY, and this file does not pretend
+-- 0193's data repair is deliberately ONE-WAY, and this file does not pretend
 -- otherwise. The up cleared is_anchor from organizations that were already
 -- archived or merged away; those rows are not re-flagged here.
 --

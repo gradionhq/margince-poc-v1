@@ -17,6 +17,7 @@ package people
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -33,6 +34,53 @@ import (
 func anchorProtected(err error) bool {
 	var protected *AnchorProtectedError
 	return errors.As(err, &protected)
+}
+
+// A refusal is only useful if it names the value the caller must change and
+// tells them a move that actually works. Both are easy to get wrong here: a
+// merge carries two ids, so blaming the path id for a bad target points at a
+// value that was fine; and because NEITHER merge direction is open when one
+// side is the anchor, advice that sends the caller the other way round is
+// refused one line later by the opposite guard.
+func TestEachAnchorRefusalNamesItsFieldAndAWorkingMove(t *testing.T) {
+	env := newAnchorEnv(t)
+	other := env.newOrganization(t)
+
+	_, archiveErr := env.store.ArchiveOrganization(env.ctx, env.anchorID)
+	_, sourceErr := env.store.MergeOrganization(env.ctx, env.anchorID, other)
+	_, targetErr := env.store.MergeOrganization(env.ctx, other, env.anchorID)
+
+	for _, tc := range []struct {
+		operation string
+		err       error
+		wantField string
+	}{
+		{"archiving the anchor", archiveErr, "id"},
+		{"merging the anchor away", sourceErr, "id"},
+		{"merging a company into the anchor", targetErr, "target_id"},
+	} {
+		var protected *AnchorProtectedError
+		if !errors.As(tc.err, &protected) {
+			t.Errorf("%s: got %v, want the anchor refusal", tc.operation, tc.err)
+			continue
+		}
+		field, code, message := protected.FieldFault()
+		if field != tc.wantField {
+			t.Errorf("%s blames %q, want %q — the client must be pointed at the value it has to change", tc.operation, field, tc.wantField)
+		}
+		if code != "anchor_protected" {
+			t.Errorf("%s: code = %q, want anchor_protected", tc.operation, code)
+		}
+		_, advice, found := strings.Cut(message, ". ")
+		if !found {
+			t.Errorf("%s: %q says what is refused but not what to do instead", tc.operation, message)
+			continue
+		}
+		if !strings.Contains(advice, "Archive") || strings.Contains(advice, "erge") {
+			t.Errorf("%s advises %q — the only move that works is archiving the duplicate; every merge direction is refused", tc.operation, advice)
+		}
+	}
+	env.assertCompanyStillReadable(t)
 }
 
 func TestTheAnchorCannotBeArchived(t *testing.T) {

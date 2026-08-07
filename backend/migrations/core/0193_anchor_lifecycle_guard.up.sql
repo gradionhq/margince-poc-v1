@@ -18,20 +18,25 @@
 -- constraint below describe the rule going forward instead of failing on
 -- history nobody can now repair.
 -- The migration role is NOSUPERUSER NOBYPASSRLS (scripts/deploy/db-bootstrap.sql),
--- so FORCE RLS binds it like any other role and this UPDATE would match zero
--- rows with no workspace GUC set — leaving the retired anchors in place and
--- failing the CHECK below on exactly the installations that need the repair.
--- The cleanup crosses every workspace by design, so it runs with the policy
--- lifted and puts it back immediately.
-ALTER TABLE organization NO FORCE ROW LEVEL SECURITY;
-ALTER TABLE organization DISABLE ROW LEVEL SECURITY;
+-- so FORCE RLS binds it like any other role: a top-level UPDATE would match zero
+-- rows with no workspace GUC bound, leave the retired anchors in place, and fail
+-- the CHECK below on exactly the installations that need the repair — while
+-- reporting success. The repair crosses every workspace by design, so it takes
+-- the per-workspace loop (CLAUDE.md, TestTenantWritesInMigrationsAreWorkspaceScoped):
+-- the binding makes each workspace's rows visible, and the workspace_id predicate
+-- keeps the statement scoped for a role RLS does not filter.
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
 
-UPDATE organization
-   SET is_anchor = false
- WHERE is_anchor AND (archived_at IS NOT NULL OR merged_into_id IS NOT NULL);
-
-ALTER TABLE organization ENABLE ROW LEVEL SECURITY;
-ALTER TABLE organization FORCE ROW LEVEL SECURITY;
+    UPDATE organization
+       SET is_anchor = false
+     WHERE is_anchor AND (archived_at IS NOT NULL OR merged_into_id IS NOT NULL)
+       AND organization.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE organization
   DROP CONSTRAINT IF EXISTS organization_anchor_is_permanent;
