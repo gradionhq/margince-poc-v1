@@ -31,10 +31,12 @@ const orgNameColumn = "display_name"
 // ListOrganizationsInput carries the organization list's contract
 // parameters.
 type ListOrganizationsInput struct {
-	Cursor  *string
-	Limit   *int
-	Query   *string
-	OwnerID *ids.UserID
+	// IncludeAnchor admits the installation's own company (ADR-0082/A127).
+	IncludeAnchor bool
+	Cursor        *string
+	Limit         *int
+	Query         *string
+	OwnerID       *ids.UserID
 	// Classification is RETIRED with the column (ADR-0079/A124) and reaches no
 	// wire parameter; Lifecycle and RelationshipType replace it.
 	Classification   *string
@@ -86,6 +88,14 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 			where, err := shared.clauses(active, sorted, arg)
 			if err != nil {
 				return nil, err
+			}
+			// The installation's own company is not one of the accounts this
+			// list answers about, so it is excluded unless asked for
+			// (ADR-0082/A127). Appended here beside the other organization-only
+			// filters rather than in the shared set: the anchor is a fact about
+			// organizations, and no person or deal has one.
+			if !in.IncludeAnchor {
+				where = append(where, "NOT is_anchor")
 			}
 			if in.Classification != nil {
 				where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))

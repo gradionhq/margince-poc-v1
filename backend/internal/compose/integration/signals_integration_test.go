@@ -310,6 +310,48 @@ func TestResolverDropsTheUnattributable(t *testing.T) {
 	}
 }
 
+// The installation's own company is never a signal subject, on any of the
+// resolver's match arms. The prior-interaction arm is the one that has to be
+// asked directly: our own staff are employed at the anchor, so a colleague
+// writing from an address on no registered domain matches it and nothing else
+// (ADR-0082/A127).
+func TestResolverNeverAttributesToTheOwnCompany(t *testing.T) {
+	e := setupSearch(t)
+	store := signalStore(e)
+	admin := e.adminSignals()
+
+	anchor := e.seed(t,
+		`INSERT INTO organization (id, workspace_id, display_name, owner_id, is_anchor, source, captured_by)
+		 VALUES ($1, $2, $3, $4, true, 'manual', 'human:x')`, "Our Own Company", e.Rep1)
+	colleague := e.seedEmployedContact(t, anchor, "Robin Colleague", "robin@private.invalid")
+	e.grantConsent(t, colleague)
+
+	// Each arm gets its own raw_ref, chosen so only that arm can match: an
+	// address on no registered domain reaches the prior-interaction arm alone,
+	// and a bare company name reaches the exact-name arm alone.
+	for _, tc := range []struct {
+		arm    string
+		rawRef string
+	}{
+		{"prior_interaction", "inbound:robin@private.invalid"},
+		{"name", "inbound:Our Own Company"},
+	} {
+		got, err := store.Resolve(admin, createRaw(t, store, admin, tc.rawRef))
+		if err != nil {
+			t.Fatalf("resolve via the %s arm: %v", tc.arm, err)
+		}
+		if string(got.ResolutionState) != "dropped" {
+			t.Errorf("%s arm: resolution_state = %q, want dropped — the own company is not an account to hold signals about", tc.arm, got.ResolutionState)
+		}
+		if got.ResolvedOrgId != nil {
+			t.Errorf("%s arm: resolved_org_id = %v, want nil — the signal resolved to the installation's own company", tc.arm, got.ResolvedOrgId)
+		}
+		if got.ResolvedPersonId != nil {
+			t.Errorf("%s arm: resolved_person_id = %v, want nil — an unattributed signal links nobody", tc.arm, got.ResolvedPersonId)
+		}
+	}
+}
+
 // The warm/cold branch classifies by our own contact graph: an org where
 // we hold a live contact is warm (routes to the warm room) and answers
 // with the contact evidence; an org with no contact is cold.

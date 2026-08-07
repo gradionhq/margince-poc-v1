@@ -352,6 +352,11 @@ func assertHumanRestSurfaceServesTheMirror(t *testing.T, e *env) {
 		"/v1/organizations?lifecycle=customer",
 		"/v1/organizations?relationship_type=partner",
 		"/v1/activities?thread_key=t-1",
+		// include_anchor is the same rule from the other side: the
+		// installation's own company is a native row the mirror never holds,
+		// so a page that could not contain it either way must not come back
+		// looking like the opt-in was honoured (ADR-0082/A127).
+		"/v1/organizations?include_anchor=true",
 	} {
 		if code := e.call(t, "GET", path, nil, nil, nil); code != http.StatusUnprocessableEntity {
 			t.Errorf("overlay-mode %s = %d, want 422 — a filter with no mirror column must be refused, never ignored", path, code)

@@ -64,6 +64,15 @@ type searchBranch struct {
 	title        string
 	snippet      string
 	activityWalk bool
+	// extraWhere narrows DISCOVERY on this branch, beyond archived_at and the
+	// row scope. The by-id graph anchor read (graph.go) deliberately does not
+	// apply it: a record named by id is not being discovered, and the own
+	// company stays readable everywhere it is asked for by name.
+	// The organization branch uses it to keep the installation's own company
+	// out of results: search is how people find accounts, and the company
+	// running the CRM is not one to find (ADR-0082/A127). It stays reachable
+	// by id, and the company page is where it is read.
+	extraWhere string
 }
 
 // branchScope is the ONE admission + row-scope resolution every union
@@ -83,7 +92,7 @@ func branchScope(ctx context.Context, branch searchBranch, arg func(any) int) (s
 
 var searchBranches = []searchBranch{
 	{entity: "person", table: "person", title: "full_name", snippet: "NULL"},
-	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL"},
+	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL", extraWhere: "NOT t.is_anchor"},
 	{entity: "deal", table: "deal", title: "name", snippet: "NULL"},
 	{entity: "lead", table: "lead", title: "coalesce(full_name, company_name, email)", snippet: "NULL"},
 	{entity: "project", table: "project", title: "name", snippet: "NULL"},
@@ -201,6 +210,9 @@ func admittedBranchSQL(ctx context.Context, types []string, qPos int, arg func(a
 			 WHERE t.search_tsv @@ %s
 			   AND t.archived_at IS NULL`,
 			branch.entity, branch.title, branch.snippet, tsquery, branch.table, tsquery)
+		if branch.extraWhere != "" {
+			sql += " AND " + branch.extraWhere
+		}
 		if scope != "" {
 			sql += " AND " + scope
 		}

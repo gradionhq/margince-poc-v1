@@ -235,6 +235,11 @@ func (s Server) ListOrganizations(w http.ResponseWriter, r *http.Request, params
 			// one and is not.
 			{"lifecycle", params.Lifecycle != nil},
 			{"relationship_type", params.RelationshipType != nil},
+			// The installation's own company is a NATIVE row; the mirror holds
+			// the incumbent's accounts and never carries it. Answering the
+			// opt-in with a page that could not contain the anchor either way
+			// would read as satisfied and is not (ADR-0082/A127).
+			{"include_anchor", params.IncludeAnchor != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWireOrganization,
 		func(data []crmcontracts.Organization, page crmcontracts.PageInfo) any {

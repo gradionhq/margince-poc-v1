@@ -40,8 +40,13 @@ var segmentEngines = map[string]storekit.Query{
 		},
 	},
 	"organization": {
-		Table:     "organization",
-		BaseWhere: whereArchivedNull,
+		Table: "organization",
+		// The installation's own company is never a segment member: a segment
+		// answers "which of our accounts match this", and the company running
+		// the CRM is not one of them (ADR-0082/A127). In the base clause rather
+		// than as a filterable leaf, so no segment can opt back into it and no
+		// export built on one can carry it.
+		BaseWhere: whereArchivedNull + " AND NOT t.is_anchor",
 		Fields: map[string]storekit.Field{
 			"owner_id":  {Expr: colOwnerID, Type: storekit.FieldID},
 			"industry":  {Expr: "t.industry", Type: storekit.FieldText},

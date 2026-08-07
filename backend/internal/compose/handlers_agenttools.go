@@ -55,3 +55,5 @@ func tierWire(t mcp.RiskTier) crmcontracts.AgentToolTier {
 }
 
 func ptrString(v string) *string { return &v }
+
+func ptrBool(v bool) *bool { return &v }
