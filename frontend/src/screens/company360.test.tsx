@@ -1278,8 +1278,107 @@ describe("company view — the state strip", () => {
     // would act on.
     expect(within(strip).queryByText("Whose move")).toBeNull();
     expect(within(strip).queryByText("Never contacted")).toBeNull();
-    expect(within(strip).queryByText("Open work")).toBeNull();
+    expect(within(strip).queryByText("Open deals")).toBeNull();
     expect(within(strip).getByText("Customer")).toBeTruthy();
+  });
+
+  it("leads the commercial reading with the deal closing soonest", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: { open_count: 2, stalled_count: 0 },
+        },
+        deals: {
+          data: [
+            {
+              deal_id: "d-1",
+              name: "Renewal",
+              status: "open",
+              stalled: false,
+              expected_close_date: "2026-12-01",
+            },
+            {
+              deal_id: "d-2",
+              name: "Rollout APAC",
+              status: "open",
+              stalled: false,
+              amount: { amount_minor: 18_000_000, currency: "SGD" },
+              expected_close_date: "2026-10-30",
+            },
+          ],
+          page: emptyPage,
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    // The nearer close date wins, and the second deal is a count, not a name.
+    expect(within(strip).getByText("Rollout APAC")).toBeTruthy();
+    expect(within(strip).getByText(/\+1 more/)).toBeTruthy();
+    expect(within(strip).queryByText("2 open")).toBeNull();
+  });
+
+  it("counts open commitments off the tasks it lists, overdue named", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: null,
+        },
+        next_steps: {
+          data: [
+            {
+              activity_id: "t-1",
+              subject: "Send the revised MSA",
+              due_at: "2026-08-05T09:00:00Z",
+              overdue: true,
+            },
+            {
+              activity_id: "t-2",
+              subject: "Prepare the walkthrough",
+              due_at: "2026-08-08T09:00:00Z",
+              overdue: false,
+            },
+          ],
+          page: emptyPage,
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Open commitments")).toBeTruthy();
+    expect(within(strip).getByText("2 open")).toBeTruthy();
+    expect(within(strip).getByText("1 overdue")).toBeTruthy();
+  });
+
+  it("draws no commitments cell when the tasks were withheld", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: null,
+        },
+        next_steps: undefined,
+        sections_omitted: ["next_steps"],
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    // A zero read off tasks the caller may not see would state that nothing
+    // is owed on an account this read never looked at.
+    expect(within(strip).queryByText("Open commitments")).toBeNull();
   });
 });
 

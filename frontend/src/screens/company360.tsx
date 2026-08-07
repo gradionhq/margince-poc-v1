@@ -1777,9 +1777,117 @@ const ENGAGEMENT_TONE: Partial<
   dormant: "warn",
 };
 
+// The deal a rep would open first: the one closing soonest, undated ones
+// last. The strip names one deal because a name is actionable where a count
+// is only a size.
+function nearestOpenDeal(view?: Organization360): Deal360 | undefined {
+  const open = view?.deals?.data ?? [];
+  return [...open].sort((a, b) => {
+    if (!a.expected_close_date) {
+      return b.expected_close_date ? 1 : 0;
+    }
+    if (!b.expected_close_date) {
+      return -1;
+    }
+    return a.expected_close_date.localeCompare(b.expected_close_date);
+  })[0];
+}
+
 /**
- * StateStrip is the three readings the overview leads with (AC-company-13):
- * where the account stands, whose move it is, and what commercial work is open.
+ * The commercial reading leads with the nearest-closing open deal when the
+ * caller's grants include the deals section; the bare count is the fallback,
+ * not the reading. `commercial` (from the strip) and `deals` (the listing)
+ * are separately gated, so each degrades on its own.
+ */
+function CommercialCell({
+  view,
+  commercial,
+}: Readonly<{
+  view?: Organization360;
+  commercial: NonNullable<StateStrip["commercial"]>;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const tone = commercial.stalled_count > 0 ? ("warn" as const) : undefined;
+  const stalled =
+    commercial.stalled_count > 0
+      ? t("co.strip.stalled", { count: commercial.stalled_count })
+      : undefined;
+  const top = nearestOpenDeal(view);
+  if (!top) {
+    return (
+      <StatCard
+        label={t("co.strip.commercial")}
+        value={t("co.strip.openDeals", { count: commercial.open_count })}
+        tone={tone}
+        detail={stalled}
+      />
+    );
+  }
+  const parts: string[] = [];
+  if (top.amount?.amount_minor != null && top.amount.currency) {
+    parts.push(
+      formatMoney(top.amount.amount_minor, top.amount.currency, locale),
+    );
+  }
+  if (top.expected_close_date) {
+    parts.push(formatDate(top.expected_close_date, locale, RECORD_ZONE));
+  }
+  if (commercial.open_count > 1) {
+    parts.push(t("co.strip.moreOpen", { count: commercial.open_count - 1 }));
+  }
+  if (stalled) {
+    parts.push(stalled);
+  }
+  return (
+    <StatCard
+      label={t("co.strip.commercial")}
+      value={top.name}
+      tone={tone}
+      detail={parts.length > 0 ? parts.join(" · ") : undefined}
+    />
+  );
+}
+
+/**
+ * Open commitments, read off the same next_steps section the middle column
+ * lists. Absent section, absent cell: a "0" derived from tasks the caller
+ * may not read would state that nothing is owed on an account this read
+ * never looked at.
+ */
+function CommitmentsCell({ view }: Readonly<{ view?: Organization360 }>) {
+  const t = useT();
+  const steps = view?.next_steps;
+  if (!steps) {
+    return null;
+  }
+  const count = steps.data.length;
+  const overdue = steps.data.filter((step) => step.overdue).length;
+  const value =
+    count === 0
+      ? t("co.strip.commitments.none")
+      : t(
+          steps.page.has_more
+            ? "co.strip.commitments.countMore"
+            : "co.strip.commitments.count",
+          { count },
+        );
+  return (
+    <StatCard
+      label={t("co.strip.commitments")}
+      value={value}
+      tone={overdue > 0 ? "warn" : undefined}
+      detail={
+        overdue > 0 ? t("co.strip.overdueCount", { count: overdue }) : undefined
+      }
+    />
+  );
+}
+
+/**
+ * StateStrip is the readings the overview leads with (AC-company-13):
+ * the deal in play, where the account stands, whose move it is, and what
+ * is owed.
  *
  * Each half is drawn only when the server answered it. A null engagement means
  * the caller may not read the account's mail, and inventing "never contacted"
@@ -1808,6 +1916,7 @@ export function StateStrip({
     at ? formatDate(at, locale, RECORD_ZONE) : undefined;
   return (
     <section className="co-strip" aria-label={t("co.strip.title")}>
+      {commercial && <CommercialCell view={view} commercial={commercial} />}
       <StatCard
         label={t("co.strip.account")}
         value={lifecycleLabel(strip.account.lifecycle)}
@@ -1830,24 +1939,13 @@ export function StateStrip({
           }
         />
       )}
+      <CommitmentsCell view={view} />
       {strip.signal && (
         <StatCard
           label={t("co.strip.signal")}
           value={signalKindLabel(strip.signal.kind, t)}
           tone={signalTone(strip.signal.severity)}
           detail={strip.signal.summary}
-        />
-      )}
-      {commercial && (
-        <StatCard
-          label={t("co.strip.commercial")}
-          value={t("co.strip.openDeals", { count: commercial.open_count })}
-          tone={commercial.stalled_count > 0 ? "warn" : undefined}
-          detail={
-            commercial.stalled_count > 0
-              ? t("co.strip.stalled", { count: commercial.stalled_count })
-              : undefined
-          }
         />
       )}
     </section>
