@@ -84,13 +84,21 @@ migrate_template() {
   # rc, not `status`: zsh makes that name read-only, and these helpers are
   # sourced from an interactive shell often enough to care.
   local out rc=0
-  out="$( cd backend && go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$TEMPLATE_NAME")" 2>&1 )" || rc=$?
+  # stderr is deliberately NOT captured. `go run` writes build and
+  # module-download diagnostics there, so a cold Go cache would put them in
+  # front of the summary this classifies on and report a template at head as
+  # behind. Left alone it goes to the terminal, which is where a real failure
+  # belongs anyway.
+  out="$( cd backend && go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$TEMPLATE_NAME")" )" || rc=$?
   if (( rc != 0 )); then
-    echo "$out" >&2
     return "$rc"
   fi
-  if [[ "$out" != "applied 0 core+custom + 0 river"* ]]; then
-    echo "test-db: template ${TEMPLATE_NAME} was behind — ${out%%; *}"
+  # The summary is the LAST line, matched as its own string rather than as a
+  # prefix of the whole capture — same reason: anything printed ahead of it
+  # must not decide this.
+  local summary="${out##*$'\n'}"
+  if [[ "$summary" != "applied 0 core+custom + 0 river"* ]]; then
+    echo "test-db: template ${TEMPLATE_NAME} was behind — ${summary%%; *}"
   fi
 }
 
@@ -98,7 +106,11 @@ migrate_template() {
 # call so the template can never carry a stale schema. Runs from the repo root;
 # the caller must have cd'd there (both scripts do).
 build_template() {
-  db_admin recreate-db --name "$TEMPLATE_NAME" >/dev/null
+  # Stop here if the recreate failed. The PREVIOUS template survives such a
+  # failure, so migrating on regardless would bring the old one to head and
+  # return success — and `make test-db-up` would report a rebuild that never
+  # happened, over a template whose contents nobody chose.
+  db_admin recreate-db --name "$TEMPLATE_NAME" >/dev/null || return $?
   migrate_template >/dev/null
 }
 
@@ -164,6 +176,14 @@ ensure_template() {
 # that reason, and a bare one here would arrive empty in every lane worker.
 make_clone() {
   local db="$1" retries="${CLONE_RETRIES:-3}" attempt=1 out rc
+  # Validated, not coerced: shell arithmetic reads a non-numeric name as 0,
+  # which would turn the budget into "give up immediately", and an absurd one
+  # into a loop that sleeps its way past any timeout. Either way the operator
+  # asked for something this cannot honour, so say so.
+  if [[ ! "$retries" =~ ^[1-9][0-9]{0,2}$ ]]; then
+    echo "FAIL: CLONE_RETRIES must be a positive integer up to 999, got '${retries}'" >&2
+    return 1
+  fi
   while :; do
     rc=0
     out="$(db_admin recreate-db --name "$db" --template "$TEMPLATE_NAME" 2>&1)" || rc=$?
