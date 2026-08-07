@@ -16196,16 +16196,6 @@ type UploadAttachmentMultipartBody struct {
 // UploadAttachmentMultipartBodyEntityType defines parameters for UploadAttachment.
 type UploadAttachmentMultipartBodyEntityType string
 
-// UpdateAttachmentMetadataParams defines parameters for UpdateAttachmentMetadata.
-type UpdateAttachmentMetadataParams struct {
-	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
-	// the last-seen entity `version`. If the row's current `version` differs, the write is
-	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
-	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
-	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
-	IfMatch *IfMatch `json:"If-Match,omitempty"`
-}
-
 // ListAuditLogParams defines parameters for ListAuditLog.
 type ListAuditLogParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -25212,7 +25202,7 @@ type ServerInterface interface {
 	AcceptAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id)
 	// Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
 	// (PATCH /attachments/{id}/metadata)
-	UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request, id Id, params UpdateAttachmentMetadataParams)
+	UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request, id Id)
 	// Request access to a restricted attachment (audit row only — no notification system).
 	// (POST /attachments/{id}/request-access)
 	RequestAttachmentAccess(w http.ResponseWriter, r *http.Request, id Id)
@@ -26256,7 +26246,7 @@ func (_ Unimplemented) AcceptAttachmentExtraction(w http.ResponseWriter, r *http
 
 // Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
 // (PATCH /attachments/{id}/metadata)
-func (_ Unimplemented) UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request, id Id, params UpdateAttachmentMetadataParams) {
+func (_ Unimplemented) UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29395,32 +29385,8 @@ func (siw *ServerInterfaceWrapper) UpdateAttachmentMetadata(w http.ResponseWrite
 
 	r = r.WithContext(ctx)
 
-	// Parameter object where we will unmarshal all parameters from the context
-	var params UpdateAttachmentMetadataParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "If-Match" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
-		var IfMatch IfMatch
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
-			return
-		}
-
-		params.IfMatch = &IfMatch
-
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateAttachmentMetadata(w, r, id, params)
+		siw.Handler.UpdateAttachmentMetadata(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

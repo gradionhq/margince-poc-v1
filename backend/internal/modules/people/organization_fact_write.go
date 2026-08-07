@@ -109,12 +109,12 @@ func readFactRow(
 		return r, errMalformedFactKey()
 	}
 	err := tx.QueryRow(ctx, `
-		SELECT id, value, source, evidence_snippet, source_url, confidence, verified_at, verified_by
+		SELECT id, value, source, evidence_snippet, source_url, confidence, verified_at, verified_by, captured_by
 		  FROM organization_fact
 		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3 AND value_key = $4`,
 		workspaceID(ctx), orgID, field, valueKey,
 	).Scan(&r.ID, &r.Value, &r.Source, &r.EvidenceSnippet, &r.SourceURL, &r.Confidence,
-		&r.VerifiedAt, &r.VerifiedBy)
+		&r.VerifiedAt, &r.VerifiedBy, &r.CapturedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, apperrors.ErrNotFound
 	}

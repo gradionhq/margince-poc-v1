@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -31,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // DocumentFilters narrows the account library. Each is a selection; omitted
@@ -76,12 +78,16 @@ func (s *Store) ListOrganizationDocuments(
 		// Keyset, not offset: the library is ordered pinned-then-newest and a
 		// page boundary has to survive a pin being added between two reads.
 		if in.Cursor != nil && *in.Cursor != "" {
-			c, err := storekit.DecodeCursor(*in.Cursor)
+			sort, err := documentSort()
 			if err != nil {
 				return err
 			}
-			where = append(where, fmt.Sprintf("(at.created_at, at.id) < ($%d, $%d)",
-				arg(c.CreatedAt), arg(c.ID)))
+			clause, err := sort.KeysetClause(*in.Cursor, arg)
+			if err != nil {
+				return err
+			}
+			// KeysetClause names the columns bare; this SELECT aliases the table.
+			where = append(where, strings.ReplaceAll(clause, `"pinned"`, "at.pinned"))
 		}
 		where = append(where, filterClauses(in, arg)...)
 		visible, err := visibleParentClause(ctx, arg)
@@ -112,11 +118,11 @@ func (s *Store) ListOrganizationDocuments(
 		}
 		if len(out) > lim {
 			out = out[:lim]
-			last := out[len(out)-1]
-			page = storekit.Page{
-				HasMore:    true,
-				NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id)),
+			p, err := documentPage(out[len(out)-1])
+			if err != nil {
+				return err
 			}
+			page = p
 		}
 		return nil
 	})
@@ -124,6 +130,33 @@ func (s *Store) ListOrganizationDocuments(
 		out = []crmcontracts.Attachment{}
 	}
 	return out, page, err
+}
+
+// documentSort is the library's FIXED ordering — pinned first, then newest —
+// expressed through the house sort machinery rather than hand-rolled, because
+// the hand-rolled version got the cursor wrong: it ordered on three columns and
+// continued the page on two, so a page boundary landing inside the pinned group
+// excluded every newer unpinned document from every later page, permanently.
+//
+// It is not a client choice. The reader never picks this order, so the spec is
+// fixed here and ParseListSort is only the constructor.
+// documentSort is the library's FIXED ordering — pinned first, then newest —
+// expressed through the house sort machinery rather than hand-rolled, because
+// the hand-rolled version got the cursor wrong: it ordered on three columns and
+// continued the page on two, so a page boundary landing inside the pinned group
+// excluded every newer unpinned document from every later page, permanently.
+//
+// It is not a client choice. The reader never picks this order, so the spec is
+// fixed here and ParseListSort is only the constructor — which is why the error
+// is returned rather than swallowed: the alternative to a parseable sort is an
+// unordered library, not a default one.
+func documentSort() (*storekit.ListSort, error) {
+	spec := "-pinned"
+	sort, err := storekit.ParseListSort(&spec, map[string]string{"pinned": fieldcatalog.TypeBoolean})
+	if err != nil {
+		return nil, fmt.Errorf("activities: the document library's fixed sort no longer parses: %w", err)
+	}
+	return sort, nil
 }
 
 // filterClauses renders the caller's selections. Each is a SELECTION: an omitted
@@ -230,31 +263,28 @@ func (s *Store) UpdateAttachmentMetadata(
 		if err != nil {
 			return err
 		}
+		// The target is a RECORD the caller is about to point at from a record
+		// they can see. Accepting an id they cannot read would both confirm the
+		// document exists and build a relationship across a visibility boundary,
+		// so it is gated exactly like any other read.
+		if in.Supersedes != nil {
+			if _, err := resolveVisibleAttachmentParent(ctx, tx, *in.Supersedes, principal.ActionRead); err != nil {
+				return err
+			}
+		}
 		if err := refuseSupersedesCycle(ctx, tx, id, in); err != nil {
 			return err
 		}
 
-		p := storekit.NewPatch()
-		if in.Category != nil {
-			p.Set("category", before.Category, *in.Category)
-		}
-		if in.Title != nil || in.ClearTitle {
-			p.Set("title", before.Title, in.Title)
-		}
-		if in.DocState != nil {
-			p.Set("doc_state", before.DocState, *in.DocState)
-		}
-		if in.Pinned != nil {
-			p.Set("pinned", before.Pinned, *in.Pinned)
-		}
-		if in.Supersedes != nil || in.ClearSupersedes {
-			p.Set("supersedes_id", before.SupersedesId, in.Supersedes)
-		}
+		p := documentMetadataPatch(before, in)
 		if p.Empty() {
 			out = before
 			return nil
 		}
-		if err := p.ApplyGuarded(ctx, tx, "attachment", id, in.IfVersion); err != nil {
+		// No version guard: attachment carries no version column, so there is
+		// nothing to compare a precondition against (the wire operation does not
+		// advertise If-Match for the same reason).
+		if err := p.ApplyGuarded(ctx, tx, "attachment", id, nil); err != nil {
 			return err
 		}
 		// Audited against the PARENT's object type, which is where the authority
@@ -299,4 +329,44 @@ func refuseSupersedesCycle(ctx context.Context, tx pgx.Tx, id ids.UUID, in Docum
 		}
 	}
 	return nil
+}
+
+// documentMetadataPatch renders the request as the columns it actually moves. A
+// field the caller never mentioned is not in the patch at all, and a cleared one
+// rides as an explicit nil — the two are different edits and the store must not
+// collapse them.
+func documentMetadataPatch(before crmcontracts.Attachment, in DocumentMetadata) *storekit.Patch {
+	p := storekit.NewPatch()
+	if in.Category != nil {
+		p.Set("category", before.Category, *in.Category)
+	}
+	if in.Title != nil || in.ClearTitle {
+		p.Set("title", before.Title, in.Title)
+	}
+	if in.DocState != nil {
+		p.Set("doc_state", before.DocState, *in.DocState)
+	}
+	if in.Pinned != nil {
+		p.Set("pinned", before.Pinned, *in.Pinned)
+	}
+	if in.Supersedes != nil || in.ClearSupersedes {
+		p.Set("supersedes_id", before.SupersedesId, in.Supersedes)
+	}
+	return p
+}
+
+// documentPage mints the token that continues after this row. The key carries
+// the PINNED half as well as the house (created_at, id) tuple, because the
+// library orders on all three — a token that dropped it would strand every
+// newer unpinned document behind the pinned group.
+func documentPage(last crmcontracts.Attachment) (storekit.Page, error) {
+	sort, err := documentSort()
+	if err != nil {
+		return storekit.Page{}, err
+	}
+	pinned := strconv.FormatBool(last.Pinned != nil && *last.Pinned)
+	return storekit.Page{
+		HasMore:    true,
+		NextCursor: sort.EncodePageCursor(&pinned, last.CreatedAt, ids.UUID(last.Id)),
+	}, nil
 }

@@ -23,6 +23,7 @@ package org360
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -32,7 +33,10 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
@@ -51,6 +55,27 @@ const routeCap = 3
 // The contacts passed in have already passed the person row-scope gate — the
 // card placed them — so the visibility question left here is about the COLLEAGUE
 // being named, which liveMemberWhere and the roster's own readability settle.
+// Reading a route means reading graph_interaction_edge, and an edge is derived
+// from an activity — the same claim graphourside.go makes before it touches the
+// same table, and it requires activity:read for exactly this reason. Without
+// that grant a reader with people:read alone would learn who spoke to whom and
+// when, through the people section, having been refused it everywhere else.
+//
+// A caller who may not ask gets NO routes rather than an empty set: an empty
+// set is an answer ("nobody can reach them"), and answering that to someone who
+// was not allowed to ask is the disclosure inverted. The wire field is optional
+// precisely so it can be absent.
+func mayReadRoutes(ctx context.Context) (bool, error) {
+	err := auth.Require(ctx, "activity", principal.ActionRead)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		return false, nil
+	}
+	return false, err
+}
+
 func contactRoutes(
 	ctx context.Context, tx pgx.Tx, contactIDs []ids.UUID, now time.Time,
 ) (map[ids.UUID]crmcontracts.Organization360ContactRoutes, error) {
@@ -105,7 +130,7 @@ func contactRoutes(
 			route: crmcontracts.Organization360Route{
 				UserId:            openapi_types.UUID(userID),
 				DisplayName:       displayName,
-				StrengthBucket:    crmcontracts.Organization360RouteStrengthBucket(strength.Bucket),
+				StrengthBucket:    routeBucket(strength.Bucket),
 				LastInteractionAt: &at,
 			},
 			score: strength.Strength,
@@ -144,4 +169,26 @@ func contactRoutes(
 		}
 	}
 	return routes, nil
+}
+
+// routeBucket translates the shared relationship-strength vocabulary into the
+// three bands this contract actually declares.
+//
+// The two are NOT the same list. relstrength scores in none/weak/moderate/strong
+// because that is the granularity the score itself supports; a route is shown as
+// cold/developing/strong because that is what a reader deciding whom to ask can
+// act on. Casting one to the other produced `weak` and `moderate` on the wire —
+// values no client can render, because the enum has never admitted them.
+//
+// An unscored edge reads COLD rather than being dropped: the colleague has
+// exchanged messages, so the route exists, and hiding it would misreport the
+// account as having fewer ways in than it has.
+func routeBucket(bucket string) crmcontracts.Organization360RouteStrengthBucket {
+	switch bucket {
+	case relstrength.BucketStrong:
+		return crmcontracts.Organization360RouteStrengthBucketStrong
+	case relstrength.BucketModerate:
+		return crmcontracts.Organization360RouteStrengthBucketDeveloping
+	}
+	return crmcontracts.Organization360RouteStrengthBucketCold
 }

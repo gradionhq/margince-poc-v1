@@ -561,3 +561,60 @@ func TestOrganization360ContactRoutesNameThreeAndCountTheRest(t *testing.T) {
 			routes.Top[0].DisplayName)
 	}
 }
+
+// A route is read out of graph_interaction_edge, and an edge is derived from an
+// activity — which is why the graph surface demands activity:read before it
+// touches the same table. The people section must not become the way around
+// that grant.
+//
+// The routes go ABSENT rather than empty. An empty set is an answer — "nobody
+// can reach them" — and giving that answer to a caller who was not allowed to
+// ask is the same disclosure the gate exists to refuse, merely inverted.
+func TestOrganization360OmitsRoutesWithoutTheActivityGrant(t *testing.T) {
+	e := integration.Setup(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	person := e.SeedPerson(t, "Reached Contact", &e.Rep1)
+	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+	e.WsExec(t, `INSERT INTO graph_interaction_edge
+			(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+		VALUES ($1, $2, $3, $4, 20, 10, 10)`,
+		e.WS, e.Rep1, person, org360Clock.Add(-24*time.Hour))
+
+	// With the grant, the route is there — otherwise the case below could pass
+	// because the fixture produced no route at all.
+	full, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms),
+		ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble with the activity grant: %v", err)
+	}
+	if len(full.People.Data) == 0 || full.People.Data[0].Routes == nil {
+		t.Fatal("no route with the activity grant — the fixture proves nothing about withholding one")
+	}
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360NoActivityPerms),
+		ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble without the activity grant: %v", err)
+	}
+	if len(view.People.Data) == 0 {
+		t.Fatal("the people section is empty, so the routes claim below is vacuous")
+	}
+	for _, contact := range view.People.Data {
+		if contact.Routes != nil {
+			t.Errorf("contact %s carries routes %+v without activity:read", contact.PersonId, contact.Routes)
+		}
+	}
+}
+
+// A reader who may see people and companies but not activities.
+var org360NoActivityPerms = principal.Permissions{
+	RoleKeys: []string{"rep"},
+	Objects: map[string]principal.ObjectGrant{
+		"organization": {Read: true},
+		"person":       {Read: true},
+		"deal":         {Read: true},
+	},
+	RowScope: principal.RowScopeTeam,
+}

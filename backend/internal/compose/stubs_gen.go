@@ -147,7 +147,7 @@ func (stubs) AcceptAttachmentExtraction(w nethttp.ResponseWriter, r *nethttp.Req
 	httperr.NotImplemented(w, r, "AcceptAttachmentExtraction")
 }
 
-func (stubs) UpdateAttachmentMetadata(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateAttachmentMetadataParams) {
+func (stubs) UpdateAttachmentMetadata(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "UpdateAttachmentMetadata")
 }
 

@@ -130,8 +130,12 @@ export function EvidenceVerdict({
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["organizations"] }),
       queryClient.invalidateQueries({ queryKey: ["organization360", orgId] }),
-      queryClient.invalidateQueries({ queryKey: ["orgProfileFields", orgId] }),
-      queryClient.invalidateQueries({ queryKey: ["orgFacts", orgId] }),
+      // The keys below are the ones the CONSUMERS register. React Query matches
+      // key segments exactly, so a near-miss spelling invalidates nothing and
+      // the page keeps offering a verdict on a claim the human already settled.
+      queryClient.invalidateQueries({ queryKey: ["organization", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["org-profile-fields", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["org-facts", orgId] }),
     ]);
   };
   const confirm = useMutation({

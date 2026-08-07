@@ -82,6 +82,11 @@ type evidenceRow struct {
 	Confidence      *float32
 	VerifiedAt      *time.Time
 	VerifiedBy      *ids.UUID
+	// CapturedBy is WHO the row currently belongs to, and it is what the
+	// enrichment upserts test (`captured_by NOT LIKE 'human:%'`) before they
+	// overwrite a claim. A human verdict that moved `source` alone left this
+	// naming the machine, so the next ordinary refresh reclaimed the row.
+	CapturedBy string
 }
 
 // auditImage is the machine's whole claim, which is what a correction's BEFORE
@@ -94,6 +99,7 @@ func (r evidenceRow) auditImage() map[string]any {
 		auditKeyEvidenceSnippet: r.EvidenceSnippet, auditKeySourceURL: r.SourceURL,
 		auditKeyConfidence: r.Confidence,
 		auditKeyVerifiedAt: r.VerifiedAt, auditKeyVerifiedBy: r.VerifiedBy,
+		auditKeyCapturedBy: r.CapturedBy,
 	}
 }
 
@@ -215,12 +221,12 @@ func readProfileFieldRow(
 ) (evidenceRow, error) {
 	var r evidenceRow
 	err := tx.QueryRow(ctx, `
-		SELECT id, value, source, evidence_snippet, source_url, confidence, verified_at, verified_by
+		SELECT id, value, source, evidence_snippet, source_url, confidence, verified_at, verified_by, captured_by
 		  FROM organization_profile_field
 		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3`,
 		workspaceID(ctx), orgID, field,
 	).Scan(&r.ID, &r.Value, &r.Source, &r.EvidenceSnippet, &r.SourceURL, &r.Confidence,
-		&r.VerifiedAt, &r.VerifiedBy)
+		&r.VerifiedAt, &r.VerifiedBy, &r.CapturedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, apperrors.ErrNotFound
 	}

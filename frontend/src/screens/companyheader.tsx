@@ -107,6 +107,13 @@ function useCompanyFieldPatch(org: Organization) {
     await queryClient.invalidateQueries({
       queryKey: ["organization360", org.id],
     });
+    // The header renders from the SINGLE-record query, and its version is the
+    // If-Match the next inline edit sends. Leaving it stale shows the old value
+    // after a successful save and makes the following edit fail on a version
+    // the server has already moved past.
+    await queryClient.invalidateQueries({
+      queryKey: ["organization", org.id],
+    });
   };
 }
 

@@ -186,3 +186,58 @@ func TestConfirmOrganizationFactHandler(t *testing.T) {
 		t.Fatalf("stale If-Match status = %d, want 409/412 version skew", rec.Code)
 	}
 }
+
+// A correction that does not survive the next enrichment run is not a
+// correction — the rep fixes the phone number, the nightly deep read puts the
+// wrong one back, and nothing says it happened.
+//
+// The guard both enrichment upserts apply is `captured_by NOT LIKE 'human:%'`.
+// They test WHO OWNS the row, not what its `source` column says, so a verdict
+// that moved source alone left the row claimable. This drives the real
+// ApplyDeepRead rather than asserting on the column, because the column is only
+// evidence about a rule that lives in the enrichment query.
+func TestACorrectedFactSurvivesTheNextDeepRead(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	orgID := seedOrgWithEvidence(ctx, t, e)
+	h := Handlers{store: e.store}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/organizations/x/facts/phone:",
+		strings.NewReader(`{"value":"+49 30 9999"}`)).WithContext(ctx)
+	h.UpdateOrganizationFact(rec, req, crmcontracts.Id(orgID.UUID), "phone:",
+		crmcontracts.UpdateOrganizationFactParams{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("correction status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// The machine now proposes the value it had before, exactly as a scheduled
+	// re-read of the same page would.
+	if err := e.store.ApplyDeepRead(ctx, DeepReadProposal{
+		OrganizationID: orgID,
+		SourceURL:      "https://voltaq.test/impressum",
+		SiteReadID:     ids.NewV7(),
+		Facts: []DeepReadFact{{
+			Category: "company", Field: "phone", Value: "+49 30 1234", ValueKey: "",
+			EvidenceSnippet: `"+49 30 1234"`, SourceURL: "https://voltaq.test/impressum",
+			Confidence: 0.95,
+		}},
+	}); err != nil {
+		t.Fatalf("ApplyDeepRead: %v", err)
+	}
+
+	facts, err := e.store.ListOrganizationFacts(ctx, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range facts {
+		if string(f.Field) != "phone" {
+			continue
+		}
+		if f.Value != "+49 30 9999" {
+			t.Fatalf("phone = %q after a deep read, want the human's correction to stand", f.Value)
+		}
+		return
+	}
+	t.Fatal("the corrected phone fact is gone entirely")
+}

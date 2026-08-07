@@ -56,9 +56,16 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 	for i, id := range personIDs {
 		rawIDs[i] = id.UUID
 	}
-	routes, err := contactRoutes(ctx, tx, rawIDs, now)
+	allowed, err := mayReadRoutes(ctx)
 	if err != nil {
 		return nil, crmcontracts.PageInfo{}, err
+	}
+	var routes map[ids.UUID]crmcontracts.Organization360ContactRoutes
+	if allowed {
+		routes, err = contactRoutes(ctx, tx, rawIDs, now)
+		if err != nil {
+			return nil, crmcontracts.PageInfo{}, err
+		}
 	}
 
 	out := make([]crmcontracts.Organization360Contact, 0, len(strengths))

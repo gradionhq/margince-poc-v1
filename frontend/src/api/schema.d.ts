@@ -5416,9 +5416,15 @@ export interface paths {
         head?: never;
         /**
          * Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
-         * @description Version-guarded. The bytes, the filename, the checksum and the scan state are NOT
-         *     patchable here — they are what arrived, and a surface that let a human edit them
-         *     would make the record a description of itself rather than of the file.
+         * @description The bytes, the filename, the checksum and the scan state are NOT patchable here —
+         *     they are what arrived, and a surface that let a human edit them would make the
+         *     record a description of itself rather than of the file.
+         *
+         *     NOT version-guarded, and deliberately so: an attachment carries no version column,
+         *     so there is no value a client could have last seen and nothing a precondition could
+         *     compare against. Advertising `If-Match` here would name a guarantee this record
+         *     cannot give. Concurrent edits to a document's meaning are last-write-wins, and each
+         *     one is recorded in the audit trail.
          */
         patch: operations["updateAttachmentMetadata"];
         trace?: never;
@@ -23881,16 +23887,7 @@ export interface operations {
     updateAttachmentMetadata: {
         parameters: {
             query?: never;
-            header?: {
-                /**
-                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
-                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
-                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
-                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
-                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
-                 */
-                "If-Match"?: components["parameters"]["IfMatch"];
-            };
+            header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];

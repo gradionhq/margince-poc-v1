@@ -68,3 +68,44 @@ COMMENT ON COLUMN attachment.doc_state IS
   'Asserted, never inferred (DOC-DDL-1): a human or the producing source sets it.';
 COMMENT ON COLUMN attachment.organization_id IS
   'Account roll-up read path, NOT a second parent — visibility stays the primary parent''s.';
+
+-- BACKFILL THE ROLL-UP FOR FILES THAT ALREADY EXIST.
+--
+-- Without this, every attachment on an installation that upgrades gets
+-- organization_id = NULL while the account library filters strictly on it, so
+-- contracts and offers already filed against a company or its deals vanish from
+-- the account view. Nothing about that failure is visible: the library renders
+-- an empty state, which is exactly what a company with no documents renders.
+--
+-- The workspace is bound per iteration because attachment carries FORCE row
+-- level security with deny-on-unset semantics; unbound, the UPDATE's USING
+-- clause resolves NULL and the statement reports success having changed nothing.
+-- The predicate is separate and also required: a superuser or BYPASSRLS owner
+-- (every dev machine and CI) is not filtered by the policy at all, so without it
+-- the statement would run once per workspace over every workspace's rows.
+--
+-- A person's files roll up to nothing, matching the writer: person to
+-- organization runs through relationship kind 'employment', which is
+-- many-valued, so a contact at two companies has no single account.
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+
+    UPDATE attachment a
+       SET organization_id = a.entity_id
+     WHERE a.entity_type = 'organization'
+       AND a.organization_id IS NULL
+       AND a.workspace_id = ws;
+
+    UPDATE attachment a
+       SET organization_id = d.organization_id
+      FROM deal d
+     WHERE a.entity_type = 'deal'
+       AND a.entity_id = d.id
+       AND d.organization_id IS NOT NULL
+       AND a.organization_id IS NULL
+       AND a.workspace_id = ws;
+  END LOOP;
+END $$;

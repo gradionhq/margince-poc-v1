@@ -207,18 +207,12 @@ func (h Handlers) ListOrganizationDocuments(w http.ResponseWriter, r *http.Reque
 
 // UpdateAttachmentMetadata sets what a document means: its category, its display
 // title, its lifecycle state, its pin and what it replaces (DOC-WIRE-2).
-func (h Handlers) UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request,
-	id crmcontracts.Id, params crmcontracts.UpdateAttachmentMetadataParams,
-) {
+func (h Handlers) UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	var req crmcontracts.UpdateAttachmentMetadataRequest
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	version, ok := httperr.IfMatchVersion(w, r)
-	if !ok {
-		return
-	}
-	in := DocumentMetadata{IfVersion: version}
+	var in DocumentMetadata
 	if req.Category != nil {
 		c := string(*req.Category)
 		in.Category = &c

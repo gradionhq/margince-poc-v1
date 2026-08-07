@@ -14,10 +14,12 @@ package integration
 // something is there.
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -198,4 +200,81 @@ var docUploadPerms = principal.Permissions{
 		"person":       {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
+}
+
+// Pointing at a document you cannot read is a read. Accepting the id would both
+// confirm the target exists and build a relationship across a visibility
+// boundary, which is exactly what the parent gate exists to stop.
+func TestAttachmentMetadataRefusesASupersedesTargetTheCallerCannotSee(t *testing.T) {
+	e := Setup(t)
+	store := activities.NewStore(e.Pool)
+	pipeline, stage, _ := DealFixture(t, e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	theirs := e.SeedDeal(t, "Another team's deal", pipeline, stage, &e.Rep3)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirs, org)
+
+	mine := seedDocument(t, e, org, "organization", org, "v2.pdf", "contract", false)
+	hidden := seedDocument(t, e, org, "deal", theirs, "their-v1.pdf", "contract", false)
+
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, docWritePerms)
+	_, err := store.UpdateAttachmentMetadata(ctx, mine,
+		activities.DocumentMetadata{Supersedes: &hidden})
+	if err == nil {
+		t.Fatal("a document out of the caller's scope was accepted as a supersedes target")
+	}
+	// Existence-hiding: the refusal must not distinguish "not allowed" from
+	// "no such document", or the id itself becomes the disclosure.
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("refusal = %v, want ErrNotFound so the target's existence stays hidden", err)
+	}
+}
+
+// Nothing read a SECOND page, which is why the cursor could order on three
+// columns and continue on two and still look right. A page boundary that lands
+// inside the pinned group then excludes every newer unpinned document from
+// every later page — the documents are not late, they are unreachable.
+func TestTheAccountLibraryPagesPastThePinnedGroup(t *testing.T) {
+	e := Setup(t)
+	store := activities.NewStore(e.Pool)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
+
+	// Two pinned and two unpinned. Pinned sort ahead of every unpinned row, so
+	// a limit of 2 ends the first page exactly on the pinned/unpinned boundary.
+	want := map[string]bool{}
+	seed := func(name string, pinned bool) {
+		seedDocument(t, e, org, "organization", org, name, "contract", pinned)
+		want[name] = true
+	}
+	seed("pinned-a.pdf", true)
+	seed("pinned-b.pdf", true)
+	seed("loose-a.pdf", false)
+	seed("loose-b.pdf", false)
+
+	limit := 2
+	got := map[string]bool{}
+	var cursor *string
+	for range 4 { // bounded: four documents at two per page cannot need more
+		docs, page, err := store.ListOrganizationDocuments(ctx, org,
+			activities.DocumentFilters{Limit: &limit, Cursor: cursor})
+		if err != nil {
+			t.Fatalf("listing a page: %v", err)
+		}
+		for _, d := range docs {
+			if got[d.Filename] {
+				t.Fatalf("%s came back on two different pages", d.Filename)
+			}
+			got[d.Filename] = true
+		}
+		if !page.HasMore {
+			break
+		}
+		next := page.NextCursor
+		cursor = &next
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("%s never appeared on any page — the cursor skipped it permanently", name)
+		}
+	}
 }

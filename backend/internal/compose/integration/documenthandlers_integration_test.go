@@ -35,8 +35,7 @@ func patchMetadata(t *testing.T, e *Env, h activities.Handlers, id ids.UUID, bod
 	req := httptest.NewRequest(http.MethodPatch, "/attachments/x/metadata",
 		strings.NewReader(body)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
-	h.UpdateAttachmentMetadata(rec, req, crmcontracts.Id(id),
-		crmcontracts.UpdateAttachmentMetadataParams{})
+	h.UpdateAttachmentMetadata(rec, req, crmcontracts.Id(id))
 	return rec
 }
 
@@ -104,25 +103,6 @@ func TestAttachmentMetadataClearsSupersedesOnlyWhenAsked(t *testing.T) {
 	out = decodeAttachment(t, patchMetadata(t, e, h, second, `{"supersedes_id":null}`))
 	if out.SupersedesId != nil {
 		t.Fatalf("supersedes_id after an explicit null = %v, want it cleared", out.SupersedesId)
-	}
-}
-
-func TestAttachmentMetadataRefusesAStaleIfMatch(t *testing.T) {
-	e := Setup(t)
-	h := activities.NewHandlers(e.Pool)
-	org := e.SeedOrg(t, "Acme", &e.Rep1)
-	doc := seedDocument(t, e, org, "organization", org, "msa.pdf", "contract", false)
-	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, docWritePerms)
-
-	// A malformed If-Match never reaches the store.
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPatch, "/attachments/x/metadata",
-		strings.NewReader(`{"pinned":true}`)).WithContext(ctx)
-	req.Header.Set("If-Match", "not-a-version")
-	h.UpdateAttachmentMetadata(rec, req, crmcontracts.Id(doc),
-		crmcontracts.UpdateAttachmentMetadataParams{})
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("malformed If-Match status = %d, want 422", rec.Code)
 	}
 }
 

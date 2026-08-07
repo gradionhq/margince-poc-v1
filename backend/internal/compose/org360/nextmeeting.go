@@ -111,6 +111,11 @@ func nextMeetingSection(
 		       ), '[]'::jsonb)
 		FROM activity a
 		WHERE a.kind = 'meeting' AND a.archived_at IS NULL
+		  -- A canceled meeting is still a future row. Offering it as the next
+		  -- meeting sends a rep to prepare for something that will not happen,
+		  -- and hides the real next one behind it. A NULL status is a manual
+		  -- booking nobody has tracked a status on, which is a real meeting.
+		  AND (a.meeting_status IS NULL OR a.meeting_status = 'booked')
 		  AND a.occurred_at > $%[4]d
 		  AND %[1]s AND %[2]s
 		ORDER BY a.occurred_at, a.id

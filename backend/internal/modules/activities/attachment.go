@@ -124,9 +124,13 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 
 	var out crmcontracts.Attachment
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rollUp, err := accountRollUp(ctx, tx, in.EntityType, in.EntityID)
+		rollUp, hasAccount, err := accountRollUp(ctx, tx, in.EntityType, in.EntityID)
 		if err != nil {
 			return err
+		}
+		var account *ids.UUID
+		if hasAccount {
+			account = &rollUp
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename,
@@ -135,7 +139,7 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 			id, workspaceID(ctx), in.EntityType, in.EntityID, in.Filename,
 			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by,
-			rollUp); err != nil {
+			account); err != nil {
 			return err
 		}
 		if _, err := storekit.Audit(ctx, tx, "create", "attachment", id, nil, map[string]any{
@@ -418,17 +422,20 @@ func nullIfEmpty(s string) *string {
 // works at two companies has no single account, and picking one would file the
 // document under a company the uploader never named. A null here means the file
 // is reachable from the person, not that it was lost.
-func accountRollUp(ctx context.Context, tx pgx.Tx, entityType string, entityID ids.UUID) (*ids.UUID, error) {
+func accountRollUp(ctx context.Context, tx pgx.Tx, entityType string, entityID ids.UUID) (ids.UUID, bool, error) {
 	switch entityType {
 	case linkEntityOrganization:
-		return &entityID, nil
+		return entityID, true, nil
 	case linkEntityDeal:
 		var org *ids.UUID
 		if err := tx.QueryRow(ctx,
 			`SELECT organization_id FROM deal WHERE id = $1`, entityID).Scan(&org); err != nil {
-			return nil, fmt.Errorf("resolving the deal's account for a filed document: %w", err)
+			return ids.UUID{}, false, fmt.Errorf("resolving the deal's account for a filed document: %w", err)
 		}
-		return org, nil
+		if org == nil {
+			return ids.UUID{}, false, nil
+		}
+		return *org, true, nil
 	}
-	return nil, nil
+	return ids.UUID{}, false, nil
 }

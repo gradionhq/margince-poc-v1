@@ -98,6 +98,16 @@ func writeEvidence[T any](
 		p.Set(auditKeySource, before.Source, companySourceHuman)
 		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
 		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
+		// The row changes HANDS, not just provenance. Both enrichment upserts
+		// decline to overwrite a row whose captured_by is a human, and they test
+		// that column rather than `source` — so a verdict that moved source
+		// alone was reclaimed by the next ordinary refresh, silently undoing
+		// the correction a person had just made.
+		capturedBy, err := storekit.CapturedBy(ctx)
+		if err != nil {
+			return err
+		}
+		p.Set(auditKeyCapturedBy, before.CapturedBy, capturedBy)
 
 		if err := p.ApplyGuardedIn(ctx, tx, w.table, before.ID,
 			w.ifVersion, w.archived); err != nil {
