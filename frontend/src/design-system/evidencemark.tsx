@@ -32,6 +32,12 @@ export type EvidenceMarkSource = {
   snippet?: string | null;
   sourceUrl?: string | null;
   at?: string | null;
+  // A short phrase naming WHERE the value came from ("Read from the
+  // website"), distinct from the ProvenanceTag's WHO-wrote-the-row claim. A
+  // person can confirm a site-read value into the row; the tag then reads
+  // "human" (true — they wrote it) but the value was still read, not typed,
+  // and this line is the only place that survives to say so.
+  origin?: string | undefined;
 };
 
 export function EvidenceMark({
@@ -148,6 +154,7 @@ export function EvidenceMark({
               </span>
             )}
           </p>
+          {source.origin && <p className="evmark-origin">{source.origin}</p>}
           {source.snippet && (
             <blockquote className="evmark-snippet">{source.snippet}</blockquote>
           )}

@@ -24,6 +24,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
   coldFieldLabel,
+  originOf,
   problemMessageOf,
   QueryGate,
   throwProblem,
@@ -510,6 +511,11 @@ function CompanyField({
 }>) {
   const t = useT();
   const provenance = profile.fields?.find((item) => item.field === field);
+  // The raw storage enum ("site_read") is not a word a reader should ever
+  // see; the same origin phrase the evidence mark uses names it in prose.
+  // A human-typed field carries no origin claim, same as it carries no
+  // evidence mark on Context — nothing to badge.
+  const origin = originOf(provenance?.source, t);
   const control = MULTILINE_FIELDS.has(field) ? (
     <Textarea
       rows={3}
@@ -528,9 +534,9 @@ function CompanyField({
     <div className="company-context-field">
       <span>{coldFieldLabel(field, t)}</span>
       {control}
-      {provenance && (
+      {provenance && (origin || provenance.source_url) && (
         <small>
-          <Badge>{provenance.source}</Badge>
+          {origin && <Badge>{origin}</Badge>}
           {provenance.source_url && (
             <a href={provenance.source_url} target="_blank" rel="noreferrer">
               {t("settings.companyViewSource")}

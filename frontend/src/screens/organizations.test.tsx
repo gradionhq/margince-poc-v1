@@ -12,14 +12,20 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocaleProvider } from "../i18n";
+import { LocaleProvider, translate } from "../i18n";
 import {
   buildWebsitePatch,
   CompaniesScreen,
   CompanyScreen,
   companyEditFields,
+  derivedSource,
   mapOrgUpdate,
 } from "./organizations";
+
+const t = (
+  key: Parameters<typeof translate>[1],
+  params?: Record<string, string | number>,
+) => translate("en", key, params);
 
 // Company-360 enrichment (EP05 scrapeCompany): one click stages a 🟡
 // evidence-backed proposal — human field labels, per-field confidence +
@@ -109,6 +115,13 @@ const org360 = {
     lost_count: 0,
   },
   activities: { data: [], page: { has_more: false, next_cursor: null } },
+  // Assembled and quiet: the read came back with nothing to flag. Suites
+  // that exercise HealthCard's own readings pass their own through `org360`.
+  health: {
+    days_since_last_inbound: null,
+    reply_balance: null,
+    single_threaded: false,
+  },
   next_steps: { data: [], page: { has_more: false, next_cursor: null } },
   pending_approvals: { data: [], page: { has_more: false, next_cursor: null } },
   tags: [],
@@ -830,6 +843,50 @@ describe("mapOrgUpdate — domains change detection (P1)", () => {
       { domain: "a.test", is_primary: true },
       { domain: "b.test", is_primary: false },
     ]);
+  });
+});
+
+// The onboarding accept path stores a website read as `source: "site_read"`
+// with `captured_by: "human:<user>"` — a person confirmed the value, so the
+// WHO is honestly human, but the value was still read rather than typed.
+// `source` is the primary signal for that distinction; `captured_by` alone
+// used to lose it, and the evidence mark disappeared the moment a person
+// confirmed an AI-derived value.
+describe("derivedSource — source is the primary trust signal", () => {
+  it("marks a confirmed site read even though captured_by reads human", () => {
+    const result = derivedSource(
+      { source: "site_read", captured_by: "human:u1" },
+      "en",
+      t,
+    );
+    expect(result).toBeDefined();
+    expect(result?.origin).toBe("Read from the website");
+  });
+
+  it("returns undefined for a value a person actually typed", () => {
+    const result = derivedSource(
+      { source: "human", captured_by: "human:u1" },
+      "en",
+      t,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("falls back to captured_by when the row carries no source", () => {
+    const result = derivedSource({ captured_by: "agent:enrich" }, "en", t);
+    expect(result).toBeDefined();
+    expect(result?.origin).toBeUndefined();
+    expect(result?.provenance).toEqual({ kind: "agent", agent: "enrich" });
+  });
+
+  it("names a connector read", () => {
+    const result = derivedSource(
+      { source: "connector", captured_by: "connector:hubspot" },
+      "en",
+      t,
+    );
+    expect(result).toBeDefined();
+    expect(result?.origin).toBe("Received from a connected system");
   });
 });
 

@@ -3,7 +3,6 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
-import { AssistantPanel } from "./assistant";
 import {
   AccountBrief,
   DealsCard,
@@ -249,7 +248,6 @@ function Cards({ view }: Readonly<{ view: View }>) {
     <StoryProviders>
       <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 380 }}>
         <AccountBrief orgId="o-1" view={view} enabled />
-        <AssistantPanel orgId="o-1" enabled />
         <NextSteps view={view} />
         <PeopleCard view={view} writable />
         <DealsCard view={view} />

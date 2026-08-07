@@ -293,6 +293,34 @@ export function provenanceOf(
   return { kind: "agent", agent: label };
 }
 
+// SOURCE_ORIGIN_KEYS maps the storage-side `source` enum onto the
+// human-readable phrase naming WHERE a value came from. Kept separate from
+// provenanceOf: `source` and `captured_by` are two different questions
+// about the same row (where the value came from vs. who wrote it down), and
+// only this one distinguishes a person's own typing from a person confirming
+// something the system read for them.
+const SOURCE_ORIGIN_KEYS: Record<
+  "site_read" | "connector" | "migration",
+  MessageKey
+> = {
+  site_read: "trust.originSiteRead",
+  connector: "trust.originConnector",
+  migration: "trust.originMigration",
+};
+
+// originOf renders the phrase for a non-human source, or undefined for
+// "human" (typed) or an absent source — a row with no origin claim gets no
+// origin line, same as it gets no evidence mark.
+export function originOf(
+  source: "human" | "site_read" | "connector" | "migration" | undefined,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  if (!source || source === "human") {
+    return undefined;
+  }
+  return t(SOURCE_ORIGIN_KEYS[source]);
+}
+
 // The reader's own user id, for the provenance tags on this screen. Undefined
 // while /me is in flight, which the tags read as "a person, not provably you"
 // — the honest reading until the session is known.

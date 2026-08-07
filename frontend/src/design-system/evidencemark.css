@@ -80,6 +80,13 @@
   color: var(--textMeta);
 }
 
+/* Names where the value came from, distinct from the ProvenanceTag's
+   who-wrote-the-row claim above it. */
+.evmark-origin {
+  font-size: var(--text-2xs);
+  color: var(--textMeta);
+}
+
 /* The quoted source text, set apart so it never reads as our own words. */
 .evmark-snippet {
   border-left: 2px solid var(--borderStrong);

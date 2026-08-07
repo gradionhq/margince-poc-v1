@@ -205,7 +205,9 @@ describe("company view — withheld sections", () => {
     stub(view({ deals: undefined, sections_omitted: ["deals"] }));
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
+    const card = await screen.findByRole("complementary", {
+      name: "About this record",
+    });
     const deals = within(card).getByText("Deals").closest("section");
     if (!deals) {
       throw new Error("the deals card has no section wrapper");
@@ -224,7 +226,9 @@ describe("company view — withheld sections", () => {
     stub(view());
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
+    const card = await screen.findByRole("complementary", {
+      name: "About this record",
+    });
     expect(
       within(card).getByText("No open deal on this account."),
     ).toBeTruthy();
@@ -259,7 +263,7 @@ describe("company view — withheld sections", () => {
     );
     renderCompany();
 
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
     expect(screen.queryByText(/Nobody here is your/)).toBeNull();
   });
 });
@@ -271,7 +275,9 @@ describe("company view — the verbs that change a section", () => {
     stub(view());
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
+    const card = await screen.findByRole("complementary", {
+      name: "About this record",
+    });
     expect(
       within(card).getByText("No open deal on this account."),
     ).toBeTruthy();
@@ -290,7 +296,9 @@ describe("company view — the verbs that change a section", () => {
     );
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
+    const card = await screen.findByRole("complementary", {
+      name: "About this record",
+    });
     expect(
       within(card).getByText("Hidden — your role cannot read this"),
     ).toBeTruthy();
@@ -398,32 +406,29 @@ describe("company view — consent is per purpose", () => {
 });
 
 describe("company view — the rails belong to the account, not to a tab", () => {
-  it("gives the business column to the overview and the width to every other tab", async () => {
+  it("keeps the whole left column beside every tab", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
-    // Mounted page-wide, this column repeated itself on every tab — the
-    // People tab drew People twice, and Context read as the overview with a
-    // profile bolted to its side. Each other tab is one subject and takes
-    // the whole width.
-    for (const tab of ["Context", "People", "History", "Partner"]) {
+    // The column belongs to the RECORD, not to one reading of it: the company
+    // and the business beside it stand on every tab, so a reader switching
+    // tabs keeps their anchor. The tab gives a subject the whole width; the
+    // column keeps the same subject in view while they read another one.
+    for (const tab of ["Context", "People", "History", "Partner", "Overview"]) {
       await userEvent.click(screen.getByRole("button", { name: tab }));
-      expect(
-        screen.queryByRole("complementary", { name: "Business" }),
-      ).toBeNull();
+      const column = screen.getByRole("complementary", {
+        name: "About this record",
+      });
+      expect(within(column).getByText("The company")).toBeTruthy();
+      expect(within(column).getByText("Deals")).toBeTruthy();
     }
-
-    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
-    expect(
-      screen.getByRole("complementary", { name: "Business" }),
-    ).toBeTruthy();
   });
 
   it("does not refetch the account when the reader switches tab and back", async () => {
     const fetched = stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
     const before = fetched.filter((path) => path.endsWith("/360")).length;
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
@@ -435,7 +440,7 @@ describe("company view — the rails belong to the account, not to a tab", () =>
   it("leaves the timeline to its own tab rather than repeating it under a form", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
     // The chronology is the account's story: it reads on the overview and
     // on its own History tab, and does not repeat under the partner form.
@@ -468,7 +473,9 @@ describe("company view — overlay mode", () => {
     );
     // No half-page: every card the composite read feeds is absent, rather
     // than each drawing the empty state that would read as an empty account.
-    const column = screen.getByRole("complementary", { name: "Business" });
+    const column = screen.getByRole("complementary", {
+      name: "About this record",
+    });
     for (const card of ["People", "Deals", "Signals"]) {
       expect(within(column).queryByText(card)).toBeNull();
     }
@@ -569,7 +576,9 @@ describe("company view — a failed read is not an empty account", () => {
     // The business rail STAYS, with each card saying it could not be loaded.
     // Removing it would read as an account with no people and no deals,
     // which is the one thing this page does not know.
-    const card = screen.getByRole("complementary", { name: "Business" });
+    const card = screen.getByRole("complementary", {
+      name: "About this record",
+    });
     expect(
       within(card).getAllByText(/Could not be loaded/).length,
     ).toBeGreaterThan(0);
@@ -597,7 +606,9 @@ describe("company view — a failed read is not an empty account", () => {
     stub(view({ deals: undefined }));
     renderCompany();
 
-    const card = await screen.findByRole("complementary", { name: "Business" });
+    const card = await screen.findByRole("complementary", {
+      name: "About this record",
+    });
     const deals = within(card).getByText("Deals").closest("section");
     if (!deals) {
       throw new Error("the deals card has no section wrapper");
@@ -672,7 +683,9 @@ describe("company view — figures that outlive the list they sit under", () => 
     );
     renderCompany();
 
-    const rail = await screen.findByRole("complementary", { name: "Business" });
+    const rail = await screen.findByRole("complementary", {
+      name: "About this record",
+    });
     // No OPEN deal is true and is said. The account still won €120,000 —
     // hiding that because today's pipeline is empty loses a real fact.
     expect(
@@ -1093,7 +1106,7 @@ describe("company view — Partner is not a permanent tab", () => {
   it("offers the account's own tabs but not Partner on an account with no programme", async () => {
     stub(view());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
     // Overview, People and History belong to every account. Partner is a form
     // about a commercial arrangement almost none of them have.
@@ -1106,7 +1119,7 @@ describe("company view — Partner is not a permanent tab", () => {
   it("shows both tabs once the account has a programme", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
     expect(screen.getByRole("button", { name: "Partner" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Overview" })).toBeTruthy();
@@ -1115,7 +1128,7 @@ describe("company view — Partner is not a permanent tab", () => {
   it("keeps the setup form reachable, so a first partner row can still be made", async () => {
     stub(view());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
     await userEvent.click(screen.getByRole("button", { name: "More actions" }));
     await userEvent.click(
@@ -1134,7 +1147,7 @@ describe("company view — the visit baseline", () => {
     try {
       const fetched = stub(view());
       renderCompany();
-      await screen.findByRole("complementary", { name: "Business" });
+      await screen.findByRole("complementary", { name: "About this record" });
       expect(fetched.some((path) => path.endsWith("/view-ack"))).toBe(false);
 
       await vi.advanceTimersByTimeAsync(5_000);
@@ -1152,7 +1165,7 @@ describe("company view — the visit baseline", () => {
     try {
       const fetched = stub(view());
       const { unmount } = render(<CompanyScreen id="o-1" />);
-      await screen.findByRole("complementary", { name: "Business" });
+      await screen.findByRole("complementary", { name: "About this record" });
       unmount();
 
       await vi.advanceTimersByTimeAsync(30_000);
@@ -1177,7 +1190,7 @@ describe("company view — where the account stands, and what it is to us", () =
       relationship_types: ["customer", "supplier"],
     });
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
     // The state strip's Account cell and the facts card below both state
     // these already — a masthead badge for the same two facts was a third
@@ -1190,7 +1203,7 @@ describe("company view — where the account stands, and what it is to us", () =
   it("draws no badge for an account nobody has assessed", async () => {
     stub(view(), 200, { ...org, lifecycle: "unknown", relationship_types: [] });
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
     // 'unknown' is the honest default, and a badge announcing it on every new
     // record is noise — the old column defaulted to 'prospect' and rendered
@@ -1349,7 +1362,7 @@ describe("company view — the state strip", () => {
     // so the row it calls out is the row the list leads with — not a second
     // deal the API happened to return first.
     const businessCard = screen.getByRole("complementary", {
-      name: "Business",
+      name: "About this record",
     });
     const dealsCard = within(businessCard)
       .getByText("Deals")
@@ -1457,7 +1470,7 @@ describe("company view — advice you can act on", () => {
 });
 
 describe("company view — the account's own tabs", () => {
-  it("gives People the whole middle column", async () => {
+  it("gives People the whole middle column, with the summary still beside it", async () => {
     stub(
       view({
         people: {
@@ -1476,19 +1489,21 @@ describe("company view — the account's own tabs", () => {
       }),
     );
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
     await userEvent.click(screen.getByRole("button", { name: "People" }));
-    // The overview's card is the summary and the tab is the roster, so only
-    // ONE of them is on screen at a time. Both rendering at once put the same
-    // name — and the same "no contact linked yet" — twice on one page.
-    expect(screen.getAllByText("Christian Hagemeyer")).toHaveLength(1);
+    // The left column belongs to the record and stands on every tab, so the
+    // People tab is the one place its summary and the roster name the same
+    // people: the card beside the tab is the glance, the tab is the roster at
+    // width. Pinned here so the count is a decision rather than an accident —
+    // a third copy means something is rendering the card twice.
+    expect(screen.getAllByText("Christian Hagemeyer")).toHaveLength(2);
   });
 
   it("leaves asking to the one ask surface the shell already carries", async () => {
     stub(view());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
 
     // The page used to carry its own Ask card, so an account had two boxes
     // for the same question. The shell's Ask FAB is scoped to whatever record
@@ -1533,14 +1548,14 @@ describe("company view — the way in to one contact", () => {
   it("reads no graph until someone asks for a way in", async () => {
     const fetched = stub(withContact());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
     expect(fetched.filter((path) => path.endsWith("/graph"))).toEqual([]);
   });
 
   it("names who here already talks to that person", async () => {
     const fetched = stub(withContact());
     renderCompany();
-    await screen.findByRole("complementary", { name: "Business" });
+    await screen.findByRole("complementary", { name: "About this record" });
     await userEvent.click(
       screen.getAllByRole("button", { name: "Route in" })[0],
     );

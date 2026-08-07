@@ -48,6 +48,7 @@ import {
   coldFieldLabel,
   isVersionSkew,
   LoadMoreButton,
+  originOf,
   ProblemError,
   problemMessageOf,
   provenanceOf,
@@ -1059,18 +1060,33 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
 // read rather than a person typed. A value a HUMAN entered gets no mark: the
 // record is full of human-entered values, and marking them all would make
 // the underline mean nothing.
-function derivedSource(
+//
+// `captured_by` and `source` answer different questions about the same row:
+// who wrote it down, and where the value came from. The onboarding accept
+// path stores a website read as `source: "site_read"` with
+// `captured_by: "human:<user>"` — a person confirmed it, so the WHO is
+// honestly human, but the value was still read rather than typed. Reading
+// only `captured_by` (the old behaviour) lost that distinction the moment a
+// person confirmed an AI-derived value, so `source` is now the primary
+// signal: a mark shows whenever the value was NOT typed by a person, and
+// `captured_by` is the fallback only when a row carries no `source` at all.
+export function derivedSource(
   row: Readonly<{
     captured_by?: string;
+    source?: "human" | "site_read" | "connector" | "migration";
     confidence?: number | null;
     evidence_snippet?: string | null;
     source_url?: string | null;
     updated_at?: string;
   }>,
   locale: Locale,
+  t: ReturnType<typeof useT>,
 ): EvidenceMarkSource | undefined {
   const provenance = provenanceOf(row.captured_by);
-  if (provenance.kind === "human") {
+  const typedByHuman = row.source
+    ? row.source === "human"
+    : provenance.kind === "human";
+  if (typedByHuman) {
     return undefined;
   }
   return {
@@ -1081,6 +1097,7 @@ function derivedSource(
     at: row.updated_at
       ? formatDateTime(row.updated_at, locale, RECORD_ZONE)
       : undefined,
+    origin: originOf(row.source, t),
   };
 }
 
@@ -1164,7 +1181,7 @@ function FactRow({
       <div>
         <EvidenceMark
           value={fact.value}
-          source={derivedSource(fact, locale)}
+          source={derivedSource(fact, locale, t)}
           onOpenHistory={onOpenHistory}
         />
         {/* The value contradicts its own field — a phone number filed as a
@@ -2169,7 +2186,7 @@ function CompanyFactsCard({
               <dd>
                 <EvidenceMark
                   value={field.value}
-                  source={derivedSource(field, locale)}
+                  source={derivedSource(field, locale, t)}
                   onOpenHistory={onOpenHistory}
                 />
               </dd>
@@ -2572,45 +2589,49 @@ function CompanyPage({
         ) : undefined
       }
       tabs={tabs}
-      // No full-width band above the columns. Spanning the page, the plate
-      // and the brief pushed the account itself below the fold, so a reader
-      // who opened the record to glance at the company met two panels of
-      // work first. The plate is the FEED now: it heads the right column,
-      // above the chronology it belongs with, and the left column carries
-      // the company from the first pixel.
-      // One left column, the business beside the story: people, deals,
-      // standing, then the slower-moving reference (relationships, custom
-      // fields) folded under it. Everything the site read produced —
-      // sixteen profile statements, the fact groups, the tools that fetch
-      // them — stays on the Context tab: folded into this column it was
-      // more content than the rest of the page put together.
-      // The business column belongs to the OVERVIEW, not to the record.
-      // Mounted page-wide it repeated itself on every tab — the People tab
-      // drew People twice, and Context read as the overview with a profile
-      // bolted to its side. The other tabs are each one subject, and take
-      // the width.
+      // Two columns, and no full-width band above them: spanning the page,
+      // the plate and the brief pushed the account itself below the fold, so
+      // a reader who opened the record to glance at the company met two
+      // panels of work first. The plate heads the right column now, above the
+      // chronology it belongs with, and the left column carries the company
+      // from the first pixel.
       //
-      // Overlay refuses the page whole: a business column of cards that each
-      // read as an empty account is the half-page the refusal exists to
-      // prevent.
+      // Everything the site read produced — sixteen profile statements, the
+      // fact groups, the tools that fetch them — stays on the Context tab:
+      // folded into this column it is more content than the rest of the page
+      // put together.
+      //
+      // Overlay refuses the page whole, so the business column stays out of
+      // it: cards that each read as an empty account are the half-page the
+      // refusal exists to prevent.
       aside={
-        tab === "overview" ? (
-          <>
-            {/* Who they are, before anything about how it is going with
-                them: this is the card a reader doing a ten-second scan came
-                for. It reads the RECORD's own columns, so it survives
-                overlay mode — the mirror refuses the composite read, not the
-                account itself. */}
-            <CompanyFactsCard org={org} onOpenHistory={showChanges} />
-            {!overlay &&
-              businessRail({
-                org,
-                view,
-                failed,
-                readOnly: Boolean(org.archived_at),
-              })}
-          </>
-        ) : undefined
+        <>
+          {/* Who they are, before anything about how it is going with them:
+              this is the card a reader doing a ten-second scan came for. It
+              reads the RECORD's own columns, so it survives overlay mode —
+              the mirror refuses the composite read, not the account itself.
+              It stands on EVERY tab, and it is the only thing that does.
+              Identity is true of the record rather than of one reading of it,
+              so a reader moving between tabs keeps their anchor: the column
+              answers "what is this company", the tabs answer "what am I doing
+              about it", and only the second question changes. */}
+          <CompanyFactsCard org={org} onOpenHistory={showChanges} />
+          {/* The business stands beside every tab too. People and deals each
+              own a tab, so the column repeats what a reader can also open in
+              full; that repetition is the point of an anchor. What the tab
+              gives is the whole subject at width, what the column gives is
+              the same subject at a glance while you are reading something
+              else. Overlay is the one exception: cards that each read as an
+              empty account are the half-page the refusal exists to prevent. */}
+          {!overlay &&
+            businessRail({
+              org,
+              view,
+              failed,
+              tab,
+              readOnly: Boolean(org.archived_at),
+            })}
+        </>
       }
       asideFirst
       timelineTitle={t("co.story.title")}
@@ -2966,11 +2987,16 @@ function businessRail({
   org,
   view,
   failed,
+  tab,
   readOnly,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   failed: boolean;
+  // The open tab, so the rail can tell whether the tab beside it already
+  // owns a control or already states a notice this same column would
+  // otherwise repeat. The rail never reads routing state itself.
+  tab: CompanyTab;
   // An archived company takes no new deals, tags or list rows, so it shows no
   // verb that would only be refused.
   readOnly: boolean;
@@ -2998,9 +3024,12 @@ function businessRail({
           // Linking someone to the account is an employment edge, which is
           // the relationship the Context tab writes. The verb belongs where
           // the roster is read: an empty People card that cannot add a person
-          // asks the reader to go and find the form.
+          // asks the reader to go and find the form. On the Context tab
+          // itself, RelationshipsTab already carries this control — the rail
+          // drops its own copy there rather than offering the same action
+          // twice on one screen.
           actions={
-            readOnly ? undefined : (
+            readOnly || tab === "context" ? undefined : (
               <AddRelationshipAction scope={{ organization_id: org.id }} />
             )
           }
@@ -3055,10 +3084,17 @@ function businessRail({
       </>
     );
   }
-  // The read failed, so the cards get NO payload and say so themselves.
-  // Handing them a fabricated empty one would mean inventing an as_of the
-  // page does not have, and would be indistinguishable from a real answer
-  // one refactor later.
+  // The read failed, so the cards would get NO payload and would say so
+  // themselves — the exact same sentence on every one of them, because the
+  // sentence names that a section failed, not which section. Context's
+  // TagsCard, People's own PeopleCard and History's chronology notice already
+  // put that same sentence in the tab body on their three tabs, so the rail
+  // would only repeat it there. Overview says the read is partial in its own
+  // words instead, and Partner never reads the composite view at all — those
+  // two tabs are the ones left for the rail to say it.
+  if (tab === "context" || tab === "people" || tab === "timeline") {
+    return null;
+  }
   return (
     <>
       <PeopleCard />

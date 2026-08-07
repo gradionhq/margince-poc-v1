@@ -82,6 +82,13 @@ export function Avatar({
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const broken = Boolean(src) && brokenSrc === src;
   const setBroken = () => setBrokenSrc(src ?? null);
+  // A logo that has PAINTED replaces the monogram rather than covering it.
+  // Most company logos carry transparency, so initials left underneath read
+  // through the artwork as a smudge. Keyed by src for the same reason as the
+  // broken state: a record whose logo changes starts over.
+  const [paintedSrc, setPaintedSrc] = useState<string | null>(null);
+  const painted = Boolean(src) && paintedSrc === src;
+  const setPainted = () => setPaintedSrc(src ?? null);
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -106,17 +113,19 @@ export function Avatar({
   return (
     <span className={classes.join(" ")}>
       {src && !broken ? (
-        // The monogram stays underneath: it is what the chip shows until the
-        // image paints, and what is left if the image never does.
         <img
           className="avatar-img"
           src={src}
           alt=""
           loading="lazy"
+          onLoad={setPainted}
           onError={setBroken}
         />
       ) : null}
-      {initials}
+      {/* The monogram is the floor: it holds the chip while the image loads
+          and stays if the image never arrives. It leaves once the logo is
+          actually on screen, so the two are never both visible. */}
+      {painted ? null : initials}
     </span>
   );
 }

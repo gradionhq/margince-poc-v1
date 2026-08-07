@@ -277,21 +277,6 @@
   border-radius: var(--r-full);
 }
 
-/* One assistant panel, three parts. The disclosure line sits under the title
-   so a reader knows what wrote everything below it before they read any of
-   it — stated once for the panel, not repeated per part (WDS-TRUST-6). */
-.co-assistant {
-  margin-bottom: var(--space-3);
-}
-.co-assistant-disclosure {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-3);
-  color: var(--textMeta);
-}
-
 /* Facts read from the site. The rhythm is tighter than the profile card above
    because these are scanned, not read: the reader is looking for one thing. */
 .co-facts-group {
@@ -418,6 +403,15 @@ a.co-chip:focus-visible {
   border: 0;
   padding: 0;
   gap: var(--space-4);
+  /* Five tabs stop fitting somewhere under 340px. They wrap rather than
+     scroll: a scrolling strip hides the tabs past the edge and has to grow an
+     affordance to admit it, and a tab a reader cannot see is a tab they do not
+     know exists. A second row costs one line of height and hides nothing. */
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.record-tabs .segmented button {
+  white-space: nowrap;
 }
 .record-tabs .segmented button {
   background: none;
