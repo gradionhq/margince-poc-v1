@@ -49,10 +49,13 @@ func DealFixture(t *testing.T, e *Env) (pipeline ids.PipelineID, open, won ids.S
 	return ids.From[ids.PipelineKind](ids.UUID(p.Id)), open, won
 }
 
+// stakeholderTouchedAt is the instant SeedStakeholder's emails carry, three
+// days before the 2026-06-04T12:00Z clock the consuming suites pin.
+var stakeholderTouchedAt = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
 // SeedStakeholder creates a person, ties them to the deal as a
 // deal_stakeholder, and gives them one email in each named direction at
-// the fixed instant 2026-06-01T12:00Z — three days before the
-// 2026-06-04T12:00Z clock the consuming suites pin.
+// stakeholderTouchedAt.
 func SeedStakeholder(t *testing.T, e *Env, owner *pgx.Conn, deal ids.UUID, directions ...string) ids.UUID {
 	t.Helper()
 	person := SeedRow(t, owner, `INSERT INTO person (id, workspace_id, full_name, source, captured_by)
@@ -63,8 +66,18 @@ func SeedStakeholder(t *testing.T, e *Env, owner *pgx.Conn, deal ids.UUID, direc
 		t.Fatal(err)
 	}
 	for _, direction := range directions {
-		touch := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-			VALUES ($1, $2, 'email', 'touch', '2026-06-01T12:00:00Z', '`+direction+`', 'manual', 'human:x')`, e.WS)
+		// created_at is pinned alongside occurred_at, not left to the column
+		// default: it is part of the activity shape a reader sees, and a
+		// wall-clock value there makes an assertion about this fixture depend on
+		// when the suite ran. direction is bound rather than interpolated, so a
+		// fixture input stays data even when a caller passes something unexpected.
+		touch := ids.NewV7()
+		if _, err := owner.Exec(context.Background(), `INSERT INTO activity
+			(id, workspace_id, kind, subject, occurred_at, created_at, direction, source, captured_by)
+			VALUES ($1, $2, 'email', 'touch', $3, $3, $4, 'manual', 'human:x')`,
+			touch, e.WS, stakeholderTouchedAt, direction); err != nil {
+			t.Fatalf("seeding %q touch: %v", direction, err)
+		}
 		LinkActivity(t, owner, e.WS, touch, "person", person)
 	}
 	return person
