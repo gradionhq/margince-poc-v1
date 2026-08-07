@@ -8,17 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
@@ -55,63 +52,21 @@ func (s *Store) ConfirmOrganizationFact(
 func (s *Store) writeFact(
 	ctx context.Context, orgID ids.OrganizationID, factKey string, in FactWriteInput,
 ) (crmcontracts.OrganizationFact, error) {
-	var out crmcontracts.OrganizationFact
-	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
-		return out, err
-	}
-	actor, ok := principal.Actor(ctx)
-	if !ok || actor.UserID == (ids.UUID{}) {
-		return out, fmt.Errorf(
-			"confirming a claim records who agreed, and this call carries no user: %w",
-			apperrors.ErrPermissionDenied)
-	}
-
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureOrgWritable(ctx, tx, orgID); err != nil {
-			return err
-		}
-		var now time.Time
-		if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&now); err != nil {
-			return fmt.Errorf("read transaction time: %w", err)
-		}
-		before, err := readFactRow(ctx, tx, orgID, factKey)
-		if err != nil {
-			return err
-		}
-
-		p := storekit.NewPatch()
-		if in.Value != nil {
-			p.Set(auditKeyValue, before.Value, *in.Value)
-		}
-		// The extraction's snippet, source and confidence stay put; the before
-		// image carries them into the audit trail (PO-AC-N-2).
-		p.Set(auditKeySource, before.Source, companySourceHuman)
-		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
-		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
-
-		// No archived_at on this sidecar either — the fact is deleted with its
-		// organization, never retired alone.
-		if err := p.ApplyGuardedIn(ctx, tx, "organization_fact", before.ID,
-			in.IfVersion, storekit.NoArchiveColumn); err != nil {
-			return err
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "update", "organization_fact",
-			before.ID, before.auditImage(), p.After())
-		if err != nil {
-			return fmt.Errorf("audit organization fact write: %w", err)
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID,
-			crmcontracts.PublicEventOrganizationUpdated{
-				ChangedFields: map[string]any{factKey: p.After()},
-			}); err != nil {
-			return fmt.Errorf("emit organization.updated: %w", err)
-		}
-
-		out, err = readFactWire(ctx, tx, orgID, factKey)
-		return err
+	// No canonical hook: the whole claim lives in the sidecar, so the row IS
+	// the value and there is no second write to keep in step.
+	return writeEvidence(ctx, s, orgID, evidenceWrite[crmcontracts.OrganizationFact]{
+		table:      "organization_fact",
+		archived:   storekit.NoArchiveColumn,
+		changedKey: factKey,
+		value:      in.Value,
+		ifVersion:  in.IfVersion,
+		readBefore: func(ctx context.Context, tx pgx.Tx) (evidenceRow, error) {
+			return readFactRow(ctx, tx, orgID, factKey)
+		},
+		readAfter: func(ctx context.Context, tx pgx.Tx) (crmcontracts.OrganizationFact, error) {
+			return readFactWire(ctx, tx, orgID, factKey)
+		},
 	})
-	return out, err
 }
 
 // splitFactKey reads the `<field>:<value_key>` identity the contract addresses

@@ -16,7 +16,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ensureOrgWritable is ensureOrgReadable's write-side twin: same row-scope and
@@ -132,84 +131,28 @@ func (s *Store) ConfirmOrganizationProfileField(
 func (s *Store) writeProfileField(
 	ctx context.Context, orgID ids.OrganizationID, field string, in ProfileFieldWriteInput,
 ) (crmcontracts.CompanyProfileField, error) {
-	var out crmcontracts.CompanyProfileField
-	// A profile field is an assertion about the organization, so it is the
-	// organization's own update grant that governs it — there is no separate
-	// object to grant, and inventing one would let a role edit a company's
-	// industry through its receipt while being denied it on the record.
-	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
-		return out, err
+	w := evidenceWrite[crmcontracts.CompanyProfileField]{
+		table:      "organization_profile_field",
+		archived:   storekit.NoArchiveColumn,
+		changedKey: field,
+		value:      in.Value,
+		ifVersion:  in.IfVersion,
+		readBefore: func(ctx context.Context, tx pgx.Tx) (evidenceRow, error) {
+			return readProfileFieldRow(ctx, tx, orgID, field)
+		},
+		readAfter: func(ctx context.Context, tx pgx.Tx) (crmcontracts.CompanyProfileField, error) {
+			return readProfileFieldWire(ctx, tx, orgID, field)
+		},
 	}
-	// A confirmation names the human who gave it; a principal with no user
-	// cannot confirm anything on anyone's behalf.
-	actor, ok := principal.Actor(ctx)
-	if !ok || actor.UserID == (ids.UUID{}) {
-		return out, fmt.Errorf(
-			"confirming a claim records who agreed, and this call carries no user: %w",
-			apperrors.ErrPermissionDenied)
+	// The half that makes the correction real: a field with a column on the
+	// organization moves there too, or the header goes on showing the value the
+	// human just corrected.
+	if column, canonical := canonicalOrgColumn(field); canonical && in.Value != nil {
+		w.canonical = func(ctx context.Context, tx pgx.Tx) error {
+			return writeCanonicalOrgColumn(ctx, tx, orgID, column, *in.Value)
+		}
 	}
-
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureOrgWritable(ctx, tx, orgID); err != nil {
-			return err
-		}
-		// The transaction's own clock, so every row this write stamps agrees
-		// and a test can pin it without the store carrying a clock.
-		var now time.Time
-		if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&now); err != nil {
-			return fmt.Errorf("read transaction time: %w", err)
-		}
-		before, err := readProfileFieldRow(ctx, tx, orgID, field)
-		if err != nil {
-			return err
-		}
-
-		p := storekit.NewPatch()
-		if in.Value != nil {
-			p.Set(auditKeyValue, before.Value, *in.Value)
-		}
-		// The machine's proposal is NOT overwritten: evidence_snippet,
-		// source_url and confidence stay exactly as extracted, and the before
-		// image below carries them into the audit trail (PO-AC-N-2). What
-		// changes is who now stands behind the value.
-		p.Set(auditKeySource, before.Source, companySourceHuman)
-		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
-		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
-
-		// A receipt is not archivable: it has no archived_at, because it is
-		// deleted with the organization it describes rather than retired on its
-		// own. NoArchiveColumn is how that is spelled.
-		if err := p.ApplyGuardedIn(ctx, tx, "organization_profile_field", before.ID,
-			in.IfVersion, storekit.NoArchiveColumn); err != nil {
-			return err
-		}
-
-		// The half that makes the correction real.
-		if column, canonical := canonicalOrgColumn(field); canonical && in.Value != nil {
-			if err := writeCanonicalOrgColumn(ctx, tx, orgID, column, *in.Value); err != nil {
-				return err
-			}
-		}
-
-		// The before image is the machine's claim in full — snippet, source and
-		// confidence included — so the proposal survives the correction in the
-		// audit trail even though the row now reads as human (PO-AC-N-2).
-		auditID, err := storekit.Audit(ctx, tx, "update", "organization_profile_field",
-			before.ID, before.auditImage(), p.After())
-		if err != nil {
-			return fmt.Errorf("audit organization profile field write: %w", err)
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID,
-			crmcontracts.PublicEventOrganizationUpdated{
-				ChangedFields: map[string]any{field: p.After()},
-			}); err != nil {
-			return fmt.Errorf("emit organization.updated: %w", err)
-		}
-
-		out, err = readProfileFieldWire(ctx, tx, orgID, field)
-		return err
-	})
-	return out, err
+	return writeEvidence(ctx, s, orgID, w)
 }
 
 // writeCanonicalOrgColumn moves the value the sidecar was only describing.
