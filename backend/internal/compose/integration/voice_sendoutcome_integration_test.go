@@ -28,6 +28,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -39,7 +40,7 @@ const voiceSentBody = "Thanks for the call — the pricing follows tomorrow."
 // human's voice profile, a consented recipient under an unsubscribable
 // purpose, and the anchor the send threads onto.
 type voiceSendEnv struct {
-	*env
+	*apptest.AppEnv
 	workspaceID ids.UUID
 	ownerID     ids.UUID
 	profileID   string
@@ -48,12 +49,12 @@ type voiceSendEnv struct {
 
 func setupVoiceSend(t *testing.T) *voiceSendEnv {
 	t.Helper()
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	profile := createVoiceProfile(t, e)
 
 	var workspaceID, ownerID ids.UUID
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT workspace_id, owner_id FROM voice_profile WHERE id = $1`, profile.ID).
 		Scan(&workspaceID, &ownerID); err != nil {
 		t.Fatalf("resolving the profile's workspace and owner: %v", err)
@@ -62,9 +63,9 @@ func setupVoiceSend(t *testing.T) *voiceSendEnv {
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Draft Reader",
-		"emails":    []anyMap{{"email": "reader@buyer.test"}},
+		"emails":    []apptest.AnyMap{{"email": "reader@buyer.test"}},
 	}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
@@ -74,12 +75,12 @@ func setupVoiceSend(t *testing.T) *voiceSendEnv {
 	var purpose struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/consent-purposes", anyMap{
+	if status := e.Call(t, "POST", "/v1/consent-purposes", apptest.AnyMap{
 		"key": "newsletter", "label": "Newsletter", "requires_double_opt_in": false,
 	}, nil, &purpose); status != http.StatusCreated {
 		t.Fatalf("create consent purpose → %d", status)
 	}
-	if status := e.call(t, "POST", "/v1/people/"+person.ID+"/consent", anyMap{
+	if status := e.Call(t, "POST", "/v1/people/"+person.ID+"/consent", apptest.AnyMap{
 		"purpose_id": purpose.ID, "new_state": "granted", "lawful_basis": "consent",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("record consent → %d", status)
@@ -87,15 +88,15 @@ func setupVoiceSend(t *testing.T) *voiceSendEnv {
 	var activity struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/activities", anyMap{
+	if status := e.Call(t, "POST", "/v1/activities", apptest.AnyMap{
 		"kind": "email", "subject": "Pricing question", "direction": "inbound",
-		"links": []anyMap{{"entity_type": "person", "entity_id": person.ID}},
+		"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": person.ID}},
 	}, nil, &activity); status != http.StatusCreated {
 		t.Fatalf("log anchor activity → %d", status)
 	}
 
 	return &voiceSendEnv{
-		env: e, workspaceID: workspaceID, ownerID: ownerID,
+		AppEnv: e, workspaceID: workspaceID, ownerID: ownerID,
 		profileID: profile.ID, activityID: activity.ID,
 	}
 }
@@ -119,14 +120,14 @@ func (e *voiceSendEnv) openVoiceDraft(t *testing.T, opts voiceDraftOptions) (ref
 	profileID, ownerID := any(e.profileID), e.ownerID
 	if opts.foreignOwner {
 		var colleague ids.UUID
-		if err := e.owner.QueryRow(ctx, `
+		if err := e.Owner.QueryRow(ctx, `
 			INSERT INTO app_user (workspace_id, email, display_name)
 			VALUES ($1, $2, 'Colleague') RETURNING id`,
 			e.workspaceID, "colleague-"+ids.NewV7().String()+"@example.test").Scan(&colleague); err != nil {
 			t.Fatalf("seeding the colleague: %v", err)
 		}
 		var foreign ids.UUID
-		if err := e.owner.QueryRow(ctx, `
+		if err := e.Owner.QueryRow(ctx, `
 			INSERT INTO voice_profile (workspace_id, owner_id, scope, status, source, captured_by)
 			VALUES ($1, $2, 'user', 'ready', 'ui', $3) RETURNING id`,
 			e.workspaceID, colleague, "human:"+colleague.String()).Scan(&foreign); err != nil {
@@ -141,7 +142,7 @@ func (e *voiceSendEnv) openVoiceDraft(t *testing.T, opts voiceDraftOptions) (ref
 	if opts.erased {
 		generated, erasedAt = nil, time.Now().UTC()
 	}
-	if err := e.owner.QueryRow(ctx, `
+	if err := e.Owner.QueryRow(ctx, `
 		INSERT INTO voice_learning_signal
 		  (workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
 		   content_erased_at, retention_until, source, captured_by)
@@ -161,7 +162,7 @@ func (e *voiceSendEnv) send(t *testing.T, ref, body string) ids.UUID {
 	var sent struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/activities/"+e.activityID+"/send-email", anyMap{
+	if status := e.Call(t, "POST", "/v1/activities/"+e.activityID+"/send-email", apptest.AnyMap{
 		"to": []string{"reader@buyer.test"}, "subject": "Pricing",
 		"body": body, "consent_purpose": "newsletter", "draft_ref": ref,
 	}, nil, &sent); status != http.StatusAccepted {
@@ -179,7 +180,7 @@ func (e *voiceSendEnv) send(t *testing.T, ref, body string) ids.UUID {
 func (e *voiceSendEnv) transmittedBody(t *testing.T, activityID ids.UUID) string {
 	t.Helper()
 	var body string
-	if err := e.inWorkspace(t, e.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(e.AppEnv, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT body FROM comms_outbound WHERE activity_id = $1`, activityID).Scan(&body)
 	}); err != nil {
@@ -200,7 +201,7 @@ type voiceSignal struct {
 func (e *voiceSendEnv) readSignal(t *testing.T, signal ids.UUID) voiceSignal {
 	t.Helper()
 	var row voiceSignal
-	if err := e.owner.QueryRow(context.Background(), `
+	if err := e.Owner.QueryRow(context.Background(), `
 		SELECT outcome, similarity::double precision, generated_original, content_erased_at, version
 		FROM voice_learning_signal WHERE id = $1`, signal).Scan(
 		&row.outcome, &row.similarity, &row.generatedOriginal, &row.contentErasedAt, &row.version); err != nil {

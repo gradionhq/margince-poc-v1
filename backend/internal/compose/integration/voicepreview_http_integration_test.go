@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 type voicePreviewWire struct {
@@ -47,14 +49,14 @@ const previewMeetingTranscript = "00:00:00 Lars Jankowfsky\n" +
 	"And a second turn of mine."
 
 func TestVoiceCorpusPreviewAndIngestStatsHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	created := createVoiceProfile(t, e)
 	base := "/v1/voice-profiles/" + created.ID
 
 	var preview voicePreviewWire
-	if status := e.call(t, "POST", base+"/sources/preview",
-		anyMap{"format": "transcript", "content": previewMeetingTranscript},
+	if status := e.Call(t, "POST", base+"/sources/preview",
+		apptest.AnyMap{"format": "transcript", "content": previewMeetingTranscript},
 		nil, &preview); status != http.StatusOK {
 		t.Fatalf("preview → %d", status)
 	}
@@ -78,20 +80,20 @@ func TestVoiceCorpusPreviewAndIngestStatsHTTP(t *testing.T) {
 
 	// The raw request keeps the response headers: the refusal contract is
 	// the 422 body AND its problem+json media type.
-	rawBody, err := json.Marshal(anyMap{"format": "docx", "content": "binary"})
+	rawBody, err := json.Marshal(apptest.AnyMap{"format": "docx", "content": "binary"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest("POST", e.ts.URL+base+"/sources/preview", bytes.NewReader(rawBody))
+	req, err := http.NewRequest("POST", e.TS.URL+base+"/sources/preview", bytes.NewReader(rawBody))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.client.Do(req)
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("unknown format preview → %d, want 422", resp.StatusCode)
 	}
@@ -116,7 +118,7 @@ func TestVoiceCorpusPreviewAndIngestStatsHTTP(t *testing.T) {
 			SpeakersSeen   []string `json:"speakers_seen"`
 		} `json:"ingest_stats"`
 	}
-	if status := e.call(t, "POST", base+"/sources", anyMap{
+	if status := e.Call(t, "POST", base+"/sources", apptest.AnyMap{
 		"kind": "transcript", "register": "spoken", "source_label": "Meeting",
 		"source_ref": "meeting-1", "format": "transcript",
 		"speaker_label": "Lars Jankowfsky", "content": previewMeetingTranscript,
@@ -135,7 +137,7 @@ func TestVoiceCorpusPreviewAndIngestStatsHTTP(t *testing.T) {
 	}
 
 	var unlabeled problemWire
-	if status := e.call(t, "POST", base+"/sources", anyMap{
+	if status := e.Call(t, "POST", base+"/sources", apptest.AnyMap{
 		"kind": "transcript", "register": "spoken", "source_label": "Meeting",
 		"source_ref": "meeting-2", "format": "transcript",
 		"content": previewMeetingTranscript,

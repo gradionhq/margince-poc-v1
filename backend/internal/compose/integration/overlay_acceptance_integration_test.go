@@ -44,6 +44,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -515,26 +516,26 @@ func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
 // surface and checks the tables its own fixture populates.
 func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	vault := keyvault.NewMemory()
-	e := setupWithOptions(t, compose.WithKeyvault(vault))
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupAppWithOptions(t, compose.WithKeyvault(vault))
+	e.BootstrapWorkspace(t)
 
 	var conn map[string]any
-	if status := e.call(t, "POST", "/v1/overlay/connection", anyMap{
+	if status := e.Call(t, "POST", "/v1/overlay/connection", apptest.AnyMap{
 		"incumbent": "hubspot", "region": "eu1", "privateAppToken": "fake-token-never-used",
 	}, nil, &conn); status != http.StatusCreated {
 		t.Fatalf("connect overlay = %d %v", status, conn)
 	}
 
-	var me anyMap
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+	var me apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("/me status = %d", status)
 	}
-	adminID, err := ids.Parse(me["user"].(anyMap)["id"].(string))
+	adminID, err := ids.Parse(me["user"].(apptest.AnyMap)["id"].(string))
 	if err != nil {
 		t.Fatalf("parsing admin user id: %v", err)
 	}
 	var wsIDStr string
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsIDStr); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsIDStr); err != nil {
 		t.Fatalf("looking up the workspace id: %v", err)
 	}
 	wsID, err := ids.Parse(wsIDStr)
@@ -563,10 +564,10 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	}
 
 	var seededMirror, seededAssoc int
-	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_mirror WHERE workspace_id = $1`, wsIDStr).Scan(&seededMirror); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_mirror WHERE workspace_id = $1`, wsIDStr).Scan(&seededMirror); err != nil {
 		t.Fatalf("counting the seeded mirror rows: %v", err)
 	}
-	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_association WHERE workspace_id = $1`, wsIDStr).Scan(&seededAssoc); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_association WHERE workspace_id = $1`, wsIDStr).Scan(&seededAssoc); err != nil {
 		t.Fatalf("counting the seeded association rows: %v", err)
 	}
 	if seededMirror == 0 || seededAssoc == 0 {
@@ -584,7 +585,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	// table, and its fixed-window counters expire on their own TTL. There
 	// is no PG row for disconnect to purge.
 
-	if code := e.call(t, "DELETE", "/v1/overlay/connection", nil, nil, nil); code != http.StatusAccepted {
+	if code := e.Call(t, "DELETE", "/v1/overlay/connection", nil, nil, nil); code != http.StatusAccepted {
 		t.Fatalf("disconnect overlay = %d, want 202", code)
 	}
 
@@ -594,7 +595,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	counts := map[string]int{}
 	for _, table := range []string{"overlay_mirror", "overlay_association", "mirror_visibility", "mirror_user_map", "overlay_backfill_cursor", "overlay_reconcile_watermark"} {
 		var n int
-		if err := e.owner.QueryRow(context.Background(), fmt.Sprintf(`SELECT count(*) FROM %s WHERE workspace_id = $1`, table), wsIDStr).Scan(&n); err != nil {
+		if err := e.Owner.QueryRow(context.Background(), fmt.Sprintf(`SELECT count(*) FROM %s WHERE workspace_id = $1`, table), wsIDStr).Scan(&n); err != nil {
 			t.Fatalf("counting %s: %v", table, err)
 		}
 		counts[table] = n
@@ -606,7 +607,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	}
 
 	var tombstoneCount int
-	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_tombstone WHERE workspace_id = $1`, wsIDStr).Scan(&tombstoneCount); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_tombstone WHERE workspace_id = $1`, wsIDStr).Scan(&tombstoneCount); err != nil {
 		t.Fatalf("counting overlay_tombstone rows: %v", err)
 	}
 	if tombstoneCount == 0 {
@@ -652,7 +653,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 			After      map[string]any `json:"after"`
 		} `json:"data"`
 	}
-	if code := e.call(t, "GET", "/v1/audit-log?entity_type=incumbent_connection&action=archive", nil, nil, &audit); code != http.StatusOK {
+	if code := e.Call(t, "GET", "/v1/audit-log?entity_type=incumbent_connection&action=archive", nil, nil, &audit); code != http.StatusOK {
 		t.Fatalf("audit log = %d", code)
 	}
 	if len(audit.Data) != 1 {

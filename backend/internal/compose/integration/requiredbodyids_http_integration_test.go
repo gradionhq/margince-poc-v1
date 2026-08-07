@@ -30,6 +30,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -66,20 +67,20 @@ type requiredIDFixtures struct {
 	deal, subjectUser              string
 }
 
-func seedRequiredIDFixtures(t *testing.T, e *env) requiredIDFixtures {
+func seedRequiredIDFixtures(t *testing.T, e *apptest.AppEnv) requiredIDFixtures {
 	t.Helper()
 	var out requiredIDFixtures
-	out.person = createAndID(t, e, "/v1/people", anyMap{"full_name": "Merge Source"})
-	out.organization = createAndID(t, e, "/v1/organizations", anyMap{"display_name": "Merge Org"})
-	out.activity = createAndID(t, e, "/v1/activities", anyMap{
+	out.person = createAndID(t, e, "/v1/people", apptest.AnyMap{"full_name": "Merge Source"})
+	out.organization = createAndID(t, e, "/v1/organizations", apptest.AnyMap{"display_name": "Merge Org"})
+	out.activity = createAndID(t, e, "/v1/activities", apptest.AnyMap{
 		"kind": "note", "body": "relink probe",
-		"links": []anyMap{{"entity_type": "person", "entity_id": out.person}},
+		"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": out.person}},
 	})
-	out.list = createAndID(t, e, "/v1/lists", anyMap{
+	out.list = createAndID(t, e, "/v1/lists", apptest.AnyMap{
 		"name": "Required IDs", "entity_type": "person", "list_type": "static",
 	})
-	out.tag = createAndID(t, e, "/v1/tags", anyMap{"name": "required-ids"})
-	out.project = createAndID(t, e, "/v1/projects", anyMap{
+	out.tag = createAndID(t, e, "/v1/tags", apptest.AnyMap{"name": "required-ids"})
+	out.project = createAndID(t, e, "/v1/projects", apptest.AnyMap{
 		"name": "Stakeholder probe", "organization_id": out.organization, "source": "manual",
 	})
 	out.deal = seedDealForRequiredIDs(t, e)
@@ -91,7 +92,7 @@ func seedRequiredIDFixtures(t *testing.T, e *env) requiredIDFixtures {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/users", nil, nil, &users); status != http.StatusOK || len(users.Data) == 0 {
+	if status := e.Call(t, "GET", "/v1/users", nil, nil, &users); status != http.StatusOK || len(users.Data) == 0 {
 		t.Fatalf("list users → %d (%d users)", status, len(users.Data))
 	}
 	out.subjectUser = users.Data[0].ID
@@ -101,12 +102,12 @@ func seedRequiredIDFixtures(t *testing.T, e *env) requiredIDFixtures {
 // createAndID posts one fixture and returns its id, failing loudly if the create
 // itself was refused — a fixture that silently did not exist would turn every row
 // below into a 404 about the path.
-func createAndID(t *testing.T, e *env, path string, body anyMap) string {
+func createAndID(t *testing.T, e *apptest.AppEnv, path string, body apptest.AnyMap) string {
 	t.Helper()
 	var created struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", path, body, nil, &created); status != http.StatusCreated {
+	if status := e.Call(t, "POST", path, body, nil, &created); status != http.StatusCreated {
 		t.Fatalf("POST %s → %d, want 201", path, status)
 	}
 	if created.ID == "" {
@@ -119,7 +120,7 @@ func createAndID(t *testing.T, e *env, path string, body anyMap) string {
 // the id under test, so the status difference cannot come from anything else.
 type requiredIDCase struct {
 	method, path      string
-	omitted, supplied anyMap
+	omitted, supplied apptest.AnyMap
 	field             string
 }
 
@@ -134,64 +135,64 @@ func requiredIDCases(f requiredIDFixtures, absent string) map[string]requiredIDC
 		// that has to keep up: one rule, one answer, whichever surface asks.
 		"AdvanceDealRequest.to_stage_id": {
 			method: "POST", path: "/v1/deals/" + f.deal + "/advance",
-			omitted: anyMap{}, supplied: anyMap{"to_stage_id": absent}, field: "to_stage_id",
+			omitted: apptest.AnyMap{}, supplied: apptest.AnyMap{"to_stage_id": absent}, field: "to_stage_id",
 		},
 		"CreateStageRequest.pipeline_id": {
 			method: "POST", path: "/v1/stages",
-			omitted:  anyMap{"name": "Orphan stage", "position": 9},
-			supplied: anyMap{"name": "Orphan stage", "position": 9, "pipeline_id": absent},
+			omitted:  apptest.AnyMap{"name": "Orphan stage", "position": 9},
+			supplied: apptest.AnyMap{"name": "Orphan stage", "position": 9, "pipeline_id": absent},
 			field:    "pipeline_id",
 		},
 		"MergePersonJSONBody.target_id": {
 			method: "POST", path: "/v1/people/" + f.person + "/merge",
-			omitted: anyMap{}, supplied: anyMap{"target_id": absent}, field: "target_id",
+			omitted: apptest.AnyMap{}, supplied: apptest.AnyMap{"target_id": absent}, field: "target_id",
 		},
 		"MergeOrganizationJSONBody.target_id": {
 			method: "POST", path: "/v1/organizations/" + f.organization + "/merge",
-			omitted: anyMap{}, supplied: anyMap{"target_id": absent}, field: "target_id",
+			omitted: apptest.AnyMap{}, supplied: apptest.AnyMap{"target_id": absent}, field: "target_id",
 		},
 		"RelinkActivityJSONBody.entity_id": {
 			method: "POST", path: "/v1/activities/" + f.activity + "/relink",
-			omitted:  anyMap{"entity_type": "person"},
-			supplied: anyMap{"entity_type": "person", "entity_id": absent},
+			omitted:  apptest.AnyMap{"entity_type": "person"},
+			supplied: apptest.AnyMap{"entity_type": "person", "entity_id": absent},
 			field:    "entity_id",
 		},
 		"RecordConsentRequest.purpose_id": {
 			method: "POST", path: "/v1/people/" + f.person + "/consent",
-			omitted:  anyMap{"new_state": "granted"},
-			supplied: anyMap{"new_state": "granted", "purpose_id": absent},
+			omitted:  apptest.AnyMap{"new_state": "granted"},
+			supplied: apptest.AnyMap{"new_state": "granted", "purpose_id": absent},
 			field:    "purpose_id",
 		},
 		"IssueDoubleOptInJSONBody.purpose_id": {
 			method: "POST", path: "/v1/people/" + f.person + "/consent/double-opt-in",
-			omitted: anyMap{}, supplied: anyMap{"purpose_id": absent}, field: "purpose_id",
+			omitted: apptest.AnyMap{}, supplied: apptest.AnyMap{"purpose_id": absent}, field: "purpose_id",
 		},
 		"AddListMemberRequest.entity_id": {
 			method: "POST", path: "/v1/lists/" + f.list + "/members",
-			omitted:  anyMap{"entity_type": "person"},
-			supplied: anyMap{"entity_type": "person", "entity_id": absent},
+			omitted:  apptest.AnyMap{"entity_type": "person"},
+			supplied: apptest.AnyMap{"entity_type": "person", "entity_id": absent},
 			field:    "entity_id",
 		},
 		"ApplyTagRequest.entity_id": {
 			method: "POST", path: "/v1/tags/" + f.tag + "/apply",
-			omitted:  anyMap{"entity_type": "person"},
-			supplied: anyMap{"entity_type": "person", "entity_id": absent},
+			omitted:  apptest.AnyMap{"entity_type": "person"},
+			supplied: apptest.AnyMap{"entity_type": "person", "entity_id": absent},
 			field:    "entity_id",
 		},
 		"SetProjectStakeholderRequest.person_id": {
 			method: "PUT", path: "/v1/projects/" + f.project + "/stakeholders",
-			omitted:  anyMap{"role": "sponsor"},
-			supplied: anyMap{"role": "sponsor", "person_id": absent},
+			omitted:  apptest.AnyMap{"role": "sponsor"},
+			supplied: apptest.AnyMap{"role": "sponsor", "person_id": absent},
 			field:    "person_id",
 		},
 		// Two required ids, so two rows: a guard that named only the first would
 		// leave the second answering not-found for a subject nobody sent.
 		"CreateRecordGrantRequest.record_id": {
 			method: "POST", path: "/v1/record-grants",
-			omitted: anyMap{
+			omitted: apptest.AnyMap{
 				"access": "read", "record_type": "person", "subject_type": "user", "subject_id": f.subjectUser,
 			},
-			supplied: anyMap{
+			supplied: apptest.AnyMap{
 				"access": "read", "record_type": "person", "subject_type": "user",
 				"subject_id": f.subjectUser, "record_id": absent,
 			},
@@ -199,10 +200,10 @@ func requiredIDCases(f requiredIDFixtures, absent string) map[string]requiredIDC
 		},
 		"CreateRecordGrantRequest.subject_id": {
 			method: "POST", path: "/v1/record-grants",
-			omitted: anyMap{
+			omitted: apptest.AnyMap{
 				"access": "read", "record_type": "person", "subject_type": "user", "record_id": f.person,
 			},
-			supplied: anyMap{
+			supplied: apptest.AnyMap{
 				"access": "read", "record_type": "person", "subject_type": "user",
 				"record_id": f.person, "subject_id": absent,
 			},
@@ -212,14 +213,14 @@ func requiredIDCases(f requiredIDFixtures, absent string) map[string]requiredIDC
 }
 
 func TestAnOmittedRequiredIDIsNamedAndASuppliedOneStaysHidden(t *testing.T) {
-	e := setup(t)
-	e.slug = "required-ids"
-	bootstrapWorkspaceSession(t, e, "Required IDs", "ids@fable.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "required-ids"
+	apptest.BootstrapWorkspaceSession(t, e, "Required IDs", "ids@fable.test", "Admin")
 
 	for name, tc := range requiredIDCases(seedRequiredIDFixtures(t, e), ids.NewV7().String()) {
 		t.Run(name+"/omitted names the field", func(t *testing.T) {
 			var problem problemBody
-			status := e.call(t, tc.method, tc.path, tc.omitted, nil, &problem)
+			status := e.Call(t, tc.method, tc.path, tc.omitted, nil, &problem)
 			if status != http.StatusUnprocessableEntity {
 				t.Fatalf("→ %d, want 422 (a bare 404 is the defect this closes): %+v", status, problem)
 			}
@@ -230,7 +231,7 @@ func TestAnOmittedRequiredIDIsNamedAndASuppliedOneStaysHidden(t *testing.T) {
 		})
 		t.Run(name+"/supplied but invisible stays a 404", func(t *testing.T) {
 			var problem problemBody
-			status := e.call(t, tc.method, tc.path, tc.supplied, nil, &problem)
+			status := e.Call(t, tc.method, tc.path, tc.supplied, nil, &problem)
 			if status != http.StatusNotFound {
 				t.Fatalf("→ %d, want 404: a well-formed id that names nothing must not be distinguishable "+
 					"from one the caller may not see, or the status code enumerates rows: %+v", status, problem)
@@ -249,7 +250,7 @@ func TestAnOmittedRequiredIDIsNamedAndASuppliedOneStaysHidden(t *testing.T) {
 // seedDealForRequiredIDs opens one deal in the workspace's seeded default
 // pipeline and returns its id — the advance route needs a real deal in the path,
 // or its 404 would be about the deal rather than about the stage.
-func seedDealForRequiredIDs(t *testing.T, e *env) string {
+func seedDealForRequiredIDs(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var pipelines struct {
 		Data []struct {
@@ -260,7 +261,7 @@ func seedDealForRequiredIDs(t *testing.T, e *env) string {
 			} `json:"stages"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK || len(pipelines.Data) == 0 {
+	if status := e.Call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK || len(pipelines.Data) == 0 {
 		t.Fatalf("list pipelines → %d (%d pipelines)", status, len(pipelines.Data))
 	}
 	pipeline := pipelines.Data[0]
@@ -277,7 +278,7 @@ func seedDealForRequiredIDs(t *testing.T, e *env) string {
 	var deal struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/deals", anyMap{
+	if status := e.Call(t, "POST", "/v1/deals", apptest.AnyMap{
 		"name": "Advance probe", "pipeline_id": pipeline.ID, "stage_id": open,
 		"currency": "EUR", "amount_minor": 1000, "source": "ui",
 	}, nil, &deal); status != http.StatusCreated {
@@ -294,15 +295,15 @@ func seedDealForRequiredIDs(t *testing.T, e *env) string {
 // it. One rule must read the same on both, or the asymmetry has simply moved from
 // one transport to one credential type.
 func TestAPassportReadsTheSameRefusalAsASessionForAnOmittedStage(t *testing.T) {
-	e := setup(t)
-	e.slug = "required-ids-agent"
-	bootstrapWorkspaceSession(t, e, "Required IDs Agent", "agent-ids@fable.test", "Admin")
+	e := apptest.SetupApp(t)
+	e.Slug = "required-ids-agent"
+	apptest.BootstrapWorkspaceSession(t, e, "Required IDs Agent", "agent-ids@fable.test", "Admin")
 	deal := seedDealForRequiredIDs(t, e)
 
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "stage agent", "scopes": []string{"read", "write"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -310,8 +311,8 @@ func TestAPassportReadsTheSameRefusalAsASessionForAnOmittedStage(t *testing.T) {
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 
 	var asSession, asPassport problemBody
-	sessionStatus := e.call(t, "POST", "/v1/deals/"+deal+"/advance", anyMap{}, nil, &asSession)
-	passportStatus := e.call(t, "POST", "/v1/deals/"+deal+"/advance", anyMap{}, bearer, &asPassport)
+	sessionStatus := e.Call(t, "POST", "/v1/deals/"+deal+"/advance", apptest.AnyMap{}, nil, &asSession)
+	passportStatus := e.Call(t, "POST", "/v1/deals/"+deal+"/advance", apptest.AnyMap{}, bearer, &asPassport)
 
 	if sessionStatus != http.StatusUnprocessableEntity || passportStatus != http.StatusUnprocessableEntity {
 		t.Fatalf("session → %d, passport → %d; want 422 from both", sessionStatus, passportStatus)
@@ -377,9 +378,9 @@ type rawAnswer struct {
 
 // postRawBody sends bytes verbatim. env.call marshals its body, so it can never
 // produce the malformed-JSON case the gate has to tell apart from an omitted key.
-func postRawBody(t *testing.T, e *env, path, body string, headers map[string]string) rawAnswer {
+func postRawBody(t *testing.T, e *apptest.AppEnv, path, body string, headers map[string]string) rawAnswer {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, e.ts.URL+path, strings.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, e.TS.URL+path, strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("building request: %v", err)
 	}
@@ -387,11 +388,11 @@ func postRawBody(t *testing.T, e *env, path, body string, headers map[string]str
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := e.client.Do(req)
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatalf("POST %s: %v", path, err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("reading response: %v", err)

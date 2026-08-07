@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
 
@@ -51,19 +52,19 @@ func setupChannelSendNoGmail(t *testing.T) *channelSendEnv {
 	if err != nil {
 		t.Fatalf("building the local vault: %v", err)
 	}
-	e := setupWithOptions(t, compose.WithKeyvault(vault))
-	e.slug = "channel-send-no-gmail-e2e"
-	bootstrapWorkspaceSession(t, e, "Channel Send No-Gmail E2E", "rep@fable.test", "Admin")
+	e := apptest.SetupAppWithOptions(t, compose.WithKeyvault(vault))
+	e.Slug = "channel-send-no-gmail-e2e"
+	apptest.BootstrapWorkspaceSession(t, e, "Channel Send No-Gmail E2E", "rep@fable.test", "Admin")
 
-	c := &channelSendEnv{env: e}
+	c := &channelSendEnv{AppEnv: e}
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{"full_name": "Telegram Buyer"}, nil, &person); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "Telegram Buyer"}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
 	c.personID = person.ID
-	if err := e.inWorkspace(t, e.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT workspace_id, id FROM app_user WHERE email = $1`, "rep@fable.test").Scan(&c.ws, &c.user)
 	}); err != nil {

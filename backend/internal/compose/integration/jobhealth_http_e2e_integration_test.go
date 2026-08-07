@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -64,7 +65,7 @@ type riverRow struct {
 // seedRiverRow writes one row through the OWNER connection: river_job has
 // no RLS, and this fixture deliberately writes rows the app would refuse to
 // create, including another workspace's.
-func seedRiverRow(t *testing.T, e *env, r riverRow) {
+func seedRiverRow(t *testing.T, e *apptest.AppEnv, r riverRow) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -102,7 +103,7 @@ func seedRiverRow(t *testing.T, e *env, r riverRow) {
 		finalizedAt = &now
 	}
 
-	if _, err := e.owner.Exec(ctx, `
+	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO river_job
 		    (state, kind, queue, args, tags, errors, max_attempts, attempt,
 		     created_at, scheduled_at, finalized_at)
@@ -115,11 +116,11 @@ func seedRiverRow(t *testing.T, e *env, r riverRow) {
 
 // callerWorkspace answers the id of the workspace the bootstrapped admin
 // session belongs to — the one the endpoint must scope itself to.
-func callerWorkspace(t *testing.T, e *env) string {
+func callerWorkspace(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var id string
-	if err := e.owner.QueryRow(context.Background(),
-		`SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&id); err != nil {
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&id); err != nil {
 		t.Fatalf("resolving the caller's workspace: %v", err)
 	}
 	return id
@@ -141,8 +142,8 @@ func kindOf(report jobHealthDTO, kind string) (int, bool) {
 // because river_job has no RLS to impose it, so a second workspace has to
 // be present or the test proves nothing.
 func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	mine := callerWorkspace(t, e)
 	theirs := ids.NewV7().String()
 
@@ -170,7 +171,7 @@ func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t
 	seedRiverRow(t, e, riverRow{kind: "not_a_declared_dispatcher", state: "discarded", attempt: 3})
 
 	var report jobHealthDTO
-	if status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("GET /admin/job-health → %d, want 200", status)
 	}
 
@@ -225,8 +226,8 @@ func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t
 // provider cause must not travel, and the panic stack River stores beside
 // it must not either.
 func TestJobHealthReportsAVettedSentenceForAFaultedWorkerAndSubstitutesForARawOne(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	mine := callerWorkspace(t, e)
 
 	vetted := "the record this job names no longer exists"
@@ -243,7 +244,7 @@ func TestJobHealthReportsAVettedSentenceForAFaultedWorkerAndSubstitutesForARawOn
 	})
 
 	var report jobHealthDTO
-	if status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("GET /admin/job-health → %d, want 200", status)
 	}
 
@@ -288,15 +289,15 @@ func TestJobHealthReportsAVettedSentenceForAFaultedWorkerAndSubstitutesForARawOn
 // attempt error while the contract still requires failed_at and reason.
 // Scanning a null into either turns the endpoint into a 500.
 func TestJobHealthCountsACancelledRowThatCarriesNoAttemptErrorAtAll(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	mine := callerWorkspace(t, e)
 
 	seedRiverRow(t, e, riverRow{
 		kind: "cancelled_pass", state: "cancelled", workspace: mine,
 	})
 	var report jobHealthDTO
-	if status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("GET /admin/job-health → %d, want 200: a cancelled row with no attempt "+
 			"error must not fail the read", status)
 	}
@@ -332,13 +333,13 @@ func TestJobHealthCountsACancelledRowThatCarriesNoAttemptErrorAtAll(t *testing.T
 // view of the dispatchers, and a read-scoped passport satisfies every
 // object grant an admin could mint.
 func TestJobHealthRefusesAPassportOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "job health probe", "scopes": []string{"read"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -347,7 +348,7 @@ func TestJobHealthRefusesAPassportOverHTTP(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := e.call(t, "GET", "/v1/admin/job-health", nil,
+	status := e.Call(t, "GET", "/v1/admin/job-health", nil,
 		map[string]string{"Authorization": "Bearer " + minted.Token}, &problem)
 	if status != http.StatusForbidden {
 		t.Errorf("agent GET /admin/job-health → %d, want 403 (the contract declares it human-only)", status)
@@ -361,11 +362,11 @@ func TestJobHealthRefusesAPassportOverHTTP(t *testing.T) {
 // case. An installation with nothing queued is a real state, and a client
 // must be able to tell it from a failure.
 func TestJobHealthOnAnIdleFleetIsAnEmptyReportNotAnError(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var report jobHealthDTO
-	if status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("GET /admin/job-health on an idle fleet → %d, want 200", status)
 	}
 	if report.WorkspaceID == "" {
@@ -387,19 +388,19 @@ func TestJobHealthOnAnIdleFleetIsAnEmptyReportNotAnError(t *testing.T) {
 // table through different scopes, and a tagged row must reach the admin
 // read exactly as an untagged one does.
 func TestJobHealthIgnoresTheSweepTagWhenScopingRows(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	mine := callerWorkspace(t, e)
 
 	seedRiverRow(t, e, riverRow{kind: "tagged_pass", state: "discarded", workspace: mine, attempt: 3})
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`UPDATE river_job SET tags = ARRAY[$1]::varchar(255)[] WHERE kind = 'tagged_pass'`,
 		jobs.SweepTag); err != nil {
 		t.Fatalf("tagging the fixture row: %v", err)
 	}
 
 	var report jobHealthDTO
-	if status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("GET /admin/job-health → %d, want 200", status)
 	}
 	i, ok := kindOf(report, "tagged_pass")
@@ -417,17 +418,17 @@ func TestJobHealthIgnoresTheSweepTagWhenScopingRows(t *testing.T) {
 // decodes into a typed struct, which drops every field the struct does not
 // declare — and an undeclared field is precisely where an unnoticed leak
 // would sit.
-func rawGet(t *testing.T, e *env, path string) string {
+func rawGet(t *testing.T, e *apptest.AppEnv, path string) string {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, e.ts.URL+path, nil)
+	req, err := http.NewRequest(http.MethodGet, e.TS.URL+path, nil)
 	if err != nil {
 		t.Fatalf("building request: %v", err)
 	}
-	resp, err := e.client.Do(req)
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody on the next line; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("reading response: %v", err)
@@ -450,8 +451,8 @@ func containsIgnoringCase(haystack, needle string) bool {
 // "recent" in the field name is a lie, and the 50 an operator sees would
 // be an arbitrary 50 rather than the newest.
 func TestJobHealthCapsTheFailureListAndOrdersItNewestFirst(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	mine := callerWorkspace(t, e)
 
 	// 60 failures, finalized at ascending times, so the newest are the
@@ -461,7 +462,7 @@ func TestJobHealthCapsTheFailureListAndOrdersItNewestFirst(t *testing.T) {
 		seedRiverRow(t, e, riverRow{
 			kind: "capped_pass", state: "discarded", workspace: mine, attempt: 3,
 		})
-		if _, err := e.owner.Exec(context.Background(),
+		if _, err := e.Owner.Exec(context.Background(),
 			`UPDATE river_job SET finalized_at = now() - make_interval(mins => $1)
 			 WHERE kind = 'capped_pass' AND finalized_at IS NOT NULL
 			   AND id = (SELECT max(id) FROM river_job WHERE kind = 'capped_pass')`,
@@ -471,7 +472,7 @@ func TestJobHealthCapsTheFailureListAndOrdersItNewestFirst(t *testing.T) {
 	}
 
 	var report jobHealthDTO
-	if status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("GET /admin/job-health → %d, want 200", status)
 	}
 
@@ -519,22 +520,22 @@ func parseFailedAt(t *testing.T, raw string) time.Time {
 // 401 for a call with no session, and that answer comes from the session
 // middleware rather than from the handler, so only the real wire proves it.
 func TestJobHealthRefusesAnUnauthenticatedCallOverHTTP(t *testing.T) {
-	e := setup(t)
+	e := apptest.SetupApp(t)
 	// Bootstrapped, so the installation EXISTS — an unbootstrapped one
 	// answers 503 for every route and would prove nothing about this
 	// endpoint — and then stripped of its session cookie, so the request
 	// carries no credential of any kind.
-	e.bootstrapWorkspace(t)
+	e.BootstrapWorkspace(t)
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatalf("fresh cookie jar: %v", err)
 	}
-	e.client.Jar = jar
+	e.Client.Jar = jar
 
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &problem)
+	status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &problem)
 	if status != http.StatusUnauthorized {
 		t.Errorf("unauthenticated GET /admin/job-health → %d, want 401", status)
 	}

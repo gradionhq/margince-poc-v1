@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
@@ -47,7 +48,7 @@ import (
 // nothing to do with the write-shadow code under test (overlay_e2e_test.go
 // establishes the same fixture shape for the read side).
 type overlayWriteEnv struct {
-	*env
+	*apptest.AppEnv
 	fake   *fake.Adapter
 	mirror *overlay.MirrorStore
 	ctx    context.Context // workspace+admin-bound, for direct mirror/fake seeding
@@ -58,30 +59,30 @@ func setupOverlayWrite(t *testing.T) overlayWriteEnv {
 	fakeInc := fake.New()
 	fakeInc.SeedOwner("owner-1", "owner@overlay.test")
 	vault := keyvault.NewMemory()
-	e := setupWithOptions(t, compose.WithKeyvault(vault),
+	e := apptest.SetupAppWithOptions(t, compose.WithKeyvault(vault),
 		// Applied AFTER WithKeyvault so it wins: WithKeyvault's own
 		// SetOverlayIncumbentResolver call would otherwise install the
 		// real vaulted resolver last.
 		compose.WithOverlayIncumbentResolver(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }))
-	e.bootstrapWorkspace(t)
+	e.BootstrapWorkspace(t)
 
 	var conn map[string]any
-	if status := e.call(t, "POST", "/v1/overlay/connection", anyMap{
+	if status := e.Call(t, "POST", "/v1/overlay/connection", apptest.AnyMap{
 		"incumbent": "hubspot", "region": "eu1", "privateAppToken": "fake-token-never-used",
 	}, nil, &conn); status != http.StatusCreated {
 		t.Fatalf("connect overlay = %d %v", status, conn)
 	}
 
-	var me anyMap
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+	var me apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("/me status = %d", status)
 	}
-	adminID, err := ids.Parse(me["user"].(anyMap)["id"].(string))
+	adminID, err := ids.Parse(me["user"].(apptest.AnyMap)["id"].(string))
 	if err != nil {
 		t.Fatalf("parsing admin user id: %v", err)
 	}
 	var wsIDStr string
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsIDStr); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsIDStr); err != nil {
 		t.Fatalf("looking up the workspace id: %v", err)
 	}
 	wsID, err := ids.Parse(wsIDStr)
@@ -89,12 +90,12 @@ func setupOverlayWrite(t *testing.T) overlayWriteEnv {
 		t.Fatalf("parsing workspace id: %v", err)
 	}
 
-	mirror := overlay.NewMirrorStore(e.pool, stubOwnerEmails{})
+	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	actorCtx := overlayActorCtx(wsID, adminID)
 	if err := mirror.UpsertUserMap(actorCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the admin to the fake incumbent owner: %v", err)
 	}
-	return overlayWriteEnv{env: e, fake: fakeInc, mirror: mirror, ctx: actorCtx}
+	return overlayWriteEnv{AppEnv: e, fake: fakeInc, mirror: mirror, ctx: actorCtx}
 }
 
 // seedModifiedAt is deliberately a fixed instant well before fake.Adapter's
@@ -135,14 +136,14 @@ func (e overlayWriteEnv) seed(t *testing.T, class, externalID string, fields map
 // externalIDToUUID) is unexported, so the honest way to learn it from this
 // black-box package is the same one a real client would use: list and read
 // the id back off the wire.
-func firstListedID(t *testing.T, e *env, path string) string {
+func firstListedID(t *testing.T, e *apptest.AppEnv, path string) string {
 	t.Helper()
 	var page struct {
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if status := e.call(t, "GET", path, nil, nil, &page); status != http.StatusOK {
+	if status := e.Call(t, "GET", path, nil, nil, &page); status != http.StatusOK {
 		t.Fatalf("GET %s = %d", path, status)
 	}
 	if len(page.Data) != 1 {
@@ -157,10 +158,10 @@ func firstListedID(t *testing.T, e *env, path string) string {
 func TestOverlayUpdateDealWritesBackAndReturnsTheMirroredRow(t *testing.T) {
 	e := setupOverlayWrite(t)
 	e.seed(t, "deal", "9001", map[string]any{"name": "Acme Renewal", "currency": "USD"})
-	id := firstListedID(t, e.env, "/v1/deals")
+	id := firstListedID(t, e.AppEnv, "/v1/deals")
 
 	var deal crmcontracts.Deal
-	if status := e.call(t, "PATCH", "/v1/deals/"+id, anyMap{"name": "Acme Renewal — Q3"}, nil, &deal); status != http.StatusOK {
+	if status := e.Call(t, "PATCH", "/v1/deals/"+id, apptest.AnyMap{"name": "Acme Renewal — Q3"}, nil, &deal); status != http.StatusOK {
 		t.Fatalf("PATCH /v1/deals/%s = %d", id, status)
 	}
 	if deal.Name != "Acme Renewal — Q3" {
@@ -188,10 +189,10 @@ func TestOverlayUpdateDealWritesBackAndReturnsTheMirroredRow(t *testing.T) {
 func TestOverlayArchivePersonWritesBack(t *testing.T) {
 	e := setupOverlayWrite(t)
 	e.seed(t, "person", "9101", map[string]any{"first_name": "Ada", "last_name": "Overlay"})
-	id := firstListedID(t, e.env, "/v1/people")
+	id := firstListedID(t, e.AppEnv, "/v1/people")
 
 	var person crmcontracts.Person
-	if status := e.call(t, "DELETE", "/v1/people/"+id, nil, nil, &person); status != http.StatusOK {
+	if status := e.Call(t, "DELETE", "/v1/people/"+id, nil, nil, &person); status != http.StatusOK {
 		t.Fatalf("DELETE /v1/people/%s = %d, want 200 (architecture/11 §8: never a bare 204 for a domain row)", id, status)
 	}
 	if person.FullName != "Ada Overlay" {
@@ -210,7 +211,7 @@ func TestOverlayArchivePersonWritesBack(t *testing.T) {
 	// — the upstream question is what archive means when the system of record
 	// is an incumbent, and this assertion is what will fail loudly the day
 	// that answer lands.
-	if status := e.call(t, "GET", "/v1/people/"+id, nil, nil, nil); status != http.StatusNotFound {
+	if status := e.Call(t, "GET", "/v1/people/"+id, nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("GET the archived person = %d, want 404 (the mirror row is purged by the archive itself)", status)
 	}
 }
@@ -222,15 +223,15 @@ func TestOverlayUnsupportedWritesStillRefused(t *testing.T) {
 	e := setupOverlayWrite(t)
 	placeholder := ids.NewV7().String()
 
-	if status := e.call(t, "POST", "/v1/deals/"+placeholder+"/advance",
-		anyMap{"to_stage_id": placeholder}, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "POST", "/v1/deals/"+placeholder+"/advance",
+		apptest.AnyMap{"to_stage_id": placeholder}, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("advance_deal in overlay mode = %d, want 422 unsupported_by_sor", status)
 	}
-	if status := e.call(t, "POST", "/v1/people",
-		anyMap{"full_name": "Should Never Land"}, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "POST", "/v1/people",
+		apptest.AnyMap{"full_name": "Should Never Land"}, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("create person in overlay mode = %d, want 422 unsupported_by_sor", status)
 	}
-	if status := e.call(t, "DELETE", "/v1/activities/"+placeholder, nil, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "DELETE", "/v1/activities/"+placeholder, nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("archive activity in overlay mode = %d, want 422 unsupported_by_sor", status)
 	}
 	// DELETE /v1/leads/{id} is disqualify_lead (a lifecycle verb, not a
@@ -239,14 +240,14 @@ func TestOverlayUnsupportedWritesStillRefused(t *testing.T) {
 	// (overlaywrite_test.go's "lead disqualify refused in overlay"), so a
 	// policy regen or a new overlayWriteVerbs entry sending it to
 	// DisqualifyLead's native handler fails a test here too.
-	if status := e.call(t, "DELETE", "/v1/leads/"+placeholder, nil, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "DELETE", "/v1/leads/"+placeholder, nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("disqualify lead in overlay mode = %d, want 422 unsupported_by_sor", status)
 	}
 
 	var personCount int
-	if err := e.owner.QueryRow(
+	if err := e.Owner.QueryRow(
 		context.Background(),
-		`SELECT count(*) FROM person WHERE workspace_id = (SELECT id FROM workspace WHERE slug = $1)`, e.slug,
+		`SELECT count(*) FROM person WHERE workspace_id = (SELECT id FROM workspace WHERE slug = $1)`, e.Slug,
 	).Scan(&personCount); err != nil {
 		t.Fatalf("counting native person rows: %v", err)
 	}
@@ -263,7 +264,7 @@ func TestOverlayTagWriteStillWorks(t *testing.T) {
 	e := setupOverlayWrite(t)
 
 	var tag crmcontracts.Tag
-	if status := e.call(t, "POST", "/v1/tags", anyMap{"name": "hot-lead"}, nil, &tag); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/tags", apptest.AnyMap{"name": "hot-lead"}, nil, &tag); status != http.StatusCreated {
 		t.Fatalf("POST /v1/tags in overlay mode = %d, want 201", status)
 	}
 	if tag.Name != "hot-lead" {
@@ -278,10 +279,10 @@ func TestOverlayTagWriteStillWorks(t *testing.T) {
 func TestOverlayUpdateIgnoresIfMatch(t *testing.T) {
 	e := setupOverlayWrite(t)
 	e.seed(t, "person", "9102", map[string]any{"first_name": "Grace", "last_name": "Overlay"})
-	id := firstListedID(t, e.env, "/v1/people")
+	id := firstListedID(t, e.AppEnv, "/v1/people")
 
 	var person crmcontracts.Person
-	status := e.call(t, "PATCH", "/v1/people/"+id, anyMap{"first_name": "Grace2"},
+	status := e.Call(t, "PATCH", "/v1/people/"+id, apptest.AnyMap{"first_name": "Grace2"},
 		map[string]string{"If-Match": "999"}, &person)
 	if status != http.StatusOK {
 		t.Fatalf("PATCH with a stale If-Match = %d, want 200 (If-Match is not evaluated on the overlay path)", status)
@@ -307,11 +308,11 @@ func TestOverlayUpdateIgnoresIfMatch(t *testing.T) {
 func TestOverlayUpdateDropsUnmappedFields(t *testing.T) {
 	e := setupOverlayWrite(t)
 	e.seed(t, "person", "9103", map[string]any{"first_name": "Rosalind", "last_name": "Overlay"})
-	id := firstListedID(t, e.env, "/v1/people")
+	id := firstListedID(t, e.AppEnv, "/v1/people")
 
 	var person crmcontracts.Person
-	status := e.call(t, "PATCH", "/v1/people/"+id,
-		anyMap{"first_name": "Rosalind2", "owner_id": ids.NewV7().String()}, nil, &person)
+	status := e.Call(t, "PATCH", "/v1/people/"+id,
+		apptest.AnyMap{"first_name": "Rosalind2", "owner_id": ids.NewV7().String()}, nil, &person)
 	if status != http.StatusOK {
 		t.Fatalf("PATCH with an owner_id field = %d, want 200", status)
 	}
@@ -337,7 +338,7 @@ type overlayUpdateCase struct {
 	path       string
 	externalID string
 	seedFields map[string]any
-	patch      anyMap
+	patch      apptest.AnyMap
 	field      string
 	want       string
 }
@@ -370,20 +371,20 @@ type overlayArchiveCase struct {
 // uniform proof per type rather than five ad hoc ones.
 func TestOverlayWriteShadowsRoundTripEveryMirroredType(t *testing.T) {
 	updates := []overlayUpdateCase{
-		{"person", "/v1/people", "9301", map[string]any{"first_name": "Marie"}, anyMap{"first_name": "Marie2"}, "first_name", "Marie2"},
-		{"organization", "/v1/organizations", "9302", map[string]any{"display_name": "Acme Org"}, anyMap{"display_name": "Acme Org 2"}, "display_name", "Acme Org 2"},
-		{"deal", "/v1/deals", "9303", map[string]any{"name": "Widget Deal"}, anyMap{"name": "Widget Deal 2"}, "name", "Widget Deal 2"},
-		{"lead", "/v1/leads", "9304", map[string]any{"full_name": "Grace Lead"}, anyMap{"full_name": "Grace Lead 2"}, "full_name", "Grace Lead 2"},
-		{"activity", "/v1/activities", "9305", map[string]any{"kind": "call", "subject": "Intro Call"}, anyMap{"subject": "Intro Call 2"}, "subject", "Intro Call 2"},
+		{"person", "/v1/people", "9301", map[string]any{"first_name": "Marie"}, apptest.AnyMap{"first_name": "Marie2"}, "first_name", "Marie2"},
+		{"organization", "/v1/organizations", "9302", map[string]any{"display_name": "Acme Org"}, apptest.AnyMap{"display_name": "Acme Org 2"}, "display_name", "Acme Org 2"},
+		{"deal", "/v1/deals", "9303", map[string]any{"name": "Widget Deal"}, apptest.AnyMap{"name": "Widget Deal 2"}, "name", "Widget Deal 2"},
+		{"lead", "/v1/leads", "9304", map[string]any{"full_name": "Grace Lead"}, apptest.AnyMap{"full_name": "Grace Lead 2"}, "full_name", "Grace Lead 2"},
+		{"activity", "/v1/activities", "9305", map[string]any{"kind": "call", "subject": "Intro Call"}, apptest.AnyMap{"subject": "Intro Call 2"}, "subject", "Intro Call 2"},
 	}
 	for _, tc := range updates {
 		t.Run("update/"+tc.entityType, func(t *testing.T) {
 			e := setupOverlayWrite(t)
 			e.seed(t, tc.entityType, tc.externalID, tc.seedFields)
-			id := firstListedID(t, e.env, tc.path)
+			id := firstListedID(t, e.AppEnv, tc.path)
 
-			var body anyMap
-			if status := e.call(t, "PATCH", tc.path+"/"+id, tc.patch, nil, &body); status != http.StatusOK {
+			var body apptest.AnyMap
+			if status := e.Call(t, "PATCH", tc.path+"/"+id, tc.patch, nil, &body); status != http.StatusOK {
 				t.Fatalf("PATCH %s/%s = %d", tc.path, id, status)
 			}
 			if got, _ := body[tc.field].(string); got != tc.want {
@@ -401,10 +402,10 @@ func TestOverlayWriteShadowsRoundTripEveryMirroredType(t *testing.T) {
 		t.Run("archive/"+tc.entityType, func(t *testing.T) {
 			e := setupOverlayWrite(t)
 			e.seed(t, tc.entityType, tc.externalID, tc.seedFields)
-			id := firstListedID(t, e.env, tc.path)
+			id := firstListedID(t, e.AppEnv, tc.path)
 
-			var body anyMap
-			if status := e.call(t, "DELETE", tc.path+"/"+id, nil, nil, &body); status != http.StatusOK {
+			var body apptest.AnyMap
+			if status := e.Call(t, "DELETE", tc.path+"/"+id, nil, nil, &body); status != http.StatusOK {
 				t.Fatalf("DELETE %s/%s = %d, want 200", tc.path, id, status)
 			}
 			if got, _ := body[tc.field].(string); got != tc.want {
@@ -427,7 +428,7 @@ func TestMirroredOrganizationsStateTheyAreNotTheOwnCompany(t *testing.T) {
 	e.seed(t, "organization", "9320", map[string]any{"display_name": "Mirrored Org"})
 
 	var page crmcontracts.OrganizationListResponse
-	if status := e.call(t, "GET", "/v1/organizations", nil, nil, &page); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/organizations", nil, nil, &page); status != http.StatusOK {
 		t.Fatalf("GET /v1/organizations = %d", status)
 	}
 	if len(page.Data) != 1 {

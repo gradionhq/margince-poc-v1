@@ -20,11 +20,13 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestCapturedByKindRefusesAValueOutsideTheEnum(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	for _, path := range []string{
 		"/v1/people?captured_by_kind=ai",
@@ -37,7 +39,7 @@ func TestCapturedByKindRefusesAValueOutsideTheEnum(t *testing.T) {
 		"/v1/organizations?captured_by_kind=",
 		"/v1/leads?captured_by_kind=",
 	} {
-		if status := e.call(t, "GET", path, nil, nil, nil); status != http.StatusUnprocessableEntity {
+		if status := e.Call(t, "GET", path, nil, nil, nil); status != http.StatusUnprocessableEntity {
 			t.Errorf("GET %s = %d, want 422 — an unusable provenance kind must be refused, not answered with an unfiltered page", path, status)
 		}
 	}
@@ -50,13 +52,13 @@ func TestCapturedByKindRefusesAValueOutsideTheEnum(t *testing.T) {
 		"/v1/leads?captured_by_kind=connector",
 		"/v1/people?captured_by_kind=system",
 	} {
-		if status := e.call(t, "GET", path, nil, nil, nil); status != http.StatusOK {
+		if status := e.Call(t, "GET", path, nil, nil, nil); status != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, status)
 		}
 	}
 
 	// Omitting the parameter entirely is the one thing that means "no filter".
-	if status := e.call(t, "GET", "/v1/people", nil, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/people", nil, nil, nil); status != http.StatusOK {
 		t.Errorf("GET /v1/people = %d, want 200 — an absent filter is not an unusable one", status)
 	}
 }

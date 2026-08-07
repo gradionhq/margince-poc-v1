@@ -40,7 +40,15 @@ const fleetScanMarker = "FROM workspace"
 // construction — with the exception of a SET-valued RHS, which setPredicates
 // takes back. Checked on the marker's own line and the one after it, because
 // the repo splits some query literals across lines.
-var singleRowPredicates = []string{"WHERE id = ", "WHERE id=", "WHERE w.id = "}
+// slug is the workspace's other unique key (0002_identity.up.sql,
+// workspace_slug_unique), so a lookup by it reads exactly one row for the same
+// reason a lookup by id does. Named here rather than waived per file: a site
+// that resolves ONE workspace by its unique key is not the anti-pattern this
+// gate is about, and teaching that once beats granting it repeatedly.
+var singleRowPredicates = []string{
+	"WHERE id = ", "WHERE id=", "WHERE w.id = ",
+	"WHERE slug = ", "WHERE slug=",
+}
 
 // setPredicates are the RHS spellings that equate id to a SET rather than to
 // one value. They look like a single-row predicate to the prefixes above and

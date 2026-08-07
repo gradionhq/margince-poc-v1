@@ -34,6 +34,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -177,7 +178,7 @@ func (f *fakeTelegramAPI) SendMessage(_ context.Context, _ string, m telegram.Ou
 // real router with the channel surfaces wired, plus the ids and credentials
 // every test needs to address it.
 type telegramEnv struct {
-	*env
+	*apptest.AppEnv
 	vault keyvault.Vault
 	api   *fakeTelegramAPI
 	// inserter is an insert-only River client, used to put one poll job on the
@@ -203,7 +204,7 @@ type telegramEnv struct {
 func setupTelegram(t *testing.T) *telegramEnv {
 	t.Helper()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	// The vault and the job inserter both need a pool before setupWithOptions
+	// The vault and the job inserter both need a pool before apptest.SetupAppWithOptions
 	// has opened the harness's own — the separate-connection precedent
 	// setupPreflight uses for exactly this reason.
 	pool := preflightAppPool(t)
@@ -223,14 +224,14 @@ func setupTelegram(t *testing.T) *telegramEnv {
 
 	// Option ORDER is the contract WithChannelSurface states: the transport is
 	// composed first, and WithKeyvault is what hands it the vault it seals with.
-	e := setupWithOptions(t,
+	e := apptest.SetupAppWithOptions(t,
 		compose.WithChannelSurface(),
 		compose.WithKeyvault(vault),
 	)
-	bootstrapWorkspaceSession(t, e, telegramWorkspaceName, telegramAdminEmail, "Telegram Admin")
-	e.slug = telegramWorkspaceSlug
+	apptest.BootstrapWorkspaceSession(t, e, telegramWorkspaceName, telegramAdminEmail, "Telegram Admin")
+	e.Slug = telegramWorkspaceSlug
 
-	c := &telegramEnv{env: e, vault: vault, api: api, inserter: inserter, log: quiet}
+	c := &telegramEnv{AppEnv: e, vault: vault, api: api, inserter: inserter, log: quiet}
 	c.resolveActors(t)
 	return c
 }
@@ -241,7 +242,7 @@ func setupTelegram(t *testing.T) *telegramEnv {
 // carries a real composite foreign key.
 func (c *telegramEnv) resolveActors(t *testing.T) {
 	t.Helper()
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT workspace_id, id FROM app_user WHERE email = $1`, telegramAdminEmail).Scan(&c.ws, &c.admin)
 	}); err != nil {
@@ -306,7 +307,7 @@ func (c *telegramEnv) strangerRepCtx(t *testing.T, objects map[string]principal.
 // to the same vault the server holds so a token sealed here is a token the
 // poller can unseal.
 func (c *telegramEnv) channelStore() *capture.ChannelStore {
-	return capture.NewChannelStore(c.pool, c.vault, c.api, c.log)
+	return capture.NewChannelStore(c.Pool, c.vault, c.api, c.log)
 }
 
 // connectBot binds the workspace's bot and records the live connection.
@@ -435,7 +436,7 @@ func (c *telegramEnv) pollNow(t *testing.T, sub <-chan *river.Event, wantOffset 
 func (c *telegramEnv) pollCursor(t *testing.T) int64 {
 	t.Helper()
 	var offset int64
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT poll_offset FROM channel_connection WHERE id = $1`, c.conn.ID).Scan(&offset)
 	}); err != nil {
@@ -449,7 +450,7 @@ func (c *telegramEnv) pollCursor(t *testing.T) int64 {
 // the batch was never acknowledged, so the next poll asks for it again.
 func (c *telegramEnv) rewindPollCursor(t *testing.T, offset int64) {
 	t.Helper()
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
 			`UPDATE channel_connection SET poll_offset = $2 WHERE id = $1`, c.conn.ID, offset)
 		return err
@@ -465,7 +466,7 @@ func (c *telegramEnv) rewindPollCursor(t *testing.T, offset int64) {
 func (c *telegramEnv) count(t *testing.T, query string, args ...any) int {
 	t.Helper()
 	var n int
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), query, args...).Scan(&n)
 	}); err != nil {
 		t.Fatalf("counting (%s): %v", query, err)
@@ -490,7 +491,7 @@ func (c *telegramEnv) rawCaptures(t *testing.T, updateID int64) int {
 func (c *telegramEnv) ingestJobs(t *testing.T) int {
 	t.Helper()
 	var n int
-	if err := c.pool.QueryRow(context.Background(),
+	if err := c.Pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM river_job WHERE kind = $1 AND args->>'connection_id' = $2`,
 		compose.TelegramIngestArgs{}.Kind(), c.conn.ID.String()).Scan(&n); err != nil {
 		t.Fatalf("counting ingest jobs: %v", err)
@@ -510,7 +511,7 @@ func newTelegramWorker(t *testing.T, c *telegramEnv, cfg compose.JobRunnerConfig
 	ApplyRiverSchema(t)
 	cfg.CloseDateInterval, cfg.ReconcileInterval, cfg.TimeScanInterval = time.Hour, time.Hour, time.Hour
 	cfg.ChannelVault, cfg.ChannelAPI = c.vault, c.api
-	runner, err := compose.NewJobRunner(c.pool, c.log, cfg)
+	runner, err := compose.NewJobRunner(c.Pool, c.log, cfg)
 	if err != nil {
 		t.Fatalf("NewJobRunner: %v", err)
 	}

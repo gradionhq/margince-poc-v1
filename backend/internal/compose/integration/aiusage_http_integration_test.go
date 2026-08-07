@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -23,17 +24,17 @@ import (
 // two days, one with two tiers of the same task — through the owner
 // connection under the workspace GUC, exactly as the meter's upsert lands
 // them.
-func seedAiUsage(t *testing.T, e *env) {
+func seedAiUsage(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := e.owner.Begin(ctx)
+	tx, err := e.Owner.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
 	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
 	defer func() { _ = tx.Rollback(ctx) }()
 	var wsID string
-	if err := tx.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID); err != nil {
@@ -80,13 +81,13 @@ type aiUsageDTO struct {
 }
 
 func TestAiUsageOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	// A fresh workspace: no spend yet, but the report and its budget
 	// block still answer — the spend is never invisible, even at zero.
 	var usage aiUsageDTO
-	if status := e.call(t, "GET", "/v1/ai/usage", nil, nil, &usage); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/ai/usage", nil, nil, &usage); status != http.StatusOK {
 		t.Fatalf("GET /ai/usage → %d, want 200", status)
 	}
 	if usage.Budget.Band == "" {
@@ -98,7 +99,7 @@ func TestAiUsageOverHTTP(t *testing.T) {
 
 	// Two metered days: the report groups day × task × tier as recorded.
 	seedAiUsage(t, e)
-	if status := e.call(t, "GET", "/v1/ai/usage?from=2026-07-01&to=2026-07-14", nil, nil, &usage); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/ai/usage?from=2026-07-01&to=2026-07-14", nil, nil, &usage); status != http.StatusOK {
 		t.Fatalf("windowed GET /ai/usage → %d, want 200", status)
 	}
 	if len(usage.Days) != 2 {
@@ -116,10 +117,10 @@ func TestAiUsageOverHTTP(t *testing.T) {
 	}
 
 	// The refusals, before the aggregation runs: inverted, then over-wide.
-	if status := e.call(t, "GET", "/v1/ai/usage?from=2026-07-14&to=2026-07-01", nil, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "GET", "/v1/ai/usage?from=2026-07-14&to=2026-07-01", nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("inverted window → %d, want 422", status)
 	}
-	if status := e.call(t, "GET", "/v1/ai/usage?from=2020-01-01&to=2026-07-14", nil, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.Call(t, "GET", "/v1/ai/usage?from=2020-01-01&to=2026-07-14", nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("over-wide window → %d, want 422 (366-day cap)", status)
 	}
 }
@@ -133,9 +134,9 @@ func TestAiUsageOverHTTP(t *testing.T) {
 // day + task + TIER, the same grain as the wire) so the merge attaches
 // this call's cost to the one report line it belongs to, not a
 // broadcast across every tier row of the task.
-func seedAiCall(t *testing.T, e *env, wsID string, task, tier, provider, model string, tokensIn, tokensOut int, occurredAt time.Time) {
+func seedAiCall(t *testing.T, e *apptest.AppEnv, wsID string, task, tier, provider, model string, tokensIn, tokensOut int, occurredAt time.Time) {
 	t.Helper()
-	if _, err := e.owner.Exec(context.Background(), `
+	if _, err := e.Owner.Exec(context.Background(), `
 		INSERT INTO ai_call (workspace_id, task, tier, provider, model_id, request_fingerprint,
 		  tokens_in, tokens_out, occurred_at, logical_call_id)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
@@ -146,9 +147,9 @@ func seedAiCall(t *testing.T, e *env, wsID string, task, tier, provider, model s
 }
 
 // seedAiModelRate inserts one ai_model_rate row effective on day.
-func seedAiModelRate(t *testing.T, e *env, wsID string, day time.Time) {
+func seedAiModelRate(t *testing.T, e *apptest.AppEnv, wsID string, day time.Time) {
 	t.Helper()
-	if _, err := e.owner.Exec(context.Background(), `
+	if _, err := e.Owner.Exec(context.Background(), `
 		INSERT INTO ai_model_rate (workspace_id, provider, model_id, input_per_mtok_microusd,
 		  output_per_mtok_microusd, cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date)
 		VALUES ($1,'anthropic','claude-test-model',5000000,25000000,500000,6250000,$2)`,
@@ -167,12 +168,12 @@ func seedAiModelRate(t *testing.T, e *env, wsID string, day time.Time) {
 // summing cost_est_minor across a task's tier rows. A day/task with no
 // matching rate omits cost_est_minor instead of reporting a fabricated 0.
 func TestAiUsageCostOverHTTP(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 	seedAiUsage(t, e)
 	ctx := context.Background()
 	var wsID string
-	if err := e.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 
@@ -200,7 +201,7 @@ func TestAiUsageCostOverHTTP(t *testing.T) {
 	seedAiCall(t, e, wsID, "enrich", "cheap_cloud", "anthropic", "no-rate-model", 500, 100, time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))
 
 	var usage aiUsageDTO
-	if status := e.call(t, "GET", "/v1/ai/usage?from=2026-07-01&to=2026-07-31", nil, nil, &usage); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/ai/usage?from=2026-07-01&to=2026-07-31", nil, nil, &usage); status != http.StatusOK {
 		t.Fatalf("GET /ai/usage → %d, want 200", status)
 	}
 	if usage.Budget.Currency == nil || *usage.Budget.Currency != "USD" {

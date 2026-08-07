@@ -30,6 +30,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
 
@@ -42,7 +43,7 @@ const (
 )
 
 type channelSendEnv struct {
-	*env
+	*apptest.AppEnv
 	activityID string
 	personID   string
 	ws, user   string
@@ -62,7 +63,7 @@ func setupChannelSend(t *testing.T) *channelSendEnv {
 	if err != nil {
 		t.Fatalf("building the local vault: %v", err)
 	}
-	e := setupWithOptions(t, compose.WithKeyvault(vault),
+	e := apptest.SetupAppWithOptions(t, compose.WithKeyvault(vault),
 		// The Google app is configured only to make the connect registry — and
 		// with it the pre-flight — exist. Nothing here sends mail.
 		compose.WithGmailCapture(compose.GmailConfig{
@@ -70,18 +71,18 @@ func setupChannelSend(t *testing.T) *channelSendEnv {
 			StateKey: "0123456789abcdef0123456789abcdef", PublicBaseURL: channelSendBaseURL,
 		}, compose.CaptureConfig{}),
 		compose.WithPublicBaseURL(channelSendBaseURL))
-	e.slug = "channel-send-e2e"
-	bootstrapWorkspaceSession(t, e, "Channel Send E2E", "rep@fable.test", "Admin")
+	e.Slug = "channel-send-e2e"
+	apptest.BootstrapWorkspaceSession(t, e, "Channel Send E2E", "rep@fable.test", "Admin")
 
-	c := &channelSendEnv{env: e}
+	c := &channelSendEnv{AppEnv: e}
 	var person struct {
 		ID string `json:"id"`
 	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{"full_name": "Telegram Buyer"}, nil, &person); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "Telegram Buyer"}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person → %d", status)
 	}
 	c.personID = person.ID
-	if err := e.inWorkspace(t, e.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT workspace_id, id FROM app_user WHERE email = $1`, "rep@fable.test").Scan(&c.ws, &c.user)
 	}); err != nil {
@@ -99,7 +100,7 @@ func setupChannelSend(t *testing.T) *channelSendEnv {
 // reads out of it, not how ingress puts it there.
 func (c *channelSendEnv) bindIdentity(t *testing.T) {
 	t.Helper()
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO person_channel_identity
 				(workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
@@ -116,7 +117,7 @@ func (c *channelSendEnv) bindIdentity(t *testing.T) {
 // the shape capture leaves behind.
 func (c *channelSendEnv) seedInboundMessage(t *testing.T) {
 	t.Helper()
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (workspace_id, kind, body, occurred_at, direction,
@@ -146,7 +147,7 @@ func (c *channelSendEnv) grantConsent(t *testing.T, key string) {
 			Key string `json:"key"`
 		} `json:"data"`
 	}
-	if status := c.call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
+	if status := c.Call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
 		t.Fatalf("list purposes → %d", status)
 	}
 	var purposeID string
@@ -158,7 +159,7 @@ func (c *channelSendEnv) grantConsent(t *testing.T, key string) {
 	if purposeID == "" {
 		t.Fatalf("bootstrap seeded no %q purpose: %+v", key, purposes.Data)
 	}
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": purposeID, "new_state": "granted", "lawful_basis": "consent",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("record consent → %d", status)
@@ -170,7 +171,7 @@ func (c *channelSendEnv) grantConsent(t *testing.T, key string) {
 // vault — so its value is deliberately opaque here.
 func (c *channelSendEnv) connectBot(t *testing.T) {
 	t.Helper()
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO channel_connection
 				(workspace_id, provider, channel_id, channel_label, credential_ref, status, connected_by)
@@ -197,7 +198,7 @@ func (c *channelSendEnv) sendReply(t *testing.T, purpose, body string, headers m
 			} `json:"errors"`
 		} `json:"details"`
 	}
-	status = c.call(t, "POST", "/v1/activities/"+c.activityID+"/send-message", anyMap{
+	status = c.Call(t, "POST", "/v1/activities/"+c.activityID+"/send-message", apptest.AnyMap{
 		"body": body, "consent_purpose": purpose,
 	}, headers, &answer)
 	if errs := answer.Details.Errors; len(errs) > 0 {
@@ -212,7 +213,7 @@ func (c *channelSendEnv) mintPassport(t *testing.T, scopes []string) string {
 	var minted struct {
 		Token string `json:"token"`
 	}
-	if status := c.call(t, "POST", "/v1/passports", anyMap{"label": "reply agent", "scopes": scopes}, nil, &minted); status != http.StatusCreated {
+	if status := c.Call(t, "POST", "/v1/passports", apptest.AnyMap{"label": "reply agent", "scopes": scopes}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
 	}
 	return minted.Token
@@ -231,7 +232,7 @@ func (c *channelSendEnv) sendReplyAs(t *testing.T, scopes []string, purpose stri
 func (c *channelSendEnv) stagedChannelDeliveries(t *testing.T) int {
 	t.Helper()
 	var n int
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM comms_outbound WHERE channel_user_id IS NOT NULL`).Scan(&n)
 	}); err != nil {
@@ -245,7 +246,7 @@ func (c *channelSendEnv) stagedChannelDeliveries(t *testing.T) int {
 func (c *channelSendEnv) outboundActivities(t *testing.T) int {
 	t.Helper()
 	var n int
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM activity WHERE direction = 'outbound'`).Scan(&n)
 	}); err != nil {
@@ -320,7 +321,7 @@ func TestSendMessageAcceptsAHumanCallerWithoutAToken(t *testing.T) {
 	// caller.
 	var recipient, body, provider string
 	var subject, messageID *string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT channel_user_id, body, provider, subject, message_id
 			   FROM comms_outbound WHERE channel_user_id IS NOT NULL`).
@@ -345,7 +346,7 @@ func TestSendMessageAcceptsAHumanCallerWithoutAToken(t *testing.T) {
 // park where the rep never looks.
 func TestSendMessageRefusesWhenNoBotIsBoundForTheChannel(t *testing.T) {
 	c := setupChannelSend(t)
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `UPDATE channel_connection SET status = 'disconnected'`)
 		return err
 	}); err != nil {
@@ -410,7 +411,7 @@ func TestSendMessageRefusesWithoutConsentForThePurpose(t *testing.T) {
 // reply must be refused on reachability rather than accepted and parked.
 func TestSendMessageRefusesAnUnreachablePerson(t *testing.T) {
 	c := setupChannelSend(t)
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
 			`UPDATE person_channel_identity SET blocked_at = now() WHERE channel_user_id = $1`, channelSendAccountID)
 		return err
@@ -441,7 +442,7 @@ func TestSentMessageLandsAsAnOutboundActivity(t *testing.T) {
 		Direction string `json:"direction"`
 		Body      string `json:"body"`
 	}
-	if status := c.call(t, "POST", "/v1/activities/"+c.activityID+"/send-message", anyMap{
+	if status := c.Call(t, "POST", "/v1/activities/"+c.activityID+"/send-message", apptest.AnyMap{
 		"body": "On its way.", "consent_purpose": "transactional",
 	}, nil, &sent); status != http.StatusAccepted {
 		t.Fatalf("human reply → %d", status)
@@ -452,7 +453,7 @@ func TestSentMessageLandsAsAnOutboundActivity(t *testing.T) {
 
 	var threadKey, linkedPerson string
 	var deliveryActivity string
-	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+	if err := inWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx,
 			`SELECT coalesce(thread_key, '') FROM activity WHERE id = $1`, sent.ID).Scan(&threadKey); err != nil {

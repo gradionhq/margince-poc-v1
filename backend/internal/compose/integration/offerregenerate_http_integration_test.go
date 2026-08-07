@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
@@ -35,12 +36,12 @@ import (
 // production wiring rides (cmd/api's offerDraftOptions), just fed a
 // scripted fake in place of the routed model (the --ai-fake dev path).
 // The retriever needs its own pool at option-construction time, before
-// setupWithOptions has opened the harness's own — the same "a boot
+// apptest.SetupAppWithOptions has opened the harness's own — the same "a boot
 // option built from a pool opens ITS OWN, ahead of the harness's" shape
 // SchemaPool(t) already established for WithSchemaPool. fake is handed
 // back so the caller can script it AFTER seeding its deal context (the
 // scripted candidate needs to cite a source_id minted during that seed).
-func setupWithOfferDraft(t *testing.T) (*env, *ai.FakeClient) {
+func setupWithOfferDraft(t *testing.T) (*apptest.AppEnv, *ai.FakeClient) {
 	t.Helper()
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
 	if appDSN == "" {
@@ -63,22 +64,22 @@ func setupWithOfferDraft(t *testing.T) (*env, *ai.FakeClient) {
 	if err != nil {
 		t.Fatalf("NewLocalModelPath: %v", err)
 	}
-	return setupWithOptions(t, compose.WithOfferDraft(modelPath.OfferDraft, retriever)), fake
+	return apptest.SetupAppWithOptions(t, compose.WithOfferDraft(modelPath.OfferDraft, retriever)), fake
 }
 
 // seedDealContextActivity logs one activity linked to the deal — "the
 // deal's captured context" the offerDrafter reads — and returns the
 // source_id a scripted candidate must cite to ground against it.
-func seedDealContextActivity(t *testing.T, e *env, wsID, dealID, subject string) string {
+func seedDealContextActivity(t *testing.T, e *apptest.AppEnv, wsID, dealID, subject string) string {
 	t.Helper()
 	activityID := ids.NewV7()
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		 VALUES ($1, $2, 'note', $3, '2026-07-01T10:00:00Z', 'manual', 'human:x')`,
 		activityID, wsID, subject); err != nil {
 		t.Fatalf("seed deal context activity: %v", err)
 	}
-	if _, err := e.owner.Exec(context.Background(),
+	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id) VALUES ($1, $2, 'deal', $3)`,
 		wsID, activityID, dealID); err != nil {
 		t.Fatalf("link deal context activity: %v", err)
@@ -89,10 +90,10 @@ func seedDealContextActivity(t *testing.T, e *env, wsID, dealID, subject string)
 // wsIDBySlug resolves the workspace's own id — the raw-SQL activity seed
 // above needs it, and the HTTP surface never exposes a workspace's id by
 // its slug.
-func wsIDBySlug(t *testing.T, e *env, slug string) string {
+func wsIDBySlug(t *testing.T, e *apptest.AppEnv, slug string) string {
 	t.Helper()
 	var wsID string
-	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&wsID); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&wsID); err != nil {
 		t.Fatalf("resolve workspace id for slug %q: %v", slug, err)
 	}
 	return wsID
@@ -101,10 +102,10 @@ func wsIDBySlug(t *testing.T, e *env, slug string) string {
 // stagedLineCount counts proposal_state='staged' rows on one offer — the
 // same check offerdraft_integration_test.go's Env.WsCount runs, over
 // this file's own raw owner connection.
-func stagedLineCount(t *testing.T, e *env, offerID string) int {
+func stagedLineCount(t *testing.T, e *apptest.AppEnv, offerID string) int {
 	t.Helper()
 	var n int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM offer_line_item WHERE offer_id = $1 AND proposal_state = 'staged'`, offerID).Scan(&n); err != nil {
 		t.Fatalf("count staged offer lines: %v", err)
 	}
@@ -152,9 +153,9 @@ func containsDescription(descriptions []string, want string) bool {
 
 func TestOfferRegenerateHTTP_GroundedAIDraftStagesAndDisclosesWithoutMovingTotals(t *testing.T) {
 	e, fake := setupWithOfferDraft(t)
-	e.slug = "offer-regen-ai"
-	bootstrapWorkspaceSession(t, e, "Offer Regen AI", "offerai@fable.test", "Admin")
-	wsID := wsIDBySlug(t, e, e.slug)
+	e.Slug = "offer-regen-ai"
+	apptest.BootstrapWorkspaceSession(t, e, "Offer Regen AI", "offerai@fable.test", "Admin")
+	wsID := wsIDBySlug(t, e, e.Slug)
 	dealID := offerFixture(t, e)
 	source := seedDealContextActivity(t, e, wsID, dealID,
 		`Client said: "we'd want a kickoff workshop" and agreed to 20000 cents for it.`)
@@ -165,12 +166,12 @@ func TestOfferRegenerateHTTP_GroundedAIDraftStagesAndDisclosesWithoutMovingTotal
 	]}`)
 
 	sent := createOfferInCurrency(t, e, dealID, "EUR")
-	if status := e.call(t, "POST", "/v1/offers/"+sent.ID+"/send", nil, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/offers/"+sent.ID+"/send", nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("send offer for AI regenerate → %d", status)
 	}
 
 	var regenerated regeneratedOffer
-	if status := e.call(t, "POST", "/v1/offers/"+sent.ID+"/regenerate", nil, nil, &regenerated); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/offers/"+sent.ID+"/regenerate", nil, nil, &regenerated); status != http.StatusCreated {
 		t.Fatalf("AI regenerate → %d %+v, want 201", status, regenerated)
 	}
 	if regenerated.Revision != 2 || regenerated.Status != "draft" {
@@ -205,9 +206,9 @@ func TestOfferRegenerateHTTP_GroundedAIDraftStagesAndDisclosesWithoutMovingTotal
 
 func TestOfferRegenerateHTTP_UngroundedCandidateFallsBackToMechanicalCloneOnly(t *testing.T) {
 	e, fake := setupWithOfferDraft(t)
-	e.slug = "offer-regen-ungrounded"
-	bootstrapWorkspaceSession(t, e, "Offer Regen Ungrounded", "ungrounded@fable.test", "Admin")
-	wsID := wsIDBySlug(t, e, e.slug)
+	e.Slug = "offer-regen-ungrounded"
+	apptest.BootstrapWorkspaceSession(t, e, "Offer Regen Ungrounded", "ungrounded@fable.test", "Admin")
+	wsID := wsIDBySlug(t, e, e.Slug)
 	dealID := offerFixture(t, e)
 	seedDealContextActivity(t, e, wsID, dealID, "Client mentioned they liked our website.")
 	fake.Script(`{"lines":[
@@ -217,12 +218,12 @@ func TestOfferRegenerateHTTP_UngroundedCandidateFallsBackToMechanicalCloneOnly(t
 	]}`)
 
 	sent := createOfferInCurrency(t, e, dealID, "EUR")
-	if status := e.call(t, "POST", "/v1/offers/"+sent.ID+"/send", nil, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/offers/"+sent.ID+"/send", nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("send offer for AI regenerate → %d", status)
 	}
 
 	var regenerated regeneratedOffer
-	if status := e.call(t, "POST", "/v1/offers/"+sent.ID+"/regenerate", nil, nil, &regenerated); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/offers/"+sent.ID+"/regenerate", nil, nil, &regenerated); status != http.StatusCreated {
 		t.Fatalf("regenerate with ungrounded candidate → %d %+v, want 201", status, regenerated)
 	}
 	if regenerated.AiGenerated != nil && *regenerated.AiGenerated {
@@ -251,8 +252,8 @@ func TestOfferRegenerateHTTP_UngroundedCandidateFallsBackToMechanicalCloneOnly(t
 // whether or not an AI brain is wired.
 func TestOfferRegenerateHTTP_NonSentOfferRefusesMechanically(t *testing.T) {
 	e, _ := setupWithOfferDraft(t)
-	e.slug = "offer-regen-not-sent"
-	bootstrapWorkspaceSession(t, e, "Offer Regen Not Sent", "notsent@fable.test", "Admin")
+	e.Slug = "offer-regen-not-sent"
+	apptest.BootstrapWorkspaceSession(t, e, "Offer Regen Not Sent", "notsent@fable.test", "Admin")
 	dealID := offerFixture(t, e)
 	draft := createOfferInCurrency(t, e, dealID, "EUR")
 
@@ -265,7 +266,7 @@ func TestOfferRegenerateHTTP_NonSentOfferRefusesMechanically(t *testing.T) {
 			} `json:"errors"`
 		} `json:"details"`
 	}
-	if status := e.call(t, "POST", "/v1/offers/"+draft.ID+"/regenerate", nil, nil, &problem); status != http.StatusUnprocessableEntity ||
+	if status := e.Call(t, "POST", "/v1/offers/"+draft.ID+"/regenerate", nil, nil, &problem); status != http.StatusUnprocessableEntity ||
 		len(problem.Details.Errors) == 0 || problem.Details.Errors[0].Code != "offer_not_sent" {
 		t.Fatalf("regenerate a draft offer → %d %+v, want 422 offer_not_sent", status, problem)
 	}
@@ -278,20 +279,20 @@ func TestOfferRegenerateHTTP_NonSentOfferRefusesMechanically(t *testing.T) {
 // caller never loses the revision it just minted behind a 500.
 func TestOfferRegenerateHTTP_MalformedModelResponseFallsBackToMechanicalClone(t *testing.T) {
 	e, fake := setupWithOfferDraft(t)
-	e.slug = "offer-regen-malformed"
-	bootstrapWorkspaceSession(t, e, "Offer Regen Malformed", "malformed@fable.test", "Admin")
-	wsID := wsIDBySlug(t, e, e.slug)
+	e.Slug = "offer-regen-malformed"
+	apptest.BootstrapWorkspaceSession(t, e, "Offer Regen Malformed", "malformed@fable.test", "Admin")
+	wsID := wsIDBySlug(t, e, e.Slug)
 	dealID := offerFixture(t, e)
 	seedDealContextActivity(t, e, wsID, dealID, "Client asked about a custom rollout plan.")
 	fake.Script(`this is not json at all`)
 
 	sent := createOfferInCurrency(t, e, dealID, "EUR")
-	if status := e.call(t, "POST", "/v1/offers/"+sent.ID+"/send", nil, nil, nil); status != http.StatusOK {
+	if status := e.Call(t, "POST", "/v1/offers/"+sent.ID+"/send", nil, nil, nil); status != http.StatusOK {
 		t.Fatalf("send offer for AI regenerate → %d", status)
 	}
 
 	var regenerated regeneratedOffer
-	if status := e.call(t, "POST", "/v1/offers/"+sent.ID+"/regenerate", nil, nil, &regenerated); status != http.StatusCreated {
+	if status := e.Call(t, "POST", "/v1/offers/"+sent.ID+"/regenerate", nil, nil, &regenerated); status != http.StatusCreated {
 		t.Fatalf("regenerate over a malformed model response → %d %+v, want 201 (the mechanical mint already committed)", status, regenerated)
 	}
 	if regenerated.Revision != 2 || regenerated.Status != "draft" {

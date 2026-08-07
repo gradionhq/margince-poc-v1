@@ -20,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -58,18 +59,18 @@ func stagedPersonCreated(t *testing.T, owner *pgx.Conn) stagedEnvelope {
 }
 
 func TestWriteStagesOneCompleteEnvelope(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
-	var me anyMap
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+	var me apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("/me status = %d", status)
 	}
 
-	var person anyMap
-	if status := e.call(t, "POST", "/v1/people", anyMap{
+	var person apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Grace Hopper",
-		"emails":    []anyMap{{"email": "grace@example.com"}},
+		"emails":    []apptest.AnyMap{{"email": "grace@example.com"}},
 	}, nil, &person); status != http.StatusCreated {
 		t.Fatalf("create person status = %d, body %v", status, person)
 	}
@@ -120,10 +121,10 @@ func TestWriteStagesOneCompleteEnvelope(t *testing.T) {
 }
 
 func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
-	e := setup(t)
-	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Admin")
+	e := apptest.SetupApp(t)
+	apptest.BootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Admin")
 
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "ada@example.com", "password": "wrong-password-entirely",
 	}, nil, nil); status != http.StatusUnauthorized {
 		t.Fatalf("bad login status = %d, want 401", status)
@@ -154,18 +155,18 @@ func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 	// account-existence oracle. The in-process 429 flood throttle sits in
 	// front for distinct-email sprays; on a single account the lock wins.
 	for i := 2; i <= 5; i++ {
-		if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+		if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 			"email": "ada@example.com", "password": "wrong-password-entirely",
 		}, nil, nil); status != http.StatusUnauthorized {
 			t.Fatalf("failure %d = %d, want 401", i, status)
 		}
 	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "ada@example.com", "password": "wrong-password-entirely",
 	}, nil, nil); status != http.StatusUnauthorized {
 		t.Fatalf("attempt past the lock threshold = %d, want 401 (a locked account reads as bad credentials)", status)
 	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "ada@example.com", "password": "correct-horse-battery",
 	}, nil, nil); status != http.StatusUnauthorized {
 		t.Fatalf("correct password on a locked account = %d, want 401 (indistinguishable from an unknown email)", status)

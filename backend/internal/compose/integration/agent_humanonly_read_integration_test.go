@@ -18,17 +18,19 @@ package integration
 import (
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 func TestAgentBearerIsRefusedOnHumanOnlyReads(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
 
 	var minted struct {
 		PassportID string `json:"passport_id"`
 		Token      string `json:"token"`
 	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
 		"label": "human-only read probe", "scopes": []string{"read"},
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
@@ -70,7 +72,7 @@ func TestAgentBearerIsRefusedOnHumanOnlyReads(t *testing.T) {
 			var problem struct {
 				Code string `json:"code"`
 			}
-			status := e.call(t, "GET", route, nil, bearer, &problem)
+			status := e.Call(t, "GET", route, nil, bearer, &problem)
 			if status != http.StatusForbidden {
 				t.Errorf("agent GET %s → %d, want 403 (the contract declares it human-only)", route, status)
 			}
@@ -82,7 +84,7 @@ func TestAgentBearerIsRefusedOnHumanOnlyReads(t *testing.T) {
 
 	// The gate narrows the annotated exceptions, it does not close the read
 	// surface: an ordinary agent-readable route still answers.
-	if status := e.call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
+	if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
 		t.Errorf("agent GET /v1/people → %d, want 200 — an unannotated read stays agent-readable", status)
 	}
 }

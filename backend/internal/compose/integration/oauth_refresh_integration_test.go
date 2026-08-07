@@ -101,12 +101,12 @@ func (o *oauthEnv) presentInParallel(refreshToken string, n int) []renewal {
 // present posts one already-encoded token-endpoint form, reporting failures
 // as values so it is safe to call off the test goroutine.
 func (o *oauthEnv) present(form string) renewal {
-	req, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/token", strings.NewReader(form))
+	req, err := http.NewRequest(http.MethodPost, o.TS.URL+"/oauth/token", strings.NewReader(form))
 	if err != nil {
 		return renewal{err: err}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := o.client.Do(req)
+	resp, err := o.Client.Do(req)
 	if err != nil {
 		return renewal{err: err}
 	}
@@ -135,7 +135,7 @@ func (o *oauthEnv) grantRevoked(t *testing.T) bool {
 	t.Helper()
 	assertOwnerCount(t, o, 1, `SELECT count(*) FROM oauth_grant`)
 	var revokedAt *time.Time
-	if err := o.owner.QueryRow(context.Background(),
+	if err := o.Owner.QueryRow(context.Background(),
 		`SELECT revoked_at FROM oauth_grant`).Scan(&revokedAt); err != nil {
 		t.Fatalf("reading the grant: %v", err)
 	}
@@ -154,7 +154,7 @@ func (o *oauthEnv) assertChainLinked(t *testing.T, presented, successor string) 
 		consumedAt *time.Time
 		replacedBy *string
 	)
-	if err := o.owner.QueryRow(ctx,
+	if err := o.Owner.QueryRow(ctx,
 		`SELECT consumed_at, replaced_by FROM oauth_refresh_token WHERE token_hash = $1`,
 		sha256Hex(presented)).Scan(&consumedAt, &replacedBy); err != nil {
 		t.Fatalf("reading the presented refresh row: %v", err)
@@ -166,7 +166,7 @@ func (o *oauthEnv) assertChainLinked(t *testing.T, presented, successor string) 
 		successorID string
 		expiresAt   time.Time
 	)
-	if err := o.owner.QueryRow(ctx,
+	if err := o.Owner.QueryRow(ctx,
 		`SELECT id, expires_at FROM oauth_refresh_token WHERE token_hash = $1`,
 		sha256Hex(successor)).Scan(&successorID, &expiresAt); err != nil {
 		t.Fatalf("reading the successor refresh row: %v", err)
@@ -183,7 +183,7 @@ func (o *oauthEnv) assertChainLinked(t *testing.T, presented, successor string) 
 // authority — the only question a connector's user actually cares about.
 func (o *oauthEnv) accessTokenWorks(t *testing.T, accessToken string) bool {
 	t.Helper()
-	status := o.call(t, "GET", "/v1/people", nil, map[string]string{"Authorization": "Bearer " + accessToken}, nil)
+	status := o.Call(t, "GET", "/v1/people", nil, map[string]string{"Authorization": "Bearer " + accessToken}, nil)
 	switch status {
 	case http.StatusOK:
 		return true
@@ -358,7 +358,7 @@ func TestReplayedRefreshOutsideTheWindowRevokesEverything(t *testing.T) {
 	// Age the consumption past the grace window instead of waiting for it:
 	// the rule is a comparison against a clock, so moving the timestamp
 	// proves the same transition a sleep would.
-	if _, err := o.owner.Exec(context.Background(),
+	if _, err := o.Owner.Exec(context.Background(),
 		`UPDATE oauth_refresh_token SET consumed_at = now() - interval '5 minutes' WHERE token_hash = $1`,
 		sha256Hex(firstRefresh)); err != nil {
 		t.Fatalf("ageing the consumption: %v", err)
@@ -436,7 +436,7 @@ func TestRefreshNarrowsScopesButNeverWidensThem(t *testing.T) {
 	}
 	narrowed, _ := body["access_token"].(string)
 	var scopes []string
-	if err := o.owner.QueryRow(context.Background(),
+	if err := o.Owner.QueryRow(context.Background(),
 		`SELECT scopes FROM passport WHERE token_hash = $1`,
 		sha256Hex(narrowed)).Scan(&scopes); err != nil {
 		t.Fatalf("reading the rotated passport: %v", err)

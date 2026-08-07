@@ -24,6 +24,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
 // sendMarketing issues an authenticated send-email and returns the status
@@ -33,20 +35,20 @@ import (
 // (transmittedBody), not this response: the API caller is not the recipient
 // and has nothing to unsubscribe from. host/xfProto let a test forge the
 // request origin to prove the emitted link ignores them.
-func sendMarketing(t *testing.T, e *env, activityID, purpose, host, xfProto string) (int, string) {
+func sendMarketing(t *testing.T, e *apptest.AppEnv, activityID, purpose, host, xfProto string) (int, string) {
 	t.Helper()
-	raw, err := json.Marshal(anyMap{
+	raw, err := json.Marshal(apptest.AnyMap{
 		"subject": "Newsletter", "body": "hello", "to": []string{"subject@consent.test"}, "consent_purpose": purpose,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest("POST", e.ts.URL+"/v1/activities/"+activityID+"/send-email", bytes.NewReader(raw))
+	req, err := http.NewRequest("POST", e.TS.URL+"/v1/activities/"+activityID+"/send-email", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Workspace-Slug", e.slug)
+	req.Header.Set("X-Workspace-Slug", e.Slug)
 	// The forgeable request-origin signals a proxied deployment would carry:
 	// the send must ignore ALL of them and use the configured base, or the
 	// tokenized link could be pointed at an attacker's domain.
@@ -57,11 +59,11 @@ func sendMarketing(t *testing.T, e *env, activityID, purpose, host, xfProto stri
 	if xfProto != "" {
 		req.Header.Set("X-Forwarded-Proto", xfProto)
 	}
-	resp, err := e.client.Do(req)
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
 	if err != nil {
 		t.Fatalf("send-email: %v", err)
 	}
-	defer closeBody(t, resp)
+	defer apptest.CloseBody(t, resp)
 	payload, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +89,7 @@ func sendMarketing(t *testing.T, e *env, activityID, purpose, host, xfProto stri
 func transmittedBody(t *testing.T, c *consentEnv) string {
 	t.Helper()
 	var body string
-	if err := c.owner.QueryRow(context.Background(),
+	if err := c.Owner.QueryRow(context.Background(),
 		`SELECT body FROM comms_outbound ORDER BY id DESC LIMIT 1`).Scan(&body); err != nil {
 		t.Fatalf("reading the staged delivery: %v", err)
 	}
@@ -123,7 +125,7 @@ func tokenFromLink(t *testing.T, link string) string {
 
 func grantPurpose(t *testing.T, c *consentEnv, purposeID string) {
 	t.Helper()
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if status := c.Call(t, "POST", "/v1/people/"+c.personID+"/consent", apptest.AnyMap{
 		"purpose_id": purposeID, "new_state": "granted", "lawful_basis": "consent",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("grant %s → %d", purposeID, status)
@@ -137,7 +139,7 @@ func createNewsletterPurpose(t *testing.T, c *consentEnv) string {
 	var newsletter struct {
 		ID string `json:"id"`
 	}
-	if status := c.call(t, "POST", "/v1/consent-purposes", anyMap{
+	if status := c.Call(t, "POST", "/v1/consent-purposes", apptest.AnyMap{
 		"key": "newsletter", "label": "Newsletter", "requires_double_opt_in": false,
 	}, nil, &newsletter); status != http.StatusCreated {
 		t.Fatalf("create newsletter purpose → %d", status)
@@ -156,7 +158,7 @@ func sendAndAssertUnsubscribeLink(t *testing.T, c *consentEnv) string {
 	t.Helper()
 	// The marketing send carries the one-click link, built from the
 	// configured base — NOT from the request Host.
-	status, _ := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	status, _ := sendMarketing(t, c.AppEnv, c.activityID, "newsletter", "", "")
 	if status != http.StatusAccepted {
 		t.Fatalf("marketing send → %d, want 202", status)
 	}
@@ -174,7 +176,7 @@ func sendAndAssertUnsubscribeLink(t *testing.T, c *consentEnv) string {
 	// delivery, so a hostile send refused before staging would leave this
 	// assertion re-reading the benign one above and passing without ever
 	// proving the forged headers were ignored.
-	hostileStatus, _ := sendMarketing(t, c.env, c.activityID, "newsletter", "evil.example.com", "http")
+	hostileStatus, _ := sendMarketing(t, c.AppEnv, c.activityID, "newsletter", "evil.example.com", "http")
 	if hostileStatus != http.StatusAccepted {
 		t.Fatalf("hostile-origin marketing send → %d, want 202 — the link assertion below needs this send to have staged", hostileStatus)
 	}
@@ -185,7 +187,7 @@ func sendAndAssertUnsubscribeLink(t *testing.T, c *consentEnv) string {
 
 	// A transactional (locked) send has nothing to unsubscribe from, so
 	// nothing is appended to what the sender wrote.
-	if _, tbody := sendMarketing(t, c.env, c.activityID, "transactional", "", ""); strings.Contains(tbody, "/unsubscribe") {
+	if _, tbody := sendMarketing(t, c.AppEnv, c.activityID, "transactional", "", ""); strings.Contains(tbody, "/unsubscribe") {
 		t.Fatalf("transactional send carried an unsubscribe link:\n%s", tbody)
 	}
 	return token
@@ -204,7 +206,7 @@ type prefView struct {
 func readPreferenceView(t *testing.T, c *consentEnv, token string) prefView {
 	t.Helper()
 	var v prefView
-	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token, nil, nil, &v); s != http.StatusOK {
+	if s := publicCall(t, c.AppEnv, "GET", "/v1/public/preferences/"+token, nil, nil, &v); s != http.StatusOK {
 		t.Fatalf("preference center GET → %d", s)
 	}
 	return v
@@ -230,11 +232,11 @@ func purposeStateOf(t *testing.T, v prefView, key string) (string, bool) {
 func assertWithdrawalProvenanceAndWriteShape(t *testing.T, c *consentEnv, token, newsletterID string) {
 	t.Helper()
 	// Idempotent: a repeat one-click writes no second proof row.
-	if s := publicCall(t, c.env, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, nil); s != http.StatusOK {
+	if s := publicCall(t, c.AppEnv, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, nil); s != http.StatusOK {
 		t.Fatalf("idempotent unsubscribe → %d", s)
 	}
 	var withdrawEvents int
-	if err := c.owner.QueryRow(context.Background(),
+	if err := c.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM consent_event WHERE new_state = 'withdrawn' AND purpose_id = $1`, newsletterID).Scan(&withdrawEvents); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +247,7 @@ func assertWithdrawalProvenanceAndWriteShape(t *testing.T, c *consentEnv, token,
 	// The withdrawal's provenance is the preference center + the confined
 	// public principal — never `manual`, never a workspace user.
 	var source, capturedBy, actorType string
-	if err := c.owner.QueryRow(context.Background(), `
+	if err := c.Owner.QueryRow(context.Background(), `
 		SELECT ce.source, ce.captured_by,
 		       (SELECT actor_type FROM audit_log WHERE action = 'consent_withdraw' LIMIT 1)
 		FROM consent_event ce WHERE ce.new_state = 'withdrawn' AND ce.purpose_id = $1 LIMIT 1`,
@@ -259,11 +261,11 @@ func assertWithdrawalProvenanceAndWriteShape(t *testing.T, c *consentEnv, token,
 
 	// The withdrawal rides the standard write shape: audited + emitted.
 	var audits, events int
-	if err := c.owner.QueryRow(context.Background(),
+	if err := c.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM audit_log WHERE action = 'consent_withdraw'`).Scan(&audits); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.owner.QueryRow(context.Background(),
+	if err := c.Owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'consent.changed'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +297,7 @@ func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
 	// A GET/prefetch on the unsubscribe path must NOT withdraw (RFC 8058
 	// mandates POST for exactly this — a scanner following the link must
 	// not opt anyone out).
-	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token+"/unsubscribe", nil, nil, nil); s != http.StatusMethodNotAllowed {
+	if s := publicCall(t, c.AppEnv, "GET", "/v1/public/preferences/"+token+"/unsubscribe", nil, nil, nil); s != http.StatusMethodNotAllowed {
 		t.Fatalf("GET on the unsubscribe path → %d, want 405", s)
 	}
 	if s, _ := purposeStateOf(t, readPreferenceView(t, c, token), "newsletter"); s != "granted" {
@@ -306,7 +308,7 @@ func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
 	var unsub struct {
 		Unsubscribed []string `json:"unsubscribed"`
 	}
-	if s := publicCall(t, c.env, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, &unsub); s != http.StatusOK {
+	if s := publicCall(t, c.AppEnv, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, &unsub); s != http.StatusOK {
 		t.Fatalf("one-click unsubscribe → %d", s)
 	}
 	if len(unsub.Unsubscribed) != 1 || unsub.Unsubscribed[0] != "newsletter" {
@@ -339,7 +341,7 @@ func TestPreferenceTokenNeverReachesTheRecordedActivity(t *testing.T) {
 	c := setupConsent(t)
 	grantPurpose(t, c, createNewsletterPurpose(t, c))
 
-	status, recorded := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	status, recorded := sendMarketing(t, c.AppEnv, c.activityID, "newsletter", "", "")
 	if status != http.StatusAccepted {
 		t.Fatalf("marketing send → %d, want 202", status)
 	}
@@ -358,7 +360,7 @@ func TestPreferenceTokenNeverReachesTheRecordedActivity(t *testing.T) {
 			Body *string `json:"body"`
 		} `json:"data"`
 	}
-	if s := c.call(t, "GET", "/v1/activities?kind=email&limit=50", nil, nil, &page); s != http.StatusOK {
+	if s := c.Call(t, "GET", "/v1/activities?kind=email&limit=50", nil, nil, &page); s != http.StatusOK {
 		t.Fatalf("timeline read → %d", s)
 	}
 	if len(page.Data) == 0 {
@@ -378,7 +380,7 @@ func TestPreferenceTokenNeverReachesTheRecordedActivity(t *testing.T) {
 		t.Fatalf("the recorded body lost the unsubscribe footer entirely:\n%s", recorded)
 	}
 	// And the redacted link is inert: it is not a token the public edge honors.
-	if s := publicCall(t, c.env, "GET",
+	if s := publicCall(t, c.AppEnv, "GET",
 		"/v1/public/preferences/"+tokenFromLink(t, unsubscribeLinkIn(t, recorded)), nil, nil, nil); s != http.StatusNotFound {
 		t.Fatalf("the recorded stand-in resolved on the public edge → %d, want 404", s)
 	}
@@ -390,13 +392,13 @@ func TestPreferenceTokenNeverReachesTheRecordedActivity(t *testing.T) {
 func TestPreferenceCenterTokenGuards(t *testing.T) {
 	c := setupConsent(t)
 
-	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/pref_does_not_exist", nil, nil, nil); s != http.StatusNotFound {
+	if s := publicCall(t, c.AppEnv, "GET", "/v1/public/preferences/pref_does_not_exist", nil, nil, nil); s != http.StatusNotFound {
 		t.Fatalf("unknown token GET → %d, want 404", s)
 	}
-	if s := publicCall(t, c.env, "POST", "/v1/public/preferences/pref_does_not_exist/unsubscribe?purpose=newsletter", nil, nil, nil); s != http.StatusNotFound {
+	if s := publicCall(t, c.AppEnv, "POST", "/v1/public/preferences/pref_does_not_exist/unsubscribe?purpose=newsletter", nil, nil, nil); s != http.StatusNotFound {
 		t.Fatalf("unknown token unsubscribe → %d, want 404", s)
 	}
-	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/", nil, nil, nil); s != http.StatusNotFound {
+	if s := publicCall(t, c.AppEnv, "GET", "/v1/public/preferences/", nil, nil, nil); s != http.StatusNotFound {
 		t.Fatalf("empty token → %d, want 404", s)
 	}
 }
@@ -409,31 +411,31 @@ func TestPreferenceCenterRevokedTokenReadsAsAbsent(t *testing.T) {
 	var newsletter struct {
 		ID string `json:"id"`
 	}
-	if status := c.call(t, "POST", "/v1/consent-purposes", anyMap{
+	if status := c.Call(t, "POST", "/v1/consent-purposes", apptest.AnyMap{
 		"key": "newsletter", "label": "Newsletter", "requires_double_opt_in": false,
 	}, nil, &newsletter); status != http.StatusCreated {
 		t.Fatalf("create newsletter purpose → %d", status)
 	}
 	grantPurpose(t, c, newsletter.ID)
 
-	sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	sendMarketing(t, c.AppEnv, c.activityID, "newsletter", "", "")
 	token := tokenFromLink(t, unsubscribeLinkIn(t, transmittedBody(t, c)))
 
 	// Live token resolves.
-	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token, nil, nil, nil); s != http.StatusOK {
+	if s := publicCall(t, c.AppEnv, "GET", "/v1/public/preferences/"+token, nil, nil, nil); s != http.StatusOK {
 		t.Fatalf("live token GET → %d, want 200", s)
 	}
 
-	if _, err := c.owner.Exec(context.Background(),
+	if _, err := c.Owner.Exec(context.Background(),
 		`UPDATE preference_token SET revoked_at = now() WHERE token = $1`, token); err != nil {
 		t.Fatalf("revoke token: %v", err)
 	}
 
 	// Revoked → 404, indistinguishable from an unknown token.
-	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token, nil, nil, nil); s != http.StatusNotFound {
+	if s := publicCall(t, c.AppEnv, "GET", "/v1/public/preferences/"+token, nil, nil, nil); s != http.StatusNotFound {
 		t.Fatalf("revoked token GET → %d, want 404 (must read as absent)", s)
 	}
-	if s := publicCall(t, c.env, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, nil); s != http.StatusNotFound {
+	if s := publicCall(t, c.AppEnv, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, nil); s != http.StatusNotFound {
 		t.Fatalf("revoked token unsubscribe → %d, want 404", s)
 	}
 }
@@ -447,20 +449,20 @@ func TestPreferenceCenterRejectsOversizedChoiceArray(t *testing.T) {
 	var newsletter struct {
 		ID string `json:"id"`
 	}
-	if status := c.call(t, "POST", "/v1/consent-purposes", anyMap{
+	if status := c.Call(t, "POST", "/v1/consent-purposes", apptest.AnyMap{
 		"key": "newsletter", "label": "Newsletter", "requires_double_opt_in": false,
 	}, nil, &newsletter); status != http.StatusCreated {
 		t.Fatalf("create newsletter purpose → %d", status)
 	}
 	grantPurpose(t, c, newsletter.ID)
-	sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	sendMarketing(t, c.AppEnv, c.activityID, "newsletter", "", "")
 	token := tokenFromLink(t, unsubscribeLinkIn(t, transmittedBody(t, c)))
 
-	choices := make([]anyMap, 0, 100)
+	choices := make([]apptest.AnyMap, 0, 100)
 	for i := 0; i < 100; i++ {
-		choices = append(choices, anyMap{"purpose_key": "newsletter", "state": "withdrawn"})
+		choices = append(choices, apptest.AnyMap{"purpose_key": "newsletter", "state": "withdrawn"})
 	}
-	if s := publicCall(t, c.env, "PUT", "/v1/public/preferences/"+token, anyMap{"choices": choices}, nil, nil); s != http.StatusUnprocessableEntity {
+	if s := publicCall(t, c.AppEnv, "PUT", "/v1/public/preferences/"+token, apptest.AnyMap{"choices": choices}, nil, nil); s != http.StatusUnprocessableEntity {
 		t.Fatalf("oversized choices PUT → %d, want 422", s)
 	}
 }
@@ -472,7 +474,7 @@ func TestPreferenceCenterRateLimited(t *testing.T) {
 
 	last := 0
 	for i := 0; i < 21; i++ {
-		last = publicCall(t, c.env, "POST", "/v1/public/preferences/pref_flood_probe/unsubscribe?purpose=newsletter", nil, nil, nil)
+		last = publicCall(t, c.AppEnv, "POST", "/v1/public/preferences/pref_flood_probe/unsubscribe?purpose=newsletter", nil, nil, nil)
 	}
 	if last != http.StatusTooManyRequests {
 		t.Fatalf("21st burst unsubscribe → %d, want 429", last)
