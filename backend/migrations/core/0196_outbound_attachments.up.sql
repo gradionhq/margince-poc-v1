@@ -1,4 +1,4 @@
--- 0195: an outbound message records the files it carried (ADR-0086/A131 §4).
+-- 0196: an outbound message records the files it carried (ADR-0086/A131 §4).
 --
 -- The set is SNAPSHOTTED here rather than being a list of attachment ids the
 -- reader dereferences. Archiving or superseding a document later changes what

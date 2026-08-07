@@ -1,4 +1,4 @@
--- Reverses 0194. The metadata is dropped with its constraints and indexes; the
+-- Reverses 0195. The metadata is dropped with its constraints and indexes; the
 -- files themselves and their primary parents are untouched, because this
 -- migration only ever added a description of them.
 DROP INDEX IF EXISTS attachment_account_ix;
