@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -18,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // FactWriteInput carries a fact correction. Value is nil for a confirmation.
@@ -87,7 +89,10 @@ func (s *Store) writeFact(
 		p.Set(auditKeyVerifiedAt, before.VerifiedAt, now)
 		p.Set(auditKeyVerifiedBy, before.VerifiedBy, actor.UserID)
 
-		if err := p.ApplyGuarded(ctx, tx, "organization_fact", before.ID, in.IfVersion); err != nil {
+		// No archived_at on this sidecar either — the fact is deleted with its
+		// organization, never retired alone. See ApplyWithVersionIn.
+		if err := p.ApplyGuardedIn(ctx, tx, "organization_fact", before.ID,
+			in.IfVersion, storekit.IncludeArchived); err != nil {
 			return err
 		}
 
@@ -129,20 +134,50 @@ func (r factRow) auditImage() map[string]any {
 	}
 }
 
-// factKeyColumn is the stable per-value identity a fact is addressed by: a
-// category can hold several values of the same field, so the key rather than
-// the field name is what a correction names.
-const factKeyColumn = "value_key"
+// splitFactKey reads the `<field>:<value_key>` identity the contract addresses
+// a fact by (FactKey parameter) into the two columns that actually locate the
+// row.
+//
+// NEITHER HALF IS ENOUGH ALONE. A multi-value field holds several rows, so
+// `field` does not name one; and every company fact carries an empty value_key
+// by the org_fact_value_key_cardinality check, so matching on value_key alone would
+// make `phone`, `founded_year` and `contact_email` all answer to the same
+// query and a correction would land on whichever row the scan reached first.
+// The pair is exact: uq_org_fact is unique on (category, field, value_key), and
+// org_fact_field_vocab gives each field exactly one category, so field
+// determines category and (field, value_key) identifies the row.
+//
+// The split is on the FIRST colon, so a normalized value_key may contain one.
+func splitFactKey(factKey string) (field, valueKey string, ok bool) {
+	field, valueKey, ok = strings.Cut(factKey, ":")
+	if !ok || field == "" {
+		return "", "", false
+	}
+	return field, valueKey, true
+}
+
+// errMalformedFactKey refuses a key that names no row, rather than letting it
+// fall through to a not-found that would read as "this fact once existed".
+func errMalformedFactKey() error {
+	return &values.ParseError{
+		Field: "factKey", Code: "fact_key_malformed",
+		Message: `a fact key is spelled <field>:<value_key>; a single-value fact ends in a bare colon, e.g. "phone:"`,
+	}
+}
 
 func readFactRow(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, factKey string,
 ) (factRow, error) {
 	var r factRow
+	field, valueKey, ok := splitFactKey(factKey)
+	if !ok {
+		return r, errMalformedFactKey()
+	}
 	err := tx.QueryRow(ctx, `
 		SELECT id, value, source, evidence_snippet, source_url, confidence, verified_at, verified_by
 		  FROM organization_fact
-		 WHERE workspace_id = $1 AND organization_id = $2 AND `+factKeyColumn+` = $3`,
-		workspaceID(ctx), orgID, factKey,
+		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3 AND value_key = $4`,
+		workspaceID(ctx), orgID, field, valueKey,
 	).Scan(&r.ID, &r.Value, &r.Source, &r.EvidenceSnippet, &r.SourceURL, &r.Confidence,
 		&r.VerifiedAt, &r.VerifiedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -163,13 +198,17 @@ func readFactWire(
 		category    string
 		field, srcV string
 	)
+	keyField, valueKey, ok := splitFactKey(factKey)
+	if !ok {
+		return f, errMalformedFactKey()
+	}
 	err := tx.QueryRow(ctx, `
 		SELECT id, category, field, value, value_key, source, captured_by,
 		       evidence_snippet, source_url, confidence,
 		       retrieved_at, verified_at, verified_by, updated_at
 		  FROM organization_fact
-		 WHERE workspace_id = $1 AND organization_id = $2 AND `+factKeyColumn+` = $3`,
-		workspaceID(ctx), orgID, factKey,
+		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3 AND value_key = $4`,
+		workspaceID(ctx), orgID, keyField, valueKey,
 	).Scan(&id, &category, &field, &f.Value, &f.ValueKey, &srcV, &f.CapturedBy,
 		&f.EvidenceSnippet, &f.SourceUrl, &f.Confidence,
 		&f.RetrievedAt, &f.VerifiedAt, &f.VerifiedBy, &f.UpdatedAt)

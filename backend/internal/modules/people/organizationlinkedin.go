@@ -42,21 +42,21 @@ func normalizeOrgLinkedInURL(raw string) (string, error) {
 			Message: "a company URL is on linkedin.com",
 		}
 	}
-	if !strings.HasPrefix(path, linkedInCompanyPrefix) {
+	slug, isCompany := strings.CutPrefix(path, linkedInCompanyPrefix)
+	// The slug is the company's identity, so a deeper path is the same company
+	// seen from one of its tabs — /company/voltaq/about and /company/voltaq name
+	// one record, and the unique index has to see one spelling for them. Cutting
+	// to the first segment is also what keeps the value inside
+	// organization_linkedin_url_shape, whose slug pattern admits no slash.
+	slug, _, _ = strings.Cut(slug, "/")
+	if !isCompany || slug == "" {
 		return "", &values.ParseError{
 			Field:   linkedInField,
 			Code:    "linkedin_url_not_company",
 			Message: "a company URL looks like https://www.linkedin.com/company/<name>",
 		}
 	}
-	if strings.TrimPrefix(path, linkedInCompanyPrefix) == "" {
-		return "", &values.ParseError{
-			Field:   linkedInField,
-			Code:    "linkedin_url_no_company",
-			Message: "the company URL names no company",
-		}
-	}
-	return normalized, nil
+	return "https://" + host + linkedInCompanyPrefix + slug, nil
 }
 
 // orgLinkedInPatchValue resolves what the guarded patch should write for a

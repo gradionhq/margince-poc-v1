@@ -109,6 +109,16 @@ func (p *Patch) recordAssignment(column, sqlName string, oldVal, newVal any) {
 
 func (p *Patch) Empty() bool { return len(p.sets) == 0 }
 
+// liveClause renders the archive predicate every guarded write and its
+// row lock share, so a lock and the update it authorizes can never resolve
+// different row sets.
+func liveClause(archived ArchivedFilter) string {
+	if archived == IncludeArchived {
+		return ""
+	}
+	return " AND archived_at IS NULL"
+}
+
 // Before and After expose the audit diff the accumulated Set calls built.
 func (p *Patch) Before() map[string]any { return p.before }
 func (p *Patch) After() map[string]any  { return p.after }
@@ -120,12 +130,27 @@ func (p *Patch) After() map[string]any  { return p.after }
 // client-driven edits, or a held RowLock (ApplyLocked) for internal
 // flows. An unguarded update is not expressible.
 func (p *Patch) ApplyWithVersion(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, version int64) error {
+	return p.ApplyWithVersionIn(ctx, tx, table, id, version, LiveOnly)
+}
+
+// ApplyWithVersionIn is ApplyWithVersion for a table whose rows have no
+// archived_at at all — a dependent row that is deleted with its parent rather
+// than retired on its own, such as the organization evidence sidecars. Passing
+// IncludeArchived there is not a request to reach archived rows; it is the
+// truthful answer to "which archive states does this table have", which is one.
+// LiveOnly against such a table renders a clause naming a column that does not
+// exist, and the write fails as a SQL error rather than as anything a caller
+// can act on.
+func (p *Patch) ApplyWithVersionIn(
+	ctx context.Context, tx pgx.Tx, table string, id ids.UUID, version int64, archived ArchivedFilter,
+) error {
+	live := liveClause(archived)
 	// The guard's binds are appended to a COPY: p.args must keep holding exactly
 	// the assignments, one per entry, or the slot index above stops naming the
 	// placeholder it renders. That also makes the id and version binds local to
 	// this call rather than accumulating on the patch.
 	args := append(slices.Clone(p.args), id, version)
-	where := fmt.Sprintf("id = $%d AND archived_at IS NULL AND version = $%d", len(args)-1, len(args))
+	where := fmt.Sprintf("id = $%d%s AND version = $%d", len(args)-1, live, len(args))
 
 	tag, err := tx.Exec(ctx,
 		fmt.Sprintf(`UPDATE %s SET %s WHERE %s`, table, strings.Join(p.sets, ", "), where),
@@ -141,7 +166,7 @@ func (p *Patch) ApplyWithVersion(ctx context.Context, tx pgx.Tx, table string, i
 	// only mean the version clause failed.
 	var exists bool
 	if err := tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE id = $1 AND archived_at IS NULL)`, table),
+		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE id = $1%s)`, table, live),
 		id).Scan(&exists); err != nil {
 		return err
 	}
@@ -159,10 +184,18 @@ func (p *Patch) ApplyWithVersion(ctx context.Context, tx pgx.Tx, table string, i
 // don't use this: they lock BEFORE their decision reads (LockRow /
 // LockPair + ApplyLocked) so the read itself cannot go stale.
 func (p *Patch) ApplyGuarded(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, ifVersion *int64) error {
+	return p.ApplyGuardedIn(ctx, tx, table, id, ifVersion, LiveOnly)
+}
+
+// ApplyGuardedIn is ApplyGuarded against a chosen archive filter, for the
+// tables that have no archived_at column — see ApplyWithVersionIn.
+func (p *Patch) ApplyGuardedIn(
+	ctx context.Context, tx pgx.Tx, table string, id ids.UUID, ifVersion *int64, archived ArchivedFilter,
+) error {
 	if ifVersion != nil {
-		return p.ApplyWithVersion(ctx, tx, table, id, *ifVersion)
+		return p.ApplyWithVersionIn(ctx, tx, table, id, *ifVersion, archived)
 	}
-	lock, err := LockRow(ctx, tx, table, id, LiveOnly)
+	lock, err := LockRow(ctx, tx, table, id, archived)
 	if err != nil {
 		return err
 	}
@@ -176,6 +209,11 @@ func (p *Patch) ApplyGuarded(ctx context.Context, tx pgx.Tx, table string, id id
 type RowLock struct {
 	table string
 	id    ids.UUID
+	// archived is the filter the lock was taken under, carried so ApplyLocked
+	// writes to exactly the row set LockRow resolved. Without it a lock taken on
+	// a table with no archived_at would be applied through a liveness clause the
+	// table cannot answer.
+	archived ArchivedFilter
 }
 
 // ID exposes the locked row's id so multi-step flows can thread the
@@ -189,13 +227,9 @@ func (l RowLock) ID() ids.UUID { return l.id }
 // Reads that decide a state transition belong AFTER this call — a
 // pre-lock read is the TOCTOU shape this helper exists to remove.
 func LockRow(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, archived ArchivedFilter) (RowLock, error) {
-	liveClause := " AND archived_at IS NULL"
-	if archived == IncludeArchived {
-		liveClause = ""
-	}
 	var got ids.UUID
 	err := tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT id FROM %s WHERE id = $1%s FOR UPDATE`, table, liveClause),
+		fmt.Sprintf(`SELECT id FROM %s WHERE id = $1%s FOR UPDATE`, table, liveClause(archived)),
 		id).Scan(&got)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RowLock{}, apperrors.ErrNotFound
@@ -203,7 +237,7 @@ func LockRow(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, archived
 	if err != nil {
 		return RowLock{}, err
 	}
-	return RowLock{table: table, id: id}, nil
+	return RowLock{table: table, id: id, archived: archived}, nil
 }
 
 // LockPair locks two rows of one table ordered by id — the
@@ -259,8 +293,8 @@ func (p *Patch) ApplyLocked(ctx context.Context, tx pgx.Tx, lock RowLock) error 
 	// their bind values stay index-aligned.
 	args := append(slices.Clone(p.args), lock.id)
 	tag, err := tx.Exec(ctx,
-		fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d AND archived_at IS NULL`,
-			lock.table, strings.Join(p.sets, ", "), len(args)),
+		fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d%s`,
+			lock.table, strings.Join(p.sets, ", "), len(args), liveClause(lock.archived)),
 		args...)
 	if err != nil {
 		return err
