@@ -47,15 +47,9 @@ that has no meaning without Postgres.
 
 Where the cost actually is, and what is worth doing about it:
 
-- **#524** — **closed.** `internal/compose/integration` is half the lane (960
-  tests) and ran 258–302s against a 300s per-package timeout, so it flaked on a
-  loaded machine. CI shards 12 ways and never saw it; the unsharded local lane
-  and `make test-it` did. #537 raised the budget to 600s and made the cost report
-  print each package's share of it, so a margin shrinking to nothing is visible
-  before it crosses. The one-package lane kept a hardcoded `-timeout=300s` that
-  no variable could reach, which left `make test-it` on this package failing at
-  a bound the lane itself had already moved; both lanes now resolve the budget
-  through one `resolve_it_timeout` in `scripts/lib-testdb.sh`.
+- **#524** — closed; the per-package budget is 600s, both lanes resolve it
+  through one `resolve_it_timeout`, and the cost report prints each package's
+  share of it. Narrative in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md).
 - **#539** — that package's setup forks about five Postgres backends per test.
   Sharing them measured ~18% (170.9s vs a 209.6s baseline) and is **blocked**:
   the harness drops `cf_*` columns between tests, so a pooled connection
