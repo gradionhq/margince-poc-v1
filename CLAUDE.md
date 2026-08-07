@@ -363,14 +363,20 @@ Schema DDL is free, but the moment a migration writes ROWS to a tenant table it
 must bind `app.workspace_id` — every one of them carries FORCE row-level
 security with deny-on-unset semantics (`0014_rls.up.sql`), and FORCE binds the
 table owner, which is exactly the role migrations run as. Unbound, the policy
-expression resolves to NULL and the verbs part company. `UPDATE` and `DELETE`
-are filtered by the policy's `USING` clause, so they match **zero rows and
-report success** — the migration records itself as applied and the data change
-is silently gone. `INSERT` is judged by `WITH CHECK` instead, which the same
-NULL fails, so it raises `new row violates row-level security policy` and takes
-the migration down with it. Only one of those two is survivable to miss, which
-is why the rule is written for the silent one. The shape, in every migration
-that needs it:
+expression resolves to NULL, and the three ways a migration can write part
+company:
+
+- `UPDATE` / `DELETE` are filtered by the policy's `USING` clause: **zero rows,
+  reported as success**. The migration records itself as applied and the data
+  change is silently gone.
+- `INSERT … SELECT` reading a tenant table is filtered on the SOURCE before
+  `WITH CHECK` ever runs: **zero rows, reported as success**, the same silence.
+- `INSERT` of literal rows is judged by `WITH CHECK`, which the NULL fails, so
+  it raises `new row violates row-level security policy` and aborts the
+  migration.
+
+Only the loud one announces itself. The rule below is written for the two that
+do not. The shape, in every migration that needs it:
 
 ```sql
 DO $$

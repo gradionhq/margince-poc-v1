@@ -9,13 +9,17 @@ package migrations
 // semantics (0014_rls.up.sql), and FORCE binds the table owner — the role
 // migrations run as. Two consequences, and each needs its own half of the rule:
 //
-//   - Unbound, the policy hides every row, so the write matches nothing and
-//     reports SUCCESS. The migration records itself as applied with its data
-//     change gone.
+//   - Unbound, the policy hides every row. An UPDATE, a DELETE, or an
+//     INSERT … SELECT reading a tenant table therefore matches nothing and
+//     reports SUCCESS: the migration records itself as applied with its data
+//     change gone. An INSERT of literal rows is the exception — WITH CHECK
+//     rejects it and the deploy halts — so flagging it still matters, but the
+//     failure it prevents is a stopped migration, not a silent loss.
 //   - Bound, the binding makes rows VISIBLE but does not SCOPE the statement. An
-//     executor row-level security does not filter — any superuser, so every
-//     developer machine and CI — sees every workspace on every iteration, so a
-//     loop without an explicit predicate repeats the write N times.
+//     executor row-level security does not filter — a superuser or a BYPASSRLS
+//     role, which is what developer machines and the unit lane run as — sees
+//     every workspace on every iteration, so a loop without an explicit
+//     predicate repeats the write N times.
 //
 // CLAUDE.md carries the rule and the shape it takes. This is the static half of
 // enforcing it; the executing half is the RBAC upgrade replay, which migrates as
@@ -218,9 +222,10 @@ func unscopedTenantWrites(sql string, tenant map[string]bool) []string {
 		for _, write := range writeStatements(blanked[region.start:region.end]) {
 			if table, touched := tenantTableIn(write, tenant); touched {
 				findings = append(findings, "writes the tenant table "+table+" at the top level, where no "+
-					"app.workspace_id is bound. FORCE row-level security matches ZERO rows for the "+
-					"migration role, so this reports success and changes nothing on a deployed "+
-					"installation. Use the per-workspace loop CLAUDE.md documents.")
+					"app.workspace_id is bound. Under FORCE row-level security the migration role sees no "+
+					"row, so on a deployed installation this either changes nothing while reporting "+
+					"success or, for an INSERT of literal rows, fails WITH CHECK and halts the deploy. "+
+					"Use the per-workspace loop CLAUDE.md documents.")
 			}
 		}
 	}

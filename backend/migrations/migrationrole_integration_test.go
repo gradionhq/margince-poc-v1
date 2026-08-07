@@ -8,9 +8,10 @@ package migrations
 // A deployed installation's migration role owns the schema and is NOT a
 // superuser. That single difference decides whether a migration's data half runs
 // at all: tenant tables carry FORCE ROW LEVEL SECURITY, FORCE binds the owner,
-// and a superuser bypasses RLS outright. The dev and CI owner IS a superuser (the
-// Postgres container's POSTGRES_USER), so every migration in this repo appeared
-// to work while an unbound tenant write silently matched zero rows in production.
+// and FORCE does not reach a superuser or a BYPASSRLS role. The default dev and
+// CI owner IS a superuser (the Postgres container's POSTGRES_USER), so an unbound
+// tenant write lands there and reaches no row under an ordinary owner: the one
+// difference that separates a migration which works from one that only appears to.
 //
 // This file supplies the role that tells the two apart, and states the mechanism
 // once so the tests that rely on it are not each re-arguing it.
@@ -138,8 +139,12 @@ func mustOwnerDSN(t *testing.T) string {
 
 // The mechanism itself, stated as a test because the whole sweep of workspace
 // loops through the migration tree rests on it: for the role that applies
-// migrations on a deployed installation, an unbound tenant write is not an error
-// but a SUCCESSFUL no-op. That is why nothing failed while a backfill was lost.
+// migrations on a deployed installation, an unbound UPDATE of a tenant table is
+// not an error but a SUCCESSFUL no-op — the policy's USING clause hides every
+// row rather than refusing the statement. That silence is why a lost backfill
+// leaves no trace. (An unbound INSERT of literal rows is the loud case instead:
+// WITH CHECK refuses it. The rule covers both; only this one needs proving,
+// because only this one can pass unnoticed.)
 func TestAnUnboundTenantWriteSucceedsAndChangesNothingForTheMigrationRole(t *testing.T) {
 	ctx := context.Background()
 	admin := connect(t, mustOwnerDSN(t))
