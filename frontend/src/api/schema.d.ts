@@ -7599,6 +7599,38 @@ export interface components {
             linked_person_id?: string | null;
         };
         /**
+         * @description The next meeting with this account that has not happened yet, and who is in it.
+         *
+         *     It is a FACT, not a suggestion: a meeting is on the calendar or it is not, and the
+         *     page states which. Absent entirely when the caller has no activity grant, named in
+         *     `sections_omitted` as `next_meeting`; null when the grant is held and nothing is
+         *     scheduled — which is a fact about the account, not a missing field, and the
+         *     distinction is the one a rep acts on.
+         *
+         *     Participants carry only the people this caller can already read. A meeting reachable
+         *     through a visible contact must not disclose the colleague's other attendees.
+         */
+        Organization360NextMeeting: {
+            /** Format: uuid */
+            activity_id: string;
+            /** Format: date-time */
+            starts_at: string;
+            subject: string;
+            /**
+             * Format: uuid
+             * @description The deal this meeting is filed against, when the caller may read it.
+             */
+            linked_deal_id?: string | null;
+            /** @description The attendees on file, row-scoped. Empty is honest — a meeting can be booked before anyone is linked to it. */
+            participants: components["schemas"]["Organization360MeetingParticipant"][];
+        };
+        /** @description One attendee of the next meeting, named only when the caller may read them. */
+        Organization360MeetingParticipant: {
+            /** Format: uuid */
+            person_id: string;
+            display_name: string;
+        };
+        /**
          * @description One deterministic next-step suggestion. It is derived, not decided: the rule
          *     that fired, the records it fired on, and nothing the reader cannot check.
          *
@@ -7707,9 +7739,10 @@ export interface components {
              */
             last_outbound_at?: string | null;
             state_strip?: components["schemas"]["Organization360StateStrip"];
+            next_meeting?: components["schemas"]["Organization360NextMeeting"];
             health?: components["schemas"]["Organization360Health"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health")[];
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health" | "next_meeting")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];

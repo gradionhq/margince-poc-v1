@@ -28,6 +28,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -331,4 +333,118 @@ func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
 	if step.LinkedPersonId == nil || ids.UUID(*step.LinkedPersonId) != mine {
 		t.Errorf("linked_person_id = %v, want the visible contact %v", step.LinkedPersonId, mine)
 	}
+}
+
+// "No meeting is booked" and "you cannot see the calendar" are different
+// sentences, and a page that renders them the same tells a rep to book a
+// meeting that already exists. The section proves it holds the distinction.
+func TestOrganization360NextMeetingSeparatesNoneFromWithheld(t *testing.T) {
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	granted := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
+
+	// Nothing booked, and the caller holds the activity grant: the answer is a
+	// fact about the account, so the section is present and null.
+	view, err := svc.Assemble(granted, ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.NextMeeting != nil {
+		t.Errorf("next_meeting = %+v, want null — nothing is scheduled", view.NextMeeting)
+	}
+	if slices.Contains(view.SectionsOmitted, "next_meeting") {
+		t.Error("next_meeting was named as omitted while the caller holds the activity grant — that reads as 'hidden from you' for an account that simply has no meeting")
+	}
+
+	// A meeting in the past is not the next one. Seeded before the future meeting
+	// so an ordering that ignored occurred_at would return this row.
+	past := seedMeeting(t, owner, e.WS, "Kickoff, already held", org360Clock.Add(-48*time.Hour))
+	integration.LinkActivity(t, owner, e.WS, past, "organization", org)
+	future := seedMeeting(t, owner, e.WS, "Renewal review", org360Clock.Add(72*time.Hour))
+	integration.LinkActivity(t, owner, e.WS, future, "organization", org)
+
+	view, err = svc.Assemble(granted, ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble after seeding: %v", err)
+	}
+	if view.NextMeeting == nil {
+		t.Fatal("next_meeting = null with a meeting booked in three days")
+	}
+	if ids.UUID(view.NextMeeting.ActivityId) != future {
+		t.Errorf("next_meeting = %q, want the future one — a meeting's place in time is when it happens, not when it was entered",
+			view.NextMeeting.Subject)
+	}
+
+	// Without the activity grant the section is absent and NAMED, which is the
+	// other half of the distinction.
+	withheld := e.As(e.Rep2, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}},
+		RowScope: principal.RowScopeAll,
+	})
+	view, err = svc.Assemble(withheld, ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble without the activity grant: %v", err)
+	}
+	if view.NextMeeting != nil {
+		t.Error("next_meeting was served to a caller with no activity grant")
+	}
+	if !slices.Contains(view.SectionsOmitted, "next_meeting") {
+		t.Error("next_meeting was withheld without being named in sections_omitted, so the page cannot say why it is missing")
+	}
+}
+
+// The meeting is reachable through a visible contact, so the caller may see
+// that it exists. Who ELSE was in the room is a separate question, answered per
+// person — otherwise the composite becomes the side channel that hands out a
+// colleague's contacts.
+func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+
+	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
+	theirs := e.SeedPerson(t, "Another Team's Contact", &e.Rep3)
+	for _, person := range []ids.UUID{mine, theirs} {
+		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+	}
+
+	meeting := seedMeeting(t, owner, e.WS, "Renewal review", org360Clock.Add(24*time.Hour))
+	integration.LinkActivity(t, owner, e.WS, meeting, "person", mine)
+	for _, person := range []ids.UUID{mine, theirs} {
+		e.WsExec(t, `INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
+			VALUES ($1, $2, $3, 'attendee')`, e.WS, meeting, person)
+	}
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.NextMeeting == nil {
+		t.Fatal("next_meeting = null for a meeting reachable through a visible contact")
+	}
+	if len(view.NextMeeting.Participants) != 1 {
+		t.Fatalf("participants = %+v, want only the contact this caller can read", view.NextMeeting.Participants)
+	}
+	if ids.UUID(view.NextMeeting.Participants[0].PersonId) != mine {
+		t.Errorf("participants named %q — a meeting visible through one contact must not disclose a colleague's",
+			view.NextMeeting.Participants[0].DisplayName)
+	}
+}
+
+// seedMeeting books one meeting at a chosen instant. SeedRow binds only the id
+// and the workspace, and a meeting's whole identity here is WHEN it is.
+func seedMeeting(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, at time.Time) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(), `
+		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'meeting', $3, $4, 'manual', 'human:x')`, id, ws, subject, at); err != nil {
+		t.Fatalf("seeding a meeting: %v", err)
+	}
+	return id
 }

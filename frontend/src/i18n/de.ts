@@ -1239,6 +1239,32 @@ export const de = {
 
   "dedupe.viewExisting": "Vorhandenen Eintrag anzeigen",
 
+  "today.title": "Heute bei diesem Account",
+  "today.loading": "Account wird gelesen…",
+  "today.failed":
+    "Das ließ sich nicht zusammenstellen. Der Rest der Seite zeigt weiterhin, was gelesen werden konnte.",
+  "today.quiet": "Hier braucht Sie heute nichts.",
+  "today.withheld":
+    "Für Sie ausgeblendet: {sections}. Diese Liste ist ohne sie zusammengestellt.",
+  "today.nature.fact": "Fakt",
+  "today.nature.assessment": "Einschätzung",
+  "today.nature.recommendation": "Vorschlag",
+  "today.source.nextSteps": "offene Aufgaben",
+  "today.source.nextMeeting": "der Kalender",
+  "today.source.deals": "Deals",
+  "today.source.suggestions": "Vorschläge",
+  "today.source.lastTouch": "letzter Kontakt",
+  "today.task.overdue": "War fällig {when}",
+  "today.task.due": "Fällig {when}",
+  "today.task.undated": "Kein Datum gesetzt",
+  "today.task.open": "Aufgabe öffnen",
+  "today.meeting.headline": "{subject} — {when}",
+  "today.meeting.with": "Mit {who}",
+  "today.meeting.prepare": "Vorbereiten",
+  "today.since.headline": "{count} neu im Verlauf seit Ihrem letzten Besuch",
+  "today.since.baseline": "Gezählt ab {when}",
+  "today.since.firstVisit":
+    "Ihr erster Besuch — gezählt über die gesamte Historie",
   "log.title": "Aktivität erfassen",
   "log.addTask": "Aufgabe anlegen",
   "log.sub": "eine Notiz oder Aufgabe, direkt auf diese Timeline",

@@ -11666,6 +11666,41 @@ components:
         linked_deal_id: { type: [string, 'null'], format: uuid }
         linked_person_id: { type: [string, 'null'], format: uuid }
 
+    Organization360NextMeeting:
+      type: object
+      description: |
+        The next meeting with this account that has not happened yet, and who is in it.
+
+        It is a FACT, not a suggestion: a meeting is on the calendar or it is not, and the
+        page states which. Absent entirely when the caller has no activity grant, named in
+        `sections_omitted` as `next_meeting`; null when the grant is held and nothing is
+        scheduled — which is a fact about the account, not a missing field, and the
+        distinction is the one a rep acts on.
+
+        Participants carry only the people this caller can already read. A meeting reachable
+        through a visible contact must not disclose the colleague's other attendees.
+      required: [activity_id, starts_at, subject, participants]
+      properties:
+        activity_id: { type: string, format: uuid }
+        starts_at: { type: string, format: date-time }
+        subject: { type: string }
+        linked_deal_id:
+          type: [string, 'null']
+          format: uuid
+          description: The deal this meeting is filed against, when the caller may read it.
+        participants:
+          type: array
+          description: The attendees on file, row-scoped. Empty is honest — a meeting can be booked before anyone is linked to it.
+          items: { $ref: '#/components/schemas/Organization360MeetingParticipant' }
+
+    Organization360MeetingParticipant:
+      type: object
+      description: One attendee of the next meeting, named only when the caller may read them.
+      required: [person_id, display_name]
+      properties:
+        person_id: { type: string, format: uuid }
+        display_name: { type: string }
+
     Organization360Suggestion:
       type: object
       description: |
@@ -11787,6 +11822,8 @@ components:
             mailed a fortnight ago with no reply is not the same as one that just wrote to us.
         state_strip:
           $ref: '#/components/schemas/Organization360StateStrip'
+        next_meeting:
+          $ref: '#/components/schemas/Organization360NextMeeting'
         health:
           $ref: '#/components/schemas/Organization360Health'
         sections_omitted:
@@ -11794,7 +11831,7 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health]
+            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health, next_meeting]
         people:
           type: object
           required: [data, page]

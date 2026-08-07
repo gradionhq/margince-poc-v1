@@ -3970,6 +3970,7 @@ const (
 	Organization360SectionsOmittedHealth           Organization360SectionsOmitted = "health"
 	Organization360SectionsOmittedLastTouch        Organization360SectionsOmitted = "last_touch"
 	Organization360SectionsOmittedListMemberships  Organization360SectionsOmitted = "list_memberships"
+	Organization360SectionsOmittedNextMeeting      Organization360SectionsOmitted = "next_meeting"
 	Organization360SectionsOmittedNextSteps        Organization360SectionsOmitted = "next_steps"
 	Organization360SectionsOmittedPendingApprovals Organization360SectionsOmitted = "pending_approvals"
 	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
@@ -3992,6 +3993,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedLastTouch:
 		return true
 	case Organization360SectionsOmittedListMemberships:
+		return true
+	case Organization360SectionsOmittedNextMeeting:
 		return true
 	case Organization360SectionsOmittedNextSteps:
 		return true
@@ -12075,7 +12078,19 @@ type Organization360 struct {
 	// LastOutboundAt When we last wrote to them, same walk. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question — an account we mailed a fortnight ago with no reply is not the same as one that just wrote to us.
 	LastOutboundAt  *time.Time `json:"last_outbound_at,omitempty"`
 	ListMemberships *[]List    `json:"list_memberships,omitempty"`
-	NextSteps       *struct {
+
+	// NextMeeting The next meeting with this account that has not happened yet, and who is in it.
+	//
+	// It is a FACT, not a suggestion: a meeting is on the calendar or it is not, and the
+	// page states which. Absent entirely when the caller has no activity grant, named in
+	// `sections_omitted` as `next_meeting`; null when the grant is held and nothing is
+	// scheduled — which is a fact about the account, not a missing field, and the
+	// distinction is the one a rep acts on.
+	//
+	// Participants carry only the people this caller can already read. A meeting reachable
+	// through a visible contact must not disclose the colleague's other attendees.
+	NextMeeting *Organization360NextMeeting `json:"next_meeting,omitempty"`
+	NextSteps   *struct {
 		Data []Organization360NextStep `json:"data"`
 		Page PageInfo                  `json:"page"`
 	} `json:"next_steps,omitempty"`
@@ -12225,6 +12240,34 @@ type Organization360Health struct {
 
 	// SingleThreaded The whole relationship rests on one contact. Named as a fact rather than scored, because it is the one shape a rep can fix before it costs them the account.
 	SingleThreaded *bool `json:"single_threaded,omitempty"`
+}
+
+// Organization360MeetingParticipant One attendee of the next meeting, named only when the caller may read them.
+type Organization360MeetingParticipant struct {
+	DisplayName string             `json:"display_name"`
+	PersonId    openapi_types.UUID `json:"person_id"`
+}
+
+// Organization360NextMeeting The next meeting with this account that has not happened yet, and who is in it.
+//
+// It is a FACT, not a suggestion: a meeting is on the calendar or it is not, and the
+// page states which. Absent entirely when the caller has no activity grant, named in
+// `sections_omitted` as `next_meeting`; null when the grant is held and nothing is
+// scheduled — which is a fact about the account, not a missing field, and the
+// distinction is the one a rep acts on.
+//
+// Participants carry only the people this caller can already read. A meeting reachable
+// through a visible contact must not disclose the colleague's other attendees.
+type Organization360NextMeeting struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+
+	// LinkedDealId The deal this meeting is filed against, when the caller may read it.
+	LinkedDealId *openapi_types.UUID `json:"linked_deal_id,omitempty"`
+
+	// Participants The attendees on file, row-scoped. Empty is honest — a meeting can be booked before anyone is linked to it.
+	Participants []Organization360MeetingParticipant `json:"participants"`
+	StartsAt     time.Time                           `json:"starts_at"`
+	Subject      string                              `json:"subject"`
 }
 
 // Organization360NextStep One open task on the account, ordered overdue → due → undated.

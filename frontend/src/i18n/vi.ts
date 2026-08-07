@@ -1236,6 +1236,32 @@ export const vi = {
 
   "dedupe.viewExisting": "Xem bản ghi hiện có",
 
+  "today.title": "Hôm nay ở tài khoản này",
+  "today.loading": "Đang đọc tài khoản…",
+  "today.failed":
+    "Không thể tổng hợp phần này. Phần còn lại của trang vẫn hiển thị những gì đọc được.",
+  "today.quiet": "Hôm nay ở đây không có việc gì cần bạn.",
+  "today.withheld":
+    "Ẩn với bạn: {sections}. Danh sách này được tổng hợp mà không có chúng.",
+  "today.nature.fact": "Sự kiện",
+  "today.nature.assessment": "Đánh giá",
+  "today.nature.recommendation": "Đề xuất",
+  "today.source.nextSteps": "công việc đang mở",
+  "today.source.nextMeeting": "lịch",
+  "today.source.deals": "deal",
+  "today.source.suggestions": "đề xuất",
+  "today.source.lastTouch": "liên hệ gần đây",
+  "today.task.overdue": "Đã đến hạn {when}",
+  "today.task.due": "Hạn {when}",
+  "today.task.undated": "Chưa đặt ngày",
+  "today.task.open": "Mở công việc",
+  "today.meeting.headline": "{subject} — {when}",
+  "today.meeting.with": "Với {who}",
+  "today.meeting.prepare": "Chuẩn bị",
+  "today.since.headline":
+    "{count} mục mới trên dòng thời gian kể từ lần trước bạn ghé",
+  "today.since.baseline": "Tính từ {when}",
+  "today.since.firstVisit": "Lần đầu bạn ghé — tính trên toàn bộ lịch sử",
   "log.title": "Ghi nhận hoạt động",
   "log.addTask": "Thêm công việc",
   "log.sub": "một ghi chú hay công việc, thẳng lên timeline này",

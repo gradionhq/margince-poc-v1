@@ -262,23 +262,23 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 // sent offers and closed nothing could still change its base and restate every
 // one of them — the freeze looked correct and was half-blind.
 func TestBaseCurrencyFreezesOnASentOfferWithNoClosedDeal(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := identity.NewInstallationSettings(e.Pool, compose.NewSettingsStore(e.Pool))
 	admin := e.installationSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
 
 	// An OPEN deal — it carries no frozen rate itself, so anything the probe
 	// reports here comes from the offer and not from the deal it hangs off.
-	pipeline := e.seed(t, `
+	pipeline := e.Seed(t, `
 		INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, $2, 'Offer fixture', false)`)
-	stage := e.seed(t, `
+	stage := e.Seed(t, `
 		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
 		VALUES ($1, $2, $3, 'Qualified', 1, 'open', 40)`, pipeline)
-	deal := e.seed(t, `
+	deal := e.Seed(t, `
 		INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, source, captured_by,
 		                  amount_minor, currency, status)
 		VALUES ($1, $2, 'Open deal', $3, $4, 'seed', 'system:test', 100000, 'EUR', 'open')`,
 		pipeline, stage)
-	e.seed(t, `
+	e.Seed(t, `
 		INSERT INTO offer (id, workspace_id, deal_id, offer_number, currency, status,
 		                   fx_rate_to_base, fx_rate_date, source, captured_by)
 		VALUES ($1, $2, $3, 'AN-2026-001', 'EUR', 'sent', 1.0850000000, current_date, 'seed', 'system:test')`,
@@ -314,7 +314,7 @@ func TestBaseCurrencyFreezesOnASentOfferWithNoClosedDeal(t *testing.T) {
 // the sheet would go on being served beside a base it does not convert to.
 // Unlike a frozen rate this is repairable, and the reason has to say so.
 func TestBaseCurrencyWillNotMoveOutFromUnderAPricedRateSheet(t *testing.T) {
-	e := setupSearch(t)
+	e := SetupSearch(t)
 	store := identity.NewInstallationSettings(e.Pool, compose.NewSettingsStore(e.Pool))
 	admin := e.installationSettingsCtx(principal.ObjectGrant{Read: true, Update: true})
 
@@ -322,7 +322,7 @@ func TestBaseCurrencyWillNotMoveOutFromUnderAPricedRateSheet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.seed(t, `
+	e.Seed(t, `
 		INSERT INTO fx_rate (id, workspace_id, from_currency, to_currency, rate, rate_date)
 		VALUES ($1, $2, 'USD', $3, 0.9150000000, current_date)`, base.BaseCurrency)
 

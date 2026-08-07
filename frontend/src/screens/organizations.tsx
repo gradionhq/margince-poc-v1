@@ -72,6 +72,7 @@ import {
   CompanyPulse,
   companySubtitle,
 } from "./companyheader";
+import { TodayOnThisAccount } from "./companytoday";
 import { ComposeModal, TimelineActions } from "./compose";
 import {
   CreateAction,
@@ -1845,6 +1846,8 @@ function CompanyPage({
   });
   // An evidence mark asks where a value came from, and the answer is the
   // record's change history — which now lives on its own tab.
+  const openTask = (step: { activity_id: string }) =>
+    setOpenTaskId(step.activity_id);
   const showChanges = () => {
     onTab("timeline");
     filterToChanges();
@@ -1952,35 +1955,22 @@ function CompanyPage({
           }
         />
       )}
-      {/* Then the brief: what this account looks like right now, before the
-          cards that report it field by field. It absorbed the standalone
-          "since your last visit" block, because two cards each claiming to
-          say what the state is made the reader arbitrate between them. */}
-      {tab === "overview" && view && (
-        <AccountBrief
-          orgId={org.id}
+      {/* What needs a person, before anything that merely reports state. It is
+          assembled from sections the page already read — open tasks, the
+          calendar, what changed since the last visit, the suggestions — put in
+          the order a rep works them, with facts, assessments and
+          recommendations labelled apart. */}
+      {tab === "overview" && (
+        <CompanyOverviewStack
+          org={org}
           view={view}
-          enabled={!overlay}
-          onOpenRecord={openCitation}
-          onPerform={(action) =>
-            performSuggestion(action, {
-              compose: setReplyToActivityId,
-              logTask: () => setTaskFormOpen(true),
-            })
-          }
-        />
-      )}
-      {tab === "overview" && view && (
-        <NextSteps
-          view={view}
-          onOpenTask={(step) => setOpenTaskId(step.activity_id)}
-          renderAction={(step) => (
-            <TaskQuickActions
-              activityId={step.activity_id}
-              dueAt={step.due_at}
-              update={taskUpdate}
-            />
-          )}
+          overlay={overlay}
+          loading={loading}
+          failed={failed}
+          taskUpdate={taskUpdate}
+          onOpenTask={openTask}
+          onCompose={setReplyToActivityId}
+          onLogTask={() => setTaskFormOpen(true)}
         />
       )}
       {/* The composer, anchored on the message a draft_reply suggestion named.
@@ -2055,6 +2045,74 @@ function CompanyPage({
         </div>
       </Modal>
     </RecordView>
+  );
+}
+
+// The overview's own stack: what needs a person, then what the account looks
+// like, then the open commitments in full. Extracted from CompanyPage because
+// each section was its own `tab === "overview" && view &&` branch there, and the
+// page had become a list of conditions rather than a layout.
+function CompanyOverviewStack({
+  org,
+  view,
+  overlay,
+  loading,
+  failed,
+  taskUpdate,
+  onOpenTask,
+  onCompose,
+  onLogTask,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  overlay: boolean;
+  loading: boolean;
+  failed: boolean;
+  taskUpdate: ReturnType<typeof useTaskUpdate>;
+  onOpenTask: (step: { activity_id: string }) => void;
+  onCompose: (activityId: string) => void;
+  onLogTask: () => void;
+}>) {
+  return (
+    <>
+      <TodayOnThisAccount
+        view={view}
+        loading={loading}
+        failed={failed}
+        onPrepareMeeting={onCompose}
+      />
+      {/* Then the brief: what this account looks like right now, before the
+          cards that report it field by field. It absorbed the standalone
+          "since your last visit" block, because two cards each claiming to
+          say what the state is made the reader arbitrate between them. */}
+      {view && (
+        <AccountBrief
+          orgId={org.id}
+          view={view}
+          enabled={!overlay}
+          onOpenRecord={openCitation}
+          onPerform={(action) =>
+            performSuggestion(action, {
+              compose: onCompose,
+              logTask: onLogTask,
+            })
+          }
+        />
+      )}
+      {view && (
+        <NextSteps
+          view={view}
+          onOpenTask={onOpenTask}
+          renderAction={(step) => (
+            <TaskQuickActions
+              activityId={step.activity_id}
+              dueAt={step.due_at}
+              update={taskUpdate}
+            />
+          )}
+        />
+      )}
+    </>
   );
 }
 

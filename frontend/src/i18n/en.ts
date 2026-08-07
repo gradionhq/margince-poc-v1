@@ -1225,6 +1225,33 @@ export const en = {
 
   "dedupe.viewExisting": "View existing record",
 
+  "today.title": "Today on this account",
+  "today.loading": "Reading the account…",
+  "today.failed":
+    "This could not be assembled. The rest of the page still shows what it could read.",
+  "today.quiet": "Nothing here needs you today.",
+  "today.withheld":
+    "Hidden from you: {sections}. This list is assembled without them.",
+  "today.nature.fact": "Fact",
+  "today.nature.assessment": "Assessment",
+  "today.nature.recommendation": "Suggested",
+  "today.source.nextSteps": "open tasks",
+  "today.source.nextMeeting": "the calendar",
+  "today.source.deals": "deals",
+  "today.source.suggestions": "suggestions",
+  "today.source.lastTouch": "recent contact",
+  "today.task.overdue": "Was due {when}",
+  "today.task.due": "Due {when}",
+  "today.task.undated": "No date set",
+  "today.task.open": "Open task",
+  "today.meeting.headline": "{subject} — {when}",
+  "today.meeting.with": "With {who}",
+  "today.meeting.prepare": "Prepare",
+  "today.since.headline":
+    "{count} new on the timeline since you were last here",
+  "today.since.baseline": "Counting from {when}",
+  "today.since.firstVisit":
+    "Your first visit — counting from the whole history",
   "log.title": "Log activity",
   "log.addTask": "Add task",
   "log.sub": "a note or task, straight onto this timeline",
