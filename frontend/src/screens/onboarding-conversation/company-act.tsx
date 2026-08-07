@@ -313,7 +313,10 @@ export function CompanyAct({
       if (answered !== undefined && LEGAL_BLOCK.has(answered.field)) {
         for (const question of questions) {
           if (question.id !== questionId && LEGAL_BLOCK.has(question.field)) {
-            clarify.dismissClarify(question.id);
+            // Retired by the answer just given, not declined by the reader —
+            // the review's skipped tail draws that line and this is the only
+            // place that can tell it.
+            clarify.dismissClarify(question.id, true);
           }
         }
       }

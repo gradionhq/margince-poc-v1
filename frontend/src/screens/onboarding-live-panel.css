@@ -2,7 +2,14 @@
    folded into the triage review's grouped surface. Structure and rhythm
    only — every colour reads a token. */
 
+/* The card sizes itself against ITS OWN width, never the window's. It renders
+   inside the artifact pane of a two-column workbench — a little over two fifths
+   of it — so the viewport says nothing useful about the room this head has: a
+   wide window hands the card ~600px, and the same window with the panes stacked
+   hands it the lot. Viewport breakpoints would therefore fire backwards, and
+   `container-type: inline-size` makes the pane the thing measured. */
 .ob-live-card {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   animation: ob-live-rise 0.36s cubic-bezier(0.23, 1, 0.32, 1) both;
@@ -29,7 +36,7 @@
   background: transparent;
   border: 0;
   font-family: var(--f-body);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   text-align: left;
   color: var(--textPrimary);
   cursor: pointer;
@@ -50,26 +57,34 @@
 }
 
 .ob-live-card-title {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   flex: 1 1 auto;
   overflow-wrap: anywhere;
 }
 
+/* The tally beside the title. It gives before the row does: a count that
+   refuses to shrink pushes the head wider than the pane and takes the
+   disclosure off the edge of it, where a truncated count still says which card
+   this is. `nowrap` keeps it one line so the truncation is the ellipsis and
+   never a broken number. */
 .ob-live-card-count {
-  flex: none;
-  font-family: var(--f-mono);
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: var(--f-body);
   font-variant-numeric: tabular-nums;
-  font-size: 10.5px;
+  font-size: var(--fs-meta);
   color: var(--textMeta);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ob-live-card-toggle {
   flex: none;
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--accent);
 }
@@ -104,8 +119,8 @@
 
 .ob-live-empty {
   margin: 0;
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-relaxed);
   color: var(--textContent);
 }
 
@@ -116,10 +131,10 @@
 }
 
 .ob-live-coverage-label {
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -143,23 +158,59 @@
 /* What was missed, in the reader's vocabulary. It leads the row; the URL below
    it is corroboration for whoever wants the exact path. */
 .ob-live-coverage-name {
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
   color: var(--textPrimary);
   overflow-wrap: anywhere;
 }
 
 .ob-live-coverage-url {
   font-family: var(--f-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-meta);
   color: var(--textMeta);
   overflow-wrap: anywhere;
 }
 
 .ob-live-coverage-reason {
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
   color: var(--textContent);
+}
+
+/* A narrow pane: the glyph, the title, the count, the disclosure word and the
+   chevron stop sharing one line, and the part that loses is the title — the
+   only one of the five that says what the card is. The title keeps the line it
+   needs and the count drops under it with the disclosure, all still inside the
+   one button, so what opens the card is unchanged. */
+@container (max-width: 300px) {
+  .ob-live-card-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: var(--space-2);
+    row-gap: var(--space-1);
+  }
+
+  .ob-live-card-glyph {
+    grid-area: 1 / 1;
+  }
+
+  .ob-live-card-title {
+    grid-area: 1 / 2;
+  }
+
+  .ob-live-card-chev {
+    grid-area: 1 / 3;
+  }
+
+  .ob-live-card-count {
+    grid-area: 2 / 2;
+  }
+
+  .ob-live-card-toggle {
+    grid-area: 2 / 3;
+    text-align: right;
+  }
 }
 
 /* Reduced motion jumps to the end state: the card is already in place, and

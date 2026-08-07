@@ -8,6 +8,7 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
 import { LocaleProvider } from "../../i18n";
+import { en } from "../../i18n/en";
 import { VOICE_MIN_WORDS } from "../onboarding";
 import {
   VoiceBuildScene,
@@ -179,15 +180,15 @@ describe("VoiceCollectScene", () => {
     expect(screen.queryByLabelText("Paste the text you wrote here")).toBeNull();
   });
 
-  it("shows the payoff band with its copy from the catalog", () => {
+  // Why the step is worth doing is available on the scene, behind its own
+  // control rather than above the drop target. The control has to name what it
+  // opens, and what it opens has to be the rationale — a disclosure whose body
+  // never arrived would look identical from the outside.
+  it("offers the payoff copy behind a control that names it", () => {
     collectScene({});
 
-    expect(screen.getByText("Why this step matters")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "It learns your tone, rhythm, and phrasing from your own writing, and trains on yours alone — never anyone else's.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText(en["ob.conv.voice.whyToggle"])).toBeInTheDocument();
+    expect(screen.getByText(en["ob.conv.voice.heroBody"])).toBeInTheDocument();
   });
 
   it("wires the browse button to the same hidden input the scene renders", async () => {
@@ -402,14 +403,10 @@ describe("VoiceResultScene", () => {
       />,
     );
 
+    expect(screen.queryByText(en["ob.conv.voice.resultSub"])).toBeNull();
+    expect(screen.queryByText(en["ob.conv.voice.sampleEyebrow"])).toBeNull();
     expect(
-      screen.queryByText("Read the sample first.", { exact: false }),
-    ).toBeNull();
-    expect(screen.queryByText("Sample, not sent")).toBeNull();
-    expect(
-      screen.getByText("too small yet to hold out a sample draft", {
-        exact: false,
-      }),
+      screen.getByText(en["ob.conv.voice.resultSubNoSample"]),
     ).toBeInTheDocument();
   });
 });

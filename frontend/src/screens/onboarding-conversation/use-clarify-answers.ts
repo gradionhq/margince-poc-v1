@@ -242,7 +242,7 @@ export function useClarifyAnswers({
   // Recording it as an answer stops the question from counting as an open
   // decision; the confirm resolutions map it per its comparison kind.
   const dismissClarify = useCallback(
-    (clarifyId: string) => {
+    (clarifyId: string, autoResolved = false) => {
       const clarify = (proposalRef.current?.open_questions ?? []).find(
         (question) => question.id === clarifyId,
       );
@@ -252,7 +252,13 @@ export function useClarifyAnswers({
       setFailure(null);
       setAnswers((current) => [
         ...current.filter((answer) => answer.clarifyId !== clarifyId),
-        { clarifyId, field: clarify.field, value: "", dismissed: true },
+        {
+          clarifyId,
+          field: clarify.field,
+          value: "",
+          dismissed: true,
+          autoResolved,
+        },
       ]);
     },
     [proposalRef],

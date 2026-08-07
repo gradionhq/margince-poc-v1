@@ -12,6 +12,7 @@ import type { Dispatch } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
 import { LocaleProvider } from "../../i18n";
+import { en } from "../../i18n/en";
 import { installFetchStub, jsonResponse, type RouteMap } from "../story-utils";
 import { CompanyAct } from "./company-act";
 import type {
@@ -667,11 +668,11 @@ const MOVED_DRAFT = { draft_version: 2, proposal_hash: "proposal-2" } as const;
 // The sentence a refused confirm reads as, one per code the server documents
 // for this operation (crm.yaml, confirmCompanySiteRead): the read has no
 // draft to confirm, and the read was confirmed already but the company it
-// created could not be loaded.
-const NOT_READY_NOTICE =
-  "This read has no draft to confirm yet, so Continue is on hold. Check again once it has finished, or start a fresh read.";
-const CHECK_FAILED_NOTICE =
-  "This read was already confirmed, but I could not load the company it created. Check again in a moment.";
+// created could not be loaded. Read from the catalog rather than transcribed:
+// what these cases are about is WHICH notice appears, and a copy edit that
+// leaves the behaviour untouched should not read as a broken test.
+const NOT_READY_NOTICE = en["ob.conv.review.confirmNotReady"];
+const CHECK_FAILED_NOTICE = en["ob.conv.review.confirmCheckFailed"];
 
 // The review, rendered from the one state every rejection case starts in:
 // only the stubbed routes and the code the confirm comes back with differ.
@@ -755,9 +756,7 @@ describe("recovering from a rejected confirm", () => {
     // The version-skew notice names what happened; the button disables
     // while the refetch it triggered is still carrying the SAME hash the
     // server just rejected (react-query holds prior data steady in flight).
-    await screen.findByText(
-      "Your review just updated with newer information from the read. Have a look, then press Continue again.",
-    );
+    await screen.findByText(en["ob.conv.review.confirmVersionSkew"]);
     expect(continueButton).toBeDisabled();
     await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(1));
     // The refetch is in flight but has not resolved: the button stays
@@ -826,9 +825,7 @@ describe("recovering from a rejected confirm", () => {
 
     fireEvent.click(continueButton);
 
-    await screen.findByText(
-      "Your review just updated with newer information from the read. Have a look, then press Continue again.",
-    );
+    await screen.findByText(en["ob.conv.review.confirmVersionSkew"]);
     expect(continueButton).toBeDisabled();
     await vi.waitFor(() => expect(siteReadCalls).toBeGreaterThan(1));
     // The refetch this rejection triggered is in flight, and `proposal.data`
@@ -840,9 +837,7 @@ describe("recovering from a rejected confirm", () => {
     // The refetch settled — into a failure — and Continue MUST NOT re-arm
     // onto a draft the server has never actually seen. The dedicated notice
     // swaps to naming that, with its own retry standing in for the button.
-    await screen.findByText(
-      "I checked again, but nothing has changed yet. Pressing Continue now would fail the same way, so have another look or check again in a moment.",
-    );
+    await screen.findByText(en["ob.conv.review.confirmVersionSkewStuck"]);
     expect(continueButton).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
@@ -900,9 +895,7 @@ describe("recovering from a rejected confirm", () => {
     });
     fireEvent.click(continueButton);
 
-    await screen.findByText(
-      "Your review just updated with newer information from the read. Have a look, then press Continue again.",
-    );
+    await screen.findByText(en["ob.conv.review.confirmVersionSkew"]);
     expect(continueButton).toBeDisabled();
     await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(1));
     expect(continueButton).toBeDisabled();

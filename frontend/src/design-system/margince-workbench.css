@@ -32,8 +32,18 @@
   min-height: 0;
 }
 
+/* Each track carries a floor as well as a share. The ratio governs how the
+   surplus is split; the floor is what stops a pane being asked to keep sharing
+   once it has run out of room to read in — a bare proportion narrows both panes
+   at once, so a window that shrinks yields two cramped columns rather than one
+   honest one. `min(100%, …)` keeps a floor from ever exceeding the shell, which
+   is `overflow: hidden` and would clip a track it cannot fit rather than scroll
+   it. The two floors together stay under the width at which the panes stack, so
+   they bind as the window approaches that point and never past it. */
 .mw-body.has-artifact {
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  grid-template-columns:
+    minmax(min(100%, 480px), 1.15fr)
+    minmax(min(100%, 380px), 0.85fr);
 }
 
 /* --- left column: the conversation ----------------------------------- */
@@ -43,12 +53,24 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-6) var(--space-6) var(--space-4);
+  gap: var(--space-5);
+  padding: var(--space-8) var(--space-8) var(--space-6);
   overflow: hidden;
   background:
     linear-gradient(var(--bgElevated), var(--bgElevated)) padding-box,
     radial-gradient(circle at 8% -4%, var(--aiLight), transparent 46%);
+}
+
+/* The transcript is the column's own scroller, and its scroll box begins where
+   the chrome above it ends — so without room of its own a turn sits flush
+   against that edge and the first line reads as a sliced one. The padding is
+   inside the scroll box, where it belongs: it travels with the content instead
+   of shrinking the visible window. `scroll-padding` says the same thing to the
+   browser, so the turn a programmatic scroll brings into view lands below the
+   edge rather than on it. */
+.mw-conversation .ob-conv-thread {
+  padding-block: var(--space-4);
+  scroll-padding-block: var(--space-4);
 }
 
 /* --- the step rail ---------------------------------------------------- */
@@ -76,10 +98,10 @@
   /* --textMeta, not --textTertiary: tokens.css names Meta the AA floor for
      everything under 13px, and every label in this chrome is 9-11px. */
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -105,8 +127,8 @@
   border: 1px solid var(--borderStrong);
   border-radius: var(--r-full);
   background: var(--bgElevated);
-  font-size: 9px;
-  font-weight: 650;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
 }
 
 /* Done carries no label colour of its own: at this size every label needs the
@@ -148,13 +170,21 @@
   min-width: 38px;
 }
 
+/* A grid item floors at its content's intrinsic width unless it is told not to,
+   and the identity's longest word is a product title in a language nobody sized
+   the column for. Without this the middle track pushes the brand row wider than
+   the conversation column and the chip beside it leaves the pane. */
+.mw-identity {
+  min-width: 0;
+}
+
 .mw-identity span {
   display: block;
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -162,9 +192,9 @@
   margin: 2px 0 0;
   color: var(--textPrimary);
   font-family: var(--f-display);
-  font-size: 16px;
-  font-weight: 560;
-  letter-spacing: -0.018em;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-display);
 }
 
 .mw-identity p {
@@ -173,7 +203,7 @@
   gap: 6px;
   margin: 2px 0 0;
   color: var(--textMeta);
-  font-size: 11.5px;
+  font-size: var(--fs-meta);
 }
 
 .mw-identity i {
@@ -209,6 +239,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* The spend and the token count are formatted numbers of unknown length, and
+     an intrinsic floor here would spend that length on the row rather than on
+     the chip — the rail's own width is the budget. */
+  min-width: 0;
   padding: 5px var(--space-2);
   border: 1px solid var(--aiMed);
   border-radius: var(--r-full);
@@ -250,7 +284,7 @@
 .mw-aistat-btn strong {
   color: var(--aiText);
   font-family: var(--f-mono);
-  font-size: 11px;
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
 }
 
@@ -278,10 +312,10 @@
 .mw-aistat-f {
   margin: 0;
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 650;
-  letter-spacing: 0.09em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -295,7 +329,7 @@
   margin-top: var(--space-3);
   padding-top: var(--space-2);
   border-top: 1px solid var(--borderSubtle);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-normal);
   text-transform: none;
 }
 
@@ -317,14 +351,14 @@
 
 .mw-aistat-r dt {
   color: var(--textMeta);
-  font-size: 11px;
+  font-size: var(--fs-meta);
 }
 
 .mw-aistat-r dd {
   margin: 0;
   color: var(--textPrimary);
   font-family: var(--f-mono);
-  font-size: 11px;
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -334,7 +368,7 @@
   margin-top: 2px;
   color: var(--warn);
   font-family: var(--f-body);
-  font-size: 9.5px;
+  font-size: var(--fs-meta);
 }
 
 /* --- right column: the artifact --------------------------------------- */
@@ -358,7 +392,7 @@
 .mw-artifact {
   min-width: 0;
   min-height: 0;
-  padding: var(--space-6);
+  padding: var(--space-8);
   overflow-y: auto;
   border-left: 1px solid var(--borderStrong);
   background: var(--bgCard);
@@ -387,7 +421,10 @@
   /* The seam flips sides with the emphasis: the rail closes with the strong
      border and the artifact loses its trough — as the primary surface it
      reads the page background, not a recess. */
+  /* The rail is between 300 and 380px wide, so the split variant's generous
+     gutters would take a fifth of it. Narrow columns are read tighter. */
   .mw-shell.is-rail .mw-conversation {
+    padding: var(--space-6);
     border-right: 1px solid var(--borderStrong);
   }
 
@@ -397,7 +434,7 @@
      gutters grow with the viewport so a wide pane reads as a centred page,
      never content pinned to its left edge. */
   .mw-shell.is-rail .mw-artifact {
-    padding: var(--space-6) clamp(var(--space-6), 5vw, 72px);
+    padding: var(--space-8) clamp(var(--space-6), 5vw, 72px);
     border-left: 0;
     background:
       radial-gradient(42rem 15rem at 12% -4%, var(--aiLight), transparent 58%),
@@ -418,14 +455,17 @@
   flex-direction: column;
   gap: 6px;
   flex: none;
+  /* The label below truncates, which it can only do inside a box that is
+     allowed to be narrower than the sentence it holds. */
+  min-width: 0;
 }
 
 .mw-progress-label {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   overflow: hidden;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -503,6 +543,9 @@
   flex-direction: column;
   gap: 6px;
   flex: none;
+  /* Same reason as .mw-progress: the model line inside it ellipsizes, and a
+     column that floors at its content's width never gives it the chance. */
+  min-width: 0;
   margin-top: calc(-1 * var(--space-2));
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--borderSubtle);
@@ -510,10 +553,10 @@
 
 .mw-shell.is-rail .mw-aifooter-label {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -534,7 +577,7 @@
 .mw-aistat-tok {
   color: var(--textMeta);
   font-family: var(--f-mono);
-  font-size: 10px;
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
 }
 
@@ -545,7 +588,7 @@
   overflow: hidden;
   color: var(--textMeta);
   font-family: var(--f-body);
-  font-size: 9.5px;
+  font-size: var(--fs-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -575,9 +618,9 @@
   border-radius: var(--r-full);
   background: var(--mono0Fill);
   color: var(--mono0Text);
-  font-family: var(--f-mono);
-  font-size: 11px;
-  font-weight: 650;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
 }
 
 .mw-shell.is-rail .mw-person-id {
@@ -588,8 +631,8 @@
 
 .mw-shell.is-rail .mw-person-id b {
   color: var(--textPrimary);
-  font-size: 12px;
-  font-weight: 560;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -607,8 +650,8 @@
 
 .mw-shell.is-rail .mw-person-id small {
   color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 10px;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

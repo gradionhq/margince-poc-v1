@@ -1826,7 +1826,7 @@ export const de = {
   "ob.readTrustBody": "Ich speichere nichts, bevor du es bestätigst.",
   "ob.coreIntroTitle": "Zuerst muss ich dein rechtliches Unternehmen kennen.",
   "ob.coreIntroBody":
-    "Ich brauche rechtliche Identität, Anschrift und USt-IdNr./UID oder Registerdaten. Danach lerne ich, was ihr verkauft, wen ihr bedient und wie ihr Geschäft gewinnt.",
+    "Ich brauche Firmenname, Anschrift und USt- oder Registernummer. Dann lerne ich, was ihr verkauft.",
   "ob.coreLegalKicker": "Ich beginne mit der rechtlichen Identität",
   "ob.corePathLabel": "Was ich lerne",
   "ob.corePathLegal": "Rechtliche Identität",
@@ -1835,24 +1835,24 @@ export const de = {
   "ob.coreReadingPage": "Ich lese gerade",
   "ob.coreWebsiteTitle": "Welche Website soll ich lesen?",
   "ob.coreWebsiteBody":
-    "Ich suche zuerst das Impressum und lese danach Produkte, Idealkunden, Positionierung und Vertriebsansatz.",
+    "Ich lese zuerst das Impressum, dann Produkte, Kunden und Positionierung.",
   "ob.corePreparing": "Ich bereite das Einlesen von {host} vor",
   "ob.coreLegalReading": "Ich lese die rechtliche Identität auf {host}",
   "ob.coreLegalReadingBody":
-    "Ich suche Impressum, eingetragene Organisation, Anschrift sowie Register- oder USt-IdNr./UID. Was nicht genannt ist, bleibt leer.",
+    "Ich suche Impressum, Anschrift und Register- oder USt-Nummer. Ungenanntes bleibt leer.",
   "ob.coreBusinessReading": "Ich lerne, wie das Geschäft funktioniert",
   "ob.coreBusinessReadingBody":
     "Ich verbinde Produkte, Kunden und Positionierung mit dem genauen öffentlichen Text, der sie belegt.",
   "ob.coreReady": "Ich habe {count} belegte Firmendaten gefunden",
   "ob.corePartial": "Ich habe {count} nützliche Angaben gefunden — mit Lücken",
   "ob.coreReadyBody":
-    "Ich habe noch nichts gespeichert. Bitte prüfe zuerst die rechtliche Identität, danach Angebot und Idealkunden.",
+    "Noch nichts gespeichert. Prüf zuerst die rechtliche Identität, dann das Angebot.",
   "ob.coreDeferredBody": "Ich setze das Einlesen automatisch fort.",
   "ob.coreFailedBody":
-    "Ich konnte diese Website nicht zuverlässig öffnen oder belegen und habe deshalb aufgehört, statt zu raten. Du kannst mir dieselben Angaben selbst geben.",
+    "Ich konnte diese Website nicht sicher lesen und habe gestoppt statt zu raten. Sag es mir selbst.",
   "ob.coreFindingsTitle": "Was ich gefunden habe und belegen kann",
   "ob.coreFindingsBody":
-    "Ich hänge an jeden Wert den öffentlichen Wortlaut seiner Quelle. Was ich rechtlich nicht belegen kann, lasse ich leer.",
+    "Zu jedem Wert gehört der öffentliche Wortlaut. Unbelegtes lasse ich leer.",
   "ob.ai.identity": "Hallo, ich bin Margince",
   "ob.ai.role": "Deine KI für Firmenrecherche",
   "ob.ai.speaker": "M",
@@ -1936,7 +1936,7 @@ export const de = {
   "ob.coverageDetails": "Was ich abgedeckt und nicht lesen konnte",
   "ob.legalFoundTitle": "Rechtliche Einheiten, die ich gefunden habe",
   "ob.legalFoundBody":
-    "Ich halte jeden rechtlichen Block zusammen: eingetragener Name, Anschrift und Register- oder USt-IdNr./UID. Wenn die Website mehrere Einheiten nennt, wählst du deine in der Prüfung aus.",
+    "Jeder Block behält Name, Anschrift und Register- oder USt-Nummer. Deine wählst du in der Prüfung.",
   "ob.legalEntity": "Rechtliche Einheit",
   "ob.confirmWebsite":
     "Ich habe diese Angaben mit {count} öffentlichen Seiten belegt. Änderungen werden deine Aussage; unveränderte Werte behalten ihre Belege.",
@@ -1951,7 +1951,7 @@ export const de = {
     "Wähle ab, was nicht Teil des Firmenkontexts werden soll — bis zu 100 Angaben können ausgewählt sein.",
   "ob.nowUnderstands": "Ich verstehe jetzt",
   "ob.contextReady":
-    "Ich kann diesen Kontext jetzt für relevante Entwürfe, Suche, Agenten und Voice DNA nutzen — inklusive Herkunft.",
+    "Ich nutze diesen Kontext für Entwürfe, Suche, Agenten und Voice DNA — mit Herkunft.",
 
   "ob.s1.kick": "Schritt 2 von 5 · bestätigen",
   "ob.s1.title": "Prüfe, was ich über dein Unternehmen gelernt habe",
@@ -2056,26 +2056,25 @@ export const de = {
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s3.kick": "Schritt 3 von 4",
   "ob.s3.title": "Sieh, was du gebaut hast —",
   "ob.s3.titleEm": "ganz ohne Anbindung.",
   "ob.s3.sub":
-    "Dein Workspace kennt schon dein Geschäft und deine Stimme. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
+    "Dein Workspace kennt dein Geschäft und deine Stimme. Verbinde dein Postfach, es füllt sich.",
   "ob.s3.subNoVoice":
-    "Dein Workspace kennt schon dein Geschäft. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
+    "Dein Workspace kennt dein Geschäft. Verbinde dein Postfach, es füllt sich.",
   "ob.s3.cardProfile": "Geschäftsprofil",
   "ob.s3.cardProfileBody":
-    "Bestätigt und auf deiner Firmenseite gespeichert. Von deiner Seite gelesene Felder behalten ihre Quelle; der Rest steht in deinen eigenen Worten.",
+    "Bestätigt und auf deiner Firmenseite gespeichert. Gelesene Felder behalten ihre Quelle.",
   "ob.s3.cardProfileSkippedBody":
-    "Von deiner Seite gelesen, aber noch nicht gespeichert — du hast den Bestätigen-Schritt übersprungen. Geh zurück und bestätige, dann landet es auf deiner Firmenseite.",
+    "Gelesen, aber nicht gespeichert: du hast Bestätigen übersprungen. Geh zurück und bestätige.",
   "ob.s3.cardVoice": "Deine Schreibstimme",
   "ob.s3.cardVoiceBody":
     "Gebaut aus dem Korpus, den du uns gerade gegeben hast. Entwürfe klingen ab Tag eins nach dir.",
   "ob.s3.cardVoiceSkippedBody":
-    "Du hast den Stimme-Schritt übersprungen — Entwürfe starten in einer neutralen Ausgangsstimme, bis du deine baust. Zwei Minuten, jederzeit, in den Einstellungen.",
+    "Übersprungen — Entwürfe nutzen eine neutrale Stimme. Deine baust du in den Einstellungen.",
   "ob.s3.cardPipeline": "Vertriebs-Pipeline",
   "ob.s3.cardPipelineBody":
-    "Die Standard-B2B-Vorlage mit 7 Stufen, auf deine Branche vorgestimmt. Leer, bis du verbindest — dann füllen sich Deals aus deiner Post.",
+    "Die Standard-B2B-Vorlage mit 7 Stufen, auf deine Branche gestimmt. Leer, bis du verbindest.",
   "ob.s3.cardDraft": "Ein Beispiel-Entwurf, in deiner Stimme",
   "ob.s3.cardDraftExample": "Ein Beispiel-Entwurf",
   "ob.s3.cardDraftBody": "Sieh ihn unten.",
@@ -2086,7 +2085,7 @@ export const de = {
     "Betreff: Kurze Frage zu eurer Montagelinie\n\nHallo {{name}} — gesehen, dass {company} diskrete Montage im großen Stil fährt. Wir bringen Teams wie euch in 6 Wochen eine laufende Roboterzelle, ohne eure bestehenden SPS rauszureißen. 15 Minuten wert? Beste Grüße, Lars",
   "ob.s3.originLabel": "Woher diese Pipeline kommt",
   "ob.s3.originBody":
-    "Keine Magie — es ist die Standard-B2B-Stufenvorlage, aus dem Schritt-1-Read auf deine Branche gestimmt. Sie ist gerade leer. Wenn du dein Postfach verbindest, liest Capture deine gesendete Post und Meetings und schlägt Deals in diese Stufen vor — jeder belegt und umkehrbar. Du gibst frei, was ein Deal wird.",
+    "Die Standard-B2B-Vorlage, aus dem Read auf deine Branche gestimmt. Leer, bis du verbindest. Du gibst frei, was ein Deal wird.",
   "ob.s3.stillNothing":
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
 
@@ -2115,9 +2114,9 @@ export const de = {
   "ob.s4.googleBtn": "Zugriff auf mein Gmail erlauben",
   "ob.s4.soon": "Bald",
   "ob.s4.googleHint":
-    "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und du kannst die Verbindung jederzeit wieder trennen.",
+    "Nur Lesezugriff. Du bestätigst bei Google und kannst jederzeit trennen.",
   "ob.s4.googleUnverified":
-    "Falls Google einen Hinweis „nicht verifizierte App“ zeigt, wähle Erweitert → Fortfahren. Margince liest deine Mail nur — es sendet nie.",
+    "Zeigt Google „nicht verifizierte App“, wähl Erweitert → Fortfahren. Margince liest nur.",
   "ob.s4.googleOkTitle": "Gmail verbunden",
   "ob.s4.googleOkBody":
     "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
@@ -2329,9 +2328,10 @@ export const de = {
   "ob.s4.imapMailbox": "Postfach",
   "ob.s4.imapMax": "Wie viele aktuelle E-Mails",
   "ob.s4.imapHint":
-    "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir versiegeln es im Credential-Vault und lesen weiter neue Post, bis du die Verbindung trennst — beim Trennen wird es gelöscht.",
+    "Nutz ein App-Passwort. Wir speichern es verschlüsselt, beim Trennen wird es gelöscht.",
   "ob.s4.imapConnect": "Testen und verbinden",
   "ob.s4.connecting": "Sichere Verbindung…",
+  "ob.s4.accessToggle": "Welchen Zugriff das gibt",
   "ob.s4.scope1Lead": "Wir lesen — wir müllen nichts voll.",
   "ob.s4.scope1Rest":
     "Deine Post wird automatisch zu Kontakten, Firmen und Aktivitäten.",
@@ -2344,14 +2344,14 @@ export const de = {
   "ob.s4.scope4Rest": "Das CRM läuft weiter; es hört nur auf zu erfassen.",
   "ob.s4.capturedTitle": "Postfach verbunden",
   "ob.s4.capturedBody":
-    "Lehn dich zurück — dein CRM baut sich von selbst auf. Neue Post trifft hier ein, sobald der erste Durchlauf läuft, meist innerhalb weniger Minuten.",
+    "Dein CRM baut sich selbst. Neue Post landet hier, sobald der erste Durchlauf läuft.",
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
   "ob.s4.notNow": "Nicht jetzt",
 
   "ob.conv.threadLabel": "Einrichtungsgespräch",
   "ob.conv.welcome":
-    "Hallo, ich bin Margince. Ich richte dein CRM ein, indem ich lese, was über dein Unternehmen bereits belegt ist, und zeige zu allem eine Quelle.",
+    "Hallo, ich bin Margince. Ich baue dein CRM aus dem, was schon da ist, und zeige jede Quelle.",
   "ob.conv.welcomeMember":
     "Hallo, ich bin Margince. Dein Team ist schon eingerichtet. Zwei kurze Schritte, dann bist du drin.",
   "ob.conv.read.started": "Ich lese jetzt {host}. Ich sage dir, was ich finde.",
@@ -2391,7 +2391,7 @@ export const de = {
   "ob.conv.voice.continueDeferredStatus":
     "Hier ist nichts zu tun — mach weiter, der Rest läuft von selbst.",
   "ob.conv.voice.collectAsk":
-    "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch.",
+    "Schick mir eigene Texte. Gesprächs-Transkripte sind am besten, Dokumente gehen auch.",
   "ob.conv.voice.composer": "Füge hier deinen Text ein",
   "ob.conv.voice.dropHint":
     "Du kannst Dateien auch überall in dieses Gespräch ziehen.",
@@ -2400,11 +2400,11 @@ export const de = {
   "ob.conv.voice.fileEmpty":
     "In {name} stehen keine Wörter, also wurde nichts gezählt.",
   "ob.conv.voice.reactionTranscript":
-    "Behaltene Wörter: {kept} von {total}. Nur deine Beiträge zählen, und gesprochene Sprache schärft deine Stimme am meisten.",
+    "Behalten: {kept} von {total}. Nur deine Beiträge zählen. Gesprochenes schärft am meisten.",
   "ob.conv.voice.reactionDocument":
     "Gezählte Wörter: {words}. Jedes Wort hier ist deins, also zählen alle.",
   "ob.conv.voice.refusalUnattributed":
-    "Das sieht nach einem Gespräch aus, aber ich kann nicht erkennen, welche Wörter deine sind. Ich habe nichts gezählt, denn ich zähle nur Wörter, die nachweislich von dir stammen.",
+    "Das sieht nach einem Gespräch aus, aber ich erkenne deine Wörter nicht. Ich habe nichts gezählt.",
   "ob.conv.voice.refusalSpeaker":
     "Ich konnte diesen Sprecher im Transkript nicht finden. Nichts wurde gezählt.",
   "ob.conv.voice.refusalUnsupported":
@@ -2419,7 +2419,7 @@ export const de = {
   "ob.conv.voice.buildFloor":
     "Eigene Wörter bisher: {words}. Ich brauche mindestens {min}, bevor ich bauen kann.",
   "ob.conv.voice.buildNudge":
-    "Ich habe genug zum Bauen. Mehr Material hilft trotzdem: Ab 4.000 Wörtern wird deine Stimme deutlich schärfer.",
+    "Ich habe genug zum Bauen. Ab 4.000 Wörtern wird deine Stimme deutlich schärfer.",
   "ob.conv.voice.buildChip": "Mein Stimmprofil bauen",
   "ob.conv.voice.retryBuild": "Aufbau erneut versuchen",
   "ob.conv.voice.buildPollFailed":
@@ -2524,12 +2524,12 @@ export const de = {
   "ob.conv.scene.step": "Schritt {n} von {m} · {label}",
   "ob.conv.scene.detour": "Ein kurzer Umweg",
   "ob.conv.scene.decisionSub":
-    "Deine Website nennt mehr als eine juristische Einheit, und ich rate nicht, welche deine Verträge unterschreibt: Sie entscheidet, was auf jedem Angebot und jeder Rechnung steht.",
+    "Deine Website nennt mehrere Gesellschaften. Die gewählte steht auf jeder Rechnung.",
   "ob.conv.scene.continue": "Weiter",
   "ob.conv.scene.candidates": "{count} Kandidaten",
   "ob.conv.connect.sceneTitle": "Verbinde deine Konten.",
   "ob.conv.connect.sceneSub":
-    "Ich baue deine Kontakte, Firmen und Historie aus dem, was schon in deinem Postfach liegt. Keine Handeingabe, keine CSV-Vorlage.",
+    "Ich baue Kontakte, Firmen und Historie aus dem, was schon im Postfach liegt.",
   "ob.conv.connect.mailboxTitle": "Dein Postfach",
   "ob.conv.connect.mailboxHint":
     "Wähle eins. Von hier kommen deine Kontakte, Firmen und Historie.",
@@ -2550,7 +2550,7 @@ export const de = {
   "ob.conv.connect.connectedCta": "verbunden",
   "ob.conv.connect.blockedCard":
     "Du hast schon ein Postfach gewählt. Trenne es in den Einstellungen, um zu wechseln.",
-  "ob.conv.connect.guaranteesHeading": "Was Verbinden tatsächlich bedeutet",
+  "ob.conv.connect.guaranteesToggle": "Was Verbinden tatsächlich bedeutet",
   "ob.conv.connect.railPromise":
     "Wir lesen nur, und nichts wird ohne deine Freigabe gesendet.",
   "ob.conv.connect.dialogHeadlineAccess": "Zugriff auf {name} nötig",
@@ -2568,10 +2568,10 @@ export const de = {
     "Beim Laden deines Verbindungsstatus ist etwas schiefgelaufen. Versuche es erneut, bevor du einen Anbieter auswählst.",
   "ob.conv.voice.sceneTitle": "Zeig mir, wie du schreibst.",
   "ob.conv.voice.sceneSub":
-    "Jede Mail, jede Antwort und jeder Nachfass, die dieses CRM entwirft, klingt nach dir, nicht nach einer Vorlage, und ohne deine Freigabe wird nichts versendet.",
-  "ob.conv.voice.heroKicker": "Warum dieser Schritt zählt",
+    "Dieses CRM entwirft jede Mail in deinen Worten, und ohne deine Freigabe geht nichts raus.",
   "ob.conv.voice.heroBody":
-    "Ton, Rhythmus und Formulierungen lernt es aus deinen eigenen Texten und trainiert ausschließlich damit, nie mit den Texten anderer.",
+    "Es lernt Ton, Rhythmus und Formulierung aus deinen Texten, aus keinen anderen.",
+  "ob.conv.voice.whyToggle": "Warum das zählt",
   "ob.conv.voice.dropTitle": "Leg deine Texte hier ab",
   "ob.conv.voice.dropSub":
     "Gesendete Mails eignen sich am besten, weil sie zeigen, wie du schreibst, wenn du etwas willst.",
@@ -2591,7 +2591,7 @@ export const de = {
   "ob.conv.voice.resultSub":
     "Lies zuerst das Beispiel. Passt es, bestätige. Passt es nicht, gib mir mehr Quellen und ich baue neu.",
   "ob.conv.voice.resultSubNoSample":
-    "Dein Korpus ist noch zu klein, um ein Beispiel zurückzuhalten. Hier ist, was der Aufbau über deinen Schreibstil gelernt hat — für ein Beispiel brauche ich mehr Quellen.",
+    "Dein Korpus reicht noch nicht für ein Beispiel. Das hat der Aufbau gelernt. Füg Quellen hinzu.",
   "ob.conv.voice.resultContinue": "Das bin ich",
   "ob.conv.voice.sampleEyebrow": "Beispiel, nicht gesendet",
   "ob.conv.voice.sampleAnother": "Anderes Szenario",
@@ -2637,13 +2637,13 @@ export const de = {
   "ob.conv.review.confirmFailed":
     "Ich konnte noch nicht speichern: {detail} Korrigiere das und übernimm erneut.",
   "ob.conv.review.confirmVersionSkew":
-    "Deine Prüfung wurde gerade mit neueren Informationen aus dem Read aktualisiert. Schau sie dir an und drücke dann erneut Weiter.",
+    "Deine Prüfung hat gerade neuere Daten bekommen. Schau nach und drück erneut Weiter.",
   "ob.conv.review.confirmVersionSkewStuck":
-    "Ich habe noch einmal geprüft, aber es hat sich noch nichts geändert. Weiter würde jetzt genauso fehlschlagen. Schau noch einmal nach oder prüfe es gleich erneut.",
+    "Es hat sich noch nichts geändert, Weiter würde erneut scheitern. Schau nach oder prüf gleich.",
   "ob.conv.review.confirmNotReady":
-    "Dieser Read hat noch keinen Entwurf zum Bestätigen, deshalb ist Weiter vorerst gesperrt. Prüfe erneut, sobald er fertig ist, oder starte einen neuen Read.",
+    "Dieser Read hat noch keinen Entwurf. Prüf erneut, wenn er fertig ist, oder starte neu.",
   "ob.conv.review.confirmCheckFailed":
-    "Dieser Read wurde bereits bestätigt, aber ich konnte das damit angelegte Unternehmen nicht laden. Prüfe es gleich noch einmal.",
+    "Der Read ist bestätigt, aber die Firma lud nicht. Prüf es gleich noch einmal.",
   "ob.conv.artifact.empty":
     "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
   "ob.conv.results.continue": "Weiter",
@@ -2669,7 +2669,7 @@ export const de = {
   "ob.conv.recap.corpus":
     "Dein Korpus enthält bereits {words} deiner eigenen Wörter.",
   "ob.conv.recap.readTerminal":
-    "Willkommen zurück. Ich habe {host} bereits fertig gelesen: {count} belegte Funde. Deine Durchsicht ist unten bereit.",
+    "Willkommen zurück. {host} ist gelesen: {count} belegte Funde, unten bereit.",
   "ob.conv.recap.readReading":
     "Willkommen zurück. Ich lese {host} noch. Seiten bisher: {pages}.",
   "ob.conv.recap.readFailed":
@@ -2680,6 +2680,7 @@ export const de = {
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
   "ob.conv.linkedin.cardBody":
     "Macht aus deinem Netzwerk Firmen und Kontakte, und meldet, wenn jemand aus deinem Netzwerk den Job wechselt.",
+  "ob.conv.linkedin.limitsToggle": "Was Margince sehen kann und was nicht",
   "ob.conv.linkedin.scope1Lead": "Deine Kontaktliste \u2014",
   "ob.conv.linkedin.scope1Rest":
     "Name, Position, Unternehmen und das Datum der Vernetzung.",
@@ -2693,14 +2694,14 @@ export const de = {
   "ob.conv.linkedin.scope4Rest":
     "Das Verbinden verschickt keine Einladungen und keine Nachrichten \u2014 nie.",
   "ob.conv.linkedin.neverContacts":
-    "Deine Kontakte werden NICHT zu Kontakten im CRM \u2014 sie existieren nur f\u00fcr eine Frage: Kennt hier jemand bereits jemanden bei diesem Unternehmen?",
+    "Deine Kontakte werden nie zu CRM-Kontakten. Sie beantworten nur: Wer hier kennt sie schon?",
   "ob.conv.linkedin.profileLabel": "Deine LinkedIn-Profil-URL",
   "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
   "ob.conv.linkedin.profileWhy":
-    "Damit das Netzwerk dir namentlich zugeordnet wird \u2014 das CRM sagt \u201eAnna kennt sie\u201c, nie \u201edas Unternehmen kennt sie\u201c.",
+    "So gehört das Netzwerk dir: „Anna kennt sie“, nie „das Unternehmen kennt sie“.",
   "ob.conv.linkedin.authorize": "Mit LinkedIn autorisieren",
   "ob.conv.linkedin.appPending":
-    "Hinweis: Unsere LinkedIn-App wartet noch auf Freigabe, es werden also noch keine Kontakte synchronisiert \u2014 nur deine Zustimmung und dein Profil werden erfasst. Lade dazu in den Einstellungen deine Connections.csv hoch, das funktioniert heute schon.",
+    "Unsere LinkedIn-App wartet noch auf Freigabe, es synchronisiert nichts. Lade solange Connections.csv hoch.",
   "ob.conv.linkedin.skip": "LinkedIn vorerst \u00fcberspringen",
   "ob.conv.linkedin.connected":
     "LinkedIn autorisiert. Deine Kontakte werden synchronisiert, sobald die App freigegeben ist.",
@@ -2729,7 +2730,10 @@ export const de = {
   "ob.gate.title": "Hallo {name}, ich bin die Margince-KI.",
   "ob.gate.titleAnonymous": "Ich bin die Margince-KI.",
   "ob.gate.sub":
-    "Nenn mir deine Website und ich lese sie: was du verkaufst, wer bei dir kauft, die Menschen dahinter. Du prüfst alles, bevor es gespeichert wird, und ohne dein Ja geht nichts nach draußen. Etwa zwei Minuten.",
+    "Ich lese deine Website und entwerfe dein Firmenprofil. Du gibst frei, bevor ich speichere. Zwei Minuten.",
+  "ob.gate.trustToggle": "So funktioniert es",
+  "ob.gate.trustBody":
+    "Ich lese nur öffentliche Seiten. Nichts wird gespeichert, bevor du bestätigst, und ohne deine Freigabe geht nie etwas raus.",
   "ob.gate.field": "Deine Website-Adresse",
   "ob.gate.placeholder": "deinefirma.de",
   "ob.gate.submit": "Meine Website lesen",
@@ -2747,7 +2751,7 @@ export const de = {
   // zurück. Der Satz sagt also, was stimmt, und nennt beide Türen, ohne dass
   // der Leser irgendetwas reparieren soll.
   "ob.gate.readPaused":
-    "Dieses Lesen ist gerade pausiert. {detail} Es läuft von selbst weiter — oder nenn mir eine andere Adresse, oder gib die Daten selbst ein.",
+    "Dieses Lesen pausiert. {detail} Es läuft von selbst weiter — oder nenn mir eine andere Adresse.",
 
   // --- das Lese-Theater --------------------------------------------------
   // Sichtbar gemachtes Volumen. Die Schnittstelle liefert keinen Nenner für
@@ -2756,7 +2760,7 @@ export const de = {
   // hieße, Daten zu erfinden.
   "ob.scan.title": "Ich lese {host}",
   "ob.scan.sub":
-    "Ich gehe die Website jetzt durch. Jeder Fakt behält die Seite, von der er kommt, damit du alles nachprüfen kannst, was ich behaupte.",
+    "Jeder Fakt behält seine Quellseite, du kannst alles nachprüfen.",
   "ob.scan.doneTitle": "{host} gelesen",
   "ob.scan.doneSub":
     "{facts} Fakten und {fields} Profilfelder, jeweils mit der Seite, von der sie kommen. Ich öffne deine Durchsicht.",
@@ -2777,6 +2781,13 @@ export const de = {
   "ob.scan.pageStatusFetched": "gelesen",
   "ob.scan.pageStatusSkipped": "übersprungen: {reason}",
   "ob.scan.pageStatusFailed": "nicht lesbar: {reason}",
+  "ob.scan.skipReason.robots": "die Seite hat mich gebeten, sie nicht zu lesen",
+  "ob.scan.skipReason.offDomain": "sie liegt auf einer anderen Domain",
+  "ob.scan.skipReason.pageCap":
+    "ich hatte schon so viele Seiten gelesen, wie ein Read erlaubt",
+  "ob.scan.skipReason.byteCap":
+    "dieses Lesen hatte schon so viel Text aufgenommen, wie erlaubt ist",
+  "ob.scan.skipReason.unreadable": "ich konnte die Seite nicht lesen",
   "ob.scan.transparency": "Transparenz",
   "ob.scan.costLine": "{calls} Aufrufe · {tokens} Tokens · {cost}",
   "ob.scan.costPending": "noch keine Modellaufrufe berechnet",
@@ -2878,7 +2889,7 @@ export const de = {
   "ob.payoff.body":
     "Alles darin kannst du korrigieren, und jeder Wert zeigt weiter auf die Seite, von der er kommt.",
   "ob.payoff.defaults":
-    "Zwei Voreinstellungen, beide änderbar unter Einstellungen → Autonomie: Ich bereite vor und warte auf deine Bestätigung, und ich überschreibe nie ein Feld, das du selbst getippt hast.",
+    "Ich warte auf dein Ja und überschreibe nie deine Eingaben. Beides in Einstellungen → Autonomie.",
   "ob.payoff.seats":
     "Es fehlen nur noch deine Kollegen. Sitze sind kostenpflichtig, deshalb legst du sie unter Einstellungen → Nutzer selbst an.",
   "ob.payoff.understood": "Verstanden",
@@ -2903,7 +2914,7 @@ export const de = {
   "ob.backread.estimateFailed":
     "Ich konnte diesen Zeitraum nicht schätzen: {detail} Du kannst trotzdem starten oder einen anderen wählen.",
   "ob.backread.note":
-    "Beim Zurücklesen wird nur gelesen. Ich importiere Personen, Firmen und Aktivitäten, und ich zeige dir, was ich gefunden habe, bevor etwas geschrieben wird.",
+    "Das Zurücklesen liest nur. Du siehst jede Person und Firma, bevor etwas geschrieben wird.",
   "ob.backread.start": "Verbinden und lesen",
   "ob.backread.startFailed":
     "Ich konnte das Zurücklesen nicht starten: {detail} Versuch es erneut, oder mach weiter und starte es später in den Einstellungen.",

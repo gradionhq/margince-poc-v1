@@ -2,7 +2,7 @@ import { Check, Lightbulb } from "lucide-react";
 import type { ChangeEvent, ReactNode, RefObject } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { components } from "../../api/schema";
-import { Button } from "../../design-system/atoms";
+import { Button, Disclosure } from "../../design-system/atoms";
 import { MarginceCoreScene } from "../../design-system/margince-core";
 import { usePrefersReducedMotion } from "../../design-system/motion";
 import { useT } from "../../i18n";
@@ -110,20 +110,16 @@ export function VoiceScene({
  * size the build scene reaches for, because this is context beside copy, not
  * the scene's own subject.
  */
+// Why the step is worth doing, one press away. It answers a fair question, but
+// it answers it for the reader who stops to ask — a permanently open band of
+// rationale above the drop target competes with the drop target, which is the
+// only thing on this scene anyone has to act on.
 function VoiceHeroBand() {
   const t = useT();
   return (
-    <div className="ob-voice-hero">
-      <MarginceCoreScene
-        state="idle"
-        feed={false}
-        className="ob-voice-hero-core"
-      />
-      <div className="ob-voice-hero-copy">
-        <p className="ob-voice-hero-kicker">{t("ob.conv.voice.heroKicker")}</p>
-        <p className="ob-voice-hero-body">{t("ob.conv.voice.heroBody")}</p>
-      </div>
-    </div>
+    <Disclosure summary={t("ob.conv.voice.whyToggle")}>
+      <p className="ob-voice-hero-body">{t("ob.conv.voice.heroBody")}</p>
+    </Disclosure>
   );
 }
 

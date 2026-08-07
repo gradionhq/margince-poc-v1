@@ -1000,9 +1000,18 @@ function FactRow({
   );
 }
 
+// Above this many rows a type is folded shut. A read of a real site returns a
+// hundred facts and two thirds of them are one type — services, named
+// customers — so opening everything buries the small groups that actually
+// carry a decision under a list nobody scrolls to the end of. Short groups
+// stay open because folding four rows costs a click and saves nothing.
+const FACT_GROUP_OPEN_MAX = 6;
+
 // One type's worth of facts under its own quiet heading — the grouping that
 // keeps a hundred rows skimmable: the reader sees the SHAPE of what a type
-// found (three services, one certification) before reading any of it.
+// found (three services, one certification) before reading any of it. The
+// count in the head is the part that must always be visible; the rows behind
+// it are the detail, and a long type earns its fold.
 function FactTypeGroup({
   field,
   facts,
@@ -1015,11 +1024,14 @@ function FactTypeGroup({
   t: ReturnType<typeof useT>;
 }>) {
   return (
-    <div className="ob-triage-fact-type">
-      <p className="ob-triage-fact-type-head">
+    <details
+      className="ob-triage-fact-type"
+      open={facts.length <= FACT_GROUP_OPEN_MAX}
+    >
+      <summary className="ob-triage-fact-type-head">
         <span>{coldFieldLabel(field, t)}</span>
         <span>{facts.length}</span>
-      </p>
+      </summary>
       <ul className="ob-triage-fact-rows">
         {facts.map((fact) => (
           <FactRow
@@ -1030,17 +1042,19 @@ function FactTypeGroup({
           />
         ))}
       </ul>
-    </div>
+    </details>
   );
 }
 
 /**
- * Every fact the read produced, grouped by type and visible without a
- * click — the densest, most interesting thing the crawl made must not read
- * as an appendix behind "other facts I found". The selection stays live
- * here: ticking or unticking still writes through the same `FactSelection`
- * the classic form's fact grid and table use, so accepting the review still
- * sends exactly the keys the reader chose.
+ * Every fact the read produced, grouped by type — the densest, most
+ * interesting thing the crawl made must not read as an appendix behind "other
+ * facts I found". Every type's name and count is on screen from the start;
+ * only a long type's rows wait behind its own fold. The selection stays live
+ * either way: ticking or unticking still writes through the same
+ * `FactSelection` the classic form's fact grid and table use, so accepting the
+ * review still sends exactly the keys the reader chose — including the ones
+ * inside a group they never opened.
  */
 function FactsGroupSection({
   facts,
@@ -1357,10 +1371,19 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
     props.selectedFactKeys,
     props.setSelectedFactKeys,
   );
-  // Dismissed questions are named honestly: nothing was written, the field
-  // stays the human's to edit, never silently swallowed.
+  // Questions the reader themselves declined are named honestly: nothing was
+  // written, the field stays theirs to edit, never silently swallowed.
+  //
+  // Questions another answer RETIRED are not, and that exclusion is the point
+  // rather than a tidy-up. Choosing a legal entity settles the sibling
+  // questions about that entity's own address and registration and then fills
+  // exactly those fields — so without the split the board printed "you
+  // skipped: Registered address" directly under the address it had just read
+  // from the legal notice, about a question the reader was never shown.
   const dismissedLabels = props.answers
-    .filter((answer) => answer.dismissed === true)
+    .filter(
+      (answer) => answer.dismissed === true && answer.autoResolved !== true,
+    )
     .map((answer) => coldFieldLabel(answer.field, t))
     .join(", ");
   // What the bottom bar's progress and gate read: real completion toward

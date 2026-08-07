@@ -8,6 +8,7 @@ import {
 } from "./company-context";
 import { OnboardingConversationScreen } from "./onboarding-conversation/index";
 import "./onboarding.css";
+import type { MessageKey } from "../i18n/en";
 
 // The onboarding entry point plus the shared vocabulary of the journey:
 // the company draft (values + grounding + human-edited marks), the URL and
@@ -265,6 +266,40 @@ export function provenanceOf(
   field: CompanyFieldName,
 ): FieldGrounding | null {
   return draft.grounded[field as ColdField["field"]] ?? null;
+}
+
+// The crawler's own vocabulary for declining a page (crm.yaml,
+// SiteReadSkip.reason), said in words. Printed raw it reached the screen as
+// "skipped: page_cap" — an internal a reader has no way to decode. It lives
+// here rather than beside either caller because the read theatre and the
+// coverage card render the same field, and a second copy is how one of them
+// ends up still leaking the codes.
+const SKIP_REASON_COPY: Readonly<Record<string, MessageKey>> = {
+  robots: "ob.scan.skipReason.robots",
+  off_domain: "ob.scan.skipReason.offDomain",
+  page_cap: "ob.scan.skipReason.pageCap",
+  byte_cap: "ob.scan.skipReason.byteCap",
+  unreadable: "ob.scan.skipReason.unreadable",
+};
+
+/**
+ * Why a page was skipped or could not be read, for a human.
+ *
+ * An unknown code passes through unchanged: the contract calls this field
+ * human-readable, so whatever the server sent is closer to the truth than a
+ * sentence invented here. A page carrying no reason at all says exactly that
+ * rather than borrowing one.
+ */
+export function skipReasonText(
+  t: (key: MessageKey) => string,
+  raw: string | null | undefined,
+): string {
+  const code = raw?.trim() ?? "";
+  if (code === "") {
+    return t("ob.scan.pageNoReason");
+  }
+  const known = SKIP_REASON_COPY[code];
+  return known === undefined ? code : t(known);
 }
 
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).

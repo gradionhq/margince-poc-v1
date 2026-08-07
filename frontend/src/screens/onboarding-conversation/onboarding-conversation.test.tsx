@@ -700,7 +700,9 @@ describe("the conversational company act", () => {
 
     // The dedicated notice, not the raw server detail glued into the
     // generic "I could not save" sentence.
-    expect(await screen.findByText(/Your review just updated/)).toBeTruthy();
+    expect(
+      await screen.findByText(/Your review just picked up newer information/),
+    ).toBeTruthy();
     expect(screen.queryByText(/draft changed/)).toBeNull();
     // The read AND the proposal are both re-fetched so the NEXT retry sends
     // the current draft rather than the same stale one forever — the honest
