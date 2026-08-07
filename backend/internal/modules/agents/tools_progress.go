@@ -67,7 +67,19 @@ func (t progressDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mc
 	if err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	return mcp.TierResolverInput{Args: in, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
+	// The deal's CURRENT stage too, through the same reader advance_deal uses:
+	// this tool shares that resolver, so it has to feed it the same two
+	// endpoints or the shared rule would hold on one tool and not the other.
+	source, err := dealStageSemantic(ctx, t.p, t.stages, args.DealID)
+	if err != nil {
+		return mcp.TierResolverInput{}, err
+	}
+	return mcp.TierResolverInput{
+		Args:                in,
+		SourceStageSemantic: source,
+		TargetStageSemantic: semantic,
+		PipelineID:          pipelineID.String(),
+	}, nil
 }
 
 // StageInfo pins the staged move to the deal's CURRENT version, exactly

@@ -32,6 +32,10 @@ func TestProgressDealResolverKeepsTheWonLostFloor(t *testing.T) {
 	if resolver == nil {
 		t.Fatal("progress_deal is TierDynamic and must carry a resolver")
 	}
+	// From an OPEN deal, so this reads the target's contribution alone. The rule
+	// is either-endpoint — dealreopen_test.go holds the other half, where the
+	// deal is already closed — and a case that left the source unset would be
+	// asking about an unreadable deal rather than about the target.
 	cases := map[string]mcp.RiskTier{
 		"open": mcp.TierAutoExecute,
 		"won":  mcp.TierConfirmationRequired,
@@ -39,7 +43,8 @@ func TestProgressDealResolverKeepsTheWonLostFloor(t *testing.T) {
 		"":     mcp.TierConfirmationRequired, // an unprovable semantic fails toward the gate
 	}
 	for semantic, want := range cases {
-		if got := resolver(mcp.TierResolverInput{TargetStageSemantic: semantic}); got != want {
+		in := mcp.TierResolverInput{SourceStageSemantic: "open", TargetStageSemantic: semantic}
+		if got := resolver(in); got != want {
 			t.Errorf("semantic %q resolves tier %v, want %v", semantic, got, want)
 		}
 	}
@@ -47,7 +52,12 @@ func TestProgressDealResolverKeepsTheWonLostFloor(t *testing.T) {
 
 func TestProgressDealResolverInputReadsTheStageSemantic(t *testing.T) {
 	pipeline := ids.NewV7()
-	tool := progressDeal{stages: fixedStages{semantic: "won", pipeline: pipeline}}
+	// A provider too: the resolver input now carries the deal's CURRENT stage,
+	// which means reading the deal.
+	tool := progressDeal{
+		p:      &reopenProbeProvider{stageID: ids.NewV7()},
+		stages: fixedStages{semantic: "won", pipeline: pipeline},
+	}
 	in, err := tool.ResolverInput(context.Background(),
 		json.RawMessage(`{"deal_id":"`+ids.NewV7().String()+`","to_stage_id":"`+ids.NewV7().String()+`"}`))
 	if err != nil {
