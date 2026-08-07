@@ -177,6 +177,8 @@ export const de = {
   "record.disqualifyConfirm":
     "Bist du sicher? Das disqualifiziert und archiviert den Lead — es gibt keine Rückgängig-Funktion.",
   "record.archived": "Archiviert",
+  "record.archivedReadOnly":
+    "Diese Firma ist archiviert. Stellen Sie sie wieder her, um etwas zu ändern.",
   "record.share": "Teilen",
   "record.moreActions": "Weitere Aktionen",
   "record.fullHistory": "Vollständiger Verlauf",
@@ -503,7 +505,7 @@ export const de = {
   // Formular erscheint erst, wenn eines besteht — so entsteht das erste.
   // Wo der Account bei uns steht, und was er für uns ist — die zwei Fragen,
   // die die abgelöste Einstufung mit einem Wert beantworten wollte.
-  "org.lifecycle": "Phase",
+  "org.lifecycle": "Account-Status",
   "org.relationshipTypes": "Beziehung zu uns",
   "org.lifecycle.unknown": "Nicht eingeschätzt",
   "org.lifecycle.target": "Zielkunde",
@@ -1201,6 +1203,12 @@ export const de = {
   "create.legalName": "Rechtlicher Name",
   "create.industry": "Branche",
   "create.sizeBand": "Unternehmensgröße",
+  "create.addressLine1": "Straße und Hausnummer",
+  "create.addressLine2": "Adresszusatz",
+  "create.city": "Stadt",
+  "create.region": "Bundesland / Region",
+  "create.postalCode": "PLZ",
+  "create.country": "Land (ISO-3166, z. B. DE)",
   "create.domain": "Primäre Domain",
   "create.companyName": "Firma",
   "create.dealName": "Deal-Name",
@@ -1351,6 +1359,7 @@ export const de = {
   "role.rep": "Vertrieb",
   "role.readOnly": "Nur Lesen",
   "role.ops": "Ops",
+  "inlineChoice.change": "{field} ändern",
   "rbac.masked": "Verborgener Wert",
   "settings.saved": "Gespeichert.",
   "settings.passports": "Agenten-Passports",

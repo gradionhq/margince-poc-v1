@@ -1,9 +1,10 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
+import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import {
   Avatar,
@@ -27,6 +28,7 @@ import {
   EvidenceMark,
   type EvidenceMarkSource,
 } from "../design-system/evidencemark";
+import { InlineChoice } from "../design-system/inlinechoice";
 import {
   AutonomyDot,
   ConfidenceMeter,
@@ -308,7 +310,71 @@ export function mapOrgUpdate(
       stringField(values.relationship_types),
     ) as NonNullable<UpdateOrganizationRequest["relationship_types"]>;
   }
+  // Nullable rather than trim-to-undefined, and for the same reason the
+  // relationship set is: clearing a LinkedIn URL is an edit. `|| undefined`
+  // would read a deletion as "the caller did not mention it" and put the old
+  // value straight back.
+  if (values.linkedin_url !== undefined) {
+    body.linkedin_url = stringField(values.linkedin_url).trim() || null;
+  }
+  const address = addressPatch(values);
+  if (address) {
+    body.address = address;
+  }
   return body;
+}
+
+// The six columns behind Address, flattened into form fields. The wire shape is
+// one nested object; the form channel is flat string values, so the two are
+// mapped at the boundary (addressFrom / addressPatch) rather than teaching the
+// form about nesting for one record type.
+const ADDRESS_FIELDS: CreateField[] = [
+  { key: "address_line1", label: "create.addressLine1" },
+  { key: "address_line2", label: "create.addressLine2" },
+  { key: "address_postal_code", label: "create.postalCode" },
+  { key: "address_city", label: "create.city" },
+  { key: "address_region", label: "create.region" },
+  { key: "address_country", label: "create.country" },
+];
+
+// addressFrom prefills the six flat fields from the record's nested address.
+function addressFrom(address: Organization["address"]): Record<string, string> {
+  return {
+    address_line1: address?.line1 ?? "",
+    address_line2: address?.line2 ?? "",
+    address_postal_code: address?.postal_code ?? "",
+    address_city: address?.city ?? "",
+    address_region: address?.region ?? "",
+    address_country: address?.country ?? "",
+  };
+}
+
+// addressPatch folds the six flat fields back into the wire's nested object.
+//
+// A cleared field is sent as null rather than omitted: the caller had the value
+// on screen and erased it, which is an edit. Omitting it would silently keep
+// what the record held — the failure mode where a user deletes a line, saves,
+// and finds it back on reload.
+//
+// The whole object is omitted only when the form never rendered the fields at
+// all, so a surface that does not offer the address cannot blank one.
+function addressPatch(
+  values: Record<string, unknown>,
+): UpdateOrganizationRequest["address"] | undefined {
+  if (values.address_line1 === undefined) {
+    return undefined;
+  }
+  const field = (key: string) => stringField(values[key]).trim() || null;
+  return {
+    line1: field("address_line1"),
+    line2: field("address_line2"),
+    postal_code: field("address_postal_code"),
+    city: field("address_city"),
+    region: field("address_region"),
+    // ISO-3166 alpha-2, and the server compares on the canonical spelling, so
+    // "de" typed in lower case is the same country as "DE".
+    country: stringField(values.address_country).trim().toUpperCase() || null,
+  };
 }
 
 const companyCreateFields: CreateField[] = [
@@ -419,6 +485,16 @@ export function companyEditFields(
         label: t(RELATIONSHIP_TYPE_LABELS[value]),
       })),
     },
+    // The company's own LinkedIn page. A canonical column since ADR-0085/A130,
+    // not a custom field, because it carries identity semantics — matching,
+    // dedupe, enrichment — and the person side already treats it that way. The
+    // server normalizes what is pasted, so a URL copied from any tab of the
+    // company page resolves to the one spelling.
+    { key: "linkedin_url", label: "create.linkedinUrl" },
+    // Where the company actually is. It has been in the API since the record
+    // existed and reachable from no form on this page, so a rep who knew the
+    // address had nowhere to put it.
+    ...ADDRESS_FIELDS,
     {
       key: "domains",
       label: "org.domains",
@@ -1348,6 +1424,131 @@ type ChangesQuery = ReturnType<typeof useFieldHistory>;
 // The company's edit form. Its own component because it owns three reads the
 // rest of the action bar has no use for — the custom-field catalogue, the user
 // roster behind the owner picker, and the record slice they prefill.
+// patchCompanyField sends one field through the ordinary organization PATCH,
+// with the record's own version as If-Match. The inline controls share it so a
+// lifecycle change and an owner change cannot end up with different conflict,
+// refusal or invalidation behaviour.
+//
+// It throws on failure rather than swallowing: InlineChoice renders what is
+// thrown beside the control, and the server's problem detail is a better
+// sentence than any this layer could invent.
+async function patchCompanyField(
+  org: Organization,
+  body: UpdateOrganizationRequest,
+): Promise<void> {
+  const { error } = await api.PATCH("/organizations/{id}", {
+    params: { path: { id: org.id }, ...ifMatch(org.version) },
+    body,
+  });
+  if (error) {
+    throwProblem(error);
+  }
+}
+
+// useCompanyFieldPatch wires one inline header edit to the query cache: the
+// record, the list it appears in and the 360 that summarizes it all read the
+// value being changed, so all three are refetched rather than left showing the
+// old one until something else happens to invalidate them.
+function useCompanyFieldPatch(org: Organization) {
+  const queryClient = useQueryClient();
+  return async (body: UpdateOrganizationRequest) => {
+    await patchCompanyField(org, body);
+    await queryClient.invalidateQueries({ queryKey: ["organizations"] });
+    await queryClient.invalidateQueries({
+      queryKey: ["organization360", org.id],
+    });
+  };
+}
+
+// companyReadOnlyReason says why this record cannot be edited, when there is
+// something worth saying. Archived first: it is the one a reader can act on
+// (restore it), where the overlay case is a property of the installation.
+function useCompanyReadOnlyReason(org: Organization): string | undefined {
+  const t = useT();
+  const overlay = useSorMode() === "overlay";
+  if (org.archived_at) {
+    return t("record.archivedReadOnly");
+  }
+  if (overlay) {
+    return t("overlay.partialWriteBack");
+  }
+  return undefined;
+}
+
+function CompanyLifecycleControl({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  const canUpdate = useCan("organization", "update");
+  const readOnlyReason = useCompanyReadOnlyReason(org);
+  const patch = useCompanyFieldPatch(org);
+  return (
+    <InlineChoice
+      label={t("org.lifecycle")}
+      value={org.lifecycle ?? "unknown"}
+      options={LIFECYCLE_OPTIONS.map((value) => ({
+        value,
+        label: t(LIFECYCLE_LABELS[value]),
+      }))}
+      canEdit={canUpdate && !readOnlyReason}
+      readOnlyReason={readOnlyReason}
+      render={(value) => (
+        <Badge>{t(LIFECYCLE_LABELS[value as Lifecycle])}</Badge>
+      )}
+      onSave={(next) =>
+        patch({
+          lifecycle: next as NonNullable<
+            UpdateOrganizationRequest["lifecycle"]
+          >,
+        })
+      }
+    />
+  );
+}
+
+function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  const canUpdate = useCan("organization", "update");
+  const readOnlyReason = useCompanyReadOnlyReason(org);
+  const patch = useCompanyFieldPatch(org);
+  const roster = useRoster("user", true);
+  const owners = (roster.data ?? []).flatMap((entry) =>
+    "display_name" in entry
+      ? [{ value: entry.id, label: entry.display_name }]
+      : [],
+  );
+  // The account's current owner may sit outside the roster's one page — a big
+  // workspace, a deactivated user — and a select whose current value is not an
+  // option renders blank. Naming them keeps the control honest about who owns
+  // it today even when it cannot resolve them.
+  if (org.owner_id && !owners.some((user) => user.value === org.owner_id)) {
+    owners.unshift({ id: org.owner_id, display_name: "" } as never);
+    owners[0] = { value: org.owner_id, label: t("co.owner.notInRoster") };
+  }
+  // "Unowned" is offered only while the account IS unowned. `owner_id` cannot
+  // carry "unassign" on the wire — a null is indistinguishable from an omitted
+  // field — so offering it on an owned account would take the answer and drop
+  // it. Present as the truthful current state, absent as an edit we cannot make.
+  const options = org.owner_id
+    ? owners
+    : [{ value: "", label: t("co.pulse.unowned") }, ...owners];
+  return (
+    <InlineChoice
+      label={t("co.pulse.owner")}
+      value={org.owner_id ?? ""}
+      options={options}
+      canEdit={canUpdate && !readOnlyReason}
+      readOnlyReason={readOnlyReason}
+      render={(value) =>
+        value ? (
+          <EntityRef kind="user" id={value} />
+        ) : (
+          <>{t("co.pulse.unowned")}</>
+        )
+      }
+      onSave={(next) => patch({ owner_id: next })}
+    />
+  );
+}
+
 function CompanyEditAction({
   org,
   overlay,
@@ -1391,6 +1592,8 @@ function CompanyEditAction({
         // an unrelated field would clear every type the account has.
         lifecycle: org.lifecycle ?? "",
         relationship_types: joinMultiselectValue(org.relationship_types ?? []),
+        linkedin_url: org.linkedin_url ?? "",
+        ...addressFrom(org.address),
         // The repeatable domains field prefills from the org's live set;
         // its rows are string-keyed, so the primary flag stringifies to
         // match the "true"/"" the primary radio writes.
@@ -1444,14 +1647,11 @@ function CompanyActionBadges({
   const writable = !org.archived_at;
   return (
     <>
-      {/* Where the account stands, then what it is to us. Two badges, because
-          they answer two questions — the retired classification held one value
-          and so could answer only one, which is how an account whose contract
-          had ended still read as "Prospect". `unknown` is not drawn: a badge
-          saying nobody has assessed this yet is noise on every new record. */}
-      {org.lifecycle && org.lifecycle !== "unknown" && (
-        <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
-      )}
+      {/* What the company IS to us. Where it STANDS is a separate question,
+          and it now has a separate control — the editable lifecycle in the
+          pulse line — so it is not repeated here as a read-only badge. The two
+          were one field once, which is how an account whose contract had ended
+          still read as "Prospect". */}
       {(org.relationship_types ?? []).map((relType) => (
         <Badge key={relType} tone="accent">
           {t(RELATIONSHIP_TYPE_LABELS[relType])}
@@ -1720,17 +1920,16 @@ function CompanyPulse({
           </span>
         </>
       )}
-      {/* The owner, named as the owner. Unlabelled it read as one more
-          person in a row of people, and the reader had no way to tell the
-          one accountable for this account from whoever last touched it. */}
-      <span>
-        {t("co.pulse.owner")}:{" "}
-        {org.owner_id ? (
-          <EntityRef kind="user" id={org.owner_id} />
-        ) : (
-          t("co.pulse.unowned")
-        )}
-      </span>
+      {/* Where the account stands, changeable here. It was reachable only
+          through the edit modal, next to legal names and size bands — so the
+          one field a rep moves DURING a call took a form that asks about six
+          things they were not thinking about. */}
+      <CompanyLifecycleControl org={org} />
+      {/* The owner, named as the owner and reassignable in place. Unlabelled it
+          read as one more person in a row of people, and the reader had no way
+          to tell the one accountable for this account from whoever last touched
+          it. */}
+      <CompanyOwnerControl org={org} />
       {/* Where the RECORD came from — a different question from who owns it,
           and the reason both now carry a word saying which is which. */}
       <ProvenanceTag

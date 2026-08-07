@@ -184,6 +184,8 @@ export const vi = {
   "record.disqualifyConfirm":
     "Bạn chắc chứ? Thao tác này loại bỏ và lưu trữ lead — không có nút hoàn tác.",
   "record.archived": "Đã lưu trữ",
+  "record.archivedReadOnly":
+    "Công ty này đã lưu trữ. Khôi phục để thay đổi bất kỳ thông tin nào.",
   "record.share": "Chia sẻ",
   "record.moreActions": "Thêm thao tác",
   "record.fullHistory": "Lịch sử đầy đủ",
@@ -500,7 +502,7 @@ export const vi = {
   // the form appears once one exists, so this is how the first one is made.
   // Where the account stands with us, and what it is to us — the two
   // questions the retired classification answered with one value.
-  "org.lifecycle": "Giai đoạn",
+  "org.lifecycle": "Trạng thái tài khoản",
   "org.relationshipTypes": "Quan hệ với chúng ta",
   "org.lifecycle.unknown": "Chưa đánh giá",
   "org.lifecycle.target": "Mục tiêu",
@@ -1198,6 +1200,12 @@ export const vi = {
   "create.legalName": "Tên pháp lý",
   "create.industry": "Ngành",
   "create.sizeBand": "Quy mô công ty",
+  "create.addressLine1": "Số nhà và tên đường",
+  "create.addressLine2": "Địa chỉ bổ sung",
+  "create.city": "Thành phố",
+  "create.region": "Tỉnh / vùng",
+  "create.postalCode": "Mã bưu chính",
+  "create.country": "Quốc gia (ISO-3166, ví dụ DE)",
   "create.domain": "Tên miền chính",
   "create.companyName": "Công ty",
   "create.dealName": "Tên deal",
@@ -1347,6 +1355,7 @@ export const vi = {
   "role.rep": "Nhân viên kinh doanh",
   "role.readOnly": "Chỉ đọc",
   "role.ops": "Vận hành",
+  "inlineChoice.change": "Đổi {field}",
   "rbac.masked": "Giá trị đã che",
   "settings.saved": "Đã lưu.",
   "settings.passports": "Passport cho Agent",

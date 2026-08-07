@@ -174,6 +174,8 @@ export const en = {
   "record.disqualifyConfirm":
     "Are you sure? This disqualifies and archives the lead — there is no undo control.",
   "record.archived": "Archived",
+  "record.archivedReadOnly":
+    "This company is archived. Restore it to change anything on it.",
   "record.share": "Share",
   "record.moreActions": "More actions",
   "record.fullHistory": "Full history",
@@ -495,7 +497,7 @@ export const en = {
   // the form appears once one exists, so this is how the first one is made.
   // Where the account stands with us, and what it is to us — the two
   // questions the retired classification answered with one value.
-  "org.lifecycle": "Stage",
+  "org.lifecycle": "Account lifecycle",
   "org.relationshipTypes": "Relationship to us",
   "org.lifecycle.unknown": "Not assessed",
   "org.lifecycle.target": "Target",
@@ -1187,6 +1189,12 @@ export const en = {
   "create.legalName": "Legal name",
   "create.industry": "Industry",
   "create.sizeBand": "Company size",
+  "create.addressLine1": "Street and number",
+  "create.addressLine2": "Address line 2",
+  "create.city": "City",
+  "create.region": "State / region",
+  "create.postalCode": "Postal code",
+  "create.country": "Country (ISO-3166, e.g. DE)",
   "create.domain": "Primary domain",
   "create.companyName": "Company",
   "create.dealName": "Deal name",
@@ -1336,6 +1344,7 @@ export const en = {
   "role.rep": "Rep",
   "role.readOnly": "Read-only",
   "role.ops": "Ops",
+  "inlineChoice.change": "Change {field}",
   "rbac.masked": "Masked value",
   "settings.saved": "Saved.",
   "settings.passports": "Agent passports",
