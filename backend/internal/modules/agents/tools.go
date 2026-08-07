@@ -87,7 +87,7 @@ func (t searchRecords) Spec() mcp.ToolSpec {
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
 		InputSchema: schema(`{"type":"object","properties":{
-			"q":{"type":"string","description":"Full-text query over names/titles"},
+			"q":{"type":"string","description":"What to match against the text stored on the record. It does not reach a timeline: message bodies, call notes and meeting content are not searched."},
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep all five"},
 			"limit":{"type":"integer","minimum":1,"maximum":50},
 			"cursor":{"type":"string","description":"Keyset cursor (single record_type only)"}},
