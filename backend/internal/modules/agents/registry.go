@@ -61,11 +61,18 @@ func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 
 var _ mcp.Registry = (*Registry)(nil)
 
+// maxDescriptionRunes bounds one tool's written description. See Register for
+// why a bound exists at all; the value is roughly three times the longest entry
+// this surface ships, so it refuses runaway prose without ever being a number
+// an author writing a careful description has to think about.
+const maxDescriptionRunes = 3000
+
 // Register refuses, at boot, the spec defects that would otherwise surface as
 // a runtime authority bug or a broken wire response: a duplicate name (two
 // handlers behind one admission decision), a TierDynamic spec with no resolver
 // (a tool whose tier nobody computes would default to whatever the gate
-// assumes), a missing display title, and a schema that is not an encodable
+// assumes), a missing display title, a missing description (a tool no client
+// can tell apart from its neighbours), and a schema that is not an encodable
 // object (see assertObjectSchemas — one bad brace takes the whole tools/list
 // down, not just its own tool).
 //
@@ -91,6 +98,28 @@ func (r *Registry) Register(t mcp.Tool) {
 	if strings.TrimSpace(spec.Title) == "" {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s has no Title — tools/list would render its identifier as its display name", spec.Name))
+	}
+	// A tool nobody described can be selected only by the shape of its name:
+	// the surfaces that serve it have nothing else to say about it, and fall
+	// back to describing how it is GOVERNED — which is not the question a
+	// caller choosing between thirty tools is asking. Refused at the one door,
+	// so no tool can answer it for itself.
+	if strings.TrimSpace(spec.Description) == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: %s has no Description — a client would be told how it is governed and never what it is for", spec.Name))
+	}
+	// And an upper bound, because the description is not only served to a
+	// client that can ignore it: the Surface-B window prints every registered
+	// tool's, and that listing is in the system prompt, which elision never
+	// touches. One tool's prose is therefore spent out of every run's own
+	// context for the life of the process. The ceiling is several times the
+	// longest written entry — it is a bound on the pathological case, not a
+	// style rule — and it binds every tool that comes through this door, so an
+	// extension unit cannot crowd the prompt on its own.
+	if n := len([]rune(spec.Description)); n > maxDescriptionRunes {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: %s has a %d-rune Description, past the %d a tool may spend — "+
+			"every run's prompt carries it and never elides it", spec.Name, n, maxDescriptionRunes))
 	}
 	if err := assertObjectSchemas(spec); err != nil {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path

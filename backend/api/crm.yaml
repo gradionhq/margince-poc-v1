@@ -14322,9 +14322,19 @@ components:
     # ---- Agents: governed tool surface ----
     AgentTool:
       type: object
-      required: [name, tier, egress]
+      # title and description are required because registration guarantees
+      # them: the tool registry refuses a tool carrying neither, so a client
+      # generated against this contract should not have to handle their absence.
+      required: [name, title, description, tier, egress]
       properties:
         name:  { type: string, description: The tool name (tools/list identity). }
+        title: { type: string, description: The written display name a client shows in place of the name. }
+        description:
+          type: string
+          description: >
+            What the tool is for, as an MCP client is told it: the outcome it produces, its
+            limits, when a neighbouring tool is the better call, and what to keep from its
+            result — followed by this server's own governance clause.
         required_scope: { type: string, description: Passport scope required to call it. }
         tier:  { type: string, enum: [auto_execute, confirmation_required, dynamic] }
         egress: { type: boolean, description: True if the tool reaches outside the workspace. }

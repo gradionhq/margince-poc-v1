@@ -51,9 +51,12 @@ func sourceVocabulary(specs []mcp.ToolSpec) map[string]bool {
 // reply that would not parse.
 const outputValidatorSource = "output_validator"
 
-// windowPromptTokenCeiling bounds the prompt (§3: the window has a hard
-// token ceiling; a long run cannot silently grow the context).
-const windowPromptTokenCeiling = 24_000
+// PromptTokenCeiling bounds the prompt (§3: the window has a hard token
+// ceiling; a long run cannot silently grow the context). Only the transcript
+// gives way to it — the tool listing is in the system prompt and is never
+// elided — so it is exported for the composition that knows how large the real
+// catalog is to hold that listing against it.
+const PromptTokenCeiling = 24_000
 
 // roleUser is the wire role every window message carries: the goal, each
 // observation, and the elision notice are all things the runner SAYS to the
@@ -177,7 +180,7 @@ const elisionMarker = "[earlier observations elided to fit the context window]"
 // model is reasoning over right now.
 func (w *window) bounded() []model.Message {
 	msgs := append([]model.Message(nil), w.msgs...)
-	for estimateTokens(w.system, msgs) > windowPromptTokenCeiling && len(msgs) > 2 {
+	for estimateTokens(w.system, msgs) > PromptTokenCeiling && len(msgs) > 2 {
 		oldest := 1
 		if msgs[1].Content == elisionMarker {
 			oldest = 2
@@ -221,10 +224,29 @@ Rules:
 
 Available tools:
 `)
+	b.WriteString(ToolListing(specs))
+	return b.String()
+}
+
+// ToolListing renders the tool surface exactly as the system prompt carries it.
+//
+// It is exported because it is never elided — the transcript gives way to the
+// ceiling, the system prompt does not — so how large it is for the REAL catalog
+// is something that has to be held against PromptTokenCeiling somewhere, and
+// the only place that knows the whole catalog is the composition. Measuring a
+// second, hand-written idea of this format there would drift from this one
+// silently, and the drift would read as headroom that is not there.
+func ToolListing(specs []mcp.ToolSpec) string {
 	sorted := append([]mcp.ToolSpec(nil), specs...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	var b strings.Builder
 	for _, spec := range sorted {
-		fmt.Fprintf(&b, "- %s (input schema: %s)\n", spec.Name, string(spec.InputSchema))
+		// Two lines per tool: what it is FOR, then how to call it. A run offered
+		// the whole governed surface is choosing among thirty names that read
+		// alike, and the description is the half that choice is made on — so it
+		// goes first, rather than after the several hundred characters of JSON
+		// the model needs only once it has chosen.
+		fmt.Fprintf(&b, "- %s — %s\n  input schema: %s\n", spec.Name, spec.Description, string(spec.InputSchema))
 	}
 	return b.String()
 }
