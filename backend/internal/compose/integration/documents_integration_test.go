@@ -278,3 +278,60 @@ func TestTheAccountLibraryPagesPastThePinnedGroup(t *testing.T) {
 		}
 	}
 }
+
+// An emailed contract hangs off the ACTIVITY that carried it. Leaving activity
+// out of the parent kinds dropped every such file from the account library
+// while the endpoint documented the opposite — the reader sees an empty
+// contracts shelf and has no way to know the file is there.
+//
+// Its visibility is the link walk, not a row-scope clause over its own columns,
+// so the arm has to use auth.ActivityScopeClause. This asserts both halves: the
+// file appears for a reader who can open the activity, and does not for one who
+// cannot.
+func TestAnActivityBorneFileReachesTheLibraryAndStaysGated(t *testing.T) {
+	e := Setup(t)
+	store := activities.NewStore(e.Pool)
+	pipeline, stage, _ := DealFixture(t, e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	mine := e.SeedDeal(t, "My deal", pipeline, stage, &e.Rep1)
+	theirs := e.SeedDeal(t, "Another team's deal", pipeline, stage, &e.Rep3)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, mine, org)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirs, org)
+
+	// Two emails on this account: one linked to a deal the rep covers, one to a
+	// deal they do not.
+	visibleEmail := seedActivityWithDeal(t, e, mine)
+	hiddenEmail := seedActivityWithDeal(t, e, theirs)
+	seedDocument(t, e, org, "activity", visibleEmail, "signed-msa.pdf", "contract", false)
+	seedDocument(t, e, org, "activity", hiddenEmail, "their-msa.pdf", "contract", false)
+
+	docs, _, err := store.ListOrganizationDocuments(
+		e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms), org, activities.DocumentFilters{})
+	if err != nil {
+		t.Fatalf("ListOrganizationDocuments: %v", err)
+	}
+	found := map[string]bool{}
+	for _, d := range docs {
+		found[d.Filename] = true
+	}
+	if !found["signed-msa.pdf"] {
+		t.Error("the emailed contract never reached the account library")
+	}
+	if found["their-msa.pdf"] {
+		t.Error("a file on an activity outside the caller's scope appeared in the library")
+	}
+}
+
+// seedActivityWithDeal files one email against a deal, which is what gives the
+// activity its scope through the link walk.
+func seedActivityWithDeal(t *testing.T, e *Env, deal ids.UUID) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	e.WsExec(t, `
+		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'email', 'Contract', now(), 'manual', 'human:test')`, id, e.WS)
+	e.WsExec(t, `
+		INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
+		VALUES ($1, $2, 'deal', $3)`, e.WS, id, deal)
+	return id
+}

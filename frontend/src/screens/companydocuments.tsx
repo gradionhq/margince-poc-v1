@@ -51,10 +51,15 @@ const STATE_LABELS: Record<DocState, MessageKey> = {
 // not a candidate. The rest are equal citizens and get no tone.
 const STATE_TONE: Partial<Record<DocState, "warn">> = { superseded: "warn" };
 
+// A FILTERED read that found nothing is not an empty account. SectionCard's
+// empty state replaces the whole body — filters included — so reporting it here
+// would strand the reader on a category with no matches and no control left to
+// clear it. Only an unfiltered zero is the account's own emptiness.
 function documentsState(
   loading: boolean,
   failed: boolean,
   count: number,
+  filtered: boolean,
 ): SectionState {
   if (loading) {
     return "loading";
@@ -62,7 +67,10 @@ function documentsState(
   if (failed) {
     return "unavailable";
   }
-  return count === 0 ? "empty" : "ready";
+  if (count === 0 && !filtered) {
+    return "empty";
+  }
+  return "ready";
 }
 
 export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
@@ -94,7 +102,12 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
       // `sections_omitted` has no word for it. A failed read is UNAVAILABLE and
       // an empty one is EMPTY: "this account has no contracts" and "we could not
       // find out" are different sentences and only one is about the account.
-      state={documentsState(query.isPending, query.isError, documents.length)}
+      state={documentsState(
+        query.isPending,
+        query.isError,
+        documents.length,
+        category !== "",
+      )}
       emptyLabel={t("docs.empty")}
     >
       <div className="docs-filters">

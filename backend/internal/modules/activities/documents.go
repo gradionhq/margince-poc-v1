@@ -206,6 +206,18 @@ func visibleParentClause(ctx context.Context, arg func(any) int) (string, error)
 			"(at.entity_type = '%s' AND EXISTS (SELECT 1 FROM %s p WHERE p.id = at.entity_id AND %s))",
 			kind, kind, clause))
 	}
+	// The activity arm is spelled apart because an activity's visibility IS the
+	// link walk, not a row-scope clause over its own columns. Leaving it out
+	// dropped activity-borne files from the library entirely — an emailed
+	// contract on this very account, invisible, with the endpoint documenting
+	// the opposite.
+	activityArm, err := activityParentClause(ctx, arg)
+	if err != nil {
+		return "", err
+	}
+	if activityArm != "" {
+		arms = append(arms, activityArm)
+	}
 	if len(arms) == 0 {
 		// The caller may read the account and none of the kinds a document can
 		// hang off. An empty library is the honest answer, and FALSE is how it
@@ -219,12 +231,36 @@ func visibleParentClause(ctx context.Context, arg func(any) int) (string, error)
 // renders as, so a disjunction arm stays a valid boolean expression.
 const scopeUnbounded = "TRUE"
 
-// documentParentKinds are the records a document can hang off and be rolled up
-// to an account from. `activity` is deliberately absent: its visibility is the
-// link walk, not a row-scope clause, and expressing it as one here would widen
-// it. Activity-borne files reach the library through the account pointer their
-// activity carries, and are gated in ListAttachments on that activity.
+// documentParentKinds are the record kinds whose visibility is a row-scope
+// clause over their own columns. `activity` is not one of them — its scope is
+// the link walk — so it gets its own arm in activityParentClause rather than
+// being forced into this shape, which would widen it.
 var documentParentKinds = []string{linkEntityOrganization, linkEntityDeal, linkEntityPerson}
+
+// activityParentClause is the arm for a file hanging off an activity. It uses
+// the link-walk scope every other activity read uses (ADR-0054 §8: scope policy
+// has exactly one spelling), so a file on a meeting the caller cannot open
+// contributes neither a row nor a count. An empty string means the caller holds
+// no activity grant at all, which drops the arm exactly as a missing grant on
+// any other parent kind does.
+func activityParentClause(ctx context.Context, arg func(any) int) (string, error) {
+	if err := auth.Require(ctx, linkEntityActivity, principal.ActionRead); err != nil {
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			return "", nil
+		}
+		return "", err
+	}
+	clause, err := auth.ActivityScopeClause(ctx, "p", arg)
+	if err != nil {
+		return "", err
+	}
+	if clause == "" {
+		clause = scopeUnbounded
+	}
+	return fmt.Sprintf(
+		"(at.entity_type = '%s' AND EXISTS (SELECT 1 FROM activity p WHERE p.id = at.entity_id AND %s))",
+		linkEntityActivity, clause), nil
+}
 
 // DocumentMetadata is the sparse patch a human makes over what a file MEANS.
 // The bytes, the filename, the checksum and the scan state are absent on
