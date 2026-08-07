@@ -77,12 +77,10 @@ collapses while RLS is still armed, because the tenant-isolation suite staying
 green is the only mechanical proof that an 887-call-site edit stayed faithful,
 and the schema phase deletes that suite. Do not reorder it.
 
-One lesson from #520 worth carrying: that branch lived long enough for `main` to
-move under it five times — two migration-number collisions, a semantic conflict
-with the data reset (#523, which it would have silently regressed), a new
-Vietnamese locale, and a dependency bump. Four of the five were invisible to the
-branch's own gates. Phase 2 is larger again, so slice it into PRs that land in
-hours rather than days, and read what landed on main before every merge.
+Phase 2 spans 910 `WithWorkspaceTx` call sites across 378 files. Land it in
+slices small enough to merge the day they are written: a branch open longer than
+that accumulates conflicts with `main` that its own gates cannot see — migration
+numbers, locale key sets, and semantic overlap with whatever else is in flight.
 
 ## Open — an install with no mailer AND no public base URL still onboards nobody
 
