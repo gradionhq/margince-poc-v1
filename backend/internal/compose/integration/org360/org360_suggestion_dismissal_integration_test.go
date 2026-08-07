@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // Suggestion dismissals end to end, over a real database.
 //
@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -40,11 +41,11 @@ const wellFormedFingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0
 // five suggestions on a busy account ends up with an empty card and stalled
 // deals they were never shown.
 func TestDismissingASuggestionRevealsTheNextOne(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	// Seven stalled deals, more than the card lists.
 	for i := range 7 {
@@ -100,11 +101,11 @@ func stalledFingerprints(found []crmcontracts.Organization360Suggestion) []strin
 // ones and bring that advice back. A rep who works through a busy account has to
 // be able to reach the end of it.
 func TestNoDismissalIsEverResurrected(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	// More stalled deals than any retention bound would plausibly keep.
 	const stalled = 60
@@ -158,11 +159,11 @@ func TestNoDismissalIsEverResurrected(t *testing.T) {
 // The unit test pins the fingerprint; this pins that the read produces the
 // changed one, so the two halves cannot pass while disagreeing.
 func TestADismissedStallReturnsWhenTheDealStallsAgain(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
 		WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200))
@@ -211,11 +212,11 @@ func TestADismissedStallReturnsWhenTheDealStallsAgain(t *testing.T) {
 // they may have been shown again in between. The fingerprint carries only the idle
 // instant, which activities advance with greatest() and nothing lowers.
 func TestADeferralNeverResurrectsADismissal(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
 		WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200))
@@ -287,12 +288,12 @@ func TestADeferralNeverResurrectsADismissal(t *testing.T) {
 // It goes through deals.AdvanceDeal rather than an UPDATE, because what the episode
 // counts is the history row that path writes.
 func TestAdvancingADealReArmsDismissedStallAdvice(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	next := secondOpenStage(t, e, pipelineID, stage)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
 		WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200))
@@ -317,7 +318,7 @@ func TestAdvancingADealReArmsDismissedStallAdvice(t *testing.T) {
 	// The deal moves to another OPEN stage, so it stays a candidate. Nothing logs
 	// an activity, so the stall rule's own inputs are unchanged and the deal is
 	// still stalled — but it has plainly been worked.
-	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, AdminPerms),
+	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, integration.AdminPerms),
 		ids.From[ids.DealKind](deal), deals.AdvanceDealInput{ToStageID: next}); err != nil {
 		t.Fatalf("advancing the deal: %v", err)
 	}
@@ -345,7 +346,7 @@ func TestAdvancingADealReArmsDismissedStallAdvice(t *testing.T) {
 	if err := svc.DismissSuggestion(rep, org, fresh[0]); err != nil {
 		t.Fatalf("dismiss the post-advance advice: %v", err)
 	}
-	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, AdminPerms),
+	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, integration.AdminPerms),
 		ids.From[ids.DealKind](deal), deals.AdvanceDealInput{ToStageID: next}); err != nil {
 		t.Fatalf("re-selecting the same stage: %v", err)
 	}
@@ -362,7 +363,7 @@ func TestAdvancingADealReArmsDismissedStallAdvice(t *testing.T) {
 
 // secondOpenStage finds another open stage in the pipeline, so a deal can be
 // advanced without leaving the open set the suggestion rules read.
-func secondOpenStage(t *testing.T, e *Env, pipelineID ids.PipelineID, notThisOne ids.StageID) ids.StageID {
+func secondOpenStage(t *testing.T, e *integration.Env, pipelineID ids.PipelineID, notThisOne ids.StageID) ids.StageID {
 	t.Helper()
 	p, err := e.Deals.GetPipeline(e.Admin(), pipelineID)
 	if err != nil {
@@ -389,11 +390,11 @@ func secondOpenStage(t *testing.T, e *Env, pipelineID ids.PipelineID, notThisOne
 // judged, so a dismissal has to re-arm. A fingerprint built from a fetched page
 // would stay in force over a pipeline the account no longer has.
 func TestNoNextStepFingerprintFollowsUnlistedDeals(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	// Two stalled deals — under the card's cap, so the no-next-step row is
 	// listed too — plus a healthy third the stalled listing never mentions.
@@ -447,13 +448,13 @@ func fingerprintOfKind(
 // A dismissal belongs to the rep who made it. One rep judging a suggestion
 // must not decide it for their colleague, who has never seen it.
 func TestSuggestionDismissalIsPerUser(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	seedUnansweredOutbound(t, e, org.UUID)
 
-	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
-	rep2 := e.As(e.Rep2, []ids.UUID{e.Team1}, org360RepPerms)
+	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
+	rep2 := e.As(e.Rep2, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	view, err := svc.Assemble(rep1, org)
 	if err != nil {
@@ -503,11 +504,11 @@ func TestSuggestionDismissalIsPerUser(t *testing.T) {
 // situation holds and stops applying when the situation is genuinely a new
 // one. Without that, the surface would get quieter the longer it ran.
 func TestSuggestionDismissalReArmsWhenTheEvidenceChanges(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	seedUnansweredOutbound(t, e, org.UUID)
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	first, err := svc.Assemble(rep, org)
 	if err != nil {
@@ -542,11 +543,11 @@ func TestSuggestionDismissalReArmsWhenTheEvidenceChanges(t *testing.T) {
 // A dismissal names a record, so it is a read: an account this caller cannot
 // see must refuse rather than confirm it exists.
 func TestSuggestionDismissalRefusesAnInvisibleAccount(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	// Owned by Rep3, who sits in Team2 — outside Rep1's team-scoped row scope.
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Someone else's account", &e.Rep3))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	// The record gate runs before anything else, so this is a 404 rather than the
 	// silent success an unmatched fingerprint gets on a visible account.
@@ -562,11 +563,11 @@ func TestSuggestionDismissalRefusesAnInvisibleAccount(t *testing.T) {
 // An agent has no opinion to record. Consuming a human's dismissal on their
 // behalf would silence advice that human never saw.
 func TestSuggestionDismissalRefusesAnAgent(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
-	err := svc.DismissSuggestion(agentWithOrgRead(e), org, wellFormedFingerprint)
+	err := svc.DismissSuggestion(integration.AgentWithOrgRead(e), org, wellFormedFingerprint)
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("agent dismissal → %v, want ErrPermissionDenied", err)
 	}
@@ -580,10 +581,10 @@ func TestSuggestionDismissalRefusesAnAgent(t *testing.T) {
 // dismiss, and saying which reason would answer a question the caller has no
 // business asking.
 func TestSuggestionDismissalStoresNothingForASuggestionTheAccountDoesNotRaise(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	// A quiet account raises nothing, so no fingerprint can match.
 	for _, forged := range []string{wellFormedFingerprint, strings.Repeat("a", 64)} {
@@ -618,10 +619,10 @@ func TestSuggestionDismissalStoresNothingForASuggestionTheAccountDoesNotRaise(t 
 // checked after the record gate, so the refusal cannot double as an existence
 // probe.
 func TestSuggestionDismissalRefusesAMalformedFingerprint(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	for _, refused := range []string{"", "   ", "not-a-digest", strings.ToUpper(wellFormedFingerprint)} {
 		var detailed *httperr.DetailedError

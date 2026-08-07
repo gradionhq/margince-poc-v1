@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // Suggestions end to end, over a real database.
 //
@@ -23,16 +23,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // seedUnansweredOutbound logs an outbound email old enough to be worth
 // chasing, linked to the account.
-func seedUnansweredOutbound(t *testing.T, e *Env, org ids.UUID) {
+func seedUnansweredOutbound(t *testing.T, e *integration.Env, org ids.UUID) {
 	t.Helper()
-	owner := OwnerConn(t)
-	sent := SeedRow(t, owner, `INSERT INTO activity
+	owner := integration.OwnerConn(t)
+	sent := integration.SeedRow(t, owner, `INSERT INTO activity
 		(id, workspace_id, kind, direction, subject, occurred_at, created_at, source, captured_by)
 		VALUES ($1, $2, 'email', 'outbound', 'Proposal — following up',
 		        '2026-05-10T09:00:00Z', '2026-05-10T09:00:00Z', 'manual', 'human:x')`, e.WS)
@@ -47,8 +48,8 @@ func seedUnansweredOutbound(t *testing.T, e *Env, org ids.UUID) {
 // newer notes, and a rep would read the silent card as "nothing to chase here" —
 // which is the one thing this surface must never say wrongly.
 func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	seedUnansweredOutbound(t, e, org.UUID)
@@ -70,7 +71,7 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 			VALUES ($1, $2, 'organization', $3)`, e.WS, note, org.UUID)
 	}
 
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), org)
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), org)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -110,11 +111,11 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 // It needs an account that produces MORE than the card lists and at least one of
 // each kind, or the ordering never binds and the test passes on an accident.
 func TestTheMostUrgentAdviceLeadsAFullCard(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	seedUnansweredOutbound(t, e, org.UUID)
 	const stalled = maxListedSuggestions + 2
@@ -162,11 +163,11 @@ const maxListedSuggestions = 3
 // the listed part would leave a dismissal in force after a deal it never saw
 // changed.
 func TestSuggestionCountsAreTheAccountsNotTheReads(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	// Eight open deals, every one idle long enough to be stalled — more than the
 	// card lists, so the listing is bounded while the figures must not be.
@@ -217,12 +218,12 @@ func TestSuggestionCountsAreTheAccountsNotTheReads(t *testing.T) {
 // still see tasks here — so the test also pins the reachability the direct query
 // uses, by linking the only task through the DEAL rather than to the account.
 func TestNoNextStepSeesATaskThePageDoesNot(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org.UUID)
 
@@ -260,9 +261,9 @@ func TestNoNextStepSeesATaskThePageDoesNot(t *testing.T) {
 // deal reader can act on, and withholding it because they cannot read activities
 // would cost them advice they are entitled to.
 func TestSuggestionsSurviveWithoutTheActivityGrant(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipelineID, stage, _ := DealFixture(t, e)
+	pipelineID, stage, _ := integration.DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	deal := e.SeedDeal(t, "Fleet retrofit", pipelineID, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
@@ -299,7 +300,7 @@ func TestSuggestionsSurviveWithoutTheActivityGrant(t *testing.T) {
 // A caller shown neither the timeline nor the pipeline has nothing to be advised
 // from, so the section is omitted and named rather than answering empty.
 func TestSuggestionsAreOmittedWhenNeitherInputReachesTheCaller(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	seedUnansweredOutbound(t, e, org.UUID)

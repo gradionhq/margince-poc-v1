@@ -193,7 +193,7 @@ func TestDealCoverageDoesNotCallARehiredStakeholderDeparted(t *testing.T) {
 	// live one decides: flagging this would announce a resignation every time
 	// somebody changed job title.
 	person := e.contactAt(t, org, "Promoted Person", "2026-01-31")
-	e.employ(t, person, org, "2026-02-01", "")
+	e.Employ(t, person, org, "2026-02-01", "")
 	e.stakeholder(t, deal, person, "champion")
 
 	risks := e.coverageRisks(t, deal)
@@ -319,11 +319,11 @@ func (e *env) contactAt(t *testing.T, org, name, endedAt string) string {
 		t.Fatalf("creating %s: %d", name, status)
 	}
 	id, _ := person["id"].(string)
-	e.employ(t, id, org, hiredOn, endedAt)
+	e.Employ(t, id, org, hiredOn, endedAt)
 	return id
 }
 
-func (e *env) employ(t *testing.T, person, org, startedAt, endedAt string) {
+func (e *env) Employ(t *testing.T, person, org, startedAt, endedAt string) {
 	t.Helper()
 	body := anyMap{
 		"kind": "employment", "person_id": person, "organization_id": org,

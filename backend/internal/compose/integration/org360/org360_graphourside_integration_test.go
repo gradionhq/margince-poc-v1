@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // Our side of the connections card: who in THIS workspace is connected to the
 // account. Before it existed the card answered "who works there" and left out
@@ -28,6 +28,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -56,7 +57,7 @@ func seedMember(t *testing.T, owner *pgx.Conn, ws ids.UUID, name string) ids.UUI
 // and the cg:graph-edge consumer do between them in production. Seeding an
 // activity alone would leave the projection empty and every assertion below
 // would pass vacuously.
-func seedTouch(t *testing.T, e *Env, owner *pgx.Conn, kind string, colleague *ids.UUID, person ids.UUID) {
+func seedTouch(t *testing.T, e *integration.Env, owner *pgx.Conn, kind string, colleague *ids.UUID, person ids.UUID) {
 	t.Helper()
 	ctx := context.Background()
 	ws := e.WS
@@ -71,7 +72,7 @@ func seedTouch(t *testing.T, e *Env, owner *pgx.Conn, kind string, colleague *id
 		id, ws, kind, capturedBy); err != nil {
 		t.Fatalf("seeding a %s: %v", kind, err)
 	}
-	LinkActivity(t, owner, ws, id, "person", person)
+	integration.LinkActivity(t, owner, ws, id, "person", person)
 
 	// Only a real exchange has participants. A task is intent and a note is a
 	// record of thinking; neither means the two people spoke, which is why
@@ -95,7 +96,7 @@ func seedTouch(t *testing.T, e *Env, owner *pgx.Conn, kind string, colleague *id
 
 // foldEdges runs the recompute the cg:graph-edge consumer runs, so a test sees
 // the projection the worker would have built.
-func foldEdges(t *testing.T, e *Env, activityID ids.UUID) {
+func foldEdges(t *testing.T, e *integration.Env, activityID ids.UUID) {
 	t.Helper()
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	ctx = principal.WithActor(ctx, principal.Principal{
@@ -135,13 +136,13 @@ func graphEdgeTargets(graph crmcontracts.OrganizationGraph, kind crmcontracts.Or
 // The two connections, against real rows: the account's owner, and the
 // colleague who emailed one of its people.
 func TestOrganizationGraphDrawsTheOwnerAndWhoHasBeenInContact(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	employ(t, e, contact, org, "cto")
+	integration.Employ(t, e, contact, org, "cto")
 	// Rep2 shares Team1 with Rep1 and wrote to the contact; Rep1 owns the
 	// account and has written nothing.
 	seedTouch(t, e, owner, "email", &e.Rep2, contact)
@@ -187,13 +188,13 @@ func TestOrganizationGraphDrawsTheOwnerAndWhoHasBeenInContact(t *testing.T) {
 // the first place — assigning work is intent, and writing something down is
 // not reaching out.
 func TestOrganizationGraphDrawsNoContactEdgeForANonInteraction(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	employ(t, e, contact, org, "cto")
+	integration.Employ(t, e, contact, org, "cto")
 	seedTouch(t, e, owner, "email", nil, contact)
 	seedTouch(t, e, owner, "email", nil, contact)
 	seedTouch(t, e, owner, "task", &e.Rep2, contact)
@@ -234,13 +235,13 @@ func TestOrganizationGraphDrawsNoContactEdgeForANonInteraction(t *testing.T) {
 // grant gets the group named as withheld rather than an account that looks like
 // nobody here has ever spoken to it.
 func TestOrganizationGraphOmitsOurSideWithoutThePersonOrActivityGrant(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	employ(t, e, contact, org, "cto")
+	integration.Employ(t, e, contact, org, "cto")
 	seedTouch(t, e, owner, "email", &e.Rep2, contact)
 	orgID := ids.From[ids.OrganizationKind](org)
 
@@ -297,15 +298,15 @@ func TestOrganizationGraphOmitsOurSideWithoutThePersonOrActivityGrant(t *testing
 // point at. Anything else would leak the fact of contact with a record whose
 // existence the card is hiding.
 func TestOrganizationGraphDrawsNoContactEdgeForAnOutOfScopeContact(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
-	employ(t, e, mine, org, "cto")
-	employ(t, e, theirs, org, "cfo")
+	integration.Employ(t, e, mine, org, "cto")
+	integration.Employ(t, e, theirs, org, "cfo")
 	writerToMine := seedMember(t, owner, e.WS, "Writes To Mine")
 	writerToTheirs := seedMember(t, owner, e.WS, "Writes To Theirs")
 	seedTouch(t, e, owner, "email", &writerToMine, mine)
@@ -350,15 +351,15 @@ func setMemberStatus(t *testing.T, owner *pgx.Conn, user ids.UUID, status string
 func TestOrganizationGraphDrawsNoColleagueWhoNoLongerWorksHere(t *testing.T) {
 	for _, status := range []string{"deactivated", "suspended"} {
 		t.Run(status, func(t *testing.T) {
-			e := Setup(t)
-			owner := OwnerConn(t)
+			e := integration.Setup(t)
+			owner := integration.OwnerConn(t)
 			svc := org360Service(e)
 
 			// Rep2 owns the account AND wrote to its contact, so one person is
 			// both would-be edges; Rep1, in the same team, is the caller.
 			org := e.SeedOrg(t, "Acme", &e.Rep2)
 			contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-			employ(t, e, contact, org, "cto")
+			integration.Employ(t, e, contact, org, "cto")
 			seedTouch(t, e, owner, "email", &e.Rep2, contact)
 			teammate := seedMember(t, owner, e.WS, "Live Teammate")
 			seedTouch(t, e, owner, "email", &teammate, contact)
@@ -415,8 +416,8 @@ const graphContactCapSeed = 15
 // showing nobody on our side — while `our_side` and its dropped_count described
 // people the graph does not contain.
 func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	// An unassigned account, so no owner edge pads the user nodes.
@@ -429,7 +430,7 @@ func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) 
 	outsiders := make([]ids.UUID, 0, undrawn)
 	for i := range undrawn {
 		contact := e.SeedPerson(t, fmt.Sprintf("Undrawn %02d", i), &e.Rep1)
-		employ(t, e, contact, org, "assistant")
+		integration.Employ(t, e, contact, org, "assistant")
 		colleague := seedMember(t, owner, e.WS, fmt.Sprintf("Outsider %02d", i))
 		outsiders = append(outsiders, colleague)
 		seedTouch(t, e, owner, "email", &colleague, contact)
@@ -443,7 +444,7 @@ func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) 
 	var drawnContacts []ids.UUID
 	for i := range graphContactCapSeed {
 		contact := e.SeedPerson(t, fmt.Sprintf("Drawn %02d", i), &e.Rep1)
-		employ(t, e, contact, org, "cto")
+		integration.Employ(t, e, contact, org, "cto")
 		drawnContacts = append(drawnContacts, contact)
 		for range 3 {
 			seedTouch(t, e, owner, "email", &insiderA, contact)
@@ -507,14 +508,14 @@ func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) 
 // the rows — a second count could see a newer snapshot and drive it NEGATIVE,
 // which the contract's own `minimum: 0` forbids.
 func TestOrganizationGraphUserCapCountsUsersAndReportsTheRemainder(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	// An unassigned account, so the owner edge cannot pad the user count.
 	org := e.SeedOrg(t, "Acme", nil)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	employ(t, e, contact, org, "cto")
+	integration.Employ(t, e, contact, org, "cto")
 	const writers = 13
 	for i := range writers {
 		member := seedMember(t, owner, e.WS, fmt.Sprintf("Colleague %02d", i))

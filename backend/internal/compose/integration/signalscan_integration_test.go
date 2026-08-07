@@ -75,9 +75,9 @@ func TestGhostedThreadIsRaisedOnceAndSurvivesARepeatPass(t *testing.T) {
 	// unanswered fortnight on an account nobody works is not an observation
 	// about a relationship.
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'opportunity' WHERE id = $1`, org)
-	outbound := accountMailDirectedAt(t, owner, e.WS, "Update zu Margince", "outbound",
+	outbound := AccountMailDirectedAt(t, owner, e.WS, "Update zu Margince", "outbound",
 		now.AddDate(0, 0, -20))
-	linkToOrg(t, e, outbound, org)
+	LinkToOrg(t, e, outbound, org)
 
 	if written := ghostedScan(t, e, now); written != 1 {
 		t.Fatalf("first pass wrote %d signals, want 1", written)
@@ -102,8 +102,8 @@ func TestADismissedGhostedSignalDoesNotComeBack(t *testing.T) {
 
 	org := e.SeedOrg(t, "Dismissed Co", &e.Rep1)
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org)
-	outbound := accountMailDirectedAt(t, owner, e.WS, "Following up", "outbound", now.AddDate(0, 0, -30))
-	linkToOrg(t, e, outbound, org)
+	outbound := AccountMailDirectedAt(t, owner, e.WS, "Following up", "outbound", now.AddDate(0, 0, -30))
+	LinkToOrg(t, e, outbound, org)
 	ghostedScan(t, e, now)
 
 	e.WsExec(t, `UPDATE signal SET status = 'dismissed' WHERE resolved_org_id = $1`, org)
@@ -124,16 +124,16 @@ func TestGhostedStaysQuietWhenTheyWroteLastOrNobodyIsWorkingTheAccount(t *testin
 	// They answered: the thread is not ghosted, it is ours to read.
 	answered := e.SeedOrg(t, "They Replied", &e.Rep1)
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'opportunity' WHERE id = $1`, answered)
-	ours := accountMailDirectedAt(t, owner, e.WS, "Proposal", "outbound", now.AddDate(0, 0, -30))
-	linkToOrg(t, e, ours, answered)
-	theirs := accountMailDirectedAt(t, owner, e.WS, "Re: Proposal", "inbound", now.AddDate(0, 0, -20))
-	linkToOrg(t, e, theirs, answered)
+	ours := AccountMailDirectedAt(t, owner, e.WS, "Proposal", "outbound", now.AddDate(0, 0, -30))
+	LinkToOrg(t, e, ours, answered)
+	theirs := AccountMailDirectedAt(t, owner, e.WS, "Re: Proposal", "inbound", now.AddDate(0, 0, -20))
+	LinkToOrg(t, e, theirs, answered)
 
 	// Nobody is working this one: no open deal, and a lifecycle that is not live.
 	idle := e.SeedOrg(t, "Nobody's Account", &e.Rep1)
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'disqualified' WHERE id = $1`, idle)
-	stale := accountMailDirectedAt(t, owner, e.WS, "Last try", "outbound", now.AddDate(0, 0, -60))
-	linkToOrg(t, e, stale, idle)
+	stale := AccountMailDirectedAt(t, owner, e.WS, "Last try", "outbound", now.AddDate(0, 0, -60))
+	LinkToOrg(t, e, stale, idle)
 
 	if written := ghostedScan(t, e, now); written != 0 {
 		t.Errorf("the rule fired %d times on accounts it should ignore", written)

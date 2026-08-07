@@ -153,22 +153,47 @@ func OwnerConn(t *testing.T) *pgx.Conn {
 	return conn
 }
 
+// Object names the permission fixtures and the link helpers both spell. Named
+// once so a fixture's grant vocabulary cannot drift from the entity type the
+// seeding helpers write.
+const (
+	objPerson   = "person"
+	objActivity = "activity"
+)
+
 // permissions fixtures mirror the RBAC matrix rows the suites
 // exercise; the seeded JSONB↔these shapes is identity's policy tests.
 var (
 	RepPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
-			"person":   {Create: true, Read: true, Update: true},
+			objPerson:  {Create: true, Read: true, Update: true},
 			"deal":     {Create: true, Read: true, Update: true},
 			"pipeline": {Read: true},
+		},
+		RowScope: principal.RowScopeTeam,
+	}
+	// AccountRepPerms is RepPerms widened to what the account sections read —
+	// the organization itself, its activities, and the tag/list chips. Row scope
+	// stays team on purpose: the interesting failures here are row-scope ones,
+	// and an unbounded admin short-circuits every scope clause.
+	AccountRepPerms = principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"organization": {Read: true},
+			objPerson:      {Create: true, Read: true, Update: true},
+			"deal":         {Create: true, Read: true, Update: true},
+			objActivity:    {Create: true, Read: true, Update: true},
+			"pipeline":     {Read: true},
+			"tag":          {Read: true},
+			"list":         {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
 	}
 	ReadOnlyPerms = principal.Permissions{
 		RoleKeys: []string{"read_only"},
 		Objects: map[string]principal.ObjectGrant{
-			"person": {Read: true}, "deal": {Read: true}, "pipeline": {Read: true},
+			objPerson: {Read: true}, "deal": {Read: true}, "pipeline": {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
@@ -181,11 +206,11 @@ var (
 	AdminPerms       = principal.Permissions{
 		RoleKeys: []string{"admin"},
 		Objects: map[string]principal.ObjectGrant{
-			"person":       {Create: true, Read: true, Update: true, Delete: true},
+			objPerson:      {Create: true, Read: true, Update: true, Delete: true},
 			"organization": {Create: true, Read: true, Update: true, Delete: true},
 			"deal":         {Create: true, Read: true, Update: true, Delete: true},
 			"lead":         {Create: true, Read: true, Update: true, Delete: true},
-			"activity":     {Create: true, Read: true, Update: true, Delete: true},
+			objActivity:    {Create: true, Read: true, Update: true, Delete: true},
 			"pipeline":     {Create: true, Read: true, Update: true, Delete: true},
 			// computed_field is read-only for every system role, admin
 			// included (RD-AC-7: no runtime formula-authoring surface
@@ -349,75 +374,20 @@ func (e *Env) WsCount(t *testing.T, sql string, args ...any) int {
 	return n
 }
 
-// DealFixture provisions the workspace with the seeded default pipeline
-// and returns the pipeline plus the open + won stage ids.
-func DealFixture(t *testing.T, e *Env) (pipeline ids.PipelineID, open, won ids.StageID) {
-	t.Helper()
-	admin := e.Admin()
-	if err := e.Deals.SeedDefaults(admin); err != nil {
-		t.Fatal(err)
-	}
-	p, err := e.Deals.DefaultPipeline(admin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, st := range *p.Stages {
-		switch st.Semantic {
-		case "open":
-			if open.IsZero() {
-				open = ids.From[ids.StageKind](ids.UUID(st.Id))
-			}
-		case "won":
-			won = ids.From[ids.StageKind](ids.UUID(st.Id))
-		}
-	}
-	return ids.From[ids.PipelineKind](ids.UUID(p.Id)), open, won
-}
-
-// SeedStakeholder creates a person, ties them to the deal as a
-// deal_stakeholder, and gives them one email in each named direction at
-// the fixed instant 2026-06-01T12:00Z — three days before the
-// 2026-06-04T12:00Z clock the consuming suites pin.
-func SeedStakeholder(t *testing.T, e *Env, owner *pgx.Conn, deal ids.UUID, directions ...string) ids.UUID {
-	t.Helper()
-	person := SeedRow(t, owner, `INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-		VALUES ($1, $2, 'Stakeholder', 'manual', 'human:x')`, e.WS)
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO relationship (workspace_id, kind, person_id, deal_id, source, captured_by)
-		 VALUES ($1, 'deal_stakeholder', $2, $3, 'manual', 'human:x')`, e.WS, person, deal); err != nil {
-		t.Fatal(err)
-	}
-	for _, direction := range directions {
-		touch := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-			VALUES ($1, $2, 'email', 'touch', '2026-06-01T12:00:00Z', '`+direction+`', 'manual', 'human:x')`, e.WS)
-		LinkActivity(t, owner, e.WS, touch, "person", person)
-	}
-	return person
-}
-
-// LinkActivity attaches an activity to a person or deal through the
-// polymorphic link table.
-func LinkActivity(t *testing.T, owner *pgx.Conn, ws, activity ids.UUID, entityType string, entity ids.UUID) {
-	t.Helper()
-	column := "deal_id"
-	if entityType == "person" {
-		column = "person_id"
-	}
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, `+column+`) VALUES ($1, $2, $3, $4)`,
-		ws, activity, entityType, entity); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// SeedRow inserts one row through the owner connection and returns its id.
-func SeedRow(t *testing.T, owner *pgx.Conn, sql string, ws ids.UUID) ids.UUID {
-	t.Helper()
-	id := ids.NewV7()
-	if _, err := owner.Exec(context.Background(), sql, id, ws); err != nil {
-		t.Fatalf("seeding: %v", err)
-	}
-	return id
+// AgentWithOrgRead binds an agent principal holding the same object grants
+// the rep does, unbounded, and CARRYING the granting human's user id — the
+// shape identity/passport.go actually mints, where OnBehalfOf becomes
+// UserID for row scope. An agent with no user id would be refused for the
+// wrong reason and would prove nothing about the human-only rule.
+func AgentWithOrgRead(e *Env) context.Context {
+	perms := AccountRepPerms
+	perms.RowScope = principal.RowScopeAll
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:test", SeatType: principal.SeatFull,
+		UserID: e.Rep1, OnBehalfOf: e.Rep1, Permissions: perms,
+	})
 }
 
 // SchedulerPerms is RepPerms plus the activity grant the booking write
@@ -425,8 +395,8 @@ func SeedRow(t *testing.T, owner *pgx.Conn, sql string, ws ids.UUID) ids.UUID {
 var SchedulerPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"person":   {Create: true, Read: true, Update: true},
-		"activity": {Create: true, Read: true, Update: true},
+		objPerson:   {Create: true, Read: true, Update: true},
+		objActivity: {Create: true, Read: true, Update: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }

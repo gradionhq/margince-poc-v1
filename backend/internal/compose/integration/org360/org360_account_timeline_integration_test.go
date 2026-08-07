@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // What "this activity belongs to this account" means, proved over a real
 // database and through every surface that asks the question.
@@ -25,6 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -46,7 +47,7 @@ func accountMailAt(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, a
 
 // employAt ties a person to an organization. endedOn nil is a live employment;
 // a date ends it.
-func employAt(t *testing.T, e *Env, person, org ids.UUID, endedOn *time.Time) {
+func employAt(t *testing.T, e *integration.Env, person, org ids.UUID, endedOn *time.Time) {
 	t.Helper()
 	e.WsExec(t, `INSERT INTO relationship
 		(workspace_id, kind, person_id, organization_id, started_at, ended_at, source, captured_by)
@@ -54,16 +55,8 @@ func employAt(t *testing.T, e *Env, person, org ids.UUID, endedOn *time.Time) {
 		e.WS, person, org, endedOn)
 }
 
-// linkToOrg attaches an activity directly to an account (the harness's
-// LinkActivity covers only the person and deal columns).
-func linkToOrg(t *testing.T, e *Env, activity, org ids.UUID) {
-	t.Helper()
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, activity, org)
-}
-
 // accountTimeline lists the account's timeline the way GET /activities does.
-func accountTimeline(ctx context.Context, t *testing.T, e *Env, org ids.UUID, limit int, cursor string) ([]ids.UUID, string) {
+func accountTimeline(ctx context.Context, t *testing.T, e *integration.Env, org ids.UUID, limit int, cursor string) ([]ids.UUID, string) {
 	t.Helper()
 	entityType := "organization"
 	in := activities.ListActivitiesInput{EntityType: &entityType, EntityID: &org, Limit: &limit}
@@ -95,14 +88,14 @@ func containsActivity(got []ids.UUID, want ids.UUID) bool {
 // timeline list and the company view's own section — which must agree,
 // because the section is that list.
 func TestAccountTimelineReachesMailThroughItsContactsAndDeals(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
-	pipeline, stage, _ := DealFixture(t, e)
+	pipeline, stage, _ := integration.DealFixture(t, e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	other := e.SeedOrg(t, "Globex", &e.Rep1)
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	employee := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	employAt(t, e, employee, org, nil)
@@ -116,15 +109,15 @@ func TestAccountTimelineReachesMailThroughItsContactsAndDeals(t *testing.T) {
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org)
 
 	direct := accountMailAt(t, owner, e.WS, "direct", org360Clock.Add(-1*time.Hour))
-	linkToOrg(t, e, direct, org)
+	integration.LinkToOrg(t, e, direct, org)
 	viaContact := accountMailAt(t, owner, e.WS, "via a current employee", org360Clock.Add(-2*time.Hour))
-	LinkActivity(t, owner, e.WS, viaContact, "person", employee)
+	integration.LinkActivity(t, owner, e.WS, viaContact, "person", employee)
 	viaDeal := accountMailAt(t, owner, e.WS, "via the deal", org360Clock.Add(-3*time.Hour))
-	LinkActivity(t, owner, e.WS, viaDeal, "deal", deal)
+	integration.LinkActivity(t, owner, e.WS, viaDeal, "deal", deal)
 	viaLeaver := accountMailAt(t, owner, e.WS, "via a former employee", org360Clock.Add(-4*time.Hour))
-	LinkActivity(t, owner, e.WS, viaLeaver, "person", leaver)
+	integration.LinkActivity(t, owner, e.WS, viaLeaver, "person", leaver)
 	viaStranger := accountMailAt(t, owner, e.WS, "via another account's contact", org360Clock.Add(-5*time.Hour))
-	LinkActivity(t, owner, e.WS, viaStranger, "person", stranger)
+	integration.LinkActivity(t, owner, e.WS, viaStranger, "person", stranger)
 
 	listed, _ := accountTimeline(rep, t, e, org, 25, "")
 	for _, want := range []struct {
@@ -176,11 +169,11 @@ func TestAccountTimelineReachesMailThroughItsContactsAndDeals(t *testing.T) {
 // read one is still the activity link-walk row scope, so reaching further must
 // not hand a bounded rep an item they could not open.
 func TestTheAccountWalkDoesNotWidenTheCallersRowScope(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	// Both contacts work at the account; only one is inside Rep1's team scope.
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
@@ -189,9 +182,9 @@ func TestTheAccountWalkDoesNotWidenTheCallersRowScope(t *testing.T) {
 	employAt(t, e, theirs, org, nil)
 
 	visible := accountMailAt(t, owner, e.WS, "terms", org360Clock.Add(-1*time.Hour))
-	LinkActivity(t, owner, e.WS, visible, "person", mine)
+	integration.LinkActivity(t, owner, e.WS, visible, "person", mine)
 	hidden := accountMailAt(t, owner, e.WS, "confidential terms", org360Clock.Add(-2*time.Hour))
-	LinkActivity(t, owner, e.WS, hidden, "person", theirs)
+	integration.LinkActivity(t, owner, e.WS, hidden, "person", theirs)
 
 	listed, _ := accountTimeline(rep, t, e, org, 25, "")
 	if containsActivity(listed, hidden) {
@@ -210,11 +203,11 @@ func TestTheAccountWalkDoesNotWidenTheCallersRowScope(t *testing.T) {
 // an activity reachable through TWO arms at once — the case a join would
 // duplicate and a duplicate is what shifts a keyset page boundary.
 func TestAccountTimelinePagesWithoutDuplicatesOrOmissions(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	employAt(t, e, contact, org, nil)
 
@@ -224,10 +217,10 @@ func TestAccountTimelinePagesWithoutDuplicatesOrOmissions(t *testing.T) {
 	for i := range 5 {
 		mail := accountMailAt(t, owner, e.WS, "thread", org360Clock.Add(-time.Duration(i+1)*time.Hour))
 		if i%2 == 0 {
-			linkToOrg(t, e, mail, org)
+			integration.LinkToOrg(t, e, mail, org)
 		}
 		if i%2 == 1 || i == 2 {
-			LinkActivity(t, owner, e.WS, mail, "person", contact)
+			integration.LinkActivity(t, owner, e.WS, mail, "person", contact)
 		}
 		want = append(want, mail)
 	}
@@ -269,25 +262,25 @@ func TestAccountTimelinePagesWithoutDuplicatesOrOmissions(t *testing.T) {
 // only through a contact is on the page, so it is new here too — a rep told
 // "0 new" above three unread emails would stop trusting the marker.
 func TestSinceLastVisitCountsMailRolledUpThroughAContact(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	orgID := ids.From[ids.OrganizationKind](org)
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	employAt(t, e, contact, org, nil)
 
 	// Mail that arrived BEFORE the visit is not new; the ack pins the baseline
 	// at the read's own instant.
 	before := accountMailAt(t, owner, e.WS, "old thread", org360Clock.Add(-time.Hour))
-	LinkActivity(t, owner, e.WS, before, "person", contact)
+	integration.LinkActivity(t, owner, e.WS, before, "person", contact)
 	if _, err := svc.Acknowledge(rep, orgID); err != nil {
 		t.Fatalf("acknowledging the visit: %v", err)
 	}
 	after := accountMailAt(t, owner, e.WS, "new thread", org360Clock.Add(time.Hour))
-	LinkActivity(t, owner, e.WS, after, "person", contact)
+	integration.LinkActivity(t, owner, e.WS, after, "person", contact)
 
 	view, err := svc.Assemble(rep, orgID)
 	if err != nil {
@@ -306,43 +299,28 @@ func TestSinceLastVisitCountsMailRolledUpThroughAContact(t *testing.T) {
 	}
 }
 
-// accountMailDirectedAt seeds one message with an explicit direction, which is
-// the whole point of the pair below: the same last-touch date means opposite
-// things depending on who wrote it.
-func accountMailDirectedAt(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject, direction string, at time.Time) ids.UUID {
-	t.Helper()
-	id := ids.NewV7()
-	if _, err := owner.Exec(context.Background(), `INSERT INTO activity
-		(id, workspace_id, kind, direction, subject, occurred_at, created_at, source, captured_by)
-		VALUES ($1, $2, 'email', $3, $4, $5, $5, 'manual', 'human:x')`,
-		id, ws, direction, subject, at); err != nil {
-		t.Fatalf("seeding %q: %v", subject, err)
-	}
-	return id
-}
-
 // TestLastTouchSeparatesWhoWroteLastAndWalksTheSameThreeLinks pins the pair
 // that replaced the header's 0-100 score (AC-company-2). One "last touch"
 // would collapse the only distinction that matters — an account we mailed a
 // fortnight ago with no reply reads identically to one that just wrote to us.
 func TestLastTouchSeparatesWhoWroteLastAndWalksTheSameThreeLinks(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Scale Commerce", &e.Rep1)
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	employee := e.SeedPerson(t, "Christian Contact", &e.Rep1)
 	employAt(t, e, employee, org, nil)
 
 	// The newest inbound reaches the account only through its contact, which
 	// is how capture files real mail — a direct-link-only reading would miss it.
-	oldInbound := accountMailDirectedAt(t, owner, e.WS, "old reply", "inbound", org360Clock.Add(-90*time.Hour))
-	linkToOrg(t, e, oldInbound, org)
-	newInbound := accountMailDirectedAt(t, owner, e.WS, "their reply", "inbound", org360Clock.Add(-30*time.Hour))
-	LinkActivity(t, owner, e.WS, newInbound, "person", employee)
-	outbound := accountMailDirectedAt(t, owner, e.WS, "our nudge", "outbound", org360Clock.Add(-2*time.Hour))
-	linkToOrg(t, e, outbound, org)
+	oldInbound := integration.AccountMailDirectedAt(t, owner, e.WS, "old reply", "inbound", org360Clock.Add(-90*time.Hour))
+	integration.LinkToOrg(t, e, oldInbound, org)
+	newInbound := integration.AccountMailDirectedAt(t, owner, e.WS, "their reply", "inbound", org360Clock.Add(-30*time.Hour))
+	integration.LinkActivity(t, owner, e.WS, newInbound, "person", employee)
+	outbound := integration.AccountMailDirectedAt(t, owner, e.WS, "our nudge", "outbound", org360Clock.Add(-2*time.Hour))
+	integration.LinkToOrg(t, e, outbound, org)
 
 	view, err := svc.Assemble(rep, ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -360,14 +338,14 @@ func TestLastTouchSeparatesWhoWroteLastAndWalksTheSameThreeLinks(t *testing.T) {
 // heard from them" distinct from "we never looked". Null is the account's
 // answer; an absent section would be the caller's.
 func TestLastTouchIsNullRatherThanZeroWhenNothingWasCaptured(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Silent Co", &e.Rep1)
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
-	outbound := accountMailDirectedAt(t, owner, e.WS, "our first mail", "outbound", org360Clock.Add(-time.Hour))
-	linkToOrg(t, e, outbound, org)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
+	outbound := integration.AccountMailDirectedAt(t, owner, e.WS, "our first mail", "outbound", org360Clock.Add(-time.Hour))
+	integration.LinkToOrg(t, e, outbound, org)
 
 	view, err := svc.Assemble(rep, ids.From[ids.OrganizationKind](org))
 	if err != nil {

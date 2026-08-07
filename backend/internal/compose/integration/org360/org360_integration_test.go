@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // The company view is one read that hands back nine sections at once, so
 // it is nine chances to out-see the dedicated endpoint each section
@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -45,34 +46,17 @@ var org360Clock = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
 // org360Service builds the composite read over the harness pool with the
 // pinned clock.
-func org360Service(e *Env) *org360.Service {
+func org360Service(e *integration.Env) *org360.Service {
 	return org360.NewService(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool),
 		func() time.Time { return org360Clock })
 }
 
-// org360RepPerms is a team-scoped rep holding every grant the sections
-// ask for. The interesting failures are row-scope ones, and an unbounded
-// admin short-circuits every scope clause, so the fixture must be bounded.
-var org360RepPerms = principal.Permissions{
-	RoleKeys: []string{"rep"},
-	Objects: map[string]principal.ObjectGrant{
-		"organization": {Read: true},
-		"person":       {Create: true, Read: true, Update: true},
-		"deal":         {Create: true, Read: true, Update: true},
-		"activity":     {Create: true, Read: true, Update: true},
-		"pipeline":     {Read: true},
-		"tag":          {Read: true},
-		"list":         {Read: true},
-	},
-	RowScope: principal.RowScopeTeam,
-}
-
 // org360SignalPerms is the same rep plus the signal read grant (the helper
 // the graph suite already keeps, org360_graph_integration_test.go). Separate
-// from org360RepPerms rather than folded into it because several tests read
+// from integration.AccountRepPerms rather than folded into it because several tests read
 // that fixture as "a rep who cannot see signals" to prove a section is
 // withheld — granting it there made those pass without testing anything.
-var org360SignalPerms = withSignalRead(org360RepPerms)
+var org360SignalPerms = withSignalRead(integration.AccountRepPerms)
 
 // org360NoDealPerms is the same rep with the deal grant taken away — the
 // fixture that proves omission is distinguishable from emptiness.
@@ -87,12 +71,12 @@ var org360NoDealPerms = principal.Permissions{
 }
 
 func TestOrganization360OmitsSectionsTheCallerMayNotRead(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	orgID := ids.From[ids.OrganizationKind](org)
 
-	full, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), orgID)
+	full, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), orgID)
 	if err != nil {
 		t.Fatalf("assemble as a fully-granted rep: %v", err)
 	}
@@ -125,26 +109,26 @@ func TestOrganization360OmitsSectionsTheCallerMayNotRead(t *testing.T) {
 }
 
 func TestOrganization360HidesAnAccountOutsideTheCallersRowScope(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	// Rep3 sits in the other team, so Rep1's team scope cannot reach it.
 	theirs := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Other Team Account", &e.Rep3))
 
-	_, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), theirs)
+	_, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), theirs)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("assemble out of row scope → %v, want ErrNotFound (existence-hiding)", err)
 	}
 	// The positive control: the same call on the caller's own account works,
 	// so the gate narrows scope rather than breaking the read.
 	mine := ids.From[ids.OrganizationKind](e.SeedOrg(t, "My Account", &e.Rep1))
-	if _, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), mine); err != nil {
+	if _, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), mine); err != nil {
 		t.Errorf("assemble on the caller's own account: %v", err)
 	}
 }
 
 func TestOrganization360ContactsCarryStrengthRolesAndConsent(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 	admin := e.Admin()
 
@@ -158,12 +142,12 @@ func TestOrganization360ContactsCarryStrengthRolesAndConsent(t *testing.T) {
 	// Two qualifying interactions inside the §4 window, one each way, so
 	// the score is non-zero and reciprocity is balanced.
 	for _, direction := range []string{"inbound", "outbound"} {
-		activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
+		activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 			VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', '`+direction+`', 'manual', 'human:x')`, e.WS)
-		LinkActivity(t, owner, e.WS, activity, "person", contact)
+		integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
 	}
 
-	purpose := SeedRow(t, owner, `INSERT INTO consent_purpose (id, workspace_id, key, label)
+	purpose := integration.SeedRow(t, owner, `INSERT INTO consent_purpose (id, workspace_id, key, label)
 		VALUES ($1, $2, 'marketing_email', 'Marketing email')`, e.WS)
 	e.WsExec(t, `INSERT INTO person_consent (workspace_id, person_id, purpose_id, state)
 		VALUES ($1, $2, $3, 'granted')`, e.WS, contact, purpose)
@@ -210,15 +194,15 @@ func TestOrganization360ContactsCarryStrengthRolesAndConsent(t *testing.T) {
 // outbound is default-deny per purpose, and a missing key would let a
 // caller read absence as permission.
 func TestOrganization360ConsentReportsEveryPurposeEvenWithoutARow(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Silent Contact", &e.Rep1)
 	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
 		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
-	SeedRow(t, owner, `INSERT INTO consent_purpose (id, workspace_id, key, label)
+	integration.SeedRow(t, owner, `INSERT INTO consent_purpose (id, workspace_id, key, label)
 		VALUES ($1, $2, 'product_updates', 'Product updates')`, e.WS)
 
 	view, err := svc.Assemble(e.Admin(), ids.From[ids.OrganizationKind](org))
@@ -240,7 +224,7 @@ func TestOrganization360ConsentReportsEveryPurposeEvenWithoutARow(t *testing.T) 
 // A contact the caller cannot read contributes nothing: not to the list,
 // not to the count, and not to the account's warmth.
 func TestOrganization360ContactsHonorTheCallersRowScope(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
@@ -251,7 +235,7 @@ func TestOrganization360ContactsHonorTheCallersRowScope(t *testing.T) {
 			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
 	}
 
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), ids.From[ids.OrganizationKind](org))
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -272,11 +256,11 @@ func TestOrganization360ContactsHonorTheCallersRowScope(t *testing.T) {
 // native workspace must reach it, not be refused by the overlay guard that
 // only exists for mirror-backed ones.
 func TestOrganization360TransportServesANativeWorkspace(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	handlers := org360.NewHandlers(org360Service(e),
 		func(context.Context) (bool, error) { return false, nil })
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/"+org.String()+"/360", nil)
@@ -311,30 +295,14 @@ func TestOrganization360TransportServesANativeWorkspace(t *testing.T) {
 	}
 }
 
-// agentWithOrgRead binds an agent principal holding the same object grants
-// the rep does, unbounded, and CARRYING the granting human's user id — the
-// shape identity/passport.go actually mints, where OnBehalfOf becomes
-// UserID for row scope. An agent with no user id would be refused for the
-// wrong reason and would prove nothing about the human-only rule.
-func agentWithOrgRead(e *Env) context.Context {
-	perms := org360RepPerms
-	perms.RowScope = principal.RowScopeAll
-	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	return principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalAgent, ID: "agent:test", SeatType: principal.SeatFull,
-		UserID: e.Rep1, OnBehalfOf: e.Rep1, Permissions: perms,
-	})
-}
-
 // A task reaches this account through a contact the caller can read, while
 // also being linked to another team's deal. The task belongs on the page;
 // that deal's id does not.
 func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
-	pipeline, stage, _ := DealFixture(t, e)
+	pipeline, stage, _ := integration.DealFixture(t, e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
@@ -343,12 +311,12 @@ func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
 	theirDeal := e.SeedDeal(t, "Other team deal", pipeline, stage, &e.Rep3)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirDeal, org)
 
-	task := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, is_done, source, captured_by)
+	task := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, is_done, source, captured_by)
 		VALUES ($1, $2, 'task', 'Send the renewal paperwork', now(), false, 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, task, "person", mine)
-	LinkActivity(t, owner, e.WS, task, "deal", theirDeal)
+	integration.LinkActivity(t, owner, e.WS, task, "person", mine)
+	integration.LinkActivity(t, owner, e.WS, task, "deal", theirDeal)
 
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), ids.From[ids.OrganizationKind](org))
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
