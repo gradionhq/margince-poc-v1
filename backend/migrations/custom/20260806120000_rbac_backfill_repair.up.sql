@@ -1,10 +1,10 @@
 -- Re-apply every fork-owned RBAC backfill that row-level security may have
 -- discarded, for databases that already recorded the migration carrying it.
--- The core namespace's counterpart is 0190_rbac_backfill_repair; this is the
+-- The core namespace's counterpart is 0192_rbac_backfill_repair; this is the
 -- same repair for the objects the fork owns (ADR-0017 custom namespace).
 --
 -- Scope, and why it is every guarded backfill rather than the ones observed to
--- have been lost, is argued in full at the head of core 0190. The short form:
+-- have been lost, is argued in full at the head of core 0192. The short form:
 -- which backfills an installation lost depends on where in the sequence it
 -- first booted, no migration can know that, and each block is guarded on key
 -- ABSENCE, so re-applying one that already landed writes nothing.

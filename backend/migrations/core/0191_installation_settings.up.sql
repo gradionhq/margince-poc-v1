@@ -19,17 +19,27 @@
 -- benefits from knowing which currency they are in — only admin/ops UPDATE.
 -- No create/delete: these are singleton values, not a record kind, so both
 -- stay FALSE against any future generic create/delete path.
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,installation_settings}',
-  '{"create":false,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key IN ('admin', 'ops')
-  AND NOT permissions->'objects' ? 'installation_settings';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
 
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,installation_settings}',
-  '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key IN ('manager', 'rep', 'read_only')
-  AND NOT permissions->'objects' ? 'installation_settings';
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,installation_settings}',
+      '{"create":false,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE (is_system AND key IN ('admin','ops')
+      AND NOT permissions->'objects' ? 'installation_settings')
+      AND role.workspace_id = ws;
+
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,installation_settings}',
+      '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
+    WHERE (is_system AND key IN ('manager','rep','read_only')
+      AND NOT permissions->'objects' ? 'installation_settings')
+      AND role.workspace_id = ws;
+  END LOOP;
+END $$;
 
 -- Carry the live installation's values across.
 --
