@@ -306,6 +306,27 @@ func TestADeclaredTitleDerivesButStaysOutOfTheDescriptor(t *testing.T) {
 	}
 }
 
+// Prose that will not fit on one line is written as literals joined by +, and
+// that is still a value fixed at the declaration — the generator computes it
+// without evaluating anything. Refusing it would push a unit author into one
+// unreadable line to satisfy a tool that never had to be satisfied.
+func TestAConcatenatedLiteralDerivesLikeASingleOne(t *testing.T) {
+	fields := "\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,"
+	joined, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tDescription: \"Keep the contacts in step. \" +\n\t\t\t\t\"It reads nothing this workspace holds.\",\n"+fields))
+	if err != nil {
+		t.Fatalf("literals joined by + must derive: %v", err)
+	}
+	// Like the title, it is validated and then left out of the governance
+	// descriptor: a resolution binds to a digest, never to prose.
+	plain, err := deriveSynthetic(t, "x", toolUnitSource(fields))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(joined, plain) {
+		t.Fatalf("the description reached the governance descriptor:\n%s\nvs\n%s", joined, plain)
+	}
+}
+
 // nonLiteralHeader opens every rejection case's synthetic unit.
 const nonLiteralHeader = `package x
 
@@ -388,6 +409,19 @@ var nonLiteralCases = []struct {
 		// unit author has to hear it here, at the declaration, instead.
 		name:    "tool title that renders as nothing",
 		source:  toolUnitSource("\t\t\tName: \"t\", Title: \"   \", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
+		wantErr: "is blank or carries surrounding whitespace",
+	},
+	{
+		// Selection prose is the one field a unit author is most likely to
+		// compute — from a constant, a helper, a template. The manifest derives
+		// statically, so it has to be told here rather than at boot.
+		name:    "computed tool description",
+		source:  toolUnitSource("\t\t\tName: \"t\", Description: describe(), Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,") + "\nfunc describe() string { return \"D\" }\n",
+		wantErr: "Tool.Description must be a string literal",
+	},
+	{
+		name:    "tool description that renders as nothing",
+		source:  toolUnitSource("\t\t\tName: \"t\", Description: \"   \", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
 		wantErr: "is blank or carries surrounding whitespace",
 	},
 	{

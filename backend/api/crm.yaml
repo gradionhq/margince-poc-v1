@@ -14325,6 +14325,13 @@ components:
       required: [name, tier, egress]
       properties:
         name:  { type: string, description: The tool name (tools/list identity). }
+        title: { type: string, description: The written display name a client shows in place of the name. }
+        description:
+          type: string
+          description: >
+            What the tool is for, as an MCP client is told it: the outcome it produces, its
+            limits, when a neighbouring tool is the better call, and what to keep from its
+            result — followed by this server's own governance clause.
         required_scope: { type: string, description: Passport scope required to call it. }
         tier:  { type: string, enum: [auto_execute, confirmation_required, dynamic] }
         egress: { type: boolean, description: True if the tool reaches outside the workspace. }

@@ -41,9 +41,15 @@ func (e echoTool) Handle(context.Context, json.RawMessage) (json.RawMessage, err
 	return e.out, nil
 }
 
+// describedForRegistration is the stand-in description a fake tool carries so
+// registration admits it at all. Register refuses a description-less tool, and
+// every fake in this package is registered to exercise something else.
+const describedForRegistration = "A stand-in tool, offered so the registry has something to admit."
+
 func objectSpec(name string, scope principal.Scope) mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: name, Title: name, RequiredScope: scope, Tier: mcp.TierAutoExecute,
+		Name: name, Title: name, Description: name + " does the thing the test needs it to do.",
+		RequiredScope: scope, Tier: mcp.TierAutoExecute,
 		InputSchema:  json.RawMessage(`{"type":"object"}`),
 		OutputSchema: json.RawMessage(`{"type":"object"}`),
 	}
@@ -376,11 +382,17 @@ func TestEveryConfirmFirstToolAdvertisesItsApprovalArgument(t *testing.T) {
 
 // Registration is where a spec defect has to stop: past it, the defect is a
 // served response. A title-less tool would render its identifier as its
-// display name, and a non-object output schema is a promise tools/call cannot
-// keep, because structuredContent is typed as an object.
+// display name, a description-less one leaves a client with nothing to choose
+// it on but that identifier, and a non-object output schema is a promise
+// tools/call cannot keep, because structuredContent is typed as an object.
 func TestRegisterRefusesWireDefects(t *testing.T) {
 	mustPanic(t, "a title-less tool has no display name but the one it was trying to improve on", func() {
 		NewRegistry(nil, nil).Register(echoTool{spec: mcp.ToolSpec{Name: "untitled", Tier: mcp.TierAutoExecute}})
+	})
+	mustPanic(t, "a description-less tool can only be selected by the shape of its name", func() {
+		spec := objectSpec("undescribed", principal.ScopeRead)
+		spec.Description = "  "
+		NewRegistry(nil, nil).Register(echoTool{spec: spec})
 	})
 	mustPanic(t, "an array output schema can never be answered with structuredContent", func() {
 		spec := objectSpec("lists_things", principal.ScopeRead)

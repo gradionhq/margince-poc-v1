@@ -204,6 +204,35 @@ func invocableByCaller(ctx context.Context, spec mcp.ToolSpec) bool {
 	return p.Scopes.Has(spec.RequiredScope)
 }
 
+// DescribeForClient is the description one tool is advertised with: what the
+// tool is FOR, written on its spec, followed by how this server will govern the
+// call. It is exported because tools/list is not the only surface that serves
+// it — the operator console reads the same text through GET /v1/agent-tools,
+// and a second rendering there would be a second answer to what a client is
+// told.
+//
+// The order is the point. The written text answers the question a model is
+// actually asking — which of thirty tools serves this goal — and the governance
+// clause answers what happens once it has chosen. For most of this surface's
+// life the second was the whole description, so a model was told the passport
+// scope of every tool and the purpose of none.
+//
+// The tier and scope are re-stated from the spec the admission gate enforces,
+// so they cannot disagree with it. The crm.yaml operation family is NOT here:
+// it is developer documentation, and a model has no use for the name of an
+// endpoint it has no way to call. It stays on ToolSpec.OpenAPIOp, which is what
+// the contract-parity gate reads.
+func DescribeForClient(spec mcp.ToolSpec) string {
+	tier := "runs immediately"
+	switch spec.Tier {
+	case mcp.TierConfirmationRequired:
+		tier = "a person approves every call before it runs"
+	case mcp.TierDynamic:
+		tier = "runs immediately, except moves that close a deal, which a person approves first"
+	}
+	return fmt.Sprintf("%s (Governance: %s; requires passport scope %q.)", spec.Description, tier, spec.RequiredScope)
+}
+
 func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 	specs := s.registry.Specs()
 	tools := make([]map[string]any, 0, len(specs))
@@ -211,26 +240,13 @@ func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 		if !invocableByCaller(ctx, spec) {
 			continue
 		}
-		tier := "auto_execute (runs immediately)"
-		switch spec.Tier {
-		case mcp.TierConfirmationRequired:
-			tier = "confirmation_required (requires human approval)"
-		case mcp.TierDynamic:
-			tier = "auto_execute, except moves that close a deal require human approval"
-		}
-		desc := fmt.Sprintf("Autonomy: %s. Requires passport scope %q.", tier, spec.RequiredScope)
-		if spec.OpenAPIOp != "" {
-			// Extension tools map to no crm.yaml operation; only append the
-			// clause when there is one, rather than rendering "Maps to .".
-			desc += fmt.Sprintf(" Maps to %s.", spec.OpenAPIOp)
-		}
 		tool := map[string]any{
 			fieldName: spec.Name,
 			// Top-level title outranks annotations.title for display, and both
 			// outrank the name. Registry.Register refuses a title-less tool, so
 			// neither is ever the empty string here.
 			fieldTitle:    spec.Title,
-			"description": desc,
+			"description": DescribeForClient(spec),
 			"inputSchema": spec.InputSchema,
 			// The two hints this server can state as FACTS, both read off the
 			// spec the admission gate itself enforces rather than restated by

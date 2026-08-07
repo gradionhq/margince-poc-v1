@@ -8658,6 +8658,9 @@ type AdvanceProjectPhaseRequestToPhase string
 
 // AgentTool defines model for AgentTool.
 type AgentTool struct {
+	// Description What the tool is for, as an MCP client is told it: the outcome it produces, its limits, when a neighbouring tool is the better call, and what to keep from its result — followed by this server's own governance clause.
+	Description *string `json:"description,omitempty"`
+
 	// Egress True if the tool reaches outside the workspace.
 	Egress bool `json:"egress"`
 
@@ -8667,6 +8670,9 @@ type AgentTool struct {
 	// RequiredScope Passport scope required to call it.
 	RequiredScope *string       `json:"required_scope,omitempty"`
 	Tier          AgentToolTier `json:"tier"`
+
+	// Title The written display name a client shows in place of the name.
+	Title *string `json:"title,omitempty"`
 }
 
 // AgentToolTier defines model for AgentTool.Tier.

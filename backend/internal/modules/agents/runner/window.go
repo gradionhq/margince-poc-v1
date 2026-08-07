@@ -224,7 +224,12 @@ Available tools:
 	sorted := append([]mcp.ToolSpec(nil), specs...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 	for _, spec := range sorted {
-		fmt.Fprintf(&b, "- %s (input schema: %s)\n", spec.Name, string(spec.InputSchema))
+		// Two lines per tool: what it is FOR, then how to call it. A run offered
+		// the whole governed surface is choosing among thirty names that read
+		// alike, and the description is the half that choice is made on — so it
+		// goes first, rather than after the several hundred characters of JSON
+		// the model needs only once it has chosen.
+		fmt.Fprintf(&b, "- %s — %s\n  input schema: %s\n", spec.Name, spec.Description, string(spec.InputSchema))
 	}
 	return b.String()
 }

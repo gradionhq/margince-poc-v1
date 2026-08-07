@@ -89,6 +89,7 @@ type relinkActivity struct {
 func (t relinkActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "relink_activity", Title: "Re-associate an activity to a record", Version: toolVersionV1,
+		Description:   relinkActivityCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "relinkActivity",
 		InputSchema: schema(`{"type":"object","required":["activity_id","entity_type","entity_id"],"properties":{
@@ -127,6 +128,7 @@ type disqualifyLead struct {
 func (t disqualifyLead) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "disqualify_lead", Title: "Disqualify a lead", Version: toolVersionV1,
+		Description:   disqualifyLeadCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "disqualifyLead",
 		InputSchema: schema(`{"type":"object","required":["lead_id"],"properties":{
@@ -191,6 +193,7 @@ type advanceProjectPhase struct {
 func (t advanceProjectPhase) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "advance_project_phase", Title: "Move a project to a phase", Version: toolVersionV1,
+		Description:   advanceProjectPhaseCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "advanceProjectPhase",
 		InputSchema: schema(`{"type":"object","required":["project_id","to_phase"],"properties":{

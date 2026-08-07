@@ -55,10 +55,12 @@ func agentLoopBaseFixture() agentLoopFixture {
 		Tools: agentLoopListedWindow(
 			agentLoopTool{
 				Name:        agentLoopListTool,
+				Description: "List the deals this rep has open right now.",
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"owner_id":{"type":"string"}}}`),
 			},
 			agentLoopTool{
 				Name:        agentLoopLogTool,
+				Description: "Record a note on one deal's timeline.",
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"deal_id":{"type":"string"}}}`),
 			},
 		),
@@ -126,6 +128,18 @@ func TestAgentLoopCaseSendsTheWindowTheRunnerBuilds(t *testing.T) {
 	for _, tool := range []string{agentLoopListTool, agentLoopLogTool} {
 		if !strings.Contains(req.System, tool) {
 			t.Errorf("the system prompt never offers %q:\n%s", tool, req.System)
+		}
+	}
+	// The name alone is not the offer. A turn choosing among the surface is
+	// choosing on what each tool SAYS it does, so the window prints each
+	// description — and a fixture is refused without one precisely because this
+	// is what the prompt would otherwise be missing.
+	for _, described := range []string{
+		"List the deals this rep has open right now.",
+		"Record a note on one deal's timeline.",
+	} {
+		if !strings.Contains(req.System, described) {
+			t.Errorf("the system prompt offers a tool without saying what it is for (%q):\n%s", described, req.System)
 		}
 	}
 	if len(req.Messages) != 1 {
@@ -381,6 +395,12 @@ func TestAgentLoopCaseRefusesAWindowTheLoopIsNeverHanded(t *testing.T) {
 			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools.listed[0].InputSchema = nil }),
 			expected: agentLoopExpectationJSON(t, agentLoopLogTool),
 			want:     "no input schema object",
+		},
+		{
+			name:     "a tool the window would offer with nothing to choose it by",
+			fixture:  agentLoopVariant(func(f *agentLoopFixture) { f.Tools.listed[0].Description = " " }),
+			expected: agentLoopExpectationJSON(t, agentLoopLogTool),
+			want:     "carries no description",
 		},
 		{
 			name: "a seed item with no trust tier",

@@ -713,23 +713,35 @@ function AgentToolsCard() {
                   key={tool.name}
                   data-tool={tool.name}
                   className="tool-row"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    opacity: reachable ? 1 : 0.4,
-                  }}
+                  style={{ opacity: reachable ? 1 : 0.4 }}
                 >
-                  <AutonomyDot tier={dotTier(tool.tier)} />
-                  <span className="t-mono" style={{ color: "var(--accent)" }}>
-                    {tool.name}
-                  </span>
-                  {tool.required_scope && <Badge>{tool.required_scope}</Badge>}
-                  {tool.egress && (
-                    <Badge tone="warn">{t("tools.egress")}</Badge>
-                  )}
-                  {!reachable && (
-                    <span className="t-caption">{t("tools.unreachable")}</span>
+                  <div className="tool-row-head">
+                    <AutonomyDot tier={dotTier(tool.tier)} />
+                    <span className="t-mono" style={{ color: "var(--accent)" }}>
+                      {tool.name}
+                    </span>
+                    {tool.title && (
+                      <span className="t-caption">{tool.title}</span>
+                    )}
+                    {tool.required_scope && (
+                      <Badge>{tool.required_scope}</Badge>
+                    )}
+                    {tool.egress && (
+                      <Badge tone="warn">{t("tools.egress")}</Badge>
+                    )}
+                    {!reachable && (
+                      <span className="t-caption">
+                        {t("tools.unreachable")}
+                      </span>
+                    )}
+                  </div>
+                  {/* The text an agent actually selects on. This console
+                      promises the surface an MCP client sees, and the name
+                      alone was never that. */}
+                  {tool.description && (
+                    <p className="t-caption tool-description">
+                      {tool.description}
+                    </p>
                   )}
                 </li>
               );

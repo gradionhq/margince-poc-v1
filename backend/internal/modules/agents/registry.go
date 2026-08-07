@@ -65,7 +65,8 @@ var _ mcp.Registry = (*Registry)(nil)
 // a runtime authority bug or a broken wire response: a duplicate name (two
 // handlers behind one admission decision), a TierDynamic spec with no resolver
 // (a tool whose tier nobody computes would default to whatever the gate
-// assumes), a missing display title, and a schema that is not an encodable
+// assumes), a missing display title, a missing description (a tool no client
+// can tell apart from its neighbours), and a schema that is not an encodable
 // object (see assertObjectSchemas — one bad brace takes the whole tools/list
 // down, not just its own tool).
 //
@@ -91,6 +92,15 @@ func (r *Registry) Register(t mcp.Tool) {
 	if strings.TrimSpace(spec.Title) == "" {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s has no Title — tools/list would render its identifier as its display name", spec.Name))
+	}
+	// A tool nobody described can be selected only by the shape of its name,
+	// and the surface serving it falls back to describing how it is GOVERNED —
+	// which is what every description on this surface used to be, and what the
+	// written copy exists to replace. Refused at the one door, so a tool added
+	// later cannot quietly reintroduce it for itself.
+	if strings.TrimSpace(spec.Description) == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: %s has no Description — a client would be told how it is governed and never what it is for", spec.Name))
 	}
 	if err := assertObjectSchemas(spec); err != nil {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path

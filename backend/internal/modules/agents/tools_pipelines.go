@@ -81,18 +81,19 @@ type listPipelinesTool struct{ list PipelineLister }
 func (t listPipelinesTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "list_pipelines", Title: "List pipelines and their stages", Version: toolVersionV1,
+		Description:   listPipelinesCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listPipelines/listStages",
 		// No arguments. The whole config is small, bounded by how many pipelines
 		// a workspace configures, and a filter would only let a caller ask for
 		// the one it cannot name yet.
-		InputSchema: schema(`{"type":"object","properties":{},"description":` +
-			jsonString("Every pipeline with its live stages. Call this FIRST to obtain the "+
-				"`pipeline_id` and `stage_id` that create_record for a deal requires, and the "+
-				"`to_stage_id` that advance_deal requires — no other tool yields them. Read each "+
-				"stage's `semantic`: `open` stages are where a deal is born and moves; `won` and "+
-				"`lost` close it, and advancing onto one needs a human's approval. Do not infer a "+
-				"stage's meaning from its name.") + `,"additionalProperties":false}`),
+		//
+		// The prose that used to live in this schema's own `description` now
+		// lives on the tool's, where it belongs: it says what the tool is for
+		// and why to call it first, which is not something the shape of an
+		// empty argument object can say. Kept in both places, the two would
+		// have drifted, and a model would have read the same paragraph twice.
+		InputSchema:  schema(`{"type":"object","properties":{},"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
 }

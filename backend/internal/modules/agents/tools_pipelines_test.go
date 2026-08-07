@@ -30,9 +30,11 @@ func TestListPipelinesIsReadTierAndNeedsOnlyReadScope(t *testing.T) {
 	// The description is the whole reason the tool is discoverable: it is what
 	// tells an agent that the two ids create_record refuses without are HERE.
 	// A tool that answered correctly and did not say what it is for would leave
-	// the dead end exactly where it was.
+	// the dead end exactly where it was. It is read off Description rather than
+	// off the input schema because the tool takes no arguments: there was
+	// nowhere else to put this before the spec carried written copy.
 	for _, want := range []string{"pipeline_id", "stage_id", "to_stage_id", "semantic"} {
-		if !strings.Contains(string(spec.InputSchema), want) {
+		if !strings.Contains(spec.Description, want) {
 			t.Errorf("the description names no %s — an agent reading tools/list cannot tell "+
 				"this is the tool that unblocks the deal verbs", want)
 		}

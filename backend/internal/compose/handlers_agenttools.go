@@ -6,6 +6,8 @@ package compose
 import (
 	"net/http"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -27,7 +29,15 @@ func agentToolsFromSpecs(specs []mcp.ToolSpec) []crmcontracts.AgentTool {
 			// "search_records", "send_email"); OpenAPIOp is the
 			// underlying REST operationId/family the tool maps to, not
 			// the verb.
-			Name:          spec.Name,
+			Name: spec.Name,
+			// Title and Description are what an MCP client is told, rendered by
+			// the SAME function tools/list renders them with. This endpoint's
+			// own contract promises it "mirrors exactly what an MCP client sees
+			// from tools/list", and while it served the governance fields alone
+			// it did not: an operator reading this console could not see the
+			// text their agents actually select on.
+			Title:         ptrString(spec.Title),
+			Description:   ptrString(agents.DescribeForClient(spec)),
 			RequiredScope: ptrString(string(spec.RequiredScope)),
 			Tier:          tierWire(spec.Tier),
 			Egress:        spec.Egress,

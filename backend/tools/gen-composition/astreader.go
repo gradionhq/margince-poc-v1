@@ -189,7 +189,7 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 	if !ok || (lit.Type != nil && !isSelector(lit.Type, ext, "Tool")) {
 		return riskTierRequest{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
 	}
-	var name, title, version, tier, scope string
+	var name, title, description, version, tier, scope string
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
 		if !ok {
@@ -209,6 +209,12 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			// digest — but the core registry refuses a blank one at boot, and
 			// this is where a unit author is told so at the declaration.
 			title, err = r.stringLit(kv.Value, "Tool.Title")
+		case "Description":
+			// Read to be VALIDATED, like the title: selection prose grants
+			// nothing and stays out of the descriptor and its digest, but a
+			// SERVED tool is refused without one at boot, and this is where a
+			// unit author is told so at the declaration.
+			description, err = r.stringLit(kv.Value, "Tool.Description")
 		case "Version":
 			version, err = r.stringLit(kv.Value, "Tool.Version")
 		case "Tier":
@@ -226,12 +232,14 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			return riskTierRequest{}, err
 		}
 	}
-	return r.toolRequest(lit, declaredTool{name: name, title: title, version: version, tier: tier, scope: scope})
+	return r.toolRequest(lit, declaredTool{
+		name: name, title: title, description: description, version: version, tier: tier, scope: scope,
+	})
 }
 
 // declaredTool is one Tools entry as the source states it, before the
 // published grammar has passed judgement on it.
-type declaredTool struct{ name, title, version, tier, scope string }
+type declaredTool struct{ name, title, description, version, tier, scope string }
 
 // toolRequest validates the declared tool through its published grammar
 // (the same Validate the boot preflight runs, raised here at the
@@ -242,7 +250,7 @@ type declaredTool struct{ name, title, version, tier, scope string }
 // string, and never to a label.
 func (r *unitReader) toolRequest(at ast.Node, d declaredTool) (riskTierRequest, error) {
 	declared := extension.Tool{
-		Name: d.name, Title: d.title, Version: d.version,
+		Name: d.name, Title: d.title, Description: d.description, Version: d.version,
 		Tier: extension.Tier(d.tier), RequestedScope: extension.Scope(d.scope),
 	}
 	if err := declared.Validate(); err != nil {
@@ -314,9 +322,25 @@ func (r *unitReader) singleReturn(fn *ast.FuncDecl) (ast.Expr, error) {
 }
 
 func (r *unitReader) stringLit(expr ast.Expr, field string) (string, error) {
+	// A concatenation of literals is still a literal: the value is fixed at the
+	// declaration and this reader can compute it without evaluating anything.
+	// Prose that will not fit on one line — a tool's description — has no other
+	// way to be written, and refusing it would push a unit author into a single
+	// unreadable line to satisfy a generator.
+	if bin, ok := expr.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
+		left, err := r.stringLit(bin.X, field)
+		if err != nil {
+			return "", err
+		}
+		right, err := r.stringLit(bin.Y, field)
+		if err != nil {
+			return "", err
+		}
+		return left + right, nil
+	}
 	lit, ok := expr.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
-		return "", r.errAt(expr, "%s must be a string literal", field)
+		return "", r.errAt(expr, "%s must be a string literal (or literals joined by +)", field)
 	}
 	return strconv.Unquote(lit.Value)
 }

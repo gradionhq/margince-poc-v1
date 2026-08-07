@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -71,7 +72,7 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 }
 
 // adaptExtensionTool maps ONE handler-bearing declaration onto the core
-// seam, refusing the two shapes this surface cannot honestly serve.
+// seam, refusing the shapes this surface cannot honestly serve.
 func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 	tier, err := mcpTier(tool.Tier)
 	if err != nil {
@@ -108,6 +109,20 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 			"a served tool spending the outbound %q cap is not yet supported "+
 				"(leaving the workspace requires the confirm-first tier, which this surface cannot stage)", scope)
 	}
+	// LAST of the refusals, because the two above are about what this surface
+	// can HONESTLY serve and this one is about what a caller is told. A served
+	// tool with no description is one a model can select only by the shape of
+	// its verb, listed beside thirty core tools that each say what they are
+	// for. Unlike Title there is no honest fallback — the string it
+	// would fall back to is the name, which is what a description explains — so
+	// this is refused rather than defaulted, and refused HERE, in the pre-apply
+	// phase where the unit and the tool are both named, rather than as the core
+	// registry's boot panic. A handler-LESS tool is untouched: it is a manifest
+	// request no client is ever shown.
+	if strings.TrimSpace(tool.Description) == "" {
+		return extensionTool{}, errors.New("a served tool declares no Description — the text a model selects it by, " +
+			"which nothing about the tool can be derived from")
+	}
 	input := tool.InputSchema
 	if input == nil {
 		// MCP requires every tool to advertise an object input schema; a tool
@@ -122,7 +137,10 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 			// anyway. Optional rather than required on purpose: making a
 			// display string mandatory would refuse to boot an otherwise valid
 			// third-party unit over a label.
-			Title:         cmp.Or(tool.Title, tool.Name),
+			Title: cmp.Or(tool.Title, tool.Name),
+			// Required above, so it is never the empty string a client would
+			// render as an undescribed tool.
+			Description:   tool.Description,
 			Version:       tool.Version,
 			RequiredScope: scope,
 			Tier:          tier,

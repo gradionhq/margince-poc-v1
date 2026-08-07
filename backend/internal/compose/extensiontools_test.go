@@ -37,20 +37,25 @@ func (fullSeat) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatTyp
 // becomes an mcp.Tool with the mapped tier/scope and its declared schemas;
 // a handler-less (inert) tool is skipped — declared in the manifest, not
 // served.
+// unitToolDescription is the stand-in selection prose a declared tool carries
+// so the composition will serve it. A served tool with no description is
+// refused; every unit tool here is declared to exercise something else.
+const unitToolDescription = "A stand-in unit tool, described so the composition has something to serve."
+
 func TestBuildExtensionToolsAdaptsHandlerBearingTools(t *testing.T) {
 	exts := []extension.Extension{{
 		Name:    "demo",
 		Version: "1.0.0",
 		Tools: []extension.Tool{
 			{
-				Name: "served", Version: "1.0.0",
+				Name: "served", Description: unitToolDescription, Version: "1.0.0",
 				Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
 				InputSchema: json.RawMessage(`{"type":"object"}`),
 				Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 					return json.RawMessage(`{"ok":true}`), nil
 				},
 			},
-			{Name: "inert", Version: "1.0.0", Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite},
+			{Name: "inert", Description: unitToolDescription, Version: "1.0.0", Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite},
 		},
 	}}
 	tools, err := buildExtensionTools(exts)
@@ -78,7 +83,7 @@ func TestBuildExtensionToolsRejectsServedConfirmationRequired(t *testing.T) {
 	_, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name: "archive", Version: "1.0.0",
+			Name: "archive", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite,
 			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 		}},
@@ -94,7 +99,7 @@ func TestBuildExtensionToolsRejectsServedConfirmationRequired(t *testing.T) {
 // jurisdiction is applied — not surface later as a Register panic.
 func TestBuildExtensionToolsRejectsCrossUnitServedNameCollision(t *testing.T) {
 	served := extension.Tool{
-		Name: "quote", Version: "1.0.0",
+		Name: "quote", Description: unitToolDescription, Version: "1.0.0",
 		Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
 		Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 	}
@@ -142,7 +147,7 @@ func TestBuildExtensionToolsDefaultsTheInputSchema(t *testing.T) {
 	tools, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name: "count_things", Version: "1.0.0",
+			Name: "count_things", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
 			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 		}},
@@ -152,6 +157,45 @@ func TestBuildExtensionToolsDefaultsTheInputSchema(t *testing.T) {
 	}
 	if got := string(tools[0].Spec().InputSchema); got != `{"type":"object"}` {
 		t.Errorf("a tool without a declared input schema must advertise an object one, got %s", got)
+	}
+}
+
+// TestBuildExtensionToolsRejectsAServedToolWithNoDescription: a title falls
+// back to the verb because a verb is a serviceable label, but a description
+// cannot fall back to the thing it exists to explain. A unit serving an
+// undescribed tool would put it in the same listing as thirty core tools that
+// each say what they are for, with nothing to choose it on.
+func TestBuildExtensionToolsRejectsAServedToolWithNoDescription(t *testing.T) {
+	_, err := buildExtensionTools([]extension.Extension{{
+		Name: "demo", Version: "1.0.0",
+		Tools: []extension.Tool{{
+			Name: "give_quote", Version: "1.0.0",
+			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
+			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+		}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "declares no Description") {
+		t.Fatalf("err = %v, want the undescribed-served-tool rejection", err)
+	}
+}
+
+// A handler-LESS declaration is a manifest request no client is ever shown, so
+// the description it has no reader for is not required of it. Refusing one
+// would make an operator-visible governance request fail over documentation
+// nobody would read.
+func TestBuildExtensionToolsAcceptsAnUndescribedInertTool(t *testing.T) {
+	tools, err := buildExtensionTools([]extension.Extension{{
+		Name: "demo", Version: "1.0.0",
+		Tools: []extension.Tool{{
+			Name: "inert", Version: "1.0.0",
+			Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite,
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("an undescribed inert tool must still declare: %v", err)
+	}
+	if len(tools) != 0 {
+		t.Fatalf("an inert tool must serve nothing, got %d served", len(tools))
 	}
 }
 
@@ -165,11 +209,12 @@ func TestBuildExtensionToolsCarriesTheTitleAndFallsBackToTheVerb(t *testing.T) {
 		Name: "demo", Version: "1.0.0",
 		Tools: []extension.Tool{
 			{
-				Name: "give_quote", Title: "Quote of the day", Version: "1.0.0",
-				Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead, Handle: handle,
+				Name: "give_quote", Title: "Quote of the day", Description: unitToolDescription,
+				Version: "1.0.0",
+				Tier:    extension.TierAutoExecute, RequestedScope: extension.ScopeRead, Handle: handle,
 			},
 			{
-				Name: "count_things", Version: "1.0.0",
+				Name: "count_things", Description: unitToolDescription, Version: "1.0.0",
 				Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead, Handle: handle,
 			},
 		},
@@ -193,7 +238,7 @@ func TestComposedToolServesThroughAdmission(t *testing.T) {
 		Name:    "demo",
 		Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name: "give_quote", Version: "1.0.0",
+			Name: "give_quote", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
 			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{"quote":"it ain't over"}`), nil
@@ -227,7 +272,7 @@ func TestComposedReadToolRequiresTheScope(t *testing.T) {
 	tools, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
 		Tools: []extension.Tool{{
-			Name: "give_quote", Version: "1.0.0",
+			Name: "give_quote", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
 			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{}`), nil
