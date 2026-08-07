@@ -6,9 +6,8 @@ package compose
 import (
 	"net/http"
 
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
-
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
