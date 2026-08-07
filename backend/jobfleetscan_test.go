@@ -40,15 +40,7 @@ const fleetScanMarker = "FROM workspace"
 // construction — with the exception of a SET-valued RHS, which setPredicates
 // takes back. Checked on the marker's own line and the one after it, because
 // the repo splits some query literals across lines.
-// slug is the workspace's other unique key (0002_identity.up.sql,
-// workspace_slug_unique), so a lookup by it reads exactly one row for the same
-// reason a lookup by id does. Named here rather than waived per file: a site
-// that resolves ONE workspace by its unique key is not the anti-pattern this
-// gate is about, and teaching that once beats granting it repeatedly.
-var singleRowPredicates = []string{
-	"WHERE id = ", "WHERE id=", "WHERE w.id = ",
-	"WHERE slug = ", "WHERE slug=",
-}
+var singleRowPredicates = []string{"WHERE id = ", "WHERE id=", "WHERE w.id = "}
 
 // setPredicates are the RHS spellings that equate id to a SET rather than to
 // one value. They look like a single-row predicate to the prefixes above and
@@ -187,6 +179,24 @@ func TestFleetEnumerationOnlyAtRatifiedSites(t *testing.T) {
 		t.Fatalf("walking internal: %v", err)
 	}
 	for _, path := range paths {
+		// This gate judges PRODUCTION passes: the anti-pattern is one job row
+		// looping every tenant. An integration-tagged file is test harness — it
+		// never ships, and it has no job to take a workspace from — so it is out
+		// of scope by rule.
+		//
+		// goFilesUnder skips _test.go, which used to exclude the harness for free.
+		// It stopped doing so when a shared fixture was promoted into a non-test
+		// file to become importable, and the tempting fix — widening
+		// singleRowPredicates so the fixture's lookup stops matching — would have
+		// loosened a production gate tree-wide to accommodate a test. Scope is the
+		// thing that was wrong, so scope is what is fixed.
+		//
+		// The migrate-once gate scopes the other way and INCLUDES these files, for
+		// the same reason read backwards: its obligation is about the integration
+		// lane, so a promoted fixture is exactly what it must still see.
+		if isIntegrationTagged(path) {
+			continue
+		}
 		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("reading %s: %v", path, err)

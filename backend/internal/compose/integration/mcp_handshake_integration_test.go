@@ -60,7 +60,7 @@ func TestAConnectorCompletesTheWholeHandshakeOnOneOrigin(t *testing.T) {
 	// initialize settles the protocol revision and mints the session id every
 	// later request on this connection carries.
 	const requested = "2025-06-18"
-	initialized := raw(e.AppEnv, t, http.MethodPost, "/mcp",
+	initialized := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
 		`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"`+requested+
 			`","clientInfo":{"name":"conformance","version":"1"}}}`,
 		map[string]string{"Content-Type": "application/json", "Authorization": "Bearer " + token})

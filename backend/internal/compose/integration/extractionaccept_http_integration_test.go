@@ -36,7 +36,7 @@ func uploadAttachmentHTTP(e *apptest.AppEnv, t *testing.T, entityType, entityID,
 	}
 	req.Header.Set("Content-Type", ctype)
 	req.Header.Set("X-Workspace-Slug", e.Slug)
-	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody on the next line; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -61,7 +61,7 @@ func uploadAttachmentHTTP(e *apptest.AppEnv, t *testing.T, entityType, entityID,
 // directly through the owner connection — there is no scan-verdict HTTP
 // endpoint (MarkScanResult is administrative, never a public API) — inside
 // a workspace-bound transaction so RLS (FORCE) admits the UPDATE. Mirrors
-// SetWorkspaceSeat's shape (e2e_integration_test.go). A fresh upload
+// SetWorkspaceSeat's shape (integration/apptest). A fresh upload
 // defaults to 'scanning' (0070), and the accept-write now scan-gates like
 // every other path over an attachment's bytes, so any HTTP scenario that
 // expects the accept to actually run its extractor must clear the gate

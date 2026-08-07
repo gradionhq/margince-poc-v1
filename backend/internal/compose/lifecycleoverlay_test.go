@@ -22,6 +22,7 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -35,31 +36,44 @@ const overlayPinName = "overlay_toolsurface_integration_test.go"
 
 // overlayPin locates that suite by NAME, anywhere under integration/.
 //
-// Not a fixed relative path, which is what both gates used to hold: the suite
-// moved once — into its own package, to give the lane another scheduling slot —
-// and both gates failed on a path rather than on anything about the code. A gate
-// that breaks when a file it only READS is relocated is asserting where the file
-// lives, which is not the obligation it exists for.
+// By name rather than by a fixed path, because a gate that breaks when a file it
+// only READS is relocated is asserting where the file lives, which is not the
+// obligation it exists for. The suites under integration/ are split into packages
+// as the lane needs scheduling slots, so that relocation is routine.
+//
+// Exactly one match, or this fails. Taking the last of several would be the
+// worse failure: a split in progress leaves two copies of a suite for as long as
+// it takes to delete the first, and both gates would silently derive their verb
+// lists from whichever the walk reached last — green against a stale pin, which
+// is the shape of every finding this gate exists to prevent.
 func overlayPin(t *testing.T) string {
 	t.Helper()
-	var found string
+	var found []string
 	err := filepath.WalkDir("integration", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !d.IsDir() && d.Name() == overlayPinName {
-			found = path
+			found = append(found, path)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walking integration/ for %s: %v", overlayPinName, err)
 	}
-	if found == "" {
-		t.Fatalf("%s is nowhere under integration/ — the pin these gates defer to is gone, "+
-			"so they would assert nothing", overlayPinName)
+	switch len(found) {
+	case 1:
+		return found[0]
+	case 0:
+		t.Fatalf("%s is nowhere under integration/ — the pin these gates defer to is gone, so they "+
+			"would assert nothing. Restore it, or point overlayPinName at whatever replaced it.",
+			overlayPinName)
+	default:
+		t.Fatalf("%d files named %s under integration/ (%s) — these gates cannot tell which one is "+
+			"the pin, and picking either would assert against a source nobody chose. Delete the "+
+			"stale copy, or rename it.", len(found), overlayPinName, strings.Join(found, ", "))
 	}
-	return found
+	return ""
 }
 
 // unservableRecordWriteVerbs derives the set: a verb that writes a record

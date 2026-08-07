@@ -167,7 +167,7 @@ func readPassport(t *testing.T, e *apptest.AppEnv, label string) string {
 // a decoded result.
 func mcpRPC(e *apptest.AppEnv, t *testing.T, bearer, payload string) string {
 	t.Helper()
-	got := raw(e, t, http.MethodPost, "/mcp", payload, map[string]string{
+	got := mcpRaw(e, t, http.MethodPost, "/mcp", payload, map[string]string{
 		"Content-Type": "application/json", "Authorization": "Bearer " + bearer,
 	})
 	if got.StatusCode != http.StatusOK {

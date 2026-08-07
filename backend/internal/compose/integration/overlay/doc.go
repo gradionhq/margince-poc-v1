@@ -9,14 +9,8 @@
 // tool surface, and the ADR-0071 overlay→native cutover with its flip and claim.
 //
 // A suite package split out of internal/compose/integration so the lane has
-// another scheduling slot. Chosen next because it was the most expensive remaining
-// cluster by measured time — 41s of the parent's 349s from only 36 tests — not
-// because it had the most files; ranking these cuts by file count is what made an
-// earlier estimate of the payoff wrong by a factor of three.
-//
-// Four of its suites ride the booted-app fixture in integration/apptest, which is
-// what made this cut possible: until that fixture was promoted out of a test file,
-// no group depending on it could leave.
+// another scheduling slot. Its suites ride integration.SearchEnv and
+// integration/apptest.AppEnv.
 //
 // overlay_acceptance_seam_test.go deliberately stayed behind. It carries no
 // integration build tag, so it belongs to the unit lane rather than this one, and
