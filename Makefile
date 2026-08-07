@@ -693,6 +693,58 @@ hooks:
 	git config core.hooksPath .githooks
 	@echo "installed: core.hooksPath=.githooks (pre-push runs craft static on changed backend files)"
 
+# --- Desktop build (macOS arm64) ---
+# The self-contained folder a non-technical user runs with no Docker: a
+# custom Postgres+pgvector, the event bus, the three process roles, the SPA,
+# and the launcher that supervises them. Output lands in build/desktop/
+# (ignored). Why it needs its own Postgres, and the update contract the folder
+# layout encodes: docs/explanation/desktop-distribution.md.
+#
+# These targets declare themselves HERE rather than joining the big .PHONY list
+# at the top. make accumulates .PHONY, so the effect is identical — and the
+# shared line is a single line every branch appends to, which makes it conflict
+# on every rebase. A section that declares its own targets beside them cannot
+# collide with a section that does the same.
+.PHONY: desktop desktop-deps desktop-postgres desktop-valkey desktop-app desktop-dist desktop-rebuild desktop-clean
+DESKTOP_STAGE := build/desktop/.stage
+
+## desktop — build the whole desktop folder (build/desktop/margince/).
+## Reuses an already-built Postgres and bus; use desktop-rebuild to force them.
+desktop: desktop-deps desktop-app desktop-dist
+
+## desktop-deps — build Postgres+pgvector and the bus ONLY if they are missing.
+## Compiling Postgres takes ~5 minutes and changes only when its pinned version
+## does, so a routine rebuild of the app must not pay for it.
+desktop-deps:
+	@test -x $(DESKTOP_STAGE)/pgsql/bin/postgres || $(MAKE) desktop-postgres
+	@test -x $(DESKTOP_STAGE)/valkey/valkey-server || $(MAKE) desktop-valkey
+
+## desktop-postgres — build the relocatable Postgres 16 + pgvector + contrib (~5 min).
+## Rerun after bumping the pinned versions in the script.
+desktop-postgres:
+	@bash desktop/build/build-postgres.sh
+
+## desktop-valkey — build the event bus (Valkey, BSD-licensed drop-in for Redis).
+desktop-valkey:
+	@bash desktop/build/build-valkey.sh
+
+## desktop-app — build api/worker/migrate (through build/composition/, so the
+## enabled extensions/ units are linked), the frontend, and the launcher.
+desktop-app:
+	@bash desktop/build/build-app.sh
+
+## desktop-dist — assemble build/desktop/margince/ and verify its signatures.
+desktop-dist:
+	@bash desktop/build/build-dist.sh
+
+## desktop-rebuild — force a full rebuild including Postgres and the bus.
+desktop-rebuild: desktop-postgres desktop-valkey desktop-app desktop-dist
+
+## desktop-clean — remove all desktop build output (build/desktop/).
+desktop-clean:
+	@rm -rf build/desktop
+	@echo "desktop-clean: removed build/desktop"
+
 # --- SBOM (software bill of materials, issue #331) ---
 # Repo-wide (backend + frontend + extensions), so it lives at the root, not
 # delegated to backend/. syft / grant / cosign run through digest-pinned Docker

@@ -197,6 +197,27 @@ exception to it.
 
 Full detail: [supply-chain.md](supply-chain.md). This lane is **not** part of `make check`.
 
+## Root-only (desktop build, macOS arm64)
+
+Builds the self-contained folder that runs the whole stack with no Docker.
+Output lands in `build/desktop/` (git-ignored). Not part of `make check`, and
+not run in CI.
+
+| Target | What it does |
+|---|---|
+| `desktop` | **The whole folder**, at `build/desktop/margince/` (~128 MB). Reuses an already-built Postgres and event bus — `desktop-deps` builds each only when its output is missing, so a routine app rebuild takes seconds instead of paying the ~5-minute Postgres compile again |
+| `desktop-rebuild` | Force everything, Postgres and the bus included |
+| `desktop-postgres` | The relocatable Postgres 16 + pgvector + contrib (~5 min). Compiles from pinned, checksummed source, rewrites the Mach-O load commands to `@rpath`, re-signs every patched binary (arm64 refuses one whose signature `install_name_tool` invalidated), and fails if anything still links to `/opt/homebrew`, `/usr/local`, or the staging prefix. **Rerun after bumping the pinned versions** in `desktop/build/build-postgres.sh` |
+| `desktop-valkey` | The event bus — Valkey, the BSD-licensed drop-in, since Redis 7.4+ ships under RSALv2/SSPL and this binary is redistributed inside a BUSL-1.1 product |
+| `desktop-app` | `api`, `worker`, `migrate` (through `build/composition/`, so the enabled `extensions/` units are linked — a bare `go build` would silently ship without them), the frontend, and the launcher |
+| `desktop-dist` | Assemble `build/desktop/margince/` and verify every binary's signature. Signing happens in staging, never here: `codesign` reads a folder holding a same-named executable plus a `resources/` subdirectory as a legacy bundle |
+| `desktop-clean` | Remove `build/desktop/` entirely |
+
+The built folder cannot run from `build/desktop/` — that path already exceeds
+the 103-byte unix socket limit. Copy it somewhere shorter first. How-to:
+[build-the-desktop-app.md](../how-to/build-the-desktop-app.md); the why:
+[desktop-distribution.md](../explanation/desktop-distribution.md).
+
 ## Variables
 
 `GO`, `PG_PORT` (15432), `REDIS_PORT` (16379), `DB_NAME` (margince),
