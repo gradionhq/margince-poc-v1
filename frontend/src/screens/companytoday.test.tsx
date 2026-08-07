@@ -12,11 +12,22 @@ afterEach(cleanup);
 
 type Organization360 = components["schemas"]["Organization360"];
 
-const BASE = {
+// A COMPLETE Organization360, not a cast one. A fixture asserted into the
+// contract type can drop a required field or carry an invalid value and still
+// compile, so the test would go on passing after the wire shape moved under it.
+const BASE: Organization360 = {
   as_of: "2026-08-07T09:00:00Z",
-  organization: { id: "o-1", display_name: "Acme" },
+  organization: {
+    id: "o-1",
+    workspace_id: "w-1",
+    display_name: "Acme",
+    source: "manual",
+    captured_by: "human:test",
+    created_at: "2026-08-01T09:00:00Z",
+    updated_at: "2026-08-01T09:00:00Z",
+  },
   sections_omitted: [],
-} as unknown as Organization360;
+};
 
 function show(
   view?: Organization360,
@@ -43,7 +54,7 @@ describe("what needs a person on this account today", () => {
         subject: "Renewal review",
         participants: [{ person_id: "p-1", display_name: "Dana Buyer" }],
       },
-    } as Organization360);
+    });
 
     expect(screen.getByText(/Renewal review/)).toBeTruthy();
     expect(screen.getByText(/Dana Buyer/)).toBeTruthy();
@@ -68,7 +79,7 @@ describe("what needs a person on this account today", () => {
     show({
       ...BASE,
       sections_omitted: ["next_meeting"],
-    } as unknown as Organization360);
+    });
     expect(screen.getByText(/Hidden from you/).textContent).toContain(
       "the calendar",
     );
@@ -78,7 +89,7 @@ describe("what needs a person on this account today", () => {
     show({
       ...BASE,
       sections_omitted: ["next_meeting", "next_steps"],
-    } as unknown as Organization360);
+    });
 
     // "Hidden from you", never "None": a list assembled from three of five
     // sources is not the same list, and only the reader can judge whether the
@@ -103,7 +114,7 @@ describe("what needs a person on this account today", () => {
         new_activities: 3,
         baseline_at: "2026-08-01T09:00:00Z",
       },
-    } as unknown as Organization360);
+    });
     expect(screen.getByText(/3 new on the timeline/)).toBeTruthy();
   });
 });

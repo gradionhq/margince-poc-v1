@@ -3,6 +3,7 @@
 -- migration only ever added a description of them.
 DROP INDEX IF EXISTS attachment_account_ix;
 DROP INDEX IF EXISTS attachment_external_part_key;
+ALTER TABLE attachment DROP CONSTRAINT IF EXISTS attachment_external_identity_complete;
 ALTER TABLE attachment DROP CONSTRAINT IF EXISTS attachment_supersedes_fkey;
 ALTER TABLE attachment DROP CONSTRAINT IF EXISTS uq_attachment_ws_id;
 ALTER TABLE attachment DROP CONSTRAINT IF EXISTS attachment_supersedes_not_self;

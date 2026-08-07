@@ -60,7 +60,10 @@ func TestDispatchParksWhenTheSenderCanNoLongerSeeAnAttachedFile(t *testing.T) {
 	}
 	d := newAttachmentDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, files)
 
-	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
 	if got != OutcomeParked || sender.calls != 0 {
 		t.Fatalf("outcome=%v calls=%d, want OutcomeParked/0", got, sender.calls)
 	}
@@ -78,8 +81,14 @@ func TestDispatchNeverTransmitsTheTextWithoutTheRefusedFile(t *testing.T) {
 	d := newAttachmentDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
 		&stubAttachments{reason: "the file was quarantined"})
 
-	if _, err := dispatch(context.Background(), d, store.delivery.ID); err != nil {
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
+	}
+	// Parked specifically: a retry or a skip would also leave the provider
+	// uncalled, and neither hands the message back to the human with a reason.
+	if got != OutcomeParked {
+		t.Fatalf("outcome = %v, want OutcomeParked", got)
 	}
 	if sender.calls != 0 {
 		t.Fatalf("the provider was called %d times for a message whose file was refused", sender.calls)
@@ -94,7 +103,10 @@ func TestDispatchRetriesWhenTheAttachmentCheckFailsTransiently(t *testing.T) {
 	d := newAttachmentDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
 		&stubAttachments{err: errors.New("attachment store timeout")})
 
-	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err == nil {
+		t.Fatal("a transient attachment fault produced no error to retry on")
+	}
 	if got != OutcomeRetry {
 		t.Errorf("outcome = %v, want OutcomeRetry — an outage is not a quarantine", got)
 	}
@@ -113,7 +125,10 @@ func TestDispatchParksWhenNoAttachmentAuthorityIsWired(t *testing.T) {
 	store := &fakeStore{delivery: deliveryWithFiles()}
 	d := newAttachmentDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, nil)
 
-	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
 	if got != OutcomeParked || sender.calls != 0 {
 		t.Errorf("outcome=%v calls=%d, want OutcomeParked/0 — an unwired gate must not pass files", got, sender.calls)
 	}

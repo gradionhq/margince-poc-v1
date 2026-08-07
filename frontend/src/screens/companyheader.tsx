@@ -177,8 +177,10 @@ function CompanyOwnerControl({ org }: Readonly<{ org: Organization }>) {
   // option renders blank. Naming them keeps the control honest about who owns
   // it today even when it cannot resolve them.
   if (org.owner_id && !owners.some((user) => user.value === org.owner_id)) {
-    owners.unshift({ id: org.owner_id, display_name: "" } as never);
-    owners[0] = { value: org.owner_id, label: t("co.owner.notInRoster") };
+    owners.unshift({
+      value: org.owner_id,
+      label: t("co.owner.notInRoster"),
+    });
   }
   // "Unowned" is offered only while the account IS unowned. `owner_id` cannot
   // carry "unassign" on the wire — a null is indistinguishable from an omitted

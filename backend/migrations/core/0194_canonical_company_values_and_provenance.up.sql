@@ -32,7 +32,12 @@ ALTER TABLE organization
   ADD CONSTRAINT organization_linkedin_url_shape
   CHECK (
     linkedin_url IS NULL
-    OR linkedin_url ~ '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
+    -- NO trailing slash. The uniqueness key below folds case and nothing else,
+    -- so admitting both spellings would let the same company URL live twice in
+    -- one workspace and quietly break the guarantee this index exists to give.
+    -- The normalizer never emits one, so this refuses only what no writer of
+    -- ours produces.
+    OR linkedin_url ~ '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+$'
   );
 
 -- Unique among LIVE rows only: an archived company must not hold a URL hostage

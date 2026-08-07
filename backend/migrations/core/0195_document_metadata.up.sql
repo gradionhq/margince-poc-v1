@@ -54,6 +54,14 @@ ALTER TABLE attachment
   FOREIGN KEY (workspace_id, supersedes_id) REFERENCES attachment (workspace_id, id)
   ON DELETE SET NULL (supersedes_id);
 
+-- The provider identity is a PAIR or it is absent. NULLs never collide in a
+-- unique index, so with only the source id set every re-pull of the same
+-- mailbox would insert another row and the idempotency this index exists to
+-- give would hold for no file at all.
+ALTER TABLE attachment
+  ADD CONSTRAINT attachment_external_identity_complete
+  CHECK ((external_source_id IS NULL) = (external_part_id IS NULL));
+
 CREATE UNIQUE INDEX attachment_external_part_key
   ON attachment (workspace_id, external_source_id, external_part_id)
   WHERE external_source_id IS NOT NULL;

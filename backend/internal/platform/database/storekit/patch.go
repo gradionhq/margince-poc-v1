@@ -260,6 +260,12 @@ func LockPair(ctx context.Context, tx pgx.Tx, table string, a, b ids.UUID) (la, 
 	if a == b {
 		return RowLock{}, RowLock{}, errors.New("storekit: LockPair needs two distinct rows")
 	}
+	// Archived rows are locked too, deliberately. A merge has to READ a retired
+	// source to resolve where it went: mergePair turns an archived row carrying
+	// merged_into_id into AlreadyMergedError, which names the survivor. Filtering
+	// them out here would take that redirect away and answer a bare not-found
+	// instead. The LiveOnly on the returned locks governs the WRITE, which
+	// targets the live survivor.
 	rows, err := tx.Query(ctx,
 		fmt.Sprintf(`SELECT id FROM %s WHERE id = ANY($1) ORDER BY id FOR UPDATE`, table),
 		[]ids.UUID{a, b})
