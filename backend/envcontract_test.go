@@ -33,10 +33,12 @@ package backendarch
 //     provider-conventional names and are ungated. Widening the pattern to any
 //     env-shaped literal would match unrelated constants and trade a sharp
 //     gate for a noisy one.
-//   - Whole literals only. A name assembled at run time ("MARGINCE_" + provider
-//     + "_KEY") is invisible to every obligation here. No such name exists in
-//     the tree today; the caveat is recorded so that adding one is a deliberate
-//     act rather than a silent gap.
+//   - Whole double-quoted literals only. A name assembled at run time
+//     ("MARGINCE_" + provider + "_KEY"), or written as a backquoted raw string,
+//     is invisible to every obligation here. Neither appears in the tree today
+//     — every backquoted occurrence is prose in a comment or an error message —
+//     and the caveat is recorded so that adding one is a deliberate act rather
+//     than a silent gap.
 //   - Presence, not truth. A var being named in a document does not make the
 //     prose around it accurate, and .env.template now carries denser
 //     behavioural claims than the reference doc does. These gates stop a var
@@ -222,12 +224,19 @@ func TestConfigurationDocNamesOnlyLiveVars(t *testing.T) {
 	assertNamesOnlyLiveVars(t, configurationDoc)
 }
 
-// entrypointRequired matches the shell form that makes a var mandatory:
-// `: "${MARGINCE_FOO:?message}"` aborts the entrypoint when FOO is unset. The
-// `:-default` form is deliberately not matched: a variable with a fallback is
-// not one an operator must supply, and requiring those in the template would
-// admit most of the deploy surface and leave the label meaningless.
-var entrypointRequired = regexp.MustCompile(`\$\{(MARGINCE_[A-Z0-9_]+):\?`)
+// entrypointRequired matches the parameter-expansion forms that abort a script
+// on an unset variable: `${FOO:?msg}` and the colonless `${FOO?msg}`, which
+// differ only in whether an empty value also aborts. The `:-default` form is
+// deliberately not matched — a variable with a fallback is not one an operator
+// must supply, and requiring those would admit most of the deploy surface and
+// leave the label meaningless.
+//
+// Only these two forms are detected. A script can also make a variable
+// mandatory with an explicit guard (`[ -z "$FOO" ] && exit 1`) or by relying on
+// `set -u`, and obligation 4 would not see either. Neither appears in
+// scripts/deploy today; the limit is recorded so the gate is not read as
+// proving more than it does.
+var entrypointRequired = regexp.MustCompile(`\$\{(MARGINCE_[A-Z0-9_]+):?\?`)
 
 // TestEntrypointRequiredVarsAreInTheTemplate: a var the container refuses to
 // boot without belongs in the file an operator is handed, not only in the
