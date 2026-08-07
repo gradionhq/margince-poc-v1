@@ -11613,6 +11613,57 @@ components:
             Consent state keyed by purpose key — per purpose, never one boolean. A purpose
             the person has no row for reads `unknown`, which is default-deny for outbound,
             not "not applicable".
+        routes:
+          $ref: '#/components/schemas/Organization360ContactRoutes'
+
+    Organization360ContactRoutes:
+      type: object
+      description: |
+        Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
+
+        The company page answers this per CONTACT rather than as a contact x
+        every-colleague matrix: a forty-person sales team makes the matrix unreadable, and
+        the reader's question is never "show me all the pairs" but "who should make this
+        call". So each contact carries the few colleagues worth naming and a count of the
+        rest.
+
+        Only live members are named — recommending an intro from someone who has left is
+        advice nobody can take. Their historical messages still count on the timeline; the
+        person is gone, what happened is not.
+      required: [top, remainder, untried]
+      properties:
+        top:
+          type: array
+          maxItems: 3
+          description: The strongest routes, ordered by the per-colleague relationship projection.
+          items: { $ref: '#/components/schemas/Organization360Route' }
+        remainder:
+          type: integer
+          minimum: 0
+          description: How many further colleagues have a recorded exchange with this contact, beyond `top`.
+        untried:
+          type: boolean
+          description: >-
+            True when nobody on our side has a recorded exchange with this contact. NOT the
+            same claim as a cold relationship: "untried" says we never reached out, "cold"
+            says we did and it went nowhere, and a page that renders them alike tells a rep
+            an account is unreachable when nobody has tried.
+
+    Organization360Route:
+      type: object
+      description: One colleague who has actually exchanged messages with this contact.
+      required: [user_id, display_name, strength_bucket]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        strength_bucket:
+          type: string
+          enum: [strong, developing, cold]
+          description: The band, never the number — the score is a decayed count, and showing it invites a precision it does not have.
+        last_interaction_at:
+          type: [string, 'null']
+          format: date-time
+
 
     Organization360DealRole:
       type: object

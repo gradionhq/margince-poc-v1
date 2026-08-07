@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -455,4 +456,108 @@ func seedMeeting(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, at 
 		t.Fatalf("seeding a meeting: %v", err)
 	}
 	return id
+}
+
+// "Nobody has tried" and "somebody tried and it went nowhere" are different
+// facts, and a page that renders them alike tells a rep an account is
+// unreachable when in truth nobody has picked up the phone.
+func TestOrganization360ContactRoutesSeparateUntriedFromCold(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+
+	reached := e.SeedPerson(t, "Reached Contact", &e.Rep1)
+	untried := e.SeedPerson(t, "Untried Contact", &e.Rep1)
+	for _, person := range []ids.UUID{reached, untried} {
+		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+	}
+	// One colleague has a real two-way exchange with the first contact. The
+	// second has none at all, which is the state under test.
+	e.WsExec(t, `INSERT INTO graph_interaction_edge
+			(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+		VALUES ($1, $2, $3, $4, 20, 10, 10)`,
+		e.WS, e.Rep1, reached, org360Clock.Add(-24*time.Hour))
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	byPerson := map[ids.UUID]*crmcontracts.Organization360ContactRoutes{}
+	for _, contact := range view.People.Data {
+		byPerson[ids.UUID(contact.PersonId)] = contact.Routes
+	}
+
+	got := byPerson[reached]
+	if got == nil || got.Untried {
+		t.Fatalf("routes for the reached contact = %+v, want a route and untried=false", got)
+	}
+	if len(got.Top) != 1 || ids.UUID(got.Top[0].UserId) != e.Rep1 {
+		t.Errorf("top = %+v, want the one colleague who actually exchanged messages", got.Top)
+	}
+	if got.Remainder != 0 {
+		t.Errorf("remainder = %d, want 0 — one colleague has an edge and none is hidden", got.Remainder)
+	}
+
+	none := byPerson[untried]
+	if none == nil || !none.Untried {
+		t.Fatalf("routes for the untried contact = %+v, want untried=true", none)
+	}
+	if len(none.Top) != 0 {
+		t.Errorf("top = %+v, want empty — nobody has exchanged a message with them", none.Top)
+	}
+}
+
+// A forty-person team is the case the contact-centred shape exists for: the row
+// names the few worth naming and counts the rest, rather than growing a column
+// per colleague.
+func TestOrganization360ContactRoutesNameThreeAndCountTheRest(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	contact := e.SeedPerson(t, "Popular Contact", &e.Rep1)
+	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
+
+	// Eight colleagues, each stronger than the last, so the ordering is not the
+	// insert order and a scan that returned "the first three" would be caught.
+	//
+	// Counts stay UNDER the frequency saturation point (20 interactions): above
+	// it every colleague scores the same and the ranking falls through to the
+	// tiebreak, which would make this test pass on an unordered read.
+	const colleagues = 8
+	for i := range colleagues {
+		user := ids.NewV7()
+		e.WsExec(t, `INSERT INTO app_user (id, workspace_id, email, display_name, status)
+			VALUES ($1, $2, $3, $4, 'active')`,
+			user, e.WS, fmt.Sprintf("colleague%d@acme.test", i), fmt.Sprintf("Colleague %d", i))
+		e.WsExec(t, `INSERT INTO graph_interaction_edge
+				(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+			VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+			e.WS, user, contact, org360Clock.Add(-24*time.Hour), (i+1)*2, i+1)
+	}
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(view.People.Data) != 1 {
+		t.Fatalf("contacts = %d, want the one seeded", len(view.People.Data))
+	}
+	routes := view.People.Data[0].Routes
+	if routes == nil {
+		t.Fatal("routes withheld from a caller holding the person grant")
+	}
+	if len(routes.Top) != 3 {
+		t.Fatalf("top = %d colleagues, want 3 — a row names the few worth naming", len(routes.Top))
+	}
+	if routes.Remainder != colleagues-3 {
+		t.Errorf("remainder = %d, want %d — a truncated list with no count reads as the whole list",
+			routes.Remainder, colleagues-3)
+	}
+	// Strongest first. The last-seeded colleague has the highest counts.
+	if routes.Top[0].DisplayName != "Colleague 7" {
+		t.Errorf("strongest route = %q, want Colleague 7 — the order is the projection, not the scan",
+			routes.Top[0].DisplayName)
+	}
 }

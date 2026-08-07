@@ -134,7 +134,13 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 	// section stays flat in the size of the meeting as well as the account. It
 	// reuses the activity grant the timeline already checked, so it costs no
 	// second admission.
-	const budget = 28
+	//
+	// Raised 28 → 29 for the contacts' internal routes: ONE query for the whole
+	// contact set, not one per contact, which is the difference between a
+	// composite that costs the same on every account and one that costs most on
+	// the accounts with the most contacts. It rides the person grant the
+	// contacts section already checked, so it costs no second admission.
+	const budget = 29
 	if smallCost > budget {
 		t.Errorf("one 360 issued %d queries, budget is %d", smallCost, budget)
 	}

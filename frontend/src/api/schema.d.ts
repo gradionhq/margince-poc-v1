@@ -7547,6 +7547,41 @@ export interface components {
             consent: {
                 [key: string]: "unknown" | "granted" | "withdrawn";
             };
+            routes?: components["schemas"]["Organization360ContactRoutes"];
+        };
+        /**
+         * @description Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
+         *
+         *     The company page answers this per CONTACT rather than as a contact x
+         *     every-colleague matrix: a forty-person sales team makes the matrix unreadable, and
+         *     the reader's question is never "show me all the pairs" but "who should make this
+         *     call". So each contact carries the few colleagues worth naming and a count of the
+         *     rest.
+         *
+         *     Only live members are named — recommending an intro from someone who has left is
+         *     advice nobody can take. Their historical messages still count on the timeline; the
+         *     person is gone, what happened is not.
+         */
+        Organization360ContactRoutes: {
+            /** @description The strongest routes, ordered by the per-colleague relationship projection. */
+            top: components["schemas"]["Organization360Route"][];
+            /** @description How many further colleagues have a recorded exchange with this contact, beyond `top`. */
+            remainder: number;
+            /** @description True when nobody on our side has a recorded exchange with this contact. NOT the same claim as a cold relationship: "untried" says we never reached out, "cold" says we did and it went nowhere, and a page that renders them alike tells a rep an account is unreachable when nobody has tried. */
+            untried: boolean;
+        };
+        /** @description One colleague who has actually exchanged messages with this contact. */
+        Organization360Route: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            /**
+             * @description The band, never the number — the score is a decayed count, and showing it invites a precision it does not have.
+             * @enum {string}
+             */
+            strength_bucket: "strong" | "developing" | "cold";
+            /** Format: date-time */
+            last_interaction_at?: string | null;
         };
         /** @description One contact's stakeholder role on one of the account's deals. */
         Organization360DealRole: {

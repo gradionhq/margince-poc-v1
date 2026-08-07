@@ -4059,6 +4059,27 @@ func (e Organization360DealStatus) Valid() bool {
 	}
 }
 
+// Defines values for Organization360RouteStrengthBucket.
+const (
+	Organization360RouteStrengthBucketCold       Organization360RouteStrengthBucket = "cold"
+	Organization360RouteStrengthBucketDeveloping Organization360RouteStrengthBucket = "developing"
+	Organization360RouteStrengthBucketStrong     Organization360RouteStrengthBucket = "strong"
+)
+
+// Valid indicates whether the value is a known member of the Organization360RouteStrengthBucket enum.
+func (e Organization360RouteStrengthBucket) Valid() bool {
+	switch e {
+	case Organization360RouteStrengthBucketCold:
+		return true
+	case Organization360RouteStrengthBucketDeveloping:
+		return true
+	case Organization360RouteStrengthBucketStrong:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Organization360StateStripAccountLifecycle.
 const (
 	Organization360StateStripAccountLifecycleCustomer       Organization360StateStripAccountLifecycle = "customer"
@@ -7412,16 +7433,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	Active WebhookSubscriptionState = "active"
-	Paused WebhookSubscriptionState = "paused"
+	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
+	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case Active:
+	case WebhookSubscriptionStateActive:
 		return true
-	case Paused:
+	case WebhookSubscriptionStatePaused:
 		return true
 	default:
 		return false
@@ -12162,6 +12183,19 @@ type Organization360Contact struct {
 	PersonId     openapi_types.UUID        `json:"person_id"`
 	PrimaryEmail *string                   `json:"primary_email,omitempty"`
 
+	// Routes Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
+	//
+	// The company page answers this per CONTACT rather than as a contact x
+	// every-colleague matrix: a forty-person sales team makes the matrix unreadable, and
+	// the reader's question is never "show me all the pairs" but "who should make this
+	// call". So each contact carries the few colleagues worth naming and a count of the
+	// rest.
+	//
+	// Only live members are named — recommending an intro from someone who has left is
+	// advice nobody can take. Their historical messages still count on the timeline; the
+	// person is gone, what happened is not.
+	Routes *Organization360ContactRoutes `json:"routes,omitempty"`
+
 	// Strength Deterministic relationship-strength (features/07 §4) — a transparent function over captured
 	// interaction features (recency, frequency, direction, reciprocity), NOT a trained model. A fixed
 	// interaction set + fixed clock yields a stable value (P6/P12). The `factors` decompose the score and
@@ -12172,6 +12206,28 @@ type Organization360Contact struct {
 
 // Organization360ContactConsent defines model for Organization360Contact.Consent.
 type Organization360ContactConsent string
+
+// Organization360ContactRoutes Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
+//
+// The company page answers this per CONTACT rather than as a contact x
+// every-colleague matrix: a forty-person sales team makes the matrix unreadable, and
+// the reader's question is never "show me all the pairs" but "who should make this
+// call". So each contact carries the few colleagues worth naming and a count of the
+// rest.
+//
+// Only live members are named — recommending an intro from someone who has left is
+// advice nobody can take. Their historical messages still count on the timeline; the
+// person is gone, what happened is not.
+type Organization360ContactRoutes struct {
+	// Remainder How many further colleagues have a recorded exchange with this contact, beyond `top`.
+	Remainder int `json:"remainder"`
+
+	// Top The strongest routes, ordered by the per-colleague relationship projection.
+	Top []Organization360Route `json:"top"`
+
+	// Untried True when nobody on our side has a recorded exchange with this contact. NOT the same claim as a cold relationship: "untried" says we never reached out, "cold" says we did and it went nowhere, and a page that renders them alike tells a rep an account is unreachable when nobody has tried.
+	Untried bool `json:"untried"`
+}
 
 // Organization360Deal defines model for Organization360Deal.
 type Organization360Deal struct {
@@ -12280,6 +12336,19 @@ type Organization360NextStep struct {
 	Overdue        bool                `json:"overdue"`
 	Subject        string              `json:"subject"`
 }
+
+// Organization360Route One colleague who has actually exchanged messages with this contact.
+type Organization360Route struct {
+	DisplayName       string     `json:"display_name"`
+	LastInteractionAt *time.Time `json:"last_interaction_at,omitempty"`
+
+	// StrengthBucket The band, never the number — the score is a decayed count, and showing it invites a precision it does not have.
+	StrengthBucket Organization360RouteStrengthBucket `json:"strength_bucket"`
+	UserId         openapi_types.UUID                 `json:"user_id"`
+}
+
+// Organization360RouteStrengthBucket The band, never the number — the score is a decayed count, and showing it invites a precision it does not have.
+type Organization360RouteStrengthBucket string
 
 // Organization360SinceLastVisit What changed on this account since the caller last acknowledged seeing it. Read-only:
 // the 360 never advances the baseline — `POST /organizations/{id}/view-ack` does.

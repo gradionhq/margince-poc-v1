@@ -1270,6 +1270,8 @@ export const vi = {
   "evidence.correctedValue": "Giá trị đã sửa",
   "evidence.confirmedAt": "Được một người xác nhận {when}",
   "evidence.humanSet": "Do một người đặt",
+  "co.routes.untried": "Chưa thử — chưa ai ở đây liên hệ",
+  "co.routes.more": "+{count} người nữa",
   "log.title": "Ghi nhận hoạt động",
   "log.addTask": "Thêm công việc",
   "log.sub": "một ghi chú hay công việc, thẳng lên timeline này",

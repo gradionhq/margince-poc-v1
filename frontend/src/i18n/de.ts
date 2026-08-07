@@ -1273,6 +1273,8 @@ export const de = {
   "evidence.correctedValue": "Korrigierter Wert",
   "evidence.confirmedAt": "Von einer Person bestätigt {when}",
   "evidence.humanSet": "Von einer Person gesetzt",
+  "co.routes.untried": "Noch nicht versucht — niemand hier hat geschrieben",
+  "co.routes.more": "+{count} weitere",
   "log.title": "Aktivität erfassen",
   "log.addTask": "Aufgabe anlegen",
   "log.sub": "eine Notiz oder Aufgabe, direkt auf diese Timeline",

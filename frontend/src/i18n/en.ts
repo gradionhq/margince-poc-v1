@@ -1260,6 +1260,8 @@ export const en = {
   "evidence.correctedValue": "Corrected value",
   "evidence.confirmedAt": "Confirmed by a person {when}",
   "evidence.humanSet": "Set by a person",
+  "co.routes.untried": "Untried — nobody here has written to them",
+  "co.routes.more": "+{count} more",
   "log.title": "Log activity",
   "log.addTask": "Add task",
   "log.sub": "a note or task, straight onto this timeline",
