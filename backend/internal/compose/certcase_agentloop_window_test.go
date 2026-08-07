@@ -200,6 +200,47 @@ func TestAgentLoopCaseGradesThePinnedArgumentsAndNoOthers(t *testing.T) {
 	}
 }
 
+// Numbers are the one JSON value with two spellings of the same meaning and two
+// meanings that share a spelling once rounded. A pinned limit is a real
+// argument on this surface, so both halves are reachable from a scenario:
+// float64 would grade the two integers below as equal, and comparing literals
+// would grade 5 and 5.0 as different.
+func TestAgentLoopCaseComparesPinnedNumbersExactly(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		args       string
+		reply      string
+		wantResult string
+	}{
+		{
+			name:       "the same number written two ways agrees",
+			args:       `{"q":"Acme","limit":5}`,
+			reply:      `{"tool":"search_records","args":{"q":"Acme","limit":5.0}}`,
+			wantResult: aitasks.OutcomeAccepted,
+		},
+		{
+			name:       "two integers past float64's reach stay apart",
+			args:       `{"q":"Acme","limit":9007199254740993}`,
+			reply:      `{"tool":"search_records","args":{"q":"Acme","limit":9007199254740992}}`,
+			wantResult: aitasks.OutcomeWrongAnswer,
+		},
+		{
+			name:       "a number nested in a pinned object is compared too",
+			args:       `{"q":"Acme","limit":{"page":9007199254740993}}`,
+			reply:      `{"tool":"search_records","args":{"q":"Acme","limit":{"page":9007199254740992}}}`,
+			wantResult: aitasks.OutcomeWrongAnswer,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome := runAgentLoopExpectation(t, agentLoopCatalogFixture(),
+				agentLoopArgExpectation(t, agentLoopCatalogRead, tc.args), tc.reply)
+			if outcome.Result != tc.wantResult {
+				t.Errorf("Result = %q (%s), want %q", outcome.Result, outcome.Detail, tc.wantResult)
+			}
+		})
+	}
+}
+
 // A wrong step is a wrong step. Reporting what a call the scenario never wanted
 // got wrong about its arguments would bury the one thing that went wrong under
 // the details of a call that should not have been made.

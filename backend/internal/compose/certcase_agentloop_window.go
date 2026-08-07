@@ -27,7 +27,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"reflect"
+	"math/big"
 	"sort"
 	"strings"
 	"sync"
@@ -236,15 +236,89 @@ func agentLoopArgDisagreements(want map[string]json.RawMessage, called json.RawM
 // agentLoopSameJSON compares two encoded values by what they mean rather than
 // how they were written, so a scenario neither fails on re-ordered object keys
 // nor passes on a different value that happens to share a prefix.
+//
+// Numbers are read as json.Number and compared as exact rationals, which is the
+// only reading that answers both halves of "what they mean". Decoding into any
+// yields float64, and two integers a scenario could legitimately pin — a limit
+// past 2^53 — collapse onto the same float and would be graded equal while
+// differing. Comparing the literals instead trades that for the opposite error,
+// where a call passing 5.0 against a pinned 5 reads as a disagreement about a
+// value both sides agree on.
 func agentLoopSameJSON(want, got json.RawMessage) bool {
-	var wantValue, gotValue any
-	if err := json.Unmarshal(want, &wantValue); err != nil {
+	wantValue, err := agentLoopDecode(want)
+	if err != nil {
 		return false
 	}
-	if err := json.Unmarshal(got, &gotValue); err != nil {
+	gotValue, err := agentLoopDecode(got)
+	if err != nil {
 		return false
 	}
-	return reflect.DeepEqual(wantValue, gotValue)
+	return agentLoopSameValue(wantValue, gotValue)
+}
+
+// agentLoopDecode reads one encoded value with numbers left as written, so the
+// comparison below decides what they mean rather than inheriting float64's
+// answer.
+//
+//craft:ignore naked-any a decoded JSON document is any by construction — the argument being compared is whatever the tool's schema admits, and encoding/json returns exactly this type.
+func agentLoopDecode(raw json.RawMessage) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+// agentLoopSameValue walks two decoded values together. It is a walk rather
+// than reflect.DeepEqual because only the walk reaches the numbers: a pinned
+// argument may be an object or a list, and a number nested in one is the same
+// claim as a number that is one.
+//
+//craft:ignore naked-any it walks a decoded JSON document, whose nodes are the any that encoding/json produces — a narrower parameter would describe a shape the corpus is free not to use.
+func agentLoopSameValue(want, got any) bool {
+	switch wantValue := want.(type) {
+	case json.Number:
+		gotNumber, ok := got.(json.Number)
+		return ok && agentLoopSameNumber(wantValue, gotNumber)
+	case map[string]any:
+		gotMap, ok := got.(map[string]any)
+		if !ok || len(wantValue) != len(gotMap) {
+			return false
+		}
+		for key, value := range wantValue {
+			other, present := gotMap[key]
+			if !present || !agentLoopSameValue(value, other) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		gotList, ok := got.([]any)
+		if !ok || len(wantValue) != len(gotList) {
+			return false
+		}
+		for i, value := range wantValue {
+			if !agentLoopSameValue(value, gotList[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		// Strings, booleans and null carry no representation to normalize, so
+		// they mean what they are.
+		return want == got
+	}
+}
+
+// agentLoopSameNumber compares two JSON numbers exactly. A rational parses every
+// literal JSON admits without rounding any of them, so 5 equals 5.0 and two
+// integers past float64's reach stay apart.
+func agentLoopSameNumber(want, got json.Number) bool {
+	wantRat, wantOK := new(big.Rat).SetString(want.String())
+	gotRat, gotOK := new(big.Rat).SetString(got.String())
+	return wantOK && gotOK && wantRat.Cmp(gotRat) == 0
 }
 
 // sortedKeys reads a map in one order, so a refusal names the same argument
