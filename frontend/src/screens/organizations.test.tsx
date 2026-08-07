@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
+  buildWebsitePatch,
   CompaniesScreen,
   CompanyScreen,
   companyEditFields,
@@ -966,6 +967,494 @@ describe("CompanyScreen — facts card (B6)", () => {
     expect(facts.getByText("Fleet retrofits")).toBeTruthy();
     // No signal fact was returned, so that subsection is absent.
     expect(facts.queryByText("Signals")).toBeNull();
+  });
+});
+
+// The two facts-card fields a rep corrects most often — owner, website — edit
+// in place: no modal, an If-Match PATCH scoped to the one field being
+// corrected, and the same version-conflict/failure handling the full edit
+// form already gives every other field.
+describe("CompanyScreen — owner/website edit in place on the facts card", () => {
+  const roster = { data: [{ id: "u1", display_name: "Ada Lovelace" }] };
+  const ownedOrg = {
+    ...org,
+    owner_id: "u1",
+    domains: [
+      {
+        id: "d1",
+        organization_id: "o-1",
+        domain: "brandt.example",
+        is_primary: true,
+        source: "manual",
+        captured_by: "human:u1",
+      },
+    ],
+  };
+
+  // The masthead's identity chip and the facts card can carry the same
+  // domain text, so an assertion about the card scopes to it explicitly.
+  function factsCard(): HTMLElement {
+    const section = screen.getByText("The company").closest("section");
+    if (!section) {
+      throw new Error("the facts card has no section wrapper");
+    }
+    return section as HTMLElement;
+  }
+
+  const twoUserRoster = {
+    data: [
+      { id: "u1", display_name: "Ada Lovelace" },
+      { id: "u2", display_name: "Grace Hopper" },
+    ],
+  };
+
+  it("has no separate edit trigger — the value itself is the field", async () => {
+    stubFetch(async (url) => {
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(roster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    // The combobox/textbox are reachable straight away — no pencil, no
+    // "Edit owner"/"Edit website" button to click through first.
+    expect(await screen.findByRole("combobox", { name: "Owner" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Website" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit owner" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit website" })).toBeNull();
+  });
+
+  it("PATCHes owner_id with If-Match:<version> when an option is picked from the list (the blur-vs-click case)", async () => {
+    let current = ownedOrg;
+    let patchHeader: string | null = null;
+    let patchBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "PATCH") {
+        patchHeader = request.headers.get("If-Match");
+        patchBody = JSON.parse(await request.text());
+        current = { ...current, owner_id: "u2", version: current.version + 1 };
+        return jsonResponse(current);
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(twoUserRoster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(current);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const ownerField = await screen.findByRole("combobox", { name: "Owner" });
+    // Clicking the value puts the caret straight in — the field's own focus
+    // opens the list, no intermediate mode-switch to click through.
+    await userEvent.click(ownerField);
+    const option = await screen.findByRole("option", { name: "Grace Hopper" });
+    // A real click, not a synthetic one: this is exactly the path that
+    // regresses if the listbox doesn't guard its own mousedown — clicking an
+    // option would blur (and cancel) the field before the click ever landed.
+    await userEvent.click(option);
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchHeader).toBe("1");
+    expect(patchBody).toEqual({ owner_id: "u2" });
+    // The picked name shows immediately (optimistic), then the invalidated
+    // queries land on the same value — no reload, no stale name left showing.
+    await waitFor(() =>
+      expect((ownerField as HTMLInputElement).value).toBe("Grace Hopper"),
+    );
+  });
+
+  it("filters the owner list as the reader types, showing every candidate before they type anything", async () => {
+    stubFetch(async (url) => {
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(twoUserRoster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const ownerField = await screen.findByRole("combobox", { name: "Owner" });
+    await userEvent.click(ownerField);
+    // Focused, nothing typed yet: both roster members are already offered.
+    expect(
+      await screen.findByRole("option", { name: "Ada Lovelace" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Grace Hopper" })).toBeTruthy();
+
+    await userEvent.type(ownerField, "gra");
+    expect(screen.queryByRole("option", { name: "Ada Lovelace" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Grace Hopper" })).toBeTruthy();
+  });
+
+  it("Enter picks the active option and commits it", async () => {
+    let patchBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "PATCH") {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({ ...ownedOrg, owner_id: "u2", version: 2 });
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(twoUserRoster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const ownerField = await screen.findByRole("combobox", { name: "Owner" });
+    await userEvent.click(ownerField);
+    await userEvent.type(ownerField, "gra");
+    await screen.findByRole("option", { name: "Grace Hopper" });
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(patchBody).toEqual({ owner_id: "u2" }));
+  });
+
+  it("Escape closes the owner list without changing anything and sends no PATCH", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "PATCH") {
+        throw new Error("Escape must never PATCH");
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(twoUserRoster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const ownerField = await screen.findByRole("combobox", { name: "Owner" });
+    await waitFor(() =>
+      expect((ownerField as HTMLInputElement).value).toBe("Ada Lovelace"),
+    );
+    await userEvent.click(ownerField);
+    await userEvent.type(ownerField, "gra");
+    await userEvent.keyboard("{Escape}");
+
+    // Restored to the record's own value, and the list is gone.
+    expect((ownerField as HTMLInputElement).value).toBe("Ada Lovelace");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("surfaces a version conflict rather than overwriting, keeping the picked owner", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "PATCH") {
+        return jsonResponse({ code: "version_skew", title: "Conflict" }, 409);
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(twoUserRoster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const ownerField = await screen.findByRole("combobox", { name: "Owner" });
+    await userEvent.click(ownerField);
+    const option = await screen.findByRole("option", { name: "Grace Hopper" });
+    await userEvent.click(option);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "This record changed since you opened it — reload and try again.",
+        ),
+      ).toBeTruthy(),
+    );
+    // The reader's pick stays on screen next to the error — no silent
+    // overwrite, and no discarded input.
+    expect((ownerField as HTMLInputElement).value).toBe("Grace Hopper");
+  });
+
+  it("on a plain failure keeps the picked owner on screen and shows the server's detail", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "PATCH") {
+        return jsonResponse(
+          { title: "boom", detail: "owner save failed" },
+          500,
+        );
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(twoUserRoster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const ownerField = await screen.findByRole("combobox", { name: "Owner" });
+    await userEvent.click(ownerField);
+    const option = await screen.findByRole("option", { name: "Grace Hopper" });
+    await userEvent.click(option);
+
+    await waitFor(() =>
+      expect(screen.getByText("owner save failed")).toBeTruthy(),
+    );
+    expect((ownerField as HTMLInputElement).value).toBe("Grace Hopper");
+  });
+
+  it("PATCHes the domains replace-set with If-Match:<version> on blur, and shows the new domain without a reload", async () => {
+    let current = ownedOrg;
+    let patchHeader: string | null = null;
+    let patchBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "PATCH") {
+        patchHeader = request.headers.get("If-Match");
+        patchBody = JSON.parse(await request.text());
+        current = {
+          ...current,
+          domains: [{ ...current.domains[0], domain: "otto.example" }],
+          version: current.version + 1,
+        };
+        return jsonResponse(current);
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(roster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(current);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const website = await screen.findByRole("textbox", { name: "Website" });
+    // Click puts the caret straight in — no button to reach it through.
+    await userEvent.click(website);
+    await userEvent.clear(website);
+    await userEvent.type(website, "Otto.example");
+    // Tabbing away is the blur that commits — no Save button exists to click.
+    await userEvent.tab();
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchHeader).toBe("1");
+    // Lowercased, no scheme, no www — the same shape the repeatable domains
+    // field writes from the full edit modal.
+    expect(patchBody).toEqual({
+      domains: [{ domain: "otto.example", is_primary: true }],
+    });
+    // The masthead's own identity chip carries the same domain, so this is
+    // scoped to the facts card (the region this cell actually renders in).
+    await waitFor(() =>
+      expect(
+        (
+          within(factsCard()).getByRole("textbox", {
+            name: "Website",
+          }) as HTMLInputElement
+        ).value,
+      ).toBe("otto.example"),
+    );
+  });
+
+  it("Enter commits the typed website", async () => {
+    let patchBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "PATCH") {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({
+          ...ownedOrg,
+          domains: [{ ...ownedOrg.domains[0], domain: "otto.example" }],
+          version: 2,
+        });
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(roster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const website = await screen.findByRole("textbox", { name: "Website" });
+    await userEvent.click(website);
+    await userEvent.clear(website);
+    await userEvent.type(website, "otto.example{Enter}");
+
+    await waitFor(() =>
+      expect(patchBody).toEqual({
+        domains: [{ domain: "otto.example", is_primary: true }],
+      }),
+    );
+  });
+
+  it("Escape restores the previous website and sends no PATCH", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "PATCH") {
+        throw new Error("Escape must never PATCH");
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(roster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const website = await screen.findByRole("textbox", { name: "Website" });
+    await waitFor(() =>
+      expect((website as HTMLInputElement).value).toBe("brandt.example"),
+    );
+    await userEvent.click(website);
+    await userEvent.clear(website);
+    await userEvent.type(website, "otto.example");
+    await userEvent.keyboard("{Escape}");
+
+    expect((website as HTMLInputElement).value).toBe("brandt.example");
+  });
+
+  it("surfaces a version conflict on the website field, keeping the typed domain", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "PATCH") {
+        return jsonResponse({ code: "version_skew", title: "Conflict" }, 409);
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(roster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const website = await screen.findByRole("textbox", { name: "Website" });
+    await userEvent.click(website);
+    await userEvent.clear(website);
+    await userEvent.type(website, "otto.example");
+    await userEvent.tab();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "This record changed since you opened it — reload and try again.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect((website as HTMLInputElement).value).toBe("otto.example");
+  });
+
+  it("on a plain website save failure keeps the typed domain and shows the server's detail", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "PATCH") {
+        return jsonResponse(
+          { title: "boom", detail: "website save failed" },
+          500,
+        );
+      }
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(roster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(ownedOrg);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    const website = await screen.findByRole("textbox", { name: "Website" });
+    await userEvent.click(website);
+    await userEvent.clear(website);
+    await userEvent.type(website, "otto.example");
+    await userEvent.tab();
+
+    await waitFor(() =>
+      expect(screen.getByText("website save failed")).toBeTruthy(),
+    );
+    expect((website as HTMLInputElement).value).toBe("otto.example");
+  });
+
+  it("hides both edit affordances on an archived company", async () => {
+    stubFetch(async (url) => {
+      if (new URL(url).pathname.endsWith("/users")) {
+        return jsonResponse(roster);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({
+        ...ownedOrg,
+        archived_at: "2026-07-13T00:00:00Z",
+      });
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Archived")).toBeTruthy());
+    // The values themselves still read, just as plain text — waited for
+    // because the owner name resolves off the roster fetch. Scoped to the
+    // facts card: the masthead's own identity chip repeats the domain.
+    await waitFor(() =>
+      expect(within(factsCard()).getByText("Ada Lovelace")).toBeTruthy(),
+    );
+    expect(within(factsCard()).getByText("brandt.example")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Owner" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Website" })).toBeNull();
+  });
+});
+
+// buildWebsitePatch unit: the primary-domain replace-set carries every other
+// domain through untouched and only replaces (or, on a blank input, drops)
+// the primary row.
+describe("buildWebsitePatch — the website field's replace-set (inline edit)", () => {
+  it("replaces the primary domain and keeps a secondary one untouched", () => {
+    const patch = buildWebsitePatch(
+      [
+        {
+          id: "1",
+          domain: "old.example",
+          is_primary: true,
+          source: "manual",
+          captured_by: "human:u1",
+        },
+        {
+          id: "2",
+          domain: "alias.example",
+          is_primary: false,
+          source: "manual",
+          captured_by: "human:u1",
+        },
+      ],
+      "New.Example",
+    );
+    expect(patch).toEqual([
+      { domain: "alias.example", is_primary: false },
+      { domain: "new.example", is_primary: true },
+    ]);
+  });
+
+  it("drops the primary row when cleared to blank", () => {
+    const patch = buildWebsitePatch(
+      [
+        {
+          id: "1",
+          domain: "old.example",
+          is_primary: true,
+          source: "manual",
+          captured_by: "human:u1",
+        },
+      ],
+      "   ",
+    );
+    expect(patch).toEqual([]);
   });
 });
 

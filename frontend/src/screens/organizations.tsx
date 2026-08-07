@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Building2,
   CalendarClock,
@@ -6,8 +6,8 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
-import type { ReactNode } from "react";
-import { useState } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -46,7 +46,9 @@ import { taskWriteKeys } from "./activitykeys";
 import { ArchiveAction } from "./archive";
 import {
   coldFieldLabel,
+  isVersionSkew,
   LoadMoreButton,
+  ProblemError,
   problemMessageOf,
   provenanceOf,
   QueryGate,
@@ -316,6 +318,26 @@ export function mapOrgUpdate(
     ) as NonNullable<UpdateOrganizationRequest["relationship_types"]>;
   }
   return body;
+}
+
+// The facts card shows the primary domain as "the website", but the contract
+// carries no such scalar field — a domain is one row of the repeatable
+// `domains[]` replace-set. Correcting the shown value therefore replaces the
+// primary row while every other domain (a secondary, an alias) rides through
+// unchanged; clearing it to blank drops the primary row rather than inventing
+// an empty one.
+export function buildWebsitePatch(
+  domains: Organization["domains"],
+  newDomain: string,
+): NonNullable<UpdateOrganizationRequest["domains"]> {
+  const others = (domains ?? [])
+    .filter((domain) => !domain.is_primary)
+    .map((domain) => ({
+      domain: domain.domain,
+      is_primary: domain.is_primary,
+    }));
+  const trimmed = newDomain.trim().toLowerCase();
+  return trimmed ? [...others, { domain: trimmed, is_primary: true }] : others;
 }
 
 const companyCreateFields: CreateField[] = [
@@ -1649,6 +1671,381 @@ function CompanyIdentityChips({
   );
 }
 
+// The one PATCH shape every inline edit on the facts card shares: the
+// If-Match version the page read, a sparse body naming only the field being
+// corrected, and the same invalidation sweep so the card, the list and every
+// other reader of this record (the 360, an EntityRef pointed at it) pick up
+// the new value without a reload. A version conflict (409/412) surfaces as
+// the mutation's error rather than retrying — the caller decides what the
+// reader sees, this only ships the write.
+function useInlineOrganizationSave<T>(
+  org: Organization,
+  toBody: (value: T) => UpdateOrganizationRequest,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (value: T) => {
+      const { data, error } = await api.PATCH("/organizations/{id}", {
+        params: { path: { id: org.id }, ...ifMatch(org.version) },
+        body: toBody(value),
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["organizations"] });
+      queryClient.invalidateQueries({
+        queryKey: organizationQueryKey(org.id),
+      });
+      queryClient.invalidateQueries({ queryKey: ["organization360", org.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["organization", "ref", org.id],
+      });
+    },
+  });
+}
+
+// A version conflict reads as "reload and retry" (edit.versionSkew, the same
+// copy the full edit modal already uses for the same 409); any other failure
+// is the server's own detail. Neither path swallows the cause.
+function inlineSaveError(
+  error: unknown,
+  t: ReturnType<typeof useT>,
+): string | null {
+  if (!error) {
+    return null;
+  }
+  if (error instanceof ProblemError && isVersionSkew(error.problem)) {
+    return t("edit.versionSkew");
+  }
+  return problemMessageOf(error, t);
+}
+
+// Both inline fields below are a REAL <input> at rest, not a read-only value
+// behind a pencil trigger: the affordance IS the browser's own caret and Tab
+// stop, so there is no state that a mouse can reach and a keyboard cannot.
+// The only visual difference between resting and editable is border colour —
+// transparent until hover/focus makes it read as a field (co-editable-field,
+// company360.css) — so arriving at the field never nudges a neighbouring row.
+
+type RosterUser = { id: string; display_name: string };
+
+// The owner combobox's key handling, pulled out of the component so its own
+// branches (Escape/ArrowUp/ArrowDown/Enter, each a different keyboard-only
+// path) don't stack onto the component's rendering logic in one function.
+function ownerComboboxKeyDown(
+  event: KeyboardEvent<HTMLInputElement>,
+  state: Readonly<{
+    open: boolean;
+    filtered: readonly RosterUser[];
+    activeIndex: number;
+    closeList: () => void;
+    setOpen: (open: boolean) => void;
+    setActiveIndex: (next: (index: number) => number) => void;
+    pick: (user: RosterUser) => void;
+    blurInput: () => void;
+  }>,
+): void {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    state.closeList();
+    state.blurInput();
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    state.setOpen(true);
+    state.setActiveIndex((index) =>
+      Math.min(index + 1, state.filtered.length - 1),
+    );
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    state.setOpen(true);
+    state.setActiveIndex((index) => Math.max(index - 1, 0));
+  } else if (event.key === "Enter" && state.open) {
+    event.preventDefault();
+    const active = state.filtered[state.activeIndex];
+    if (active) {
+      state.pick(active);
+    }
+  }
+}
+
+// The owner row: a choice from the workspace roster, never free text — the
+// same option source and "no longer in the roster" honesty the full edit
+// modal's owner picker already uses, so the two pickers can never disagree
+// about who is even offered. The list before a keystroke IS the roster
+// (typing only narrows it), because a blank query that matched nothing would
+// hide the very suggestions this field exists to offer.
+function CompanyOwnerCell({
+  org,
+  writable,
+}: Readonly<{ org: Organization; writable: boolean }>) {
+  const t = useT();
+  const roster = useRoster("user", true);
+  const save = useInlineOrganizationSave(org, (ownerId: string) => ({
+    owner_id: ownerId,
+  }));
+  const listboxId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  // The just-picked owner, held here until the refetch this save triggers
+  // catches up to it — without it the field would show the OLD owner for the
+  // round trip a save takes, then jump. A failed save never clears it: the
+  // reader's pick has to stay on screen next to the error, not vanish.
+  const [picked, setPicked] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+
+  const owners = (roster.data ?? []).flatMap((entry) =>
+    "display_name" in entry
+      ? [{ id: entry.id, display_name: entry.display_name }]
+      : [],
+  );
+  if (org.owner_id && !owners.some((user) => user.id === org.owner_id)) {
+    owners.push({ id: org.owner_id, display_name: t("co.owner.notInRoster") });
+  }
+
+  if (!writable) {
+    return org.owner_id ? (
+      <EntityRef kind="user" id={org.owner_id} />
+    ) : (
+      t("co.pulse.unowned")
+    );
+  }
+
+  const restName =
+    picked?.name ??
+    (org.owner_id
+      ? (owners.find((user) => user.id === org.owner_id)?.display_name ?? "")
+      : "");
+  const filtered = owners.filter((user) =>
+    user.display_name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const errorText = inlineSaveError(save.error, t);
+
+  function closeList() {
+    setOpen(false);
+    setQuery("");
+    setActiveIndex(0);
+  }
+
+  function pick(user: { id: string; display_name: string }) {
+    closeList();
+    if (user.id === (org.owner_id ?? "")) {
+      return;
+    }
+    save.reset();
+    setPicked({ id: user.id, name: user.display_name });
+    save.mutate(user.id, { onSuccess: () => setPicked(null) });
+  }
+
+  return (
+    <div className="co-editable co-owner-combobox">
+      <input
+        ref={inputRef}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
+        aria-autocomplete="list"
+        aria-activedescendant={
+          open && filtered[activeIndex]
+            ? `${listboxId}-${filtered[activeIndex].id}`
+            : undefined
+        }
+        aria-label={t("co.company.owner")}
+        className="co-editable-field"
+        placeholder={t("co.pulse.unowned")}
+        value={open ? query : restName}
+        onFocus={() => {
+          setQuery("");
+          setOpen(true);
+          setActiveIndex(0);
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setOpen(true);
+          setActiveIndex(0);
+        }}
+        onBlur={closeList}
+        onKeyDown={(event) =>
+          ownerComboboxKeyDown(event, {
+            open,
+            filtered,
+            activeIndex,
+            closeList,
+            setOpen,
+            setActiveIndex,
+            pick,
+            blurInput: () => inputRef.current?.blur(),
+          })
+        }
+      />
+      {open && (
+        <OwnerListbox
+          listboxId={listboxId}
+          label={t("co.company.owner")}
+          noMatchesLabel={t("co.owner.noMatches")}
+          filtered={filtered}
+          activeIndex={activeIndex}
+          onPick={pick}
+        />
+      )}
+      {errorText && <p className="t-caption co-inline-error">{errorText}</p>}
+    </div>
+  );
+}
+
+// The typeahead's popup, split out of the cell above purely to keep that
+// component's own branching (the input's focus/change/keydown wiring) from
+// stacking onto the list's (empty state vs. one button per candidate).
+function OwnerListbox({
+  listboxId,
+  label,
+  noMatchesLabel,
+  filtered,
+  activeIndex,
+  onPick,
+}: Readonly<{
+  listboxId: string;
+  label: string;
+  noMatchesLabel: string;
+  filtered: readonly RosterUser[];
+  activeIndex: number;
+  onPick: (user: RosterUser) => void;
+}>) {
+  return (
+    <div
+      id={listboxId}
+      role="listbox"
+      aria-label={label}
+      className="co-owner-listbox"
+      // Mousedown, not click, is what steals focus from the input — left
+      // unguarded, that focus shift fires the input's own blur (closeList, no
+      // pick) BEFORE the option's click ever runs, so every pick would look
+      // like the reader clicked outside and back out. Preventing the default
+      // here keeps focus on the input; the click still reaches the option
+      // underneath.
+      onMouseDown={(event) => event.preventDefault()}
+    >
+      {filtered.length === 0 && (
+        <div className="co-owner-empty t-caption">{noMatchesLabel}</div>
+      )}
+      {filtered.map((user, index) => (
+        <button
+          key={user.id}
+          type="button"
+          id={`${listboxId}-${user.id}`}
+          role="option"
+          aria-selected={index === activeIndex}
+          tabIndex={-1}
+          className="co-owner-option"
+          onClick={() => onPick(user)}
+        >
+          {user.display_name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// The website row. Rendered only when the org already has a primary domain —
+// same rule the read-only chip above followed — so this cell's job is
+// correcting that value, never inventing the first one (that stays the full
+// edit modal's "Add domain" row). Plain text, not a link: a field that both
+// navigates on click and edits on click cannot do either honestly, and this
+// one is here to be corrected, not followed — the masthead's identity chip
+// stays the click-through to the site.
+function CompanyWebsiteCell({
+  org,
+  primaryDomain,
+  writable,
+}: Readonly<{ org: Organization; primaryDomain: string; writable: boolean }>) {
+  const t = useT();
+  const save = useInlineOrganizationSave(org, (domain: string) => ({
+    domains: buildWebsitePatch(org.domains, domain),
+  }));
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [value, setValue] = useState(primaryDomain);
+  const focusedRef = useRef(false);
+  // Escape has to make the blur it triggers a no-op even though the value it
+  // just reverted to hasn't reached the DOM yet — the blur handler that fires
+  // synchronously off `.blur()` still closes over the PRE-revert render, so
+  // comparing `value` there would resend the very edit Escape just cancelled.
+  // A ref sidesteps that stale closure entirely.
+  const cancelledRef = useRef(false);
+
+  // Synced to the record's own value while the reader is not in the field —
+  // this cell's own successful save, or an edit made elsewhere, must not
+  // leave a stale draft sitting in an untouched field. A field the reader IS
+  // in keeps whatever they typed; syncing then would stomp an edit in
+  // progress the moment the record refetches.
+  useEffect(() => {
+    if (!focusedRef.current) {
+      setValue(primaryDomain);
+    }
+  }, [primaryDomain]);
+
+  if (!writable) {
+    return (
+      <a
+        href={`https://${primaryDomain}`}
+        target="_blank"
+        rel="noreferrer noopener"
+      >
+        {primaryDomain}
+      </a>
+    );
+  }
+
+  const errorText = inlineSaveError(save.error, t);
+
+  function commit() {
+    const next = value.trim();
+    if (next === primaryDomain.trim()) {
+      return;
+    }
+    save.mutate(next);
+  }
+
+  return (
+    <div className="co-editable">
+      <input
+        ref={inputRef}
+        aria-label={t("co.company.website")}
+        className="co-editable-field"
+        value={value}
+        onFocus={() => {
+          focusedRef.current = true;
+        }}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => {
+          focusedRef.current = false;
+          if (cancelledRef.current) {
+            cancelledRef.current = false;
+            return;
+          }
+          commit();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            cancelledRef.current = true;
+            setValue(primaryDomain);
+            inputRef.current?.blur();
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            inputRef.current?.blur();
+          }
+        }}
+      />
+      {errorText && <p className="t-caption co-inline-error">{errorText}</p>}
+    </div>
+  );
+}
+
 /**
  * CompanyFactsCard is who this company IS, at the top of the column a reader
  * scans first: the handful of facts they would otherwise go hunting for
@@ -1684,6 +2081,11 @@ function CompanyFactsCard({
     },
   });
   const primary = (org.domains ?? []).find((domain) => domain.is_primary);
+  // An archived account is read-only everywhere else on this page (the
+  // overflow menu's edit/merge/archive all hide the same way) — the facts
+  // card's own edit affordances follow the same rule rather than inventing a
+  // second one.
+  const writable = !org.archived_at;
   // The facts are CHIPS, not a form. Six label-and-value rows down a narrow
   // column read as something to fill in; the same six as chips read as a
   // company, and the icon carries what the label used to say. The grounded
@@ -1701,13 +2103,11 @@ function CompanyFactsCard({
       icon: <Globe aria-hidden size={12} />,
       label: t("co.company.website"),
       value: (
-        <a
-          href={`https://${primary.domain}`}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {primary.domain}
-        </a>
+        <CompanyWebsiteCell
+          org={org}
+          primaryDomain={primary.domain}
+          writable={writable}
+        />
       ),
     });
   }
@@ -1731,11 +2131,7 @@ function CompanyFactsCard({
     key: "owner",
     icon: <UserRound aria-hidden size={12} />,
     label: t("co.company.owner"),
-    value: org.owner_id ? (
-      <EntityRef kind="user" id={org.owner_id} />
-    ) : (
-      t("co.pulse.unowned")
-    ),
+    value: <CompanyOwnerCell org={org} writable={writable} />,
   });
   rows.push({
     key: "added",

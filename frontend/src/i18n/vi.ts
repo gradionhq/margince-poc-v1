@@ -637,6 +637,7 @@ export const vi = {
   "co.pulse.owner": "Người phụ trách",
   "co.owner.notInRoster":
     "Người phụ trách hiện tại (không còn trong danh sách người dùng)",
+  "co.owner.noMatches": "Không có người phù hợp",
   "co.pulse.unowned": "Chưa giao",
   "co.since.first": "Bạn đang mở tài khoản này lần đầu.",
   "co.away.title": "Kể từ lần truy cập trước của bạn",

@@ -633,6 +633,7 @@ export const de = {
   "co.pulse.neverTouched": "Noch nie kontaktiert",
   "co.pulse.owner": "Betreut von",
   "co.owner.notInRoster": "Aktuell zugeordnet (nicht mehr in der Nutzerliste)",
+  "co.owner.noMatches": "Keine passenden Personen",
   "co.pulse.unowned": "Nicht zugewiesen",
   "co.since.first": "Du öffnest diesen Account zum ersten Mal.",
   "co.away.title": "Seit deinem letzten Besuch",

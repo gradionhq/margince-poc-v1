@@ -416,7 +416,10 @@ a.co-chip:focus-visible {
   border: 0;
   border-radius: 0;
   border-block-end: 2px solid transparent;
-  padding: var(--space-3) 0;
+  /* Asymmetric on purpose: the rule marks the tab, so it sits at the row's
+     own edge. Centred padding left it floating a line below the word it was
+     supposed to underline. */
+  padding: var(--space-3) 0 var(--space-2);
   box-shadow: none;
   color: var(--textMeta);
   font-weight: 500;
@@ -509,15 +512,26 @@ a.co-chip:focus-visible {
   border-block-start: 1px solid var(--borderSubtle);
 }
 .record-sheet .co-strip .stat-card {
+  position: relative;
   background: none;
   border: 0;
-  border-inline-start: 1px solid var(--borderSubtle);
   border-radius: 0;
   padding: var(--space-3) var(--space-4);
   gap: var(--space-1);
 }
-.record-sheet .co-strip .stat-card:first-child {
-  border-inline-start: 0;
+/* The divider is inset rather than full-bleed: run edge to edge it met the
+   tab row's own rule at a right angle, and four readings became a table with
+   a broken border. Short rules separate; long ones draw a grid. */
+.record-sheet .co-strip .stat-card::before {
+  content: "";
+  position: absolute;
+  inset-block: var(--space-3);
+  inset-inline-start: 0;
+  width: 1px;
+  background: var(--borderSubtle);
+}
+.record-sheet .co-strip .stat-card:first-child::before {
+  content: none;
 }
 .record-sheet .co-strip .stat-card-value {
   font-size: 15px;
@@ -561,6 +575,80 @@ a.co-chip:focus-visible {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Owner and website edit in place on the facts card. Each is a real input
+   sitting where the value used to sit: a transparent border at rest costs the
+   same box as the visible one on hover/focus, so the affordance never moves
+   the row it appears in — only its own border colour changes. */
+.co-editable {
+  position: relative;
+}
+.co-editable-field {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  padding: var(--space-1) var(--space-2);
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2));
+}
+.co-editable-field:hover,
+.co-editable-field:focus {
+  border-color: var(--borderSubtle);
+  background: var(--bgElevated);
+  outline: none;
+}
+.co-editable-field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+.co-inline-error {
+  margin: var(--space-1) 0 0;
+  color: var(--danger);
+}
+
+/* The owner field's typeahead popup: a small listbox anchored under the
+   input, sharing the popover shadow every other floating panel uses. */
+.co-owner-combobox {
+  position: relative;
+}
+.co-owner-listbox {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.co-owner-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: var(--space-2);
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  color: var(--textPrimary);
+}
+.co-owner-option[aria-selected="true"] {
+  background: var(--accentLight);
+  color: var(--accent);
+}
+.co-owner-empty {
+  padding: var(--space-2);
+  color: var(--textTertiary);
 }
 
 /* A group heading over cards that already carry their own edge — the two

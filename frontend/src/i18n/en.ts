@@ -628,6 +628,7 @@ export const en = {
   "co.pulse.neverTouched": "Never contacted",
   "co.pulse.owner": "Owner",
   "co.owner.notInRoster": "Current owner (no longer in the user list)",
+  "co.owner.noMatches": "No matching people",
   "co.pulse.unowned": "Unassigned",
   "co.since.first": "You are opening this account for the first time.",
   "co.away.title": "Since your last visit",
