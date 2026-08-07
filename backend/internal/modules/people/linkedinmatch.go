@@ -105,7 +105,20 @@ func (s *Store) MatchLinkedInConnections(ctx context.Context, owner ids.UUID) (L
 // Scoped to the one person so the cost is proportional to the change: a
 // workspace-wide pass per person event would re-scan every unmatched ghost
 // thousands of times during a capture backfill.
-func (s *Store) MatchLinkedInConnectionsForPerson(ctx context.Context, person ids.UUID) (LinkedInMatchResult, error) {
+//
+// owner narrows the email/name-and-employer arms to that ONE member's
+// ghosts — the same narrowing MatchLinkedInConnections applies via its own
+// owner parameter. The caller (compose/linkedinmatchgen.go's matchPerson)
+// already runs this once per ghost owner under that owner's real principal
+// precisely so a match is decided by the ghost owner's authority (see
+// ghostOwnerCapturePrivacy's doc above); passing ids.Nil here — SQL NULL,
+// "every owner" — would match every member's ghosts under whichever
+// member's row scope the loop currently binds, which is exactly the
+// contact-existence oracle that comment describes (F-006): upload a
+// guessed address as an owner-private ghost, wait for a broader-scoped
+// colleague's pass to reach it, and read match_status to learn a contact
+// you cannot see exists.
+func (s *Store) MatchLinkedInConnectionsForPerson(ctx context.Context, owner, person ids.UUID) (LinkedInMatchResult, error) {
 	// READ, not update. The matcher writes only to the caller's own ghost rows;
 	// it never touches a person, and the person grant it does need is the one
 	// that says which contacts this member may be shown. Demanding update also
@@ -116,7 +129,7 @@ func (s *Store) MatchLinkedInConnectionsForPerson(ctx context.Context, person id
 	}
 	var out LinkedInMatchResult
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		confirmed, err := matchGhostsByEmail(ctx, tx, ids.Nil, person)
+		confirmed, err := matchGhostsByEmail(ctx, tx, owner, person)
 		if err != nil {
 			return err
 		}
@@ -124,7 +137,7 @@ func (s *Store) MatchLinkedInConnectionsForPerson(ctx context.Context, person id
 		if err := matchGhostOrganizations(ctx, tx); err != nil {
 			return err
 		}
-		suggested, err := suggestGhostsByNameAndEmployer(ctx, tx, ids.Nil, person)
+		suggested, err := suggestGhostsByNameAndEmployer(ctx, tx, owner, person)
 		out.Suggested = suggested
 		return err
 	})
