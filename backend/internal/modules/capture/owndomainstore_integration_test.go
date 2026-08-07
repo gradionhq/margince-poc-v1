@@ -266,6 +266,11 @@ func TestRemovingADomainLeavesAnotherWorkspacesAlone(t *testing.T) {
 // ONLY place a change is recorded, and an unaudited write here would leave a
 // change to what mail the installation stores with nothing to read it back
 // from. Both verbs are checked, because either one alters the set.
+//
+// Each verb is asserted on the SIDE it writes, not on "either side matches": a
+// registration names the domain in `after` and leaves `before` as JSON null,
+// and a removal names it in `before` and leaves `after` unset. A predicate that
+// accepted either would pass for a row that recorded the wrong direction.
 func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
 	ctx, pool := ownDomainWorkspace(t)
 	store := capture.NewOwnDomainStore(pool)
@@ -273,12 +278,23 @@ func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
 	if _, err := store.Add(ctx, "acme.com"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	assertOwnDomainAudited(ctx, t, pool, "update", "acme.com")
+	// JSON null, not SQL NULL: storekit marshals an absent before-image, so
+	// `before IS NULL` would never match and coalesce(before, after) would
+	// return the JSON null rather than falling through. Asserting the spelling
+	// keeps the next reader of this trail from writing a query that silently
+	// finds nothing.
+	assertOwnDomainAudited(ctx, t, pool, ownDomainAuditRow{
+		action: "update", domain: "acme.com",
+		images: "before = 'null'::jsonb AND after->>'own_email_domain' = $3",
+	})
 
 	if err := store.Remove(ctx, "acme.com"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	assertOwnDomainAudited(ctx, t, pool, "archive", "acme.com")
+	assertOwnDomainAudited(ctx, t, pool, ownDomainAuditRow{
+		action: "archive", domain: "acme.com",
+		images: "before->>'own_email_domain' = $3 AND after IS NULL",
+	})
 
 	// Audit-only means exactly that: an event would make workspace configuration
 	// look like a record change to every subscriber.
@@ -295,22 +311,33 @@ func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
 	}
 }
 
-// assertOwnDomainAudited fails unless exactly one audit row records that action
-// against this workspace, naming the domain and the human who did it.
-func assertOwnDomainAudited(ctx context.Context, t *testing.T, pool *pgxpool.Pool, action, domain string) {
+// ownDomainAuditRow is one expected audit row: the verb, the domain it must
+// name, and the SQL that pins which image carries it.
+type ownDomainAuditRow struct {
+	action string
+	domain string
+	images string
+}
+
+// assertOwnDomainAudited fails unless exactly one audit row records that verb
+// against this workspace, written by this human, with the images the verb is
+// supposed to leave.
+func assertOwnDomainAudited(ctx context.Context, t *testing.T, pool *pgxpool.Pool, want ownDomainAuditRow) {
 	t.Helper()
-	actor, _ := principal.Actor(ctx)
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		t.Fatal("the test context carries no actor, so this would query for a zero id and pass or fail for the wrong reason")
+	}
 	var rows int
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM audit_log
 			 WHERE entity_type = 'capture_settings' AND action = $1 AND actor_id = $2
-			   AND $3 IN (before->>'own_email_domain', after->>'own_email_domain')`,
-			action, actor.ID, domain).Scan(&rows)
+			   AND `+want.images, want.action, actor.ID, want.domain).Scan(&rows)
 	}); err != nil {
 		t.Fatalf("reading the audit log: %v", err)
 	}
 	if rows != 1 {
-		t.Errorf("audit rows for %s %s = %d, want exactly 1 — audit_log is the only record this write leaves", action, domain, rows)
+		t.Errorf("audit rows for %s %s = %d, want exactly 1 — audit_log is the only record this write leaves", want.action, want.domain, rows)
 	}
 }
