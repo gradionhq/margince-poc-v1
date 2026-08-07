@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -174,6 +175,13 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 		return outcome, wait, err
 	}
 
+	// Gate: attachment carriage. It runs with the other refusals rather than at
+	// the provider call, because the answer is known before any I/O and a
+	// message that cannot go out intact should never reach the wire at all.
+	if outcome, wait, err := d.gateAttachmentCarriage(ctx, del, seam); outcome != outcomeUndecided {
+		return outcome, wait, err
+	}
+
 	// Policies postpone; they never refuse. They run after both gates, so a
 	// delivery that may never go is refused rather than paced.
 	if outcome, wait, err := d.pace(ctx, del); outcome != outcomeUndecided {
@@ -219,6 +227,38 @@ func (d *Dispatcher) gateSendAuthority(ctx context.Context, del Delivery, grante
 		// and the seat gate is what still binds the human who lent it.
 	}
 	return outcomeUndecided, 0, nil
+}
+
+// gateAttachmentCarriage refuses a delivery whose channel cannot carry the files
+// it was staged with (ADR-0086/A131 §2).
+//
+// IT PARKS. It does not strip, it does not convert the files to links, and it
+// does not transmit the covering text alone. Stripping is the one behaviour the
+// ADR exists to forbid, because the failure is silent: the sender sees a
+// timeline entry with an attachment chip — the timeline records what was STAGED
+// — the recipient sees a message referring to a file that is not there, and
+// nobody is told. The record of what was sent is then permanently wrong, so even
+// a later investigation reconstructs the wrong history.
+//
+// Parking rather than refusing outright is deliberate too: the composer already
+// knows the channel's capability and warns before the human presses send, so a
+// mismatch HERE means something changed after staging — a channel reconnected as
+// a different provider, a file added by a later edit. The human should get the
+// message back with a reason, which is what parking does.
+//
+// The reason names the channel and the files, because "this could not be sent"
+// with no subject leaves a person guessing which of the two to fix.
+func (d *Dispatcher) gateAttachmentCarriage(ctx context.Context, del Delivery, seam sendSeam) (Outcome, time.Duration, error) {
+	if len(del.Attachments) == 0 || seam.carriesAttachments {
+		return outcomeUndecided, 0, nil
+	}
+	names := make([]string, 0, len(del.Attachments))
+	for _, file := range del.Attachments {
+		names = append(names, file.Filename)
+	}
+	return d.park(ctx, del.ID, fmt.Sprintf(
+		"the %s channel cannot carry files, and this message has %s attached; it was not sent, because sending the text alone would misrepresent what it contains",
+		del.Provider, strings.Join(names, ", ")))
 }
 
 // gateSeat refuses a delivery whose sender is no longer a live,

@@ -86,13 +86,17 @@ func NewStore(pool *pgxpool.Pool, now func() time.Time, identity MessageIdentity
 // could name an arbitrary user_id could stage a delivery that later sends
 // through someone else's mailbox.
 type StageInput struct {
-	ActivityID     ids.ActivityID
-	Provider       string
-	MessageID      string // unbracketed
-	Recipients     []string
-	Cc             []string
-	Subject        string
-	Body           string // unsubscribe footer already applied
+	ActivityID ids.ActivityID
+	Provider   string
+	MessageID  string // unbracketed
+	Recipients []string
+	Cc         []string
+	Subject    string
+	Body       string // unsubscribe footer already applied
+	// Attachments is the set this message will carry, snapshotted at staging.
+	// The dispatcher asks the resolved channel whether it can carry them before
+	// anything reaches the wire.
+	Attachments    []OutboundFile
 	ConsentPurpose string
 	InReplyTo      string   // unbracketed; empty starts a thread
 	References     []string // unbracketed ancestry, oldest first
@@ -104,71 +108,6 @@ type StageInput struct {
 	// joined, held independently of the activity this delivery reports on.
 	ThreadKey       string
 	ListUnsubscribe string // the Post header is derived from this, never stored
-}
-
-// Delivery is one staged message as the dispatcher sees it, in EITHER shape:
-// the row is mail-shaped or channel-shaped and never half of each
-// (comms_outbound_shape, 0155).
-//
-// On a channel delivery the mail fields read as their ZERO VALUES rather than as
-// pointers, because a channel genuinely has no subject and no RFC822 identity —
-// there is no second fact for a nil to carry that an empty string does not
-// already say. ChannelUserID is the one exception, and its own comment says why.
-// IsChannel is the ONE spelling of "which shape is this".
-type Delivery struct {
-	ID         ids.UUID
-	ActivityID ids.ActivityID
-	UserID     ids.UserID
-	Provider   string
-	MessageID  string
-	Recipients []string
-	Cc         []string
-	Subject    string
-	Body       string
-	// ChannelUserID is the recipient's account id at the provider for a channel
-	// delivery, and NIL for a mail one.
-	//
-	// A pointer because NULL and empty are DIFFERENT facts on this column. NULL
-	// is the row declaring itself mail-shaped; empty is a channel delivery whose
-	// recipient a privacy scrub removed, emptying it exactly as it empties
-	// mail's address lists (privacy/deliveries.go) — the column is also the
-	// shape discriminator, so nulling it there would re-declare the row as mail
-	// with every mail column missing. Collapsed into one string, a scrubbed
-	// channel delivery would read as mail addressed to nobody.
-	ChannelUserID  *string
-	ConsentPurpose string
-	// InReplyTo names the message this one replies to, in the vocabulary of its
-	// own transport: an unbracketed RFC822 identity for mail, the provider's own
-	// message id for a channel. Empty starts an unanchored message either way.
-	InReplyTo       string
-	References      []string
-	ListUnsubscribe string
-	// InFlightAt is when a PREVIOUS attempt handed this delivery to the provider
-	// without recording what came back — nil when none did. It is set only on
-	// the shapes whose retries cannot detect a prior send
-	// (comms_outbound_inflight_is_channel, 0150), and reading it non-nil is what
-	// makes the difference between an unsent message and a second copy of one
-	// the customer already has.
-	InFlightAt *time.Time
-	Status     string
-	Attempts   int
-	CreatedAt  time.Time
-}
-
-// IsChannel reports whether this delivery leaves through a messaging channel
-// rather than mail. It reads the row's shape discriminator, which the schema
-// guarantees is present for exactly the channel-shaped rows.
-func (d Delivery) IsChannel() bool { return d.ChannelUserID != nil }
-
-// ChannelRecipient is the account id to deliver to: empty for a mail delivery,
-// and empty for a channel delivery a privacy scrub has emptied — which no gate
-// accepts as a recipient, so an erased subject cannot be messaged by a delivery
-// that outlived them.
-func (d Delivery) ChannelRecipient() string {
-	if d.ChannelUserID == nil {
-		return ""
-	}
-	return *d.ChannelUserID
 }
 
 // StageTx records one delivery inside the caller's transaction. user_id —
@@ -198,18 +137,24 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	if err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: encoding references: %w", err)
 	}
+	// Marshalled here rather than at the caller so every staging path records
+	// the same shape, and an empty set is `[]` rather than SQL NULL.
+	files, err := json.Marshal(orEmptyFiles(in.Attachments))
+	if err != nil {
+		return ids.UUID{}, fmt.Errorf("comms: encoding the attachment snapshot: %w", err)
+	}
 	id := ids.NewV7()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO comms_outbound
 		  (id, workspace_id, activity_id, user_id, provider, message_id,
 		   recipients, cc, subject, body, consent_purpose, in_reply_to,
-		   references_chain, thread_key, list_unsubscribe, status, created_at)
+		   references_chain, thread_key, list_unsubscribe, status, created_at, attachments)
 		VALUES ($1, current_setting('app.workspace_id')::uuid, $2, $3, $4, $5,
 		        $6, $7, $8, $9, $10, NULLIF($11,''), $12, NULLIF($13,''),
-		        NULLIF($14,''), 'pending', $15)`,
+		        NULLIF($14,''), 'pending', $15, $16)`,
 		id, in.ActivityID, userID, in.Provider, in.MessageID,
 		recipients, cc, in.Subject, in.Body, in.ConsentPurpose,
-		in.InReplyTo, refs, in.ThreadKey, in.ListUnsubscribe, s.now().UTC()); err != nil {
+		in.InReplyTo, refs, in.ThreadKey, in.ListUnsubscribe, s.now().UTC(), files); err != nil {
 		// The idempotency key is an ANSWER, and it is mapped rather than
 		// wrapped: a raw violation carries the constraint and table names, and
 		// no caller is owed the schema behind a refusal it can act on.
@@ -278,7 +223,7 @@ func marshalList(values []string) ([]byte, error) {
 // of them NULL is the answer this scan needs rather than a value to substitute.
 func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	var d Delivery
-	var recipients, cc, refs []byte
+	var recipients, cc, refs, files []byte
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			UPDATE comms_outbound
@@ -288,10 +233,12 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 			          coalesce(recipients, '[]'::jsonb), coalesce(cc, '[]'::jsonb),
 			          coalesce(subject, ''), body, channel_user_id, consent_purpose,
 			          coalesce(in_reply_to, ''), coalesce(references_chain, '[]'::jsonb),
-			          coalesce(list_unsubscribe, ''), inflight_at, status, attempts, created_at`,
+			          coalesce(list_unsubscribe, ''), inflight_at, status, attempts, created_at,
+			          attachments`,
 			id).Scan(&d.ID, &d.ActivityID, &d.UserID, &d.Provider, &d.MessageID,
 			&recipients, &cc, &d.Subject, &d.Body, &d.ChannelUserID, &d.ConsentPurpose,
-			&d.InReplyTo, &refs, &d.ListUnsubscribe, &d.InFlightAt, &d.Status, &d.Attempts, &d.CreatedAt)
+			&d.InReplyTo, &refs, &d.ListUnsubscribe, &d.InFlightAt, &d.Status, &d.Attempts, &d.CreatedAt,
+			&files)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Delivery{}, ErrTerminal
@@ -301,6 +248,13 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	}
 	if err := json.Unmarshal(recipients, &d.Recipients); err != nil {
 		return Delivery{}, fmt.Errorf("comms: decoding recipients: %w", err)
+	}
+	// A malformed snapshot fails the load rather than defaulting to "no files".
+	// Reading it as empty would let a message whose channel cannot carry
+	// attachments sail through the carriage gate and go out stripped, which is
+	// the one outcome ADR-0086 exists to prevent.
+	if err := json.Unmarshal(files, &d.Attachments); err != nil {
+		return Delivery{}, fmt.Errorf("comms: decoding the delivery's attachment snapshot: %w", err)
 	}
 	if err := json.Unmarshal(cc, &d.Cc); err != nil {
 		return Delivery{}, fmt.Errorf("comms: decoding cc: %w", err)
