@@ -1,0 +1,26 @@
+name: slipping_is_its_own_question
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: Which of my deals are about to slip this week?
+  trigger_ref: morning_brief:2026-08-07
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0a
+      trust_tier: T1
+      content: acting rep — user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: whats_slipping_this_week
+  rubric: >
+    The surface carries a tool for exactly this question, and it ranks by the
+    product's own slip reasons rather than by whatever a report happens to sort
+    on. Score high only if the turn calls whats_slipping_this_week. run_report
+    could return a list of deals, but nothing in it says which are slipping, so a
+    turn that reaches for it has to invent the judgement the product already owns.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

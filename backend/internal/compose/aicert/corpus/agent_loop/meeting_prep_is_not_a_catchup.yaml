@@ -1,0 +1,30 @@
+name: meeting_prep_is_not_a_catchup
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: I am walking into the Acme meeting in an hour. What do I need to know before I do?
+  trigger_ref: calendar:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e02
+  grounding:
+    - source_id: org:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+      trust_tier: T1
+      content: Acme GmbH — organization_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+  tools: catalog
+expect:
+  outcome: accepted
+  answer:
+    step: prep_for_meeting
+    args:
+      record_type: organization
+      record_id: 0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+  rubric: >
+    Two tools answer questions about one account and they are not the same tool.
+    catch_me_up_on narrates what has happened; prep_for_meeting assembles what a
+    person needs before they walk in — open commitments, stakeholders, the state
+    of the deal. The goal names an imminent meeting, so score high only if the
+    turn calls prep_for_meeting on the account the grounding identifies.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
