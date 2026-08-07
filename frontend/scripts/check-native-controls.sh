@@ -33,6 +33,13 @@
 # scanner tracks whether it is inside a quote, and only unquoted `//` and `/*`
 # begin a comment.
 #
+# Two states survive a line ending, because two constructs legally span lines: a
+# block comment, and a TEMPLATE literal. A quote state reset at every newline
+# would read the second line of a multi-line template as ordinary code, so a `//`
+# in it would blank that line and hide whatever followed. A single- or
+# double-quoted string cannot span a line, so those DO reset — an unterminated one
+# is a syntax error, and resetting stops one bad line from blanking the file.
+#
 # Companion to the vitest suites rather than a substitute: this is the
 # fail-closed grep arm, so the discipline holds even if the test tree regresses.
 #
@@ -67,11 +74,12 @@ echo "==> Native-control check (${#FILES[@]} files under frontend/src)"
 # a block comment spanning lines (which is also the `{/* … */}` JSX form).
 strip_comments() {
   awk '
-    BEGIN { inblock = 0 }
+    BEGIN { inblock = 0; intemplate = 0 }
     {
       line = $0
       out = ""
-      quote = ""
+      # A template literal left open by the previous line is still open here.
+      quote = intemplate ? "`" : ""
       i = 1
       n = length(line)
       while (i <= n) {
@@ -97,6 +105,9 @@ strip_comments() {
         out = out ch
         i += 1
       }
+      # Carried to the next line: a template that has not closed. Quoted strings
+      # cannot span lines, so anything else ends here.
+      intemplate = (quote == "`") ? 1 : 0
       print out
     }
   ' "$1"
