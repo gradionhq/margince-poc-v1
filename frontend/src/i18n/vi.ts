@@ -1272,6 +1272,20 @@ export const vi = {
   "evidence.humanSet": "Do một người đặt",
   "co.routes.untried": "Chưa thử — chưa ai ở đây liên hệ",
   "co.routes.more": "+{count} người nữa",
+  "acctCoverage.open": "So sánh mức phủ",
+  "acctCoverage.title": "Ai đang phủ tài khoản này",
+  "acctCoverage.contact": "Liên hệ",
+  "acctCoverage.findContact": "Tìm liên hệ",
+  "acctCoverage.untried": "Chưa thử",
+  "acctCoverage.noMatch": "Không có liên hệ nào khớp.",
+  "acctCoverage.columnCap":
+    "Đang hiển thị {cap} đồng nghiệp — bỏ chọn một người để thêm người khác.",
+  "acctCoverage.partial":
+    "Lưới này dựng từ một lần đọc chưa đầy đủ, nên ô trống có thể nghĩa là lần đọc bị cắt ngắn chứ không phải chưa ai thử.",
+  "acctCoverage.noneButPartial":
+    "Không có ai được trả về, nhưng lần đọc đã bị giới hạn — đây không phải khẳng định rằng không ai phủ tài khoản này.",
+  "acctCoverage.noneAtAll":
+    "Ở đây chưa ai trao đổi tin nhắn với bất kỳ ai tại công ty này.",
   "log.title": "Ghi nhận hoạt động",
   "log.addTask": "Thêm công việc",
   "log.sub": "một ghi chú hay công việc, thẳng lên timeline này",

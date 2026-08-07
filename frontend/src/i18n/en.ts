@@ -1262,6 +1262,20 @@ export const en = {
   "evidence.humanSet": "Set by a person",
   "co.routes.untried": "Untried — nobody here has written to them",
   "co.routes.more": "+{count} more",
+  "acctCoverage.open": "Compare coverage",
+  "acctCoverage.title": "Who covers this account",
+  "acctCoverage.contact": "Contact",
+  "acctCoverage.findContact": "Find a contact",
+  "acctCoverage.untried": "Untried",
+  "acctCoverage.noMatch": "No contact matches that.",
+  "acctCoverage.columnCap":
+    "Showing {cap} colleagues — deselect one to add another.",
+  "acctCoverage.partial":
+    "This grid was built from a partial read, so a blank cell may mean the read stopped short rather than that nobody has tried.",
+  "acctCoverage.noneButPartial":
+    "Nobody connected was returned, but the read was capped — this is not a claim that nobody covers this account.",
+  "acctCoverage.noneAtAll":
+    "Nobody here has exchanged messages with anyone at this company yet.",
   "log.title": "Log activity",
   "log.addTask": "Add task",
   "log.sub": "a note or task, straight onto this timeline",

@@ -1275,6 +1275,20 @@ export const de = {
   "evidence.humanSet": "Von einer Person gesetzt",
   "co.routes.untried": "Noch nicht versucht — niemand hier hat geschrieben",
   "co.routes.more": "+{count} weitere",
+  "acctCoverage.open": "Abdeckung vergleichen",
+  "acctCoverage.title": "Wer diesen Account abdeckt",
+  "acctCoverage.contact": "Kontakt",
+  "acctCoverage.findContact": "Kontakt suchen",
+  "acctCoverage.untried": "Nicht versucht",
+  "acctCoverage.noMatch": "Kein Kontakt passt dazu.",
+  "acctCoverage.columnCap":
+    "{cap} Kolleginnen und Kollegen angezeigt — einen abwählen, um einen weiteren hinzuzufügen.",
+  "acctCoverage.partial":
+    "Dieses Raster stammt aus einem unvollständigen Lesevorgang. Eine leere Zelle kann also bedeuten, dass der Lesevorgang abgebrochen wurde — nicht, dass niemand es versucht hat.",
+  "acctCoverage.noneButPartial":
+    "Es wurde niemand mit Kontakt zurückgegeben, der Lesevorgang war aber begrenzt — das ist keine Aussage darüber, dass niemand diesen Account abdeckt.",
+  "acctCoverage.noneAtAll":
+    "Bisher hat hier niemand Nachrichten mit jemandem in dieser Firma ausgetauscht.",
   "log.title": "Aktivität erfassen",
   "log.addTask": "Aufgabe anlegen",
   "log.sub": "eine Notiz oder Aufgabe, direkt auf diese Timeline",

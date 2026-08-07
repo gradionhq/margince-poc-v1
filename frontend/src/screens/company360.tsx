@@ -32,6 +32,7 @@ import {
   reachOf,
   roleLabelKey,
 } from "./coverage";
+import { CoverageExplorer } from "./coverageexplorer";
 import { EntityRef } from "./entityref";
 
 // The company view's data layer and its right-rail cards.
@@ -387,7 +388,7 @@ export function SectionCard({
 // one: it capped its contact ring, or it withheld groups the caller may not
 // read. Either way the routes below it are a subset, and both the empty answer
 // and the found-someone answer have to say so.
-function incompleteGraph(graph: {
+export function incompleteGraph(graph: {
   groups_omitted?: unknown[];
   dropped_count?: number;
 }): boolean {
@@ -444,6 +445,14 @@ export function PeopleCard({
         contacts.length,
       )}
       emptyLabel={t("co.people.empty")}
+      // The per-row coverage says who to call. The explorer answers the other
+      // question — where are we thin — for a handful of colleagues the reader
+      // picks, rather than a column per person on a forty-strong team.
+      actions={
+        orgId && contacts.length > 0 ? (
+          <CoverageExplorer orgId={orgId} contacts={contacts} />
+        ) : undefined
+      }
     >
       {/* The per-contact chips read as all-time claims — "Not approached"
           above a timeline showing last year's outbound email is the page
