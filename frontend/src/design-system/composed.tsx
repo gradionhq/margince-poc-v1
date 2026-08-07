@@ -327,9 +327,12 @@ export function RecordView({
   actions,
   strip,
   tabs,
+  lead,
   rail,
   aside,
+  asideFirst,
   timeline,
+  timelineTitle,
   timelineGroups,
   onOpenThread,
   timelineHeader,
@@ -362,17 +365,28 @@ export function RecordView({
   // plain heading every other record still uses.
   strip?: ReactNode;
   tabs?: ReactNode;
+  // Full-width content between the masthead and the columns — the reader's
+  // plate. It spans the page because it is what they act on before they
+  // choose a column to read.
+  lead?: ReactNode;
   // The three-zone record page: rail is the left column (what this record
   // IS), children the middle (what is happening), aside the right (the
   // business around it). With neither rail nor aside the layout collapses
   // to the single column every existing caller already renders.
   rail?: ReactNode;
   aside?: ReactNode;
+  // The aside keeps its identity (the business around the record) but sits
+  // as the LEFT column, for a page whose story is the wide right-hand side.
+  asideFirst?: boolean;
   // The entries, or undefined when this view has NO timeline at all. The
   // distinction is the same one every card on a record page keeps: absent is
   // not empty. `[]` renders the section with its honest "nothing logged yet";
   // undefined omits the section, for a view whose body is not a history.
   timeline?: TimelineEntry[];
+  // The heading over the timeline section. A record whose chronology is the
+  // page's story names it in its own words ("What happened"); the default
+  // stays the neutral "Timeline" every other record uses.
+  timelineTitle?: string;
   /**
    * When set, the timeline renders CONVERSATIONS rather than messages. The
    * flat list stays the default: a person's timeline is a handful of rows and
@@ -395,7 +409,7 @@ export function RecordView({
   // because a three-column template with an empty column does not collapse:
   // it reserves the space and leaves the story narrower than the rail
   // beside it.
-  const zones = zoneClass(Boolean(rail), Boolean(aside));
+  const zones = zoneClass(Boolean(rail), Boolean(aside), Boolean(asideFirst));
   const sheet = Boolean(strip || tabs);
   return (
     <div>
@@ -413,6 +427,7 @@ export function RecordView({
         {strip}
         {tabs && <div className="record-tabs">{tabs}</div>}
       </div>
+      {lead && <div className="record-lead">{lead}</div>}
       <div className={zones}>
         {rail && (
           <aside className="record-rail" aria-label={t("record.profile")}>
@@ -422,8 +437,8 @@ export function RecordView({
         <div className="record-main">
           {children}
           {timeline && (
-            <section aria-label={t("record.timeline")}>
-              <h2 className="t-sub">{t("record.timeline")}</h2>
+            <section aria-label={timelineTitle ?? t("record.timeline")}>
+              <h2 className="t-sub">{timelineTitle ?? t("record.timeline")}</h2>
               {timelineHeader}
               {timelineNotice ??
                 (timelineGroups ? (
@@ -450,7 +465,11 @@ export function RecordView({
 }
 
 // zoneClass names the layout for the slots this record actually has.
-function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
+function zoneClass(
+  hasRail: boolean,
+  hasAside: boolean,
+  asideFirst: boolean,
+): string | undefined {
   if (hasRail && hasAside) {
     return "record-zones record-zones-both";
   }
@@ -458,7 +477,9 @@ function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
     return "record-zones record-zones-rail";
   }
   if (hasAside) {
-    return "record-zones record-zones-aside";
+    return asideFirst
+      ? "record-zones record-zones-aside record-zones-aside-first"
+      : "record-zones record-zones-aside";
   }
   return undefined;
 }

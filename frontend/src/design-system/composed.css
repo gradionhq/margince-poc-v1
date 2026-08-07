@@ -240,6 +240,27 @@
 .record-zones-aside {
   grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
 }
+/* Aside-first keeps the business column's identity but seats it on the
+   left, the way a ledger sheet holds its facts beside the story: the
+   story is the wide right-hand side, the readings sit where the eye
+   starts. DOM order stays main-then-aside so readers and tab order still
+   meet the story first. */
+.record-zones-aside-first {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
+}
+.record-zones-aside-first .record-main {
+  grid-column: 2;
+  grid-row: 1;
+}
+.record-zones-aside-first .record-aside {
+  grid-column: 1;
+  grid-row: 1;
+}
+/* The plate spans the page above the columns: what the reader owes is
+   acted on before they choose a column to read. */
+.record-lead {
+  margin-block-end: 16px;
+}
 .record-zones .record-rail,
 .record-zones .record-aside,
 .record-zones .record-main {
@@ -250,10 +271,18 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   /* The story stays first and full width once the rails sit under it:
-     a rep opening an account reads what is happening, not the firmographics. */
-  .record-zones .record-main {
+     a rep opening an account reads what is happening, not the firmographics.
+     The aside-first placement resets with it — explicit cells would pin the
+     columns the fold exists to release. */
+  .record-zones .record-main,
+  .record-zones-aside-first .record-main {
     grid-column: 1 / -1;
+    grid-row: auto;
     order: -1;
+  }
+  .record-zones-aside-first .record-aside {
+    grid-column: auto;
+    grid-row: auto;
   }
 }
 @media (max-width: 720px) {

@@ -1630,7 +1630,9 @@ describe("CompanyScreen — the record's history", () => {
 
     // Scoped to the timeline: the account is called "Brandt Automotive GmbH",
     // so a page-wide match on the old value would pass on the heading.
-    const timeline = await screen.findByRole("region", { name: "Timeline" });
+    const timeline = await screen.findByRole("region", {
+      name: "What happened",
+    });
     await waitFor(() =>
       expect(within(timeline).getByText("Manufacturing")).toBeTruthy(),
     );
@@ -1904,7 +1906,7 @@ describe("CompanyScreen — Ask Margince", () => {
 // with the composite read moves the whole middle column — and everything the
 // reader was looking at — sideways the moment it lands.
 describe("CompanyScreen — the layout does not shift as the read lands", () => {
-  it("holds the three-column template while the 360 is still in flight", async () => {
+  it("holds the two-column sheet while the 360 is still in flight", async () => {
     let releaseView: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
       releaseView = resolve;
@@ -1932,11 +1934,11 @@ describe("CompanyScreen — the layout does not shift as the read lands", () => 
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
     const zonesWhileLoading = container.querySelector(".record-zones");
-    expect(zonesWhileLoading?.className).toContain("record-zones-both");
+    expect(zonesWhileLoading?.className).toContain("record-zones-aside-first");
     releaseView?.();
     await waitFor(() =>
       expect(container.querySelector(".record-zones")?.className).toContain(
-        "record-zones-both",
+        "record-zones-aside-first",
       ),
     );
   });

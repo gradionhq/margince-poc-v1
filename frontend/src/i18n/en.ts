@@ -525,6 +525,7 @@ export const en = {
   "co.strip.openDeals": "{count} open",
   "co.strip.stalled": "{count} stalled",
   "co.strip.moreOpen": "+{count} more",
+  "co.story.title": "What happened",
   "co.strip.commitments": "Open commitments",
   "co.strip.commitments.count": "{count} open",
   "co.strip.commitments.countMore": "{count}+ open",

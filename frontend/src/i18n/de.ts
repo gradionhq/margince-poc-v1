@@ -533,6 +533,7 @@ export const de = {
   "co.strip.openDeals": "{count} offen",
   "co.strip.stalled": "{count} ins Stocken geraten",
   "co.strip.moreOpen": "+{count} weitere",
+  "co.story.title": "Was passiert ist",
   "co.strip.commitments": "Offene Zusagen",
   "co.strip.commitments.count": "{count} offen",
   "co.strip.commitments.countMore": "{count}+ offen",

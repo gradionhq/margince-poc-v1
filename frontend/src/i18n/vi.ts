@@ -533,6 +533,7 @@ export const vi = {
   "co.strip.openDeals": "{count} đang mở",
   "co.strip.stalled": "{count} đình trệ",
   "co.strip.moreOpen": "+{count} nữa",
+  "co.story.title": "Điều đã xảy ra",
   "co.strip.commitments": "Cam kết đang mở",
   "co.strip.commitments.count": "{count} đang mở",
   "co.strip.commitments.countMore": "{count}+ đang mở",

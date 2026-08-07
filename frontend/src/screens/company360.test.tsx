@@ -396,22 +396,29 @@ describe("company view — consent is per purpose", () => {
 });
 
 describe("company view — the rails belong to the account, not to a tab", () => {
-  it("keeps both side columns mounted when the reader switches tab", async () => {
+  it("keeps the business column mounted when the reader switches tab", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
 
-    await screen.findByRole("complementary", { name: "Business" });
-    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
+    const business = await screen.findByRole("complementary", {
+      name: "Business",
+    });
+    // The account's reference lives in the same column as its readings:
+    // relationships and the data tools fold under the cards rather than
+    // holding a second rail open.
+    expect(
+      within(business).getByText("Linked people and companies"),
+    ).toBeTruthy();
+    expect(within(business).getByText("Data & tools")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
 
-    // Partner and History used to render in a header-only frame, so both
-    // rails unmounted, the grid re-columned under the reader, and every query
-    // behind them refetched on the way back.
+    // Partner and History used to render in a header-only frame, so the
+    // column unmounted, the grid re-columned under the reader, and every
+    // query behind it refetched on the way back.
     expect(
       screen.getByRole("complementary", { name: "Business" }),
     ).toBeTruthy();
-    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
   });
 
   it("does not refetch the account when the reader switches tab and back", async () => {
@@ -431,13 +438,13 @@ describe("company view — the rails belong to the account, not to a tab", () =>
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
-    // The chronology moved off the overview when the page gained its own
-    // History tab, so it is not under the partner form either.
+    // The chronology is the account's story: it reads on the overview and
+    // on its own History tab, and does not repeat under the partner form.
     await userEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.getByRole("region", { name: "Timeline" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "What happened" })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
-    expect(screen.queryByRole("region", { name: "Timeline" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "What happened" })).toBeNull();
   });
 });
 
@@ -1447,16 +1454,17 @@ describe("company view — the account's own tabs", () => {
     );
   });
 
-  it("keeps Ask on the overview rather than following the history", async () => {
+  it("keeps Ask beside the account whichever tab is read", async () => {
     stub(view());
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
     // Asking is a tool for when the page did not answer the question. It
-    // belongs to the account, not to its chronology.
+    // lives in the account's own column, which stays mounted across tabs,
+    // so the tool is at hand wherever the question arose.
     expect(screen.getByText("Ask Margince")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.queryByText("Ask Margince")).toBeNull();
+    expect(screen.getByText("Ask Margince")).toBeTruthy();
   });
 });
 

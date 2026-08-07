@@ -2085,31 +2085,63 @@ function CompanyPage({
       // the same on every tab and still redrew themselves inside each one.
       strip={view ? <CompanyStanding view={view} /> : undefined}
       tabs={tabs}
-      // The rail carries what a rep checks WHILE reading the story beside it.
-      // Everything the site read produced — sixteen profile statements, the
-      // fact groups, the tools that fetch them — moved to the Context tab:
-      // folded into this column it was more content than the rest of the
-      // page put together, behind four grey summary lines nobody opened.
-      rail={
+      // The plate spans the page above the columns: what moved since the
+      // last visit and what the rep owes are acted on before anything is
+      // read. Everything below it is reference.
+      lead={
+        tab === "overview" && view ? (
+          <AccountPlate
+            org={org}
+            view={view}
+            overlay={overlay}
+            taskUpdate={taskUpdate}
+            onOpenTask={setOpenTaskId}
+            onOpenRecord={openCitation}
+            onCompose={setReplyToActivityId}
+            onLogTask={() => setTaskFormOpen(true)}
+          />
+        ) : undefined
+      }
+      // One left column, the business beside the story: people, deals,
+      // standing, then the slower-moving reference (relationships, custom
+      // fields) folded under it. Everything the site read produced —
+      // sixteen profile statements, the fact groups, the tools that fetch
+      // them — stays on the Context tab: folded into this column it was
+      // more content than the rest of the page put together.
+      aside={
+        // Overlay refuses the page whole: a business column of cards that
+        // each read as an empty account is the half-page the refusal exists
+        // to prevent.
         overlay ? undefined : (
           <>
+            {businessRail({
+              org,
+              view,
+              overlay,
+              failed,
+              readOnly: Boolean(org.archived_at),
+              t,
+            })}
             <Disclosure summary={t("co.relationships.title")}>
               <RelationshipsTab scope={{ organization_id: org.id }} />
             </Disclosure>
             <Disclosure summary={t("co.tools.title")}>
               <CustomFieldsCard object="organization" record={org} />
             </Disclosure>
+            {/* Asking lives with the account's readings, not inside its
+                story: the tool for when the page did not already answer sits
+                at the bottom of the column a reader consults, leaving the
+                chronology to be only what happened. */}
+            <AssistantPanel
+              orgId={org.id}
+              enabled
+              onOpenRecord={openCitation}
+            />
           </>
         )
       }
-      aside={businessRail({
-        org,
-        view,
-        overlay,
-        failed,
-        readOnly: Boolean(org.archived_at),
-        t,
-      })}
+      asideFirst
+      timelineTitle={t("co.story.title")}
       // The chronology is the account's story and belongs to the overview.
       // The Partner tab is a form, so it does not repeat it under itself.
       {...slots}
@@ -2125,29 +2157,6 @@ function CompanyPage({
       )}
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
-      )}
-      {/* The overview's reading order is the rep's own: the state strip,
-          then what happened while they were away, then their plate — the
-          open tasks and the account's suggestions — and only then the prose
-          brief. What a reader acts on comes before what they read. */}
-      {tab === "overview" && view && (
-        <AccountPlate
-          org={org}
-          view={view}
-          overlay={overlay}
-          taskUpdate={taskUpdate}
-          onOpenTask={setOpenTaskId}
-          onOpenRecord={openCitation}
-          onCompose={setReplyToActivityId}
-          onLogTask={() => setTaskFormOpen(true)}
-        />
-      )}
-      {/* Asking sits UNDER the account's own story: it is the tool for when the
-          page did not already answer the question. It belongs to the account
-          rather than to its history, so it stays on the overview instead of
-          following the chronology onto its own tab. */}
-      {tab === "overview" && (
-        <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
       )}
       {/* The People tab gives the account team the whole middle column. The
           rail's card is a summary; this is the roster, with room for the title
