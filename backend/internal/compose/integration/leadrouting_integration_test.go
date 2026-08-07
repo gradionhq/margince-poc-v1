@@ -51,7 +51,7 @@ func setupRouting(t *testing.T) *routingEnv {
 // through the engine, returning the resulting owner (nil = unassigned).
 func (e *routingEnv) routeNewLead(t *testing.T, source string) (ids.UUID, *ids.UUID) {
 	t.Helper()
-	leadID := e.seed(t,
+	leadID := e.Seed(t,
 		`INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Routed Lead', $3, 'human:x')`,
 		source)
 	if err := e.engine.HandleEvent(context.Background(), kevents.Envelope{
@@ -161,7 +161,7 @@ func TestLeadRoutingLeavesHumanAssignmentsAlone(t *testing.T) {
 		"owners": []string{e.Rep1.String()},
 	})
 
-	leadID := e.seed(t,
+	leadID := e.Seed(t,
 		`INSERT INTO lead (id, workspace_id, full_name, source, owner_id, captured_by) VALUES ($1, $2, 'Claimed Lead', 'manual', $3, 'human:x')`,
 		e.Rep3)
 	if err := e.engine.HandleEvent(context.Background(), kevents.Envelope{

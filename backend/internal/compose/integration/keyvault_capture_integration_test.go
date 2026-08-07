@@ -195,7 +195,7 @@ func TestBackfillMigratesLegacyAuthRowOntoTheVault(t *testing.T) {
 
 	// A legacy row: a connected connection whose credential still lives in the
 	// auth bytea column, no vault ref yet.
-	connID := e.seed(t, `
+	connID := e.Seed(t, `
 		INSERT INTO capture_connection (id, workspace_id, provider, user_id, scopes, status, auth)
 		VALUES ($1, $2, 'graph', $3, $4, 'connected', $5)`,
 		e.Rep1, []string{string(principal.ScopeRead)}, []byte("granted-token"))

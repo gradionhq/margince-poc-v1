@@ -81,7 +81,7 @@ func newScopeCaptureRegistry(t *testing.T, e *SearchEnv, fake *scopeFake) (*capt
 func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 	e := SetupSearch(t)
 	// A lead owned by team2's rep — outside the team1 granting human's scope.
-	e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, email, owner_id, source, captured_by)
+	e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, email, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Hidden Prospect', 'collide@scope.test', $3, 'manual', 'human:x')`, e.Rep3)
 
 	fake := &scopeFake{records: []connector.NormalizedRecord{{
@@ -119,7 +119,7 @@ func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 
 func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t *testing.T) {
 	e := SetupSearch(t)
-	foreign := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
+	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Foreign Counterparty', $3, 'manual', 'human:x')`, e.Rep3)
 
 	fake := &scopeFake{records: []connector.NormalizedRecord{{

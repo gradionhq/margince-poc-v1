@@ -189,9 +189,9 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 	// INSERT..SELECT that matches nothing SUCCEEDS, so a missing fixture would
 	// leave this test asserting a freeze that never had a deal to fire on —
 	// passing or failing for the wrong reason either way.
-	pipeline := e.seed(t, `
+	pipeline := e.Seed(t, `
 		INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, $2, 'Freeze fixture', false)`)
-	stage := e.seed(t, `
+	stage := e.Seed(t, `
 		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
 		VALUES ($1, $2, $3, 'Won', 1, 'won', 100)`, pipeline)
 	// Every CHECK on `deal` has to be satisfied for the row to land, and the
@@ -202,7 +202,7 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 	//   deal_lost_reason          — not reached; 'won', not 'lost'
 	// The frozen rate is the one this test actually needs; the rest are the
 	// price of a valid closed deal.
-	e.seed(t, `
+	e.Seed(t, `
 		INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, source, captured_by,
 		                  amount_minor, currency, fx_rate_to_base, status, closed_at)
 		VALUES ($1, $2, 'Converted deal', $3, $4, 'seed', 'system:test',

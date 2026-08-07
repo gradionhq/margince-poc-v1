@@ -128,7 +128,7 @@ func readCaptureCounts(t *testing.T, e *SearchEnv) captureCounts {
 
 func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	e := SetupSearch(t)
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &mailFake{linkTo: personID}
@@ -265,7 +265,7 @@ func TestReconnectUnarchivesTheConnection(t *testing.T) {
 func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	e := SetupSearch(t)
 	// A person owned by team2 — invisible to the team1 granting human.
-	foreignPerson := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Foreign Target', $3, 'manual', 'human:x')`, e.Rep3)
+	foreignPerson := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Foreign Target', $3, 'manual', 'human:x')`, e.Rep3)
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &mailFake{linkTo: foreignPerson}

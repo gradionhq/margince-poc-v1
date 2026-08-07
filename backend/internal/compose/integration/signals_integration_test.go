@@ -83,7 +83,7 @@ func personCount(t *testing.T, e *SearchEnv) int {
 // registered domain the resolver's domain index can match.
 func (e *SearchEnv) seedOrgWithDomain(t *testing.T, name, domain string) ids.UUID {
 	t.Helper()
-	orgID := e.seed(t,
+	orgID := e.Seed(t,
 		`INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
 		 VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, name, e.Rep1)
 	if _, err := e.Owner.Exec(context.Background(),
@@ -99,7 +99,7 @@ func (e *SearchEnv) seedOrgWithDomain(t *testing.T, name, domain string) ids.UUI
 // match and the warm/cold join both read.
 func (e *SearchEnv) seedEmployedContact(t *testing.T, orgID ids.UUID, name, email string) ids.UUID {
 	t.Helper()
-	personID := e.seed(t,
+	personID := e.Seed(t,
 		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
 		 VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, name, e.Rep1)
 	if _, err := e.Owner.Exec(context.Background(),
@@ -152,7 +152,7 @@ func TestSignalRowScopeFollowsSubjectEntity(t *testing.T) {
 	e := SetupSearch(t)
 	store := signalStore(e)
 
-	foreignPerson := e.seed(t,
+	foreignPerson := e.Seed(t,
 		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
 		 VALUES ($1, $2, 'Foreign Contact', $3, 'manual', 'human:x')`, e.Rep3)
 	personType := "person"
@@ -183,7 +183,7 @@ func TestResolverDoesNotAttributeToAnInvisibleOrg(t *testing.T) {
 	store := signalStore(e)
 
 	// An org (with a matching domain) owned by rep3 — outside team1's scope.
-	foreignOrg := e.seed(t,
+	foreignOrg := e.Seed(t,
 		`INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
 		 VALUES ($1, $2, 'Foreign Co', $3, 'manual', 'human:x')`, e.Rep3)
 	if _, err := e.Owner.Exec(context.Background(),
@@ -320,7 +320,7 @@ func TestResolverNeverAttributesToTheOwnCompany(t *testing.T) {
 	store := signalStore(e)
 	admin := e.adminSignals()
 
-	anchor := e.seed(t,
+	anchor := e.Seed(t,
 		`INSERT INTO organization (id, workspace_id, display_name, owner_id, is_anchor, source, captured_by)
 		 VALUES ($1, $2, $3, $4, true, 'manual', 'human:x')`, "Our Own Company", e.Rep1)
 	colleague := e.seedEmployedContact(t, anchor, "Robin Colleague", "robin@private.invalid")

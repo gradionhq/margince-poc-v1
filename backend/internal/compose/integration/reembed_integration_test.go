@@ -52,7 +52,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 	names := []string{"Reembed One", "Reembed Two", "Reembed Three"}
 	personIDs := make([]ids.UUID, len(names))
 	for i, name := range names {
-		id := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`, name)
+		id := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`, name)
 		if _, err := e.Store.UpsertEmbedding(e.Admin(), "person", id, name, staleEmbedder); err != nil {
 			t.Fatalf("seeding the stale-identity baseline for %s: %v", name, err)
 		}
@@ -155,7 +155,7 @@ func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
 	}
 
 	healthy := seedExtraWorkspace(t, e.Owner, "reembed-healthy", false)
-	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Tenant Person', 'manual', 'human:x')`)
+	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Tenant Person', 'manual', 'human:x')`)
 	healthyPersonID := ids.NewV7()
 	if _, err := e.Owner.Exec(ctx, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Tenant Person', 'manual', 'human:x')`,
 		healthyPersonID, healthy); err != nil {
@@ -203,7 +203,7 @@ func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 	if err := e.Store.SeedBinding(ctx, markerIdentity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Drift Person', 'manual', 'human:x')`)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Drift Person', 'manual', 'human:x')`)
 	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'stale-hash', $3, '[1,2,3]'::vector)`,

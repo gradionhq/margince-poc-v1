@@ -67,14 +67,13 @@ func enableLeadRouting(t *testing.T, e *SearchEnv, params map[string]any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var automationID ids.UUID
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `
+		_, err := tx.Exec(context.Background(), `
 			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        'assign_lead_owner', 'Assign new leads an owner', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
-			        $1, true)
-			RETURNING id`, paramsJSON).Scan(&automationID)
+			        $1, true)`, paramsJSON)
+		return err
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +83,7 @@ func enableLeadRouting(t *testing.T, e *SearchEnv, params map[string]any) {
 func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 	e := SetupSearch(t)
 	enableLeadRouting(t, e, map[string]any{"owners": []string{e.Rep1.String()}})
-	leadID := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Fresh Lead', 'manual', 'human:x')`)
+	leadID := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Fresh Lead', 'manual', 'human:x')`)
 	engine := compose.NewWorkflowEngine(e.Pool)
 
 	env := kevents.Envelope{
@@ -180,7 +179,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	}
 
 	// No automation rows at all: the registered handler stays silent.
-	first := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Ungated Lead', 'manual', 'human:x')`)
+	first := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Ungated Lead', 'manual', 'human:x')`)
 	dispatch(first)
 	if got := ownerOf(first); got != nil {
 		t.Fatalf("unconfigured workspace assigned owner %v, want none", got)
@@ -199,7 +198,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Paused Lead', 'manual', 'human:x')`)
+	second := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Paused Lead', 'manual', 'human:x')`)
 	dispatch(second)
 	if got := ownerOf(second); got != nil {
 		t.Fatalf("paused instance assigned owner %v, want none", got)
@@ -214,7 +213,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	third := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Live Lead', 'manual', 'human:x')`)
+	third := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Live Lead', 'manual', 'human:x')`)
 	dispatch(third)
 	dispatch(third) // redelivery still applies exactly once
 	if got := ownerOf(third); got == nil || *got != e.Rep3 {

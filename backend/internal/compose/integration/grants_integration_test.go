@@ -27,9 +27,9 @@ import (
 // the store layer where scoped principals are cheap to mint.
 func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	e := SetupSearch(t)
-	foreign := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Shared Secret', $3, 'manual', 'human:x')`, e.Rep3)
+	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Shared Secret', $3, 'manual', 'human:x')`, e.Rep3)
 
-	repCtx := e.asTeamRep(e.Rep1, e.Team1)
+	repCtx := e.AsTeamRep(e.Rep1, e.Team1)
 	peopleStore := people.NewStore(e.Pool)
 
 	// Before the grant: team scope hides rep3's record from rep1.
@@ -42,7 +42,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 		t.Fatalf("pre-grant search: %v %+v", err, page.Hits)
 	}
 
-	grantID := e.seed(t, `INSERT INTO record_grant (id, workspace_id, record_type, record_id, subject_type, subject_id, access, granted_by)
+	grantID := e.Seed(t, `INSERT INTO record_grant (id, workspace_id, record_type, record_id, subject_type, subject_id, access, granted_by)
 		VALUES ($1, $2, 'person', $3, 'user', $4, 'read', $5)`, foreign, e.Rep1, e.Rep3)
 
 	// After: the direct read, the search branch, and the link probe all

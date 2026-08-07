@@ -60,7 +60,7 @@ func TestReindexNeededAfterStaleIdentityRow(t *testing.T) {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Stale Row Person', 'manual', 'human:x')`)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Stale Row Person', 'manual', 'human:x')`)
 	// A row stamped under a DIFFERENT identity than currentIdentity — the
 	// entity has an embedding row, just not a current one, so it must
 	// still count as pending (the swap case, distinct from "no row at all").
@@ -321,13 +321,13 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 	const nameOrg = "Pending Org"
 	const nameTwo = "Pending Two"
 
-	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, '`+nameOne+`', 'manual', 'human:x')`)
-	e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, '`+nameOrg+`', 'manual', 'human:x')`)
+	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, '`+nameOne+`', 'manual', 'human:x')`)
+	e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, '`+nameOrg+`', 'manual', 'human:x')`)
 	// A lead with every text-bearing column NULL: concat_ws collapses to
 	// '', so it must NOT count as pending — the non-empty qualifier.
-	e.seed(t, `INSERT INTO lead (id, workspace_id, source, captured_by) VALUES ($1, $2, 'manual', 'human:x')`)
+	e.Seed(t, `INSERT INTO lead (id, workspace_id, source, captured_by) VALUES ($1, $2, 'manual', 'human:x')`)
 	// Already covered at the current identity: must not count as pending.
-	coveredID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Already Covered', 'manual', 'human:x')`)
+	coveredID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Already Covered', 'manual', 'human:x')`)
 	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'covered-hash', $3, '[1,2,3]'::vector)`,

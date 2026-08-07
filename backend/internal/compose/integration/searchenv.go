@@ -18,13 +18,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// SearchEnv is the second migrated-database fixture in this package, lighter
-// than Env: one workspace, two reps in two teams, and a search store over the
-// RLS-bound pool. Forty suites ride it, most of them — capture, the connectors,
-// leadscore, export — for the database handles rather than the store, which is
-// why it lives here rather than with the search suite that named it.
+// SearchEnv is the second EXPORTED fixture here, after Env, and lighter than it:
+// one workspace, two reps in two teams, and a search store over the RLS-bound
+// pool. (It is not the second fixture in the package — several suites still build
+// their own; it is the second one a sibling package can import.)
+//
+// Most of its riders take it for the migrated database and the seeded workspace
+// rather than for the store: the capture suites reference Store zero times, as do
+// the connector, leadscore and export suites. The name records where it was first
+// needed, not what it now is, and it is due a better one — the reason it has not
+// been renamed here is only that this change is already a rename of everything
+// else, and one rename per pass is easier to verify than two.
 type SearchEnv struct {
 	Owner *pgx.Conn
 	Pool  *pgxpool.Pool
@@ -96,4 +103,53 @@ func SetupSearch(t *testing.T) *SearchEnv {
 	e.Pool = pool
 	e.Store = search.NewStore(pool)
 	return e
+}
+
+// Seed writes one row through the owner connection, minting its id and binding
+// the workspace. It rides the owner rather than the app pool because the suites
+// that use it are testing READ semantics — the write shape has its own suites,
+// and going through a store here would make the fixture depend on the thing
+// under test.
+func (e *SearchEnv) Seed(t *testing.T, sql string, args ...any) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := e.Owner.Exec(context.Background(), sql, append([]any{id, e.WS}, args...)...); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	return id
+}
+
+// searchReadGrants is read on every record type this fixture's principals can
+// reach. Read-only on purpose: the suites riding it assert what a caller may SEE,
+// so a grant that could write would let a fixture change the rows under its own
+// assertion.
+func searchReadGrants() map[string]principal.ObjectGrant {
+	grants := map[string]principal.ObjectGrant{}
+	for _, object := range []string{objPerson, objOrg, objDeal, "lead", objActivity} {
+		grants[object] = principal.ObjectGrant{Read: true}
+	}
+	return grants
+}
+
+// Admin is an unbounded reader: every record type, row scope all. The fixture's
+// positive control — what a caller with nothing hidden from them sees — against
+// which AsTeamRep's narrower view is the assertion.
+func (e *SearchEnv) Admin() context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
+		Permissions: principal.Permissions{Objects: searchReadGrants(), RowScope: principal.RowScopeAll},
+	})
+}
+
+// AsTeamRep is a rep bounded to one team's rows — the same grants as Admin with
+// row scope narrowed, so a suite comparing the two isolates row scope from object
+// RBAC rather than confounding them.
+func (e *SearchEnv) AsTeamRep(user, team ids.UUID) context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
+		TeamIDs:     []ids.UUID{team},
+		Permissions: principal.Permissions{Objects: searchReadGrants(), RowScope: principal.RowScopeTeam},
+	})
 }

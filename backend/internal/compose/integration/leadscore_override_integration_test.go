@@ -66,7 +66,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	// A working lead: decision-maker title (+15) from a high-intent source
 	// (+8) → machine fit is 23. Seeded at score 0 so a resumed recompute
 	// demonstrably rebuilds it.
-	leadID := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, title, status, source, score, captured_by)
+	leadID := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, title, status, source, score, captured_by)
 	                     VALUES ($1, $2, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
 
 	// (1) A human score with no reason is rejected (AC-S1).

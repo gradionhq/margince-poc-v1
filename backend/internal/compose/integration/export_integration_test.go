@@ -69,56 +69,56 @@ type exportFixture struct {
 
 func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 	t.Helper()
-	pipelineID := e.seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
-	stageID := e.seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
+	pipelineID := e.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
+	stageID := e.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
 
 	var f exportFixture
 	// rep1 (team1) carries a social row to prove the child relation
 	// travels with its parent.
-	f.rep1Person = e.seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
+	f.rep1Person = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep1 Person', 'manual', 'human:x')`, e.Rep1)
-	e.seed(t, `INSERT INTO person_social (id, workspace_id, person_id, platform, handle)
+	e.Seed(t, `INSERT INTO person_social (id, workspace_id, person_id, platform, handle)
 		VALUES ($1, $2, $3, 'linkedin', 'in/rep1')`, f.rep1Person)
-	f.rep3Person = e.seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
+	f.rep3Person = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep3 Person', 'manual', 'human:x')`, e.Rep3)
-	f.rep1Org = e.seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
+	f.rep1Org = e.Seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep1 Org', 'manual', 'human:x')`, e.Rep1)
-	f.rep3Org = e.seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
+	f.rep3Org = e.Seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep3 Org', 'manual', 'human:x')`, e.Rep3)
-	f.rep1Deal = e.seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
+	f.rep1Deal = e.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep1 Deal', $4, $5, $6, 100000, 'EUR', 'manual', 'human:x')`, e.Rep1, pipelineID, stageID, f.rep1Org)
-	f.rep3Deal = e.seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
+	f.rep3Deal = e.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep3 Deal', $4, $5, $6, 200000, 'EUR', 'manual', 'human:x')`, e.Rep3, pipelineID, stageID, f.rep3Org)
-	f.rep1Lead = e.seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)
+	f.rep1Lead = e.Seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep1 Lead', 'manual', 'human:x')`, e.Rep1)
-	f.rep3Lead = e.seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)
+	f.rep3Lead = e.Seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep3 Lead', 'manual', 'human:x')`, e.Rep3)
 
 	// Employment edges: each connects a rep's person to that rep's org, so
 	// the whole edge is visible only to that rep (both endpoints owned).
-	e.seed(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
+	e.Seed(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
 		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:x')`, f.rep1Person, f.rep1Org)
-	e.seed(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
+	e.Seed(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
 		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:x')`, f.rep3Person, f.rep3Org)
 
 	// Activities scope through their links.
-	f.rep1Activity = e.seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+	f.rep1Activity = e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'note', 'Rep1 note', now(), 'manual', 'human:x')`)
-	e.seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, f.rep1Activity, f.rep1Person)
-	f.rep3Activity = e.seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+	e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, f.rep1Activity, f.rep1Person)
+	f.rep3Activity = e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'note', 'Rep3 note', now(), 'manual', 'human:x')`)
-	e.seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, f.rep3Activity, f.rep3Person)
+	e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, f.rep3Activity, f.rep3Person)
 
 	// Attachments on each rep's person — the files manifest source.
-	e.seed(t, `INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
+	e.Seed(t, `INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
 		VALUES ($1, $2, 'person', $3, 'rep1.pdf', 'blob/rep1', 'manual', 'human:x')`, f.rep1Person)
-	e.seed(t, `INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
+	e.Seed(t, `INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
 		VALUES ($1, $2, 'person', $3, 'rep3.pdf', 'blob/rep3', 'manual', 'human:x')`, f.rep3Person)
 
 	// Audit rows targeting each rep's person (audit_log is record-mutations-only).
-	e.seed(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
+	e.Seed(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
 		VALUES ($1, $2, 'human', $3, 'create', 'person', $4)`, "human:"+e.Rep1.String(), f.rep1Person)
-	e.seed(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
+	e.Seed(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
 		VALUES ($1, $2, 'human', $3, 'create', 'person', $4)`, "human:"+e.Rep3.String(), f.rep3Person)
 	return f
 }

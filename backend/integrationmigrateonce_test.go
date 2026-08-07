@@ -50,6 +50,13 @@ import (
 // than this gate owns today.
 const migrationsPackage = "migrations"
 
+// testdbPackage implements the migrate-once mechanism every suite is required to
+// ride, so it is where dbmigrate.Up is SUPPOSED to be called. Excluded by rule
+// rather than waived, for the same reason migrationsPackage is: a waiver would
+// read as "this one is allowed to misbehave" when in fact it is the definition of
+// behaving. Only reachable now that this gate walks non-test files too.
+const testdbPackage = "internal/platform/testdb"
+
 // inlineMigrators are the suites outside migrationsPackage ratified to migrate
 // on their own, each bound to what the exception costs.
 var inlineMigrators = gatekit.Waive(map[string]string{
@@ -63,8 +70,17 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 	var offenders, inMigrations []string
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, "_test.go") {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
+		}
+		// Every file the lane compiles, not only the _test.go ones. A shared
+		// fixture that moves into a non-test file so sibling packages can import
+		// it would otherwise walk straight out of this gate's reach while still
+		// being the thing that migrates — and the gate would keep passing,
+		// covering less, saying nothing. Membership is the build tag, which is
+		// what actually decides whether the lane runs the file.
+		if !strings.HasSuffix(path, "_test.go") && !isIntegrationTagged(path) {
+			return nil
 		}
 		path = filepath.ToSlash(path)
 		file, err := parser.ParseFile(fset, path, nil, 0)
@@ -76,6 +92,9 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 		}
 		if strings.HasPrefix(path, migrationsPackage+"/") {
 			inMigrations = append(inMigrations, path)
+			return nil
+		}
+		if strings.HasPrefix(path, testdbPackage+"/") {
 			return nil
 		}
 		if !inlineMigrators.Waived(t, path) {

@@ -203,7 +203,7 @@ func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
 	}
 
 	for i := range 4 {
-		e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
+		e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
 			fmt.Sprintf("Slow Corpus Person %d", i))
 	}
 
@@ -281,7 +281,7 @@ func TestReembedReportsProgressBeforeItsScanAndItsFirstEmbed(t *testing.T) {
 		t.Fatalf("seeding the run: %v", err)
 	}
 	for i := range 2 {
-		e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
+		e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
 			fmt.Sprintf("Slow First Entity Person %d", i))
 	}
 	ageMarkerPastTheStealWindow(t, e)
