@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -137,6 +138,63 @@ var docWritePerms = principal.Permissions{
 	Objects: map[string]principal.ObjectGrant{
 		"organization": {Read: true, Update: true},
 		"deal":         {Read: true},
+		"person":       {Read: true},
+	},
+	RowScope: principal.RowScopeTeam,
+}
+
+// The library is fed by the UPLOAD path, not by a hand-written column. A test
+// that seeds organization_id itself proves only that the read filters on it;
+// it passes just as happily when nothing in the product ever writes it, which
+// is exactly how a file uploaded through the UI can be invisible to the account
+// view while every gate stays green.
+func TestAnUploadedDocumentReachesTheAccountLibrary(t *testing.T) {
+	e := Setup(t)
+	store := activities.NewStore(e.Pool).WithBlobstore(blobstore.NewMemory())
+	pipeline, stage, _ := DealFixture(t, e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	deal := e.SeedDeal(t, "Renewal", pipeline, stage, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org)
+	// Filing a document is an update of the record it hangs off, so this
+	// uploader holds update on both parents it files against.
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, docUploadPerms)
+
+	onOrg, err := store.UploadAttachment(ctx, activities.AttachmentInput{
+		EntityType: "organization", EntityID: org, Filename: "nda.pdf", Body: []byte("bytes"),
+	})
+	if err != nil {
+		t.Fatalf("uploading against the organization: %v", err)
+	}
+	onDeal, err := store.UploadAttachment(ctx, activities.AttachmentInput{
+		EntityType: "deal", EntityID: deal, Filename: "quote.pdf", Body: []byte("bytes"),
+	})
+	if err != nil {
+		t.Fatalf("uploading against the deal: %v", err)
+	}
+
+	docs, _, err := store.ListOrganizationDocuments(
+		e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms), org, activities.DocumentFilters{})
+	if err != nil {
+		t.Fatalf("ListOrganizationDocuments: %v", err)
+	}
+	found := map[string]bool{}
+	for _, d := range docs {
+		found[d.Filename] = true
+	}
+	// The deal's file rolls up to the deal's account; the organization's own
+	// file rolls up to itself.
+	if !found["nda.pdf"] || !found["quote.pdf"] {
+		t.Fatalf("the account library holds %v, want both uploaded files (org=%s deal=%s)",
+			found, onOrg.Id, onDeal.Id)
+	}
+}
+
+// docUploadPerms may file a document against either parent this case uses.
+var docUploadPerms = principal.Permissions{
+	RoleKeys: []string{"rep"},
+	Objects: map[string]principal.ObjectGrant{
+		"organization": {Read: true, Update: true},
+		"deal":         {Read: true, Update: true},
 		"person":       {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,

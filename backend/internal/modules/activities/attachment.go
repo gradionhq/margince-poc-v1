@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/jackc/pgx/v5"
@@ -123,12 +124,18 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 
 	var out crmcontracts.Attachment
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		rollUp, err := accountRollUp(ctx, tx, in.EntityType, in.EntityID)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename,
-				content_type, byte_size, storage_key, checksum, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				content_type, byte_size, storage_key, checksum, source, captured_by,
+				organization_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 			id, workspaceID(ctx), in.EntityType, in.EntityID, in.Filename,
-			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by); err != nil {
+			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by,
+			rollUp); err != nil {
 			return err
 		}
 		if _, err := storekit.Audit(ctx, tx, "create", "attachment", id, nil, map[string]any{
@@ -396,4 +403,32 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// accountRollUp resolves the account a newly filed attachment belongs to, which
+// is what makes it reachable from the company's document library.
+//
+// It is a READ PATH, not a second parent: visibility stays the primary parent's
+// (see documents.go). Filing it at write time is what the library's index scan
+// depends on — a file uploaded without it is invisible to the account view
+// forever, and nothing about the upload looks wrong when that happens.
+//
+// A PERSON rolls up to nothing on purpose. person→organization runs through
+// `relationship` with kind 'employment', which is many-valued: a contact who
+// works at two companies has no single account, and picking one would file the
+// document under a company the uploader never named. A null here means the file
+// is reachable from the person, not that it was lost.
+func accountRollUp(ctx context.Context, tx pgx.Tx, entityType string, entityID ids.UUID) (*ids.UUID, error) {
+	switch entityType {
+	case linkEntityOrganization:
+		return &entityID, nil
+	case linkEntityDeal:
+		var org *ids.UUID
+		if err := tx.QueryRow(ctx,
+			`SELECT organization_id FROM deal WHERE id = $1`, entityID).Scan(&org); err != nil {
+			return nil, fmt.Errorf("resolving the deal's account for a filed document: %w", err)
+		}
+		return org, nil
+	}
+	return nil, nil
 }
