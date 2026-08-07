@@ -478,8 +478,9 @@ Five reported UI defects. Four are invariants; the fifth is a screen redesign.
     kept the boundary sentence as `.auth-phone-disclosure`; that element is gone.
     Above the breakpoint the disclosure is intact. The departure is stated in
     `auth.css` beside the rule that makes it and pinned in both directions by
-    `e2e/ac.spec.ts`, so it cannot drift back by accident — **owed upstream: the
-    spec has to reconcile Decision 1 with a phone surface that is the task alone.**
+    `e2e/ac.spec.ts`, so it cannot drift back by accident — **owed upstream as
+    issue #562: the spec has to reconcile Decision 1 with a phone surface that is
+    the task alone.**
   - Re-measured at 320 / 390 / 640×400 (200% zoom) / 720 / 1440: zero horizontal
     overflow, the 48px submit inside the viewport at every width, all four limits
     rendered wherever the region shows, axe clean.

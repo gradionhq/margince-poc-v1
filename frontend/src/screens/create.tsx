@@ -270,15 +270,23 @@ export function fieldControl(
     // left behind — a row a browser gave a baseline height and a screen reader
     // announced as nothing at all — and in a drawn list it is an unreadable
     // strip nobody can aim at.
-    const blank: SelectOption[] = field.required
-      ? []
-      : [{ value: "", label: t("field.unset") }];
+    //
+    // A field that already offers the empty value has said it in its own,
+    // better words ("Unassign" on a deal's owner), and one value gets exactly
+    // one entry: a second would offer the same choice twice and give the list
+    // two options with the same identity.
+    const options = field.options ?? [];
+    const clearable = options.some((option) => option.value === "");
+    const blank: SelectOption[] =
+      field.required || clearable
+        ? []
+        : [{ value: "", label: t("field.unset") }];
     return (
       <Select
         {...control}
         value={value}
         onChange={setValue}
-        options={[...blank, ...(field.options ?? [])]}
+        options={[...blank, ...options]}
       />
     );
   }

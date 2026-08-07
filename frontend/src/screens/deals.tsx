@@ -456,20 +456,23 @@ function DealFilterSelects({
   const t = useT();
   return (
     <div className="list-toolbar">
-      {/* Each list leads with a real OPTION for the unset value rather than
-          the select's placeholder: a placeholder is only a face, and a reader
-          who narrowed the board has to be able to come back to all of it. */}
+      {/* The board is always the board of ONE pipeline — there is no
+          all-pipelines view for an unset entry to select, and an unset
+          selection falls straight back to the default pipeline — so this list
+          offers pipelines only. The placeholder is the face while they load,
+          which is the only moment the value matches no option. The stage and
+          organization lists below DO lead with a real "all" option: each one
+          clears a query filter, a state the board can actually show, and a
+          reader who narrowed it has to be able to come back to all of it. */}
       <Select
         aria-label={t("deals.pipeline")}
+        placeholder={t("deals.pipeline")}
         value={pipelineId}
         onChange={setPipelineId}
-        options={[
-          { value: "", label: t("deals.pipeline") },
-          ...pipelines.map((pipeline) => ({
-            value: pipeline.id,
-            label: pipeline.name,
-          })),
-        ]}
+        options={pipelines.map((pipeline) => ({
+          value: pipeline.id,
+          label: pipeline.name,
+        }))}
       />
       <Select
         aria-label={t("deals.stage")}

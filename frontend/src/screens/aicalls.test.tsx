@@ -105,6 +105,14 @@ it("renders call badges and expands the attempt and payload detail", async () =>
   expect(screen.getByText("Export as cert scenario")).toBeTruthy();
 });
 
+// The filter stands alone above the table with no visible label beside it, so
+// its name has to come from the control itself — an unnamed combobox tells a
+// screen reader nothing about what it narrows.
+it("names the task filter", async () => {
+  mount();
+  expect(await screen.findByRole("combobox", { name: "Task" })).toBeTruthy();
+});
+
 it("distinguishes capture disabled from a call without payload", async () => {
   mount(false, false);
   await userEvent.click(await screen.findByText("capture_classify"));

@@ -23,7 +23,9 @@
 #
 # Comments are stripped before matching: a `<select>` inside a comment is a
 # cross-reference (this replaced that), which is exactly how select.tsx and its
-# neighbours cite the thing they exist to remove.
+# neighbours cite the thing they exist to remove. A `//` that follows a colon is
+# NOT a comment — it is the scheme separator in a URL, and treating it as one
+# would blank the rest of a line that may still hold real markup.
 #
 # Companion to the vitest suites rather than a substitute: this is the
 # fail-closed grep arm, so the discipline holds even if the test tree regresses.
@@ -73,6 +75,13 @@ strip_comments() {
         }
         block_at = index(line, "/*")
         eol_at = index(line, "//")
+        # A scheme separator, not a comment: skip past `://` and keep looking.
+        while (eol_at > 1 && substr(line, eol_at - 1, 1) == ":") {
+          out = out substr(line, 1, eol_at + 1)
+          line = substr(line, eol_at + 2)
+          block_at = index(line, "/*")
+          eol_at = index(line, "//")
+        }
         if (eol_at > 0 && (block_at == 0 || eol_at < block_at)) {
           out = out substr(line, 1, eol_at - 1)
           line = ""

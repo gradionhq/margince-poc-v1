@@ -22,6 +22,13 @@ import type { UserEvent } from "@testing-library/user-event";
  * what a person would click. Matched exactly by accessible name, so "Won" does
  * not also match "Won (renewal)" — pass a RegExp when a prefix is what you mean.
  *
+ * **The control must be CLOSED when this is called, and one call is one attempt.**
+ * The first thing it does is click the trigger, which toggles — so a second call,
+ * or a `waitFor` retrying this one, closes the popup the previous attempt opened
+ * and then looks for a listbox that is no longer there. A choice that is not
+ * offered yet is not something to retry: open the control once, await the option
+ * (`await screen.findByRole("option", { name })`) and click it.
+ *
  * Throws if the popup does not open or the option is not in it, rather than
  * returning quietly: a pick that silently did nothing is how a test ends up
  * asserting the screen's unchanged initial state and passing.

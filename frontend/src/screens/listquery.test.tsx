@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import {
+  type FilterSpec,
   ListGate,
   type ListGateState,
   type ListPage,
@@ -294,6 +295,52 @@ describe("ListToolbar", () => {
     );
     const lastCall = setQuery.mock.calls.at(-1)?.[0] as ListQuery;
     expect(lastCall.filters).not.toHaveProperty("status");
+  });
+});
+
+// A text filter is a design-system TextInput named by its own spec, and it
+// shares withFilter with the select above: a typed value stores the key, an
+// emptied field deletes it rather than sending `key=""`.
+describe("ListToolbar text filter", () => {
+  const domainFilter: FilterSpec[] = [
+    { kind: "text", key: "domain", label: "people.name" },
+  ];
+
+  it("stores what was typed under the filter's key", () => {
+    const setQuery = vi.fn();
+    render(
+      <ListToolbar
+        query={baseQuery()}
+        setQuery={setQuery}
+        sortOptions={sortOptions}
+        filters={domainFilter}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "acme.test" },
+    });
+    expect(setQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: { domain: "acme.test" } }),
+    );
+  });
+
+  it("drops the key when the field is emptied", () => {
+    const setQuery = vi.fn();
+    render(
+      <ListToolbar
+        query={{ ...baseQuery(), filters: { domain: "acme.test" } }}
+        setQuery={setQuery}
+        sortOptions={sortOptions}
+        filters={domainFilter}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "" },
+    });
+    const lastCall = setQuery.mock.calls.at(-1)?.[0] as ListQuery;
+    expect(lastCall.filters).not.toHaveProperty("domain");
   });
 });
 

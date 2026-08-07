@@ -525,6 +525,9 @@ function runLiquidLoop({
   let timer = 0;
   let drawnOnce = false;
   let onScreen = true;
+  // Seeded by the subscription below, which opens by delivering the state it
+  // already holds. The initial value is what that delivery is compared against,
+  // so it reads the same source rather than assuming focus.
   let windowFocused = isWindowFocused();
   const still = reduced || speed === 0;
   /*
@@ -622,7 +625,14 @@ function runLiquidLoop({
   };
 
   document.addEventListener("visibilitychange", wake);
+  // The subscription opens by restating the state it already holds, which is what
+  // seeds `windowFocused` above. A restatement is not a resume: waking on it would
+  // buy a frame for a loop that has not started yet, and one for every Core that
+  // mounts into a window that never lost focus.
   const releaseFocus = subscribeToWindowFocus((focused) => {
+    if (focused === windowFocused) {
+      return;
+    }
     windowFocused = focused;
     wake();
   });

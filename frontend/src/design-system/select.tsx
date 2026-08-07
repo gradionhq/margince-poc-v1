@@ -69,7 +69,8 @@ export type SelectProps = Readonly<{
 
 // The popup sits this far from the trigger, never closer than this to a viewport
 // edge, and below MIN_ROOM there is not enough room to show a list worth reading
-// — so it flips to the other side rather than being squeezed.
+// — so it flips to the other side rather than being squeezed. MIN_ROOM is that
+// choice of side and nothing else: it never becomes the popup's height.
 const ANCHOR_GAP = 4;
 const VIEWPORT_MARGIN = 8;
 const MIN_ROOM = 96;
@@ -99,7 +100,13 @@ function frameFor(rect: DOMRect, view: { width: number; height: number }) {
   const frame = {
     left: Math.max(VIEWPORT_MARGIN, Math.min(rect.left, rightEdge)),
     width: rect.width,
-    maxHeight: Math.max(flip ? roomAbove : roomBelow, MIN_ROOM),
+    // The room on the side it opens on is a CEILING, never a floor. On a short
+    // viewport — or at browser zoom, which shrinks the viewport in CSS pixels —
+    // both sides can be under MIN_ROOM, and a popup allowed 96px in 40px of room
+    // runs off the screen with its last options unreachable. It takes the room
+    // there is and scrolls inside it. Zero is the floor because a negative
+    // max-height is not a length.
+    maxHeight: Math.max(flip ? roomAbove : roomBelow, 0),
   };
   return flip
     ? { ...frame, bottom: view.height - rect.top + ANCHOR_GAP, above: true }
@@ -126,10 +133,14 @@ function outOfView(rect: DOMRect, viewHeight: number): boolean {
  * and `onLost` closes it once the trigger itself is gone from view.
  *
  * The scroll listener is CAPTURE-phase: scroll does not bubble, so a listener on
- * the window never hears the toolbar's own scroller otherwise.
+ * the window never hears the toolbar's own scroller otherwise. That reach is also
+ * why it has to know the popup: a long option list scrolls inside the popup
+ * itself, which moves the trigger not at all, so those scrolls are not
+ * re-anchoring events.
  */
 function useAnchoredPopup(
   anchor: RefObject<HTMLElement | null>,
+  popup: RefObject<HTMLElement | null>,
   open: boolean,
   onLost: () => void,
 ): PopupFrame | null {
@@ -142,7 +153,14 @@ function useAnchoredPopup(
       setFrame(null);
       return;
     }
-    const place = () => {
+    const place = (event?: Event) => {
+      // A scroll from inside the popup is the reader moving through the option
+      // list, not the anchor moving under it. Recomputing the frame on every
+      // wheel tick there would fight the list they are reading.
+      const scrolled = event?.target;
+      if (scrolled instanceof Node && popup.current?.contains(scrolled)) {
+        return;
+      }
       const element = anchor.current;
       if (!element) {
         return;
@@ -165,7 +183,7 @@ function useAnchoredPopup(
       globalThis.removeEventListener("scroll", place, true);
       globalThis.removeEventListener("resize", place);
     };
-  }, [open, anchor, onLost]);
+  }, [open, anchor, popup, onLost]);
 
   return frame;
 }
@@ -381,7 +399,7 @@ function useSelectListbox(
   // Dismissal WITHOUT moving focus, for the two cases where the reader is
   // already somewhere else: a press outside, and a trigger scrolled out of view.
   const dismiss = useCallback(() => setOpen(false), []);
-  const frame = useAnchoredPopup(trigger, open, dismiss);
+  const frame = useAnchoredPopup(trigger, popup, open, dismiss);
   useDismissOnOutsidePress(open, dismiss, trigger, popup);
   useActiveOptionVisible(open, active, listboxId);
 
@@ -471,17 +489,23 @@ function useActiveOptionVisible(
 }
 
 export function Select(props: SelectProps) {
-  const { options, value, onChange, name } = props;
+  const { options, value, onChange, name, disabled } = props;
   const listbox = useSelectListbox(options, value, onChange);
   const reduced = usePrefersReducedMotion();
 
   return (
     <>
-      <SelectTrigger field={props} listbox={listbox} />
+      <SelectTrigger field={props} listbox={listbox} animate={!reduced} />
       {/* The value a real <form> submits. The trigger is a button, which carries
           no form value of its own, so a screen that posts a form rather than
-          calling the typed client keeps working unchanged. */}
-      {name !== undefined && <input type="hidden" name={name} value={value} />}
+          calling the typed client keeps working unchanged. The mirror carries
+          `disabled` with the control because the browser leaves a disabled
+          control out of the form's entry list: a disabled select that still
+          submitted its value would make the disabled state a lie about what the
+          form sends. */}
+      {name !== undefined && (
+        <input type="hidden" name={name} value={value} disabled={disabled} />
+      )}
       {listbox.open && listbox.frame
         ? createPortal(
             <SelectPopup
@@ -501,9 +525,18 @@ export function Select(props: SelectProps) {
 function SelectTrigger({
   field,
   listbox,
-}: Readonly<{ field: SelectProps; listbox: Listbox }>) {
+  animate,
+}: Readonly<{ field: SelectProps; listbox: Listbox; animate: boolean }>) {
   const { open, active } = listbox;
   const selected = field.options.find((option) => option.value === field.value);
+  // A value that matches no option, with no placeholder to fall back on — a
+  // stale query param, a roster that has not landed yet — still has to leave a
+  // field a reader recognises as empty rather than a box that has shrunk to its
+  // chevron and reads as half-drawn. A non-breaking space rather than a CSS
+  // floor: it needs no copy (every user-facing string here comes from the
+  // catalog) and the suite can assert it, which it cannot do for a stylesheet
+  // jsdom never applies.
+  const face = selected?.label ?? field.placeholder ?? "\u00a0";
   return (
     <button
       type="button"
@@ -512,6 +545,11 @@ function SelectTrigger({
       className={["input", "select-control", field.className ?? ""]
         .filter(Boolean)
         .join(" ")}
+      // The chevron's turn resolves here for the same reason the popup's entry
+      // does — one decision, in one place the suite can assert — and `none`
+      // leaves the END state: the chevron still points at an open list, it just
+      // gets there without a tween.
+      data-motion={animate ? "in" : "none"}
       // NOSONAR: an ARIA combobox over a native <select>, which no engine lets
       // us style past its closed face — see the module comment.
       role="combobox"
@@ -538,7 +576,7 @@ function SelectTrigger({
           selected ? "select-face" : "select-face select-face-placeholder"
         }
       >
-        {selected?.label ?? field.placeholder}
+        {face}
       </span>
       <ChevronDown className="select-chevron" size={16} aria-hidden="true" />
     </button>

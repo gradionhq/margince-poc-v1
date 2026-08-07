@@ -150,6 +150,10 @@ export function AiCallsCard() {
       <SectionHeader title={t("aicalls.title")} sub={t("aicalls.sub")} />
       <QueryStates query={query}>
         <Select
+          // The column header names what this filters on; the control sits above
+          // the table with nothing beside it, so without a name of its own a
+          // screen reader reaches an unnamed combobox.
+          aria-label={t("aicalls.col.task")}
           value={task}
           onChange={setTask}
           // "All tasks" is a real option, not the select's placeholder: a

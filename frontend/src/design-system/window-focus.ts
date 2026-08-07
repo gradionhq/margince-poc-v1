@@ -108,12 +108,22 @@ export function retainWindowFocusSignal(): () => void {
   };
 }
 
-/** Be told when focus changes, for as long as the returned release is unused. */
+/**
+ * Be told when focus changes, for as long as the returned release is unused.
+ *
+ * The CURRENT state arrives first, synchronously, before this returns. That is
+ * the difference between a subscription and a notification: a consumer that only
+ * hears about changes has to seed itself from `isWindowFocused()` and get that
+ * read on the right side of the attach, and a consumer that forgets starts its
+ * life assuming focus it may not have — which for the draw loop means one
+ * frameless sphere until the window is next clicked.
+ */
 export function subscribeToWindowFocus(
   onChange: (focused: boolean) => void,
 ): () => void {
   attachIfFirst();
   listeners.add(onChange);
+  onChange(isWindowFocused());
   return () => {
     listeners.delete(onChange);
     detachIfLast();

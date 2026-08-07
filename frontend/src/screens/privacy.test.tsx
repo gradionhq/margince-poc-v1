@@ -511,6 +511,42 @@ describe("PrivacyInboxCard", () => {
     expect(patches[0]?.body).toEqual({ assignee_id: "u1" });
   });
 
+  // The unassigned entry is a state, not an action: the server's update
+  // coalesces an omitted assignee onto the stored one, so nothing an empty
+  // selection sent could unassign anybody. It stays in the list, disabled, so
+  // the state is legible without being offered.
+  it("shows the unassigned entry but does not offer it as a choice", async () => {
+    const sent = stubRoutes({
+      "GET /users": () =>
+        jsonResponse({
+          data: [
+            {
+              id: "u1",
+              workspace_id: "w",
+              email: "dpo@acme.test",
+              display_name: "Dana DPO",
+              status: "active",
+              is_agent: false,
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    await userEvent.click(await screen.findByLabelText(/assignee/i));
+    const unassigned = within(screen.getByRole("listbox")).getByRole("option", {
+      name: "—",
+    });
+    expect(unassigned).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(unassigned);
+    expect(
+      sent.filter((s) => s.key === "PATCH /data-subject-requests/d1"),
+    ).toHaveLength(0);
+  });
+
   // The assignee select and the row's own status-transition buttons share
   // one `patch` mutation, so a failed assignment must be exactly as visible
   // as a failed transition — this pins that it is, using the assignee path

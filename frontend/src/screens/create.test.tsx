@@ -289,6 +289,54 @@ describe("create modal reset", () => {
   });
 });
 
+// An optional select needs a way back to unset, and the value gets exactly one
+// entry: the generic "Not set" appears only where the field offers no clearing
+// choice of its own, so a screen's own wording is never doubled up.
+describe("an optional select's unset choice", () => {
+  const owner: CreateField = {
+    key: "owner_id",
+    labelText: "Owner",
+    type: "select",
+    options: [
+      { value: "u1", label: "Me" },
+      { value: "", label: "Unassign" },
+    ],
+  };
+
+  function openedOptionLabels(): (string | null)[] {
+    return within(screen.getByRole("listbox"))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+  }
+
+  async function openOwnerList(fields: CreateField[]) {
+    render(
+      <CreateRecordModal
+        open
+        onClose={() => {}}
+        title="New deal"
+        fields={fields}
+        pending={false}
+        error={null}
+        onSubmit={() => {}}
+      />,
+    );
+    await userEvent.click(screen.getByLabelText("Owner"));
+  }
+
+  it("keeps the field's own clearing entry and adds no second one for the same value", async () => {
+    await openOwnerList([owner]);
+    expect(openedOptionLabels()).toEqual(["Me", "Unassign"]);
+  });
+
+  it("synthesizes one when the field offers no way back to unset", async () => {
+    await openOwnerList([
+      { ...owner, options: [{ value: "u1", label: "Me" }] },
+    ]);
+    expect(openedOptionLabels()).toEqual(["Not set", "Me"]);
+  });
+});
+
 describe("deal create flow", () => {
   it("offers only open stages, converts major→minor, and posts the pipeline", async () => {
     const captured: Captured[] = [];

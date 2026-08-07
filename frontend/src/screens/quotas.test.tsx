@@ -1,18 +1,11 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { AttainmentRing } from "../design-system/atoms";
-import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { AttainmentNumbers, PaceLine, QuotasView } from "./quotas";
 import { isOwnerXorTeam, parseEuroMinor } from "./quotas.forms";
@@ -362,26 +355,23 @@ describe("QuotasView", () => {
           422,
         ),
     });
+    const user = userEvent.setup();
     mount(<QuotasView />);
-    await userEvent.click(await screen.findByTestId("quota-create"));
-    // The roster arrives from its own fetch, so the option is not there when the
-    // form opens — and picking one that does not exist yet silently no-ops,
-    // leaving the form unsubmittable. pickOption opens the list and clicks the
-    // person by name, so it can only succeed once the roster has landed.
-    await waitFor(async () =>
-      pickOption(
-        userEvent.setup(),
-        await screen.findByRole("combobox"),
-        "Riya Patel",
-      ),
-    );
+    await user.click(await screen.findByTestId("quota-create"));
+    // The roster arrives from its own fetch, so the person is not in the list
+    // when the form opens — and a subject that was never chosen leaves the form
+    // unsubmittable, which would make this case prove nothing. The list is opened
+    // ONCE and the option awaited inside it: opening again would toggle it shut,
+    // and the popup re-renders in place when the roster lands.
+    await user.click(await screen.findByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "Riya Patel" }));
     const dateInputs = document.querySelectorAll('input[type="date"]');
     fireEvent.change(dateInputs[0], { target: { value: "2026-07-01" } });
     fireEvent.change(dateInputs[1], { target: { value: "2026-09-30" } });
     fireEvent.change(screen.getByLabelText(/Target amount/), {
       target: { value: "280000" },
     });
-    await userEvent.click(screen.getByTestId("quota-create-submit"));
+    await user.click(screen.getByTestId("quota-create-submit"));
     expect(
       await screen.findByText("Choose exactly one of owner or team."),
     ).toBeTruthy();

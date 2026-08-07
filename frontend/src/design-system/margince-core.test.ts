@@ -178,6 +178,22 @@ describe("the Core's stillness", () => {
     // so clicking away from the window would jump it. Paused holds the frame it
     // reached, which is what coming back should look like.
     expect(pausedSelectors().length).toBeGreaterThanOrEqual(3);
+    // And nothing in the same breath takes the animation away again. Counting the
+    // paused selectors alone cannot see that: a rule may declare BOTH, and the
+    // shorthand wins whichever order it is written in — the sphere would snap on
+    // every blur while this assertion still read green.
+    for (const { selectors, body } of rules()) {
+      const blurred = selectors.some((selector) =>
+        selector.startsWith(`:root[${WINDOW_BLURRED_ATTRIBUTE}]`),
+      );
+      if (!blurred) {
+        continue;
+      }
+      expect(
+        body,
+        `${selectors.join(", ")} must pause, not remove`,
+      ).not.toMatch(/animation(-name)?\s*:\s*none/);
+    }
   });
 });
 

@@ -42,6 +42,13 @@
 .select-chevron {
   flex: none;
   color: var(--textSecondary);
+}
+/* The turn itself is unconditional — it is the state, and a reader who asked for
+   less motion still needs the chevron to point at an open list. Only the tween is
+   conditional, and it arrives as `data-motion` from select.tsx for the reason
+   spelled out over the popup's animation below: one decision, in one place the
+   unit suite can read. */
+.select-control[data-motion="in"] .select-chevron {
   transition: transform 0.15s;
 }
 .select-control[aria-expanded="true"] .select-chevron {

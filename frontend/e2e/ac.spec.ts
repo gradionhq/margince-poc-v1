@@ -852,6 +852,15 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
           // every width, so a count would pass on a Core the phone layout still
           // shows — which is the thing this width is supposed to be free of.
           await expect(page.locator("[data-core-state]")).toBeHidden();
+          // NONE of the region's copy survives either, named part by part: the
+          // region hides as one box, so a future rule that lifted a line of it
+          // back into the task column would leave this width claiming to be the
+          // form alone while a sentence about the AI sat above the fields.
+          await expect(page.locator(".auth-kicker")).toBeHidden();
+          await expect(page.locator(".auth-statement")).toBeHidden();
+          // The LIST, not its items: a locator that resolves to four elements is a
+          // strict-mode violation rather than an assertion.
+          await expect(page.locator(".auth-limits")).toBeHidden();
           // The class, not the tag: `RaillessFrame` already wraps every
           // rail-less screen in a `<main>`, so the task region is a `<div>` —
           // a second `<main>` here would be an invalid, duplicate landmark.

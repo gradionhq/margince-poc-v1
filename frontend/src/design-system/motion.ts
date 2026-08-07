@@ -143,35 +143,39 @@ export const INTRO_MS = 2400;
  * choreography on every one of them. Copy that types itself out again, after
  * the reader has already read it, reads as the page reloading under them.
  *
- * The mark is set once the intro HAS RUN ITS COURSE rather than at mount, and
- * that is what makes it survive React's development double-mount: the second
- * mount arrives long before the sequence is over, so it still plays, while a
- * remount after the fact renders the end state.
+ * What is recorded is a DEADLINE, stamped by the first mount: the moment the
+ * document stops being newly loaded. Anything mounting before it plays, anything
+ * after it renders the end state.
+ *
+ * A deadline rather than a "spent" flag set on a timer, and the difference is a
+ * real hole: a timer belongs to the mount that started it, so an unmount cancels
+ * it and the next mount starts a fresh one — a surface that remounts every couple
+ * of seconds would keep pushing the finish line out and replay its intro every
+ * time. An absolute instant cannot be pushed. It also needs no timer at all,
+ * which is one fewer thing to cancel.
  *
  * It is kept on the document element rather than in a module variable because
  * the document is what the rule is about: a real page load builds a new one and
  * the intro comes back with it, which is exactly when a reader expects to see
- * it. It is also then observable — a stylesheet, a test or a browser can read
- * whether this document has been introduced.
+ * it. It is also then observable — a test or a browser can read when this
+ * document stopped being new.
  */
-const INTRO_MARK = "marginceIntro";
+const INTRO_UNTIL = "marginceIntroUntil";
 
 export function useDocumentIntro(): boolean {
-  // Read at mount and held: the mark lands while this component is alive, and a
-  // surface whose intro is mid-flight must not lose its animation halfway.
-  const [play] = useState(
-    () => document.documentElement.dataset[INTRO_MARK] !== "spent",
-  );
-
-  useEffect(() => {
-    if (!play) {
-      return;
+  // Decided once, at mount, and held: the deadline passes while this component is
+  // alive, and a surface whose intro is mid-flight must not lose its animation
+  // halfway through it.
+  const [play] = useState(() => {
+    const root = document.documentElement;
+    const until = Number(root.dataset[INTRO_UNTIL]);
+    if (Number.isFinite(until)) {
+      return performance.now() < until;
     }
-    const timer = setTimeout(() => {
-      document.documentElement.dataset[INTRO_MARK] = "spent";
-    }, INTRO_MS);
-    return () => clearTimeout(timer);
-  }, [play]);
+    // The first mount in this document is the one that starts the clock.
+    root.dataset[INTRO_UNTIL] = String(performance.now() + INTRO_MS);
+    return true;
+  });
 
   return play;
 }

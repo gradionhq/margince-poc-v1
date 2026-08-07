@@ -172,6 +172,15 @@
   display: block;
 }
 
+/* `width: 100%`, and it is load-bearing rather than tidy: centring the task
+   column's items (`.auth-task-in`) turns off the cross-axis stretch a flex column
+   gives its children by default, so a card with no width of its own shrinks to fit
+   its content — and the fields, the provider buttons and the submit then measure
+   whatever the longest label happens to be instead of the column's 400px. */
+.auth-card,
+.auth-notice {
+  width: 100%;
+}
 .auth-card {
   background: transparent;
   border: 0;
@@ -885,15 +894,17 @@
   color: var(--textContent);
 }
 /*
- * Centred on the FIRST LINE of the text, not on the block — the badge belongs
- * beside the words it opens.
+ * The badge is centred on its limit by the ROW (`.auth-limits li` aligns its items
+ * centre), so it carries no offset of its own. It used to: the row was top-aligned
+ * and the badge shifted down by half the difference between the line box and
+ * itself, to sit on the first line of a wrapping limit. Both mechanisms at once is
+ * a badge centred and then pushed off centre.
  *
- * Neither flex keyword can do it. `flex-start` aligns the two boxes' TOPS, and a
- * 22px badge against a 16.8px line box then sits 2.6px low. `center` is right for
- * a one-line limit and wrong for a wrapped one — German runs these to two and
- * three lines, and there it puts the badge in the middle of the paragraph. Half
- * the difference between the line box and the badge is the offset that holds in
- * both, so it is spelled as that subtraction rather than as a magic -2.6px.
+ * What that costs, stated: a limit long enough to wrap gets its badge beside the
+ * MIDDLE of the paragraph rather than beside its first line. The limits are short
+ * by design — one clause each — and they flow as a wrapping row now rather than
+ * being squeezed into fixed columns, so a wrapped one is the exception; if a
+ * translation makes it the rule, the row is what changes, in one place.
  */
 .auth-limit-icon {
   --limitIcon: 22px;
@@ -902,7 +913,6 @@
   place-items: center;
   width: var(--limitIcon);
   height: var(--limitIcon);
-  margin-top: calc((1lh - var(--limitIcon)) / 2);
   border-radius: var(--r-sm);
   color: var(--accent);
   background: var(--accentSurface);

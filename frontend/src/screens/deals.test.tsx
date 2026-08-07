@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -558,6 +559,54 @@ describe("DealsScreen filters", () => {
     await waitFor(() =>
       expect(urls.some((u) => u.includes("pipeline_id=pl2"))).toBe(true),
     );
+  });
+
+  // The board always shows one pipeline, so an unset choice would fall straight
+  // back to the default one — the pipeline list therefore offers pipelines
+  // only. The stage filter's "all" entry clears a query filter, which the board
+  // can actually show, so that one stays.
+  it("offers pipelines only, while the stage filter keeps its all-stages entry", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        pipelines: [
+          {
+            id: "pl",
+            workspace_id: "w",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages,
+          },
+          {
+            id: "pl2",
+            workspace_id: "w",
+            name: "Renewals",
+            is_default: false,
+            position: 1,
+            stages,
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await screen.findByText("Fleet retrofit");
+
+    await user.click(screen.getByLabelText("Pipeline"));
+    expect(
+      within(screen.getByRole("listbox"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Sales", "Renewals"]);
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByLabelText("Stage"));
+    expect(
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: "All stages",
+      }),
+    ).toBeTruthy();
   });
 
   it("the stalled filter adds stalled=true to the deals query", async () => {

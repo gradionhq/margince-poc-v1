@@ -189,7 +189,7 @@ numbers appear here when releases start.
   the AI's own sentence with them, because the form is the only thing that
   screen is for. That leaves the phone surface disclosing nothing about the
   AI behind the installation, which is a deliberate departure from
-  ADR-0076 Decision 1 at that width and owed back to the spec; every wider
+  ADR-0076 Decision 1 at that width, tracked as issue #562; every wider
   layout still makes the disclosure in full.
 - **The sign-in screen's entry animation belongs to the page load.** The
   staggered fades and the typed statement ran again on every React remount

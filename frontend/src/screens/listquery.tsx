@@ -12,6 +12,7 @@ import {
   EmptyState,
   SearchField,
   Skeleton,
+  TextInput,
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
@@ -214,10 +215,9 @@ export function ListToolbar({
               ]}
             />
           ) : (
-            <input
+            <TextInput
               key={filter.key}
               type="text"
-              className="input"
               aria-label={t(filter.label)}
               value={query.filters[filter.key] ?? ""}
               onChange={(event) =>

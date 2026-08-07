@@ -55,6 +55,29 @@ function renderSelect(props: Partial<SelectProps> = {}) {
   };
 }
 
+// What a real <form> would post for this control. FormData reads a form, and the
+// trigger is a button that carries no value, so submitting one is the only way to
+// ask what the select actually contributes.
+function submittedStage(
+  props: Partial<SelectProps> = {},
+): FormDataEntryValue | null {
+  render(
+    <form aria-label="Deal">
+      <Select
+        aria-label="Stage"
+        name="stage"
+        options={STAGES}
+        value="won"
+        onChange={() => {}}
+        {...props}
+      />
+    </form>,
+  );
+  return new FormData(
+    screen.getByRole<HTMLFormElement>("form", { name: "Deal" }),
+  ).get("stage");
+}
+
 // jsdom lays nothing out, so every box it reports is zeros. A test that needs the
 // geometry decisions — flip above, close when gone — states the box the browser
 // would have measured.
@@ -115,6 +138,15 @@ describe("the trigger", () => {
     expect(trigger.textContent).toContain("Pick a stage");
   });
 
+  // Both halves of the face can be missing at once: the value matches no option
+  // AND the call site holds no placeholder, which is what a stale query param or
+  // a roster still in flight looks like. The control has to go on reading as an
+  // empty field rather than a bare chevron, so the face keeps a line of its own.
+  it("keeps a face when the value matches no option and there is no placeholder", () => {
+    const { trigger } = renderSelect({ value: "retired" });
+    expect(trigger.textContent).toBe("\u00a0");
+  });
+
   // The Field atom hands its control an id, the required flag and the hint to be
   // described by — every screen spreads that object whole, so all three have to
   // land on the trigger, and the <label> has to name it.
@@ -156,24 +188,19 @@ describe("the trigger", () => {
   // A real <form> reads values off form controls, and a button is not one. The
   // hidden input is how a screen that posts a form still submits this choice.
   it("mirrors the value onto a hidden input when a name is given", () => {
-    render(
-      <form aria-label="Deal">
-        <Select
-          aria-label="Stage"
-          name="stage"
-          options={STAGES}
-          value="won"
-          onChange={() => {}}
-        />
-      </form>,
-    );
-    const form = screen.getByRole("form", { name: "Deal" });
-    expect(new FormData(form as HTMLFormElement).get("stage")).toBe("won");
+    expect(submittedStage()).toBe("won");
   });
 
   it("renders no hidden input when no name is given", () => {
     renderSelect();
     expect(document.querySelector("input[type=hidden]")).toBeNull();
+  });
+
+  // A native disabled <select> is left out of the form's entry list, and the
+  // mirror has to say the same thing: a form that posts the value of a control
+  // the reader was not allowed to touch is submitting a choice nobody made.
+  it("submits nothing from a disabled control", () => {
+    expect(submittedStage({ disabled: true })).toBeNull();
   });
 });
 
@@ -278,6 +305,71 @@ describe("the popup", () => {
     expect(box?.style.top).toBe("");
     // Matches the trigger's width so the popup reads as the same control.
     expect(box?.style.width).toBe("200px");
+  });
+
+  // A viewport with less than the 96px flip threshold on EITHER side of the
+  // trigger — a short window, or any window at 200% zoom, which is measured in
+  // CSS pixels. Flipping cannot buy room that is not there, so the popup takes
+  // the room it has and scrolls inside it; a floor here would hang the last
+  // options off the screen where nothing can reach them.
+  it("never claims more height than the side it opened into has", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("innerHeight", 140);
+
+    const near = renderSelect();
+    vi.spyOn(near.trigger, "getBoundingClientRect").mockReturnValue(
+      rectAt(40, 50, 200, 34),
+    );
+    await user.click(near.trigger);
+
+    // Down, because 44px below beats 38px above — and clamped to that 44: the
+    // trigger's bottom (84) plus the 4px gap plus 44 lands on the 8px margin.
+    const below = screen.getByRole("listbox").parentElement;
+    expect(below?.dataset.above).toBeUndefined();
+    expect(below?.style.top).toBe("88px");
+    expect(below?.style.maxHeight).toBe("44px");
+
+    cleanup();
+    const low = renderSelect();
+    vi.spyOn(low.trigger, "getBoundingClientRect").mockReturnValue(
+      rectAt(40, 90, 200, 34),
+    );
+    await user.click(low.trigger);
+
+    // Flipped, with 4px below and 78px above, and clamped to that 78 — a popup
+    // anchored 54px off the bottom and taller than 78 starts above the window.
+    const above = screen.getByRole("listbox").parentElement;
+    expect(above?.dataset.above).toBe("true");
+    expect(above?.style.bottom).toBe("54px");
+    expect(above?.style.maxHeight).toBe("78px");
+  });
+
+  it("re-anchors on a page scroll, but not when its own list is scrolled", async () => {
+    const user = userEvent.setup();
+    const { trigger } = renderSelect();
+    const box = vi
+      .spyOn(trigger, "getBoundingClientRect")
+      .mockReturnValue(rectAt(40, 100, 200, 34));
+
+    await user.click(trigger);
+    const listbox = screen.getByRole("listbox");
+    const popup = listbox.parentElement;
+    expect(popup?.style.top).toBe("138px");
+
+    // The trigger has moved, but this scroll came from the popup's own scroller:
+    // the reader is working down a long option list, and re-anchoring on every
+    // wheel tick moves the list out from under them.
+    box.mockReturnValue(rectAt(40, 200, 200, 34));
+    act(() => {
+      listbox.dispatchEvent(new Event("scroll"));
+    });
+    expect(popup?.style.top).toBe("138px");
+
+    // The same moved trigger, reported by a scroll of the page: that one counts.
+    act(() => {
+      globalThis.dispatchEvent(new Event("scroll"));
+    });
+    expect(popup?.style.top).toBe("238px");
   });
 });
 
@@ -617,6 +709,24 @@ describe("reduced motion", () => {
       "in",
     );
   });
+
+  // The chevron's turn is resolved the same way as the popup's entry, in the
+  // component rather than a second media query, so both halves of the preference
+  // are readable here. Under reduced motion the turn still HAPPENS — it is the
+  // control's state, and only the tween goes.
+  it("drops the chevron's tween without dropping the turn", async () => {
+    stubReducedMotion(true);
+    const user = userEvent.setup();
+    const { trigger } = renderSelect();
+    expect(trigger.dataset.motion).toBe("none");
+
+    await user.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    cleanup();
+    stubReducedMotion(false);
+    expect(renderSelect().trigger.dataset.motion).toBe("in");
+  });
 });
 
 describe("pickOption", () => {
@@ -625,6 +735,19 @@ describe("pickOption", () => {
     const { trigger, changes } = renderSelect();
 
     await expect(pickOption(user, trigger, "Renewal")).rejects.toThrow();
+    expect(changes).toEqual([]);
+  });
+
+  // It clicks the trigger first, so it takes a CLOSED control and one call is one
+  // attempt. Handed an open one it toggles the list shut and then has nothing to
+  // pick from — which it says out loud, because a helper that returned quietly
+  // here would leave a suite asserting an untouched form and passing.
+  it("refuses an already-open control rather than closing it and going quiet", async () => {
+    const user = userEvent.setup();
+    const { trigger, changes } = renderSelect();
+
+    await user.click(trigger);
+    await expect(pickOption(user, trigger, "Won")).rejects.toThrow();
     expect(changes).toEqual([]);
   });
 });

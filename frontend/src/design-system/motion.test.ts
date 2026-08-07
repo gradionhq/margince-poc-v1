@@ -85,9 +85,9 @@ describe("useTypeStream", () => {
 // under them.
 describe("useDocumentIntro", () => {
   beforeEach(() => {
-    // A fresh document per case: the mark lives on the document element, which
+    // A fresh document per case: the deadline lives on the document element, which
     // one test file shares across all of its cases.
-    delete document.documentElement.dataset.marginceIntro;
+    delete document.documentElement.dataset.marginceIntroUntil;
     vi.useFakeTimers();
   });
 
@@ -109,11 +109,27 @@ describe("useDocumentIntro", () => {
     expect(later.result.current).toBe(false);
   });
 
+  it("holds the deadline the FIRST mount set, however often the surface remounts", () => {
+    // The hole this closes: a countdown owned by a mount is cancelled by its
+    // unmount, so a surface that rebuilds every second would restart the window
+    // each time and replay its intro indefinitely. The deadline is an instant, and
+    // an instant cannot be pushed out.
+    for (let elapsed = 0; elapsed < INTRO_MS; elapsed += INTRO_MS / 4) {
+      const mount = renderHook(() => useDocumentIntro());
+      expect(mount.result.current).toBe(true);
+      mount.unmount();
+      act(() => {
+        vi.advanceTimersByTime(INTRO_MS / 4);
+      });
+    }
+
+    expect(renderHook(() => useDocumentIntro()).result.current).toBe(false);
+  });
+
   it("still plays for a remount that lands while the intro is mid-flight", () => {
-    // This is React's development double-mount, and it is why the mark is set
-    // when the sequence ENDS rather than when it starts: at mount time the flag
-    // would already be spent by the time the second mount reads it, and the
-    // animation nobody has seen yet would be skipped.
+    // React's development double-mount, and it is why the rule is a deadline
+    // rather than "one mount gets it": the second mount lands milliseconds after
+    // the first, so an intro nobody has seen yet must still be playing.
     const first = renderHook(() => useDocumentIntro());
     act(() => {
       vi.advanceTimersByTime(INTRO_MS / 4);
@@ -126,15 +142,17 @@ describe("useDocumentIntro", () => {
   });
 
   it("keeps playing for the mount that owns an intro already under way", () => {
-    // The hook reads the mark once and holds the answer: a surface must not lose
-    // its animation halfway through because the mark landed mid-sequence.
+    // The hook decides once and holds the answer: a surface must not lose its
+    // animation halfway through because the deadline passed mid-sequence.
     const { result } = renderHook(() => useDocumentIntro());
     act(() => {
       vi.advanceTimersByTime(INTRO_MS * 2);
     });
 
     expect(result.current).toBe(true);
-    // And the document is marked, which is what the next mount reads.
-    expect(document.documentElement.dataset.marginceIntro).toBe("spent");
+    // And the document carries the deadline, which is what the next mount reads.
+    expect(
+      Number(document.documentElement.dataset.marginceIntroUntil),
+    ).toBeGreaterThan(0);
   });
 });
