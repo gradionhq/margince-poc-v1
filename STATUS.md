@@ -48,6 +48,30 @@ composite-value shape because its CHECK spans both columns.
 Ratified upstream (margince-foundation#1253). Phase 1 — the settings table — is
 done, which is what let the `workspace` row's own values move off it.
 
+**A process-wide installation fallback in `platform/database` is the wrong first
+slice — tried and withdrawn (#557).** The idea was for `WithWorkspaceTx` to bind
+a boot-resolved singleton when the context carries none. It has no consumer:
+`identity/middleware.go` binds the singleton into EVERY request context, public
+paths included, before the `isPublicRequest` branch — so in `cmd/api` nothing
+reaches the database unbound. And `cmd/worker` never calls `EnsureInstallation`,
+so there the pointer stays nil. The fallback fires nowhere while removing the
+loud `ErrNoWorkspace` guard from all 910 call sites.
+
+Two things it also got wrong, worth knowing before anyone tries again.
+`WithWorkspaceTx` hands `fn` the ORIGINAL context, so a fallback-bound
+transaction has the GUC set to the installation while `storekit.MustWorkspace`
+returns the zero UUID — the domain row and its audit/outbox rows would name
+different tenants, and `LockWriteIdentity` would key its advisory lock on zero.
+Two comments in `storekit` state that invariant verbatim. And the global leaks
+across the `compose/integration` binary: 155 sites bootstrap, nothing unbinds,
+`testdb.Reset` truncates between tests, so the pointer ends up naming a deleted
+workspace in the one lane that owns the isolation proofs.
+
+**What to do instead.** The value in §9 step 3 is the fleet loops, and they need
+no global: they already bind explicitly by ENUMERATING workspaces. Under a
+singleton each should resolve `identity.InstallationWorkspace` once and stop
+enumerating. No fallback, no guard removed, one loop per PR.
+
 The sequencing in ADR-0091 §9 is **binding, not advisory**: the Go plumbing
 collapses while RLS is still armed, because the tenant-isolation suite staying
 green is the only mechanical proof that an 887-call-site edit stayed faithful,
