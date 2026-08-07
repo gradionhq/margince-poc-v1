@@ -319,5 +319,15 @@ func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	if report.Deals == nil {
 		report.Deals = []AtRiskDeal{}
 	}
+	// The NESTED list too, and at the same boundary for the same reason: a deal
+	// reported as at risk with a null findings list tells a model nothing about
+	// why, where an empty one would say the deal carries no finding at all. The
+	// declared schema requires it, so a null would also cost the whole answer
+	// its structured half.
+	for i := range report.Deals {
+		if report.Deals[i].Risks == nil {
+			report.Deals[i].Risks = []CoverageRisk{}
+		}
+	}
 	return json.Marshal(report)
 }

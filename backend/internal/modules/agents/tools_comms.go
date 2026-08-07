@@ -40,7 +40,7 @@ type Comms interface {
 	// SendMessage refuses on — but this module may not import activities
 	// directly (modules never import a sibling), so the seam carries it.
 	IsChannelKind(kind string) bool
-	Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (json.RawMessage, error)
+	Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (AvailabilityResult, error)
 	BookMeeting(ctx context.Context, in BookMeetingArgs) (json.RawMessage, error)
 }
 

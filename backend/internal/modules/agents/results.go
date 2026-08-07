@@ -12,9 +12,18 @@ package agents
 // no gate would notice, because the schema said nothing to contradict.
 //
 // A named type fixes both halves at once. It is what the handler marshals, so the
-// wire shape is the type's; and it is what `tools/gen-toolshapes` reflects into
-// the declared schema, so the schema is the type's too. Neither can move without
-// the other.
+// wire shape is the type's; and outputshapes.go derives the declared schema from
+// the same type, so the schema is the type's too. Neither can move without the
+// other.
+//
+// TWO TYPES HERE MARSHAL NOTHING, and that is deliberate rather than dead:
+// PassthroughEntityResult and RunReportResult describe results another module
+// builds. This surface must not re-marshal those — doing
+// so would drop whatever the producing entity carries and silently move the
+// wire — so the type exists to DECLARE the guaranteed subset, and the
+// conformance suite in the integration lane holds each one to what the real
+// handler answers with. A declaration nothing checked would be the comment this
+// whole change is replacing.
 //
 // WHAT BELONGS HERE. The shape of a RESULT, and nothing else. These types carry
 // no behaviour: they are the wire, written down. A field's json tag is the wire
@@ -31,6 +40,7 @@ package agents
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -206,7 +216,13 @@ type DraftFollowUpsResult struct {
 // every other tool puts them.
 type UpdateWithStagedApprovalResult struct {
 	wireRecord
-	StagedApproval stagedApprovalNote `json:"staged_approval"`
+	// A POINTER, and therefore optional, because this type declares BOTH shapes
+	// update_record answers with: the plain read-back when every field applied,
+	// and the read-back plus the staged note when some did not. Two schemas for
+	// one tool would make a caller pick which it was reading; one schema with an
+	// optional member says exactly what is true — the note is there when a human
+	// last wrote one of the fields, and absent otherwise.
+	StagedApproval *stagedApprovalNote `json:"staged_approval,omitempty"`
 }
 
 // SendEmailResult is what send_email answers once a human has released it.
@@ -227,8 +243,8 @@ type SendMessageResult struct {
 
 // FreeSlot is one interval a host is free, as the scheduling store reports it.
 type FreeSlot struct {
-	Start string `json:"start"`
-	End   string `json:"end"`
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
 }
 
 // AvailabilityResult is what check_availability answers.
@@ -253,6 +269,34 @@ type AvailabilityResult struct {
 // this". A caller that needs more reads the record it names.
 type PassthroughEntityResult struct {
 	ID ids.UUID `json:"id"`
+}
+
+// RunReportResult is the envelope every report answers with.
+//
+// Only the ROWS are dynamic. A report's columns come from the plan the caller
+// sent, so `rows` is declared as objects and nothing is said about their
+// members — but the envelope around them is the same for every report, and
+// declaring it is what lets a caller find the columns, read the row count, and
+// follow the drill-through handle without calling once to find out.
+//
+// The engine owns this shape; the members here are the ones its contract makes
+// required, so this is a guaranteed subset like the passthroughs and the
+// conformance suite holds it to a real report.
+type RunReportResult struct {
+	Report  string   `json:"report"`
+	Columns []string `json:"columns"`
+	// Plan is the validated query plan that ran — the caller's own request, back
+	// in the words the engine accepted, so a model can see what its arguments
+	// were understood to mean.
+	Plan json.RawMessage `json:"plan"`
+	// Rows are aggregate rows whose members ARE the columns above. Their shape
+	// is the plan's, which is why nothing is declared about them here.
+	Rows []json.RawMessage `json:"rows"`
+	// TotalRows and DerivationURL are absent on a report that carries neither;
+	// the handle is what "explain this number" follows.
+	TotalRows     *int    `json:"total_rows,omitempty"`
+	DerivationURL *string `json:"derivation_url,omitempty"`
+	GeneratedAt   *string `json:"generated_at,omitempty"`
 }
 
 // marshalResult encodes a typed seam answer for the wire, carrying the seam's

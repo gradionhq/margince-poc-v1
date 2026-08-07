@@ -34,7 +34,23 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func TestEveryToolAnswerSatisfiesTheSchemaItAdvertises(t *testing.T) {
+// The tools NOT reached here, and why — because a suite that quietly covered
+// half the surface under a name claiming all of it would be the more dangerous
+// half of a gate.
+//
+// The 🟡 confirm-first tools (archive_record, merge_records, promote_lead,
+// disqualify_lead's sibling advance_project_phase, book_meeting, send_email,
+// send_message, enrich) do not RETURN a result to an agent at all: the gate
+// stages them and answers with an approval reference, so there is no document
+// to hold to a schema until a human has decided. Reaching their results means
+// driving the approval loop, which is the approvals suites' subject, not this
+// one's. advance_deal and draft_follow_ups_for need a stage move onto a closing
+// stage and a drafting seam respectively.
+//
+// What that leaves unproven is named rather than implied: those tools' declared
+// schemas are checked by derivation (the type IS the schema) and by the
+// encoder-agreement test in the agents package, but not against a live handler.
+func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
@@ -58,6 +74,7 @@ func TestEveryToolAnswerSatisfiesTheSchemaItAdvertises(t *testing.T) {
 
 	for _, call := range []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
+		{"run_report", `{"report":"deals-by-stage"}`},
 		{"search_records", `{"q":"Conformance"}`},
 		{"search_records", `{"q":"Conformance","record_type":"person","limit":5}`},
 		// A query that matches nothing: the empty answer has to keep the shape

@@ -917,7 +917,42 @@
     ]
   },
   "run_report": {
-    "type": "object"
+    "type": "object",
+    "properties": {
+      "columns": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "derivation_url": {
+        "type": "string"
+      },
+      "generated_at": {
+        "type": "string"
+      },
+      "plan": {
+        "type": "object"
+      },
+      "report": {
+        "type": "string"
+      },
+      "rows": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "total_rows": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "columns",
+      "plan",
+      "report",
+      "rows"
+    ]
   },
   "search_records": {
     "type": "object",
@@ -1003,6 +1038,33 @@
       },
       "record_type": {
         "type": "string"
+      },
+      "staged_approval": {
+        "type": "object",
+        "properties": {
+          "approval_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          },
+          "replay": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "approval_id",
+          "fields",
+          "message",
+          "replay"
+        ]
       },
       "trust_tier": {
         "type": "string"

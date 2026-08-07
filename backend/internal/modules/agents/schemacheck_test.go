@@ -48,7 +48,7 @@ func TestTheSchemaCheckerReportsTheWayAResultMissesItsSchema(t *testing.T) {
 func TestTheSchemaCheckerReachesInsideArraysAndMaps(t *testing.T) {
 	list := schemaFor[WhatsSlippingResult]()
 	defect := ResultDefect(list, json.RawMessage(`{"deals":[{"rank":1,"deal_id":"x","name":"A","evidence":[]},{"rank":"two","deal_id":"y","name":"B","evidence":[]}]}`))
-	if !strings.Contains(defect, "deals[1]") || !strings.Contains(defect, "declared a number") {
+	if !strings.Contains(defect, "deals[1]") || !strings.Contains(defect, "declared an integer") {
 		t.Errorf("defect = %q, want it to name the offending item and what was declared", defect)
 	}
 
@@ -150,5 +150,55 @@ func TestTheCheckerNamesWhatItFoundWithoutQuotingItWhole(t *testing.T) {
 	defect = ResultDefect(json.RawMessage(`{"type":"boolean"}`), json.RawMessage(long))
 	if !strings.Contains(defect, "…") || len(defect) > 120 {
 		t.Errorf("defect = %q, want the found value summarized rather than quoted whole", defect)
+	}
+}
+
+// A required member is required to have a VALUE, not merely a key. `null` in a
+// required member is the shape of a bug — a handler that built the field and
+// left it empty — and reporting it as satisfied would let exactly the defect
+// these schemas exist to catch through.
+func TestNullInARequiredMemberIsADefect(t *testing.T) {
+	schema := schemaFor[ArchiveResult]()
+	defect := ResultDefect(schema, json.RawMessage(`{"archived":null,"record_type":"person","id":"x"}`))
+	if defect == "" {
+		t.Error("a null in a required member was reported as satisfying the schema")
+	}
+}
+
+// A hand-written schema is free to use JSON Schema's own vocabulary, and the
+// checker reads a schema it did not derive on every call to an extension tool.
+// `additionalProperties: false` is the shape that caught this: a reader that
+// could not parse it reported a perfectly good schema as unreadable and
+// withheld structured content from every call to the tool declaring it.
+func TestAHandWrittenSchemaUsingJSONSchemasOwnVocabularyIsReadable(t *testing.T) {
+	for name, schema := range map[string]string{
+		"a closed object": `{"type":"object","properties":{"quote":{"type":"string"}},"required":["quote"],"additionalProperties":false}`,
+		"an open object":  `{"type":"object","properties":{"quote":{"type":"string"}},"additionalProperties":true}`,
+		"typed extras":    `{"type":"object","additionalProperties":{"type":"string"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if defect := ResultDefect(json.RawMessage(schema), json.RawMessage(`{"quote":"it ain't over"}`)); defect != "" {
+				t.Errorf("a valid schema was reported as %q", defect)
+			}
+		})
+	}
+	// The typed arm still binds: extras of the wrong type are a defect.
+	if defect := ResultDefect(json.RawMessage(`{"type":"object","additionalProperties":{"type":"string"}}`),
+		json.RawMessage(`{"quote":7}`)); defect == "" {
+		t.Error("a typed additionalProperties schema did not bind the members it describes")
+	}
+}
+
+// An integer is not a number with a zero fraction: a version, a count and a
+// rank are integers on this surface, and a caller told "integer" that receives
+// 1.5 has been told something false.
+func TestAFractionalValueDoesNotSatisfyADeclaredInteger(t *testing.T) {
+	if defect := ResultDefect(json.RawMessage(`{"type":"object","properties":{"version":{"type":"integer"}}}`),
+		json.RawMessage(`{"version":1.5}`)); defect == "" {
+		t.Error("1.5 was reported as satisfying a declared integer")
+	}
+	if defect := ResultDefect(json.RawMessage(`{"type":"object","properties":{"version":{"type":"integer"}}}`),
+		json.RawMessage(`{"version":3}`)); defect != "" {
+		t.Errorf("a whole number was reported as %q against a declared integer", defect)
 	}
 }

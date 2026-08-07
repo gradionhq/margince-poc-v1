@@ -24,8 +24,9 @@ package agents
 // schema reads "at least these fields". That is the honest claim for two
 // different reasons at once: a result carrying a field this build does not know
 // is not a violation a client should reject, and — for the tools whose handler
-// passes another module's entity straight through (see partialResult) — the
-// declared fields really are a subset by construction.
+// passes another module's entity straight through (PassthroughEntityResult,
+// AvailabilityResult, RunReportResult) — the declared fields really are a
+// subset by construction.
 
 import (
 	"encoding"
@@ -35,6 +36,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // The JSON Schema type tokens this surface emits. Named once, because the
@@ -54,23 +56,60 @@ const (
 // document's, which this surface cannot know.
 var rawMessageType = reflect.TypeOf(json.RawMessage(nil))
 
-// schemaFor renders T's JSON Schema. It is called once per tool, while the
-// composition wires the registry, and panics on a type it cannot describe —
-// which is a defect in a result type, at the only moment it can still be fixed.
+// schemaFor renders T's JSON Schema, ONCE per type for the life of the process.
+//
+// The caching is not a micro-optimization: Spec() is called on a REQUEST path —
+// Registry.Invoke reads it to admit a call, and the dispatcher reads it again to
+// validate the answer — so a schemaFor that walked the type each time would run
+// a full reflection descent and a marshal on every tool call, for a value that
+// cannot change.
+//
+// It panics on a type it cannot describe, which is a defect in a result type. A
+// tool's Spec is built while the composition wires the registry, so that is
+// where it first fires: at boot, at the only moment it can still be fixed.
 func schemaFor[T any]() json.RawMessage {
+	return derivedSchema[T]()
+}
+
+// derivedSchema is the once-per-type derivation schemaFor hands out.
+//
+// The cache is a map keyed by the reflect.Type rather than a per-instantiation
+// sync.OnceValue, because Go does not admit a generic function value to hang one
+// off. Registration is single-threaded and the reads that follow are concurrent,
+// so the mutex guards the write-then-read ordering rather than contention: after
+// boot every lookup is a read.
+func derivedSchema[T any]() json.RawMessage {
 	var zero T
-	schema, err := describeType(reflect.TypeOf(&zero).Elem())
+	t := reflect.TypeOf(&zero).Elem()
+
+	schemaCache.mu.RLock()
+	cached, ok := schemaCache.byType[t]
+	schemaCache.mu.RUnlock()
+	if ok {
+		return cached
+	}
+
+	schema, err := describeType(t)
 	if err != nil {
 		//craft:ignore panic-in-domain composition-time schema derivation — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: cannot describe %T as a result schema: %v", zero, err))
+		panic(fmt.Sprintf("crmagents: cannot describe %s as a result schema: %v", t, err))
 	}
 	raw, err := json.Marshal(schema)
 	if err != nil {
 		//craft:ignore panic-in-domain composition-time schema derivation — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: cannot encode the result schema for %T: %v", zero, err))
+		panic(fmt.Sprintf("crmagents: cannot encode the result schema for %s: %v", t, err))
 	}
+	schemaCache.mu.Lock()
+	defer schemaCache.mu.Unlock()
+	schemaCache.byType[t] = raw
 	return raw
 }
+
+// schemaCache holds one derivation per result type for the life of the process.
+var schemaCache = struct {
+	mu     sync.RWMutex
+	byType map[reflect.Type]json.RawMessage
+}{byType: map[reflect.Type]json.RawMessage{}}
 
 // jsonSchema is the subset of JSON Schema this surface emits. It is a struct
 // rather than a map so the member ORDER is fixed: a schema is embedded verbatim
@@ -90,7 +129,45 @@ type jsonSchema struct {
 	// struct it stays nil, which is JSON Schema's "anything else is allowed" —
 	// see the file comment for why that is the honest default here.
 	//nolint:tagliatelle // additionalProperties is JSON Schema's own member name, camelCase by that spec
-	AdditionalProperties *jsonSchema `json:"additionalProperties,omitempty"`
+	AdditionalProperties *additionalProperties `json:"additionalProperties,omitempty"`
+}
+
+// additionalProperties is JSON Schema's own union: a BOOLEAN closing or opening
+// the object, or a SCHEMA every extra member must satisfy.
+//
+// It is a union rather than just the schema because a hand-written schema is
+// free to use either — `extensions/yogi` closes its result with `false`, and a
+// reader that could not parse that would report a perfectly good schema as
+// unreadable and withhold structured content from every call to that tool. The
+// deriver only ever emits the schema arm, for a map's values.
+type additionalProperties struct {
+	// Closed is set when the member was a boolean. false means no member beyond
+	// the declared ones is allowed; true is the default and says nothing.
+	Closed *bool
+	// Schema is set when the member was an object: every extra member has this
+	// shape, which is how a Go map is described.
+	Schema *jsonSchema
+}
+
+func (a *additionalProperties) UnmarshalJSON(raw []byte) error {
+	var closed bool
+	if err := json.Unmarshal(raw, &closed); err == nil {
+		a.Closed = &closed
+		return nil
+	}
+	var schema jsonSchema
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return fmt.Errorf("additionalProperties is neither a boolean nor a schema: %w", err)
+	}
+	a.Schema = &schema
+	return nil
+}
+
+func (a additionalProperties) MarshalJSON() ([]byte, error) {
+	if a.Closed != nil {
+		return json.Marshal(*a.Closed)
+	}
+	return json.Marshal(a.Schema)
 }
 
 // textual reports whether a type marshals itself as a JSON string rather than as
@@ -178,7 +255,7 @@ func describeType(t reflect.Type) (*jsonSchema, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &jsonSchema{Type: schemaObject, AdditionalProperties: values}, nil
+		return &jsonSchema{Type: schemaObject, AdditionalProperties: &additionalProperties{Schema: values}}, nil
 	case reflect.Struct:
 		return describeStruct(t)
 	}

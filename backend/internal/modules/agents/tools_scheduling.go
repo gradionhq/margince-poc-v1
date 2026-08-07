@@ -56,7 +56,7 @@ func (t checkAvailability) Handle(ctx context.Context, in json.RawMessage) (json
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	return t.comms.Availability(ctx, args.HostUserID, args.From, args.To, args.DurationMinutes)
+	return marshalResult(t.comms.Availability(ctx, args.HostUserID, args.From, args.To, args.DurationMinutes))
 }
 
 // --- book_meeting (🟡: commits a slot + implies an invite) ---

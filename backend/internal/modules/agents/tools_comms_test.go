@@ -38,8 +38,8 @@ func (c *recordingComms) SendEmail(context.Context, ids.UUID, SendEmailArgs) (Se
 	return SendEmailResult{}, nil
 }
 
-func (c *recordingComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (json.RawMessage, error) {
-	return nil, nil
+func (c *recordingComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (AvailabilityResult, error) {
+	return AvailabilityResult{}, nil
 }
 
 func (c *recordingComms) BookMeeting(_ context.Context, args BookMeetingArgs) (json.RawMessage, error) {

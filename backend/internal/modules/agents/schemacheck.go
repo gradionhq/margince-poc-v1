@@ -25,6 +25,7 @@ package agents
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -53,11 +54,13 @@ func checkValue(schema *jsonSchema, value json.RawMessage, at string) string {
 	if schema == nil || schema.Type == "" {
 		return ""
 	}
-	// A JSON null satisfies nothing typed, but it is how an ABSENT optional
-	// member arrives when a producer spells it out rather than omitting it, so
-	// it is accepted here and refused only where `required` says it must be
-	// present — which is checked before the walk reaches this.
-	if strings.TrimSpace(string(value)) == "null" {
+	// A JSON null satisfies nothing typed. It IS how an absent OPTIONAL member
+	// arrives when a producer spells it out rather than omitting it, so it is
+	// accepted for one — but checkObject refuses it for a required member
+	// BEFORE the walk gets here, because "the key is present" and "the member
+	// has a value" are different claims and only the second is what required
+	// means.
+	if isNull(value) {
 		return ""
 	}
 	switch schema.Type {
@@ -69,8 +72,10 @@ func checkValue(schema *jsonSchema, value json.RawMessage, at string) string {
 		return checkScalar[string](value, at, "a string")
 	case schemaBoolean:
 		return checkScalar[bool](value, at, "a boolean")
-	case schemaInteger, schemaNumber:
+	case schemaNumber:
 		return checkScalar[float64](value, at, "a number")
+	case schemaInteger:
+		return checkInteger(value, at)
 	}
 	return fmt.Sprintf("%s: the advertised schema names an unknown type %q", pathOr(at), schema.Type)
 }
@@ -85,8 +90,13 @@ func checkObject(schema *jsonSchema, value json.RawMessage, at string) string {
 		return fmt.Sprintf("%s: declared an object, got %s", pathOr(at), summarize(value))
 	}
 	for _, name := range schema.Required {
-		if _, present := members[name]; !present {
+		raw, present := members[name]
+		if !present {
 			return fmt.Sprintf("%s: required member %q is missing", pathOr(at), name)
+		}
+		if isNull(raw) {
+			return fmt.Sprintf("%s: required member %q is null, which is not a value of the declared type",
+				pathOr(at), name)
 		}
 	}
 	for name, member := range schema.Properties {
@@ -98,10 +108,13 @@ func checkObject(schema *jsonSchema, value json.RawMessage, at string) string {
 			return defect
 		}
 	}
-	if schema.AdditionalProperties != nil {
-		// A map: the schema describes its VALUES, and every member is one.
+	// A map: the schema describes its VALUES, and every member is one. The
+	// BOOLEAN arm says nothing this check enforces — `false` closes the object,
+	// which is a claim about a caller's input rather than about output this
+	// server produced, and the surface is open by design anyway.
+	if schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
 		for name, raw := range members {
-			if defect := checkValue(schema.AdditionalProperties, raw, at+"."+name); defect != "" {
+			if defect := checkValue(schema.AdditionalProperties.Schema, raw, at+"."+name); defect != "" {
 				return defect
 			}
 		}
@@ -129,6 +142,27 @@ func checkScalar[T any](value json.RawMessage, at, want string) string {
 	var into T
 	if err := json.Unmarshal(value, &into); err != nil {
 		return fmt.Sprintf("%s: declared %s, got %s", pathOr(at), want, summarize(value))
+	}
+	return ""
+}
+
+// isNull reports whether a member arrived as the JSON literal null — the one
+// value that is a legitimate absence for an optional member and a defect for a
+// required one.
+func isNull(value json.RawMessage) bool { return strings.TrimSpace(string(value)) == "null" }
+
+// checkInteger holds the one scalar distinction encoding/json does not make for
+// us: every JSON number decodes into a float64, so a declared integer receiving
+// 1.5 would pass a bare decode. A version, a count and a rank are integers on
+// this surface, and a caller told so that receives a fraction has been told
+// something false.
+func checkInteger(value json.RawMessage, at string) string {
+	var number float64
+	if err := json.Unmarshal(value, &number); err != nil {
+		return fmt.Sprintf("%s: declared an integer, got %s", pathOr(at), summarize(value))
+	}
+	if number != math.Trunc(number) {
+		return fmt.Sprintf("%s: declared an integer, got %s", pathOr(at), summarize(value))
 	}
 	return ""
 }

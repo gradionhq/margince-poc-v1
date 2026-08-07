@@ -104,21 +104,29 @@ func (c commsAdapter) SendMessage(ctx context.Context, anchor ids.UUID, in agent
 // eventual refusal can never drift onto two different answers for the same kind.
 func (c commsAdapter) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
 
-func (c commsAdapter) Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (json.RawMessage, error) {
+func (c commsAdapter) Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (agents.AvailabilityResult, error) {
 	hostID, err := defaultHost(ctx, host)
 	if err != nil {
-		return nil, err
+		return agents.AvailabilityResult{}, err
 	}
 	// The store applies its default slot duration when none is named.
 	slots, truncated, err := c.store.Availability(ctx, ids.From[ids.UserKind](hostID), from, to, time.Duration(durationMinutes)*time.Minute)
 	if err != nil {
-		return nil, err
+		return agents.AvailabilityResult{}, err
 	}
 	// truncated is not decoration on this surface. The walk stops at a cap, and
 	// a model handed a capped list with nothing marking it will tell a rep there
 	// is no later opening — the same failure AtRiskReport.Truncated and
 	// intro_path_to's candidates_truncated exist to prevent.
-	return json.Marshal(map[string]any{"slots": slots, "truncated": truncated})
+	// An empty LIST, not a null: a fully booked window is a real answer, and a
+	// model handed null reads it as "unknown" and hedges about a calendar the
+	// server read successfully. The declared schema requires the member, so a
+	// null would also cost the answer its structured half.
+	free := make([]agents.FreeSlot, 0, len(slots))
+	for _, s := range slots {
+		free = append(free, agents.FreeSlot{Start: s.Start, End: s.End})
+	}
+	return agents.AvailabilityResult{Slots: free, Truncated: truncated}, nil
 }
 
 func (c commsAdapter) BookMeeting(ctx context.Context, in agents.BookMeetingArgs) (json.RawMessage, error) {

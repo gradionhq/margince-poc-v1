@@ -66,7 +66,7 @@ func renderDeclaredSchemas(t *testing.T) []byte {
 // statement about intent: a THIRD tool falling back to an object is a decision
 // someone has to make deliberately, and this is where they are asked to.
 func TestOnlyTheDeclaredExceptionsAdvertiseABareObject(t *testing.T) {
-	allowed := map[string]bool{"run_report": true, "enrich": true}
+	allowed := map[string]bool{"enrich": true}
 	for _, spec := range fullRegistry(t).Specs() {
 		if spec.OutputSchema == nil {
 			t.Errorf("%s declares no output schema at all", spec.Name)

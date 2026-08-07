@@ -67,8 +67,8 @@ func (stubComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) 
 
 func (stubComms) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
 
-func (stubComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (json.RawMessage, error) {
-	return nil, nil
+func (stubComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (agents.AvailabilityResult, error) {
+	return agents.AvailabilityResult{}, nil
 }
 
 func (stubComms) BookMeeting(context.Context, agents.BookMeetingArgs) (json.RawMessage, error) {

@@ -77,14 +77,7 @@ func (t runReport) Spec() mcp.ToolSpec {
 				"as":{"type":"string","description":"Output column name for this aggregate"}},"additionalProperties":false},
 				"description":"Omit for the report's own default aggregates."}},
 			"additionalProperties":false}`),
-		// One of two declared exceptions to the exact-shape rule, and the reason
-		// is the tool's whole point: a report's columns come from the PLAN the
-		// caller sent. `group_by: [owner]` and `group_by: [stage]` do not share
-		// a column set, so a schema naming columns would be true of one call and
-		// false of the next. The catalog in the input schema is where a caller
-		// learns what a given report answers with; stating an object here is the
-		// most this can say without saying something false.
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[RunReportResult](),
 	}
 }
 
