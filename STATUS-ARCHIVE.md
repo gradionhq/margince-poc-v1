@@ -21,6 +21,40 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-07 — the integration lane's per-package timeout, and the lane it did not reach
+
+Closes #524 (#538 was the same report, closed as a duplicate of it).
+
+`internal/compose/integration` is half the lane (960 tests) and ran 258–302s
+against a 300s per-package `go test -timeout`, so it crossed the line on a
+loaded machine and under the concurrency the lane itself creates. The failure
+read as a runtime hang — a panic naming whichever test had just started at `0s`
+— rather than a package running two seconds long, and everything queued behind
+it never ran. The lane's discovery cross-check caught the thinner run, so it
+could never read as green; the cost was that a branch went red for a reason
+unrelated to its diff.
+
+CI never saw it: the matrix shards by test, twelve ways, so no shard approaches
+the bound. The exposure was the unsharded path — `make test-integration`
+locally, and `make test-it` on this one package. That is the inner loop, so the
+flake landed on whoever was iterating.
+
+#537 raised the budget to 600s and taught the cost report to print each
+package's share of it, so a margin shrinking toward nothing is visible before
+it crosses rather than after. What that left behind was the sibling call site:
+`scripts/test-integration-one.sh` spelled `-timeout=300s` inline, with no
+variable and no env override, so `make test-it` on this package still failed at
+a bound the lane it belongs to had already moved — and could not be nursed past
+it even deliberately, which is exactly when someone iterating on that package
+needs to. Both lanes now resolve the budget through one `resolve_it_timeout` in
+`scripts/lib-testdb.sh`, the file they already share.
+
+The remaining half of the problem is that a bigger budget does not stop one
+package from being the lane's long pole: the lane runs whole packages
+concurrently, so its wall clock bottoms out at the largest one no matter how
+many cores are free. That is #546, and the first cut of it (the account-360
+suites, 61 tests into their own package) shipped the same day.
+
 ## 2026-08-01 — the company page: what it says, and the logo that was never fetched
 
 Shipped on PR #356 (`feat/company-page-clarity`). The open items this work

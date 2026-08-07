@@ -238,7 +238,11 @@ resolve_it_timeout() {
     echo "FAIL: INTEGRATION_TIMEOUT must be <seconds>s (e.g. 600s), got '${IT_TIMEOUT}'"
     exit 1
   fi
-  if (( ${IT_TIMEOUT%s} == 0 )); then
+  # Matched, not evaluated: `(( 08 == 0 ))` reads a leading zero as octal and
+  # fails with "value too great for base", which leaves 08s and 09s accepted
+  # behind a bash error nobody asked about. A zero budget is a string question,
+  # so ask it as one.
+  if [[ "${IT_TIMEOUT%s}" =~ ^0+$ ]]; then
     echo "FAIL: INTEGRATION_TIMEOUT must be greater than 0s — go test reads 0 as NO timeout, which "\
 "removes the per-package guard rather than widening it"
     exit 1
