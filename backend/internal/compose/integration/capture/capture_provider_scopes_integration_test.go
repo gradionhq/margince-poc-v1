@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // Two scope vocabularies, two columns. capture_connection.scopes is this
 // system's internal permission set, frozen at grant time; provider_scopes is
@@ -18,7 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -34,12 +35,12 @@ type grantingFake struct {
 func (f *grantingFake) GrantedScopes(connector.Auth) ([]string, error) { return f.granted, nil }
 
 func TestConnectPersistsTheProviderGrantedScopes(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	granted := []string{"offline_access", "User.Read", "Mail.Read"}
-	registry := capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), fakeAuthority{}, newTestKeyvault(t, e))
+	registry := capturemod.NewRegistry(e.Pool, capturemod.NewSink(e.Pool), fakeAuthority{}, newTestKeyvault(t, e))
 	registry.Register(&grantingFake{granted: granted})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
@@ -74,11 +75,11 @@ func TestConnectPersistsTheProviderGrantedScopes(t *testing.T) {
 }
 
 func TestAConnectorThatCannotReportItsGrantRecordsNoClaim(t *testing.T) {
-	e := SetupSearch(t)
-	registry := capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), fakeAuthority{}, newTestKeyvault(t, e))
+	e := integration.SetupSearch(t)
+	registry := capturemod.NewRegistry(e.Pool, capturemod.NewSink(e.Pool), fakeAuthority{}, newTestKeyvault(t, e))
 	registry.Register(&mailFake{})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)

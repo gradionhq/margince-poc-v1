@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The capture substrate end to end (B-EP05.1/.2/.3/.9/.10/.11a): a fake
 // connector syncs through the ONE Sink — raw original + domain row +
@@ -20,7 +20,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -73,7 +74,7 @@ func (m *mailFake) Sync(ctx context.Context, _ connector.Auth, cursor connector.
 		{
 			EntityType: datasource.EntityActivity,
 			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-1"},
-			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", Body: "please send pricing", OccurredAt: fixedCaptureTime, Direction: "inbound"},
+			Fields:     capturemod.ActivityFields{Kind: "email", Subject: "Quote request", Body: "please send pricing", OccurredAt: fixedCaptureTime, Direction: "inbound"},
 			Links:      []datasource.EntityRef{{Type: datasource.EntityPerson, ID: m.linkTo}},
 			Source:     "graph", CapturedBy: "connector:graph",
 			Raw: []byte(fmt.Sprintf(`{"provider":"graph","message_id":"msg-1","sync":%d}`, m.syncCount)),
@@ -81,7 +82,7 @@ func (m *mailFake) Sync(ctx context.Context, _ connector.Auth, cursor connector.
 		{
 			EntityType: datasource.EntityLead,
 			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "sender-1"},
-			Fields:     capture.LeadFields{FullName: "Lead Sender", Email: "sender@graph.test", CompanyName: "Mailfake GmbH"},
+			Fields:     capturemod.LeadFields{FullName: "Lead Sender", Email: "sender@graph.test", CompanyName: "Mailfake GmbH"},
 			Source:     "graph", CapturedBy: "connector:graph",
 		},
 	}
@@ -105,7 +106,7 @@ func (m *mailFake) HealthCheck(context.Context, connector.Auth) error { return n
 // one workspace-bound transaction.
 type captureCounts struct{ activities, leads, raws, audits int }
 
-func readCaptureCounts(t *testing.T, e *SearchEnv) captureCounts {
+func readCaptureCounts(t *testing.T, e *integration.SearchEnv) captureCounts {
 	t.Helper()
 	var got captureCounts
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -127,14 +128,14 @@ func readCaptureCounts(t *testing.T, e *SearchEnv) captureCounts {
 }
 
 func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &mailFake{linkTo: personID}
 	registry.Register(fake)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
@@ -203,11 +204,11 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 }
 
 func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&mailFake{scopes: []principal.Scope{principal.ScopeRead, principal.ScopeSend}})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	_, err := registry.Connect(grantCtx, "graph", nil)
 	if !errors.Is(err, apperrors.ErrScopeExceeded) {
 		t.Fatalf("over-scoped connector grant → %v, want ErrScopeExceeded", err)
@@ -222,11 +223,11 @@ func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
 }
 
 func TestReconnectUnarchivesTheConnection(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&mailFake{})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +264,7 @@ func TestReconnectUnarchivesTheConnection(t *testing.T) {
 }
 
 func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	// A person owned by team2 — invisible to the team1 granting human.
 	foreignPerson := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Foreign Target', $3, 'manual', 'human:x')`, e.Rep3)
 
@@ -271,7 +272,7 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	fake := &mailFake{linkTo: foreignPerson}
 	registry.Register(fake)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +294,7 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 // humanWithScopes builds a human principal in the SearchEnv workspace
 // carrying rep-grade RBAC (team scope) plus explicit verb scopes for
 // the connector grant check.
-func (e *SearchEnv) humanWithScopes(user ids.UUID, scopes []principal.Scope) context.Context {
+func humanWithScopes(e *integration.SearchEnv, user ids.UUID, scopes []principal.Scope) context.Context {
 	scopeSet := principal.NewScopeSet()
 	for _, s := range scopes {
 		scopeSet[s] = struct{}{}
@@ -335,6 +336,6 @@ func (fakeAuthority) SeatType(context.Context, ids.UUID, ids.UUID) (principal.Se
 	return principal.SeatFull, nil
 }
 
-func newTestCaptureRegistry(e *SearchEnv, vault keyvault.Vault) *capture.Registry {
-	return capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), fakeAuthority{}, vault)
+func newTestCaptureRegistry(e *integration.SearchEnv, vault keyvault.Vault) *capturemod.Registry {
+	return capturemod.NewRegistry(e.Pool, capturemod.NewSink(e.Pool), fakeAuthority{}, vault)
 }

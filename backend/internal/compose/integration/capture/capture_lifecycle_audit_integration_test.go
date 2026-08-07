@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The connector lifecycle's post-commit obligations, on real Postgres: the
 // superseded credential is destroyed even when the client hangs up the instant
@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -42,7 +43,7 @@ func (v *hangUpVault) Delete(ctx context.Context, ws ids.WorkspaceID, ref keyvau
 }
 
 // connectionCredentialRef reads the ref a connection row currently names.
-func connectionCredentialRef(t *testing.T, e *SearchEnv, connID ids.UUID) string {
+func connectionCredentialRef(t *testing.T, e *integration.SearchEnv, connID ids.UUID) string {
 	t.Helper()
 	var ref *string
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -58,13 +59,13 @@ func connectionCredentialRef(t *testing.T, e *SearchEnv, connID ids.UUID) string
 }
 
 func TestReconnectDeletesSupersededCredentialWhenTheCallerHangsUp(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	hangUp := &hangUpVault{Vault: vault}
 	registry := newTestCaptureRegistry(e, hangUp)
 	registry.Register(&authAssertingFake{})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("first-token"))
 	if err != nil {
 		t.Fatalf("first connect: %v", err)
@@ -72,7 +73,7 @@ func TestReconnectDeletesSupersededCredentialWhenTheCallerHangsUp(t *testing.T) 
 	supersededRef := connectionCredentialRef(t, e, connID)
 
 	// The reconnect runs on a request context the client abandons mid-cleanup.
-	reqCtx, cancel := context.WithCancel(e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead}))
+	reqCtx, cancel := context.WithCancel(humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead}))
 	defer cancel()
 	hangUp.hangUp = cancel
 	if _, err := registry.Connect(reqCtx, "graph", connector.Auth("second-token")); err != nil {
@@ -85,20 +86,20 @@ func TestReconnectDeletesSupersededCredentialWhenTheCallerHangsUp(t *testing.T) 
 }
 
 func TestDisconnectDeletesTheCredentialWhenTheCallerHangsUp(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	vault := newTestKeyvault(t, e)
 	hangUp := &hangUpVault{Vault: vault}
 	registry := newTestCaptureRegistry(e, hangUp)
 	registry.Register(&authAssertingFake{})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	ref := connectionCredentialRef(t, e, connID)
 
-	reqCtx, cancel := context.WithCancel(e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead}))
+	reqCtx, cancel := context.WithCancel(humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead}))
 	defer cancel()
 	hangUp.hangUp = cancel
 	if err := registry.Disconnect(reqCtx, "graph"); err != nil {
@@ -130,7 +131,7 @@ type lifecycleAudit struct {
 
 // connectionAudits reads every audit_log row naming a capture_connection, in
 // occurrence order.
-func connectionAudits(t *testing.T, e *SearchEnv) []lifecycleAudit {
+func connectionAudits(t *testing.T, e *integration.SearchEnv) []lifecycleAudit {
 	t.Helper()
 	var out []lifecycleAudit
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -157,11 +158,11 @@ func connectionAudits(t *testing.T, e *SearchEnv) []lifecycleAudit {
 }
 
 func TestConnectAndDisconnectLeaveAnAttributableAuditRow(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&authAssertingFake{})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -213,7 +214,7 @@ func TestConnectAndDisconnectLeaveAnAttributableAuditRow(t *testing.T) {
 
 // connectionGeneration reads the lifecycle fence a deferred sync or backfill
 // page commits its work against.
-func connectionGeneration(t *testing.T, e *SearchEnv, connID ids.UUID) int {
+func connectionGeneration(t *testing.T, e *integration.SearchEnv, connID ids.UUID) int {
 	t.Helper()
 	var generation int
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -231,11 +232,11 @@ func connectionGeneration(t *testing.T, e *SearchEnv, connID ids.UUID) int {
 // not a second withdrawal: the human withdrew once, so the trail must say so
 // once, and there is no new cycle out at the provider left to fence.
 func TestARetriedDisconnectDoesNotReAuditTheWithdrawal(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&authAssertingFake{})
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -270,7 +271,7 @@ func TestARetriedDisconnectDoesNotReAuditTheWithdrawal(t *testing.T) {
 // UPDATE on capture_sync_state raise — the cheapest way to fail Connect AFTER
 // its audit row is written. It is statement-level on purpose: a fresh
 // connection has no sidecar row yet, so a row-level trigger would never fire.
-func refuseSyncStateUpdates(t *testing.T, e *SearchEnv) {
+func refuseSyncStateUpdates(t *testing.T, e *integration.SearchEnv) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := e.Owner.Exec(ctx, `
@@ -293,12 +294,12 @@ func refuseSyncStateUpdates(t *testing.T, e *SearchEnv) {
 // to follow it: a connect that fails anywhere in its transaction must leave no
 // trace of a connection that never existed.
 func TestAConnectThatFailsLeavesNoAuditRow(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&authAssertingFake{})
 	refuseSyncStateUpdates(t, e)
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token")); err == nil {
 		t.Fatal("connect must fail while the sync-state update is refused")
 	}

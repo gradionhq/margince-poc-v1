@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The Pub/Sub push webhook end to end over the real mux: a notification for
 // a connected mailbox zeroes its pacing clock and enqueues its sync job; a
@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -48,12 +49,12 @@ func pushBody(t *testing.T, email string) []byte {
 }
 
 func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	const mailbox = "push-owner@ws.example"
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&moodyConnector{name: "gmail"})
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -79,7 +80,7 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ApplyRiverSchema(t)
+	integration.ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	inserter, err := jobs.NewInserter(e.Pool, quiet)
 	if err != nil {

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The Gmail push-watch lifecycle against a stubbed Google: the registry's
 // fleet-wide DueWatches scan selects a connection whose watch is missing or
@@ -25,6 +25,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -34,7 +35,7 @@ import (
 const gmailPushTopic = "projects/margince/topics/gmail-push"
 
 func TestGmailWatchRegistersRenewsAndLeavesCursor(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	const owner = "rep@ws.example"
 	stub := gmailStub(t, owner)
 
@@ -44,7 +45,7 @@ func TestGmailWatchRegistersRenewsAndLeavesCursor(t *testing.T) {
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(gmail.New(oauth, api))
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 
 	authReq, err := gmail.AuthRequestFrom("the-code", "https://app.test/v1/connectors/gmail/callback")
 	if err != nil {
@@ -121,8 +122,8 @@ func TestGmailWatchRegistersRenewsAndLeavesCursor(t *testing.T) {
 // the watch on RunOnStart and writes watch_expires_at — the scheduled path,
 // not a direct RenewWatch call.
 func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
-	e := SetupSearch(t)
-	ApplyRiverSchema(t)
+	e := integration.SetupSearch(t)
+	integration.ApplyRiverSchema(t)
 	const owner = "rep@ws.example"
 	stub := gmailStub(t, owner)
 
@@ -132,7 +133,7 @@ func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(gmail.New(oauth, api))
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 	authReq, err := gmail.AuthRequestFrom("the-code", "https://app.test/v1/connectors/gmail/callback")
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +200,7 @@ func awaitWatchKindCompleted(ctx context.Context, t *testing.T, sub <-chan *rive
 	}
 }
 
-func readCursor(t *testing.T, e *SearchEnv, connID ids.UUID) []byte {
+func readCursor(t *testing.T, e *integration.SearchEnv, connID ids.UUID) []byte {
 	t.Helper()
 	var cursor []byte
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -212,7 +213,7 @@ func readCursor(t *testing.T, e *SearchEnv, connID ids.UUID) []byte {
 	return cursor
 }
 
-func readWatchExpiry(t *testing.T, e *SearchEnv, connID ids.UUID) *time.Time {
+func readWatchExpiry(t *testing.T, e *integration.SearchEnv, connID ids.UUID) *time.Time {
 	t.Helper()
 	var exp *time.Time
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {

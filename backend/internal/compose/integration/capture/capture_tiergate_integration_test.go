@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The tiered creation gate (ADR-0072 §1) — which senders become records. Split
 // from the auto-create suite because the tiers are their own subject: one file
@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -55,7 +56,7 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 		sync(
 			t,
 			email("dse@eu.docusign.net", "DocuSign EU", captureOwner, "ds1@docusign.net", ""),
-			emailWithListUnsub("hello@event.gitex.com", "GITEX", captureOwner, "gx1@event.gitex.com"),
+			emailWithListUnsub("hello@event.gitex.com", "GITEX", "gx1@event.gitex.com"),
 		)
 		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id IN ('ds1@docusign.net', 'gx1@event.gitex.com')`); n != 2 {
 			t.Fatalf("%d transactional activities captured, want 2 — the timeline row must stand", n)
@@ -122,7 +123,7 @@ func TestCaptureTierGateLetsCorrespondencePrecedeSuppression(t *testing.T) {
 			t.Fatalf("%d attested outbound activities, want 1 — the T1 evidence must be stamped", n)
 		}
 
-		sync(t, emailWithListUnsub("team@event.expo.example", "Expo", captureOwner, "ev2@event.expo.example"))
+		sync(t, emailWithListUnsub("team@event.expo.example", "Expo", "ev2@event.expo.example"))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'team@event.expo.example'`); n != 1 {
@@ -145,7 +146,7 @@ func TestCaptureTierGateLetsCorrespondencePrecedeSuppression(t *testing.T) {
 			WHERE counterparty_email = 'blast@sendgrid.net' AND counterparty_outbound_attested`); n != 0 {
 			t.Fatal("a forged From:owner message attested correspondence — the gate reads the header, not the provider")
 		}
-		sync(t, emailWithListUnsub("blast@sendgrid.net", "Blast", captureOwner, "forge2@sendgrid.net"))
+		sync(t, emailWithListUnsub("blast@sendgrid.net", "Blast", "forge2@sendgrid.net"))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'blast@sendgrid.net'`); n != 0 {
@@ -224,7 +225,7 @@ func TestCaptureTierGateReopensASenderWhoseNoiseVerdictHasAged(t *testing.T) {
 
 // resolveDispositionAged puts an address's disposition into a terminal state
 // resolved the given duration ago.
-func resolveDispositionAged(t *testing.T, e *SearchEnv, email, status string, ago time.Duration) {
+func resolveDispositionAged(t *testing.T, e *integration.SearchEnv, email, status string, ago time.Duration) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
@@ -271,7 +272,7 @@ func (discardSendStager) StageTx(context.Context, pgx.Tx, activities.DeliveryReq
 func TestCaptureTierGateHonorsCorrespondenceFromACRMOriginatedSend(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
-	ctx := e.asFullUser()
+	ctx := e.AsFullUser()
 
 	anchorID := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -308,7 +309,7 @@ func TestCaptureTierGateHonorsCorrespondenceFromACRMOriginatedSend(t *testing.T)
 	// Their reply arrives on a prefix subdomain WITH a List-Unsubscribe header
 	// — the exact shape T2 suppresses for an unknown sender. Because the
 	// workspace wrote to them first, T1 spares it.
-	sync(t, emailWithListUnsub("team@news.prospect.example", "Prospect", captureOwner, "pr1@news.prospect.example"))
+	sync(t, emailWithListUnsub("team@news.prospect.example", "Prospect", "pr1@news.prospect.example"))
 	if n := countRows(t, e, `
 		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 		WHERE pe.email = 'team@news.prospect.example'`); n != 1 {

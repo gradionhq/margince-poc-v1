@@ -55,7 +55,7 @@ func gmailSendStub(t *testing.T, captured *sentMail, stampAs string) *httptest.S
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		writeJSON(w, map[string]any{
+		WriteJSON(w, map[string]any{
 			"raw":      restamp(t, captured.raw, stampAs),
 			"labelIds": []string{"SENT"},
 		})
@@ -69,10 +69,10 @@ func gmailSendStub(t *testing.T, captured *sentMail, stampAs string) *httptest.S
 		if r.Form.Get("grant_type") == "authorization_code" {
 			body["refresh_token"] = "refresh-tok"
 		}
-		writeJSON(w, body)
+		WriteJSON(w, body)
 	})
 	mux.HandleFunc("/profile", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"emailAddress": sendingMailbox, "historyId": "1001"})
+		WriteJSON(w, map[string]any{"emailAddress": sendingMailbox, "historyId": "1001"})
 	})
 	mux.HandleFunc("/messages/send", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -83,7 +83,7 @@ func gmailSendStub(t *testing.T, captured *sentMail, stampAs string) *httptest.S
 			return
 		}
 		captured.raw = body.Raw
-		writeJSON(w, map[string]any{"id": "gmail-msg-1", "threadId": "gmail-thread-1"})
+		WriteJSON(w, map[string]any{"id": "gmail-msg-1", "threadId": "gmail-thread-1"})
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

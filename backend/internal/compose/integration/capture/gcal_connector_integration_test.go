@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package capture
 
 // The Google Calendar capture connector end to end against a stubbed Google:
 // connect (OAuth code→refresh token, sealed to the vault), then an incremental
@@ -21,7 +21,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -44,13 +45,13 @@ func gcalStub(t *testing.T, owner string) *httptest.Server {
 		if r.Form.Get("grant_type") == "authorization_code" {
 			body["refresh_token"] = "refresh-tok"
 		}
-		writeJSON(w, body)
+		integration.WriteJSON(w, body)
 	})
 	mux.HandleFunc("/calendars/primary", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"id": owner})
+		integration.WriteJSON(w, map[string]any{"id": owner})
 	})
 	mux.HandleFunc("/calendars/primary/events", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{
+		integration.WriteJSON(w, map[string]any{
 			"items": []map[string]any{
 				{
 					"id": "evt-ext", "status": "confirmed", "summary": "Customer demo",
@@ -75,7 +76,7 @@ func gcalStub(t *testing.T, owner string) *httptest.Server {
 }
 
 func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
-	e := SetupSearch(t)
+	e := integration.SetupSearch(t)
 	const owner = "rep@ws.example"
 	stub := gcalStub(t, owner)
 
@@ -87,7 +88,7 @@ func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(gcal.New(oauth, api))
 
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
 
 	authReq, err := gcal.AuthRequestFrom("the-code", "https://app.test/v1/connectors/gcal/callback")
 	if err != nil {
@@ -153,7 +154,7 @@ func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
 // listConnectors / the fleet due-poll / disconnectConnector for the one gcal
 // connection: it lists connected, is paced out right after a sync, becomes due
 // again once the pacing clock passes, and after disconnect the poller skips it.
-func assertGcalConnectionSurface(grantCtx context.Context, e *SearchEnv, t *testing.T, registry *capture.Registry, connID ids.UUID) {
+func assertGcalConnectionSurface(grantCtx context.Context, e *integration.SearchEnv, t *testing.T, registry *capturemod.Registry, connID ids.UUID) {
 	t.Helper()
 	views, err := registry.Connections(grantCtx)
 	if err != nil {
