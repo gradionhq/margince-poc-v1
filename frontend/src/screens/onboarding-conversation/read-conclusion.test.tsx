@@ -116,7 +116,10 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function stubApi(pollSequence: (CompanySiteRead | number)[]) {
+function stubApi(
+  pollSequence: (CompanySiteRead | number)[],
+  { wizardStateWritable = true }: { wizardStateWritable?: boolean } = {},
+) {
   const calls: Request[] = [];
   let version = 0;
   let poll = 0;
@@ -146,6 +149,9 @@ function stubApi(pollSequence: (CompanySiteRead | number)[]) {
         return jsonResponse({ detail: "not started" }, 404);
       }
       if (path.endsWith("/onboarding/state") && request.method === "PUT") {
+        if (!wizardStateWritable) {
+          return jsonResponse({ detail: "members begin at Voice" }, 422);
+        }
         const body = (await request.clone().json()) as Record<string, unknown>;
         version += 1;
         return jsonResponse({
@@ -306,6 +312,29 @@ describe("the read conclusion ordering contract", () => {
         {
           timeout: 8000,
         },
+      ),
+    ).toBeTruthy();
+  }, 20000);
+
+  // The wizard-state write is best-effort by design, so the proposal join can
+  // be lost BEFORE the read finishes — the failure lands early, the terminal
+  // lands minutes later, and nothing the conclude effect watches has changed
+  // in between. The snapshot fallback has to reach the review anyway; without
+  // it the read completes on the server and the user waits on "opening your
+  // review" until they reload.
+  it("a read whose wizard-state join failed before the terminal still reaches review", async () => {
+    stubApi([midRead, midRead, partialRead], { wizardStateWritable: false });
+    render(<OnboardingScreen />);
+    await userEvent.type(
+      await screen.findByRole("textbox", { name: /Your website address/ }),
+      "gradion.com{Enter}",
+    );
+
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /Continue/ },
+        { timeout: 8000 },
       ),
     ).toBeTruthy();
   }, 20000);

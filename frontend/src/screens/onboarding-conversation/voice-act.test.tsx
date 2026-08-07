@@ -441,7 +441,9 @@ describe("the conversational voice act", () => {
     await uploadFile("raw.vtt", "unlabelled transcript text");
 
     expect(
-      await screen.findByText(/I counted nothing, because I only count words/),
+      await screen.findByText(
+        /I cannot tell which words are yours, so I counted none/,
+      ),
     ).toBeTruthy();
     expect(requestsTo(calls, "/sources", "POST").length).toBe(0);
     expect(screen.queryByText(/words kept/)).toBeNull();

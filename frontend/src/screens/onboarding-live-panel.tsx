@@ -7,6 +7,7 @@ import type { components } from "../api/schema";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { namedSiteReadKind } from "./common";
+import { skipReasonText } from "./onboarding";
 import "./onboarding-live-panel.css";
 
 // The coverage card: what a company site read covered and what it could not,
@@ -153,7 +154,7 @@ function coverageRows(
         label: t(key),
         name: named === undefined ? undefined : t(named),
         url: page.url,
-        reason: page.reason ?? t("ob.scan.pageNoReason"),
+        reason: skipReasonText(t, page.reason),
       });
     }
   }

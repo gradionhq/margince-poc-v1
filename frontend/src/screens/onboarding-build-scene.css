@@ -31,8 +31,11 @@
   grid-template-rows: repeat(2, auto);
   align-content: center;
   justify-items: center;
-  gap: var(--space-6);
-  padding: 48px var(--space-6);
+  /* The scene holds two things and nothing else, at hero scale, for two
+     seconds — so the room between them and around them is most of what it is.
+     Anything tighter reads as a loading screen. */
+  gap: var(--space-8);
+  padding: var(--space-12) var(--space-8);
   background:
     radial-gradient(
       760px 520px at 50% 32%,
@@ -84,7 +87,7 @@
 .ob-build-ghost {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
   padding: var(--space-4);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
@@ -96,7 +99,7 @@
 }
 /* The outer two sit lower, so the three read as a spread rather than a row. */
 .ob-build-ghost:not(:nth-child(2)) {
-  margin-top: 44px;
+  margin-top: var(--space-12);
 }
 /* The width of each bar comes from the component's own table — see the note
    there on why the widths are the bars' identity too. */
@@ -143,10 +146,10 @@
      being scaled. */
   perspective: 480px;
   font-family: var(--f-display);
-  font-size: clamp(30px, 6vw, 46px);
-  font-weight: 500;
-  line-height: 1.05;
-  letter-spacing: -0.03em;
+  font-size: var(--fs-hero-fluid);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-display);
   color: var(--textPrimary);
   animation: ob-build-letters-out calc(var(--obBuildMs) * 0.14)
     calc(var(--obBuildMs) * 0.56) ease both;
@@ -212,10 +215,10 @@
 .ob-build-sub {
   position: relative;
   z-index: 1;
-  font-family: var(--f-mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.11em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   text-align: center;
   color: var(--textMeta);

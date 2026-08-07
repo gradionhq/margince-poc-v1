@@ -125,11 +125,72 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
+  /* The rungs above 24px, named on the same rule as the ones below it — the
+     number is the value in quarter-pixels of the 4px base, so --space-8 is
+     32px and there is no rung the name cannot be read off. They exist because
+     a page that breathes needs section-level rhythm, and without them a screen
+     reaches for a raw 32/40/48 that the spacing gate then has to argue with. */
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
 
   --f-display: "Outfit", system-ui, sans-serif;
   --f-body: "DM Sans", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /*
+   * Type scale (design §2 three-family rule, this file's numeric half).
+   *
+   * The families were tokenised from the start; the SIZES were not, and the
+   * screens answered that by inventing 42 of them — 9/9.5/10/10.5/11/11.5/12/
+   * 12.5/13/13.5/14/14.5/15 in px on one side of the feature and the same
+   * ladder respelled in sixteenths of a rem on the other. Half a pixel is not
+   * a design decision anyone can defend twice, so the ladder below is the
+   * whole vocabulary: eleven rungs, each far enough from its neighbour to be
+   * a deliberate choice.
+   *
+   * Named by ROLE, not by number, because a rung's job is what a reader has to
+   * agree with — `--fs-eyebrow` says where it belongs, `--fs-10` only says how
+   * big it is and invites the next 10.5px.
+   */
+  --fs-eyebrow: 11px; /* uppercase kickers, section labels */
+  --fs-meta: 12px; /* counts, provenance, timestamps */
+  --fs-sm: 13px; /* dense UI: chips, table cells, helper text */
+  --fs-body: 14px; /* the default reading size */
+  --fs-lead: 15px; /* the one paragraph under a heading; inputs */
+  --fs-h3: 17px; /* card title */
+  --fs-h2: 20px; /* section title */
+  --fs-h1: 24px; /* the title of a step */
+  --fs-display: 30px; /* the title of a full-viewport moment */
+  /* Two fluid rungs, for the two surfaces that own a whole viewport and
+     therefore have room to answer to it: the gate and the handoff scene. */
+  --fs-display-fluid: clamp(24px, 2.6vw, 32px);
+  --fs-hero-fluid: clamp(30px, 6vw, 46px);
+
+  /* Four weights. Outfit and DM Sans are both variable, so 550/560/580/600/620/
+     650 rendered as six genuinely different weights for one "emphasis" role —
+     which is why the same label looked heavier on one screen than the next. */
+  --fw-regular: 400;
+  --fw-medium: 500; /* emphasis inside running text */
+  --fw-semibold: 600; /* labels, buttons, headings */
+  --fw-bold: 700; /* reserved: the rare word that must outrank a heading */
+
+  /* Leading, by how much work the text is doing — tight for display type that
+     is read as a shape, relaxed for prose that is read as sentences. */
+  --lh-tight: 1.15;
+  --lh-snug: 1.3;
+  --lh-normal: 1.45;
+  --lh-relaxed: 1.6;
+
+  /* Tracking. Only two directions matter: display type set large enough that
+     the default spacing reads loose, and uppercase micro-type where the
+     default reads cramped. Everything else is 0 and says so. */
+  --tracking-display: -0.02em;
+  --tracking-normal: 0;
+  --tracking-eyebrow: 0.08em;
 
   /* Material overlays, NOT part of the §2 Ledger-Green canon and deliberately
    * not pinned by tokens.test.ts's canonical map: a highlight and a scrim are

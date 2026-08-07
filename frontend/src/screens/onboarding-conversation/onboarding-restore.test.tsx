@@ -526,7 +526,7 @@ describe("reload adoption of a persisted read", () => {
     render(<OnboardingScreen />);
 
     expect(
-      await screen.findByText(/I already finished reading gradion\.com/),
+      await screen.findByText(/I finished reading gradion\.com/),
     ).toBeTruthy();
     // The terminal outcome and the review arrive through the normal
     // conclude path; the per-field narration is recap, never a replay. This

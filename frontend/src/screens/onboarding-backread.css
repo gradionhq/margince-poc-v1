@@ -10,9 +10,17 @@
  *
  * Copy never lives here (conformance gate) and no colour is a literal: literals
  * live only in design-system/tokens.css.
+ *
+ * The step sizes itself against ITS OWN width rather than the window's: it
+ * renders inside one pane of a two-column workbench, so a wide window can hand
+ * it 380px while a narrow one, where the panes have already stacked, hands it
+ * the full screen. Viewport breakpoints fire exactly backwards from that —
+ * they would tighten the tallies where they have most room — so
+ * `container-type: inline-size` makes the pane the thing measured.
  */
 
 .ob-backread {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -23,10 +31,10 @@
 
 .ob-backread-h {
   font-family: var(--f-display);
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.018em;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tracking-display);
   color: var(--textPrimary);
   text-wrap: balance;
 }
@@ -48,7 +56,7 @@
   min-height: 44px;
   padding: 0 var(--space-2);
   border-radius: var(--r-sm);
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   color: var(--textContent);
 }
 
@@ -58,7 +66,7 @@
 
 .ob-backread-window:has(input:checked) {
   color: var(--textPrimary);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 
 /* ---- the scope before the spend ---------------------------------------- */
@@ -76,34 +84,34 @@
 }
 
 .ob-backread-estimate {
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   color: var(--textPrimary);
   font-variant-numeric: tabular-nums;
 }
 
 .ob-backread-qualifier {
-  font-size: 11.5px;
+  font-size: var(--fs-meta);
   color: var(--textMeta);
 }
 
 /* The cost of a machine's work reads in the AI family, never the brand accent:
    green means the user acts, indigo means the machine cost something. */
 .ob-backread-cost {
-  font-family: var(--f-mono);
-  font-size: 11.5px;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
   color: var(--aiText);
 }
 
 .ob-backread-note {
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-relaxed);
   color: var(--textMeta);
 }
 
 .ob-backread-problem {
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-relaxed);
   color: var(--danger);
 }
 
@@ -117,8 +125,8 @@
 }
 
 .ob-backread-scanned {
-  font-family: var(--f-mono);
-  font-size: 12.5px;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
   color: var(--textPrimary);
 }
@@ -159,18 +167,18 @@
 }
 
 .ob-backread-tally-value {
-  font-family: var(--f-mono);
-  font-size: 17px;
-  font-weight: 600;
+  font-family: var(--f-body);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
   color: var(--textPrimary);
 }
 
 .ob-backread-tally-label {
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--textTertiary);
 }
@@ -182,6 +190,43 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-1);
+}
+
+/* ---- narrow panes ------------------------------------------------------ */
+/* Widths are the PANE's, not the window's — see the container note at the top
+   of the file. */
+
+/* Two tallies of ~96px leave an uppercase label ("people found") three lines
+   under a one-line number, which is a tile that is mostly label. One column
+   instead, and a lone column of tiles is really a list: the label takes the
+   left of the line and its number the right, where a reader scanning a column
+   of figures looks for it. The DOM keeps label-then-value either way, so what
+   is read aloud is unchanged. */
+@container (max-width: 340px) {
+  .ob-backread-tallies {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ob-backread-tally {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+}
+
+/* Narrower still, and the frame around the window pick costs more width than
+   the labels inside it, while the two closing actions stop sitting side by
+   side without one of them losing its verb to an ellipsis. */
+@container (max-width: 280px) {
+  .ob-backread-windows {
+    padding: var(--space-1);
+  }
+
+  .ob-backread-acts > * {
+    flex: 1 1 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
