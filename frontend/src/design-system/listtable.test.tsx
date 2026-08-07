@@ -770,6 +770,58 @@ describe("a row as a link", () => {
   });
 });
 
+describe("dismissing a popup from the keyboard", () => {
+  const chips: readonly ListChip[] = [
+    {
+      key: "status",
+      label: "Status",
+      allLabel: "All statuses",
+      options: [{ value: "new", label: "New" }],
+    },
+  ];
+
+  it("closes the filter menu on Escape and puts focus back on its trigger", async () => {
+    const user = userEvent.setup();
+    render(
+      <ListTable
+        rows={[]}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+        chips={chips}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Filter" });
+    await user.click(trigger);
+    expect(screen.getByRole("group", { name: "Filter" })).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("closes the column picker on Escape too, which keeps its own open state", async () => {
+    const user = userEvent.setup();
+    render(
+      <ListTable
+        rows={[]}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Columns" });
+    await user.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    await user.keyboard("{Escape}");
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+  });
+});
+
 describe("empty state", () => {
   it("offers to clear filters only when the list is filtered", () => {
     render(

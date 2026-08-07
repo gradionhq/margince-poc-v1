@@ -22,6 +22,7 @@ import {
   type ListView,
   Menu,
   type SortControl,
+  useCloseOnEscape,
   useCloseOnOutsideClick,
 } from "./listsurface";
 import { Select } from "./select";
@@ -297,6 +298,10 @@ export function ListTable<Row>({
   // reads as a seam in the table.
   const [shifted, setShifted] = useState(false);
   useCloseOnOutsideClick(() => setColumnsOpen(false));
+  // The column picker keeps its own open state rather than the surface's, so
+  // it needs the same Escape path explicitly — a popover a keyboard cannot
+  // dismiss is one a keyboard reader is stuck inside.
+  useCloseOnEscape(columnsOpen ? "columns" : null, () => setColumnsOpen(false));
 
   const lastPage = Math.max(1, Math.ceil(rows.length / perPage));
   const current = Math.min(page, lastPage);

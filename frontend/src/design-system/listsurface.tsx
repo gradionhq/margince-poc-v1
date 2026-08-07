@@ -117,7 +117,7 @@ export function ListSurface({
 }>) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   useCloseOnOutsideClick(() => setOpenMenu(null));
-  useCloseOnEscape(openMenu !== null, () => setOpenMenu(null));
+  useCloseOnEscape(openMenu, () => setOpenMenu(null));
 
   return (
     <div className="lt">
@@ -635,15 +635,20 @@ export function Menu({
  * elsewhere — and a reader who tabbed into the menu would be returned to the
  * top of the document when it closed, rather than to the control they were
  * standing on.
+ *
+ * Keyed on WHICH popup is open rather than on whether one is: moving straight
+ * from one trigger to the next never passes through a closed state, so a
+ * boolean would hold the first trigger and send focus back to the wrong
+ * control.
  */
-function useCloseOnEscape(open: boolean, close: () => void) {
+export function useCloseOnEscape(openKey: string | null, close: () => void) {
   const latest = useRef(close);
   latest.current = close;
   // Captured while the menu is open, so the trigger is still the element that
   // had focus before the reader stepped into the popup.
   const opener = useRef<Element | null>(null);
   useEffect(() => {
-    if (!open) {
+    if (openKey === null) {
       return;
     }
     opener.current = document.activeElement;
@@ -659,7 +664,7 @@ function useCloseOnEscape(open: boolean, close: () => void) {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [openKey]);
 }
 
 export function useCloseOnOutsideClick(close: () => void) {
