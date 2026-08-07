@@ -115,6 +115,7 @@ describe("RecordView + timeline", () => {
         name="Anna Weber"
         subtitle="Head of Procurement · Brandt Automotive"
         zone="Europe/Berlin"
+        now={new Date("2027-01-01T00:00:00Z")}
         timeline={[
           {
             id: "t1",
@@ -136,7 +137,7 @@ describe("RecordView + timeline", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Anna Weber" }),
     ).toBeTruthy();
-    expect(screen.getByText("12/06/2026")).toBeTruthy();
+    expect(screen.getByText("12 Jun 2026")).toBeTruthy();
     expect(screen.getByText("agent: capture")).toBeTruthy();
     expect(screen.getByText("typed by you")).toBeTruthy();
   });
@@ -209,6 +210,96 @@ describe("RecordView + timeline", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
+  });
+});
+
+describe("RecordView + timeline — silence and authorship", () => {
+  // Fixed, like every other clock in this suite: the gap threshold is a
+  // function of the two entries, never of the day the test happens to run.
+  const now = new Date("2026-08-06T09:00:00Z");
+
+  it("marks a 22-day gap between two entries as a silence", () => {
+    render(
+      <RecordView
+        name="Acme"
+        zone="UTC"
+        now={now}
+        timeline={[
+          {
+            id: "newer",
+            kind: "email",
+            title: "Follow-up",
+            atIso: "2026-08-01T09:00:00Z",
+            provenance: { kind: "human", self: true },
+          },
+          {
+            id: "older",
+            kind: "email",
+            title: "Kickoff",
+            atIso: "2026-07-10T09:00:00Z",
+            provenance: { kind: "human", self: true },
+          },
+        ]}
+      />,
+    );
+    expect(document.querySelectorAll(".tl-gap")).toHaveLength(1);
+    expect(
+      screen.getByText("Nothing happened between 10/07/2026 and 01/08/2026."),
+    ).toBeTruthy();
+  });
+
+  it("does not mark a 20-day gap as a silence", () => {
+    render(
+      <RecordView
+        name="Acme"
+        zone="UTC"
+        now={now}
+        timeline={[
+          {
+            id: "newer",
+            kind: "email",
+            title: "Follow-up",
+            atIso: "2026-08-01T09:00:00Z",
+            provenance: { kind: "human", self: true },
+          },
+          {
+            id: "older",
+            kind: "email",
+            title: "Kickoff",
+            atIso: "2026-07-12T09:00:00Z",
+            provenance: { kind: "human", self: true },
+          },
+        ]}
+      />,
+    );
+    expect(document.querySelectorAll(".tl-gap")).toHaveLength(0);
+  });
+
+  it("tints the node indigo for an agent-authored row, and no other kind of row", () => {
+    render(
+      <RecordView
+        name="Acme"
+        zone="UTC"
+        now={now}
+        timeline={[
+          {
+            id: "ai",
+            kind: "email",
+            title: "Drafted reply",
+            atIso: "2026-08-01T09:00:00Z",
+            provenance: { kind: "agent", agent: "runner" },
+          },
+          {
+            id: "human",
+            kind: "note",
+            title: "Call notes",
+            atIso: "2026-08-02T09:00:00Z",
+            provenance: { kind: "human", self: true },
+          },
+        ]}
+      />,
+    );
+    expect(document.querySelectorAll(".tl-icon-ai")).toHaveLength(1);
   });
 });
 
