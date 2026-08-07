@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // The visit baseline and the three counts it answers.
 //
@@ -21,7 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -30,10 +31,10 @@ import (
 )
 
 func TestOrganizationViewAckIsMonotonicAndPerUser(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	first, err := svc.Acknowledge(rep1, org)
 	if err != nil {
@@ -45,7 +46,7 @@ func TestOrganizationViewAckIsMonotonicAndPerUser(t *testing.T) {
 
 	// A second tab whose clock lags must not rewind the mark: the upsert
 	// keeps the later of the two.
-	lagging := org360.NewService(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool),
+	lagging := org360svc.NewService(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool),
 		func() time.Time { return org360Clock.Add(-time.Hour) })
 	second, err := lagging.Acknowledge(rep1, org)
 	if err != nil {
@@ -58,7 +59,7 @@ func TestOrganizationViewAckIsMonotonicAndPerUser(t *testing.T) {
 
 	// Rep2 shares Rep1's team and can read the same account, but has never
 	// visited it: the baseline is per user, not per record.
-	rep2 := e.As(e.Rep2, []ids.UUID{e.Team1}, org360RepPerms)
+	rep2 := e.As(e.Rep2, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	view, err := svc.Assemble(rep2, org)
 	if err != nil {
 		t.Fatalf("assemble as the second rep: %v", err)
@@ -75,10 +76,10 @@ func TestOrganizationViewAckIsMonotonicAndPerUser(t *testing.T) {
 // The 360 is a read: it must never advance the mark it reports against,
 // or the "what changed" answer destroys itself on first sight.
 func TestOrganization360DoesNotAdvanceTheVisitBaseline(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	if _, err := svc.Assemble(rep, org); err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -97,14 +98,14 @@ func TestOrganization360DoesNotAdvanceTheVisitBaseline(t *testing.T) {
 // An agent acting through a passport is not a visitor: it must not consume
 // the human's unread marker, and it cannot triage approvals either.
 func TestOrganization360RefusesTheVisitBaselineToAnAgent(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
-	if _, err := svc.Acknowledge(agentWithOrgRead(e), org); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := svc.Acknowledge(integration.AgentWithOrgRead(e), org); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("agent acknowledgment → %v, want ErrPermissionDenied", err)
 	}
-	view, err := svc.Assemble(agentWithOrgRead(e), org)
+	view, err := svc.Assemble(integration.AgentWithOrgRead(e), org)
 	if err != nil {
 		t.Fatalf("assemble as an agent: %v", err)
 	}
@@ -120,14 +121,14 @@ func TestOrganization360RefusesTheVisitBaselineToAnAgent(t *testing.T) {
 // most easily-wrong query in the read — it has to count moves without
 // counting the deal's creation — so it is seeded both ways.
 func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
-	pipeline, stage, won := DealFixture(t, e)
+	pipeline, stage, won := integration.DealFixture(t, e)
 	// A REAL seeded user, not e.Admin()'s synthetic one: the baseline row
 	// carries a composite foreign key to app_user, so only a user that
 	// exists can acknowledge a visit.
-	admin := e.As(e.Rep1, nil, AdminPerms)
+	admin := e.As(e.Rep1, nil, integration.AdminPerms)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
 	// A deal created and an activity logged BEFORE the visit: neither is news.
@@ -137,7 +138,7 @@ func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T)
 	// accident rather than by design.
 	before := e.SeedDeal(t, "Old deal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, before, org.UUID)
-	old := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
+	old := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
 		VALUES ($1, $2, 'note', 'before the visit', '2026-05-01T09:00:00Z', '2026-05-01T09:00:00Z', 'manual', 'human:x')`, e.WS)
 	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
 		VALUES ($1, $2, 'organization', $3)`, e.WS, old, org.UUID)
@@ -148,7 +149,7 @@ func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T)
 
 	// Now: one new activity, one real stage move, and one NEW deal — whose
 	// creation writes a first-stage history row that must not count as a move.
-	fresh := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
+	fresh := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
 		VALUES ($1, $2, 'note', 'after the visit', '2026-06-15T09:00:00Z', '2026-06-15T09:00:00Z', 'manual', 'human:x')`, e.WS)
 	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
 		VALUES ($1, $2, 'organization', $3)`, e.WS, fresh, org.UUID)
@@ -185,11 +186,11 @@ func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T)
 // The first visit is not "nothing happened": a caller who has never opened
 // the account gets the whole history counted, against a null baseline.
 func TestOrganization360CountsTheWholeHistoryOnAFirstVisit(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	logged := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+	logged := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'note', 'first contact', now(), 'manual', 'human:x')`, e.WS)
 	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
 		VALUES ($1, $2, 'organization', $3)`, e.WS, logged, org.UUID)

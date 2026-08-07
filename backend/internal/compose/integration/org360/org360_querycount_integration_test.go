@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // The 360 exists to replace a stack of round trips with one. That promise
 // is only true if the assembly's cost is flat in the size of the account:
@@ -26,7 +26,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -86,18 +87,18 @@ func tracedPool(t *testing.T, tracer *countingTracer) *pgxpool.Pool {
 }
 
 func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 
 	// One pipeline for both accounts: the fixture seeds the workspace
 	// default, and seeding it twice is a conflict, not a second pipeline.
-	pipeline, stage, _ := DealFixture(t, e)
+	pipeline, stage, _ := integration.DealFixture(t, e)
 	small := seedAccount(t, e, owner, "Small Account", 1, pipeline, stage)
 	large := seedAccount(t, e, owner, "Large Account", 12, pipeline, stage)
 
 	tracer := &countingTracer{}
 	pool := tracedPool(t, tracer)
-	svc := org360.NewService(pool, people.NewStore(pool), approvals.NewService(pool),
+	svc := org360svc.NewService(pool, people.NewStore(pool), approvals.NewService(pool),
 		func() time.Time { return org360Clock })
 	ctx := e.Admin()
 
@@ -134,7 +135,7 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 
 // seedAccount builds one organization with n employed contacts (each with
 // an interaction, so strength is real work) and n open deals.
-func seedAccount(t *testing.T, e *Env, owner *pgx.Conn, name string, n int,
+func seedAccount(t *testing.T, e *integration.Env, owner *pgx.Conn, name string, n int,
 	pipeline ids.PipelineID, stage ids.StageID,
 ) ids.OrganizationID {
 	t.Helper()
@@ -143,9 +144,9 @@ func seedAccount(t *testing.T, e *Env, owner *pgx.Conn, name string, n int,
 		contact := e.SeedPerson(t, name+" contact", &e.Rep1)
 		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
 			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
-		activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
+		activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 			VALUES ($1, $2, 'email', 'touch', '2026-05-28T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
-		LinkActivity(t, owner, e.WS, activity, "person", contact)
+		integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
 
 		deal := e.SeedDeal(t, name+" deal", pipeline, stage, &e.Rep1)
 		e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org)

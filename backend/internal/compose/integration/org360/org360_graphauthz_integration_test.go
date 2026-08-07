@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package org360
 
 // What the connections card is NOT allowed to show. The graph's shape is
 // pinned in org360_graph_integration_test.go; this file is only about the
@@ -25,6 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -43,7 +44,7 @@ import (
 // connections card are both callers today; when this read was gated only by
 // its callers, reordering the graph's group list turned it into an ungated one.
 func TestRouteInEdgesRefusesWithoutThePersonGrant(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	employ(t, e, contact, org.UUID, "cto")
@@ -84,9 +85,9 @@ func TestRouteInEdgesRefusesWithoutThePersonGrant(t *testing.T) {
 // whole card rests on: a company with contacts the caller cannot read must not
 // look like a company with no contacts.
 func TestOrganizationGraphOmitsAGroupTheCallerMayNotRead(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipeline, stage, _ := DealFixture(t, e)
+	pipeline, stage, _ := integration.DealFixture(t, e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	employee := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
@@ -157,9 +158,9 @@ func TestOrganizationGraphOmitsAGroupTheCallerMayNotRead(t *testing.T) {
 // KINDS a caller may see, the row scope says which ROWS. Every node kind is
 // checked, because one unscoped arm is a side channel for the whole class.
 func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
-	pipeline, stage, _ := DealFixture(t, e)
+	pipeline, stage, _ := integration.DealFixture(t, e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
@@ -224,7 +225,7 @@ func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
 // is the whole graph's gate, and out-of-scope must be indistinguishable from
 // nonexistent.
 func TestOrganizationGraphHidesAnAccountOutsideTheCallersRowScope(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	svc := org360Service(e)
 	theirs := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Other Team Account", &e.Rep3))
 
@@ -242,8 +243,8 @@ func TestOrganizationGraphHidesAnAccountOutsideTheCallersRowScope(t *testing.T) 
 // claim, taken against real rows: the card marks the same contact
 // GET /signals/{id}/intro-path would route through, and cites the signal.
 func TestOrganizationGraphIntroPathNamesTheWarmRoomsContact(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
@@ -254,9 +255,9 @@ func TestOrganizationGraphIntroPathNamesTheWarmRoomsContact(t *testing.T) {
 	// Only the warm contact has qualifying interactions inside the §4 window,
 	// so the ranking has one honest answer rather than a tie.
 	for _, direction := range []string{"inbound", "outbound"} {
-		activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
+		activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 			VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', '`+direction+`', 'manual', 'human:x')`, e.WS)
-		LinkActivity(t, owner, e.WS, activity, "person", warm)
+		integration.LinkActivity(t, owner, e.WS, activity, "person", warm)
 	}
 	signal := seedOpenSignal(t, owner, e.WS, org)
 
@@ -288,7 +289,7 @@ func TestOrganizationGraphIntroPathNamesTheWarmRoomsContact(t *testing.T) {
 
 	// A caller without the signal grant gets the same contacts and no path,
 	// named as withheld — advice absent is not advice that does not exist.
-	blind := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	blind := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 	graph, err = svc.Graph(blind, ids.From[ids.OrganizationKind](org))
 	if err != nil {
 		t.Fatalf("graph without the signal grant: %v", err)
@@ -311,16 +312,16 @@ func TestOrganizationGraphIntroPathNamesTheWarmRoomsContact(t *testing.T) {
 // is what keeps this card and GET /signals agreeing about what belongs to an
 // account.
 func TestOrganizationGraphCitesAnOrganizationSubjectSignal(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Warm Contact", &e.Rep1)
 	employ(t, e, contact, org, "cto")
-	activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
+	activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 		VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, activity, "person", contact)
+	integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
 	signal := seedOrgSubjectSignal(t, owner, e.WS, org)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
@@ -341,16 +342,16 @@ func TestOrganizationGraphCitesAnOrganizationSubjectSignal(t *testing.T) {
 // available whenever the account has contacts, so the absence has to come from
 // the signal, not from the contacts.
 func TestOrganizationGraphReportsNoIntroPathWithoutAnOpenSignal(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Warm Contact", &e.Rep1)
 	employ(t, e, contact, org, "cto")
-	activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
+	activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 		VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, activity, "person", contact)
+	integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
