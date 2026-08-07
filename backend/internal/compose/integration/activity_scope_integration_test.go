@@ -83,15 +83,13 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 	assertOwnTeamActivityStillMutable(rep, t, e, myPerson)
 }
 
-// TestRelinkActivityBumpsVersion pins F-001's fix: a relink that actually
+// TestRelinkActivityBumpsVersion pins the invariant: a relink that actually
 // changes who the activity reaches must move activity.version, the same as
 // UpdateActivity and ArchiveActivity already do. A staged approval pins this
 // version (versionTables includes objectActivity in the approvals module),
-// and that pin is the only thing standing between an approved "send this
-// body on this conversation" and the conversation being silently repointed
-// to someone else before the approval is redeemed — before this fix, relink
-// only touched activity_link, so the pin never went stale and a relinked
-// conversation's approval kept redeeming as if nothing had changed.
+// and that pin is the only defense between an approved "send this body on
+// this conversation" and the conversation being silently repointed to
+// someone else before the approval is redeemed.
 func TestRelinkActivityBumpsVersion(t *testing.T) {
 	e := Setup(t)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLifecyclePerms)

@@ -17,7 +17,6 @@ import (
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -186,16 +185,19 @@ func mountProviderPushWebhooks(mux *http.ServeMux, srv Server, log *slog.Logger)
 // protected one exists. A configured token is checked as a bearer
 // credential in constant time, the same comparison the connector-state CSRF
 // nonce uses (connectors_csrf.go), so a scrape's authorization header
-// cannot be timed byte-by-byte against the configured value.
+// cannot be timed byte-by-byte against the configured value. The credential
+// is read through httpserver.BearerToken — the one reading of an
+// Authorization header this process uses everywhere else — rather than a
+// second parse that could drift from it and accept or refuse a scheme
+// spelling the rest of the surface disagrees on.
 func requireMetricsToken(token string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if token == "" {
 			http.NotFound(w, r)
 			return
 		}
-		const prefix = "Bearer "
-		presented, ok := strings.CutPrefix(r.Header.Get("Authorization"), prefix)
-		if !ok || subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+		presented := httpserver.BearerToken(r.Header.Get("Authorization"))
+		if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
 			httperr.Unauthorized(w, r, "invalid or missing metrics token")
 			return

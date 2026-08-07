@@ -294,10 +294,10 @@ func (s *Service) RedeemPasswordReset(ctx context.Context, rawToken, newPassword
 		// A completed reset ends every credential that could act as the
 		// account, not just the session cookie that may have been stolen:
 		// OAuth grants (and their refresh chains), unconsumed authorization
-		// codes, sessions, and locally minted passports (F-002). Possession
-		// of the token IS the authority here (see the doc comment above), so
-		// the cascade is attributed to the account owner themselves — there
-		// is no admin actor on this call the way DeactivateUser has one.
+		// codes, sessions, and locally minted passports. Possession of the
+		// token IS the authority here (see the doc comment above), so the
+		// cascade is attributed to the account owner themselves — there is
+		// no admin actor on this call the way DeactivateUser has one.
 		if err := endCredentialAuthority(passwordOwnerCtx(ctx, userID), tx, userID, passwordResetRevokeReason); err != nil {
 			return err
 		}
@@ -319,9 +319,9 @@ func workspaceFrom(ctx context.Context) (ids.WorkspaceID, bool) {
 // §9.1): reset a named user's password directly against the database —
 // for installations without outbound email and for administrator
 // lockout. Runs in the caller's transaction (the operator CLI owns the
-// connection and the workspace GUC); revokes every session and writes
-// the system_log evidence with an operator provenance. Never exposed
-// over HTTP.
+// connection and the workspace GUC); ends every credential that could
+// still act as the account and writes the system_log evidence with an
+// operator provenance. Never exposed over HTTP.
 func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, email, newPassword string) error {
 	if len(newPassword) < 12 {
 		return errors.New("identity: the new password must be at least 12 characters")
@@ -344,8 +344,8 @@ func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID,
 		 WHERE id = $1`, userID, hash); err != nil {
 		return err
 	}
-	// Same cascade the HTTP redemption runs (F-002): an operator recovering
-	// a locked-out or compromised account must end every credential that
+	// Same cascade the HTTP redemption runs: an operator recovering a
+	// locked-out or compromised account must end every credential that
 	// could still act as it, not just the session.
 	if err := endCredentialAuthority(operatorCtx(ctx, wsID, userID), tx, userID, operatorResetRevokeReason); err != nil {
 		return err
@@ -376,14 +376,20 @@ func passwordOwnerCtx(ctx context.Context, userID ids.UserID) context.Context {
 	})
 }
 
-// operatorCtx binds the operator-cli system actor and the target workspace
-// for the credential cascade OperatorResetPassword triggers. The caller's tx
-// already runs under the workspace GUC (cmd/migrate sets it); this only
-// supplies what storekit.AuditWithEvidence reads off ctx rather than the
-// GUC — the wsID column value and the actor attribution — mirroring the
-// system_log row this function already writes by hand.
+// operatorCtx binds the operator-cli system actor, the target workspace, and
+// a correlation id for the credential cascade OperatorResetPassword
+// triggers. The caller's tx already runs under the workspace GUC (cmd/migrate
+// sets it); the workspace binding here only supplies what
+// storekit.AuditWithEvidence reads off ctx rather than the GUC — the wsID
+// column value and the actor attribution — mirroring the system_log row this
+// function already writes by hand. The correlation id is not optional: if
+// the reset user holds a live OAuth grant, the cascade's passport.revoked
+// events go through storekit.Emit, which refuses to stage an event with none
+// bound — and cmd/migrate's bare command context carries no operation scope
+// of its own the way an HTTP request or a bus consumer would.
 func operatorCtx(ctx context.Context, wsID ids.WorkspaceID, userID ids.UserID) context.Context {
 	ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "operator-cli", UserID: userID.UUID,
 	})

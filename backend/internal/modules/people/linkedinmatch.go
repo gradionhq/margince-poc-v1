@@ -113,11 +113,10 @@ func (s *Store) MatchLinkedInConnections(ctx context.Context, owner ids.UUID) (L
 // precisely so a match is decided by the ghost owner's authority (see
 // ghostOwnerCapturePrivacy's doc above); passing ids.Nil here — SQL NULL,
 // "every owner" — would match every member's ghosts under whichever
-// member's row scope the loop currently binds, which is exactly the
-// contact-existence oracle that comment describes (F-006): upload a
-// guessed address as an owner-private ghost, wait for a broader-scoped
-// colleague's pass to reach it, and read match_status to learn a contact
-// you cannot see exists.
+// member's row scope the loop currently binds, turning a guessed address
+// uploaded as an owner-private ghost into a contact-existence oracle: wait
+// for a broader-scoped colleague's pass to reach it, then read
+// match_status to learn a contact you cannot see exists.
 func (s *Store) MatchLinkedInConnectionsForPerson(ctx context.Context, owner, person ids.UUID) (LinkedInMatchResult, error) {
 	// READ, not update. The matcher writes only to the caller's own ghost rows;
 	// it never touches a person, and the person grant it does need is the one

@@ -81,6 +81,31 @@ func TestRequireMetricsTokenAcceptsMatchingBearer(t *testing.T) {
 	}
 }
 
+// TestRequireMetricsTokenAcceptsCaseInsensitiveScheme pins RFC 7235 §2.1:
+// the auth-scheme token is case-insensitive, so "bearer"/"BEARER" must be
+// accepted exactly like "Bearer" — only the credential itself is case-
+// sensitive.
+func TestRequireMetricsTokenAcceptsCaseInsensitiveScheme(t *testing.T) {
+	for _, scheme := range []string{"bearer", "BEARER", "BeArEr"} {
+		t.Run(scheme, func(t *testing.T) {
+			called := false
+			h := requireMetricsToken("s3cr3t", func(http.ResponseWriter, *http.Request) { called = true })
+
+			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			req.Header.Set("Authorization", scheme+" s3cr3t")
+			rec := httptest.NewRecorder()
+			h(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			if !called {
+				t.Fatalf("the wrapped handler did not run for scheme %q", scheme)
+			}
+		})
+	}
+}
+
 // TestWithMetricsTokenSetsServerField pins the Option's one job: it must
 // not silently miswire onto the wrong field or require a pool.
 func TestWithMetricsTokenSetsServerField(t *testing.T) {

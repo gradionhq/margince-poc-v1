@@ -377,14 +377,13 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 // TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope is the
 // per-person twin of the test above, over the path that actually matters in
 // practice — the one a normal capture/manual-entry write reaches
-// (person.created/person.updated), not just an organization sweep (F-006).
+// (person.created/person.updated), not just an organization sweep.
 //
-// MatchLinkedInConnectionsForPerson used to pass ids.Nil for the owner
-// filter, so a member with wide row scope, iterated by forEachGhostOwner
-// for their OWN unrelated ghost, would also match every OTHER member's
-// ghosts under that wide scope — turning a one-row CSV upload into a
-// contact-existence oracle for a workspace-visible contact the uploader's
-// own row scope hides.
+// Passing the owner filter as ids.Nil (SQL NULL, "every owner") would let a
+// member with wide row scope, iterated by forEachGhostOwner for their OWN
+// unrelated ghost, also match every OTHER member's ghosts under that wide
+// scope — turning a one-row CSV upload into a contact-existence oracle for
+// a workspace-visible contact the uploader's own row scope hides.
 func TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := context.Background()
