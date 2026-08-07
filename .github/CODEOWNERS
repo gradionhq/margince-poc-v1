@@ -1,0 +1,12 @@
+# Code owners are requested for review automatically on any PR touching
+# their paths. Later entries win over earlier ones for overlapping paths.
+
+# The extension tier (ADR-0069) and every seam that defines it.
+/extensions/                        @lstrojny
+/backend/pkg/                       @lstrojny
+/composition/                       @lstrojny
+/fixtures/extensions/               @lstrojny
+/backend/tools/gen-composition/     @lstrojny
+/backend/extensions_arch_test.go    @lstrojny
+/docs/how-to/add-an-extension.md    @lstrojny
+/docs/explanation/extensibility.md  @lstrojny
