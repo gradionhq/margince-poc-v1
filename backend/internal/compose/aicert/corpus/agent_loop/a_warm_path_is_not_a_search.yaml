@@ -1,0 +1,29 @@
+name: a_warm_path_is_not_a_search
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: Nobody here has met Acme's CFO. Can anyone introduce me?
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e03
+  grounding:
+    - source_id: org:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+      trust_tier: T1
+      content: Acme GmbH — organization_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+  tools: catalog
+expect:
+  outcome: accepted
+  answer:
+    step: intro_path_to
+    args:
+      organization_id: 0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+  rubric: >
+    An introduction is a question about the relationship graph, not about which
+    records exist. Score high only if the turn calls intro_path_to on the
+    organization the grounding identifies. search_records would return the
+    account the grounding has already supplied, and account_coverage answers a
+    different question — who is covered — without naming a path in.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

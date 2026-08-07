@@ -1,0 +1,29 @@
+name: enrichment_is_not_search
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: We know almost nothing about Acme GmbH. See what their own website says about them.
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0b
+  grounding:
+    - source_id: org:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+      trust_tier: T1
+      content: Acme GmbH — organization_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10, no profile fields set
+  tools: catalog
+expect:
+  outcome: accepted
+  answer:
+    step: enrich
+    args:
+      organization_id: 0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e10
+  rubric: >
+    The goal asks for something the workspace does not hold, and names where it
+    lives: outside. enrich is the one tool on this surface that reaches out, and
+    it is the only step that can satisfy this goal. Score high only if the turn
+    calls it on the organization the grounding identifies. search_records would
+    search the very records the goal has already said are empty.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

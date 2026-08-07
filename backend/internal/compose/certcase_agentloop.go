@@ -77,7 +77,10 @@ type agentLoopFixture struct {
 	Goal       string               `json:"goal"`
 	TriggerRef string               `json:"trigger_ref"`
 	Grounding  []agentLoopGrounding `json:"grounding"`
-	Tools      []agentLoopTool      `json:"tools"`
+	// Tools is the offered surface in either of the two spellings a scenario
+	// needs — a hand-spelled window, or the registered catalog. Both are what
+	// production is given; which one a scenario means is what it is about.
+	Tools agentLoopToolWindow `json:"tools"`
 }
 
 // agentLoopGrounding is one provenance-stamped seed item, in the shape retrieval
@@ -122,18 +125,21 @@ func (agentLoopCases) Prepare(fixture, expected json.RawMessage) (aitasks.Prepar
 	if err := refuseUnrunnableAgentJob(f); err != nil {
 		return nil, err
 	}
-	specs, err := agentLoopToolSpecs(f.Tools)
+	specs, err := f.Tools.specs()
 	if err != nil {
 		return nil, err
 	}
 	// A turn that took the right step differs from one that took the wrong step
-	// in that step alone, so the expectation IS that token rather than a wrapper
-	// carrying it.
-	var want string
+	// in that step alone, so the expectation is that token — plus, only where a
+	// scenario means it, the arguments the step had to be called with.
+	var want agentLoopStep
 	if err := json.Unmarshal(expected, &want); err != nil {
-		return nil, fmt.Errorf("%s: the expected answer is not a step name: %w", agentLoopSite, err)
+		return nil, err
 	}
-	if err := refuseUnreachableAgentStep(want, specs); err != nil {
+	if err := refuseUnreachableAgentStep(want.name, specs); err != nil {
+		return nil, err
+	}
+	if err := refuseUnaskableArguments(want, specs); err != nil {
 		return nil, err
 	}
 	return &agentLoopCase{
@@ -205,10 +211,6 @@ func refuseUnrunnableAgentJob(f agentLoopFixture) error {
 		return fmt.Errorf(
 			"%s: the fixture names no trigger, and every run the scheduler starts is one named occurrence",
 			agentLoopSite)
-	case len(f.Tools) == 0:
-		return fmt.Errorf(
-			"%s: the fixture offers no tools, and a run is always offered the workspace's governed tool surface",
-			agentLoopSite)
 	}
 	for _, item := range f.Grounding {
 		if strings.TrimSpace(item.TrustTier) == "" {
@@ -263,7 +265,7 @@ func agentLoopSeedContext(items []agentLoopGrounding) []runner.Grounding {
 type agentLoopCase struct {
 	job      runner.Job
 	specs    []mcp.ToolSpec
-	expected string
+	expected agentLoopStep
 }
 
 // agentLoopTurnBudget bounds a run to the single turn this site certifies.
@@ -382,12 +384,13 @@ func (c *agentLoopCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	}
 	switch {
 	case res.Outcome == runner.OutcomeCompleted:
-		return c.gradeStep(agentLoopFinalStep)
+		return c.gradeStep(agentLoopFinalStep, nil)
 	case res.Pending != nil:
 		// The only thing this lane's tool surface does with a proposal is stage
 		// it, so a suspended replay is a well-formed tool call and the pending
-		// call names which tool.
-		return c.gradeStep(res.Pending.Tool)
+		// call names which tool — and, for a scenario that pins them, the
+		// arguments it was called with.
+		return c.gradeStep(res.Pending.Tool, res.Pending.Args)
 	default:
 		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: res.DegradeReason}
 	}
@@ -400,11 +403,23 @@ func (c *agentLoopCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 // The step the turn took is safe to quote back into a record because the protocol
 // bounds it before returning it: a tool name is a registry identifier, and one
 // long enough to carry prose never becomes a step at all.
-func (c *agentLoopCase) gradeStep(step string) aitasks.Outcome {
-	if step != c.expected {
+//
+// The step is compared BEFORE the arguments, and a wrong step never reports an
+// argument disagreement: the arguments of a call that should not have been made
+// are not the thing that went wrong, and naming them would bury the step under
+// the detail of a call the scenario never wanted.
+func (c *agentLoopCase) gradeStep(step string, args json.RawMessage) aitasks.Outcome {
+	if step != c.expected.name {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
-			Detail: fmt.Sprintf("the turn took the step %q where the scenario expects %q", step, c.expected),
+			Detail: fmt.Sprintf("the turn took the step %q where the scenario expects %q", step, c.expected.name),
+		}
+	}
+	if disagreements := agentLoopArgDisagreements(c.expected.args, args); len(disagreements) > 0 {
+		return aitasks.Outcome{
+			Result: aitasks.OutcomeWrongAnswer,
+			Detail: fmt.Sprintf("the turn took the step %q, but %s",
+				step, strings.Join(disagreements, "; ")),
 		}
 	}
 	return aitasks.Outcome{
