@@ -50,7 +50,8 @@
 #                           (discovery/assigned/ran/meta) and per-package binary
 #                           covdata pods for the CI fan-in to reconcile + merge;
 #                           coverage instrumentation is on iff this is set
-#   INTEGRATION_TIMEOUT     per-package go-test timeout (default 600s)
+#   INTEGRATION_TIMEOUT     per-package go-test timeout, as <seconds>s
+#                           (default 600s; the budget column parses this)
 #   MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN   owner + app DSNs (Makefile defaults)
 set -euo pipefail
 
@@ -97,6 +98,14 @@ fi
 # that package is split and per-package timings are reported (issue #538).
 # Overridable via INTEGRATION_TIMEOUT.
 IT_TIMEOUT="${INTEGRATION_TIMEOUT:-600s}"
+# `go test -timeout` also accepts 10m or 1h30s. The budget column below reads
+# this as a seconds count, so anything else would price every package against a
+# nonsense denominator and print a percentage nobody can act on. Rejecting the
+# spelling is better than reporting confidently wrong numbers.
+if [[ ! "$IT_TIMEOUT" =~ ^[0-9]+s$ ]]; then
+  echo "FAIL: INTEGRATION_TIMEOUT must be <seconds>s (e.g. 600s), got '${IT_TIMEOUT}'"
+  exit 1
+fi
 if [[ -n "${COVERDIR:-}" && -z "${INTEGRATION_TIMEOUT:-}" ]] && (( SHARD_TOTAL == 1 )); then
   IT_TIMEOUT=900s
 fi
