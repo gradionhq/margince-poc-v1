@@ -90,12 +90,19 @@ func TestTheGuardPassesOnAnAbsentRowAndRefusesOnAnUnreadableOne(t *testing.T) {
 	env := newAnchorEnv(t)
 	missing := ids.From[ids.OrganizationKind](ids.NewV7())
 
-	// Absent: the guard steps aside. The operation still fails, but with the
-	// caller's not-found answer — a guard that claimed "not the anchor" and a
-	// guard that answered 404 itself look identical from the outside, so the
-	// store call is what proves which one happened.
-	if _, err := env.store.ArchiveOrganization(env.ctx, missing); anchorProtected(err) {
-		t.Fatalf("archiving a missing organization: got the anchor refusal, want the ordinary not-found (%v)", err)
+	// Absent: the guard steps aside. Called through the store this branch is
+	// unreachable — auth.EnsureVisible answers not-found first — so the guard is
+	// called directly. Going through ArchiveOrganization would pass on the
+	// visibility gate's refusal and prove nothing about this line.
+	var absent error
+	if err := database.WithWorkspaceTx(env.ctx, env.pool, func(tx pgx.Tx) error {
+		absent = refuseIfAnchor(env.ctx, tx, missing, "id", "it cannot be archived")
+		return nil
+	}); err != nil {
+		t.Fatalf("reading the guard against a missing organization: %v", err)
+	}
+	if absent != nil {
+		t.Fatalf("the guard answered %v for a row that does not exist — absence is the caller's not-found path to report, not a refusal", absent)
 	}
 
 	// Unreadable: an aborted transaction makes the guard's own SELECT fail. The
