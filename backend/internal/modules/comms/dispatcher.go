@@ -8,11 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
-	"strings"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -50,6 +47,7 @@ type Dispatcher struct {
 	store       deliveryStore
 	resolver    ConnectionResolver
 	seats       SeatAuthority
+	attachments AttachmentAuthority
 	consent     ConsentGate
 	policies    []SendPolicy
 	now         func() time.Time
@@ -90,6 +88,7 @@ func NewDispatcher(
 	store deliveryStore,
 	resolver ConnectionResolver,
 	seats SeatAuthority,
+	attachments AttachmentAuthority,
 	consent ConsentGate,
 	policies []SendPolicy,
 	now func() time.Time,
@@ -106,7 +105,8 @@ func NewDispatcher(
 		maxAttempts = minMaxAttempts
 	}
 	return &Dispatcher{
-		store: store, resolver: resolver, seats: seats, consent: consent, policies: policies,
+		store: store, resolver: resolver, seats: seats, attachments: attachments,
+		consent: consent, policies: policies,
 		now: now, maxAge: maxAge, maxAttempts: maxAttempts,
 	}
 }
@@ -182,6 +182,13 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 		return outcome, wait, err
 	}
 
+	// Gate: the files themselves, rechecked against now rather than against
+	// staging time. It runs after carriage because carriage needs no I/O and
+	// this needs a read, so the free refusal is asked first.
+	if outcome, wait, err := d.gateAttachmentIntegrity(ctx, del); outcome != outcomeUndecided {
+		return outcome, wait, err
+	}
+
 	// Policies postpone; they never refuse. They run after both gates, so a
 	// delivery that may never go is refused rather than paced.
 	if outcome, wait, err := d.pace(ctx, del); outcome != outcomeUndecided {
@@ -198,123 +205,6 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 	}
 
 	return d.transmit(ctx, del, seam)
-}
-
-// gateSendAuthority refuses a delivery this installation's own knowledge of the
-// provider says can never leave, and returns outcomeUndecided when it may.
-//
-// It reads the PROVIDER's answer about a credential — granted is the scope list
-// the resolver just read from the provider, not a copy stored when the grant was
-// made — and it applies the scope check only where the provider HAS a scope to
-// check. A credential carrying no OAuth grant is its own authority: the resolver
-// either produced one or reported that it could not, so demanding a scope of it
-// would park every message the provider can actually send, with a reason naming
-// a connector limitation that does not exist.
-//
-// Both refusals PARK. Neither a provider this installation cannot transmit
-// through nor a connection the provider never granted the send scope is repaired
-// by waiting; the scope one names reconnecting, which is the act that repairs it.
-func (d *Dispatcher) gateSendAuthority(ctx context.Context, del Delivery, granted []string) (Outcome, time.Duration, error) {
-	switch scope, capability := SendScopeFor(del.Provider); capability {
-	case CannotSend:
-		return d.park(ctx, del.ID, fmt.Sprintf("provider %q cannot send messages", del.Provider))
-	case SendsWithScope:
-		if !slices.Contains(granted, scope) {
-			return d.park(ctx, del.ID, "this mailbox connection was not granted the send scope; reconnect it to enable sending")
-		}
-	case SendsWithoutScope:
-		// Nothing to intersect: the resolved credential is the whole authority,
-		// and the seat gate is what still binds the human who lent it.
-	}
-	return outcomeUndecided, 0, nil
-}
-
-// gateAttachmentCarriage refuses a delivery whose channel cannot carry the files
-// it was staged with (ADR-0086/A131 §2).
-//
-// IT PARKS. It does not strip, it does not convert the files to links, and it
-// does not transmit the covering text alone. Stripping is the one behaviour the
-// ADR exists to forbid, because the failure is silent: the sender sees a
-// timeline entry with an attachment chip — the timeline records what was STAGED
-// — the recipient sees a message referring to a file that is not there, and
-// nobody is told. The record of what was sent is then permanently wrong, so even
-// a later investigation reconstructs the wrong history.
-//
-// Parking rather than refusing outright is deliberate too: the composer already
-// knows the channel's capability and warns before the human presses send, so a
-// mismatch HERE means something changed after staging — a channel reconnected as
-// a different provider, a file added by a later edit. The human should get the
-// message back with a reason, which is what parking does.
-//
-// The reason names the channel and the files, because "this could not be sent"
-// with no subject leaves a person guessing which of the two to fix.
-func (d *Dispatcher) gateAttachmentCarriage(ctx context.Context, del Delivery, seam sendSeam) (Outcome, time.Duration, error) {
-	if len(del.Attachments) == 0 || seam.carriesAttachments {
-		return outcomeUndecided, 0, nil
-	}
-	names := make([]string, 0, len(del.Attachments))
-	for _, file := range del.Attachments {
-		names = append(names, file.Filename)
-	}
-	return d.park(ctx, del.ID, fmt.Sprintf(
-		"the %s channel cannot carry files, and this message has %s attached; it was not sent, because sending the text alone would misrepresent what it contains",
-		del.Provider, strings.Join(names, ", ")))
-}
-
-// gateSeat refuses a delivery whose sender is no longer a live,
-// mutation-capable seat, and returns outcomeUndecided when they are.
-//
-// It PARKS rather than retries, because both an off-boarding and a downgrade
-// to a read seat are answers: the authority that staged this message is gone
-// either way, and no amount of waiting restores it. Retrying would keep the
-// batch alive for the whole maximum age, which is the exposure this gate
-// closes. A seat authority that could not ANSWER is the opposite case and
-// retries, so an identity-store outage does not destroy every send in flight.
-func (d *Dispatcher) gateSeat(ctx context.Context, del Delivery) (Outcome, time.Duration, error) {
-	if d.seats == nil {
-		// A send path with no seat authority wired is a deployment defect, and
-		// this lane reaches a real external mailbox. Fail closed, exactly as
-		// the missing consent authority below does.
-		return d.park(ctx, del.ID, "no seat authority is configured on this send path")
-	}
-	active, reason, err := d.seats.ActiveSeat(ctx, del.UserID)
-	if err != nil {
-		return d.retry(ctx, del.ID, err)
-	}
-	if !active {
-		return d.park(ctx, del.ID, reason)
-	}
-	return outcomeUndecided, 0, nil
-}
-
-// gateConsent asks the authoritative suppression question and returns
-// outcomeUndecided when every addressee may still be mailed.
-func (d *Dispatcher) gateConsent(ctx context.Context, del Delivery) (Outcome, time.Duration, error) {
-	if d.consent == nil {
-		// A send path with no consent authority wired is a deployment defect.
-		// Retrying would hide the misconfiguration behind a delivery that
-		// quietly never goes out.
-		return d.park(ctx, del.ID, "no consent authority is configured on this send path")
-	}
-	// EVERY subject this delivery reaches is asked about, not just the To line:
-	// a Cc'd person is owed the same suppression, and this call is the only one
-	// that runs after they could have withdrawn. consentRecipients is what makes
-	// the question shape-agnostic — mail's addressees and a channel's single
-	// recipient arrive here as the same list.
-	switch err := d.consent.RequireGrantedForRecipients(ctx, consentRecipients(del), del.ConsentPurpose); {
-	case errors.Is(err, apperrors.ErrConsentNotGranted):
-		// An answer: consent is absent, and no amount of waiting brings it
-		// back.
-		return d.park(ctx, del.ID, fmt.Sprintf(
-			"consent for purpose %q is not granted for these recipients", del.ConsentPurpose,
-		))
-	case err != nil:
-		// NOT an answer. A consent service that is merely down must not
-		// permanently destroy a consented send — getting this branch backwards
-		// silently kills legitimate mail.
-		return d.retry(ctx, del.ID, err)
-	}
-	return outcomeUndecided, 0, nil
 }
 
 // pace applies the policy chain. The chain is ordered and the first non-zero

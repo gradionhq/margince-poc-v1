@@ -133,6 +133,18 @@ func (f *fakeSender) SendEmail(_ context.Context, _ connector.Auth, m connector.
 	return connector.SendReceipt{ProviderMessageID: "gmsg1", RFC822MessageID: "stamped@mail.gmail.com"}, f.err
 }
 
+// carryingSender is fakeSender that declares it can transmit files, which is
+// what lets a case reach the integrity gate: the carriage gate refuses first on
+// a channel that cannot carry them at all, and would mask every case about the
+// files themselves.
+type carryingSender struct {
+	fakeSender
+}
+
+func (c *carryingSender) CarriesAttachments() bool { return true }
+
+var _ connector.AttachmentCarrier = (*carryingSender)(nil)
+
 // stubMessageSender is the CHANNEL provider boundary for the cases that run
 // against the fake store. It is spelled apart from fakeSender because the two
 // seams differ in the one way these cases are about: nothing at this provider
@@ -254,7 +266,33 @@ func newTestDispatcher(store deliveryStore, res ConnectionResolver, consent Cons
 // out, for the cases that are about the seat rather than about what comes
 // after it.
 func newSeatedDispatcher(store deliveryStore, res ConnectionResolver, seats SeatAuthority, consent ConsentGate, policies ...SendPolicy) *Dispatcher {
-	return NewDispatcher(store, res, seats, consent, policies, func() time.Time { return testNow }, time.Hour, testMaxAttempts)
+	// A nil attachment authority is the fail-closed default, and it is inert
+	// for every delivery here: the integrity gate only asks when a delivery
+	// actually carries files, and these carry none. A case about attachments
+	// uses newAttachmentDispatcher and passes its own stub.
+	return NewDispatcher(store, res, seats, nil, consent, policies, func() time.Time { return testNow }, time.Hour, testMaxAttempts)
+}
+
+// newAttachmentDispatcher is newSeatedDispatcher with the attachment authority
+// under test wired, and a live seat, so a case can assert on the integrity gate
+// without restating the rest of the chain.
+func newAttachmentDispatcher(store deliveryStore, res ConnectionResolver, files AttachmentAuthority) *Dispatcher {
+	return NewDispatcher(store, res, stubSeats{active: true}, files, &stubConsent{}, nil,
+		func() time.Time { return testNow }, time.Hour, testMaxAttempts)
+}
+
+// stubAttachments is a scripted AttachmentAuthority: it records what it was
+// asked about, so a case can prove the gate asked at all.
+type stubAttachments struct {
+	ok     bool
+	reason string
+	err    error
+	asked  []ids.UUID
+}
+
+func (s *stubAttachments) EnsureTransmittable(_ context.Context, _ ids.UserID, attachmentIDs []ids.UUID) (bool, string, error) {
+	s.asked = append(s.asked, attachmentIDs...)
+	return s.ok, s.reason, s.err
 }
 
 // dispatch runs one attempt and drops the postponement interval, which most

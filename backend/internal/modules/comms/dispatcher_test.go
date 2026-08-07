@@ -360,7 +360,7 @@ func TestADispatcherConfiguredWithOneRungStillTransmitsOnce(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
 	d := NewDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
-		liveSeat(), &stubConsent{}, nil, func() time.Time { return testNow }, time.Hour, 1)
+		liveSeat(), nil, &stubConsent{}, nil, func() time.Time { return testNow }, time.Hour, 1)
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -378,7 +378,7 @@ func TestADispatcherConfiguredWithOneRungStillTransmitsOnce(t *testing.T) {
 // who sees a message referring to a file that is not there — knows.
 func TestACarriageMismatchParksAndNamesTheFiles(t *testing.T) {
 	store := &fakeStore{}
-	d := NewDispatcher(store, fakeResolver{}, liveSeat(), &stubConsent{}, nil,
+	d := NewDispatcher(store, fakeResolver{}, liveSeat(), nil, &stubConsent{}, nil,
 		func() time.Time { return testNow }, time.Hour, 3)
 	del := Delivery{
 		ID: ids.NewV7(), Provider: "telegram",
@@ -404,7 +404,7 @@ func TestACarriageMismatchParksAndNamesTheFiles(t *testing.T) {
 
 func TestACarryingChannelIsNotParkedForItsFiles(t *testing.T) {
 	store := &fakeStore{}
-	d := NewDispatcher(store, fakeResolver{}, liveSeat(), &stubConsent{}, nil,
+	d := NewDispatcher(store, fakeResolver{}, liveSeat(), nil, &stubConsent{}, nil,
 		func() time.Time { return testNow }, time.Hour, 3)
 	del := Delivery{
 		ID: ids.NewV7(), Provider: "gmail",
@@ -424,7 +424,7 @@ func TestACarryingChannelIsNotParkedForItsFiles(t *testing.T) {
 // them would stop every send on every channel that never declared carriage.
 func TestAMessageWithNoFilesIsNeverParkedForCarriage(t *testing.T) {
 	store := &fakeStore{}
-	d := NewDispatcher(store, fakeResolver{}, liveSeat(), &stubConsent{}, nil,
+	d := NewDispatcher(store, fakeResolver{}, liveSeat(), nil, &stubConsent{}, nil,
 		func() time.Time { return testNow }, time.Hour, 3)
 	outcome, _, err := d.gateAttachmentCarriage(context.Background(),
 		Delivery{ID: ids.NewV7(), Provider: "telegram"}, sendSeam{carriesAttachments: false})
