@@ -6,6 +6,7 @@ import {
   fireEvent,
   render as rtlRender,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -321,5 +322,50 @@ describe("ListTable: pending, error and empty states", () => {
     render(<ListTableHarness fetchPage={fetchPage} />);
 
     await screen.findByRole("cell", { name: "No Contacts yet." });
+  });
+});
+
+describe("removing an applied filter", () => {
+  it("drops the key from the query when the row's Delete filter is used", async () => {
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
+          {
+            key: "status",
+            label: "lead.filterStatus",
+            allLabel: "lead.filterStatusAll",
+            options: [{ value: "working", label: "lead.statusWorking" }],
+          },
+        ]}
+      />,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Filter" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Status" }));
+    await userEvent.click(screen.getByRole("button", { name: "Working" }));
+    await waitFor(() =>
+      expect(
+        fetchPage.mock.calls.some(([query]) => query.filters.status),
+      ).toBe(true),
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "More actions for the Status filter",
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Delete filter" }));
+
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters).not.toHaveProperty(
+        "status",
+      ),
+    );
   });
 });

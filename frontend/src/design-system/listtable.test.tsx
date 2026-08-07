@@ -1,4 +1,7 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   act,
   cleanup,
@@ -909,5 +912,23 @@ describe("phone card layout hooks", () => {
     expect(value.getAttribute("data-label")).toBe("Value");
     expect(note.getAttribute("data-label")).toBe("Note");
     expect(region.getAttribute("data-label")).toBe("Region");
+  });
+});
+
+// jsdom applies no stylesheet, so every interaction test above passes whether
+// or not these popups can actually be seen. This reads the stylesheet itself:
+// the applied-filter row hosts the popups for its condition, its value and its
+// delete step INSIDE its own box, so a rule that clips the row clips all three
+// — the menus open, and the reader sees nothing to click.
+describe("the applied filter row does not clip what it hosts", () => {
+  it("leaves its own overflow visible", () => {
+    const css = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "listtable.css"),
+      "utf8",
+    );
+    const rule = css.slice(css.indexOf(".lt-frow {"));
+    const block = rule.slice(0, rule.indexOf("}"));
+    expect(block).not.toContain("overflow: hidden");
+    expect(block).toContain("overflow: visible");
   });
 });

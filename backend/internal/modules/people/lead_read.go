@@ -43,10 +43,10 @@ func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.A
 	return l, err
 }
 
-// scanLead scans core + active custom columns. Lead lists page by a
-// (created_at, id) WHERE cursor, not a SELECT cursor-key suffix, so there
-// are no trailing expressions to scan — unlike scanPerson's keyset page.
-func scanLead(row pgx.Row, active []fieldcatalog.Column) (crmcontracts.Lead, error) {
+// scanLead scans core + active custom columns, plus whatever trailing
+// expressions the caller selected — the list page appends the sort's
+// __cursor_key there, exactly as scanPerson does.
+func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Lead, error) {
 	var l crmcontracts.Lead
 	var id, wsID ids.UUID
 	var ownerID, projectID, promotedPerson *ids.UUID
@@ -60,7 +60,7 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column) (crmcontracts.Lead, err
 		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
 	}
 	cf := storekit.ScanDests(active)
-	if err := row.Scan(append(dests, cf...)...); err != nil {
+	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
 		return l, err
 	}
 	if values := storekit.ExtractValues(active, cf); len(values) > 0 {

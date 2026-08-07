@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -281,106 +280,9 @@ type ListLeadsInput struct {
 	CapturedByKind *string
 	// AiWritten filters on whether an AI wrote into the record (§3a).
 	AiWritten *bool
-}
-
-func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontracts.Lead, storekit.Page, error) {
-	if err := auth.Require(ctx, "lead", principal.ActionRead); err != nil {
-		return nil, storekit.Page{}, err
-	}
-	active, err := s.activeColumns(ctx, "lead")
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	limit := storekit.ClampLimit(in.Limit)
-
-	where := []string{"1=1"}
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-
-	scope, err := auth.ScopeClauseFor(ctx, "lead", "", arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-
-	filters, err := leadFilterClauses(in, arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	where = append(where, filters...)
-
-	var leads []crmcontracts.Lead
-	var page storekit.Page
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+leadColumns+storekit.SelectSuffix(active)+` FROM lead WHERE `+strings.Join(where, " AND ")+
-				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
-			args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			l, err := scanLead(rows, active)
-			if err != nil {
-				return err
-			}
-			leads = append(leads, l)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(leads) > limit {
-			leads = leads[:limit]
-			last := leads[len(leads)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return nil
-	})
-	if leads == nil {
-		leads = []crmcontracts.Lead{}
-	}
-	return leads, page, err
-}
-
-// leadFilterClauses renders the caller's requested narrowing — the archive
-// filter, the field filters, quick-find, and the keyset cursor. The row scope
-// is deliberately not here: it is the reader's own boundary and stays at the
-// list entry point, where it cannot be forgotten.
-func leadFilterClauses(in ListLeadsInput, arg func(any) int) ([]string, error) {
-	var where []string
-	if !in.IncludeArchived {
-		where = append(where, "archived_at IS NULL")
-	}
-	if in.Status != nil {
-		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
-	}
-	if in.OwnerID != nil {
-		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
-	}
-	kindClause, ok, err := capturedByKindClause(in.CapturedByKind, arg)
-	if err != nil {
-		return nil, err
-	}
-	if ok {
-		where = append(where, kindClause)
-	}
-	if ai := aiWrittenClause(in.AiWritten, "lead", arg); ai != "" {
-		where = append(where, ai)
-	}
-	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.QuickFindClause(arg(*in.Query), "coalesce(full_name,'') || ' ' || coalesce(company_name,'')"))
-	}
-	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
-		if err != nil {
-			return nil, err
-		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
-	}
-	return where, nil
+	// Sort is the contract's sort spec, validated against the lead
+	// vocabulary plus the workspace's active cf_ columns.
+	Sort *string
 }
 
 // leadUniqueViolation maps a lead write's unique-index violation to the
