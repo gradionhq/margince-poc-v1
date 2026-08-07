@@ -11,6 +11,10 @@ An extension is its own Go module reaching the core through only the marker-allo
 flip. `extensions/de` (Germany), `extensions/yogi` (one served agent tool) and
 `fixtures/extensions/crm-hello` (the walking-skeleton reference) are the units to copy from.
 
+Extension paths — the units, the `backend/pkg/**` seam, the composition stub and generator — carry
+a [CODEOWNERS](../../.github/CODEOWNERS) entry, so a PR touching them automatically requests the
+tier owner's review.
+
 ## Scaffold the unit
 
 1. **Create the module directory** `extensions/<name>/` — the directory name is the canonical unit
