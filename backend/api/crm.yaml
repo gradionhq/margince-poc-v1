@@ -352,8 +352,10 @@ paths:
       description: >
         Non-production only. Wipes workspace domain + seeded-config data back to the
         bootstrapped state, preserving the organization and users so login still works,
-        then re-seeds module defaults. Requires the organization name as a typed
-        confirmation. In production this endpoint does not exist (404).
+        then re-seeds module defaults. Also clears the job queue, the event bus, the
+        Redis counters and the object bytes — not only table rows. Requires the
+        organization name as a typed confirmation. In production this endpoint does
+        not exist (404).
       requestBody:
         required: true
         content:
@@ -375,10 +377,32 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [status, tables_cleared]
+                required: [status, tables_cleared, jobs_deleted, streams_purged, cache_keys_deleted, objects_deleted, drain_timed_out]
                 properties:
                   status: { type: string, example: reset }
                   tables_cleared: { type: integer }
+                  jobs_deleted:
+                    type: integer
+                    description: >
+                      Job rows deleted in EVERY state — queued, scheduled, running and retryable work plus the
+                      retained completed, discarded and cancelled history, which a reset to first-boot state
+                      must not leave behind. Covers this workspace's jobs and the fleet dispatchers the periodic
+                      ticks re-insert.
+                  streams_purged:
+                    type: integer
+                    description: Event-bus stream KEYS deleted (their consumer groups are re-created empty), not entries.
+                  cache_keys_deleted:
+                    type: integer
+                    description: Redis keys unlinked — processed-event dedupe marks plus this workspace's overlay budget counters.
+                  objects_deleted:
+                    type: integer
+                    description: Objects removed from the blob store under this workspace's key prefix.
+                  drain_timed_out:
+                    type: boolean
+                    description: >
+                      True when a job was still running when the bounded drain window expired. The reset
+                      proceeded — a long pass must not make an installation unresettable — and the surviving
+                      job's completion write will fail against rows that no longer exist.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403':
           description: >
@@ -987,6 +1011,15 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Sort'
         - $ref: '#/components/parameters/IncludeArchived'
+        - name: include_anchor
+          in: query
+          schema: { type: boolean, default: false }
+          description: |
+            Include this installation's own company. It is excluded by default because this list
+            answers "which companies are we selling to", and the company running the CRM is not one
+            of them (ADR-0082/A127). Modeled on `include_archived` (API-LIST-4): a class of rows
+            almost never wanted, never silently unreachable. Surfaces whose subject IS the workspace
+            — recording that a person works here, own-company project work — set it.
         - $ref: '#/components/parameters/CapturedByKind'
         - $ref: '#/components/parameters/AiWritten'
         - name: owner_id
@@ -4325,10 +4358,12 @@ paths:
         paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
         EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
         (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
-        NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
-        A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
-        that is honest grounding, not fabrication, and it still stages 🟡.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required, scope: enrich }
+        NOTHING is written to real records — the read-back stages a proposal the user accepts via
+        /approvals. A `self_description` field is "grounded" in the user's own words
+        (source_kind=self_description) — that is honest grounding, not fabrication, and it stages
+        the same way. HUMAN-ONLY: this call CREATES the organization, so there is no record for a
+        record-shaped agent verb to target; an agent principal is refused (403 `permission_denied`).
+      x-agent-access: human-only
       requestBody:
         required: true
         content:
@@ -4392,17 +4427,19 @@ paths:
         The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
         for a human to check and correct in the company form, and NOTHING is written or queued. For a
         HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
-        and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
-        presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
-        the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
-        caller's path and query, from the server's own address. So the agent tier matches its sibling's:
-        🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
-        staging remains for callers that propose asynchronously, with no human at the screen.
+        and PUT /company is the human's confirmation. That reasoning presupposes someone at the screen,
+        and on the agent path there is nobody: the EGRESS effect is the same one POST /coldstart performs
+        — an outbound GET to a caller-chosen host, with the caller's path and query, from the server's
+        own address — and the organization does not exist yet, so no record-shaped agent verb has a
+        target for it; the fields feed the form whose confirmation creates it. HUMAN-ONLY on both
+        counts: an agent principal is refused (403 `permission_denied`), with no staging path. An agent
+        that needs outward-looking research on an organization that already exists spends the same
+        `enrich` cap on POST /organizations/{id}/enrich.
 
         Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
         non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
         is returned as an omission for the human to fill in by hand, never as a guess.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required, scope: enrich }
+      x-agent-access: human-only   # onboarding: creates the organization, so there is no record to target
       requestBody:
         required: true
         content:
@@ -4776,10 +4813,12 @@ paths:
       summary: Confirm a selected onboarding draft into the anchor company atomically.
       description: |
         Applies only the submitted profile and selected fact keys. The draft version and proposal
-        hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
-        Every human-held collision requires an explicit keyed resolution. Unchanged values retain
-        website evidence, edits become human assertions, and published people remain separate
-        site-lead proposals rather than becoming contacts or company-context rows.
+        hash bind confirmation to the exact inspected proposal; a stale confirmation returns
+        `409 version_skew`, an already-decided one `409 already_confirmed`, and one whose read has
+        produced no draft `409 not_confirmable`. Every human-held collision requires an explicit
+        keyed resolution. Unchanged values retain website evidence, edits become human assertions,
+        and published people remain separate site-lead proposals rather than becoming contacts or
+        company-context rows.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -4796,7 +4835,15 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: >
+            The draft cannot be confirmed as submitted, and `code` says which of the three it is:
+            `already_confirmed` (this dossier was confirmed already — reload the company),
+            `not_confirmable` (the read has produced no draft yet — wait for it or start a new one),
+            or `version_skew` (the draft moved since it was reviewed — inspect it again).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   # ------------------ /connectors (per-provider OAuth capture) ---------------
@@ -5024,6 +5071,60 @@ paths:
               schema: { $ref: '#/components/schemas/MorningDigest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /installation/settings:
+    get:
+      tags: [Identity]
+      operationId: getInstallationSettings
+      summary: The installation's own settings.
+      description: |
+        Reads the installation's identity and reporting basis (ADR-0090/A135): its name, the
+        IANA timezone every reporting period is computed in, and the ISO-4217 base currency
+        every money roll-up converts to. Every role may read them — a rep reading amounts
+        benefits from knowing which currency they are in — and only admin/ops may change them
+        (PATCH). Governed by the `installation_settings` RBAC object.
+
+        `base_currency_locked` reports whether the currency has stopped being changeable, and
+        `base_currency_locked_reason` says why, naming how many deals have already frozen a
+        conversion rate against it (ADR-0085 §7). A client renders the field read-only from
+        the flag rather than discovering the refusal by attempting a write.
+      responses:
+        '200':
+          description: The installation settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstallationSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Identity]
+      operationId: updateInstallationSettings
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Update the installation's settings (admin/ops).
+      description: |
+        Admin/ops-only, human session only — an agent never renames the organization or
+        re-bases its reporting currency. A sparse patch: an omitted field is left unchanged.
+
+        The base currency is refused with `422 setting_frozen` once any deal has frozen a
+        conversion rate against it, because changing it would re-mean every roll-up built on
+        those rates (ADR-0085 §7). Before that point it is freely changeable, which is the
+        case this serves: an installation that chose wrong in its configuration and noticed
+        in week one. Audit-only write (no event stream, EVT-NOEVT-3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateInstallationSettingsRequest' }
+      responses:
+        '200':
+          description: The updated installation settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstallationSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /capture/settings:
     get:
@@ -6227,7 +6328,7 @@ paths:
     post:
       tags: [Access]
       operationId: createRecordGrant
-      summary: Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+      summary: Share one record with a user or team (human-only).
       description: |
         Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
         scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
@@ -6237,8 +6338,7 @@ paths:
         flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
-      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: confirmation_required, scope: write }
+      x-agent-access: human-only   # the grant verbs reject any non-human principal
       requestBody:
         required: true
         content:
@@ -6271,14 +6371,13 @@ paths:
     delete:
       tags: [Access]
       operationId: revokeRecordGrant
-      summary: Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+      summary: Revoke a manual record grant (human-only).
       description: |
         Deletes the grant; the subject loses the widened access immediately (the next query no longer
         matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
       parameters:
-        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
-      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: confirmation_required, scope: write }
+      x-agent-access: human-only   # the grant verbs reject any non-human principal
       responses:
         '204': { description: Revoked. }
         '403':
@@ -6304,7 +6403,8 @@ paths:
       description: |
         The workspace member roster: id + display name + email + seat/status. Any authenticated member
         may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
-        archived users. Row-scoped by workspace RLS.
+        archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
+        who is the only one who can act on it.
       x-mcp-tool: { verb: search_records, record_type: app_user, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
@@ -6348,11 +6448,19 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '404':
+          description: >-
+            Not found, with the reason distinguished by the problem `code`:
+            `unknown_role` — this organization defines no role with the requested key.
+            The `role` enum is documentation, not binding validation, so a mistyped key
+            reaches the server and must say which of the two things was not found.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '409':
           description: >-
             Refused, with the reason distinguished by the problem `code`:
-            `conflict` (a member with this email already exists), or
+            `email_taken` (a member with this email already exists), or
             `no_delivery_channel` (this installation has neither an outbound-email channel nor a
             public base URL, so neither the mailed link nor an admin-issued one could reach the
             member — an invite would create an ACTIVE account nobody could ever sign in as).
@@ -6385,9 +6493,19 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '404':
+          description: >-
+            Not found, with the reason distinguished by the problem `code`:
+            `not_found` (no such member) or `unknown_role` (the member exists, but this
+            organization defines no role with that key). Both are 404; a client that
+            tells the operator which one it hit needs the code, not the prose.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '409':
-          description: Refused — demoting this member would leave the organization with no active admin.
+          description: >-
+            Refused with `code: last_active_admin` — demoting this member would leave the
+            organization with no active admin.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -6420,7 +6538,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Refused — this is the last active admin; deactivating them would lock the organization out.
+          description: >-
+            Refused with `code: last_active_admin` — this is the last active admin;
+            deactivating them would lock the organization out.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -6446,6 +6566,17 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            Refused with `code: not_deactivated` — only a deactivated member can be
+            reactivated, and this one is in some other state. Both reachable states need
+            a different action, not this one: an `invited` member has never set a
+            password, and a `suspended` member is held for a reason that reactivating
+            would clear without it ever being resolved. (An `active` member is a no-op
+            and answers 200, not this.)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /users/{id}/password-link:
     parameters:
@@ -7445,13 +7576,12 @@ paths:
       description: |
         draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
         daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
-        emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
-        `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
-        redeems with the X-Approval-Token header (ADR-0036).
-      x-mcp-tool: { verb: send_offer, record_type: offer, tier: confirmation_required, scope: send }
+        emits `offer.sent`. HUMAN-ONLY: an agent principal is refused outright (403
+        `permission_denied`), with no staging path — releasing an offer to a counterparty is a
+        decision a person makes, not one an agent stages for them.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
@@ -7521,15 +7651,15 @@ paths:
       operationId: regenerateOffer
       summary: Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
       description: |
-        The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
-        sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
+        Copies the sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
         `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
         mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
         also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
         `diff_from_previous` line-item summary versus the prior revision; a mechanical
         regenerate (no AI context available) still works and returns `ai_generated=false`. The
-        produced draft still cannot leave without the 🟡 send gate.
-      x-mcp-tool: { verb: draft_offer, record_type: offer, tier: auto_execute, scope: write }
+        produced draft still cannot leave without the send gate, which is human-only too.
+        HUMAN-ONLY: an agent principal is refused (403 `permission_denied`); no tool serves this verb.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -7557,7 +7687,7 @@ paths:
         WP7, data-model §12.6). The rendered totals equal the server-computed totals — the PDF
         never recomputes money (P11). Not itself an outbound or irreversible act — `send` is
         the 🟡 gated step that leaves the workspace — so render stays 🟢.
-      x-mcp-tool: { verb: render_offer, record_type: offer, tier: auto_execute, scope: write }
+      x-agent-access: human-only   # no tool
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -8811,11 +8941,7 @@ paths:
       tags: [Overlay]
       operationId: connectOverlay
       summary: Connect the workspace's overlay incumbent (HubSpot).
-      x-mcp-tool:
-        verb: connect_incumbent
-        record_type: overlay_connection
-        tier: confirmation_required
-        scope: write
+      x-agent-access: human-only   # no tool: seals a credential and flips the system of record
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnectRequest' } } } }
       responses:
         '201': { description: Connected, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnection' } } } }
@@ -8824,11 +8950,7 @@ paths:
       tags: [Overlay]
       operationId: disconnectOverlay
       summary: Disconnect the overlay incumbent and queue mirror teardown.
-      x-mcp-tool:
-        verb: disconnect_incumbent
-        record_type: overlay_connection
-        tier: confirmation_required
-        scope: write
+      x-agent-access: human-only   # no tool: purges the mirror and flips the system of record
       responses:
         '202': { description: Teardown queued }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -8846,11 +8968,7 @@ paths:
       tags: [Overlay]
       operationId: reconcileOverlay
       summary: Queue an out-of-band mirror reconciliation sweep.
-      x-mcp-tool:
-        verb: reconcile_overlay
-        record_type: overlay_connection
-        tier: auto_execute
-        scope: enrich
+      x-agent-access: human-only   # no tool
       responses:
         '202': { description: Sweep queued }
 
@@ -9656,6 +9774,46 @@ components:
         page: { $ref: '#/components/schemas/PageInfo' }
 
     # ---- capture settings (workspace-shared posture; CAP-PARAM-7, ADR-0072) ----
+    InstallationSettings:
+      type: object
+      description: |
+        The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
+        changed only by admin/ops.
+      required: [name, timezone, base_currency, base_currency_locked]
+      properties:
+        name:
+          type: string
+          description: The organization's display name.
+        timezone:
+          type: string
+          description: |
+            IANA zone name every reporting period boundary is computed in (not a user's own
+            display timezone, which is per-user).
+        base_currency:
+          type: string
+          description: ISO-4217 code every money roll-up converts to.
+        base_currency_locked:
+          type: boolean
+          description: |
+            True once a deal has frozen a conversion rate against the base currency, after
+            which it can no longer be changed (ADR-0085 §7).
+        base_currency_locked_reason:
+          type: string
+          description: |
+            Why the currency is locked, naming how many deals have already converted against
+            it. Absent when it is still changeable.
+    UpdateInstallationSettingsRequest:
+      type: object
+      description: A sparse installation-settings patch (admin/ops, human-only).
+      properties:
+        name: { type: string, description: Rename the organization. }
+        timezone: { type: string, description: The IANA reporting zone. }
+        base_currency:
+          type: string
+          description: |
+            ISO-4217 code. Refused with `setting_frozen` once any deal has frozen a conversion
+            rate against the current base.
+
     CaptureSettings:
       type: object
       description: |
@@ -10692,6 +10850,14 @@ components:
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
         display_name: { type: string }
+        is_anchor:
+          type: boolean
+          readOnly: true
+          description: |
+            True only for this installation's OWN company (ADR-0065/A111, amended by ADR-0082/A127).
+            It is one ordinary organization, reachable by id everywhere, but the surfaces that answer
+            *which companies are we selling to* exclude it unless `include_anchor` is set, and it
+            cannot be archived or merged. A caller that offers company actions should tell it apart.
         legal_name: { type: [string, 'null'] }
         industry: { type: [string, 'null'] }
         size_band:
@@ -13299,6 +13465,17 @@ components:
         timezone: { type: string, default: UTC, description: IANA name. }
         status: { type: string, enum: [active, suspended, deactivated], default: active }
         is_agent: { type: boolean, default: false, description: First-party Agent Runner identity vs a human seat. }
+        roles:
+          type: array
+          items: { type: string }
+          description: >
+            This member's assigned system role keys. Present ONLY for an admin caller — the roster
+            is readable by every authenticated member (it feeds the share/assignee pickers), and a
+            rep has no business enumerating who holds `admin`. Normally exactly one key:
+            `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients
+            that render a single current role must still handle the empty and multi-key cases.
+            Deliberately absent on `MeResponse.user`, whose sibling `MeResponse.roles` is the one
+            authority for the caller's own roles — the same fact spelled twice could disagree.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -13477,7 +13654,9 @@ components:
         roles:
           type: array
           items: { type: string }
-          description: Effective role keys for this principal.
+          description: >
+            Effective role keys for this principal, and the one authority for them —
+            `user.roles` is deliberately left unset here rather than repeating the same fact.
         teams:
           type: array
           items: { type: string, format: uuid }
@@ -13540,7 +13719,7 @@ components:
          automation, voice_profile, product, offer, signal, saved_view, custom_field,
          computed_field, quota, offer_template, overlay_connection, embedding_reindex,
          webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
-         channel_connection, import_run]
+         channel_connection, import_run, installation_settings]
 
     RbacAction:
       type: string
@@ -14441,11 +14620,18 @@ components:
       type: object
       required: [key, action]
       properties:
-        key: { type: string }
+        key:
+          type: string
+          description: >
+            A human_conflict comparison key, or — for use_value only — any fact comparison key in
+            the draft. Any other key is refused.
         action: { type: string, enum: [keep_current, accept_proposal, use_value] }
         value:
           type: [string, 'null']
-          description: Required and non-blank only for use_value; forbidden for other actions.
+          description: >
+            Required and non-blank only for use_value; forbidden for other actions. A value equal
+            to the read's own proposed value is an acceptance and keeps the page's evidence; a
+            different one is the human's assertion and is stored with no website evidence.
 
     CompanySiteReadLegalEntity:
       type: object
@@ -14718,6 +14904,11 @@ components:
         status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
         status_detail: { type: [string, 'null'], description: 'Safe guidance only; never provider payload, prompt, SQL, or stack data.' }
         next_attempt_at: { type: [string, 'null'], format: date-time }
+        stopped_reason:
+          type: [string, 'null']
+          enum: [budget, page_cap, byte_cap, deadline, null]
+          x-enum-varnames: [CompanySiteReadStoppedReasonBudget, CompanySiteReadStoppedReasonPageCap, CompanySiteReadStoppedReasonByteCap, CompanySiteReadStoppedReasonDeadline, CompanySiteReadStoppedReasonNull]
+          description: 'Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.'
         phase: { type: [string, 'null'], enum: [crawling, extracting] }
         pages_read: { type: integer, minimum: 0 }
         pages:
@@ -14762,12 +14953,18 @@ components:
         profile: { $ref: '#/components/schemas/CompanyProfileInput' }
         selected_fact_keys:
           type: array
+          description: >
+            The proposed facts to keep, exactly as the read stated them. A fact the reader wants
+            to correct is left out of this list and sent as a use_value resolution instead.
           uniqueItems: true
           maxItems: 100
           items: { type: string }
         resolutions:
           type: array
-          description: Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+          description: >
+            Exactly one keyed resolution for every human_conflict comparison, plus an optional
+            use_value for any fact the read got wrong. Omitted is equivalent to an empty array for
+            existing clients and succeeds only when no human conflict exists.
           items: { $ref: '#/components/schemas/CompanySiteReadResolution' }
 
     EnrichCompanyRequest:

@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import {
   type FormEvent,
+  Fragment,
   type ReactNode,
   useEffect,
   useId,
@@ -23,10 +24,10 @@ import {
   ProviderMark,
   providerBrandName,
 } from "../design-system/provider-mark";
-import { useLocale, useT } from "../i18n";
+import { LOCALES, localeNameKey, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AuthExperience, type AuthPhase, PhoneDisclosure } from "./auth-core";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import "./auth.css";
 
 // The default unauthenticated screen is LOGIN, not setup or signup
@@ -160,7 +161,7 @@ export function AuthScreen({
     queryFn: async () => {
       const { data, error } = await api.GET("/auth/capabilities");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -182,7 +183,7 @@ export function AuthScreen({
     queryFn: async () => {
       const { data, error } = await api.GET("/assistant/profile");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -349,29 +350,30 @@ function usePageTitle(title: string) {
 
 // LocaleFooter is the one footer utility that actually works today (§3.3
 // honesty: no Privacy/Help links exist yet, so none render). Language
-// names are proper nouns, deliberately not translated.
+// names are proper nouns, deliberately not translated — which is exactly why
+// each carries its own `lang` below: three languages sit in a document
+// declared to be in one, and a screen reader would otherwise read "Tiếng
+// Việt" with the phonemes of whichever locale is currently on. Same WCAG
+// 3.1.1 rule LocaleProvider keeps for the document; our locale codes are BCP
+// 47 language subtags, so the code IS the value `lang` wants.
 function LocaleFooter() {
   const t = useT();
   const { locale, setLocale } = useLocale();
   return (
     <div className="auth-footer">
-      <button
-        type="button"
-        className="auth-link"
-        aria-pressed={locale === "de"}
-        onClick={() => setLocale("de")}
-      >
-        {t("auth.langDeutsch")}
-      </button>
-      <span aria-hidden>·</span>
-      <button
-        type="button"
-        className="auth-link"
-        aria-pressed={locale === "en"}
-        onClick={() => setLocale("en")}
-      >
-        {t("auth.langEnglish")}
-      </button>
+      {LOCALES.map((option, index) => (
+        <Fragment key={option}>
+          {index > 0 && <span aria-hidden>·</span>}
+          <button
+            type="button"
+            className="auth-link"
+            aria-pressed={option === locale}
+            onClick={() => setLocale(option)}
+          >
+            <span lang={option}>{t(localeNameKey(option))}</span>
+          </button>
+        </Fragment>
+      ))}
     </div>
   );
 }
@@ -599,7 +601,7 @@ function LoginForm({
         if (response.status === 401) throw new LoginError("credentials");
         if (response.status === 429) throw new LoginError("rate-limited");
         if (response.status >= 500) throw new LoginError("unreachable");
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       // The login response only says the credential exchange succeeded. The
       // session is real when the app's authenticated /me probe accepts the
@@ -774,7 +776,7 @@ function ForgotForm({
         body: { email: email.trim() },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => onSent(email.trim()),
@@ -818,11 +820,7 @@ function ForgotForm({
         </Field>
       </div>
       {request.isError && (
-        <ErrorNote
-          message={
-            request.error instanceof Error ? request.error.message : null
-          }
-        />
+        <ErrorNote message={problemMessageOf(request.error, t)} />
       )}
       <div className="auth-actions">
         <Button

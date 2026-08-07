@@ -5,9 +5,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Button, Modal, TextInput } from "../design-system/atoms";
+import { Badge, Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { ProblemError, problemMessage, throwProblem } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import { statusLabel, statusTone } from "./connector-status";
 
 // The Telegram connector: one bot connects for the WHOLE workspace, not
@@ -97,13 +97,9 @@ export function TelegramConnectForm({
   // conflicts a 409 is — this bot is bound elsewhere, or this workspace already
   // has one) — surfaced verbatim rather than flattened into a generic "failed
   // to connect".
-  let errorMessage: string | null = null;
-  if (connect.isError) {
-    errorMessage =
-      connect.error instanceof ProblemError
-        ? problemMessage(connect.error.problem, t)
-        : connect.error.message;
-  }
+  const errorMessage = connect.isError
+    ? problemMessageOf(connect.error, t)
+    : null;
   const resolved = connect.isSuccess ? connect.data : null;
 
   return (
@@ -164,20 +160,21 @@ export function TelegramConnectForm({
               </Badge>
             </div>
           )}
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-token`}>
-              {t("connectors.telegramBotToken")}
-            </label>
-            <TextInput
-              id={`${headingId}-token`}
-              type="password"
-              autoComplete="off"
-              value={botToken}
-              required
-              onChange={(event) => setBotToken(event.target.value)}
-            />
-          </div>
-          <p className="t-caption">{t("connectors.telegramBotTokenHint")}</p>
+          <Field
+            label={t("connectors.telegramBotToken")}
+            required
+            hint={t("connectors.telegramBotTokenHint")}
+          >
+            {(control) => (
+              <TextInput
+                {...control}
+                type="password"
+                autoComplete="off"
+                value={botToken}
+                onChange={(event) => setBotToken(event.target.value)}
+              />
+            )}
+          </Field>
           {errorMessage && (
             <p
               role="alert"

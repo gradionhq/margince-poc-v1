@@ -152,6 +152,85 @@ func TestS3StoreHealthReadyAgainstLiveMinIO(t *testing.T) {
 	}
 }
 
+func TestS3StoreDeletePrefixRemovesOnlyThatPrefix(t *testing.T) {
+	store := newS3Store(t)
+	ctx := t.Context()
+	// Two fresh workspace ids give two disjoint prefixes in the shared bucket,
+	// so deleting one can never collide with another test's objects.
+	wsA := ids.New[ids.WorkspaceKind]()
+	wsB := ids.New[ids.WorkspaceKind]()
+	keyA := blobstore.WorkspaceKey(wsA, "attachment", "a1")
+	keyB := blobstore.WorkspaceKey(wsB, "attachment", "b1")
+
+	if err := store.Put(ctx, keyA, bytes.NewReader([]byte("mine")), 4, ""); err != nil {
+		t.Fatalf("Put A: %v", err)
+	}
+	if err := store.Put(ctx, keyB, bytes.NewReader([]byte("theirs")), 6, ""); err != nil {
+		t.Fatalf("Put B: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Delete(context.Background(), keyB); err != nil {
+			t.Errorf("cleanup Delete: %v", err)
+		}
+	})
+
+	deleted, err := store.DeletePrefix(ctx, wsA.String()+"/")
+	if err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted = %d, want 1", deleted)
+	}
+	if _, _, err := store.Get(ctx, keyA); !errors.Is(err, blobstore.ErrNotFound) {
+		t.Errorf("the prefixed object survived: %v", err)
+	}
+	if _, _, err := store.Get(ctx, keyB); err != nil {
+		t.Errorf("an object outside the prefix was deleted: %v", err)
+	}
+}
+
+func TestS3StoreDeletePrefixOnAnEmptyPrefixReportsZero(t *testing.T) {
+	store := newS3Store(t)
+	// A workspace that never had a key written has an empty prefix — the
+	// sweep must report zero, not error, on a data reset that finds nothing
+	// left to purge.
+	empty := ids.New[ids.WorkspaceKind]()
+
+	deleted, err := store.DeletePrefix(t.Context(), empty.String()+"/")
+	if err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+}
+
+func TestS3StoreDeletePrefixRejectsEmptyPrefix(t *testing.T) {
+	store := newS3Store(t)
+	ctx := t.Context()
+	key := blobstore.WorkspaceKey(ids.New[ids.WorkspaceKind](), "attachment", "guarded")
+
+	if err := store.Put(ctx, key, bytes.NewReader([]byte("mine")), 4, ""); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Delete(context.Background(), key); err != nil {
+			t.Errorf("cleanup Delete: %v", err)
+		}
+	})
+
+	deleted, err := store.DeletePrefix(ctx, "")
+	if !errors.Is(err, blobstore.ErrInvalidPrefix) {
+		t.Fatalf("DeletePrefix(\"\"): err = %v, want ErrInvalidPrefix", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+	if _, _, err := store.Get(ctx, key); err != nil {
+		t.Errorf("an object survived an empty prefix but Get failed: %v", err)
+	}
+}
+
 func TestS3StoreWorkspaceKeyIsolation(t *testing.T) {
 	store := newS3Store(t)
 	ctx := t.Context()

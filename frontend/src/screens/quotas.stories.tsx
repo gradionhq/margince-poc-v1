@@ -103,7 +103,7 @@ const withAttainment = (band: "met" | "accent" | "behind") =>
   });
 
 const meta: Meta<typeof QuotasView> = {
-  title: "screens/quotas",
+  title: "Screens/quotas",
   component: QuotasView,
 };
 export default meta;

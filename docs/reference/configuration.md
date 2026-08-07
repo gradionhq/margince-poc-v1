@@ -526,10 +526,21 @@ On success it wipes workspace domain + seeded-config data back to the
 first-boot bootstrapped state and re-runs the module seeders (pipeline/stages,
 consent purposes + retention, AI defaults, starter automations, the booking
 page) — the same seed path `identity`'s installation bootstrap uses. It
-**preserves** the identity/auth layer (`workspace`, every `app_user`, roles,
-role assignments, teams, team memberships, sessions, passports, tokens — so
-login keeps working) and the append-only ledgers `audit_log` / `system_log`.
+**preserves** the identity/auth layer (every `app_user`, roles, role
+assignments, teams, team memberships, sessions, passports, tokens — so login
+keeps working) and the append-only ledgers `audit_log` / `system_log`.
 The reset itself is recorded as an `audit_log` row (action `reset_data`).
+
+The `workspace` row survives too — it carries the organization — but only its
+**installation identity** is preserved: the primary key, the name, slug, base
+currency and timezone bootstrap took from `margince.yaml`, and `created_at`.
+(`updated_at` moves, as it does for any write — the reset did write the row.)
+Every other column on it is a workspace-level **setting**, and each
+one goes back to the default its migration declared (`capture_auto_enrich`, the
+overlay mode columns, and whatever is added next). Nothing here is a kept list:
+the columns are derived from the catalog, so a setting added later is restored
+the day its column exists, and a column that genuinely belongs to the
+installation's identity has to be declared preserved to be spared.
 
 The sweep runs as the app role — no superuser, no disabled triggers — so it
 discovers a safe delete order at runtime (a savepoint per table per pass,
@@ -538,6 +549,96 @@ ordering; an unbreakable FK cycle is surfaced as an error, never silently
 skipped. Orphaned `cf_*` custom-field columns are dropped afterward through
 the owner schema pool (`--schema-dsn`); with no schema pool configured that
 step is skipped (logged, not swallowed) and the reset itself still succeeds.
+
+#### It resets the runtime, not only the rows
+
+Table rows are not the whole installation. Queued jobs, bus entries, Redis
+counters, every process's in-memory caches and the stored object bytes all
+outlive a row sweep, so a reset that stopped there would leave work executing
+against records that no longer exist. The endpoint therefore also:
+
+1. **Pauses every job queue and drains it**, bounded to 10 seconds. The pause
+   is mediated by `river_queue`, so the api quiets the queues the *worker*
+   process owns. A drain that does not finish never fails the reset — a long
+   pass must not make an installation unresettable — but it sets
+   `drain_timed_out` in the response, the audit evidence and the log, and the
+   surviving job's completion write will fail against the wiped rows.
+2. **Drains the staged outbox** — this workspace's `event_outbox` rows, in a
+   transaction of its own *before* the streams are purged. The outbox relay is
+   not part of the job fleet the pause stopped, so rows left staged would be
+   shipped into the streams moments after they were emptied. This narrows that
+   window to one in-flight relay batch rather than closing it.
+3. **Purges job rows** (`river_job`): this workspace's rows plus the fleet
+   dispatchers, which the periodic ticks re-insert on the next cadence — in
+   every state, including River's retained completed/discarded/cancelled
+   history, which an installation wiped back to first-boot state must not carry.
+4. **Purges the event bus** — the catalog streams, their consumer groups
+   (deleted and immediately re-created, so live subscribers keep reading), the
+   processed-event dedupe marks, and this workspace's overlay budget counters.
+5. **Deletes the workspace's stored objects** under its `<workspace>/` prefix.
+   It also redeems the **sealed credentials** those swept connection rows
+   referenced. `vault_secret` deliberately carries no `workspace_id` — the
+   tenant lives inside the ref and inside the AES-256-GCM AAD — so the sweep
+   cannot see it, and the handles are collected inside the sweep's transaction
+   before the rows naming them go. Which tables hold one is derived from the
+   catalog on the `credential_ref` column, so a connection table added later is
+   covered the day its column exists.
+6. **Restores every workspace-level setting**, including returning an
+   overlay-mode installation to native. The table sweep reaches none of them:
+   its target list is derived from the tables carrying a `workspace_id` column,
+   and `workspace` keys on `id`, so that row is not a candidate for it at all.
+   The overlay columns are the consequential case — everything overlay mode
+   depends on IS swept (the incumbent connection, the mirror, the budget
+   counters), so a workspace left in overlay would claim to read from an
+   incumbent it no longer has a connection to, dispatching every read at an
+   empty mirror. `x_sor_mode` and `x_incumbent` flip together, as the schema
+   requires. This is not the governed `Disconnect` teardown: those rows are
+   already gone with the sweep, the reset carries its own audit row, and no
+   `incumbent.disconnected` event is emitted into an outbox this reset just
+   drained. Whether it happened is recorded as `sor_mode_reverted` in the audit
+   evidence and the completion log line.
+7. **Announces the reset** on the `gw:control:reset` Redis pub/sub channel, so
+   the api and the worker each drop the caches they hold — model results and
+   the resolved system-of-record mode. No HTTP call reaches the worker process;
+   this channel is the only path to it.
+
+   The announcement clears **caches and nothing else**. The channel carries no
+   signature, so anyone who can reach that Redis can publish on it, and a cache
+   drop costs a recomputation. The auth lockout buckets are deliberately not
+   reachable this way: they brake brute-force login and password-reset email
+   spam, so the process that ran the audited, gated reset clears its own and no
+   announcement clears anyone else's.
+
+The queues are resumed on every exit path, including a failure and a panic,
+on a context detached from the request — an operator whose client disconnects
+mid-reset must not leave the fleet paused. Killing the process outright
+(SIGKILL) runs no exit path at all and does strand the pause; re-running the
+reset lifts it.
+
+The Redis half is **installation-wide**, from a declared key inventory — the
+stream catalog, the `gw:dedupe:` namespace and `ovb:<workspace>:` — and never
+`FLUSHDB`, so anything else sharing that Redis survives. Installation-wide is
+exact here because one installation serves one organization (A107/ADR-0061).
+One consequence worth knowing locally: parallel `DEV_SLUG` stacks share a
+single Redis database, so a reset in one stack clears the other's bus.
+
+The 200 body reports what was actually cleared — `tables_cleared`,
+`jobs_deleted` (job rows in every state, history included — not a backlog
+depth), `streams_purged` (stream *keys*, not entries), `cache_keys_deleted`
+(dedupe marks plus budget counters), `objects_deleted` and `drain_timed_out`.
+The same counts go into the `audit_log` evidence, with one deliberate
+exception: `objects_deleted` is not in the audit row, because the object purge
+cannot join the transaction that writes it.
+
+Any purge step failing fails the whole request with an opaque 500 (the cause
+is logged server-side). What a failure leaves behind depends on which side of
+the commit it happened. The queue, bus and budget purges run *before* the
+database transaction, so failing there leaves a safe partial state — those
+surfaces clear, the data intact — that re-running the reset recovers. The
+object purge is the exception: it cannot join that transaction and so runs
+*after* it commits, which means a 500 from the object store reports failure
+with the rows already wiped and some stored bytes still present. Re-running
+the reset is again the recovery.
 
 `GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
 show the action only where it will work: Admin settings → *data* tab → Danger

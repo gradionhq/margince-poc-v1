@@ -207,8 +207,14 @@ func TestSyncSkipsAllInternalMeetings(t *testing.T) {
 	if _, err := c.Sync(context.Background(), authBytes(t), nil, sink); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
+	// The owner-domain floor drops the internal one here; the external one goes
+	// on with its full party list, which is what lets the writer apply the
+	// workspace's registered domains over more than the owner's (ADR-0082/A127).
 	if len(sink.recs) != 1 || sink.recs[0].NaturalKey.SourceID != "external" {
-		t.Fatalf("an all-internal meeting must produce zero rows; got %+v", sink.recs)
+		t.Fatalf("an all-internal meeting must produce zero rows; got %d records", len(sink.recs))
+	}
+	if len(sink.recs[0].Addresses) == 0 {
+		t.Error("a captured meeting must name its parties — the writer cannot judge what it cannot see")
 	}
 }
 
@@ -237,7 +243,7 @@ func TestSyncUnreadableCursorStopsWithoutBackfill(t *testing.T) {
 	}
 }
 
-func TestNormalizeSkipsCancelledAndInternal(t *testing.T) {
+func TestNormalizeSkipsCancelledSoloAndOwnerDomain(t *testing.T) {
 	c := New(fakeOAuth{}, &fakeAPI{})
 	c.owner = gcalOwner
 
@@ -246,9 +252,14 @@ func TestNormalizeSkipsCancelledAndInternal(t *testing.T) {
 		t.Fatalf("want ErrSkip for a cancelled event, got %v", err)
 	}
 
+	solo := eventJSON(t, "s1", "confirmed", "Focus time", "2026-07-16T09:00:00Z", gcalOwner)
+	if _, err := c.Normalize(context.Background(), solo); !errors.Is(err, connector.ErrSkip) {
+		t.Fatalf("want ErrSkip for an event naming nobody but the owner, got %v", err)
+	}
+
 	internal := eventJSON(t, "i1", "confirmed", "1:1", "2026-07-16T09:00:00Z", gcalOwner, gcalOwner, "peer@myco.com")
 	if _, err := c.Normalize(context.Background(), internal); !errors.Is(err, connector.ErrSkip) {
-		t.Fatalf("want ErrSkip for an all-internal event, got %v", err)
+		t.Fatalf("want ErrSkip for a meeting inside the owner's domain, got %v", err)
 	}
 
 	keep := eventJSON(t, "k1", "confirmed", "Demo", "2026-07-16T11:00:00Z", gcalOwner, "client@acme.com")

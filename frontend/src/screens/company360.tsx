@@ -7,8 +7,10 @@ import {
   Badge,
   Button,
   EmptyState,
+  Field,
   Modal,
   SectionHeader,
+  Select,
   Skeleton,
   StatCard,
 } from "../design-system/atoms";
@@ -16,7 +18,7 @@ import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import "./company360.css";
 import {
   routesTo,
@@ -148,7 +150,7 @@ export function useOrganization360(id: string) {
         if (response.status === 422 && isOverlayRefusal(error)) {
           return { state: "overlay" };
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return { state: "ready", view: data };
     },
@@ -183,7 +185,7 @@ export function useAcknowledgeOrganizationView(id: string, visited: boolean) {
         params: { path: { id: organizationId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
   });
@@ -574,7 +576,7 @@ function SetRoleAction({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -615,36 +617,40 @@ function SetRoleAction({
             page used them as though everyone shares one definition. */}
         <p className="t-caption">{t("co.role.explain")}</p>
         <div className="form-stack">
-          <label className="field">
-            <span className="t-label">{t("co.role.onDeal")}</span>
-            <select
-              className="input"
-              value={dealId}
-              onChange={(event) => setDealId(event.target.value)}
-            >
-              {openDeals.map((deal) => (
-                <option key={deal.id} value={deal.id}>
-                  {deal.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span className="t-label">{t("co.role.role")}</span>
-            <select
-              className="input"
-              value={picked ?? ""}
-              onChange={(event) => setRole(event.target.value)}
-            >
-              {offered.map((candidate) => (
-                <option key={candidate} value={candidate}>
-                  {dealRoleLabel(candidate, t)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Field label={t("co.role.onDeal")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={dealId}
+                onChange={(event) => setDealId(event.target.value)}
+              >
+                {openDeals.map((deal) => (
+                  <option key={deal.id} value={deal.id}>
+                    {deal.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label={t("co.role.role")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={picked ?? ""}
+                onChange={(event) => setRole(event.target.value)}
+              >
+                {offered.map((candidate) => (
+                  <option key={candidate} value={candidate}>
+                    {dealRoleLabel(candidate, t)}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
           {save.isError && (
-            <p className="t-caption form-error">{save.error.message}</p>
+            <p className="t-caption form-error">
+              {problemMessageOf(save.error, t)}
+            </p>
           )}
           <div className="form-actions">
             <Button
@@ -1021,7 +1027,7 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -1410,7 +1416,7 @@ export function AccountBrief({
         params: { path: { id: orgId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1421,7 +1427,7 @@ export function AccountBrief({
         params: { path: { id: orgId } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1476,7 +1482,9 @@ export function AccountBrief({
         </p>
       )}
       {rewrite.isError && (
-        <p className="t-caption form-error">{rewrite.error.message}</p>
+        <p className="t-caption form-error">
+          {problemMessageOf(rewrite.error, t)}
+        </p>
       )}
       {/* What to do about it, in the same block that said what it is. These
           were two cards — one describing the account, one advising on it —
@@ -1587,7 +1595,7 @@ export function AskSection({
         body: { question },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1621,9 +1629,7 @@ export function AskSection({
           {t("co.ask.failed")}
           {/* The server's own detail says WHICH failure — budget exhausted reads
               differently from a malformed request, and a rep can act on one. */}
-          {ask.error instanceof Error && ask.error.message
-            ? ` ${ask.error.message}`
-            : null}
+          {` ${problemMessageOf(ask.error, t)}`}
         </p>
       )}
       {/* The previous answer is hidden while the next question is in flight.
@@ -1891,7 +1897,7 @@ export function SuggestionsSection({
         { params: { path: { id: orgId } }, body: { fingerprint } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     // The 360 is the only thing that knows which suggestions survive, so the
@@ -1972,9 +1978,7 @@ export function SuggestionsSection({
       {dismiss.isError && (
         <p className="co-restricted">
           {t("co.suggest.dismissFailed")}
-          {dismiss.error instanceof Error && dismiss.error.message
-            ? ` ${dismiss.error.message}`
-            : null}
+          {` ${problemMessageOf(dismiss.error, t)}`}
         </p>
       )}
     </section>

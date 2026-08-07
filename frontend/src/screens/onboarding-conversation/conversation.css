@@ -901,6 +901,15 @@
   font-size: 0.875rem;
   resize: vertical;
 }
+/* Keyboard focus has to be visible on this field as on every other one. The
+   ring is the AI pair rather than --accent because this surface is the
+   assistant's, matching the composer and the confirm-card fields it sits
+   between; `outline: 0` is deliberately NOT set, so the ring is additive to
+   whatever the platform draws rather than a replacement for it. */
+.ob-voice-paste-area:focus-visible {
+  border-color: var(--aiText);
+  box-shadow: 0 0 0 3px var(--aiMed);
+}
 
 /* The floor meter: a real progress element plus the numbers behind it, so
    the fill is never the only place the count lives. */
@@ -2514,6 +2523,66 @@
   gap: var(--space-2);
   width: 100%;
   min-width: 0;
+}
+
+/* The named omission inside an open row: dashed, like every other surface in
+   this tree that is honest about not being real yet (the decision skip, the
+   voice drop target). Quiet enough that the input under it stays the thing
+   to act on — this states why the box is empty, it does not compete with
+   filling it. */
+.ob-triage-omitted {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--borderStrong);
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+}
+
+.ob-triage-omitted svg {
+  inline-size: 15px;
+  block-size: 15px;
+  flex: none;
+  margin-block-start: 2px; /* ds:ignore optical centring of a 15px glyph on a 13px line; the scale starts at 4px, which drops it off the baseline */
+  color: var(--textTertiary);
+}
+
+.ob-triage-omitted-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ob-triage-omitted p {
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.ob-triage-omitted .ob-triage-omitted-label {
+  color: var(--textSecondary);
+  font-family: var(--f-mono);
+  font-size: 0.5625rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Danger red is reserved for the ONE tier that actually stops confirm — the
+   same rule the attention list above states — and this board is the single
+   surface that renders both tiers at once: a required-and-empty row marked
+   in --danger sits inches from a weak-confidence row whose shared
+   ConfidenceMeter paints its dot --dnd, one red beside the other. A weak
+   value blocks nothing; the attention list files it as advisory. So the
+   DOT goes, not the grade: the open row still names the band in words and
+   its collapsed summary prints the score in figures, so low is still shown
+   as low. Retinting the dot to the advisory --warn instead would collide
+   with the medium band's own dot, which resolves to the same amber in dark
+   mode. */
+.ob-triage-row .confidence-low .dot {
+  display: none;
 }
 
 /* The quiet rule between a group's work and its settled tail: a label and a

@@ -7,11 +7,12 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  Select,
 } from "../design-system/atoms";
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
-import { problemMessage, QueryStates } from "./common";
+import { QueryStates, throwProblem } from "./common";
 
 // A string response is shown verbatim (real newlines); an object is
 // pretty-printed. Either way the .code-block surface wraps and scrolls it.
@@ -31,7 +32,7 @@ export function CallDetailPanel({
       const { data, error } = await api.GET("/ai/calls/{id}", {
         params: { path: { id } },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
   });
@@ -132,7 +133,7 @@ export function AiCallsCard() {
           query: { cursor: pageParam ?? undefined, task: task || undefined },
         },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     getNextPageParam: (last) => last.page.next_cursor ?? null,
@@ -148,16 +149,12 @@ export function AiCallsCard() {
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader title={t("aicalls.title")} sub={t("aicalls.sub")} />
       <QueryStates query={query}>
-        <select
-          className="input"
-          value={task}
-          onChange={(event) => setTask(event.target.value)}
-        >
+        <Select value={task} onChange={(event) => setTask(event.target.value)}>
           <option value="">{t("aicalls.filter.all")}</option>
           {tasks.map((value) => (
             <option key={value}>{value}</option>
           ))}
-        </select>
+        </Select>
         {calls.length === 0 ? (
           <EmptyState>{t("aicalls.empty")}</EmptyState>
         ) : (

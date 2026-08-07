@@ -283,7 +283,9 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 
 	if a.Domain != "" {
 		rows, err := tx.Query(ctx,
-			`SELECT organization_id FROM organization_domain WHERE domain = $1 AND archived_at IS NULL`, a.Domain)
+			`SELECT d.organization_id FROM organization_domain d
+			   JOIN organization o ON o.id = d.organization_id
+			  WHERE d.domain = $1 AND d.archived_at IS NULL AND NOT o.is_anchor`, a.Domain)
 		if err != nil {
 			return nil, fmt.Errorf("domain match: %w", err)
 		}
@@ -300,12 +302,17 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 		// Prior interaction: the sender is already a person in our graph,
 		// currently employed at the org — our own relational core, no
 		// external profiling.
+		// NOT o.is_anchor: our own staff are employed at the installation's own
+		// company, so without this every message from a colleague resolves to a
+		// signal about ourselves (ADR-0082/A127) — the same exclusion the domain
+		// and name arms carry.
 		rows, err := tx.Query(ctx, `
 			SELECT DISTINCT r.organization_id
 			FROM person_email pe
 			JOIN relationship r ON r.person_id = pe.person_id
 			 AND r.kind = 'employment' AND r.ended_at IS NULL AND r.archived_at IS NULL
-			WHERE pe.email = $1 AND r.organization_id IS NOT NULL`, a.Email)
+			JOIN organization o ON o.id = r.organization_id
+			WHERE pe.email = $1 AND NOT o.is_anchor`, a.Email)
 		if err != nil {
 			return nil, fmt.Errorf("prior-interaction match: %w", err)
 		}
@@ -320,7 +327,11 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 	}
 	if a.Name != "" {
 		rows, err := tx.Query(ctx,
-			`SELECT id FROM organization WHERE lower(display_name) = lower($1) AND archived_at IS NULL`, a.Name)
+			// NOT is_anchor: the workspace's own company name appears in more of
+			// its correspondence than any customer's, so matching it would make
+			// nearly every message a signal about ourselves (ADR-0082/A127).
+			`SELECT id FROM organization
+			  WHERE lower(display_name) = lower($1) AND archived_at IS NULL AND NOT is_anchor`, a.Name)
 		if err != nil {
 			return nil, fmt.Errorf("name match: %w", err)
 		}

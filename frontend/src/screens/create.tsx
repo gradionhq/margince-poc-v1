@@ -2,10 +2,24 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { navigate, type Route } from "../app/router";
-import { Button, Modal, TextInput } from "../design-system/atoms";
+import {
+  Button,
+  Checkbox,
+  Field,
+  type FieldControl,
+  Modal,
+  Radio,
+  Select,
+  TextInput,
+} from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { ProblemError, problemExistingId, useSorMode } from "./common";
+import {
+  ProblemError,
+  problemExistingId,
+  problemMessageOf,
+  useSorMode,
+} from "./common";
 
 // The record screens whose entities are served from the incumbent mirror in
 // overlay mode. Creating one there answers unsupported_by_sor, so CreateAction
@@ -188,6 +202,7 @@ export function CreateAction<Created extends { id: string }>({
   // "view existing" link.
   resolveExisting?: (code: string, id: string) => Route;
 }>) {
+  const t = useT();
   const [creating, setCreating] = useState(startOpen);
   const mutation = useCreateRecord({
     create,
@@ -213,7 +228,7 @@ export function CreateAction<Created extends { id: string }>({
         title={label}
         fields={fields}
         pending={mutation.isPending}
-        error={mutation.isError ? mutation.error.message : null}
+        error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
         existing={existing}
         resolveExisting={resolveExisting}
         onSubmit={(values, rows) =>
@@ -235,19 +250,21 @@ export function NewRecordButton({
   );
 }
 
+// The control half of a field row. The label half — and with it the id, the
+// required marker and the described-by seam — belongs to the `Field` that
+// wraps this, which is why the wiring arrives whole as `control` rather than
+// being rebuilt from a field id here.
 export function fieldControl(
   field: CreateField | SubField,
-  fieldId: string,
+  control: FieldControl,
   value: string,
   setValue: (next: string) => void,
 ): ReactNode {
   if (field.type === "select") {
     return (
-      <select
-        id={fieldId}
-        className="input"
+      <Select
+        {...control}
         value={value}
-        required={field.required}
         onChange={(event) => setValue(event.target.value)}
       >
         {!field.required && <option value="" />}
@@ -256,18 +273,17 @@ export function fieldControl(
             {option.label}
           </option>
         ))}
-      </select>
+      </Select>
     );
   }
   return (
     <TextInput
-      id={fieldId}
+      {...control}
       type={field.type ?? "text"}
       // A bare number input steps by 1, so the browser refuses 14.60 before
       // any handler sees it. A money field has to say it takes cents.
       step={field.step}
       value={value}
-      required={field.required}
       placeholder={field.placeholder}
       onChange={(event) => setValue(event.target.value)}
     />
@@ -325,60 +341,51 @@ function RepeatableRowsField({
         {fieldLabel(field, t)}
         {field.required ? " *" : ""}
       </span>
-      {rows.map((row, index) => {
-        const rowId = `${formId}-${field.key}-${index}`;
-        return (
-          // Rows have no stable identity until saved — index is the only key
-          // available, and reordering never happens (add appends, remove
-          // filters), so it's safe here.
-          <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are unordered-append/remove only
-            key={index}
-            className="card"
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              alignItems: "center",
-            }}
-          >
-            {rowFields.map((subField) => {
-              const subFieldId = `${rowId}-${subField.key}`;
-              return (
-                <div className="field" key={subField.key}>
-                  <label className="t-label" htmlFor={subFieldId}>
-                    {t(subField.label)}
-                    {subField.required ? " *" : ""}
-                  </label>
-                  {fieldControl(
-                    subField,
-                    subFieldId,
-                    row[subField.key] ?? "",
-                    (next) => updateRow(index, subField.key, next),
-                  )}
-                </div>
-              );
-            })}
-            {primaryKey && (
-              <label
-                className="t-label"
-                style={{ display: "flex", alignItems: "center", gap: 4 }}
-              >
-                <input
-                  type="radio"
-                  name={`${formId}-${field.key}-primary`}
-                  checked={row[primaryKey] === "true"}
-                  onChange={() => markPrimary(index)}
-                />
-                {t("field.primary")}
-              </label>
-            )}
-            <Button small type="button" onClick={() => removeRow(index)}>
-              {t("field.removeRow")}
-            </Button>
-          </div>
-        );
-      })}
+      {rows.map((row, index) => (
+        // Rows have no stable identity until saved — index is the only key
+        // available, and reordering never happens (add appends, remove
+        // filters), so it's safe here.
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are unordered-append/remove only
+          key={index}
+          className="card"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "var(--space-2)",
+            alignItems: "center",
+          }}
+        >
+          {rowFields.map((subField) => (
+            <Field
+              key={subField.key}
+              label={t(subField.label)}
+              required={subField.required}
+            >
+              {(control) =>
+                fieldControl(
+                  subField,
+                  control,
+                  row[subField.key] ?? "",
+                  (next) => updateRow(index, subField.key, next),
+                )
+              }
+            </Field>
+          ))}
+          {primaryKey && (
+            <Radio
+              className="t-label"
+              name={`${formId}-${field.key}-primary`}
+              checked={row[primaryKey] === "true"}
+              onChange={() => markPrimary(index)}
+              label={t("field.primary")}
+            />
+          )}
+          <Button small type="button" onClick={() => removeRow(index)}>
+            {t("field.removeRow")}
+          </Button>
+        </div>
+      ))}
       <Button small type="button" onClick={() => setRows([...rows, {}])}>
         {field.addLabel ? t(field.addLabel) : fieldLabel(field, t)}
       </Button>
@@ -433,24 +440,14 @@ function MultiselectField({
       {(field.options ?? []).map((option) => {
         const optionId = `${formId}-${field.key}-${option.value}`;
         return (
-          <label
+          <Checkbox
             key={option.value}
             className="t-label"
-            htmlFor={optionId}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-1)",
-            }}
-          >
-            <input
-              id={optionId}
-              type="checkbox"
-              checked={selected.includes(option.value)}
-              onChange={() => toggle(option.value)}
-            />
-            {option.label}
-          </label>
+            id={optionId}
+            checked={selected.includes(option.value)}
+            onChange={() => toggle(option.value)}
+            label={option.label}
+          />
         );
       })}
     </fieldset>
@@ -510,7 +507,6 @@ export function RecordFormBody({
       className="form-stack"
     >
       {fields.map((field) => {
-        const fieldId = `${formId}-${field.key}`;
         if (field.divider) {
           return (
             <p className="form-divider t-label" key={field.key}>
@@ -541,15 +537,17 @@ export function RecordFormBody({
           );
         }
         return (
-          <div className="field" key={field.key}>
-            <label className="t-label" htmlFor={fieldId}>
-              {fieldLabel(field, t)}
-              {field.required ? " *" : ""}
-            </label>
-            {fieldControl(field, fieldId, values[field.key] ?? "", (next) =>
-              setValues({ ...values, [field.key]: next }),
-            )}
-          </div>
+          <Field
+            key={field.key}
+            label={fieldLabel(field, t)}
+            required={field.required}
+          >
+            {(control) =>
+              fieldControl(field, control, values[field.key] ?? "", (next) =>
+                setValues({ ...values, [field.key]: next }),
+              )
+            }
+          </Field>
         );
       })}
       {error && (

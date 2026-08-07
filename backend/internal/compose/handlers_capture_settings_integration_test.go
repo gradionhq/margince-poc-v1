@@ -40,7 +40,7 @@ func captureSettingsHumanCtx(e *integration.Env, grant principal.ObjectGrant) co
 
 func TestCaptureSettingsHandlers(t *testing.T) {
 	e := integration.Setup(t)
-	h := captureSettingsHandlers{store: capture.NewSettings(e.Pool)}
+	h := captureSettingsHandlers{store: capture.NewSettings(NewSettingsStore(e.Pool))}
 
 	// GET returns the default-on posture.
 	getReq := httptest.NewRequest(http.MethodGet, "/v1/capture/settings", nil).

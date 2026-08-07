@@ -4,13 +4,16 @@ import { api } from "../api/client";
 import type { EntityKind } from "../app/entity";
 import {
   Button,
+  Field,
   Modal,
   SectionHeader,
+  Select,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
-import { problemMessage, useSorMode } from "./common";
+import { problemMessageOf, throwProblem, useSorMode } from "./common";
 
 // Log a note or task from a 360 (person/company/deal/lead): the contract's
 // logActivity POST, linked to the record being viewed, occurred_at stamped
@@ -53,7 +56,6 @@ export function LogActivityForm({
   initialKind?: "note" | "task";
 }>) {
   const t = useT();
-  const formId = useId();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<ActivityDraft>(
     initialKind ? { ...EMPTY_DRAFT, kind: initialKind } : EMPTY_DRAFT,
@@ -75,7 +77,7 @@ export function LogActivityForm({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       return data;
     },
@@ -104,68 +106,61 @@ export function LogActivityForm({
       }}
     >
       <div className="form-row">
-        <div className="field">
-          <label className="t-label" htmlFor={`${formId}-kind`}>
-            {t("log.kind")}
-          </label>
-          <select
-            id={`${formId}-kind`}
-            className="input"
-            value={draft.kind}
-            onChange={(event) =>
-              setField({
-                kind: event.target.value === "task" ? "task" : "note",
-              })
-            }
-          >
-            <option value="note">{t("log.kindNote")}</option>
-            <option value="task">{t("log.kindTask")}</option>
-          </select>
-        </div>
+        <Field label={t("log.kind")}>
+          {(control) => (
+            <Select
+              {...control}
+              value={draft.kind}
+              onChange={(event) =>
+                setField({
+                  kind: event.target.value === "task" ? "task" : "note",
+                })
+              }
+            >
+              <option value="note">{t("log.kindNote")}</option>
+              <option value="task">{t("log.kindTask")}</option>
+            </Select>
+          )}
+        </Field>
         {/* Only a task carries a due date, but the field stays in place for a
             note — disabled, not hidden. Mounting it on the kind switch moved
             every control below it down while the writer was reading them, and
             `hidden` would do the same thing by another name (it is
             display:none). Disabled keeps the row's height AND shows the reader
             that the field exists and why it is not theirs to fill yet. */}
-        <div className="field">
-          <label className="t-label" htmlFor={`${formId}-due`}>
-            {t("log.dueAt")}
-          </label>
+        <Field label={t("log.dueAt")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="date"
+              value={draft.dueAt}
+              disabled={draft.kind !== "task"}
+              onChange={(event) => setField({ dueAt: event.target.value })}
+            />
+          )}
+        </Field>
+      </div>
+      <Field label={t("log.subject")} required>
+        {(control) => (
           <TextInput
-            id={`${formId}-due`}
-            type="date"
-            value={draft.dueAt}
-            disabled={draft.kind !== "task"}
-            onChange={(event) => setField({ dueAt: event.target.value })}
+            {...control}
+            value={draft.subject}
+            onChange={(event) => setField({ subject: event.target.value })}
           />
-        </div>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-subject`}>
-          {t("log.subject")} *
-        </label>
-        <TextInput
-          id={`${formId}-subject`}
-          value={draft.subject}
-          required
-          onChange={(event) => setField({ subject: event.target.value })}
-        />
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-body`}>
-          {t("log.body")}
-        </label>
-        <textarea
-          id={`${formId}-body`}
-          className="textarea"
-          rows={3}
-          value={draft.body}
-          onChange={(event) => setField({ body: event.target.value })}
-        />
-      </div>
+        )}
+      </Field>
+      <Field label={t("log.body")}>
+        {(control) => (
+          <Textarea
+            {...control}
+            rows={3}
+            value={draft.body}
+            onChange={(event) => setField({ body: event.target.value })}
+          />
+        )}
+      </Field>
       {log.isError && (
-        <p className="t-caption form-error">{log.error.message}</p>
+        <p className="t-caption form-error">{problemMessageOf(log.error, t)}</p>
       )}
       <div className="form-actions">
         <Button

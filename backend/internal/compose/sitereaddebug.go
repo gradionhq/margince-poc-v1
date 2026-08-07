@@ -165,11 +165,13 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		report.Logo = debugLogo(resolveOrganizationLogo(ctx, logoFetch, logoSeed, crawl.SeedAssets))
 	}
 
-	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
+	// Read the cause before the enrichment rewrites the census the gate judged.
+	legalWarning := legalAbstentionOf(extraction.merged.entities, extraction.legalCensusIncomplete).warning()
+	mergedFields, _, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
 	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, mergedFields)
 	extract.reportDrops(ctx, laneLegal, legalDrops)
-	if legalConflict {
-		report.Warnings = append(report.Warnings, legalWarningMultipleEntities)
+	if legalWarning != "" {
+		report.Warnings = append(report.Warnings, legalWarning)
 	}
 	report.Extraction = DebugExtraction{
 		Fields:        debugFields(mergedFields),

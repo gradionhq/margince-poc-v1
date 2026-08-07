@@ -72,7 +72,7 @@ describe("TelegramConnectForm", () => {
       <TelegramConnectForm open onClose={() => {}} onConnected={onConnected} />,
     );
     await userEvent.type(
-      screen.getByLabelText("Bot token"),
+      screen.getByLabelText("Bot token *"),
       "555000111:AAG-fake-bot-father-token",
     );
     await userEvent.click(screen.getByRole("button", { name: "Connect" }));
@@ -124,7 +124,7 @@ describe("TelegramConnectForm", () => {
       />,
     );
     await userEvent.type(
-      screen.getByLabelText("Bot token"),
+      screen.getByLabelText("Bot token *"),
       "555000111:BBH-rotated-token",
     );
     await userEvent.click(
@@ -145,7 +145,7 @@ describe("TelegramConnectForm", () => {
       <TelegramConnectForm open onClose={() => {}} />,
     );
     await userEvent.type(
-      screen.getByLabelText("Bot token"),
+      screen.getByLabelText("Bot token *"),
       "555000111:AAG-fake-bot-father-token",
     );
     await userEvent.click(screen.getByRole("button", { name: "Connect" }));
@@ -157,7 +157,7 @@ describe("TelegramConnectForm", () => {
     // Rotating the token is the next thing this form is for, and a stale
     // success view offers only a Done button — no way back to the field
     // short of reloading the page.
-    expect(await screen.findByLabelText("Bot token")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Bot token *")).toBeInTheDocument();
     expect(screen.queryByText(/@acme_sales_bot/)).not.toBeInTheDocument();
   });
 
@@ -179,7 +179,7 @@ describe("TelegramConnectForm", () => {
     });
     render(<TelegramConnectForm open onClose={() => {}} />);
     await userEvent.type(
-      screen.getByLabelText("Bot token"),
+      screen.getByLabelText("Bot token *"),
       "555000111:AAG-fake-bot-father-token",
     );
     await userEvent.click(screen.getByRole("button", { name: "Connect" }));
@@ -187,6 +187,6 @@ describe("TelegramConnectForm", () => {
       await screen.findByText(/already connected to this workspace/i),
     ).toBeInTheDocument();
     // The token is never retained after a failed submit.
-    expect(screen.getByLabelText("Bot token")).toHaveValue("");
+    expect(screen.getByLabelText("Bot token *")).toHaveValue("");
   });
 });

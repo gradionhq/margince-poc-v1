@@ -416,3 +416,24 @@ func TestOverlayWriteShadowsRoundTripEveryMirroredType(t *testing.T) {
 		})
 	}
 }
+
+// A mirror-backed organization is one of the incumbent's accounts, and the
+// installation's own company is a native row that is never among them. The
+// wire says so explicitly rather than omitting the field, so a client reading
+// an overlay page never has to guess which row the workspace itself is
+// (ADR-0082/A127).
+func TestMirroredOrganizationsStateTheyAreNotTheOwnCompany(t *testing.T) {
+	e := setupOverlayWrite(t)
+	e.seed(t, "organization", "9320", map[string]any{"display_name": "Mirrored Org"})
+
+	var page crmcontracts.OrganizationListResponse
+	if status := e.call(t, "GET", "/v1/organizations", nil, nil, &page); status != http.StatusOK {
+		t.Fatalf("GET /v1/organizations = %d", status)
+	}
+	if len(page.Data) != 1 {
+		t.Fatalf("overlay organization list = %d rows, want the one mirrored organization", len(page.Data))
+	}
+	if org := page.Data[0]; org.IsAnchor == nil || *org.IsAnchor {
+		t.Fatalf("mirrored organization %q carries is_anchor=%v, want an explicit false", org.DisplayName, org.IsAnchor)
+	}
+}

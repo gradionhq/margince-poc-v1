@@ -235,6 +235,23 @@ func TestSearchExcludesArchivedRows(t *testing.T) {
 	}
 }
 
+// Search is how people find ACCOUNTS, and the company running the CRM is not
+// one to find (ADR-0082/A127). It stays an ordinary row, readable by id — what
+// narrows is discovery.
+func TestSearchExcludesTheOwnCompany(t *testing.T) {
+	e := setupSearch(t)
+	e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by) VALUES ($1, $2, 'Rostock Consulting GmbH', true, 'manual', 'human:x')`)
+	customer := e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Rostock Freight AG', 'manual', 'human:x')`)
+
+	page, err := e.store.Search(e.Admin(), search.Input{Query: "rostock"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Hits) != 1 || page.Hits[0].ID != customer {
+		t.Fatalf("search returned %+v, want only the customer %s — the installation's own company is not an account to find", page.Hits, customer)
+	}
+}
+
 func TestSearchRankedCursorWalksAllHitsOnce(t *testing.T) {
 	e := setupSearch(t)
 	want := map[string]bool{}

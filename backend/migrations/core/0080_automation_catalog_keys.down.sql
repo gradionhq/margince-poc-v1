@@ -10,7 +10,15 @@
 -- data backfill (e.g. 0076's down); this one states it explicitly
 -- because the two keys stay live, authorable catalog entries afterward,
 -- unlike a column drop.
-UPDATE automation
-   SET key  = 'route_lead',
-       name = CASE WHEN name = 'Assign new leads an owner' THEN 'Route new leads' ELSE name END
- WHERE key = 'assign_lead_owner';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE automation
+       SET key  = 'route_lead',
+           name = CASE WHEN name = 'Assign new leads an owner' THEN 'Route new leads' ELSE name END
+    WHERE (key = 'assign_lead_owner')
+      AND automation.workspace_id = ws;
+  END LOOP;
+END $$;

@@ -9,11 +9,19 @@ ALTER TABLE organization
   ADD COLUMN name_source text NOT NULL DEFAULT 'human'
   CHECK (name_source IN ('human', 'dossier', 'signature', 'domain'));
 
-UPDATE organization o
-   SET name_source = 'domain'
- WHERE EXISTS (
-   SELECT 1 FROM organization_domain d
-    WHERE d.organization_id = o.id
-      AND d.archived_at IS NULL
-      AND lower(d.domain) = lower(o.display_name)
- );
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE organization o
+       SET name_source = 'domain'
+    WHERE (EXISTS (
+       SELECT 1 FROM organization_domain d
+        WHERE d.organization_id = o.id
+          AND d.archived_at IS NULL
+          AND lower(d.domain) = lower(o.display_name)
+     ))
+      AND o.workspace_id = ws;
+  END LOOP;
+END $$;

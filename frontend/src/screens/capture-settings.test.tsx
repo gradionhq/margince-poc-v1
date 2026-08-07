@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
-import { LocaleProvider } from "../i18n";
+import { type Locale, LocaleProvider, translate } from "../i18n";
 import { CaptureSettingsCard } from "./capture-settings";
 
 // The Settings → Integrations capture-settings toggle: reads the auto-enrich
@@ -54,13 +54,13 @@ function backendFor(allow: GrantSpec, autoEnrich = true) {
   return { fetchMock, getCapturedPatch: () => capturedPatch };
 }
 
-const render = (ui: ReactNode) => {
+const render = (ui: ReactNode, locale: Locale = "en") => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return rtlRender(
     <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">{ui}</LocaleProvider>
+      <LocaleProvider initial={locale}>{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
 };
@@ -106,5 +106,52 @@ describe("CaptureSettingsCard", () => {
     await waitFor(() =>
       expect(backend.getCapturedPatch()).toEqual({ auto_enrich: false }),
     );
+  });
+});
+
+// A proxy that never reached the application answers with its own page, not
+// with RFC 7807 — so the settings read fails carrying nothing a reader was
+// meant to see. What fills that hole has to be catalog copy, in the reader's
+// own language.
+describe("a settings read refused without a problem body", () => {
+  const GATEWAY_PAGE = "<html><body>502 Bad Gateway</body></html>";
+
+  function stubGateway() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (request.url.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ allow: CAPTURE_EDITOR }));
+        }
+        return new Response(GATEWAY_PAGE, {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        });
+      }),
+    );
+  }
+
+  it("reads the shared failure line, never a placeholder written for developers", async () => {
+    stubGateway();
+    render(<CaptureSettingsCard />);
+
+    expect(
+      await screen.findByText(translate("en", "common.errorNoCause")),
+    ).toBeTruthy();
+    // The placeholder a ProblemError carries into a stack trace is not a
+    // sentence for a reader, and the gateway's own page is not one either.
+    expect(screen.queryByText("request failed")).toBeNull();
+    expect(screen.queryByText(/Bad Gateway/)).toBeNull();
+  });
+
+  it("says it in the reader's language", async () => {
+    stubGateway();
+    render(<CaptureSettingsCard />, "de");
+
+    expect(
+      await screen.findByText(translate("de", "common.errorNoCause")),
+    ).toBeTruthy();
   });
 });

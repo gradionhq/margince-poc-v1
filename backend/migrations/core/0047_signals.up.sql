@@ -104,18 +104,30 @@ ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check
 -- documents of EXISTING workspaces (new workspaces get it from the
 -- code-side seed). Posture mirrors the record types: reps create and
 -- triage signals but never delete them; managers/admin/ops carry delete.
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,signal}',
-  '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-WHERE is_system AND key IN ('admin','ops','manager')
-  AND NOT permissions->'objects' ? 'signal';
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,signal}',
-  '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
-WHERE is_system AND key = 'rep'
-  AND NOT permissions->'objects' ? 'signal';
-UPDATE role SET permissions = jsonb_set(
-  permissions, '{objects,signal}',
-  '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key = 'read_only'
-  AND NOT permissions->'objects' ? 'signal';
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,signal}',
+      '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
+    WHERE (is_system AND key IN ('admin','ops','manager')
+      AND NOT permissions->'objects' ? 'signal')
+      AND role.workspace_id = ws;
+
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,signal}',
+      '{"create":true,"read":true,"update":true,"delete":false}'::jsonb)
+    WHERE (is_system AND key = 'rep'
+      AND NOT permissions->'objects' ? 'signal')
+      AND role.workspace_id = ws;
+
+    UPDATE role SET permissions = jsonb_set(
+      permissions, '{objects,signal}',
+      '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
+    WHERE (is_system AND key = 'read_only'
+      AND NOT permissions->'objects' ? 'signal')
+      AND role.workspace_id = ws;
+  END LOOP;
+END $$;

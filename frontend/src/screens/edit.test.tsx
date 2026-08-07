@@ -11,11 +11,14 @@ import { type ReactNode, useLayoutEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Button } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
+import { throwProblem } from "./common";
 import { EditAction, EditRecordModal } from "./edit";
 
 // The shared edit-record form (the mirror of create): a record prefills the
 // form, submit carries only the typed values (the screen attaches ifMatch),
-// and a rejected update renders its detail verbatim — same contract as create.
+// and a rejected update renders the server's own detail — while a failure that
+// is not a server refusal never puts its own words on screen.
 
 afterEach(() => {
   cleanup();
@@ -131,9 +134,9 @@ describe("edit record flow", () => {
     expect(firstFrame).toEqual(["Alice"]);
   });
 
-  it("renders the rejected update's detail verbatim", async () => {
+  it("renders the server's own detail for a rejected update", async () => {
     const update = vi.fn(async () => {
-      throw new Error("name too long");
+      throwProblem({ status: 422, detail: "name too long" });
     });
     render(
       <EditAction
@@ -148,5 +151,27 @@ describe("edit record flow", () => {
     await userEvent.click(screen.getByTestId("edit-record"));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.getByText("name too long")).toBeTruthy());
+  });
+
+  it("never shows the words of a failure the server did not send", async () => {
+    const update = vi.fn(async () => {
+      throw new TypeError("Cannot read properties of undefined (reading 'id')");
+    });
+    render(
+      <EditAction
+        label="Edit"
+        fields={fields}
+        record={record}
+        update={update}
+        invalidate="people"
+        recordKey="person"
+      />,
+    );
+    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(screen.getByText(en["common.errorNoCause"])).toBeTruthy(),
+    );
+    expect(screen.queryByText(/Cannot read properties/)).toBeNull();
   });
 });

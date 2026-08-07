@@ -7,7 +7,7 @@ import { Badge, Card, Disclosure, SectionHeader } from "../design-system/atoms";
 import { EvidenceMark } from "../design-system/evidencemark";
 import type { ConfidenceLevel } from "../design-system/trust";
 import { useT } from "../i18n";
-import { problemMessage, provenanceOf } from "./common";
+import { provenanceOf, throwProblem } from "./common";
 import { EntityRef } from "./entityref";
 
 export type Person360 = components["schemas"]["Person360"];
@@ -27,7 +27,7 @@ export function usePerson360(id: string) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

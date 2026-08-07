@@ -1,6 +1,6 @@
 import { Bot, Check, CheckCircle2, Circle, ShieldCheck } from "lucide-react";
 import type { components } from "../api/schema";
-import { TextInput } from "../design-system/atoms";
+import { Textarea, TextInput } from "../design-system/atoms";
 import {
   ConfidenceMeter,
   EvidenceChip,
@@ -13,10 +13,11 @@ import {
   type CompanyDraft,
   type CompanyFieldName,
   CUSTOMER_FIELDS,
-  groundingOf,
+  type FieldGrounding,
   isRequired,
   LEGAL_IDENTITY_FIELDS,
   OFFER_FIELDS,
+  provenanceOf,
   SALES_FIELDS,
 } from "./onboarding";
 import { CapNotice, saveDisabled, useFactSelection } from "./onboarding-facts";
@@ -26,7 +27,6 @@ import { CapNotice, saveDisabled, useFactSelection } from "./onboarding-facts";
 // legal-entity choice and the fact selection. The conversational shell
 // hosts it as the "edit fields directly" escape hatch.
 
-type ColdField = components["schemas"]["ColdStartField"];
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type CompanySiteReadLegalEntity =
   components["schemas"]["CompanySiteReadLegalEntity"];
@@ -229,7 +229,7 @@ function CompanyFieldList({
       key={field}
       field={field}
       value={draft.values[field]}
-      grounded={groundingOf(draft, field)}
+      grounded={provenanceOf(draft, field)}
       edited={draft.edited.has(field)}
       required={isRequired(field)}
       error={missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null}
@@ -321,7 +321,7 @@ function CompanyFormField({
 }: Readonly<{
   field: CompanyFieldName;
   value: string;
-  grounded: ColdField | null;
+  grounded: FieldGrounding | null;
   edited: boolean;
   required: boolean;
   error: string | null;
@@ -331,7 +331,16 @@ function CompanyFormField({
 }>) {
   const t = useT();
   const id = `co-${field}`;
-  const level = grounded ? confidenceLevel(grounded.confidence) : null;
+  // A grounding can be real without carrying a score: a legal block the human
+  // chose from the read's candidates has the page it was printed on and, when
+  // the read captured one, a verbatim quote — but nothing ever measured a
+  // confidence for it, so no meter is drawn rather than a made-up band. Same
+  // for the quote: no snippet, no chip, never an empty one. A snippet of
+  // nothing but whitespace is no snippet — a chip drawn around it would claim
+  // proof the read never captured.
+  const level = confidenceLevel(grounded?.confidence);
+  const snippet = grounded?.evidence_snippet;
+  const quote = snippet !== undefined && snippet.trim() !== "" ? snippet : null;
   // The design-system field shape (create.tsx RecordFormBody is the reference):
   // .field + .t-label + .input/.textarea. The trust adornments (confidence,
   // read-from-site, typed-by-you) ride the label; the evidence chip sits under
@@ -350,9 +359,8 @@ function CompanyFormField({
         {edited && <ProvenanceTag provenance={{ kind: "human", self: true }} />}
       </label>
       {multiline ? (
-        <textarea
+        <Textarea
           id={id}
-          className="textarea"
           value={value}
           required={required}
           aria-invalid={error ? true : undefined}
@@ -369,10 +377,10 @@ function CompanyFormField({
           onBlur={onBlur}
         />
       )}
-      {grounded && (
+      {grounded && quote !== null && (
         <EvidenceChip
           evidence={{
-            snippet: grounded.evidence_snippet,
+            snippet: quote,
             // source_url is carried only by url-sourced evidence; text and
             // self-description evidence names its origin instead of linking.
             source: grounded.source_url ?? t("ob.readFromSite"),

@@ -27,7 +27,7 @@ const populated = () =>
   });
 
 const meta: Meta<typeof RecordContextPanel> = {
-  title: "screens/context",
+  title: "Screens/context",
   component: RecordContextPanel,
 };
 export default meta;

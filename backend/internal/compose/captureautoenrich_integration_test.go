@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -133,6 +134,74 @@ func TestAutoEnrichStoreEligibilityAndCap(t *testing.T) {
 	}
 	if got[0] != true || got[1] != true || got[2] != false {
 		t.Fatalf("reservations = %v, want [true true false] at cap 2", got)
+	}
+}
+
+// runReadTo takes one organization's read to a terminal status the way the
+// worker does — start, claim, report — so the sweep sees the dossier state a
+// real read leaves behind rather than a hand-written row.
+func runReadTo(t *testing.T, e *integration.Env, orgID ids.OrganizationID, seedURL, status string) {
+	t.Helper()
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	read, _, err := e.People.StartSiteRead(ctx, orgID, seedURL, systemAutoEnrichActor)
+	if err != nil {
+		t.Fatalf("start the read: %v", err)
+	}
+	if _, err := e.People.BeginSiteRead(ctx, read.ID, time.Minute); err != nil {
+		t.Fatalf("claim the read: %v", err)
+	}
+	if err := e.People.FinishSiteRead(ctx, read.ID, people.FinishSiteReadInput{Status: status}); err != nil {
+		t.Fatalf("report the read as %s: %v", status, err)
+	}
+}
+
+func TestTheInstallationsOwnCompanyIsNeverSwept(t *testing.T) {
+	// The anchor is the company a person named, from a read they inspected field
+	// by field, and its refresh compares every proposal against confirmed truth
+	// (ADR-0065 §8) — while this lane applies what it finds directly. It differs
+	// from a swept company in exactly the thing the sweep selects on, and the
+	// exclusion is the point rather than an oversight.
+	e := integration.Setup(t)
+	store := capture.NewAutoEnrichStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+
+	website := "https://anchor.example"
+	if _, err := e.People.SaveCompany(ctx, people.SaveCompanyInput{
+		DisplayName: "Anchor", Website: &website,
+	}); err != nil {
+		t.Fatalf("describe the installation's own company: %v", err)
+	}
+	insertDomainOrg(t, e, "captured.example")
+
+	due, err := store.ListDueOrgs(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListDueOrgs: %v", err)
+	}
+	if len(due) != 1 || due[0].Domain != "captured.example" {
+		t.Fatalf("due = %+v, want only the captured company — the anchor has a live primary domain too", due)
+	}
+}
+
+func TestACancelledReadDoesNotRetireAnOrgForever(t *testing.T) {
+	// A read cancelled because the operator had auto-enrich off when the worker
+	// claimed it produced no dossier at all. Turning the setting back on has to
+	// reach that company, or the sweep's self-healing stops at exactly the orgs
+	// the setting stopped.
+	e := integration.Setup(t)
+	store := capture.NewAutoEnrichStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+
+	cancelled := insertDomainOrg(t, e, "offagain.example")
+	enriched := insertDomainOrg(t, e, "enriched.example")
+	runReadTo(t, e, cancelled, "https://offagain.example", "cancelled")
+	runReadTo(t, e, enriched, "https://enriched.example", "done")
+
+	due, err := store.ListDueOrgs(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListDueOrgs: %v", err)
+	}
+	if len(due) != 1 || due[0].Domain != "offagain.example" {
+		t.Fatalf("due = %+v, want the cancelled org offered again and the one holding a dossier left alone", due)
 	}
 }
 

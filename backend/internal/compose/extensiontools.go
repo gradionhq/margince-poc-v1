@@ -160,6 +160,19 @@ func registerComposedTools(registry *agents.Registry) {
 	}
 }
 
+// composedToolNames names the extension tools this boot registered. The
+// contract-parity sweeps use it to tell the third legitimate kind of registered
+// verb — one a unit manifest declares — from a core verb nothing declares.
+func composedToolNames() map[string]bool {
+	composedTools.mu.RLock()
+	defer composedTools.mu.RUnlock()
+	names := make(map[string]bool, len(composedTools.tools))
+	for _, t := range composedTools.tools {
+		names[t.Spec().Name] = true
+	}
+	return names
+}
+
 // mcpTier maps a published request tier to the core RiskTier. Only the two
 // static tiers are requestable — a dynamic tier needs a resolver, which a
 // static declaration cannot carry (extension.Tier.Validate enforces this).

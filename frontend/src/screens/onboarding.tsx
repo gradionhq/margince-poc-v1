@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { problemMessage } from "./common";
+import { throwProblem } from "./common";
 import {
   ManualCompanySetup,
   useCompanyContextCapabilities,
@@ -101,9 +101,32 @@ export function isMultilineField(field: CompanyFieldName): boolean {
   return (MULTILINE_FIELDS as readonly CompanyFieldName[]).includes(field);
 }
 
+/**
+ * What a draft value's provenance can honestly claim.
+ *
+ * A field the read returned carries the full contract shape: a verbatim
+ * snippet, the page it was read from, and the model's own confidence. A value
+ * the human settled by choosing one of the read's legal-entity candidates
+ * carries that candidate's page, and its quote when the read captured one —
+ * and no confidence at all, because nothing ever measured one: the entity lane
+ * carries no score on the wire, and a number minted here would read as machine
+ * certainty about a choice a person made.
+ *
+ * Both parts are therefore optional, and every surface that draws a confidence
+ * meter or an evidence line has to answer for their absence rather than fill
+ * it in.
+ */
+export type FieldGrounding = Omit<
+  ColdField,
+  "confidence" | "evidence_snippet"
+> & {
+  evidence_snippet?: string;
+  confidence?: number;
+};
+
 // The read-back can only ground the contract's ColdStartField names —
 // website is always the human's to give.
-type Grounded = Partial<Record<ColdField["field"], ColdField>>;
+type Grounded = Partial<Record<ColdField["field"], FieldGrounding>>;
 
 // One state object, because the three parts move together: typing a value
 // drops its site grounding (the value is the human's now) and marks it typed.
@@ -180,7 +203,7 @@ export function useCompany(enabled: boolean) {
         if (response.status === 404) {
           return null;
         }
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -233,12 +256,14 @@ export function changeDraftField(
   };
 }
 
-// A field the read-back grounded and the human has not touched still carries
-// the site's evidence; anything else is the human's own.
-export function groundingOf(
+// A field the read grounded and the human has not touched still carries the
+// site's provenance; anything else is the human's own. What that provenance
+// can claim varies — see FieldGrounding — so a caller rendering a confidence
+// or a quote must handle each one being absent.
+export function provenanceOf(
   draft: CompanyDraft,
   field: CompanyFieldName,
-): ColdField | null {
+): FieldGrounding | null {
   return draft.grounded[field as ColdField["field"]] ?? null;
 }
 
@@ -290,22 +315,13 @@ export function onboardingDraftPayload(values: CompanyForm) {
   };
 }
 
-class WizardStateWriteError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
 export async function writeWizardState(body: PutOnboardingState) {
-  const { data, error, response } = await api.PUT("/onboarding/state", {
+  const { data, error } = await api.PUT("/onboarding/state", {
     params: { header: { "Idempotency-Key": crypto.randomUUID() } },
     body,
   });
   if (error) {
-    throw new WizardStateWriteError(response.status, problemMessage(error));
+    throwProblem(error);
   }
   return data;
 }

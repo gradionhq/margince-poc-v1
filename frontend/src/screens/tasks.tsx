@@ -13,8 +13,9 @@ import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import {
   OverlayUnavailable,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
+  throwProblem,
   useSorMode,
 } from "./common";
 import { CreateRecordModal, NewRecordButton } from "./create";
@@ -183,7 +184,7 @@ export function TasksScreen() {
         params: { query: { kind: "task", limit: 100 } },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
       return data;
     },
@@ -199,7 +200,7 @@ export function TasksScreen() {
         body: input.body,
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
@@ -222,7 +223,7 @@ export function TasksScreen() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error, t));
+        throwProblem(error, t);
       }
     },
     onSuccess: () => {
@@ -284,7 +285,7 @@ export function TasksScreen() {
           { key: "remind_at", label: "tasks.remindAt", type: "datetime-local" },
         ]}
         pending={create.isPending}
-        error={create.isError ? create.error.message : null}
+        error={create.isError ? problemMessageOf(create.error, t) : null}
         onSubmit={(values) => create.mutate(values)}
       />
       <QueryGate

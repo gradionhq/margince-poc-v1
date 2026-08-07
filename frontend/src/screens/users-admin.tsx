@@ -8,11 +8,12 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate, useMe } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
 import { isOption } from "../app/options";
 import { PasswordLinkModal, usePasswordLink } from "./users-password-link";
@@ -21,6 +22,12 @@ type User = components["schemas"]["User"];
 type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
 
 const ROLES: readonly Role[] = ["admin", "manager", "rep", "read_only", "ops"];
+
+// roleLabel names a held role key. The catalog covers the five system roles;
+// a workspace-defined key has no translation, so it reads as itself rather
+// than as a missing-translation marker — the admin still learns what is held.
+const roleLabel = (t: ReturnType<typeof useT>) => (key: string) =>
+  isOption(key, ROLES) ? t(`users.role.${key}`) : key;
 
 // Admin member management (org settings). Every user-management write is
 // admin-only server-side, so the whole card is admin-only here — an ops seat in
@@ -37,7 +44,7 @@ function useMembers(enabled: boolean) {
         params: { query: { include_inactive: true } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -117,7 +124,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         body: { email: email.trim(), display_name: name.trim(), role },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
       return data.id;
     },
@@ -133,7 +140,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         void passwordLink.mint(newUserId);
       }
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
 
   const canInvite =
@@ -162,8 +169,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
-      <select
-        className="input"
+      <Select
         aria-label={t("users.roleLabel")}
         value={role}
         onChange={(e) => {
@@ -176,7 +182,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
             {t(`users.role.${r}`)}
           </option>
         ))}
-      </select>
+      </Select>
       <Button variant="primary" small type="submit" disabled={!canInvite}>
         <UserPlus aria-hidden /> {t("users.invite")}
       </Button>
@@ -217,11 +223,16 @@ function MemberRow({
     setLinkOpen(true);
     void passwordLink.mint(member.id);
   };
+  // Returns the refetch so each onSuccess can hand it back to react-query,
+  // which then keeps the mutation pending until the new roster lands. Without
+  // that the mutation settles first and the row renders the pre-change roster
+  // it still has cached — the member's OLD role, briefly, right after a
+  // successful change.
   const refresh = () => {
     setError(null);
-    qc.invalidateQueries({ queryKey: ["users-admin"] });
+    return qc.invalidateQueries({ queryKey: ["users-admin"] });
   };
-  const onError = (e: Error) => setError(e.message);
+  const onError = (e: Error) => setError(problemMessageOf(e, t));
 
   const setRole = useMutation({
     mutationFn: async (role: Role) => {
@@ -230,7 +241,7 @@ function MemberRow({
         body: { role },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: refresh,
@@ -243,12 +254,12 @@ function MemberRow({
         params: { path: { id: member.id } },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: () => {
       setConfirmOff(false);
-      refresh();
+      return refresh();
     },
     onError,
   });
@@ -259,7 +270,7 @@ function MemberRow({
         params: { path: { id: member.id } },
       });
       if (err) {
-        throw new Error(problemMessage(err));
+        throwProblem(err);
       }
     },
     onSuccess: refresh,
@@ -268,6 +279,27 @@ function MemberRow({
 
   const pending =
     setRole.isPending || deactivate.isPending || reactivate.isPending;
+
+  // The role the select reads back. `roles` arrives only for an admin caller —
+  // which this card always is — and normally holds exactly one key. No key (an
+  // unassigned seat) and several keys both leave the select on its placeholder,
+  // because neither has one current role to show.
+  const heldRoles = member.roles ?? [];
+  const currentRole =
+    heldRoles.length === 1 && isOption(heldRoles[0], ROLES) ? heldRoles[0] : "";
+  // A member holding SEVERAL roles is the case worth naming: any choice here
+  // replaces the whole set, so a neutral "Set role…" would let an admin strip
+  // privileges they never saw. The placeholder says what is held instead.
+  const placeholder =
+    heldRoles.length > 1
+      ? t("users.rolesHeld", { roles: heldRoles.map(roleLabel(t)).join(", ") })
+      : t("users.setRole");
+  // While a change is in flight the select shows the role being applied — and
+  // it stays in flight until the refreshed roster lands (see refresh), so the
+  // row never renders the replaced role. A FAILED change leaves the select on
+  // the role still held, which is what keeps a retry live: re-picking the same
+  // target still fires onChange.
+  const inFlightRole = setRole.isPending ? setRole.variables : undefined;
 
   return (
     <li className="users-row">
@@ -278,12 +310,9 @@ function MemberRow({
       <Badge tone={member.status === "active" ? "success" : "warn"}>
         {t(`users.status.${member.status}`)}
       </Badge>
-      {/* Controlled at "" so the label always resets — re-selecting the same
-          role after a failed change still fires onChange. */}
-      <select
-        className="input"
+      <Select
         aria-label={t("users.setRoleFor", { name: member.display_name })}
-        value=""
+        value={inFlightRole ?? currentRole}
         disabled={pending}
         onChange={(e) => {
           const value = e.target.value;
@@ -292,13 +321,15 @@ function MemberRow({
           }
         }}
       >
-        <option value="">{t("users.setRole")}</option>
+        {/* Offered only when there is no single role to show — otherwise it
+            would be a selectable option that does nothing. */}
+        {currentRole === "" && <option value="">{placeholder}</option>}
         {ROLES.map((r) => (
           <option key={r} value={r}>
             {t(`users.role.${r}`)}
           </option>
         ))}
-      </select>
+      </Select>
       {/* Only an ACTIVE member can redeem a link — redemption updates an active
           account and refuses otherwise — so offering one on a deactivated row
           would hand the admin a link that is dead on arrival. */}
@@ -329,7 +360,7 @@ function MemberRow({
         confirmLabel={t("users.deactivate")}
         confirmVariant="danger"
         pending={deactivate.isPending}
-        error={deactivate.error?.message}
+        error={deactivate.error ? problemMessageOf(deactivate.error, t) : null}
         onConfirm={() => deactivate.mutate()}
       >
         <p className="t-small">{t("users.deactivateConfirmBody")}</p>

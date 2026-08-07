@@ -50,7 +50,9 @@
 #                           (discovery/assigned/ran/meta) and per-package binary
 #                           covdata pods for the CI fan-in to reconcile + merge;
 #                           coverage instrumentation is on iff this is set
-#   INTEGRATION_TIMEOUT     per-package go-test timeout (default 300s)
+#   INTEGRATION_TIMEOUT     per-package go-test timeout, as <seconds>s (default
+#                           600s; the budget column parses this). Resolved in
+#                           scripts/lib-testdb.sh, shared with the one-package lane
 #   MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN   owner + app DSNs (Makefile defaults)
 set -euo pipefail
 
@@ -90,10 +92,11 @@ if [[ -n "$SHARD_OUT" ]]; then
   export COVERDIR
 fi
 
-# Per-package go-test timeout. Shard slices stay far under a full package even
-# with coverage instrumentation, so one tight default serves both modes.
-# Overridable via INTEGRATION_TIMEOUT.
-IT_TIMEOUT="${INTEGRATION_TIMEOUT:-300s}"
+# Per-package go-test timeout and its budget rule — shared with the one-package
+# lane (scripts/lib-testdb.sh resolve_it_timeout), so both cost a package the same.
+resolve_it_timeout
+# A single-shard coverage run is the one case that executes whole packages WITH
+# instrumentation on top, so it alone earns more than the shared budget.
 if [[ -n "${COVERDIR:-}" && -z "${INTEGRATION_TIMEOUT:-}" ]] && (( SHARD_TOTAL == 1 )); then
   IT_TIMEOUT=900s
 fi
@@ -415,12 +418,16 @@ if [[ -s "$TIMING" ]]; then
   # the biggest package: a small suite paying a per-test schema migration reads an
   # order of magnitude above the lane norm, and that is the shape worth seeing
   # first.
-  echo "test-integration-parallel: per-package cost (advisory)"
+  # The budget column is what the ms/test column cannot say: a package can be
+  # perfectly efficient per test and still be seconds from the timeout simply by
+  # having grown. That margin closing is the failure this lane learned the hard
+  # way, and it is only visible if the run prints it before it crosses.
+  echo "test-integration-parallel: per-package cost (advisory, budget ${IT_TIMEOUT})"
   awk -F'|' '{ printf "%s|%s|%s|%.4f\n", $1, $2, $3, ($3 ? $2 * 1000 / $3 : 0) }' "$TIMING" \
     | LC_ALL=C sort -t'|' -k4 -rn \
-    | awk -F'|' '
+    | awk -F'|' -v budget="${IT_TIMEOUT%s}" '
         { total += $2; tests += $3
-          printf "  %-44s %8.2fs  %5d tests  %7.1f ms/test\n", $1, $2, $3, $4 }
+          printf "  %-44s %8.2fs  %5d tests  %7.1f ms/test  %5.1f%% of budget\n", $1, $2, $3, $4, (budget ? $2 * 100 / budget : 0) }
         END { if (tests) printf "  %-44s %8.2fs  %5d tests  %7.1f ms/test\n", "TOTAL (sum of packages)", total, tests, total * 1000 / tests }
       '
 fi

@@ -12,14 +12,18 @@ package people
 // erasure case holds the account's lock across the whole call and bounds the
 // waiter, the merge case opens the window by hand in the order the two
 // transactions really interleave, and the handle races hold a row and wait for
-// a provably blocked backend before releasing it. No sleep, no clock, no guess.
+// a provably blocked backend before releasing it. No sleep and no guess: the
+// one clock is probeBudget, a give-up bound on waiting for a backend that never
+// blocks, and it decides when to REPORT a miss rather than what to assert.
 
 import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -296,41 +300,74 @@ func (e *dedupeEnv) refreshInBackground(ctx context.Context, ci connector.Channe
 	return done
 }
 
-// waitUntilBlockedBy returns once a backend in this database is provably
-// waiting on a lock held by pid. Busy-read of pg_stat_activity: no clock and no
-// sleep, and it gives up the moment the background refresh finishes, so a run
-// in which nothing ever blocked reports that instead of passing having proved
-// nothing. The pid makes it exact — pg_stat_activity is cluster-wide, and the
-// parallel lane runs a dozen packages against one server.
-// It reports whether a backend blocked, rather than deciding: for the refresh
-// races below "finished first" means the run proved nothing and must fail loudly,
-// while for the organization-name lock it is the expected answer on the path
-// that owes no lock. One probe, two policies.
-func waitUntilBlockedBy(t *testing.T, probe pgx.Tx, pid int, done <-chan error) (bool, error) {
+// probeBudget bounds the wait for a racing backend to block.
+//
+// It is a DURATION, and it used to be a count of 20 000 probes. A count is not a
+// budget: it is a race between how fast probe round-trips complete and how fast
+// the writer reaches its lock, and the lane's own concurrency slows BOTH, so a
+// count generous on an idle machine is not generous on a loaded one. Three
+// tests here learned that by failing on CI and passing on re-run. A duration
+// means the same thing on every machine.
+//
+// Generous enough that only a genuine miss trips it, short enough that the miss
+// reports itself rather than running into the package timeout, where it would
+// read as a hung suite instead of a stated fact.
+const probeBudget = 60 * time.Second
+
+// waitUntilBlocked returns once a backend in this database is provably waiting
+// on a lock held by pid, or once the racer finishes first — reporting WHICH, so
+// the caller decides what that means. For the refresh races below "finished
+// first" means the run proved nothing and must fail loudly; for the
+// organization-name lock it is the expected answer on the path that owes no
+// lock. One probe, two policies.
+//
+// Busy-read of pg_stat_activity, with the pid making it exact: that view is
+// cluster-wide and the parallel lane runs a dozen packages against one server.
+// A run in which nothing ever blocked reports that instead of passing having
+// proved nothing.
+func waitUntilBlocked[T any](t *testing.T, probe pgx.Tx, pid int, done <-chan T) (T, bool) {
 	t.Helper()
-	// Generous enough that a loaded machine cannot trip it, small enough that a
-	// genuine miss reports in seconds rather than minutes.
-	const maxProbes = 20_000
-	for i := 0; i < maxProbes; i++ {
+	var zero T
+	ctx, cancel := context.WithTimeout(context.Background(), probeBudget)
+	defer cancel()
+	for probes := 1; ; probes++ {
 		var blocked bool
-		if err := probe.QueryRow(context.Background(), `
+		switch err := probe.QueryRow(ctx, `
 			SELECT EXISTS (
 			  SELECT 1 FROM pg_stat_activity a
 			   WHERE a.datname = current_database() AND $1 = ANY (pg_blocking_pids(a.pid)))`,
-			pid).Scan(&blocked); err != nil {
+			pid).Scan(&blocked); {
+		case err != nil && ctx.Err() != nil:
+			t.Fatalf("no backend waited on the held row within %s (%d probes): the writer neither "+
+				"reached the lock nor returned, so this run proved nothing", probeBudget, probes)
+		case err != nil:
 			t.Fatalf("probing for a waiting backend: %v", err)
 		}
 		if blocked {
-			return true, nil
+			return zero, false
 		}
 		select {
-		case err := <-done:
-			return false, err
+		case result := <-done:
+			return result, true
 		default:
 		}
+		if ctx.Err() != nil {
+			t.Fatalf("no backend waited on the held row within %s (%d probes): the writer neither "+
+				"reached the lock nor returned, so this run proved nothing", probeBudget, probes)
+		}
+		// Yield rather than spin. This loop and the goroutine it is waiting for
+		// compete for the same processor under the lane's concurrency, and a
+		// tight loop that never yields is one of the ways a loaded runner starves
+		// the very writer whose progress it is watching for.
+		runtime.Gosched()
 	}
-	t.Fatalf("no backend waited on the held row within %d probes — the writer never reached the lock, so this run proved nothing", maxProbes)
-	return false, nil
+}
+
+// waitUntilBlockedBy is waitUntilBlocked for a racer that reports only an error.
+func waitUntilBlockedBy(t *testing.T, probe pgx.Tx, pid int, done <-chan error) (bool, error) {
+	t.Helper()
+	err, finished := waitUntilBlocked(t, probe, pid, done)
+	return !finished, err
 }
 
 // mustBlockOn is waitUntilBlockedBy for a caller where finishing without ever

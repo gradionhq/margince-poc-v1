@@ -5,7 +5,16 @@ DROP INDEX uq_site_read_org_inflight;
 ALTER TABLE site_read DROP CONSTRAINT site_read_org_fkey;
 ALTER TABLE site_read DROP CONSTRAINT site_read_target_shape;
 
-DELETE FROM site_read WHERE organization_id IS NULL;
+DO $$
+DECLARE ws uuid;
+BEGIN
+  FOR ws IN SELECT id FROM workspace LOOP
+    PERFORM set_config('app.workspace_id', ws::text, true);
+    DELETE FROM site_read
+    WHERE (organization_id IS NULL)
+      AND site_read.workspace_id = ws;
+  END LOOP;
+END $$;
 
 ALTER TABLE site_read
   ALTER COLUMN organization_id SET NOT NULL,

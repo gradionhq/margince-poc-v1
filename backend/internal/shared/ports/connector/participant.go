@@ -32,8 +32,12 @@ type MessageParticipant struct {
 // only the two ends of the exchange are assigned by direction, and capture
 // does that from Counterparty rather than from anything a connector reports.
 const (
-	ParticipantRoleTo        = "to"
-	ParticipantRoleCC        = "cc"
+	ParticipantRoleTo = "to"
+	ParticipantRoleCC = "cc"
+	// ParticipantRoleBCC appears only on the sender's own copy of a message; a
+	// recipient's copy never carries the header. Recording it as `to` would
+	// misstate who was openly addressed, which is a fact people rely on.
+	ParticipantRoleBCC       = "bcc"
 	ParticipantRoleAttendee  = "attendee"
 	ParticipantRoleOrganizer = "organizer"
 )

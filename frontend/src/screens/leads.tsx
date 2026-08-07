@@ -12,6 +12,8 @@ import {
   Modal,
   SectionHeader,
   SegmentedControl,
+  Select,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ProvenanceTag } from "../design-system/trust";
@@ -21,7 +23,7 @@ import { ArchiveAction } from "./archive";
 import {
   OverlayUnavailable,
   ProblemError,
-  problemMessage,
+  problemMessageOf,
   provenanceOf,
   QueryGate,
   throwProblem,
@@ -146,7 +148,7 @@ async function fetchLeadsPage(
   if (error) {
     // A LIST read's honest-error path only needs a message to render — the
     // dedupe "view existing" link is a create/update-only concern.
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return {
     data: data.data,
@@ -520,7 +522,7 @@ function LeadLifecycle({
 
       {patch.isError && (
         <span className="t-caption" style={{ color: "var(--danger)" }}>
-          {patch.error instanceof Error ? patch.error.message : null}
+          {problemMessageOf(patch.error, t)}
         </span>
       )}
     </div>
@@ -631,13 +633,9 @@ function LeadOverviewPane({
                   marginBottom: 16,
                 }}
               >
-                <label
-                  className="t-caption"
-                  style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                >
+                <label className="t-caption field">
                   {t("lead.trigger")}
-                  <select
-                    className="input"
+                  <Select
                     aria-label={t("lead.trigger")}
                     value={trigger}
                     onChange={(event) => {
@@ -651,15 +649,11 @@ function LeadOverviewPane({
                         {t(option.label)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
-                <label
-                  className="t-caption"
-                  style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                >
+                <label className="t-caption field">
                   {t("lead.evidenceNote")}
-                  <textarea
-                    className="input"
+                  <Textarea
                     aria-label={t("lead.evidenceNote")}
                     value={note}
                     onChange={(event) => setNote(event.target.value)}
@@ -720,7 +714,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -766,9 +760,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
   // never renders as an error — anything else surfaces verbatim.
   const promoteErrorMessage =
     promote.isError && !alreadyPromotedPersonId(promote.error)
-      ? promote.error instanceof Error
-        ? promote.error.message
-        : null
+      ? problemMessageOf(promote.error, t)
       : null;
 
   return (

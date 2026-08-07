@@ -4,10 +4,17 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { Button, Modal, TextInput } from "../design-system/atoms";
+import {
+  Button,
+  Field,
+  Modal,
+  Radio,
+  Select,
+  TextInput,
+} from "../design-system/atoms";
 import { useT } from "../i18n";
 import { ArchiveAction } from "./archive";
-import { ProblemError, throwProblem } from "./common";
+import { ProblemError, problemMessageOf, throwProblem } from "./common";
 import { EditAction } from "./edit";
 import { useRoster } from "./entityref";
 import "./quotas.css";
@@ -128,14 +135,14 @@ function SetTargetModal({
     },
   });
 
-  const errorMessage =
-    mutation.error instanceof ProblemError
-      ? isOwnerXorTeam(mutation.error.problem)
-        ? t("quotas.err.ownerXorTeam")
-        : mutation.error.message
-      : mutation.error instanceof Error
-        ? mutation.error.message
-        : null;
+  const ownerXorTeam =
+    mutation.error instanceof ProblemError &&
+    isOwnerXorTeam(mutation.error.problem);
+  const errorMessage = !mutation.isError
+    ? null
+    : ownerXorTeam
+      ? t("quotas.err.ownerXorTeam")
+      : problemMessageOf(mutation.error, t);
 
   const roster = side === "owner" ? users : teams;
   const canSubmit =
@@ -171,103 +178,91 @@ function SetTargetModal({
         <fieldset className="field quota-side">
           <legend className="t-label">{t("quotas.side.label")}</legend>
           <div className="quota-side-choices">
-            <label className="quota-side-choice">
-              <input
-                type="radio"
-                name={`${formId}-side`}
-                checked={side === "owner"}
-                onChange={() => pickSide("owner")}
-              />
-              {t("quotas.side.owner")}
-            </label>
-            <label className="quota-side-choice">
-              <input
-                type="radio"
-                name={`${formId}-side`}
-                checked={side === "team"}
-                onChange={() => pickSide("team")}
-              />
-              {t("quotas.side.team")}
-            </label>
+            <Radio
+              name={`${formId}-side`}
+              checked={side === "owner"}
+              onChange={() => pickSide("owner")}
+              label={t("quotas.side.owner")}
+            />
+            <Radio
+              name={`${formId}-side`}
+              checked={side === "team"}
+              onChange={() => pickSide("team")}
+              label={t("quotas.side.team")}
+            />
           </div>
         </fieldset>
 
-        <div className="field">
-          <label className="t-label" htmlFor={`${formId}-subject`}>
-            {side === "owner" ? t("quotas.owner") : t("quotas.team")} *
-          </label>
-          <select
-            id={`${formId}-subject`}
-            className="input"
-            value={subjectId}
-            required
-            onChange={(event) => setSubjectId(event.target.value)}
-          >
-            <option value="" disabled>
-              {side === "owner" ? t("quotas.pickOwner") : t("quotas.pickTeam")}
-            </option>
-            {(roster.data ?? []).map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {subjectLabel(entry)}
+        <Field
+          label={side === "owner" ? t("quotas.owner") : t("quotas.team")}
+          required
+        >
+          {(control) => (
+            <Select
+              {...control}
+              value={subjectId}
+              onChange={(event) => setSubjectId(event.target.value)}
+            >
+              <option value="" disabled>
+                {side === "owner"
+                  ? t("quotas.pickOwner")
+                  : t("quotas.pickTeam")}
               </option>
-            ))}
-          </select>
-        </div>
+              {(roster.data ?? []).map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {subjectLabel(entry)}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
 
-        <div className="field">
-          <label className="t-label" htmlFor={`${formId}-start`}>
-            {t("quotas.periodStart")} *
-          </label>
-          <TextInput
-            id={`${formId}-start`}
-            type="date"
-            value={periodStart}
-            required
-            onChange={(event) => setPeriodStart(event.target.value)}
-          />
-        </div>
+        <Field label={t("quotas.periodStart")} required>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="date"
+              value={periodStart}
+              onChange={(event) => setPeriodStart(event.target.value)}
+            />
+          )}
+        </Field>
 
-        <div className="field">
-          <label className="t-label" htmlFor={`${formId}-end`}>
-            {t("quotas.periodEnd")} *
-          </label>
-          <TextInput
-            id={`${formId}-end`}
-            type="date"
-            value={periodEnd}
-            required
-            onChange={(event) => setPeriodEnd(event.target.value)}
-          />
-        </div>
+        <Field label={t("quotas.periodEnd")} required>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="date"
+              value={periodEnd}
+              onChange={(event) => setPeriodEnd(event.target.value)}
+            />
+          )}
+        </Field>
 
-        <div className="field">
-          <label className="t-label" htmlFor={`${formId}-amount`}>
-            {t("quotas.amount")} *
-          </label>
-          <TextInput
-            id={`${formId}-amount`}
-            type="text"
-            inputMode="numeric"
-            value={amount}
-            required
-            placeholder={t("quotas.amountHint")}
-            onChange={(event) => setAmount(event.target.value)}
-          />
-        </div>
+        <Field label={t("quotas.amount")} required>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="text"
+              inputMode="numeric"
+              value={amount}
+              placeholder={t("quotas.amountHint")}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+          )}
+        </Field>
 
-        <div className="field">
-          <label className="t-label" htmlFor={`${formId}-currency`}>
-            {t("quotas.currency")} *
-          </label>
-          <TextInput
-            id={`${formId}-currency`}
-            type="text"
-            value={currency}
-            required
-            maxLength={3}
-            onChange={(event) => setCurrency(event.target.value)}
-          />
-        </div>
+        <Field label={t("quotas.currency")} required>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="text"
+              value={currency}
+              maxLength={3}
+              onChange={(event) => setCurrency(event.target.value)}
+            />
+          )}
+        </Field>
 
         {errorMessage && (
           <p className="t-caption" style={{ color: "var(--danger)" }}>

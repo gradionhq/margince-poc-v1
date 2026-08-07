@@ -6,10 +6,12 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -17,7 +19,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
@@ -36,10 +41,7 @@ func TestSweepWorkspaceDataClearsDomainKeepsIdentity(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := sweepWorkspaceData(ctx, tx, tables); err != nil {
-			return err
-		}
-		return clearWorkspaceOutbox(ctx, tx)
+		return sweepWorkspaceData(ctx, tx, tables)
 	})
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
@@ -151,6 +153,10 @@ func TestResetRunRestoresBootstrapState(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.Admin()
 	e.SeedPerson(t, "Alice", nil)
+	// A pre-reset staged event, marked by its stream so the seeders' own outbox
+	// writes cannot be mistaken for it: the run must leave nothing for the relay
+	// to ship into the streams it purges.
+	e.WsExec(t, `INSERT INTO event_outbox (stream, envelope) VALUES ('pre-reset', jsonb_build_object('workspace_id', $1::text))`, e.WS)
 
 	h := dataResetHandlers{
 		pool:       e.Pool,
@@ -186,6 +192,55 @@ func TestResetRunRestoresBootstrapState(t *testing.T) {
 	}
 	if got := e.WsCount(t, "SELECT count(*) FROM audit_log WHERE action='reset_data'"); got != 1 {
 		t.Errorf("audit_log reset_data rows = %d, want 1", got)
+	}
+	if got := e.WsCount(t, `SELECT count(*) FROM event_outbox WHERE stream = 'pre-reset'`); got != 0 {
+		t.Errorf("pre-reset staged events = %d, want 0 — the relay would ship them into the streams the reset just purged", got)
+	}
+}
+
+// resetBudgetIncumbent is an arbitrary configured incumbent: its identity does
+// not matter to the purge, only that a metered call leaves counters under the
+// workspace's ovb:<ws>:… prefix for the reset to find.
+const resetBudgetIncumbent = "acme"
+
+// TestResetDataAuditEvidenceCarriesTheSameCacheKeyTallyAsTheResponse:
+// cache_keys_deleted is one number with one meaning. Every Redis surface a reset
+// purges — the bus's dedupe marks and the overlay budget's counters — is cleared
+// before the sweep's transaction opens, so the audit row written inside it, the
+// 200 body and the completion log line all report the same total. A purge that
+// drifted after the commit would leave the PERMANENT record under-reporting
+// while the response over-reported, under one key name.
+func TestResetDataAuditEvidenceCarriesTheSameCacheKeyTallyAsTheResponse(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	meter := budgettest.Meter(t, budgettest.SmallConfig(resetBudgetIncumbent))
+	// Spend through the meter's own public API rather than hand-writing a key,
+	// so the counters the reset purges are exactly what real traffic leaves.
+	if err := meter.ConsumeSearch(principal.WithWorkspaceID(context.Background(), e.WS), resetBudgetIncumbent, 1); err != nil {
+		t.Fatalf("seeding a budget counter: %v", err)
+	}
+
+	h := dataResetHandlers{
+		pool:   e.Pool,
+		seeds:  deployconfig.Seeds{},
+		env:    runtimeenv.Development,
+		budget: meter,
+		log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	counts, err := h.run(ctx, "Authz")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if counts.CacheKeys == 0 {
+		t.Fatal("cache_keys_deleted = 0 although a budget counter was spent; the assertion below would hold vacuously")
+	}
+	recorded := e.WsCount(t,
+		`SELECT (evidence->>'cache_keys_deleted')::int FROM audit_log WHERE action = 'reset_data'`)
+	if recorded != counts.CacheKeys {
+		t.Errorf("audit evidence cache_keys_deleted = %d, response reports %d — the durable record and the reply disagree about what the same key name counts",
+			recorded, counts.CacheKeys)
 	}
 }
 
@@ -273,4 +328,295 @@ func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("trigger scan: %v", err)
 	}
+}
+
+// TestResetReturnsAnOverlayWorkspaceToNativeMode: a reset restores first-boot
+// state, and a first-boot installation is native.
+//
+// The workspace row is in the preserved set — it carries the organization, so
+// the sweep must not delete it — but the overlay-mode columns living on that
+// row are configuration a connect flow wrote, not identity. Everything overlay
+// mode depends on IS swept: the incumbent connection, the mirror, the budget
+// counters. Leaving the mode behind therefore strands the installation claiming
+// to read from an incumbent it no longer has a connection to, with every read
+// dispatching to a mirror that has nothing in it.
+//
+// The two columns move together because the schema requires it:
+// CHECK ((x_sor_mode = 'overlay') = (x_incumbent IS NOT NULL)).
+func TestResetReturnsAnOverlayWorkspaceToNativeMode(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+	e.WsExec(t, `UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`, e.WS)
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	var mode string
+	var incumbent *string
+	if err := e.Pool.QueryRow(ctx,
+		`SELECT x_sor_mode, x_incumbent FROM workspace WHERE id = $1`, e.WS).Scan(&mode, &incumbent); err != nil {
+		t.Fatalf("reading the workspace's mode back: %v", err)
+	}
+	if mode != "native" {
+		t.Errorf("x_sor_mode = %q, want native — the install still reads from an incumbent the reset disconnected it from", mode)
+	}
+	if incumbent != nil {
+		t.Errorf("x_incumbent = %q, want NULL", *incumbent)
+	}
+	if got := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE action = 'reset_data' AND evidence->>'sor_mode_reverted' = 'true'`); got != 1 {
+		t.Errorf("reset_data rows recording the mode revert = %d, want 1 — a flip this consequential belongs in the permanent record", got)
+	}
+}
+
+// TestResetRestoresWorkspaceLevelSettings is the general case behind the
+// overlay one above: the mode columns are not the only configuration living on
+// the workspace row, and the sweep reaches none of it. The sweep's target list
+// is derived from the tables carrying a workspace_id column; workspace keys on
+// id, so it is not excluded from that list, it is not a candidate for it.
+//
+// capture_auto_enrich (CAP-PARAM-7) is the second setting on the row today and
+// stands in for every one added after it: an operator who wiped the
+// installation would otherwise find yesterday's settings still applied to a
+// database with nothing in it.
+func TestResetRestoresWorkspaceLevelSettings(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+	e.WsExec(t, `UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, e.WS)
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	var autoEnrich bool
+	if err := e.Pool.QueryRow(ctx,
+		`SELECT capture_auto_enrich FROM workspace WHERE id = $1`, e.WS).Scan(&autoEnrich); err != nil {
+		t.Fatalf("reading the setting back: %v", err)
+	}
+	if !autoEnrich {
+		t.Error("capture_auto_enrich = false after a reset, want true (its declared default) — a workspace-level setting outlived the wipe")
+	}
+}
+
+// The same obligation for the settings that moved off the workspace row into
+// `setting` (ADR-0090/A135). That table carries no workspace_id, so the reset's
+// table sweep — derived from the tables that do — never had it as a candidate
+// either: without an explicit restore every setting outlives the wipe exactly
+// as capture_auto_enrich did.
+//
+// The split is what this proves. Configuration goes back to its registered
+// default; the installation's IDENTITY does not, because a reset wipes an
+// installation's data without re-creating the installation.
+func TestResetRestoresSettingRowsButKeepsTheInstallationsIdentity(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	// Configuration a human changed, and identity bootstrap wrote.
+	e.WsExec(t, `
+		INSERT INTO setting (key, value) VALUES ('capture.auto_enrich', 'false'::jsonb)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
+	e.WsExec(t, `
+		INSERT INTO setting (key, value) VALUES ('installation.name', '"Brandt Automotive"'::jsonb)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// Configuration is gone, so a read resolves to the registered default —
+	// an absent row and a row holding the default read identically, and the
+	// absence keeps "has anyone changed this?" answerable.
+	var configRows int
+	if err := e.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM setting WHERE key = 'capture.auto_enrich'`).Scan(&configRows); err != nil {
+		t.Fatalf("reading the configuration setting back: %v", err)
+	}
+	if configRows != 0 {
+		t.Error("capture.auto_enrich survived the reset — a configuration setting must return to its default")
+	}
+
+	// Identity survives: the installation is the same installation afterwards.
+	var name string
+	if err := e.Pool.QueryRow(ctx,
+		`SELECT value #>> '{}' FROM setting WHERE key = 'installation.name'`).Scan(&name); err != nil {
+		t.Fatalf("the installation lost its name in a reset that preserves the installation: %v", err)
+	}
+	if name != "Brandt Automotive" {
+		t.Errorf("installation.name = %q after a reset, want it preserved", name)
+	}
+}
+
+// TestResetLeavesANativeWorkspaceAlone: the flip is conditional, so a native
+// installation's reset claims no mode change in its evidence.
+func TestResetLeavesANativeWorkspaceAlone(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE action = 'reset_data' AND evidence->>'sor_mode_reverted' = 'true'`); got != 0 {
+		t.Errorf("evidence claims a mode revert on an install that was already native (%d rows)", got)
+	}
+}
+
+// TestResetPurgesTheSealedCredentialsItsSweepOrphans: vault_secret carries no
+// workspace_id — the tenant lives inside the ref and inside the AES-256-GCM
+// AAD, deliberately, so it is operational infrastructure rather than a tenant
+// table and the sweep never sees it.
+//
+// That means the sweep deletes the connection rows holding the refs and leaves
+// the sealed ciphertext behind forever, unreachable but resident: credential
+// material outliving the wipe that was supposed to produce a clean slate. The
+// refs must therefore be collected BEFORE the rows go, and redeemed after.
+//
+// The assertion is that the secret is gone from the VAULT, not that a counter
+// moved: an implementation that tallied refs without redeeming them would look
+// identical from the evidence alone.
+func TestResetPurgesTheSealedCredentialsItsSweepOrphans(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	vault := resetTestVault(t, e)
+	wsID := ids.From[ids.WorkspaceKind](e.WS)
+	mine, err := vault.Put(ctx, wsID, []byte("an incumbent's oauth refresh token"))
+	if err != nil {
+		t.Fatalf("sealing the credential under test: %v", err)
+	}
+	e.WsExec(t, `INSERT INTO incumbent_connection (id, workspace_id, incumbent, region, status, credential_ref)
+		VALUES ($1, $2, 'hubspot', 'eu', 'active', $3)`, ids.NewV7(), e.WS, string(mine))
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		vault: vault,
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if _, err := vault.Get(ctx, wsID, mine); !errors.Is(err, keyvault.ErrNotFound) {
+		t.Errorf("the sealed credential outlived the reset (Get returned %v) — a wipe that leaves credential material resident is not a clean slate", err)
+	}
+	if got := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE action = 'reset_data' AND evidence->>'secrets_purged' = '1'`); got != 1 {
+		t.Errorf("reset_data rows recording one purged secret = %d, want 1", got)
+	}
+}
+
+// TestResetLeavesAnotherWorkspacesSealedCredential: the ref collection is
+// bound to the workspace being reset. vault_secret has no RLS to fall back on
+// — isolation here is the collecting query's job — so a co-tenant's sealed
+// credential surviving is the property that matters, not the count.
+//
+// The foreign ref is attached to a foreign connection ROW, not merely sealed in
+// the vault. A ref nothing references would be skipped by any implementation,
+// correct or not, so the test would pass against a collector that ignored
+// workspace_id entirely — proving nothing. Reachable-but-not-collected is the
+// only arrangement that can fail.
+func TestResetLeavesAnotherWorkspacesSealedCredential(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	vault := resetTestVault(t, e)
+	theirs := ids.New[ids.WorkspaceKind]()
+	theirRef, err := vault.Put(ctx, theirs, []byte("another tenant's token"))
+	if err != nil {
+		t.Fatalf("sealing the co-tenant's credential: %v", err)
+	}
+	// Seeded on an owner connection, because these rows belong to a workspace
+	// the admin context is not bound to — which is precisely what RLS refuses.
+	owner := resetOwnerConn(ctx, t)
+	if _, err := owner.Exec(ctx,
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other Tenant', $2, 'EUR')`,
+		theirs, "other-tenant-"+theirs.String()[:8]); err != nil {
+		t.Fatalf("seeding the co-tenant workspace: %v", err)
+	}
+	if _, err := owner.Exec(ctx,
+		`INSERT INTO incumbent_connection (id, workspace_id, incumbent, region, status, credential_ref)
+		 VALUES ($1, $2, 'hubspot', 'eu', 'active', $3)`,
+		ids.NewV7(), theirs, string(theirRef)); err != nil {
+		t.Fatalf("seeding the co-tenant's connection: %v", err)
+	}
+
+	h := dataResetHandlers{
+		pool:  e.Pool,
+		seeds: deployconfig.Seeds{},
+		env:   runtimeenv.Development,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		vault: vault,
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if _, err := vault.Get(ctx, theirs, theirRef); err != nil {
+		t.Errorf("a reset reached past its own tenant into another workspace's sealed credential: %v", err)
+	}
+}
+
+// resetOwnerConn opens a superuser connection for seeding rows that belong to
+// a workspace the test's own context is not bound to. The app role cannot write
+// them — FORCE RLS refuses — and that refusal is the property under test, so the
+// fixture has to come in over the role that bypasses it.
+func resetOwnerConn(ctx context.Context, t *testing.T) *pgx.Conn {
+	t.Helper()
+	dsn := os.Getenv("MARGINCE_TEST_DSN")
+	if dsn == "" {
+		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("owner connection: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(context.Background()); err != nil {
+			t.Errorf("closing the owner connection: %v", err)
+		}
+	})
+	return conn
+}
+
+// resetTestVault builds the local vault provider over the harness pool. The
+// root key is fixed and meaningless — these tests assert reachability of the
+// ciphertext, never its contents.
+func resetTestVault(t *testing.T, e *integration.Env) keyvault.Vault {
+	t.Helper()
+	vault, err := keyvault.New(keyvault.Config{
+		RootKey: bytes.Repeat([]byte{7}, 32),
+		Pool:    e.Pool,
+	})
+	if err != nil {
+		t.Fatalf("building the test vault: %v", err)
+	}
+	return vault
 }

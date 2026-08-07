@@ -70,5 +70,9 @@ func (w *siteDeepReadWorker) fail(ctx context.Context, readID ids.UUID, cause er
 	if err := w.people.FinishSiteRead(tctx, readID, people.FinishSiteReadInput{Status: "failed"}); err != nil {
 		return errors.Join(cause, fmt.Errorf("recording the failure on the dossier: %w", err))
 	}
+	// The dossier is terminal now, and a failed read is one no confirmation
+	// accepts — so a mark this read stored before it failed is bytes nobody can
+	// ever adopt.
+	w.reclaimParkedLogo(tctx, readID)
 	return cause
 }

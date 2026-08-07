@@ -13,14 +13,16 @@ import {
   Button,
   DataTable,
   EmptyState,
+  Field,
   Modal,
   SearchField,
   SectionHeader,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import type { CreateField } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
@@ -75,7 +77,7 @@ async function fetchRelationships(
     params: { query: scopeQuery(scope) },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data.data;
 }
@@ -116,9 +118,13 @@ function dateRange(rel: Relationship, t: (key: MessageKey) => string): string {
 
 type Candidate = { id: string; name: string };
 
+// include_anchor: recording that a person works at the company running the CRM
+// is an ordinary, frequent fact. The list hides the own company by default
+// because it answers "which companies are we selling to"; this question is a
+// different one, so it opts back in (ADR-0082/A127).
 async function searchOrganizationCandidates(q: string): Promise<Candidate[]> {
   const { data, error } = await api.GET("/organizations", {
-    params: { query: { q, limit: 10 } },
+    params: { query: { q, limit: 10, include_anchor: true } },
   });
   if (error) {
     throwProblem(error);
@@ -261,7 +267,10 @@ function AddRelationshipAction({
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [target, setTarget] = useState<Candidate | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  // The caught failure itself, not a sentence about it: the effect below
+  // runs debounced and must not depend on the translator, which is a new
+  // function every render. It is turned into copy where it is rendered.
+  const [searchFailure, setSearchFailure] = useState<unknown>(null);
   // Kind fixes the picked endpoint; a stale kind can't outlive its scope
   // because the tab remounts per record, so the first option is always valid.
   const endpoint = options.find((o) => o.kind === kind) ?? options[0];
@@ -274,7 +283,7 @@ function AddRelationshipAction({
     const query = term.trim();
     if (!query) {
       setCandidates([]);
-      setSearchError(null);
+      setSearchFailure(null);
       return;
     }
     let cancelled = false;
@@ -283,14 +292,12 @@ function AddRelationshipAction({
         const results = await searchByEntity(entity, query);
         if (!cancelled) {
           setCandidates(results);
-          setSearchError(null);
+          setSearchFailure(null);
         }
       } catch (error) {
         if (!cancelled) {
           setCandidates([]);
-          setSearchError(
-            error instanceof Error ? error.message : "request failed",
-          );
+          setSearchFailure(error);
         }
       }
     }, SEARCH_DEBOUNCE_MS);
@@ -335,7 +342,7 @@ function AddRelationshipAction({
     setTerm("");
     setCandidates([]);
     setTarget(null);
-    setSearchError(null);
+    setSearchFailure(null);
   }
 
   function close() {
@@ -346,7 +353,7 @@ function AddRelationshipAction({
     setTerm("");
     setCandidates([]);
     setTarget(null);
-    setSearchError(null);
+    setSearchFailure(null);
     mutation.reset();
   }
 
@@ -364,48 +371,44 @@ function AddRelationshipAction({
           {t("rel.add")}
         </h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-kind`}>
-              {t("rel.kind")}
-            </label>
-            <select
-              id={`${headingId}-kind`}
-              className="input"
-              value={kind}
-              onChange={(event) => {
-                const value = event.target.value;
-                const kinds = options.map((o) => o.kind);
-                if (isOption(value, kinds)) selectKind(value);
-              }}
-            >
-              {options.map((option) => (
-                <option key={option.kind} value={option.kind}>
-                  {t(KIND_LABELS[option.kind])}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-role`}>
-              {t("rel.role")}
-            </label>
-            <TextInput
-              id={`${headingId}-role`}
-              value={role}
-              onChange={(event) => setRole(event.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-started`}>
-              {t("rel.startedAt")}
-            </label>
-            <TextInput
-              id={`${headingId}-started`}
-              type="date"
-              value={startedAt}
-              onChange={(event) => setStartedAt(event.target.value)}
-            />
-          </div>
+          <Field label={t("rel.kind")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={kind}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  const kinds = options.map((o) => o.kind);
+                  if (isOption(value, kinds)) selectKind(value);
+                }}
+              >
+                {options.map((option) => (
+                  <option key={option.kind} value={option.kind}>
+                    {t(KIND_LABELS[option.kind])}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label={t("rel.role")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                value={role}
+                onChange={(event) => setRole(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("rel.startedAt")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                type="date"
+                value={startedAt}
+                onChange={(event) => setStartedAt(event.target.value)}
+              />
+            )}
+          </Field>
           <p className="t-caption">{t("rel.pickCounterparty")}</p>
           <SearchField
             placeholder={t("merge.searchPlaceholder")}
@@ -416,11 +419,11 @@ function AddRelationshipAction({
               setTarget(null);
             }}
           />
-          {searchError && (
+          {searchFailure ? (
             <p className="t-caption" style={{ color: "var(--danger)" }}>
-              {searchError}
+              {problemMessageOf(searchFailure, t)}
             </p>
-          )}
+          ) : null}
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {candidates.map((candidate) => (
               <li key={candidate.id}>
@@ -446,7 +449,7 @@ function AddRelationshipAction({
           )}
           {mutation.isError && (
             <p className="t-caption" style={{ color: "var(--danger)" }}>
-              {mutation.error instanceof Error ? mutation.error.message : null}
+              {problemMessageOf(mutation.error, t)}
             </p>
           )}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -632,7 +635,7 @@ export function RelationshipsTab({
         <p style={{ marginBottom: 16 }}>{t("rel.removeConfirm")}</p>
         {remove.isError && (
           <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {remove.error instanceof Error ? remove.error.message : null}
+            {problemMessageOf(remove.error, t)}
           </p>
         )}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>

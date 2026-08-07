@@ -61,7 +61,7 @@ const budgetOk: Budget = {
 };
 
 const meta: Meta<typeof OverlayLiveSection> = {
-  title: "screens/overlay-health",
+  title: "Screens/overlay-health",
   component: OverlayLiveSection,
 };
 export default meta;

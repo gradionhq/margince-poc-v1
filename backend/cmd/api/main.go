@@ -97,17 +97,19 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer closeSchemaPool()
 
-	surfaceOpts, err := declaredSurfaceOptions(cfg, deployCfg, schemaPool, stdout)
+	rdb, closeRedis := sharedRedisClient(cfg, logger)
+	defer closeRedis()
+
+	surfaceOpts, resetLane, err := declaredSurfaceOptions(cfg, deployCfg, pool, schemaPool, rdb, logger, stdout)
 	if err != nil {
 		return err
 	}
 	opts = append(opts, surfaceOpts...)
 
-	overlayOpts, closeOverlayBudget, err := overlayOptions(cfg, deployCfg, pool, logger, stdout)
+	overlayOpts, err := overlayOptions(cfg, deployCfg, rdb, pool, logger, stdout)
 	if err != nil {
 		return err
 	}
-	defer closeOverlayBudget()
 	opts = append(opts, overlayOpts...)
 
 	relayOpts, stopRelay, err := inlineRelayLane(ctx, cfg, pool, logger, stdout)
@@ -120,20 +122,17 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	opts = append(opts, relayOpts...)
 
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context
-	modelOpts, modelPath, err := modelSurfaceOptions(cfg, deployCfg, pool, logger)
+	modelOpts, modelPath, err := modelAndHandoffOptions(cfg, deployCfg, pool, logger)
 	if err != nil {
 		return err
 	}
 	opts = append(opts, modelOpts...)
-
-	handoffOpts, err := workerHandoffOptions(pool, logger, modelPath)
-	if err != nil {
-		return err
-	}
-	opts = append(opts, handoffOpts...)
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
-	return serveUntilSignal(ctx, cfg, compose.New(pool, logger, opts...), stdout)
+	apiHandler := compose.New(pool, logger, opts...)
+	// Only now: the flush it listens with is captured while the options run.
+	resetLane.listen(ctx, modelPath)
+	return serveUntilSignal(ctx, cfg, apiHandler, stdout)
 }
 
 // validatePublicBaseURL refuses a base URL the connector cannot be reached at.

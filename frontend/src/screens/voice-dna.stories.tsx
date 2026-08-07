@@ -145,7 +145,7 @@ function voiceStory(routes: RouteMap) {
 }
 
 const meta: Meta = {
-  title: "screens/voice-dna",
+  title: "Screens/voice-dna",
 };
 export default meta;
 

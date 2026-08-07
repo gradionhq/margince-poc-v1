@@ -15,15 +15,18 @@ import { navigate } from "../app/router";
 import {
   Button,
   EmptyState,
+  Field,
   SearchField,
   SectionHeader,
   SegmentedControl,
+  Select,
+  Textarea,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { EntityRef, useRoster } from "./entityref";
 import "./share.css";
 
@@ -118,7 +121,7 @@ async function fetchGrants(
     },
   });
   if (error) {
-    throw new Error(problemMessage(error));
+    throwProblem(error);
   }
   return data.data;
 }
@@ -412,13 +415,13 @@ function ShareScreenBody({
     },
   });
 
-  // A 403 approval_required or a 422 validation problem both need to render
-  // as honest, human copy — never the bare code or a stringified object.
-  function honestMessage(error: unknown): string | null {
+  // A 403 approval_required needs the surface's own sentence; every other
+  // refusal reads best in the server's words.
+  function honestMessage(error: unknown): string {
     if (error instanceof ApprovalRequiredError) {
       return t("share.approvalRequired");
     }
-    return error instanceof Error ? error.message : null;
+    return problemMessageOf(error, t);
   }
 
   const grantErrorMessage = grant.isError ? honestMessage(grant.error) : null;
@@ -497,13 +500,17 @@ function ShareScreenBody({
           </div>
 
           <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-access`}>
-              {t("share.access")}
-            </label>
-            <div id={`${headingId}-access`}>
+            {/* A span, not a label: a segmented control is a group of buttons,
+                and there is no single labelable element for a `for` to point
+                at — aimed at the wrapper it resolved to nothing, so the words
+                focused nothing and the name was never exposed. The group
+                carries its own accessible name instead. */}
+            <span className="t-label">{t("share.access")}</span>
+            <div>
               <SegmentedControl
                 options={["read", "write"] as const}
                 value={access}
+                label={t("share.access")}
                 onChange={(next) => {
                   setAccess(next);
                   dismissGrantError();
@@ -521,41 +528,38 @@ function ShareScreenBody({
             </p>
           </div>
 
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-expiry`}>
-              {t("share.expiry")}
-            </label>
-            <select
-              id={`${headingId}-expiry`}
-              className="input"
-              value={expiryDays}
-              onChange={(event) => {
-                setExpiryDays(Number(event.target.value));
-                dismissGrantError();
-              }}
-            >
-              {EXPIRY_OPTIONS.map((option) => (
-                <option key={option.days} value={option.days}>
-                  {t(option.key)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Field label={t("share.expiry")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={expiryDays}
+                onChange={(event) => {
+                  setExpiryDays(Number(event.target.value));
+                  dismissGrantError();
+                }}
+              >
+                {EXPIRY_OPTIONS.map((option) => (
+                  <option key={option.days} value={option.days}>
+                    {t(option.key)}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
 
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-reason`}>
-              {t("share.reason")}
-            </label>
-            <textarea
-              id={`${headingId}-reason`}
-              className="input share-reason"
-              value={reason}
-              onChange={(event) => {
-                setReason(event.target.value);
-                dismissGrantError();
-              }}
-            />
-          </div>
+          <Field label={t("share.reason")}>
+            {(control) => (
+              <Textarea
+                {...control}
+                className="share-reason"
+                value={reason}
+                onChange={(event) => {
+                  setReason(event.target.value);
+                  dismissGrantError();
+                }}
+              />
+            )}
+          </Field>
 
           {grantErrorMessage && (
             <p className="t-caption share-error">{grantErrorMessage}</p>

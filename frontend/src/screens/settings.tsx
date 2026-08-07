@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Building,
   Building2,
   ChevronDown,
   Coins,
@@ -22,7 +23,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
-import type { components } from "../api/schema";
+import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { useCan, useCanWrite, useHoldsWriteGrant } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
@@ -30,6 +31,7 @@ import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
   Badge,
   Button,
+  Checkbox,
   EmptyState,
   SectionHeader,
   Skeleton,
@@ -53,7 +55,7 @@ import { ActorTag } from "./audit";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
   LoadMoreButton,
-  problemMessage,
+  problemMessageOf,
   QueryGate,
   throwProblem,
   useLogout,
@@ -70,6 +72,7 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
+import { InstallationSettingsCard } from "./installation-settings";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
 import { OverlayCard } from "./overlay";
@@ -114,6 +117,7 @@ const SETTINGS_TABS = [
   { id: "account", icon: Building2, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
   { id: "ai", icon: Sparkles, group: "you" },
+  { id: "installation", icon: Building, group: "org" },
   { id: "company", icon: Factory, group: "org" },
   { id: "users", icon: UsersRound, group: "org" },
   { id: "data", icon: Database, group: "org" },
@@ -137,6 +141,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       return <IdentityCard />;
     case "voice":
       return <VoiceDnaCard />;
+    case "installation":
+      return <InstallationSettingsCard />;
     case "company":
       return <CompanyContextCard />;
     case "users":
@@ -238,6 +244,9 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   // User administration, the DSR queue and the audit log map to no RBAC object
   // at all — the server gates them on the role and on an unbounded row scope,
   // so the role is their own honest predicate rather than a stand-in for one.
+  // The same call InstallationSettingsCard makes, so the tab and the fields
+  // inside it can never disagree about who may edit.
+  const canEditInstallation = useCanWrite("installation_settings", "update");
   const isOrgAdmin = (me.data?.roles ?? []).some(
     (role) => role === "admin" || role === "ops",
   );
@@ -261,6 +270,13 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     // themselves on the overlay_connection grants, so a viewer without them
     // gets the honest read-only view instead of a dead link.
     overlay: true,
+    // Installation is gated on the SAME live grant the card inside asks for,
+    // not on the role name. Deriving it from admin/ops would disagree with the
+    // card in both directions: an admin whose installation_settings grant was
+    // removed would get a tab of disabled fields, and a principal holding the
+    // grant under another role could not reach the surface they may use. The
+    // tab exists to change these values, so it follows the write grant.
+    installation: canEditInstallation,
   };
 }
 
@@ -390,7 +406,7 @@ function PassportCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/passports");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -411,7 +427,7 @@ function PassportCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -427,7 +443,7 @@ function PassportCard() {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -459,26 +475,21 @@ function PassportCard() {
           onChange={(event) => setLabel(event.target.value)}
         />
         {PASSPORT_SCOPES.map((scope) => (
-          <label
+          <Checkbox
             key={scope}
             className="t-caption"
-            style={{ display: "inline-flex", gap: 4 }}
-          >
-            <input
-              type="checkbox"
-              checked={scopes.has(scope)}
-              onChange={(event) => {
-                const next = new Set(scopes);
-                if (event.target.checked) {
-                  next.add(scope);
-                } else {
-                  next.delete(scope);
-                }
-                setScopes(next);
-              }}
-            />
-            {scope}
-          </label>
+            checked={scopes.has(scope)}
+            onChange={(event) => {
+              const next = new Set(scopes);
+              if (event.target.checked) {
+                next.add(scope);
+              } else {
+                next.delete(scope);
+              }
+              setScopes(next);
+            }}
+            label={scope}
+          />
         ))}
         <Button
           small
@@ -505,7 +516,7 @@ function PassportCard() {
           className="t-caption"
           style={{ color: "var(--danger)", marginTop: 8 }}
         >
-          {mint.error instanceof Error ? mint.error.message : null}
+          {problemMessageOf(mint.error, t)}
         </p>
       )}
       <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
@@ -608,7 +619,7 @@ function PassportCard() {
         confirmLabel={t("settings.revoke")}
         onConfirm={() => confirmId && revoke.mutate(confirmId)}
         pending={revoke.isPending}
-        error={revoke.error instanceof Error ? revoke.error.message : null}
+        error={revoke.error ? problemMessageOf(revoke.error, t) : null}
       >
         <p>{t("settings.revokeConfirm")}</p>
       </ConfirmModal>
@@ -628,7 +639,7 @@ function AgentToolsCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/agent-tools");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -638,7 +649,7 @@ function AgentToolsCard() {
     queryFn: async () => {
       const { data, error } = await api.GET("/passports");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -774,6 +785,12 @@ function CustomFieldsLinkCard() {
 // client-side: the input just has to be non-empty to enable the confirm
 // button, and the server is the sole judge of whether the typed text actually
 // matches (a mismatch comes back as a 422, surfaced verbatim in the dialog).
+// The full reset response — derived from the generated operation type
+// (T6: no `as`, no hand-duplicated field list) so a wire change that adds or
+// renames a counter fails typecheck here instead of silently going unshown.
+type ResetSummary =
+  operations["resetData"]["responses"][200]["content"]["application/json"];
+
 function ResetDataCard() {
   const t = useT();
   const me = useMe();
@@ -781,10 +798,18 @@ function ResetDataCard() {
   const workspaceName = me.data?.workspace_name ?? "";
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
+  // What the last reset actually cleared — null until one has run, so the
+  // danger zone stays quiet on first render rather than implying a result
+  // nobody triggered.
+  const [summary, setSummary] = useState<ResetSummary | null>(null);
   const queryClient = useQueryClient();
 
   const reset = useMutation({
     mutationFn: async () => {
+      // The summary always describes the latest attempt, never a prior one:
+      // clearing here means a retry's error can never leave a previous
+      // success sitting on screen, and an in-flight retry shows no summary.
+      setSummary(null);
       const { data, error } = await api.POST("/admin/reset-data", {
         body: { confirmation: typed },
       });
@@ -793,9 +818,10 @@ function ResetDataCard() {
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setOpen(false);
       setTyped("");
+      setSummary(data ?? null);
       // A reset wipes every domain table for the workspace — every cached
       // list/detail query is stale, not just the ones this card knows about.
       queryClient.invalidateQueries();
@@ -824,6 +850,30 @@ function ResetDataCard() {
       >
         {t("settings.resetDataButton")}
       </Button>
+      {summary && (
+        <p
+          className="t-caption"
+          role="status"
+          style={{ marginTop: "var(--space-2)" }}
+        >
+          {t("settings.resetDataResult", {
+            tables: summary.tables_cleared,
+            jobs: summary.jobs_deleted,
+            streams: summary.streams_purged,
+            keys: summary.cache_keys_deleted,
+            objects: summary.objects_deleted,
+          })}
+        </p>
+      )}
+      {summary?.drain_timed_out && (
+        <p
+          className="t-caption"
+          role="alert"
+          style={{ color: "var(--warning)", marginTop: "var(--space-1)" }}
+        >
+          {t("settings.resetDataDrainWarning")}
+        </p>
+      )}
       <ConfirmModal
         open={open}
         onClose={() => {
@@ -844,7 +894,7 @@ function ResetDataCard() {
         confirmDisabled={typed.trim() === "" || reset.isPending}
         onConfirm={() => reset.mutate()}
         pending={reset.isPending}
-        error={reset.error instanceof Error ? reset.error.message : null}
+        error={reset.error ? problemMessageOf(reset.error, t) : null}
       >
         <p>{t("settings.resetDataConfirmBody")}</p>
         {workspaceName ? (
@@ -1018,7 +1068,7 @@ function StageCreate({ pipelineId }: Readonly<{ pipelineId: string }>) {
         title={t("stage.new")}
         fields={stageFields(t)}
         pending={mutation.isPending}
-        error={mutation.isError ? mutation.error.message : null}
+        error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
         onSubmit={(values) => mutation.mutate(values)}
       />
     </>
@@ -1171,7 +1221,7 @@ export function PipelinesCard() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data.data;
     },
@@ -1477,7 +1527,7 @@ export function AuditLogCard() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -1501,7 +1551,7 @@ export function AuditLogCard() {
       <EmptyState>
         <p>{t("common.error")}</p>
         <p className="t-mono" style={{ marginTop: 6 }}>
-          {query.error instanceof Error ? query.error.message : null}
+          {problemMessageOf(query.error, t)}
         </p>
         <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
           {t("common.retry")}

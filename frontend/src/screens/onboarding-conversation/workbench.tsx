@@ -3,13 +3,14 @@ import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
+import { ThemeToggle } from "../../app/theme-toggle";
 import type { MarginceCoreState } from "../../design-system/margince-core";
 import {
   MarginceWorkbench,
   type WorkbenchStep,
 } from "../../design-system/margince-workbench";
 import { useLocale, useT } from "../../i18n";
-import { problemMessage, useMe } from "../common";
+import { throwProblem, useMe } from "../common";
 import {
   configuredModelLabel,
   configuredModelSummary,
@@ -35,7 +36,7 @@ export function useConfiguredModel(): string {
     queryFn: async (): Promise<AiProfile> => {
       const { data, error } = await api.GET("/ai/profile");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -54,7 +55,7 @@ function useConfiguredModelSummary(): string {
     queryFn: async (): Promise<AiProfile> => {
       const { data, error } = await api.GET("/ai/profile");
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -192,6 +193,11 @@ export function ConversationWorkbench({
                 detail: me.data.user.email,
               }
             : undefined
+        }
+        personAction={
+          // Onboarding is railless — no top bar, so the rail's foot carries the
+          // one piece of chrome the reader may still want mid-journey.
+          <ThemeToggle />
         }
       >
         {children}

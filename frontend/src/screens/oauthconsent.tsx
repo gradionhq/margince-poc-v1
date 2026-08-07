@@ -15,7 +15,7 @@ import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, useMe } from "./common";
+import { QueryGate, throwProblem, useMe } from "./common";
 
 // The human hands an agent their own authority here — the one screen where
 // that decision is made, and the only one: the api serves no HTML, so there is
@@ -302,7 +302,7 @@ export function OAuthConsent() {
         params: { query: { client_id: clientId, scope } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },

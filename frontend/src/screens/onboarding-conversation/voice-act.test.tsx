@@ -151,6 +151,9 @@ type StubOptions = {
   builds?: Readonly<Record<string, BuildRow[]>>;
   /** Error status for the build poll GET (resilience tests). */
   buildPollStatus?: number;
+  /** RFC 7807 body + status the build POST is refused with, for the cases
+   * about what a refused start is allowed to say on the collect scene. */
+  buildStartRefusal?: Readonly<{ body: unknown; status: number }>;
   /** The built version the versions GET returns; defaults to the thin
    * candidateVersion fixture most tests never look past. */
   version?: unknown;
@@ -229,6 +232,10 @@ function stubApi(options: StubOptions = {}) {
         );
       }
       if (path.endsWith("/builds") && request.method === "POST") {
+        const refusal = options.buildStartRefusal;
+        if (refusal !== undefined) {
+          return jsonResponse(refusal.body, refusal.status);
+        }
         const id = BUILD_IDS[buildIndex];
         buildIndex += 1;
         return jsonResponse({ id, status: "queued", stage: null }, 202);
@@ -610,6 +617,54 @@ describe("the conversational voice act", () => {
     expect(
       screen.getByRole("button", { name: /Try the build again/ }),
     ).toBeTruthy();
+  });
+
+  // What a refused build start may say on the collect scene. The two halves
+  // of the same rule: the server's own sentence is the best thing a reader
+  // can be given, and a failure the server put no words to is answered in
+  // the reader's language rather than in whatever the exception happened to
+  // carry.
+  it("shows the server's own refusal on the collect scene when the build cannot start", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      buildStartRefusal: {
+        status: 429,
+        body: {
+          code: "budget_exhausted",
+          detail: "This month's model budget is spent. It resets on the 1st.",
+        },
+      },
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    expect(
+      await screen.findByText(
+        "This month's model budget is spent. It resets on the 1st.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("answers a refusal carrying no words for a reader with the shared line", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      buildStartRefusal: { status: 502, body: { status: 502 } },
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("The request failed. No cause reported.");
   });
 
   it("keeps late events from a superseded build inert after the retry", () => {

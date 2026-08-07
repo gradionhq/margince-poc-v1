@@ -3,9 +3,9 @@ import { GitMerge, Undo2, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button } from "../design-system/atoms";
+import { Button, Radio } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 
 // The dedupe review queue (M4, DH-EXT-1/2): confidence-sorted open pairs
 // with the detection-time evidence the detector actually saw — never
@@ -27,7 +27,7 @@ export function DedupeScreen() {
         params: { query: { status: "open", limit: 50 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -47,7 +47,7 @@ export function DedupeScreen() {
         },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -65,7 +65,7 @@ export function DedupeScreen() {
         params: { path: { id } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -83,14 +83,16 @@ export function DedupeScreen() {
       <p className="t-small">{t("dedupe.intro")}</p>
       {queue.isPending && <p className="t-small">{t("dedupe.loading")}</p>}
       {queue.isError && (
-        <p className="t-small dedupe-error">{queue.error.message}</p>
+        <p className="t-small dedupe-error">
+          {problemMessageOf(queue.error, t)}
+        </p>
       )}
       {queue.data && queue.data.data.length === 0 && (
         <p className="t-small">{t("dedupe.empty")}</p>
       )}
       {(dispose.isError || undo.isError) && (
         <p className="t-small dedupe-error">
-          {dispose.error?.message ?? undo.error?.message}
+          {problemMessageOf(dispose.error ?? undo.error, t)}
         </p>
       )}
       {queue.data?.data.map((c) => (
@@ -165,26 +167,20 @@ function CandidateCard({
           <tr>
             <th>{t("dedupe.field")}</th>
             <th>
-              <label className="dedupe-pick">
-                <input
-                  type="radio"
-                  name={`winner-${candidate.id}`}
-                  checked={winner === candidate.left_id}
-                  onChange={() => setWinner(candidate.left_id)}
-                />
-                {t("dedupe.left")}
-              </label>
+              <Radio
+                name={`winner-${candidate.id}`}
+                checked={winner === candidate.left_id}
+                onChange={() => setWinner(candidate.left_id)}
+                label={t("dedupe.left")}
+              />
             </th>
             <th>
-              <label className="dedupe-pick">
-                <input
-                  type="radio"
-                  name={`winner-${candidate.id}`}
-                  checked={winner === candidate.right_id}
-                  onChange={() => setWinner(candidate.right_id)}
-                />
-                {t("dedupe.right")}
-              </label>
+              <Radio
+                name={`winner-${candidate.id}`}
+                checked={winner === candidate.right_id}
+                onChange={() => setWinner(candidate.right_id)}
+                label={t("dedupe.right")}
+              />
             </th>
           </tr>
         </thead>

@@ -129,10 +129,17 @@ func TestRBACBackfillsWriteTheIntendedGrants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}
-	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
+	// Migrated by the NON-SUPERUSER owner, because this suite's whole subject is
+	// what the backfills WRITE, and under the ordinary owner FORCE row-level
+	// security binds them. Run as the container superuser the backfills land by
+	// bypassing the policy, and the roll-back-and-re-apply below would prove the
+	// grants correct on the one executor production never uses. `conn` stays the
+	// superuser for seeding and reading, which need the cross-workspace view.
+	migrator := asMigrator(t, conn)
+	if _, err := dbmigrate.Up(ctx, migrator, core); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	rollBackTo(ctx, t, conn, core, backfilledObjects[0].version)
+	rollBackTo(ctx, t, migrator, core, backfilledObjects[0].version)
 
 	// Four workspaces, one per upgrade shape the backfills must survive.
 	missing := seedWorkspace(t, conn, "rbac-backfill-missing")
@@ -158,7 +165,7 @@ func TestRBACBackfillsWriteTheIntendedGrants(t *testing.T) {
 	// would silently no-op and the object would be missing with nothing failing.
 	seedRole(t, conn, empty, "admin", true, []byte(`{}`))
 
-	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
+	if _, err := dbmigrate.Up(ctx, migrator, core); err != nil {
 		t.Fatalf("re-applying the backfills: %v", err)
 	}
 

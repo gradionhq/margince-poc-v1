@@ -9,18 +9,24 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -32,120 +38,19 @@ import (
 // data is touched.
 var errResetConfirmationMismatch = errors.New("data reset: confirmation does not match the organization name")
 
-// preservedResetTables are the workspace_id tables a reset must NOT delete:
-// the identity/auth layer (so every user, including the admin, stays logged in
-// and the org survives) and the append-only ledgers (their immutability trigger
-// forbids DELETE, and operational history should outlive a data reset). Every
-// other workspace_id table is domain/config data and is swept, then re-seeded.
-var preservedResetTables = map[string]bool{
-	"app_user": true, "role": true, "role_assignment": true,
-	"team": true, "team_membership": true,
-	"session": true, "passport": true, "auth_token": true,
-	"audit_log": true, "system_log": true,
-}
-
-// resetTargetTables lists every public base table carrying a workspace_id
-// column that is not preserved — derived from the catalog so a newly added
-// tenant table is swept automatically rather than escaping a hand-kept list.
-func resetTargetTables(ctx context.Context, tx pgx.Tx) ([]string, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT c.relname
-		FROM pg_class c
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		JOIN pg_attribute a ON a.attrelid = c.oid
-		WHERE n.nspname = 'public'
-		  AND c.relkind = 'r'
-		  AND c.relname NOT LIKE 'schema_migrations_%'
-		  AND a.attname = 'workspace_id'
-		  AND a.attnum > 0 AND NOT a.attisdropped
-		ORDER BY c.relname`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		if !preservedResetTables[name] {
-			out = append(out, name)
-		}
-	}
-	return out, rows.Err()
-}
-
-// sweepWorkspaceData deletes every row of the target tables for the bound
-// workspace. Running as the non-superuser app role, it cannot disable FK
-// triggers, so it discovers a safe order at runtime: each pass tries every
-// still-populated table behind a savepoint and defers the ones a child FK still
-// blocks to the next pass, until all are clear. A pass with no progress means an
-// unbreakable FK cycle — surfaced explicitly, never silently skipped.
-func sweepWorkspaceData(ctx context.Context, tx pgx.Tx, tables []string) error {
-	remaining := append([]string(nil), tables...)
-	for len(remaining) > 0 {
-		var stuck []string
-		progressed := false
-		for _, t := range remaining {
-			if _, err := tx.Exec(ctx, "SAVEPOINT reset_sp"); err != nil {
-				return err
-			}
-			_, delErr := tx.Exec(ctx,
-				`DELETE FROM `+pgx.Identifier{t}.Sanitize()+
-					` WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
-			if delErr == nil {
-				if _, err := tx.Exec(ctx, "RELEASE SAVEPOINT reset_sp"); err != nil {
-					return err
-				}
-				progressed = true
-				continue
-			}
-			if !isForeignKeyViolation(delErr) {
-				return delErr
-			}
-			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT reset_sp"); err != nil {
-				return err
-			}
-			// A rollback leaves the savepoint defined but unusable for a
-			// subsequent SAVEPOINT of the same name until it's released —
-			// without this, repeated passes over a slow-to-clear table
-			// would pile up shadowed savepoints for the life of the tx.
-			if _, err := tx.Exec(ctx, "RELEASE SAVEPOINT reset_sp"); err != nil {
-				return err
-			}
-			stuck = append(stuck, t)
-		}
-		if !progressed {
-			return fmt.Errorf("data reset: unresolved foreign-key cycle among %v", stuck)
-		}
-		remaining = stuck
-	}
-	return nil
-}
-
-// clearWorkspaceOutbox removes this workspace's staged events. event_outbox is
-// infra-owned and has no workspace_id column — tenancy lives in the envelope —
-// so the reset must not leave events that point at rows it just deleted.
-func clearWorkspaceOutbox(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx,
-		`DELETE FROM event_outbox WHERE envelope->>'workspace_id' = current_setting('app.workspace_id')`)
-	return err
-}
-
-func isForeignKeyViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23503"
-}
-
-// resetSummary is what the handler reports back after a reset.
-type resetSummary struct{ TablesCleared int }
-
 // resetDataResponse is the 200 body. The contract declares the shape inline
-// (no generated type), so it is spelled here.
+// (no generated type), so it is spelled here — and
+// TestResetDataResponseMatchesTheContract (backend/resetwireshape_test.go)
+// derives the two field sets from the contract and this struct so they cannot
+// drift.
 type resetDataResponse struct {
-	Status        string `json:"status"`
-	TablesCleared int    `json:"tables_cleared"`
+	Status         string `json:"status"`
+	TablesCleared  int    `json:"tables_cleared"`
+	JobsDeleted    int    `json:"jobs_deleted"`
+	StreamsPurged  int    `json:"streams_purged"`
+	CacheKeys      int    `json:"cache_keys_deleted"`
+	ObjectsDeleted int    `json:"objects_deleted"`
+	DrainTimedOut  bool   `json:"drain_timed_out"`
 }
 
 // dataResetHandlers is the callable the non-production "reset data" HTTP
@@ -159,42 +64,217 @@ type dataResetHandlers struct {
 	seeds      deployconfig.Seeds
 	env        runtimeenv.Environment
 	log        *slog.Logger
+
+	// runtime POINTS AT the Server's own field rather than copying it, so
+	// WithResetRuntime and WithDataReset may be applied in either order — see
+	// Server.resetRuntime for what a copy would silently cost. nil is the
+	// Postgres-only reset a role that wired no runtime performs.
+	runtime *ResetRuntime
+	// budget is the overlay budget meter whose per-workspace Redis counters
+	// must not survive the install they were spent by.
+	budget *overlaybudget.Meter
+	// blob is the object store holding the bytes the swept rows referenced.
+	blob blobstore.Store
+	// vault holds the sealed credentials the swept connection rows referenced.
+	// Its storage carries no workspace_id, so the sweep cannot reach it and the
+	// ciphertext would otherwise outlive the installation it belonged to.
+	vault keyvault.Vault
+	// flush drops this process's own caches (Server.FlushResetCaches); the
+	// bus announcement reaches the rest of the fleet.
+	flush func(ids.UUID)
 }
 
-// run performs the full reset for the bound workspace: validate the typed
-// confirmation, sweep domain + config data, clear the outbox, re-seed module
-// defaults (as bootstrap does), and record the reset in audit_log — all in
-// one transaction. cf_* column drops run after commit (separate owner
-// connection) since DDL cannot share the app-role transaction.
-func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetSummary, error) {
+// resetFinishTimeout bounds the post-commit work below — the cf_* drop, the
+// object and credential purges, and the announcement. Larger than the resume's
+// bound because a prefix sweep enumerates a bucket, but still finite: that work
+// is detached from the request, so nothing else would ever stop it.
+const resetFinishTimeout = 2 * time.Minute
+
+// run performs the full reset for the bound workspace: refuse a mismatched
+// confirmation, then hand the rest to runQuiesced, which does the work with the
+// job fleet held down.
+func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetCounts, error) {
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return resetCounts{}, database.ErrNoWorkspace
+	}
+	// Read BEFORE anything is paused or purged: a typo must cost the
+	// installation nothing, and quiescing the job fleet is not nothing. The
+	// sweep re-checks inside its own transaction — one row read that closes
+	// the window where the organization is renamed in between.
+	if err := database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
+		return confirmResetOrgName(ctx, tx, wsID, confirmation)
+	}); err != nil {
+		return resetCounts{}, err
+	}
+	return h.runQuiesced(ctx, wsID,
+		func() error { return h.clearOutbox(ctx) },
+		func(counts *resetCounts) error {
+			return h.sweepAndReseed(ctx, wsID, confirmation, counts)
+		})
+}
+
+// runQuiesced performs the reset with the job fleet held down: drain the outbox,
+// purge the queue, the bus and the budget counters, sweep + re-seed Postgres in
+// one transaction, clear the surfaces no transaction can reach, and announce the
+// reset so every process drops its caches. clearOutbox and sweep are the two
+// Postgres halves the runtime ordering separates, taken as parameters so this
+// ordering can be exercised without a database.
+//
+// The fleet pause's lifetime is exactly this function's, and that is why the
+// resume is deferred HERE rather than inside the phase that takes the pause.
+// Two properties follow, both of which a resume registered further in loses:
+// a Quiesce that fails with the pause ALREADY applied — it pauses first, then
+// polls the drain — is still lifted; and the fleet stays down until the last
+// post-commit purge is done, so no job resumes into a window where it reads
+// caches for data being deleted or writes objects the prefix sweep then removes.
+func (h dataResetHandlers) runQuiesced(ctx context.Context, wsID ids.UUID, clearOutbox func() error, sweep func(*resetCounts) error) (resetCounts, error) {
 	logger := h.log
 	if logger == nil {
 		logger = slog.Default()
 	}
-	wsID, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return resetSummary{}, database.ErrNoWorkspace
+	rt := ResetRuntime{}
+	if h.runtime != nil {
+		rt = *h.runtime
 	}
-	var cleared int
-	err := database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
-		var orgName string
-		if err := tx.QueryRow(ctx, `SELECT name FROM workspace WHERE id = $1`, wsID).Scan(&orgName); err != nil {
-			return err
+	defer resumeResetQueues(ctx, logger, rt)
+
+	counts, err := h.runRuntimePhase(ctx, rt, wsID, clearOutbox, sweep)
+	if err != nil {
+		return counts, err
+	}
+
+	// Everything from here runs detached from the request, under its own bound.
+	// The sweep is COMMITTED at this point, so these purges are no longer
+	// optional work the caller may abandon: a client that times out or
+	// disconnects now would otherwise cancel the object and credential purges
+	// and the announcement, leaving bytes, sealed secrets and stale caches
+	// behind for a reset the database already recorded as done. The deferred
+	// resume detaches for the same reason.
+	finishCtx, cancelFinish := context.WithTimeout(context.WithoutCancel(ctx), resetFinishTimeout)
+	defer cancelFinish()
+
+	if err := h.purgeUnjoinableSurfaces(finishCtx, logger, wsID, &counts); err != nil {
+		return counts, err
+	}
+	// Caches go last, once every surface really is clear: anything that dropped
+	// its cached answers earlier could have re-cached what was still being
+	// purged. This process first, then the rest of the fleet over the bus.
+	if h.flush != nil {
+		h.flush(wsID)
+	}
+	if rt.SignalReset != nil {
+		// A failed announcement fails the request, and that is the chosen
+		// posture rather than an oversight: the sweep is committed, so every
+		// OTHER process is still serving cached answers for data that no longer
+		// exists, and an operator has to know the installation is in that state.
+		// The deferred resume above answers the mirror-image question the other
+		// way for the mirror-image reason — that pause is this process's own
+		// doing, and lifting it is not part of the outcome the caller asked for.
+		if err := rt.SignalReset(finishCtx, wsID); err != nil {
+			return counts, err
 		}
-		if confirmation != orgName {
-			return errResetConfirmationMismatch
+	}
+	logger.Info("data reset complete", "workspace_id", wsID,
+		"tables_cleared", counts.TablesCleared, "jobs_deleted", counts.JobsDeleted,
+		"streams_purged", counts.StreamsPurged, "cache_keys_deleted", counts.CacheKeys,
+		"objects_deleted", counts.ObjectsDeleted, "drain_timed_out", counts.DrainTimedOut,
+		"sor_mode_reverted", counts.SorModeReverted, "secrets_purged", counts.SecretsPurged)
+	return counts, nil
+}
+
+// confirmResetOrgName refuses the reset unless confirmation is exactly the
+// organization's name.
+func confirmResetOrgName(ctx context.Context, tx pgx.Tx, wsID ids.UUID, confirmation string) error {
+	var orgName string
+	if err := tx.QueryRow(ctx, `SELECT name FROM workspace WHERE id = $1`, wsID).Scan(&orgName); err != nil {
+		return err
+	}
+	if confirmation != orgName {
+		return errResetConfirmationMismatch
+	}
+	return nil
+}
+
+// sweepAndReseed is the Postgres sweep, in ONE transaction: sweep domain +
+// config data, re-seed module defaults (as bootstrap does), and record the
+// reset in audit_log. The outbox is not this transaction's to clear: draining it
+// is the runtime phase's first act, ahead of the stream purge, so the relay has
+// nothing staged to ship into streams that were just emptied (clearOutbox).
+func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, confirmation string, counts *resetCounts) error {
+	return database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
+		if err := confirmResetOrgName(ctx, tx, wsID, confirmation); err != nil {
+			return err
 		}
 		tables, err := resetTargetTables(ctx, tx)
 		if err != nil {
 			return err
 		}
+		// Before the sweep, while the rows naming them still exist: the
+		// ciphertext lives in a table with no workspace_id, so these handles are
+		// the only thing that will still connect it to this tenant afterwards.
+		// They are redeemed after the commit (purgeUnjoinableSurfaces).
+		secretRefs, err := collectWorkspaceSecretRefs(ctx, tx)
+		if err != nil {
+			return err
+		}
+		counts.secretRefs = secretRefs
+
 		if err := sweepWorkspaceData(ctx, tx, tables); err != nil {
 			return err
 		}
-		if err := clearWorkspaceOutbox(ctx, tx); err != nil {
+		counts.TablesCleared = len(tables)
+
+		// A first-boot installation is native, and everything overlay mode
+		// depends on was just swept: the incumbent connection, the mirror, the
+		// budget counters. Left in overlay mode the workspace would claim to
+		// read from an incumbent it has no connection to, dispatching every
+		// read at an empty mirror — an installation that looks like it works.
+		//
+		// overlay's own function, not a local UPDATE: these are its fork-owned
+		// columns, and Disconnect flips them the same way. This is NOT that
+		// teardown, though — the connection and mirror rows are already gone
+		// with the sweep, the reset carries its own audit row, and
+		// incumbent.disconnected would be staged into an outbox this reset just
+		// drained.
+		reverted, err := overlay.RevertToNative(ctx, tx)
+		if err != nil {
 			return err
 		}
-		cleared = len(tables)
+		counts.SorModeReverted = reverted
+
+		// And every OTHER setting on that same row, back to the default a fresh
+		// bootstrap leaves. The overlay flip above is not the general case, it
+		// is the reported one: the sweep is derived from the tables carrying a
+		// workspace_id column and workspace keys on id, so NO workspace-level
+		// setting is in its target set — capture_auto_enrich (CAP-PARAM-7)
+		// outlived every reset before this call, and so would the next setting
+		// added to the row.
+		//
+		// identity owns that row and derives its own column list the same way,
+		// so nothing here has to be kept in step with the schema. It runs AFTER
+		// the flip, and restores those two columns again as part of its sweep,
+		// because whether the installation WAS in overlay mode is only knowable
+		// before something writes the column — a blanket restore cannot report
+		// what it changed, and that fact belongs in the audit row.
+		if err := identity.ResetWorkspaceConfig(ctx, tx); err != nil {
+			return err
+		}
+
+		// The same obligation for the settings that no longer live on that row
+		// (ADR-0090/A135). `setting` carries no workspace_id, so the table
+		// sweep above — derived from the tables that do — never had it as a
+		// candidate either. Without this, every setting outlives the wipe
+		// exactly as capture_auto_enrich did before #523, and so would every
+		// setting added after this one.
+		//
+		// Same split, same direction: identity survives (the installation
+		// keeps its name, currency and zone), configuration is deleted back to
+		// its registered default, and a setting is configuration unless its
+		// entry declares otherwise.
+		if err := settings.ResetConfig(ctx, tx, settingsRegistry()); err != nil {
+			return err
+		}
 
 		// Re-seed under a system principal + a fresh correlation id, exactly as
 		// bootstrap does (identity/installation.go), so the seeders' own
@@ -209,54 +289,100 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetS
 
 		// Record the reset under the invoking admin principal.
 		_, err = storekit.AuditWithEvidence(ctx, tx, "reset_data", "workspace", wsID, nil, nil,
-			map[string]any{"tables_cleared": cleared})
+			resetEvidence(*counts))
 		return err
 	})
-	if err != nil {
-		return resetSummary{}, err
-	}
+}
 
-	// Finalize: drop custom-field columns so the schema matches a fresh
-	// bootstrap. Best-effort — the definitions are already gone with the
-	// sweep, and leaving an empty column behind is harmless if this can't
-	// run (no schema pool configured); logged, not swallowed.
+// resetEvidence is the audit row's evidence map.
+//
+// objects_deleted is deliberately absent: a blob store cannot join a Postgres
+// transaction, so the bytes are purged after this row is already committed and
+// the tally does not exist yet. It reaches the response and the completion log
+// line instead.
+//
+// cache_keys_deleted, by contrast, is COMPLETE here, and must stay that way:
+// every Redis purge that feeds it runs before this transaction opens
+// (runRuntimePhase), so the number the permanent record carries is the same
+// number the response and the log line report. A purge moved after the commit
+// would silently make one key name mean two different totals.
+func resetEvidence(counts resetCounts) map[string]any {
+	return map[string]any{
+		"tables_cleared":     counts.TablesCleared,
+		"jobs_deleted":       counts.JobsDeleted,
+		"streams_purged":     counts.StreamsPurged,
+		"cache_keys_deleted": counts.CacheKeys,
+		"drain_timed_out":    counts.DrainTimedOut,
+		// Whether this reset also took the installation out of overlay mode.
+		// It belongs in the permanent record because it changes where every
+		// subsequent read is served from, which no other count here does.
+		"sor_mode_reverted": counts.SorModeReverted,
+		// Sealed credentials redeemed from the vault. Like objects_deleted this
+		// is tallied after the commit, so the number this row carries is the
+		// count the sweep COLLECTED — the work the reset committed itself to —
+		// while the response reports what was actually redeemed. They differ
+		// only when the purge failed, and then the request failed with them.
+		"secrets_purged": len(counts.secretRefs),
+	}
+}
+
+// purgeUnjoinableSurfaces clears what the sweep's transaction cannot reach and
+// so runs after it commits: the schema's cf_* columns and the stored object
+// bytes whose only references the sweep just deleted. The object purge fails the
+// request when it fails — an install reported as reset while a surface still
+// holds the old one's state is the outcome this whole path exists to prevent.
+// The cf_* drop is the one exception, for the reason its own comment gives.
+//
+// The Redis surfaces are NOT here: they are purged before the sweep's
+// transaction so the audit row it writes can name what they cleared
+// (runRuntimePhase).
+func (h dataResetHandlers) purgeUnjoinableSurfaces(ctx context.Context, logger *slog.Logger, wsID ids.UUID, counts *resetCounts) error {
+	// Drop custom-field columns so the schema matches a fresh bootstrap.
+	// Best-effort — the definitions are already gone with the sweep, and
+	// leaving an empty column behind is harmless if this can't run (no schema
+	// pool configured); logged, not swallowed.
 	if h.schemaPool != nil {
 		if err := dropResetCustomFieldColumns(ctx, h.schemaPool); err != nil {
 			logger.Error("data reset: cf_ column drop failed", "err", err)
 		}
 	}
-	return resetSummary{TablesCleared: cleared}, nil
+	if h.blob != nil {
+		// The prefix must end at the key separator or the store refuses it:
+		// "<ws>" alone would reach into a sibling tenant whose id extends it.
+		n, err := h.blob.DeletePrefix(ctx, wsID.String()+"/")
+		if err != nil {
+			return err
+		}
+		counts.ObjectsDeleted = n
+	}
+	return h.purgeSealedCredentials(ctx, wsID, counts)
 }
 
-// dropResetCustomFieldColumns drops every runtime cf_* column via the owner
-// pool (the ONE sanctioned ALTER TABLE chokepoint). DROP COLUMN CASCADE also
-// removes each column's generated cf_<slug>_check constraint.
-func dropResetCustomFieldColumns(ctx context.Context, schemaPool *pgxpool.Pool) error {
-	rows, err := schemaPool.Query(ctx, `
-		SELECT quote_ident(table_name), quote_ident(column_name)
-		FROM information_schema.columns
-		WHERE table_schema = 'public' AND column_name LIKE 'cf\_%'`)
-	if err != nil {
-		return err
+// purgeSealedCredentials redeems the credential handles the sweep collected
+// before it deleted the rows naming them.
+//
+// It runs after the commit because the vault is a seam, not a table: the local
+// provider happens to write Postgres, but a remote one has no transaction to
+// join. The handles were captured inside the transaction instead, which is the
+// half that has to be consistent — a sweep that rolled back leaves refs this
+// never receives.
+//
+// A failure fails the request. The alternative is reporting an installation as
+// reset while its sealed credentials are still resident, which is precisely
+// the state this exists to prevent. Delete is idempotent, so re-running the
+// reset finishes a partial purge.
+func (h dataResetHandlers) purgeSealedCredentials(ctx context.Context, wsID ids.UUID, counts *resetCounts) error {
+	if h.vault == nil {
+		return nil
 	}
-	type col struct{ table, name string }
-	var cols []col
-	for rows.Next() {
-		var c col
-		if err := rows.Scan(&c.table, &c.name); err != nil {
-			rows.Close()
-			return err
+	ws := ids.From[ids.WorkspaceKind](wsID)
+	for _, ref := range counts.secretRefs {
+		// The ref is never logged or returned: it is the address of a secret,
+		// and an error naming it would put that address in every log sink.
+		if err := h.vault.Delete(ctx, ws, keyvault.Ref(ref)); err != nil {
+			return fmt.Errorf("data reset: purging a sealed credential: %w", err)
 		}
-		cols = append(cols, c)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, c := range cols {
-		if _, err := schemaPool.Exec(ctx, `ALTER TABLE `+c.table+` DROP COLUMN `+c.name+` CASCADE`); err != nil {
-			return err
-		}
+		counts.SecretsPurged++
 	}
 	return nil
 }
@@ -284,21 +410,26 @@ func (h dataResetHandlers) ResetData(w http.ResponseWriter, r *http.Request) {
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	summary, err := h.run(ctx, req.Confirmation)
+	counts, err := h.run(ctx, req.Confirmation)
 	if errors.Is(err, errResetConfirmationMismatch) {
 		httperr.Write(w, r, httperr.Validation("confirmation", "confirmation_mismatch",
 			"The typed confirmation does not match the organization name."))
 		return
 	}
 	if err != nil {
-		// The cause (e.g. an unresolved FK cycle naming tables) never reaches
-		// the client — httperr.Write maps an unmapped error to an opaque 500
-		// and logs the cause server-side.
+		// The cause (e.g. an unresolved FK cycle naming tables, or a purge that
+		// failed) never reaches the client — httperr.Write maps an unmapped
+		// error to an opaque 500 and logs the cause server-side.
 		httperr.Write(w, r, err)
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, resetDataResponse{
-		Status:        "reset",
-		TablesCleared: summary.TablesCleared,
+		Status:         "reset",
+		TablesCleared:  counts.TablesCleared,
+		JobsDeleted:    counts.JobsDeleted,
+		StreamsPurged:  counts.StreamsPurged,
+		CacheKeys:      counts.CacheKeys,
+		ObjectsDeleted: counts.ObjectsDeleted,
+		DrainTimedOut:  counts.DrainTimedOut,
 	})
 }

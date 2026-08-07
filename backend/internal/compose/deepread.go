@@ -143,7 +143,7 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain, triageBrain com
 		approvals:   approvals.NewService(pool),
 		authority:   identity.NewService(pool),
 		autoEnrich:  capture.NewAutoEnrichStore(pool),
-		settings:    capture.NewSettings(pool),
+		settings:    capture.NewSettings(NewSettingsStore(pool)),
 		log:         log,
 		caps:        caps,
 		now:         time.Now,

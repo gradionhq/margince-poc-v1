@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { EmptyState, SectionHeader, Skeleton } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import "./linkedin-reach.css";
 
 // Which accounts a member's imported network reaches (ADR-0078 §2.1b) — the
@@ -28,7 +28,7 @@ function useLinkedInReach() {
         params: { query: {} },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -48,7 +48,9 @@ export function LinkedInReachCard() {
         sub={t("linkedinReach.sub")}
       />
       {query.isPending && <Skeleton width="70%" />}
-      {query.isError && <EmptyState>{query.error.message}</EmptyState>}
+      {query.isError && (
+        <EmptyState>{problemMessageOf(query.error, t)}</EmptyState>
+      )}
       {/* The unresolved count is reported whether or not anything resolved,
           and it matters MOST when nothing did: a fresh workspace that imported
           five thousand connections and matched no account should see the five

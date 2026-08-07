@@ -471,6 +471,44 @@ select.input {
   cursor: pointer;
 }
 
+/* The Checkbox/Radio row: control, then its words, on one line the whole of
+   which is the click target.
+
+   `--space-2` is the gap because the hand-rolled sites this replaces used six
+   different ones (4px, 6px, 8px, 10px, --space-1, --space-3) for the same row —
+   8px is the on-scale middle, and one value is the point.
+
+   The control sits beside the FIRST line of the label, whether the label is one
+   line or five. Two grid rows carry that: row one is a single line tall — never
+   shorter than the control's own box — and the label spans it plus the implicit
+   row that takes the lines after the first, so centring the control in row one
+   centres it on line one. A one-line label leaves row two empty, so that row is
+   the whole label; `align-content` then keeps it centred inside a caller that
+   asks for a taller row (a touch target).
+
+   The gap is `column-gap` alone: a row gap would fall between the label's own
+   two rows and pad the middle of its text. */
+.checkfield {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: minmax(1lh, auto);
+  justify-content: start;
+  align-items: center;
+  align-content: center;
+  column-gap: var(--space-2);
+  cursor: pointer;
+}
+.checkfield > input {
+  grid-row: 1;
+}
+.checkfield > span {
+  grid-row: 1 / span 2;
+}
+/* A disabled control is not actionable, so its row does not invite the click. */
+.checkfield:has(input:disabled) {
+  cursor: not-allowed;
+}
+
 .input-icon {
   position: relative;
   display: inline-flex;
@@ -488,15 +526,27 @@ select.input {
   padding-left: 30px;
 }
 
+/* A textarea is the same field as .input, only taller: the two sit next to each
+   other in the same form, so type size, padding and focus transition are the
+   SAME values, not near ones. Only `resize` differs — that is what makes it a
+   textarea.
+
+   `width: 100%` is part of the atom rather than each caller's job. Without it a
+   textarea falls back to its intrinsic `cols`, which is narrower than the column
+   it sits in — so every caller that noticed re-added the width locally, and the
+   three that did not (the ask panel, the onboarding company form, the activity
+   logger) rendered a short box in a wide field. */
 .textarea {
   font-family: var(--f-body);
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--textPrimary);
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
-  padding: 8px 11px;
+  padding: 9px 11px;
+  width: 100%;
   outline: none;
+  transition: 0.15s;
   resize: vertical;
 }
 .textarea:focus {

@@ -18,6 +18,43 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
+// The breadcrumb action and reason for a message dropped as internal. The
+// reason is the `internal_only` value the capture.skipped event carries
+// (event-bus EVT-SEM-10); the row names the natural key and nothing else — an
+// address, subject or body in the operational ledger would re-create in
+// `system_log` exactly the disclosure the drop exists to prevent.
+const (
+	actionCaptureInternalDropped = "capture_internal_dropped"
+	reasonInternalOnly           = "internal_only"
+)
+
+// internalOnlyTx reports whether every party to this record is on one of the
+// workspace's own mail domains — the zero-rows condition (ADR-0082/A127,
+// formulas §20).
+//
+// A lead is not correspondence and is not judged. A channel record (Telegram,
+// WhatsApp) does reach the ActivityFields arm, and is excluded by the address
+// guard below rather than by the type: it names provider identities, never mail
+// addresses, so there is nothing here to measure it against.
+//
+// A record that enumerates no addresses is NOT internal. A connector reporting
+// an empty set is saying it could not read the parties, which is a different
+// statement from "there were none", and the direction to fail in is toward
+// keeping the message.
+func (s *Sink) internalOnlyTx(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord) (bool, error) {
+	if _, ok := rec.Fields.(ActivityFields); !ok {
+		return false, nil
+	}
+	if len(rec.Addresses) == 0 {
+		return false, nil
+	}
+	own, err := trustedOwnDomainsTx(ctx, tx)
+	if err != nil {
+		return false, err
+	}
+	return own.AllInternal(rec.Addresses), nil
+}
+
 // internalDomainTx reports whether domain is one of the workspace's own mail
 // domains (the colleagues gate). Runs on the capture transaction: the tier
 // ladder decides and records atomically with the activity it is about.
@@ -25,14 +62,15 @@ func (s *Sink) internalDomainTx(ctx context.Context, tx pgx.Tx, domain string) (
 	if domain == "" {
 		return false, nil
 	}
-	var internal bool
-	err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM workspace_email_domain WHERE domain = lower($1))`,
-		domain).Scan(&internal)
+	own, err := ownDomainsTx(ctx, tx)
 	if err != nil {
-		return false, fmt.Errorf("capture: internal-domain gate: %w", err)
+		return false, err
 	}
-	return internal, nil
+	// Through the same matcher every other caller uses, so a colleague at
+	// mail.acme.com is a colleague here too. Exact equality read the same table
+	// and answered differently, which minted contacts for the workspace's own
+	// employees whenever they wrote from a subdomain.
+	return own.CoversDomain(domain), nil
 }
 
 // correspondencePositiveTx reports whether the workspace has ever sent mail to
@@ -80,11 +118,15 @@ func (s *Sink) correspondencePositiveTx(ctx context.Context, tx pgx.Tx, email st
 // newsletter footer carries a List-Unsubscribe header is not infrastructure. A
 // spare is recorded on its own, because it is the one path that lets an address
 // the registry calls infrastructure become a record.
-func (s *Sink) registrySuppresses(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, row dispositionRow, corresponded bool) (bool, error) {
+// subject is the party the ladder is about, which is not always the message's
+// counterparty: on an introduction it is the outsider a colleague copied, and
+// asking the registry about the colleague's own domain would test a domain that
+// is never infrastructure instead of the one that might be.
+func (s *Sink) registrySuppresses(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, subject connector.Counterparty, row dispositionRow, corresponded bool) (bool, error) {
 	if s.transactional == nil {
 		return false, nil
 	}
-	suppress, reason := s.transactional.Suppress(transactionalInput(rec.Counterparty))
+	suppress, reason := s.transactional.Suppress(transactionalInput(subject))
 	if !suppress {
 		return false, nil
 	}

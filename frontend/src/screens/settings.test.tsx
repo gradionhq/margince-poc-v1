@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -807,7 +808,10 @@ describe("SettingsScreen Organization group", () => {
   it("gives ops the three objectless tabs while it holds no object grant at all", async () => {
     // The mirror of the case above: those three surfaces have no RBAC object
     // for a grant to name, so the role is what the server checks and what the
-    // nav must check.
+    // nav must check. Installation is deliberately NOT among them: it carries
+    // its own `installation_settings` object (ADR-0090/A135), so it follows
+    // the grant like catalog and rates do, and an ops principal holding no
+    // object grant does not get it.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["ops"] }));
     render(<SettingsScreen />);
     await waitFor(() =>
@@ -1315,6 +1319,146 @@ describe("ResetDataCard (danger zone)", () => {
         "The typed confirmation does not match the organization name.",
       ),
     ).toBeTruthy();
+  });
+
+  // The full response (Task 8's five extra counters) — an admin who triggers a
+  // reset that now spans tables, jobs, streams, cache keys and blob storage
+  // learns what actually happened, not just that the button worked.
+  const fullResetBody = {
+    status: "reset",
+    tables_cleared: 84,
+    jobs_deleted: 12,
+    streams_purged: 12,
+    cache_keys_deleted: 341,
+    objects_deleted: 7,
+    drain_timed_out: false,
+  };
+
+  // Fixed precondition for every summary test below: admin + non_production,
+  // on the Data tab that hosts the card.
+  function renderSettingsAsAdmin(opts: { resetResponse: unknown }) {
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({
+        roles: ["admin"],
+        nonProduction: true,
+        resetBody: opts.resetResponse,
+      }),
+    );
+    return render(<SettingsScreen tab="data" />);
+  }
+
+  // Opens the confirm dialog, types the confirmation, and submits — the same
+  // three steps every summary test needs before it can see a result.
+  async function confirmReset(orgName: string) {
+    await userEvent.click(
+      await screen.findByRole("button", { name: /reset data/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByRole("textbox");
+    await userEvent.type(input, orgName);
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /reset data/i }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  }
+
+  it("reports what the reset cleared", async () => {
+    renderSettingsAsAdmin({ resetResponse: fullResetBody });
+    await confirmReset("Acme Inc");
+
+    expect(
+      await screen.findByText(
+        // The whole line, not a prefix: dropping the trailing counters is
+        // exactly the regression this guards, and a prefix match would pass.
+        "Cleared 84 tables, 12 job rows, 12 event streams, 341 cache keys and 7 stored files.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("warns when a job was still running at drain time", async () => {
+    renderSettingsAsAdmin({
+      resetResponse: { ...fullResetBody, drain_timed_out: true },
+    });
+    await confirmReset("Acme Inc");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /background job was still running/,
+    );
+  });
+
+  it("shows no summary before a reset has run", async () => {
+    renderSettingsAsAdmin({ resetResponse: fullResetBody });
+    // Wait for the card itself: until /v1/me resolves ResetDataCard renders
+    // null, and an assertion made before that passes against an empty screen
+    // rather than against a card that is deliberately quiet.
+    await screen.findByRole("button", { name: /reset data/i });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("clears a prior success summary once a retry fails, rather than showing both", async () => {
+    // The first POST to /admin/reset-data succeeds; the second (a retry, e.g.
+    // after a typo) 422s. A dedicated fetch mock rather than resetDataBackend
+    // because that helper's resetStatus is fixed for every call — this test
+    // needs the response to change between the two attempts.
+    let resetCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const method = (
+          input instanceof Request ? input.method : (init?.method ?? "GET")
+        ).toUpperCase();
+        if (url.endsWith("/v1/me")) {
+          const me = meFixture({
+            roles: ["admin"],
+            allow: { custom_field: ["create", "update"] },
+          });
+          return jsonResponse({
+            ...me,
+            workspace_name: "Acme Inc",
+            non_production: true,
+          });
+        }
+        if (url.includes("/admin/reset-data") && method === "POST") {
+          resetCalls += 1;
+          if (resetCalls === 1) {
+            return jsonResponse(fullResetBody);
+          }
+          return jsonResponse(
+            { detail: "The typed confirmation does not match." },
+            422,
+          );
+        }
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }),
+    );
+    render(<SettingsScreen tab="data" />);
+
+    await confirmReset("Acme Inc");
+    expect(
+      await screen.findByText(/Cleared 84 tables, 12 job rows/),
+    ).toBeInTheDocument();
+
+    // Retry: the dialog stays open on error, so the summary from the first
+    // attempt must not still be sitting behind it.
+    await userEvent.click(
+      await screen.findByRole("button", { name: /reset data/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByRole("textbox");
+    await userEvent.type(input, "Acme Inc");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /reset data/i }),
+    );
+
+    expect(
+      await screen.findByText("The typed confirmation does not match."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
 

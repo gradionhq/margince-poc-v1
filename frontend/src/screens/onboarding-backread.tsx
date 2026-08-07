@@ -5,11 +5,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button, Skeleton } from "../design-system/atoms";
+import { Button, Radio, Skeleton } from "../design-system/atoms";
 import { formatMoney, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { ProblemError, throwProblem } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import { errorClassKey } from "./connector-status";
 import "./onboarding-backread.css";
 
@@ -83,35 +83,12 @@ function isLive(state: BackfillStatus["state"] | undefined): boolean {
 // a read started here lands there too rather than on a second cache entry.
 const statusQueryKey = (provider: Provider) => ["backfill-status", provider];
 
-// Only a `ProblemError`'s message is server-composed and already reader-safe
-// (`problemMessage` in common.tsx turns the RFC 7807 body into it); anything
-// else — a network failure, a thrown non-problem exception — is a raw
-// exception whose own message can leak internals, so it never reaches the
-// reader, and the caller falls back to the fixed catalog sentence. Logging it
-// is `useUnexpectedErrorLog`'s job, not this function's: this one only
-// derives text, so it stays safe to call from render as many times as
-// render happens to run.
-function readerDetail(error: unknown): string | null {
-  return error instanceof ProblemError ? error.message : null;
-}
-
-// The one place a raw (non-`ProblemError`) mutation failure reaches the
-// console. Wired as each mutation's own `onError`, not a render-time call or
-// an effect watching `isError`/`error`: react-query runs a mutation to
-// completion independently of whatever component started it, so this fires
-// exactly once per actual failure — including the one where the reader
-// leaves mid-flight and the component that would have hosted an effect is
-// already unmounted by the time the request settles.
-function logUnexpectedError(error: unknown): void {
-  if (!(error instanceof ProblemError)) {
-    console.error(error);
-  }
-}
-
 // The template-ready `{detail}` value for a mutation that may or may not
-// have failed — `null` while it hasn't, `readerDetail`'s safe text (or the
-// catalog fallback) once it has. Pulled out of the component itself so each
-// of the three mutations' error handling reads as one call, not a ternary.
+// have failed — `null` while it hasn't, the failure's reader-safe text once it
+// has. Pulled out of the component itself so each of the three mutations'
+// error handling reads as one call, not a ternary. It only derives text, so it
+// stays safe to call from render as many times as render runs; keeping the raw
+// failure readable is the client's mutation sink's job (app/queryclient.ts).
 function safeDetail(
   isError: boolean,
   error: unknown,
@@ -120,7 +97,7 @@ function safeDetail(
   if (!isError) {
     return null;
   }
-  return readerDetail(error) ?? t("ob.backread.detailUnavailable");
+  return problemMessageOf(error, t, t("ob.backread.detailUnavailable"));
 }
 
 export type OnboardingBackreadProps = Readonly<{
@@ -176,7 +153,6 @@ export function OnboardingBackread({
       }
       return data;
     },
-    onError: logUnexpectedError,
   });
 
   const start = useMutation({
@@ -195,7 +171,6 @@ export function OnboardingBackread({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
-    onError: logUnexpectedError,
   });
 
   const cancel = useMutation({
@@ -211,7 +186,6 @@ export function OnboardingBackread({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
-    onError: logUnexpectedError,
   });
 
   // The scope loads itself for whichever window is selected: the first thing a
@@ -333,15 +307,14 @@ function BackreadSetup({
       <fieldset className="ob-backread-windows">
         <legend className="sr-only">{t("ob.backread.heading")}</legend>
         {WINDOWS.map((option) => (
-          <label className="ob-backread-window" key={option.value}>
-            <input
-              type="radio"
-              name={group}
-              checked={selected === option.value}
-              onChange={() => onSelect(option.value)}
-            />
-            {t(option.label)}
-          </label>
+          <Radio
+            className="ob-backread-window"
+            key={option.value}
+            name={group}
+            checked={selected === option.value}
+            onChange={() => onSelect(option.value)}
+            label={t(option.label)}
+          />
         ))}
       </fieldset>
       <BackreadScope preview={preview} problem={previewProblem} />

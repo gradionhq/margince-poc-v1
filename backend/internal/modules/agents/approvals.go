@@ -71,10 +71,18 @@ type stageableTool interface {
 // question (the diff_hash binding guarantees the call IS that effect).
 type approvalRedeemedKey struct{}
 
+// releasedPinKey carries the version the approval was granted against, so the
+// write the release performs can re-check it inside its OWN transaction.
+type releasedPinKey struct{}
+
 // withApprovalRedeemed marks ctx as carrying a released approval. Set only by
 // RedeemAndMark, which cannot mark without a successful Redeem.
-func withApprovalRedeemed(ctx context.Context) context.Context {
-	return context.WithValue(ctx, approvalRedeemedKey{}, true)
+func withApprovalRedeemed(ctx context.Context, version int64, pinned bool) context.Context {
+	ctx = context.WithValue(ctx, approvalRedeemedKey{}, true)
+	if pinned {
+		ctx = context.WithValue(ctx, releasedPinKey{}, version)
+	}
+	return ctx
 }
 
 // RedeemAndMark consumes an approval and returns a context marked as released,
@@ -95,7 +103,7 @@ func RedeemAndMark(ctx context.Context, approvals Approvals, approvalID ids.Appr
 	if err != nil {
 		return ctx, 0, false, err
 	}
-	return withApprovalRedeemed(ctx), version, pinned, nil
+	return withApprovalRedeemed(ctx, version, pinned), version, pinned, nil
 }
 
 // ApprovalRedeemed reports whether this call already consumed a redeemed
@@ -106,6 +114,30 @@ func RedeemAndMark(ctx context.Context, approvals Approvals, approvalID ids.Appr
 func ApprovalRedeemed(ctx context.Context) bool {
 	redeemed, ok := ctx.Value(approvalRedeemedKey{}).(bool)
 	return ok && redeemed
+}
+
+// pinForWrite answers the version a released write must be conditioned on.
+//
+// Redemption commits its OWN transaction and the handler then opens a fresh one,
+// so the skew check inside the redemption proves the row was at the approved
+// version when the approval was consumed — not that it still is when the effect
+// lands, and the agent controls both sides of that window (its own 🟢
+// update_record can commit in between). Carrying the pin into the write is what
+// moves the version compare inside the transaction that actually mutates. The
+// REST gate does the same thing by forwarding the pin as If-Match
+// (compose/agentgate.go); this is that fix on the MCP transport.
+//
+// The CALLER's pin wins when it supplied one: it is bound into the diff_hash the
+// redemption verified, so it cannot disagree with what the human approved.
+func pinForWrite(ctx context.Context, callerPin *int64) *int64 {
+	if callerPin != nil {
+		return callerPin
+	}
+	released, pinned := ctx.Value(releasedPinKey{}).(int64)
+	if !pinned {
+		return nil
+	}
+	return &released
 }
 
 // refuseStagingElsewhere refuses to stage a change whose target's authority

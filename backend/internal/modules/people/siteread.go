@@ -374,15 +374,18 @@ func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID, reclaimAfter
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		// RETURNING hands the worker the CLAIMED row's own identity: the crawl
 		// and the staged proposal derive from what the dossier says, never
-		// from job args that could in principle diverge from it.
+		// from job args that could in principle diverge from it. started_at
+		// comes back with it as the lease THIS claim stamped — a write that
+		// only the current holder may make presents it again to prove it is
+		// still the current holder.
 		err := tx.QueryRow(ctx, `
 			UPDATE site_read SET status = 'running', status_code = NULL, status_detail = NULL,
 				next_attempt_at = NULL, started_at = now(), updated_at = now()
 			WHERE id = $1 AND (status = 'queued' OR
 			  (status = 'deferred' AND next_attempt_at <= now()) OR
 			  (status = 'running' AND started_at < now() - ($2 * interval '1 microsecond')))
-			RETURNING organization_id, target_kind, seed_url, requested_by`, readID, reclaimAfter.Microseconds()).
-			Scan(&claim.OrganizationID, &claim.TargetKind, &claim.SeedURL, &claim.RequestedBy)
+			RETURNING organization_id, target_kind, seed_url, requested_by, started_at`, readID, reclaimAfter.Microseconds()).
+			Scan(&claim.OrganizationID, &claim.TargetKind, &claim.SeedURL, &claim.RequestedBy, &claim.ClaimedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}

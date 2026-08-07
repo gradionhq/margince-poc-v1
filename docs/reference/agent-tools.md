@@ -44,11 +44,18 @@ the credential: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## The catalog
 
-The **26 core tools**, listed in the order `Registry.Specs()` sorts them — which
+The **30 core tools**, listed in the order `Registry.Specs()` sorts them — which
 is the order `tools/list` returns. An enabled extension unit adds its own verbs
-to the same listing, so a vanilla install answers 27: these plus `yogi_quote`
+to the same listing, so a vanilla install answers 31: these plus `yogi_quote`
 (🟢, `read`), which is not tabled here because the catalog tracks the core
 surface.
+
+This table and `api/crm.yaml` cannot disagree: every operation carrying
+`x-mcp-tool` has a registered tool of that verb, and every registered tool is
+either declared by an operation or listed as a composed intent — both directions
+gated by `TestEveryDeclaredToolVerbIsRegistered` /
+`TestEveryRegisteredToolIsDeclaredOrAnIntent`. An operation that cannot honestly
+have a tool carries `x-agent-access: human-only` instead.
 
 Columns:
 
@@ -66,14 +73,17 @@ Columns:
 |---|---|---|---|---|
 | `account_coverage` | 🟢 | `read` | — | Native relationship read; carries no mode guard |
 | `advance_deal` | dynamic | `write` | — | `unsupported_by_sor` (no incumbent stage map) |
+| `advance_project_phase` | 🟡 | `write` | — | Runs: a project is native-only, so its table is the live one in either mode |
 | `archive_record` | 🟡 | `write` | — | Seam-routed: write-back through the incumbent |
 | `at_risk_relationships` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `book_meeting` | 🟡 | `send` | yes | Staging refuses a mirror-held link |
 | `catch_me_up_on` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `check_availability` | 🟢 | `read` | — | Calendar seam; not mode-routed |
 | `create_record` | 🟢 | `write` | — | Seam-routed: write-back through the incumbent |
+| `disqualify_lead` | 🟡 | `write` | — | `unsupported_by_sor`: a lead is mirrored and the provider cannot serve this write, so the native table is empty |
 | `draft_email` | 🟢 | `draft` | — | Activities seam; not mode-routed |
 | `draft_follow_ups_for` | 🟢 | `draft` | — | `unsupported_by_sor` (native-only guard) |
+| `enrich` | 🟡 | `enrich` | yes | Reads the company's own website, not a record store; the write-back is seam-routed |
 | `intro_path_to` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `list_pipelines` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `log_activity` | 🟢 | `write` | — | Seam-routed: write-back through the incumbent |
@@ -83,6 +93,7 @@ Columns:
 | `promote_lead` | 🟡 | `write` | — | `unsupported_by_sor` (no atomic incumbent projection) |
 | `qualify_lead` | 🟢 | `write` | — | Seam-routed: read + patch through the provider |
 | `read_record` | 🟢 | `read` | — | Mirror-backed; result carries `trust_tier: external` |
+| `relink_activity` | 🟢 | `write` | — | Runs: a link row is not an SoR record write, so it is available in either mode |
 | `run_report` | 🟢 | `read` | — | `unsupported_by_sor` (no incumbent analogue) |
 | `search_records` | 🟢 | `read` | — | Mirror-backed; results carry `trust_tier: external` |
 | `send_email` | 🟡 | `send` | yes | Staging refuses a mirror-held anchor |
@@ -126,51 +137,36 @@ Counts are of the core catalog above; an enabled unit's verbs add to them
 |---|---|---|
 | `read` | 12 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
 | `draft` | 2 | Proposes text. Not read-only: `draft_email` returns a proposal and writes nothing, while `draft_follow_ups_for` persists a draft activity on the deal's timeline. |
-| `write` | 9 | Creates, patches, archives, advances, merges, promotes — every change that stays inside the workspace. |
+| `write` | 12 | Creates, patches, archives, advances, merges, promotes, disqualifies, re-links — every change that stays inside the workspace. |
 | `send` | 3 | The three egress verbs. All three are 🟡, so the scope buys the right to *ask*, never the right to send unattended. |
-| `enrich` | **0** | See below. |
+| `enrich` | 1 | `enrich` — the one verb that fetches from a third party. 🟡 and `Egress: true`, like the `send` three: the cap buys the right to ask. |
 
-**No registered MCP tool requires the `enrich` scope.** All 26 specs declare
-`read`, `draft`, `write` or `send`. The cap is not decorative, though — it
-governs **REST routes**, under ADR-0055's rule that a passport is a Bearer
-credential for `/v1` governed exactly like `/mcp`. Five contract operations
-consume it:
+The `enrich` cap governs the two organization read routes — `scrapeCompany`
+(`POST /v1/organizations/{id}/enrich`) and `deepReadCompany`
+(`POST /v1/organizations/{id}/deep-read`) — on REST, and the `enrich` tool that
+composes them on `/mcp`, under ADR-0055's rule that a passport is a Bearer
+credential for `/v1` governed exactly like `/mcp`. The cold-start routes spent
+it once; they are human-only now, because they create the organization rather
+than enrich one. Grant the cap when the agent's job is outward-looking research
+on a record that already exists.
 
-| Operation | Route | Tier |
-|---|---|---|
-| `coldStartPreview` | `POST /v1/coldstart/preview` | confirmation_required |
-| `coldStartReadback` | `POST /v1/coldstart` | confirmation_required |
-| `deepReadCompany` | `POST /v1/organizations/{id}/deep-read` | confirmation_required |
-| `scrapeCompany` | `POST /v1/organizations/{id}/enrich` | confirmation_required |
-| `reconcileOverlay` | `POST /v1/overlay/reconcile` | auto_execute |
-
-So an `enrich` passport is spendable — just never over `/mcp`. Grant it when the
-agent's job is outward-looking research on the REST surface, and leave it off a
-passport that only drives tools.
-
-## Verbs the contract declares with no registered tool
+## Operations an agent may not reach at all
 
 `api/crm.yaml` annotates mutating operations with `x-mcp-tool`, and
 `tools/gen-agentpolicy` compiles those annotations into
 `internal/compose/agentpolicy_gen.go` — the table the REST admission gate reads.
-Eleven verbs named there have **no tool in the registry**. They are fully
-governed on REST at the tier and cap the contract declares, and simply invisible
-on `/mcp`: an agent reaches them by calling the endpoint with its passport, not
-by `tools/call`.
+An operation that no tool can honestly back does not keep the annotation; it
+carries `x-agent-access: human-only`, and the gate rejects an agent principal
+outright, whatever its scope or seat. Ten operations say so, and the reasons
+differ enough to be worth reading:
 
-| Verb | Operations | Tier | Scope |
-|---|---|---|---|
-| `advance_project_phase` | `advanceProjectPhase` | confirmation_required | `write` |
-| `connect_incumbent` | `connectOverlay` | confirmation_required | `write` |
-| `disconnect_incumbent` | `disconnectOverlay` | confirmation_required | `write` |
-| `disqualify_lead` | `disqualifyLead` | confirmation_required | `write` |
-| `draft_offer` | `regenerateOffer` | auto_execute | `write` |
-| `enrich` | `coldStartPreview`, `coldStartReadback`, `deepReadCompany`, `scrapeCompany` | confirmation_required | `enrich` |
-| `reconcile_overlay` | `reconcileOverlay` | auto_execute | `enrich` |
-| `relink_activity` | `relinkActivity` | auto_execute | `write` |
-| `render_offer` | `renderOffer` | auto_execute | `write` |
-| `send_offer` | `sendOffer` | confirmation_required | `send` |
-| `share_record` | `createRecordGrant`, `revokeRecordGrant` | confirmation_required | `write` |
+| Operation | Why no agent may call it |
+|---|---|
+| `coldStartReadback`, `coldStartPreview` | They CREATE the organization, so there is no record for a record-shaped verb to target. The `enrich` tool keeps the two organization routes. |
+| `createRecordGrant`, `revokeRecordGrant` | The grant verbs refuse a non-human principal at redemption, so an agent-staged, human-approved share was refused every time it would have applied. |
+| `connectOverlay`, `disconnectOverlay` | Sealing a credential and flipping the system-of-record mode is an installation decision, not an act an agent performs. |
+| `reconcileOverlay`, `renderOffer`, `regenerateOffer` | No tool backs them, and none can today. |
+| `sendOffer` | Human-only until the contract and the implementation agree on what sending an offer does — the description says it leaves the workspace; the code flips status, freezes `fx_rate_to_base` and snapshots buyer/issuer, with no transport (poc-v1#481). |
 
 The traffic runs the other way too: eleven registered tools name no contract
 verb, because they are *intents* composed over several operations rather than a

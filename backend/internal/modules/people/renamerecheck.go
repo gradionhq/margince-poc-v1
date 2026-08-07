@@ -55,10 +55,11 @@ const orgRenameRecheckSource = "org_rename_recheck"
 // every real rival behind the self-score.
 func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, by string) error {
 	var display, legal string
+	var anchor bool
 	err := tx.QueryRow(ctx, `
-		SELECT display_name, coalesce(legal_name, '')
+		SELECT display_name, coalesce(legal_name, ''), is_anchor
 		  FROM organization
-		 WHERE id = $1 AND archived_at IS NULL`, orgID).Scan(&display, &legal)
+		 WHERE id = $1 AND archived_at IS NULL`, orgID).Scan(&display, &legal, &anchor)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Archived or erased between the rename and here: there is no
@@ -66,6 +67,15 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 			return nil
 		}
 		return fmt.Errorf("people: reading the renamed organization: %w", err)
+	}
+	// The installation's own company is filed as neither side of a duplicate
+	// pair. A dedupe proposal exists to be disposed by a merge, and the anchor
+	// refuses every merge — so a pair naming it can only ever be dismissed as
+	// not-a-duplicate, and would sit in the queue forever asking a question
+	// nobody can answer (ADR-0082/A127). The candidate set already leaves it
+	// out as a rival (dedupeorg.go); this is the same rule for the subject.
+	if anchor {
+		return nil
 	}
 
 	// Two organizations converging on names that score against each other would,

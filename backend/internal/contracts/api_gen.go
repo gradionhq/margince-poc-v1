@@ -1662,6 +1662,33 @@ func (e CompanySiteReadStatusCode) Valid() bool {
 	}
 }
 
+// Defines values for CompanySiteReadStoppedReason.
+const (
+	CompanySiteReadStoppedReasonBudget   CompanySiteReadStoppedReason = "budget"
+	CompanySiteReadStoppedReasonByteCap  CompanySiteReadStoppedReason = "byte_cap"
+	CompanySiteReadStoppedReasonDeadline CompanySiteReadStoppedReason = "deadline"
+	CompanySiteReadStoppedReasonNull     CompanySiteReadStoppedReason = "<nil>"
+	CompanySiteReadStoppedReasonPageCap  CompanySiteReadStoppedReason = "page_cap"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadStoppedReason enum.
+func (e CompanySiteReadStoppedReason) Valid() bool {
+	switch e {
+	case CompanySiteReadStoppedReasonBudget:
+		return true
+	case CompanySiteReadStoppedReasonByteCap:
+		return true
+	case CompanySiteReadStoppedReasonDeadline:
+		return true
+	case CompanySiteReadStoppedReasonNull:
+		return true
+	case CompanySiteReadStoppedReasonPageCap:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanySiteReadTargetKind.
 const (
 	CompanySiteReadTargetKindOnboarding CompanySiteReadTargetKind = "onboarding"
@@ -9705,10 +9732,13 @@ type CompanySiteRead struct {
 	StatusCode     *CompanySiteReadStatusCode    `json:"status_code"`
 
 	// StatusDetail Safe guidance only; never provider payload, prompt, SQL, or stack data.
-	StatusDetail *string                   `json:"status_detail"`
-	TargetKind   CompanySiteReadTargetKind `json:"target_kind"`
-	UpdatedAt    time.Time                 `json:"updated_at"`
-	Warnings     []string                  `json:"warnings"`
+	StatusDetail *string `json:"status_detail"`
+
+	// StoppedReason Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+	StoppedReason *CompanySiteReadStoppedReason `json:"stopped_reason,omitempty"`
+	TargetKind    CompanySiteReadTargetKind     `json:"target_kind"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
+	Warnings      []string                      `json:"warnings"`
 }
 
 // CompanySiteReadPhase defines model for CompanySiteRead.Phase.
@@ -9719,6 +9749,9 @@ type CompanySiteReadStatus string
 
 // CompanySiteReadStatusCode defines model for CompanySiteRead.StatusCode.
 type CompanySiteReadStatusCode string
+
+// CompanySiteReadStoppedReason Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+type CompanySiteReadStoppedReason string
 
 // CompanySiteReadTargetKind defines model for CompanySiteRead.TargetKind.
 type CompanySiteReadTargetKind string
@@ -9842,9 +9875,11 @@ type CompanySiteReadPersonDisposition string
 // CompanySiteReadResolution defines model for CompanySiteReadResolution.
 type CompanySiteReadResolution struct {
 	Action CompanySiteReadResolutionAction `json:"action"`
-	Key    string                          `json:"key"`
 
-	// Value Required and non-blank only for use_value; forbidden for other actions.
+	// Key A human_conflict comparison key, or — for use_value only — any fact comparison key in the draft. Any other key is refused.
+	Key string `json:"key"`
+
+	// Value Required and non-blank only for use_value; forbidden for other actions. A value equal to the read's own proposed value is an acceptance and keeps the page's evidence; a different one is the human's assertion and is stored with no website evidence.
 	Value *string `json:"value,omitempty"`
 }
 
@@ -9902,9 +9937,11 @@ type ConfirmCompanySiteReadRequest struct {
 	Profile      CompanyProfileInput `json:"profile"`
 	ProposalHash string              `json:"proposal_hash"`
 
-	// Resolutions Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
-	Resolutions      *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
-	SelectedFactKeys []string                     `json:"selected_fact_keys"`
+	// Resolutions Exactly one keyed resolution for every human_conflict comparison, plus an optional use_value for any fact the read got wrong. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+	Resolutions *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
+
+	// SelectedFactKeys The proposed facts to keep, exactly as the read stated them. A fact the reader wants to correct is left out of this list and sent as a use_value resolution instead.
+	SelectedFactKeys []string `json:"selected_fact_keys"`
 }
 
 // ConnectChannelRequest defines model for ConnectChannelRequest.
@@ -10971,6 +11008,28 @@ type IngestVoiceCorpusSourceRequestKind string
 // IngestVoiceCorpusSourceRequestRegister defines model for IngestVoiceCorpusSourceRequest.Register.
 type IngestVoiceCorpusSourceRequestRegister string
 
+// InstallationSettings The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
+// changed only by admin/ops.
+type InstallationSettings struct {
+	// BaseCurrency ISO-4217 code every money roll-up converts to.
+	BaseCurrency string `json:"base_currency"`
+
+	// BaseCurrencyLocked True once a deal has frozen a conversion rate against the base currency, after
+	// which it can no longer be changed (ADR-0085 §7).
+	BaseCurrencyLocked bool `json:"base_currency_locked"`
+
+	// BaseCurrencyLockedReason Why the currency is locked, naming how many deals have already converted against
+	// it. Absent when it is still changeable.
+	BaseCurrencyLockedReason *string `json:"base_currency_locked_reason,omitempty"`
+
+	// Name The organization's display name.
+	Name string `json:"name"`
+
+	// Timezone IANA zone name every reporting period boundary is computed in (not a user's own
+	// display timezone, which is per-user).
+	Timezone string `json:"timezone"`
+}
+
 // InviteUserRequest Admin-supplied details for a new member. No password — the invite issues a set-password token.
 type InviteUserRequest struct {
 	DisplayName string                `json:"display_name"`
@@ -11270,7 +11329,7 @@ type MeResponse struct {
 		Scopes     *[]MeResponsePassportScopes `json:"scopes,omitempty"`
 	} `json:"passport,omitempty"`
 
-	// Roles Effective role keys for this principal.
+	// Roles Effective role keys for this principal, and the one authority for them — `user.roles` is deliberately left unset here rather than repeating the same fact.
 	Roles []string `json:"roles"`
 
 	// SystemOfRecord The workspace's active system-of-record mode (workspace.x_sor_mode). `native` is the
@@ -11810,7 +11869,13 @@ type Organization struct {
 	Domains        *[]OrganizationDomain `json:"domains,omitempty"`
 	Id             openapi_types.UUID    `json:"id"`
 	Industry       *string               `json:"industry,omitempty"`
-	LegalName      *string               `json:"legal_name,omitempty"`
+
+	// IsAnchor True only for this installation's OWN company (ADR-0065/A111, amended by ADR-0082/A127).
+	// It is one ordinary organization, reachable by id everywhere, but the surfaces that answer
+	// *which companies are we selling to* exclude it unless `include_anchor` is set, and it
+	// cannot be archived or merged. A caller that offers company actions should tell it apart.
+	IsAnchor  *bool   `json:"is_anchor,omitempty"`
+	LegalName *string `json:"legal_name,omitempty"`
 
 	// Lifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
 	Lifecycle *OrganizationLifecycle `json:"lifecycle,omitempty"`
@@ -14633,6 +14698,19 @@ type UpdateDealRequestForecastCategory string
 // UpdateDealRequestStatus defines model for UpdateDealRequest.Status.
 type UpdateDealRequestStatus string
 
+// UpdateInstallationSettingsRequest A sparse installation-settings patch (admin/ops, human-only).
+type UpdateInstallationSettingsRequest struct {
+	// BaseCurrency ISO-4217 code. Refused with `setting_frozen` once any deal has frozen a conversion
+	// rate against the current base.
+	BaseCurrency *string `json:"base_currency,omitempty"`
+
+	// Name Rename the organization.
+	Name *string `json:"name,omitempty"`
+
+	// Timezone The IANA reporting zone.
+	Timezone *string `json:"timezone,omitempty"`
+}
+
 // UpdateLeadRequest Partial update. `status` may move only between `new`/`working` here. **Disqualifying is done
 // via DELETE /leads/{id}** (which sets status=disqualified AND archives — the invariant
 // "disqualified ⇒ archived" is enforced on that one path); `promoted` is reachable only via
@@ -14872,8 +14950,11 @@ type User struct {
 	Id          openapi_types.UUID  `json:"id"`
 
 	// IsAgent First-party Agent Runner identity vs a human seat.
-	IsAgent bool       `json:"is_agent"`
-	Status  UserStatus `json:"status"`
+	IsAgent bool `json:"is_agent"`
+
+	// Roles This member's assigned system role keys. Present ONLY for an admin caller — the roster is readable by every authenticated member (it feeds the share/assignee pickers), and a rep has no business enumerating who holds `admin`. Normally exactly one key: `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients that render a single current role must still handle the empty and multi-key cases. Deliberately absent on `MeResponse.user`, whose sibling `MeResponse.roles` is the one authority for the caller's own roles — the same fact spelled twice could disagree.
+	Roles  *[]string  `json:"roles,omitempty"`
+	Status UserStatus `json:"status"`
 
 	// Timezone IANA name.
 	Timezone    *string            `json:"timezone,omitempty"`
@@ -16631,15 +16712,6 @@ type SendOfferParams struct {
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
-	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
-	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
-	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
-
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -16703,6 +16775,13 @@ type ListOrganizationsParams struct {
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
 	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+
+	// IncludeAnchor Include this installation's own company. It is excluded by default because this list
+	// answers "which companies are we selling to", and the company running the CRM is not one
+	// of them (ADR-0082/A127). Modeled on `include_archived` (API-LIST-4): a class of rows
+	// almost never wanted, never silently unreachable. Surfaces whose subject IS the workspace
+	// — recording that a person works here, own-company project work — set it.
+	IncludeAnchor *bool `form:"include_anchor,omitempty" json:"include_anchor,omitempty"`
 
 	// CapturedByKind Filter by WHO created the record, matched on the `captured_by` prefix
 	// (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
@@ -17624,28 +17703,10 @@ type CreateRecordGrantParams struct {
 	// than half-honouring it, so read this contract, not the client, to know which calls are safe
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
-
-	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
-	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
-	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
 // RevokeRecordGrantParams defines parameters for RevokeRecordGrant.
 type RevokeRecordGrantParams struct {
-	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
-	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
-	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
-
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -18411,6 +18472,9 @@ type CreateFilteredExportJSONRequestBody = FilteredExportRequest
 
 // SetFxRateJSONRequestBody defines body for SetFxRate for application/json ContentType.
 type SetFxRateJSONRequestBody = SetFxRateRequest
+
+// UpdateInstallationSettingsJSONRequestBody defines body for UpdateInstallationSettings for application/json ContentType.
+type UpdateInstallationSettingsJSONRequestBody = UpdateInstallationSettingsRequest
 
 // CreateLeadJSONRequestBody defines body for CreateLead for application/json ContentType.
 type CreateLeadJSONRequestBody = CreateLeadRequest
@@ -21559,6 +21623,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "industry")
 	}
 
+	if raw, found := object["is_anchor"]; found {
+		err = json.Unmarshal(raw, &a.IsAnchor)
+		if err != nil {
+			return fmt.Errorf("error reading 'is_anchor': %w", err)
+		}
+		delete(object, "is_anchor")
+	}
+
 	if raw, found := object["legal_name"]; found {
 		err = json.Unmarshal(raw, &a.LegalName)
 		if err != nil {
@@ -21757,6 +21829,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		object["industry"], err = json.Marshal(a.Industry)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'industry': %w", err)
+		}
+	}
+
+	if a.IsAnchor != nil {
+		object["is_anchor"], err = json.Marshal(a.IsAnchor)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'is_anchor': %w", err)
 		}
 	}
 
@@ -24648,6 +24727,12 @@ type ServerInterface interface {
 	// Enqueue an async FX-rate refresh (stages 🟡 proposals).
 	// (POST /fx-rates/propose-refresh)
 	ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request)
+	// The installation's own settings.
+	// (GET /installation/settings)
+	GetInstallationSettings(w http.ResponseWriter, r *http.Request)
+	// Update the installation's settings (admin/ops).
+	// (PATCH /installation/settings)
+	UpdateInstallationSettings(w http.ResponseWriter, r *http.Request)
 	// List leads (their OWN list, distinct from contacts; cursor-paginated).
 	// (GET /leads)
 	ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams)
@@ -25020,10 +25105,10 @@ type ServerInterface interface {
 	// List manual per-record grants, filtered by record or by subject (A52/ADR-0039).
 	// (GET /record-grants)
 	ListRecordGrants(w http.ResponseWriter, r *http.Request, params ListRecordGrantsParams)
-	// Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+	// Share one record with a user or team (human-only).
 	// (POST /record-grants)
 	CreateRecordGrant(w http.ResponseWriter, r *http.Request, params CreateRecordGrantParams)
-	// Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+	// Revoke a manual record grant (human-only).
 	// (DELETE /record-grants/{id})
 	RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams)
 	// Assembled context (related evidence) for one record.
@@ -25905,6 +25990,18 @@ func (_ Unimplemented) ProposeFxRateRefresh(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The installation's own settings.
+// (GET /installation/settings)
+func (_ Unimplemented) GetInstallationSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update the installation's settings (admin/ops).
+// (PATCH /installation/settings)
+func (_ Unimplemented) UpdateInstallationSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List leads (their OWN list, distinct from contacts; cursor-paginated).
 // (GET /leads)
 func (_ Unimplemented) ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams) {
@@ -26649,13 +26746,13 @@ func (_ Unimplemented) ListRecordGrants(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+// Share one record with a user or team (human-only).
 // (POST /record-grants)
 func (_ Unimplemented) CreateRecordGrant(w http.ResponseWriter, r *http.Request, params CreateRecordGrantParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+// Revoke a manual record grant (human-only).
 // (DELETE /record-grants/{id})
 func (_ Unimplemented) RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -31906,6 +32003,48 @@ func (siw *ServerInterfaceWrapper) ProposeFxRateRefresh(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// GetInstallationSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetInstallationSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetInstallationSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateInstallationSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateInstallationSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateInstallationSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListLeads operation middleware
 func (siw *ServerInterfaceWrapper) ListLeads(w http.ResponseWriter, r *http.Request) {
 
@@ -33589,25 +33728,6 @@ func (siw *ServerInterfaceWrapper) SendOffer(w http.ResponseWriter, r *http.Requ
 
 	}
 
-	// ------------- Optional header parameter "X-Approval-Token" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
-		var XApprovalToken ApprovalToken
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
-			return
-		}
-
-		params.XApprovalToken = &XApprovalToken
-
-	}
-
 	// ------------- Optional header parameter "If-Match" -------------
 	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
 		var IfMatch IfMatch
@@ -33829,6 +33949,19 @@ func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *h
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_anchor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_anchor", r.URL.Query(), &params.IncludeAnchor, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_anchor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_anchor", Err: err})
 		}
 		return
 	}
@@ -37887,25 +38020,6 @@ func (siw *ServerInterfaceWrapper) CreateRecordGrant(w http.ResponseWriter, r *h
 
 	}
 
-	// ------------- Optional header parameter "X-Approval-Token" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
-		var XApprovalToken ApprovalToken
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
-			return
-		}
-
-		params.XApprovalToken = &XApprovalToken
-
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateRecordGrant(w, r, params)
 	}))
@@ -37944,25 +38058,6 @@ func (siw *ServerInterfaceWrapper) RevokeRecordGrant(w http.ResponseWriter, r *h
 	var params RevokeRecordGrantParams
 
 	headers := r.Header
-
-	// ------------- Optional header parameter "X-Approval-Token" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
-		var XApprovalToken ApprovalToken
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
-			return
-		}
-
-		params.XApprovalToken = &XApprovalToken
-
-	}
 
 	// ------------- Optional header parameter "If-Match" -------------
 	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
@@ -41705,6 +41800,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/fx-rates/propose-refresh", wrapper.ProposeFxRateRefresh)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/installation/settings", wrapper.GetInstallationSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/installation/settings", wrapper.UpdateInstallationSettings)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads", wrapper.ListLeads)

@@ -39,7 +39,7 @@ func TestABookingThatNamesNoRecordIsRefusedAtBothDoors(t *testing.T) {
 		ctx  context.Context
 	}{
 		{"staging", sendCtx()},
-		{"after an approval was redeemed", withApprovalRedeemed(sendCtx())},
+		{"after an approval was redeemed", withApprovalRedeemed(sendCtx(), 0, false)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			approvals := &recordingApprovals{}

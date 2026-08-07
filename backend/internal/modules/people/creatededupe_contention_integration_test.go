@@ -99,44 +99,6 @@ func (e *dedupeEnv) createInBackground(ctx context.Context, in CreatePersonInput
 	return done
 }
 
-// awaitRacer returns once the background create is provably waiting on a lock
-// the given pid holds, or once it has finished without ever waiting. Busy-read
-// of pg_stat_activity: no clock and no sleep, and the pid makes it exact —
-// pg_stat_activity is cluster-wide and the parallel lane runs a dozen packages
-// against one server.
-//
-// The sibling probe in ensurechannel_contention_integration_test.go fails the
-// run when nothing ever waited. Here that outcome is the defect itself — a
-// create that read straight through an in-flight one — and it has to be judged
-// on the trail it left rather than aborted at the probe, so it comes back as a
-// finished result instead.
-func awaitRacer(t *testing.T, probe pgx.Tx, pid int, done <-chan racingCreate) (racingCreate, bool) {
-	t.Helper()
-	// Generous enough that a loaded machine cannot trip it, small enough that a
-	// genuine miss reports in seconds rather than minutes.
-	const maxProbes = 20_000
-	for i := 0; i < maxProbes; i++ {
-		var blocked bool
-		if err := probe.QueryRow(context.Background(), `
-			SELECT EXISTS (
-			  SELECT 1 FROM pg_stat_activity a
-			   WHERE a.datname = current_database() AND $1 = ANY (pg_blocking_pids(a.pid)))`,
-			pid).Scan(&blocked); err != nil {
-			t.Fatalf("probing for a waiting backend: %v", err)
-		}
-		if blocked {
-			return racingCreate{}, false
-		}
-		select {
-		case res := <-done:
-			return res, true
-		default:
-		}
-	}
-	t.Fatalf("within %d probes the second create neither waited on the held number nor returned", maxProbes)
-	return racingCreate{}, false
-}
-
 // Two people can legitimately share a switchboard, so person_phone has no
 // cross-person unique index and nothing structural stops two creates carrying
 // the same number from both landing. What must not happen is that they land
@@ -155,7 +117,12 @@ func TestASecondCreateSharingAPhoneStillRecordsTheReviewPair(t *testing.T) {
 		Emails: []PersonEmailInput{{Email: "bruno@kellerwald.test", EmailType: "work", IsPrimary: true}},
 		Phones: []PersonPhoneInput{{Phone: switchboard, PhoneType: "work", IsPrimary: true}},
 	})
-	res, finished := awaitRacer(t, first, pid, second)
+	// Unlike the refresh races, a create that finishes WITHOUT ever waiting is
+	// not a failed setup here — it is the defect itself, a create that read
+	// straight through an in-flight one. So it is judged on the trail it left
+	// rather than aborted at the probe, which is why the finished flag is read
+	// instead of asserted.
+	res, finished := waitUntilBlocked(t, first, pid, second)
 	if err := first.Commit(ctx); err != nil {
 		t.Fatalf("committing the first create: %v", err)
 	}

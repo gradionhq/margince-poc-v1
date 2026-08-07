@@ -168,7 +168,7 @@ export interface paths {
         put?: never;
         /**
          * Reset a non-production installation to its first-boot state.
-         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
+         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Also clears the job queue, the event bus, the Redis counters and the object bytes — not only table rows. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
          */
         post: operations["resetData"];
         delete?: never;
@@ -2590,9 +2590,11 @@ export interface paths {
          *     paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
          *     EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
          *     (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
-         *     NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
-         *     A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
-         *     that is honest grounding, not fabrication, and it still stages 🟡.
+         *     NOTHING is written to real records — the read-back stages a proposal the user accepts via
+         *     /approvals. A `self_description` field is "grounded" in the user's own words
+         *     (source_kind=self_description) — that is honest grounding, not fabrication, and it stages
+         *     the same way. HUMAN-ONLY: this call CREATES the organization, so there is no record for a
+         *     record-shaped agent verb to target; an agent principal is refused (403 `permission_denied`).
          */
         post: operations["coldStartReadback"];
         delete?: never;
@@ -2615,12 +2617,14 @@ export interface paths {
          * @description The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
          *     for a human to check and correct in the company form, and NOTHING is written or queued. For a
          *     HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
-         *     and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
-         *     presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
-         *     the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
-         *     caller's path and query, from the server's own address. So the agent tier matches its sibling's:
-         *     🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
-         *     staging remains for callers that propose asynchronously, with no human at the screen.
+         *     and PUT /company is the human's confirmation. That reasoning presupposes someone at the screen,
+         *     and on the agent path there is nobody: the EGRESS effect is the same one POST /coldstart performs
+         *     — an outbound GET to a caller-chosen host, with the caller's path and query, from the server's
+         *     own address — and the organization does not exist yet, so no record-shaped agent verb has a
+         *     target for it; the fields feed the form whose confirmation creates it. HUMAN-ONLY on both
+         *     counts: an agent principal is refused (403 `permission_denied`), with no staging path. An agent
+         *     that needs outward-looking research on an organization that already exists spends the same
+         *     `enrich` cap on POST /organizations/{id}/enrich.
          *
          *     Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
          *     non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
@@ -2870,10 +2874,12 @@ export interface paths {
         /**
          * Confirm a selected onboarding draft into the anchor company atomically.
          * @description Applies only the submitted profile and selected fact keys. The draft version and proposal
-         *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
-         *     Every human-held collision requires an explicit keyed resolution. Unchanged values retain
-         *     website evidence, edits become human assertions, and published people remain separate
-         *     site-lead proposals rather than becoming contacts or company-context rows.
+         *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns
+         *     `409 version_skew`, an already-decided one `409 already_confirmed`, and one whose read has
+         *     produced no draft `409 not_confirmable`. Every human-held collision requires an explicit
+         *     keyed resolution. Unchanged values retain website evidence, edits become human assertions,
+         *     and published people remain separate site-lead proposals rather than becoming contacts or
+         *     company-context rows.
          */
         post: operations["confirmCompanySiteRead"];
         delete?: never;
@@ -3104,6 +3110,46 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/installation/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installation's own settings.
+         * @description Reads the installation's identity and reporting basis (ADR-0090/A135): its name, the
+         *     IANA timezone every reporting period is computed in, and the ISO-4217 base currency
+         *     every money roll-up converts to. Every role may read them — a rep reading amounts
+         *     benefits from knowing which currency they are in — and only admin/ops may change them
+         *     (PATCH). Governed by the `installation_settings` RBAC object.
+         *
+         *     `base_currency_locked` reports whether the currency has stopped being changeable, and
+         *     `base_currency_locked_reason` says why, naming how many deals have already frozen a
+         *     conversion rate against it (ADR-0085 §7). A client renders the field read-only from
+         *     the flag rather than discovering the refusal by attempting a write.
+         */
+        get: operations["getInstallationSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update the installation's settings (admin/ops).
+         * @description Admin/ops-only, human session only — an agent never renames the organization or
+         *     re-bases its reporting currency. A sparse patch: an omitted field is left unchanged.
+         *
+         *     The base currency is refused with `422 setting_frozen` once any deal has frozen a
+         *     conversion rate against it, because changing it would re-mean every roll-up built on
+         *     those rates (ADR-0085 §7). Before that point it is freely changeable, which is the
+         *     case this serves: an installation that chose wrong in its configuration and noticed
+         *     in week one. Audit-only write (no event stream, EVT-NOEVT-3).
+         */
+        patch: operations["updateInstallationSettings"];
         trace?: never;
     };
     "/capture/settings": {
@@ -3839,7 +3885,7 @@ export interface paths {
         get: operations["listRecordGrants"];
         put?: never;
         /**
-         * Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+         * Share one record with a user or team (human-only).
          * @description Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
          *     scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
          *     policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
@@ -3868,7 +3914,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+         * Revoke a manual record grant (human-only).
          * @description Deletes the grant; the subject loses the widened access immediately (the next query no longer
          *     matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
          */
@@ -3889,7 +3935,8 @@ export interface paths {
          * List workspace members (roster) — cursor-paginated. Read-only.
          * @description The workspace member roster: id + display name + email + seat/status. Any authenticated member
          *     may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
-         *     archived users. Row-scoped by workspace RLS.
+         *     archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
+         *     who is the only one who can act on it.
          */
         get: operations["listUsers"];
         put?: never;
@@ -4586,9 +4633,9 @@ export interface paths {
          * Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
          * @description draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
          *     daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
-         *     emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
-         *     `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
-         *     redeems with the X-Approval-Token header (ADR-0036).
+         *     emits `offer.sent`. HUMAN-ONLY: an agent principal is refused outright (403
+         *     `permission_denied`), with no staging path — releasing an offer to a counterparty is a
+         *     decision a person makes, not one an agent stages for them.
          */
         post: operations["sendOffer"];
         delete?: never;
@@ -4657,14 +4704,14 @@ export interface paths {
         put?: never;
         /**
          * Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
-         * @description The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
-         *     sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
+         * @description Copies the sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
          *     `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
          *     mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
          *     also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
          *     `diff_from_previous` line-item summary versus the prior revision; a mechanical
          *     regenerate (no AI context available) still works and returns `ai_generated=false`. The
-         *     produced draft still cannot leave without the 🟡 send gate.
+         *     produced draft still cannot leave without the send gate, which is human-only too.
+         *     HUMAN-ONLY: an agent principal is refused (403 `permission_denied`); no tool serves this verb.
          */
         post: operations["regenerateOffer"];
         delete?: never;
@@ -5823,6 +5870,43 @@ export interface components {
             page: components["schemas"]["PageInfo"];
         };
         /**
+         * @description The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
+         *     changed only by admin/ops.
+         */
+        InstallationSettings: {
+            /** @description The organization's display name. */
+            name: string;
+            /**
+             * @description IANA zone name every reporting period boundary is computed in (not a user's own
+             *     display timezone, which is per-user).
+             */
+            timezone: string;
+            /** @description ISO-4217 code every money roll-up converts to. */
+            base_currency: string;
+            /**
+             * @description True once a deal has frozen a conversion rate against the base currency, after
+             *     which it can no longer be changed (ADR-0085 §7).
+             */
+            base_currency_locked: boolean;
+            /**
+             * @description Why the currency is locked, naming how many deals have already converted against
+             *     it. Absent when it is still changeable.
+             */
+            base_currency_locked_reason?: string;
+        };
+        /** @description A sparse installation-settings patch (admin/ops, human-only). */
+        UpdateInstallationSettingsRequest: {
+            /** @description Rename the organization. */
+            name?: string;
+            /** @description The IANA reporting zone. */
+            timezone?: string;
+            /**
+             * @description ISO-4217 code. Refused with `setting_frozen` once any deal has frozen a conversion
+             *     rate against the current base.
+             */
+            base_currency?: string;
+        };
+        /**
          * @description The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
          *     changed only by admin/ops.
          */
@@ -6863,6 +6947,13 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             display_name: string;
+            /**
+             * @description True only for this installation's OWN company (ADR-0065/A111, amended by ADR-0082/A127).
+             *     It is one ordinary organization, reachable by id everywhere, but the surfaces that answer
+             *     *which companies are we selling to* exclude it unless `include_anchor` is set, and it
+             *     cannot be archived or merged. A caller that offers company actions should tell it apart.
+             */
+            readonly is_anchor?: boolean;
             legal_name?: string | null;
             industry?: string | null;
             /** @enum {string|null} */
@@ -9405,6 +9496,8 @@ export interface components {
              * @default false
              */
             is_agent: boolean;
+            /** @description This member's assigned system role keys. Present ONLY for an admin caller — the roster is readable by every authenticated member (it feeds the share/assignee pickers), and a rep has no business enumerating who holds `admin`. Normally exactly one key: `inviteUser` assigns one and `changeUserRole` replaces the whole set with one. Clients that render a single current role must still handle the empty and multi-key cases. Deliberately absent on `MeResponse.user`, whose sibling `MeResponse.roles` is the one authority for the caller's own roles — the same fact spelled twice could disagree. */
+            roles?: string[];
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
@@ -9540,7 +9633,7 @@ export interface components {
             non_production: boolean;
             /** @description Whether THIS CALLER may issue member set-password links (`issueUserPasswordLink`) — true only when the caller holds `admin` AND the installation has no outbound-email channel AND a public base URL is configured. Deliberately a caller capability rather than a deployment-posture flag: `/me` answers every authenticated member, and a bare posture boolean would tell every rep whether the installation has email configured. Clients render the action on this, so an admin never sees a control that can only fail (ADR-0061 Amendment 1). */
             admin_password_link: boolean;
-            /** @description Effective role keys for this principal. */
+            /** @description Effective role keys for this principal, and the one authority for them — `user.roles` is deliberately left unset here rather than repeating the same fact. */
             roles: string[];
             teams: string[];
             /**
@@ -9577,7 +9670,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -10368,10 +10461,11 @@ export interface components {
             proposed_value: string;
         };
         CompanySiteReadResolution: {
+            /** @description A human_conflict comparison key, or — for use_value only — any fact comparison key in the draft. Any other key is refused. */
             key: string;
             /** @enum {string} */
             action: "keep_current" | "accept_proposal" | "use_value";
-            /** @description Required and non-blank only for use_value; forbidden for other actions. */
+            /** @description Required and non-blank only for use_value; forbidden for other actions. A value equal to the read's own proposed value is an acceptance and keeps the page's evidence; a different one is the human's assertion and is stored with no website evidence. */
             value?: string | null;
         };
         CompanySiteReadLegalEntity: {
@@ -10595,6 +10689,11 @@ export interface components {
             status_detail: string | null;
             /** Format: date-time */
             next_attempt_at: string | null;
+            /**
+             * @description Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+             * @enum {string|null}
+             */
+            stopped_reason?: "budget" | "page_cap" | "byte_cap" | "deadline" | null;
             /** @enum {string|null} */
             phase?: "crawling" | "extracting" | null;
             pages_read?: number;
@@ -10619,8 +10718,9 @@ export interface components {
             draft_version: number;
             proposal_hash: string;
             profile: components["schemas"]["CompanyProfileInput"];
+            /** @description The proposed facts to keep, exactly as the read stated them. A fact the reader wants to correct is left out of this list and sent as a use_value resolution instead. */
             selected_fact_keys: string[];
-            /** @description Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists. */
+            /** @description Exactly one keyed resolution for every human_conflict comparison, plus an optional use_value for any fact the read got wrong. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists. */
             resolutions?: components["schemas"]["CompanySiteReadResolution"][];
         };
         /** @description Optional override. With no body the org's own domain is read. */
@@ -12680,6 +12780,16 @@ export interface operations {
                         /** @example reset */
                         status: string;
                         tables_cleared: number;
+                        /** @description Job rows deleted in EVERY state — queued, scheduled, running and retryable work plus the retained completed, discarded and cancelled history, which a reset to first-boot state must not leave behind. Covers this workspace's jobs and the fleet dispatchers the periodic ticks re-insert. */
+                        jobs_deleted: number;
+                        /** @description Event-bus stream KEYS deleted (their consumer groups are re-created empty), not entries. */
+                        streams_purged: number;
+                        /** @description Redis keys unlinked — processed-event dedupe marks plus this workspace's overlay budget counters. */
+                        cache_keys_deleted: number;
+                        /** @description Objects removed from the blob store under this workspace's key prefix. */
+                        objects_deleted: number;
+                        /** @description True when a job was still running when the bounded drain window expired. The reset proceeded — a long pass must not make an installation unresettable — and the surviving job's completion write will fail against rows that no longer exist. */
+                        drain_timed_out: boolean;
                     };
                 };
             };
@@ -13370,6 +13480,14 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
+                /**
+                 * @description Include this installation's own company. It is excluded by default because this list
+                 *     answers "which companies are we selling to", and the company running the CRM is not one
+                 *     of them (ADR-0082/A127). Modeled on `include_archived` (API-LIST-4): a class of rows
+                 *     almost never wanted, never silently unreachable. Surfaces whose subject IS the workspace
+                 *     — recording that a person works here, own-company project work — set it.
+                 */
+                include_anchor?: boolean;
                 /**
                  * @description Filter by WHO created the record, matched on the `captured_by` prefix
                  *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
@@ -18361,7 +18479,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            /** @description The draft cannot be confirmed as submitted, and `code` says which of the three it is: `already_confirmed` (this dossier was confirmed already — reload the company), `not_confirmable` (the read has produced no draft yet — wait for it or start a new one), or `version_skew` (the draft moved since it was reviewed — inspect it again). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             422: components["responses"]["ValidationError"];
         };
     };
@@ -18652,6 +18778,55 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getInstallationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The installation settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateInstallationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateInstallationSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated installation settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getCaptureSettings: {
@@ -20030,16 +20205,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
             };
             path?: never;
             cookie?: never;
@@ -20075,16 +20240,6 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is
@@ -20184,8 +20339,16 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            /** @description Refused, with the reason distinguished by the problem `code`: `conflict` (a member with this email already exists), or `no_delivery_channel` (this installation has neither an outbound-email channel nor a public base URL, so neither the mailed link nor an admin-issued one could reach the member — an invite would create an ACTIVE account nobody could ever sign in as). */
+            /** @description Not found, with the reason distinguished by the problem `code`: `unknown_role` — this organization defines no role with the requested key. The `role` enum is documentation, not binding validation, so a mistyped key reaches the server and must say which of the two things was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Refused, with the reason distinguished by the problem `code`: `email_taken` (a member with this email already exists), or `no_delivery_channel` (this installation has neither an outbound-email channel nor a public base URL, so neither the mailed link nor an admin-issued one could reach the member — an invite would create an ACTIVE account nobody could ever sign in as). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20224,8 +20387,16 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            /** @description Refused — demoting this member would leave the organization with no active admin. */
+            /** @description Not found, with the reason distinguished by the problem `code`: `not_found` (no such member) or `unknown_role` (the member exists, but this organization defines no role with that key). Both are 404; a client that tells the operator which one it hit needs the code, not the prose. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Refused with `code: last_active_admin` — demoting this member would leave the organization with no active admin. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20265,7 +20436,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Refused — this is the last active admin; deactivating them would lock the organization out. */
+            /** @description Refused with `code: last_active_admin` — this is the last active admin; deactivating them would lock the organization out. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20300,6 +20471,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description Refused with `code: not_deactivated` — only a deactivated member can be reactivated, and this one is in some other state. Both reachable states need a different action, not this one: an `invited` member has never set a password, and a `suspended` member is held for a reason that reactivating would clear without it ever being resolved. (An `active` member is a no-op and answers 200, not this.) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     issueUserPasswordLink: {
@@ -21892,16 +22072,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is

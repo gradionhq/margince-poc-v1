@@ -8,14 +8,23 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocaleProvider } from "../i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THEME_KEY } from "../app/theme";
+import { resetTheme } from "../app/theme-reset";
+import { LOCALES, LocaleProvider, localeNameKey, translate } from "../i18n";
 import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
 
 // The unauthenticated surface (A107/ADR-0061 §12): login is the default —
 // no signup mode, no workspace field, no tenant selector on the wire — and
 // the forgot-password flow renders exactly when the capabilities probe
 // reports it operational.
+
+const t = (key: Parameters<typeof translate>[1]) => translate("en", key);
+
+// The theme lives in one module-level store, so the case that presses the
+// toggle below would otherwise hand every later case a flipped document,
+// `localStorage` and store.
+beforeEach(resetTheme);
 
 afterEach(() => {
   cleanup();
@@ -137,6 +146,37 @@ describe("AuthScreen login", () => {
     expect(await screen.findByLabelText("Email")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
     expect(screen.queryByText("Configured")).toBeNull();
+  });
+
+  // Derived from LOCALES rather than listed: a hardcoded pair passes while the
+  // footer quietly drops the third language, which is the one failure this
+  // case exists to catch — the reader who cannot read the screen it is on.
+  it("the sign-in footer offers every shipped locale", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const locale of LOCALES) {
+      const name = t(localeNameKey(locale));
+      expect(screen.getByRole("button", { name }), name).toBeTruthy();
+    }
+  });
+
+  // The document declares ONE language (LocaleProvider, WCAG 3.1.1) and this
+  // row shows three. Unmarked, a screen reader reads every name with the
+  // phonemes of whichever locale is currently on — so the reader who came here
+  // to find their own language is read it in a language they may not have.
+  it("voices each language name in its own language", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const locale of LOCALES) {
+      const name = t(localeNameKey(locale));
+      const button = screen.getByRole("button", { name });
+      expect(
+        button.querySelector(`[lang="${locale}"]`)?.textContent,
+        name,
+      ).toBe(name);
+    }
   });
 
   it("is a login form — no signup mode, no workspace field, Enter submits, no tenant header", async () => {
@@ -337,6 +377,24 @@ describe("AuthScreen login", () => {
       "pathname",
       "/legal/privacy",
     );
+  });
+
+  // The theme is readable before anyone signs in, so it has to be changeable
+  // there too — the toggle used to exist only in the authenticated top bar.
+  it("changes the document theme from the legal row", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    const toggle = await screen.findByRole("button", {
+      name: t("theme.toDark"),
+    });
+    await userEvent.click(toggle);
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    // The label names the theme the press would move TO, so it has to flip with
+    // the press — a stale label sends a reader the wrong way.
+    expect(toggle.getAttribute("aria-label")).toBe(t("theme.toLight"));
+    expect(window.localStorage.getItem(THEME_KEY)).toBe("dark");
   });
 });
 

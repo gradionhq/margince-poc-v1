@@ -8,13 +8,15 @@ import {
 } from "react";
 import {
   Button,
+  Checkbox,
   EmptyState,
   SearchField,
+  Select,
   Skeleton,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { useSorMode } from "./common";
+import { problemMessageOf, useSorMode } from "./common";
 
 // The shared list foundation (P-14): every list screen sends the rich
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
@@ -150,8 +152,7 @@ export function ListToolbar({
       {overlay ? (
         <span className="list-toolbar-note">{t("list.overlayReadOnly")}</span>
       ) : (
-        <select
-          className="input"
+        <Select
           aria-label={t("list.sort")}
           value={query.sort}
           onChange={(event) => setQuery({ ...query, sort: event.target.value })}
@@ -161,26 +162,22 @@ export function ListToolbar({
               {t(option.label)}
             </option>
           ))}
-        </select>
+        </Select>
       )}
       {showArchivedToggle && (
-        <label>
-          <input
-            type="checkbox"
-            checked={query.includeArchived}
-            onChange={(event) =>
-              setQuery({ ...query, includeArchived: event.target.checked })
-            }
-          />
-          {t("list.showArchived")}
-        </label>
+        <Checkbox
+          label={t("list.showArchived")}
+          checked={query.includeArchived}
+          onChange={(event) =>
+            setQuery({ ...query, includeArchived: event.target.checked })
+          }
+        />
       )}
       {!overlay &&
         filters?.map((filter) =>
           filter.kind === "select" ? (
-            <select
+            <Select
               key={filter.key}
-              className="input"
               aria-label={t(filter.label)}
               value={query.filters[filter.key] ?? ""}
               onChange={(event) => {
@@ -201,7 +198,7 @@ export function ListToolbar({
                   {t(option.label)}
                 </option>
               ))}
-            </select>
+            </Select>
           ) : (
             <input
               key={filter.key}
@@ -268,7 +265,7 @@ export function ListGate<Row>({
       <EmptyState>
         <p>{t("common.error")}</p>
         <p className="t-mono" style={{ marginTop: 6 }}>
-          {error instanceof Error ? error.message : null}
+          {problemMessageOf(error, t)}
         </p>
         <Button small onClick={() => refetch()} style={{ marginTop: 10 }}>
           {t("common.retry")}

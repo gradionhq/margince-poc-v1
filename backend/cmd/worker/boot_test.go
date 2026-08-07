@@ -7,6 +7,9 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // run() closes the bus and the pool on deferred calls that fire after the lanes
@@ -42,4 +45,29 @@ func TestJoinCancelsTheLanesAndWaitsForThem(t *testing.T) {
 	if ctx.Err() == nil {
 		t.Error("join() returned without cancelling the lanes' context")
 	}
+}
+
+func TestResetFlushForwardsTheWorkspaceToTheModelCache(t *testing.T) {
+	var got []ids.WorkspaceID
+	path := compose.ModelPath{
+		InvalidateCache: func(ws ids.WorkspaceID) { got = append(got, ws) },
+	}
+	ws := ids.NewV7()
+
+	resetFlush(path)(ws)
+
+	if len(got) != 1 || got[0] != ids.From[ids.WorkspaceKind](ws) {
+		t.Errorf("model cache invalidated with %v, want one entry for %s", got, ws)
+	}
+}
+
+func TestResetFlushWithoutARouterStillReturnsACallableFlush(t *testing.T) {
+	// A worker started with no model lane has no cache to drop. The flush must
+	// still exist and be safe to call, because the subscriber invokes it
+	// unconditionally.
+	flush := resetFlush(compose.ModelPath{})
+	if flush == nil {
+		t.Fatal("resetFlush returned nil; the reset subscriber would nil-panic on the first announcement")
+	}
+	flush(ids.NewV7())
 }

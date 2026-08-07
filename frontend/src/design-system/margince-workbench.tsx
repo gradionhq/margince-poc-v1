@@ -50,6 +50,7 @@ export function MarginceWorkbench({
   footerLabel,
   stepLabel,
   person,
+  personAction,
 }: Readonly<{
   state: MarginceCoreState;
   progress?: number;
@@ -85,6 +86,13 @@ export function MarginceWorkbench({
   stepLabel?: string;
   /** Rail only: who is signed in, at the rail's very foot. */
   person?: Readonly<{ name: string; detail: string }>;
+  /**
+   * Rail only: a control at the right-hand end of the person row. The rail has
+   * no top bar, so this is the one place surface-level chrome can live; the foot
+   * row keeps it out of the journey's reading path. Copy and behaviour belong to
+   * the caller — the design system supplies the slot, never its contents.
+   */
+  personAction?: ReactNode;
 }>) {
   // The rail reads top-down as: who is speaking, where the journey is, the
   // conversation itself, and what this run costs — so the identity block
@@ -167,15 +175,24 @@ export function MarginceWorkbench({
             </>
           )}
           {children}
-          {rail && person && (
+          {/* The row survives an unresolved identity so its control does not
+              appear only once the signed-in reader has loaded. */}
+          {rail && (person || personAction) && (
             <div className="mw-person">
-              <span className="mw-person-avatar" aria-hidden>
-                {person.name.slice(0, 1).toUpperCase()}
-              </span>
-              <span className="mw-person-id">
-                <b>{person.name}</b>
-                <small>{person.detail}</small>
-              </span>
+              {person && (
+                <>
+                  <span className="mw-person-avatar" aria-hidden>
+                    {person.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="mw-person-id">
+                    <b>{person.name}</b>
+                    <small>{person.detail}</small>
+                  </span>
+                </>
+              )}
+              {personAction && (
+                <span className="mw-person-action">{personAction}</span>
+              )}
             </div>
           )}
         </section>
