@@ -3,7 +3,7 @@
 
 package backendarch
 
-// Migrate-once discipline for every integration suite in the module, as a
+// Migrate-once discipline for everything the integration lane compiles, as a
 // fitness function. A suite migrates the schema once per test process
 // (internal/platform/testdb.EnsureSchema) and resets between tests with a fast
 // data-only reset (testdb.Reset); one that instead runs its own DROP SCHEMA +
@@ -13,7 +13,14 @@ package backendarch
 // subtree is where the obligated code lives, and that second claim is the one
 // nothing checks.
 //
-// Any test file that REFERENCES the migrate entry point is caught, not only one
+// Every file the lane COMPILES is judged, not only the _test.go ones: a shared
+// fixture that moves into a build-tagged non-test file so sibling packages can
+// import it is still the thing that migrates, and keying on the filename suffix
+// would let it walk out of reach here while the gate kept passing. Membership is
+// therefore the build tag, which is what actually decides whether the lane
+// compiles a file.
+//
+// Any such file that REFERENCES the migrate entry point is caught, not only one
 // that applies it: `up := dm.Up; up(...)` migrates just as much as `dm.Up(...)`,
 // and a file has no reason to hold the migrator except to run it. That closes the
 // function-value route without type-aware analysis, and the qualifier is resolved
@@ -103,12 +110,13 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walking the module for test files: %v", err)
+		t.Fatalf("walking the module for integration-lane files: %v", err)
 	}
 
 	if len(offenders) > 0 {
-		t.Errorf("%d integration suite(s) migrate inline instead of riding testdb.EnsureSchema — "+
-			"replace the DROP SCHEMA + dbmigrate.Up block with testdb.EnsureSchema + testdb.Reset "+
+		t.Errorf("%d integration-lane file(s) migrate inline instead of riding testdb.EnsureSchema — "+
+			"a suite or a shared fixture in a build-tagged non-test file counts alike. Replace the "+
+			"DROP SCHEMA + dbmigrate.Up block with testdb.EnsureSchema + testdb.Reset "+
 			"(see internal/compose/integration/harness.go):\n\t%s",
 			len(offenders), strings.Join(offenders, "\n\t"))
 	}
