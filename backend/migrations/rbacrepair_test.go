@@ -22,6 +22,7 @@ package migrations
 // adds a repair above it.
 
 import (
+	"encoding/json"
 	"regexp"
 	"sort"
 	"strings"
@@ -49,10 +50,14 @@ var guardedBackfillPattern = regexp.MustCompile(
 		`WHERE \(is_system AND key (?:IN \(([^)]*)\)|= ('\w+'))\s*` +
 		`AND NOT permissions->'objects' \? '(\w+)'\)`)
 
-// Every `UPDATE role SET permissions = jsonb_set(` in the tree, guarded or not.
-// The count has to equal the guarded-pattern count or the derivation is blind to
-// a shape it should be reading.
-var anyRolePermissionWrite = regexp.MustCompile(`UPDATE role SET permissions = jsonb_set\(`)
+// Every write to role.permissions, however it is spelled. This has to be
+// STRICTLY BROADER than guardedBackfillPattern, not a prefix of it: a canary
+// sharing the pattern's literal head would miss exactly the deviations that
+// blind the pattern — reflowing `UPDATE role\n SET permissions = jsonb_set(`
+// across two lines escapes both at once, the counts stay equal, and the write
+// becomes invisible with nothing raised. Matching only as far as `permissions`,
+// with whitespace free, leaves the two able to disagree.
+var anyRolePermissionWrite = regexp.MustCompile(`(?is)UPDATE\s+"?role"?\s+SET\s+permissions`)
 
 var quotedRolePattern = regexp.MustCompile(`'(\w+)'`)
 
@@ -89,7 +94,41 @@ func TestTheRepairsCoverEveryGuardedRBACBackfill(t *testing.T) {
 						namespace.Name, grant.role, repairs[grant], grant.object, newestRepair)
 				}
 			}
+
+			assertNoUnnamedRepairAboveTheCeiling(t, namespace, newestRepair, backfills)
 		})
+	}
+}
+
+// assertNoUnnamedRepairAboveTheCeiling catches a repair that did not follow the
+// naming convention, from the SQL rather than the filename.
+//
+// isRepair reads a name, and a repair named something else is invisible twice
+// over: it does not raise the ceiling, and sitting above the ceiling it is not
+// read as a backfill either, so nothing it grants is compared to anything. What
+// gives it away is what a repair IS — a migration that re-declares an (object,
+// role) an earlier migration already granted. A genuine new backfill introduces
+// an object; only a repair repeats one.
+func assertNoUnnamedRepairAboveTheCeiling(
+	t *testing.T, namespace dbmigrate.Namespace, ceiling string, below map[rbacGrant]string,
+) {
+	t.Helper()
+	for _, migration := range namespace.Migrations {
+		if isRepair(migration) || migration.Version <= ceiling {
+			continue
+		}
+		above := map[rbacGrant]string{}
+		collectGrants(t, migration, above)
+		for _, grant := range sortedGrants(above) {
+			if _, already := below[grant]; already {
+				t.Errorf("%s: %s_%s re-grants %q %s on %s, which a migration below %s already granted. "+
+					"Re-declaring an existing grant is what a repair does, and this migration is not "+
+					"named as one — so it raises no ceiling and nothing checks what it writes. Rename it "+
+					"to end in rbac_backfill_repair, or grant a new object.",
+					namespace.Name, migration.Version, migration.Name, grant.role, above[grant],
+					grant.object, ceiling)
+			}
+		}
 	}
 }
 
@@ -154,7 +193,7 @@ func collectGrants(t *testing.T, migration dbmigrate.Migration, grants map[rbacG
 			roleList = singleRole
 		}
 		for _, role := range quotedRolePattern.FindAllStringSubmatch(roleList, -1) {
-			grants[rbacGrant{object: object, role: role[1]}] = normalizePayload(payload)
+			grants[rbacGrant{object: object, role: role[1]}] = normalizePayload(t, payload)
 		}
 	}
 }
@@ -177,10 +216,23 @@ func isRepair(migration dbmigrate.Migration) bool {
 	return strings.HasSuffix(migration.Name, "rbac_backfill_repair")
 }
 
-// normalizePayload strips the formatting a JSON literal may vary in, so two
-// blocks granting the same permission compare equal however they were spaced.
-func normalizePayload(payload string) string {
-	return strings.Join(strings.Fields(payload), "")
+// normalizePayload canonicalizes a permission literal so two blocks granting the
+// same permission compare equal however they were written. Folding whitespace
+// alone would leave key ORDER significant, and the mismatch it then reported
+// would show two payloads a reader cannot tell apart.
+func normalizePayload(t *testing.T, payload string) string {
+	t.Helper()
+	var verbs map[string]bool
+	if err := json.Unmarshal([]byte(payload), &verbs); err != nil {
+		t.Fatalf("a grant payload is not a permission document: %s (%v). The derivation reads these as "+
+			"the thing being compared, so one it cannot parse silently compares as a string instead.",
+			payload, err)
+	}
+	canonical, err := json.Marshal(verbs)
+	if err != nil {
+		t.Fatalf("re-encoding the grant payload %s: %v", payload, err)
+	}
+	return string(canonical)
 }
 
 func sortedGrants(grants map[rbacGrant]string) []rbacGrant {
