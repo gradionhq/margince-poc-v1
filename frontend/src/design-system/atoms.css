@@ -91,10 +91,15 @@
 
 /* An avatar beside its label on one line — a list cell, a search hit, a node
    row. The label keeps the baseline it had before the mark joined it. */
+/* display:flex, not inline-flex. An inline flex box takes its baseline from its
+ * first item, and a chip showing a logo has no text in it — so its baseline is
+ * its bottom edge, which pushed the label up and grew the row. Out of the inline
+ * formatting context the row centres and every row is the same height. */
 .avatar-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .avatar-lg {
@@ -139,6 +144,11 @@
 .avatar-has-logo {
   background: var(--bgCard);
   position: relative;
+}
+/* Once the mark is on screen it is the whole chip: no tint behind it to tint a
+ * transparent logo, and no monogram left to read through it. */
+.avatar-painted {
+  background: none;
 }
 
 .avatar-img {

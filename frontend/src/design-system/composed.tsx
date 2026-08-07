@@ -78,6 +78,9 @@ export type BoardDeal = {
   id: string;
   name: string;
   org: string;
+  /** The company's resolved mark. Absent leaves the monogram, which is the
+   *  floor rather than a fallback. */
+  orgLogoUrl?: string | null;
   valueMinor: number;
   currency: string;
   ageMs: number;
@@ -95,6 +98,13 @@ export type BoardColumn = {
   weightedMinor: number;
   currency: string;
   deals: BoardDeal[];
+  /**
+   * The stage holds deals in more than one currency, so it has no total to
+   * state — native minor units are never summed across currencies. The column
+   * then reports how many deals it holds and no figure at all, rather than a
+   * zero that reads as an empty stage.
+   */
+  sumHidden?: boolean;
 };
 
 export function DealCard({
@@ -128,7 +138,15 @@ export function DealCard({
       {...dragHandlers}
     >
       <span className="deal-name">{deal.name}</span>
-      <span className="deal-org">{deal.org}</span>
+      {deal.org && (
+        <span className="deal-org">
+          <Avatar name={deal.org} src={deal.orgLogoUrl} tinted />
+          {/* The name needs a box of its own to be truncated in: a bare text
+              node has nothing for the ellipsis to apply to, and wraps under
+              its own mark instead. */}
+          <span className="deal-org-name">{deal.org}</span>
+        </span>
+      )}
       <span className="deal-meta">
         <span className="deal-value">
           {formatMoney(deal.valueMinor, deal.currency, locale)}
@@ -184,18 +202,29 @@ export function PipelineBoard({
             <span className="stage">{column.label}</span>
             <span className="prob">{column.probabilityPct}%</span>
           </div>
+          {/* The stage's total is the figure being scanned down the board, so it
+              leads with the deal count beside it; the weighted figure is derived
+              from it and reads underneath rather than competing on the line. */}
           <div className="board-col-sub">
-            <span>{t("board.count", { count: column.deals.length })}</span>
-            <span>{formatMoney(column.rawMinor, column.currency, locale)}</span>
-            <span>
-              {t("board.weighted", {
-                value: formatMoney(
-                  column.weightedMinor,
-                  column.currency,
-                  locale,
-                ),
-              })}
+            <span className="board-col-total">
+              {!column.sumHidden && (
+                <span className="board-col-money">
+                  {formatMoney(column.rawMinor, column.currency, locale)}
+                </span>
+              )}
+              <span>{t("board.count", { count: column.deals.length })}</span>
             </span>
+            {!column.sumHidden && (
+              <span className="board-col-weighted">
+                {t("board.weighted", {
+                  value: formatMoney(
+                    column.weightedMinor,
+                    column.currency,
+                    locale,
+                  ),
+                })}
+              </span>
+            )}
           </div>
           {column.deals.map((deal) => (
             <DealCard

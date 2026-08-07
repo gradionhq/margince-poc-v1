@@ -583,7 +583,7 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
 
     vi.useFakeTimers();
     try {
-      fireEvent.change(screen.getByRole("searchbox"), {
+      fireEvent.change(screen.getByPlaceholderText("Search"), {
         target: { value: "brandt" },
       });
       act(() => {
@@ -598,7 +598,7 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
     );
   });
 
-  it("shows Load more on has_more and fetches the next cursor on click", async () => {
+  it("fetches the next cursor page when the pager steps past the loaded page", async () => {
     const { urls } = stubFetch(async (url) => {
       if (url.includes("cursor=c1")) {
         return jsonResponse({
@@ -616,8 +616,9 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
 
-    const loadMore = screen.getByRole("button", { name: "Load more" });
-    await userEvent.click(loadMore);
+    const next = screen.getByRole("button", { name: "Next ›" });
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(next);
 
     await waitFor(() =>
       expect(screen.getByText("Nordwind Logistik")).toBeTruthy(),
