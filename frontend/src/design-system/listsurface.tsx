@@ -783,6 +783,9 @@ function Toolbar({
           <Search size={13} strokeWidth={1.6} aria-hidden="true" />
           <span className="sr-only">{t("list.search")}</span>
           <input
+            // A search field, not a plain text box: it is what the control is,
+            // and it is how a reader's assistive technology announces it.
+            type="search"
             className="lt-search-input"
             value={search.value}
             placeholder={t("list.search")}
