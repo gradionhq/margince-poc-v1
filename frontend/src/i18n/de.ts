@@ -546,6 +546,7 @@ export const de = {
   "timeline.group.mayContinue": "kann früher weitergehen",
   "tab.people": "Personen",
   "tab.timeline": "Verlauf",
+  "tab.context": "Kontext",
   // Das Briefing nach den Fragen, die es beantwortet, und die Art jeder
   // Aussage — eine Einschätzung darf nicht wie ein Fakt wirken.
   "co.brief.section.snapshot": "Was sie sind",

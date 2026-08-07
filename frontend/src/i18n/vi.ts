@@ -547,6 +547,7 @@ export const vi = {
   "timeline.group.mayContinue": "có thể còn tiếp phía trước",
   "tab.people": "Người",
   "tab.timeline": "Lịch sử",
+  "tab.context": "Ngữ cảnh",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "Họ là ai",

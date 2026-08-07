@@ -1307,7 +1307,13 @@ function FactsCard({
 // header's overflow menu. A tab of equal weight beside the account's story
 // said the two were the same kind of question. Partner stays a tab: it is a
 // form, not a reading of this account.
-const COMPANY_TABS = ["overview", "people", "timeline", "partner"] as const;
+const COMPANY_TABS = [
+  "overview",
+  "context",
+  "people",
+  "timeline",
+  "partner",
+] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
 // Partner is not a permanent tab. It renders the partner programme —
@@ -1331,7 +1337,7 @@ function companyTabsFor(
   const isPartner = (org.relationship_types ?? []).includes("partner");
   return isPartner || tab === "partner"
     ? COMPANY_TABS
-    : (["overview", "people", "timeline"] as const);
+    : (["overview", "context", "people", "timeline"] as const);
 }
 
 // Which slice of the account's chronology is on screen. Activities is what
@@ -1628,6 +1634,7 @@ function CompanyRecord({
           onChange={onTab}
           labels={{
             overview: t("tab.overview"),
+            context: t("tab.context"),
             people: t("tab.people"),
             timeline: t("tab.timeline"),
             partner: t("tab.partner"),
@@ -2111,7 +2118,11 @@ function CompanyPage({
     overlay,
     loading,
     failed,
-    active: tab === "timeline",
+    // The chronology is the body of the overview, not a place to go: what
+    // happened with an account is what a rep opened the record to read, and
+    // behind a tab it was a click away from every question it answers. The
+    // History tab keeps it too, with the filters, for reading further back.
+    active: tab === "timeline" || tab === "overview",
   });
   // An evidence mark asks where a value came from, and the answer is the
   // record's change history — which now lives on its own tab.
@@ -2152,54 +2163,21 @@ function CompanyPage({
       // Where the account stands and the tabs that switch what is read about
       // it belong to the record's masthead, not to the overview: they were
       // the same on every tab and still redrew themselves inside each one.
-      strip={
-        view ? (
-          <StateStrip
-            view={view}
-            lifecycleLabel={(value) =>
-              t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
-            }
-            relationshipLabels={(values) =>
-              values
-                .map((value) =>
-                  t(
-                    RELATIONSHIP_TYPE_LABELS[
-                      value as keyof typeof RELATIONSHIP_TYPE_LABELS
-                    ],
-                  ),
-                )
-                .join(" · ")
-            }
-          />
-        ) : undefined
-      }
+      strip={view ? <CompanyStanding view={view} /> : undefined}
       tabs={tabs}
+      // The rail carries what a rep checks WHILE reading the story beside it.
+      // Everything the site read produced — sixteen profile statements, the
+      // fact groups, the tools that fetch them — moved to the Context tab:
+      // folded into this column it was more content than the rest of the
+      // page put together, behind four grey summary lines nobody opened.
       rail={
         overlay ? undefined : (
           <>
-            {/* The company's own statements, folded away. The BRIEF says what
-                this company is, in two sentences, at the top of the page —
-                these sixteen fields are where those sentences come from and
-                where a reader goes when two are not enough. Standing open
-                they were a wall of paragraphs, every value underlined, that
-                nobody read before a call. */}
-            <Disclosure summary={t("co.profile.title")}>
-              <ProfileFieldsCard orgId={org.id} onOpenHistory={showChanges} />
-            </Disclosure>
-            <Disclosure summary={t("co.evidence.title")}>
-              <FactsCard orgId={org.id} onOpenHistory={showChanges} />
-            </Disclosure>
             <Disclosure summary={t("co.relationships.title")}>
               <RelationshipsTab scope={{ organization_id: org.id }} />
             </Disclosure>
-            {/* One-off tools and configuration, folded away. Standing open
-                they carried the same weight as the facts a rep opens the page
-                for, and they are used a fraction as often. */}
             <Disclosure summary={t("co.tools.title")}>
               <CustomFieldsCard object="organization" record={org} />
-              <HierarchyRollupCard orgId={org.id} />
-              <EnrichCard orgId={org.id} />
-              <DeepReadCard orgId={org.id} />
             </Disclosure>
           </>
         )
@@ -2222,6 +2200,9 @@ function CompanyPage({
           refusal into reads that can only fail. */}
       {overlay && <OverlayFallback />}
       {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
+      {!overlay && tab === "context" && (
+        <ContextTab orgId={org.id} onOpenHistory={showChanges} />
+      )}
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
       )}
@@ -2388,6 +2369,56 @@ function openCitation(entityType: string, entityId: string) {
 // as an account with none of those, which is the one thing the page does not
 // know. The rail stays and each card says it could not be loaded — except in
 // overlay mode, where the single page-level refusal already covers it.
+// The standing strip with this screen's own words for a lifecycle and a
+// relationship type. A component rather than inline JSX so the page that
+// mounts it does not carry the label lookups in its own complexity.
+function CompanyStanding({ view }: Readonly<{ view: Organization360View }>) {
+  const t = useT();
+  return (
+    <StateStrip
+      view={view}
+      lifecycleLabel={(value) =>
+        t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
+      }
+      relationshipLabels={(values) =>
+        values
+          .map((value) =>
+            t(
+              RELATIONSHIP_TYPE_LABELS[
+                value as keyof typeof RELATIONSHIP_TYPE_LABELS
+              ],
+            ),
+          )
+          .join(" · ")
+      }
+    />
+  );
+}
+
+/**
+ * ContextTab is everything Margince holds about this account, and where it
+ * came from: the statements the site read, the facts behind them, the
+ * roll-up they aggregate into, and the two reads that fetch more.
+ *
+ * One destination, because they are one subject. Folded into the record's
+ * rail they were more content than the rest of the page put together, behind
+ * four grey summary lines that nobody opened before a call.
+ */
+function ContextTab({
+  orgId,
+  onOpenHistory,
+}: Readonly<{ orgId: string; onOpenHistory: () => void }>) {
+  return (
+    <div className="co-context">
+      <ProfileFieldsCard orgId={orgId} onOpenHistory={onOpenHistory} />
+      <FactsCard orgId={orgId} onOpenHistory={onOpenHistory} />
+      <HierarchyRollupCard orgId={orgId} />
+      <EnrichCard orgId={orgId} />
+      <DeepReadCard orgId={orgId} />
+    </div>
+  );
+}
+
 function businessRail({
   org,
   view,

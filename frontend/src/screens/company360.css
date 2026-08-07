@@ -310,6 +310,14 @@
   border-block-start: 1px solid var(--borderSubtle);
 }
 
+/* Context: what Margince holds about the account, in one column at the
+   width of the reading rather than squeezed into a rail. */
+.co-context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 /* The brief is a reading, so it sits on the same ground as everything else
    it is read beside. Borderless it floated between the plate above it and
    the ask below, belonging to neither. */

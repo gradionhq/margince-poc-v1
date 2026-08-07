@@ -70,6 +70,16 @@ async function openRecordMenu(testId: string): Promise<HTMLElement> {
   return screen.getByTestId(testId);
 }
 
+// What the site read produced — the profile statements, the fact groups, the
+// roll-up and the two reads that fetch more — lives on the Context tab. A
+// test that reads any of them goes there first, the way a reader does.
+async function openContextTab(): Promise<void> {
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Context" })).toBeTruthy(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Context" }));
+}
+
 const org = {
   id: "o-1",
   workspace_id: "w",
@@ -217,6 +227,7 @@ describe("company-360 enrichment", () => {
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
+    await openContextTab();
     await userEvent.click(screen.getByRole("button", { name: "Read now" }));
     await waitFor(() =>
       expect(screen.getByText("Value proposition")).toBeTruthy(),
@@ -241,6 +252,7 @@ describe("company-360 enrichment", () => {
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
+    await openContextTab();
     await userEvent.click(screen.getByRole("button", { name: "Read now" }));
     await waitFor(() =>
       expect(
@@ -327,6 +339,7 @@ async function startDeepRead(calls: string[]) {
   await waitFor(() =>
     expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
   );
+  await openContextTab();
   await userEvent.click(screen.getByRole("button", { name: "Read full site" }));
   await waitFor(() =>
     expect(
@@ -358,6 +371,8 @@ describe("company-360 deep read", () => {
     try {
       render(<CompanyScreen id="o-1" />);
       await flush();
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: "Context" }));
       await flush();
       fireEvent.click(screen.getByRole("button", { name: "Read full site" }));
       await flush();
@@ -476,6 +491,7 @@ describe("company-360 deep read", () => {
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
+    await openContextTab();
     await userEvent.click(
       screen.getByRole("button", { name: "Read full site" }),
     );
@@ -492,6 +508,7 @@ describe("company-360 deep read", () => {
     await waitFor(() =>
       expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
     );
+    await openContextTab();
     await userEvent.click(
       screen.getByRole("button", { name: "Read full site" }),
     );
@@ -837,6 +854,7 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openContextTab();
 
     await waitFor(() =>
       expect(screen.getByText("What they promise")).toBeTruthy(),
@@ -868,6 +886,7 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openContextTab();
 
     await waitFor(() =>
       expect(screen.getByText(/Nothing read yet/)).toBeTruthy(),
@@ -919,6 +938,7 @@ describe("CompanyScreen — facts card (B6)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openContextTab();
 
     await waitFor(() =>
       expect(screen.getByText("Facts read from the site")).toBeTruthy(),
@@ -1286,6 +1306,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       { rollup },
     );
     render(<CompanyScreen id="o-1" />);
+    await openContextTab();
 
     await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
     expect(screen.getByText("€12,000.00")).toBeTruthy();
@@ -1309,6 +1330,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
+    await openContextTab();
 
     await waitFor(() =>
       expect(
@@ -1338,6 +1360,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
+    await openContextTab();
 
     await waitFor(() =>
       expect(
