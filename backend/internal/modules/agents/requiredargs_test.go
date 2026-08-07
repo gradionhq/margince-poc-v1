@@ -171,3 +171,53 @@ func TestOneRefusalNamesAMissingArgumentAndAMissingIDTogether(t *testing.T) {
 		}
 	}
 }
+
+// `required: null` is a present member holding the wrong thing, which decodes
+// into the same nil slice an ABSENT `required` gives — so accepting it would
+// serve a schema this reader claims to have checked. Both invalid spellings are
+// refused; an absent one is legal and means nothing is required.
+func TestAnInvalidRequiredKeywordIsRefusedInEverySpelling(t *testing.T) {
+	for name, schema := range map[string]string{
+		"a null required":      `{"type":"object","required":null,"properties":{"q":{"type":"string"}}}`,
+		"a string required":    `{"type":"object","required":"q","properties":{"q":{"type":"string"}}}`,
+		"an object required":   `{"type":"object","required":{"q":true},"properties":{"q":{"type":"string"}}}`,
+		"a non-string element": `{"type":"object","required":[7],"properties":{"q":{"type":"string"}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mustPanic(t, "a `required` that is not a list of strings cannot be enforced", func() {
+				declaredRequired(json.RawMessage(schema))
+			})
+		})
+	}
+	if named := declaredRequired(json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`)); len(named) != 0 {
+		t.Errorf("an absent `required` yielded %v, where it means nothing is required", named)
+	}
+}
+
+// A refusal this surface did not build wins, unjoined. Answering the argument
+// refusal while a real failure was also in hand would tell a caller to fix its
+// arguments and try again, against a server that was going to fail anyway.
+func TestARealFailureIsNotDroppedInFavourOfAnArgumentRefusal(t *testing.T) {
+	argRefusal := &BadArgsError{Cause: errors.New("`q` is missing"), Guidance: "supply it"}
+	realFailure := errors.New("the authority lookup failed")
+
+	for name, joined := range map[string]error{
+		"the real failure came first":  joinArgRefusals(realFailure, argRefusal),
+		"the real failure came second": joinArgRefusals(argRefusal, realFailure),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !errors.Is(joined, realFailure) {
+				t.Errorf("joined = %v, want the real failure rather than the argument refusal", joined)
+			}
+			var badArgs *BadArgsError
+			if errors.As(joined, &badArgs) {
+				t.Error("a real failure was reported as a caller's argument mistake")
+			}
+		})
+	}
+	// And with nothing real in hand, both argument refusals are still joined.
+	both := joinArgRefusals(argRefusal, &BadArgsError{Cause: errors.New("`id` is required")})
+	if both == nil || !strings.Contains(both.Error(), "`q`") || !strings.Contains(both.Error(), "`id`") {
+		t.Errorf("joined = %v, want both argument refusals in one answer", both)
+	}
+}

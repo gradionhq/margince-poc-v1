@@ -15,6 +15,15 @@ package agents
 // idargs.go already gives: thirteen handlers each failed to make their own
 // schema's `required` true, one at a time.
 //
+// SCOPE: top-level properties, like numargs.go's bounds and idargs.go's own
+// presence rule. A `required` inside an array's `items` — `links[].entity_type`,
+// `aggregates[].fn` — is a claim about a member GIVEN its parent, and the parent
+// is optional on some of those tools, so it cannot be held here without
+// inventing a rule about when the parent counts. Those stay where they already
+// are: the provider re-validates an activity's links, and the report engine
+// refuses an aggregate it cannot read. Reaching them from here is a real
+// improvement and a larger one.
+//
 // WHAT THIS DOES NOT TAKE FROM A HANDLER. Presence is not the same claim as
 // meaning. A blank string is present; an enum value outside its list is
 // present; a body that is only whitespace is present. Those stay with the
@@ -54,7 +63,13 @@ import (
 // different sentences.
 func declaredRequired(inputSchema json.RawMessage) []string {
 	var schema struct {
-		Required   []string `json:"required"`
+		// RawMessage rather than []string, because the two failures a schema can
+		// have here are different and only one of them is a decode error: a
+		// `required` that is a number or an object fails to decode, and a
+		// `required: null` decodes into a nil slice indistinguishable from an
+		// absent one. Both are invalid JSON Schema, and a reader claiming to
+		// refuse "anything that is not a list of strings" has to refuse both.
+		Required   json.RawMessage `json:"required"`
 		Properties map[string]struct {
 			Type   string `json:"type"`
 			Format string `json:"format"`
@@ -68,8 +83,9 @@ func declaredRequired(inputSchema json.RawMessage) []string {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: input schema declares an unreadable `required`: " + err.Error())
 	}
-	names := make([]string, 0, len(schema.Required))
-	for _, name := range schema.Required {
+	required := readRequiredList(schema.Required)
+	names := make([]string, 0, len(required))
+	for _, name := range required {
 		prop, declared := schema.Properties[name]
 		if !declared {
 			//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
@@ -84,6 +100,23 @@ func declaredRequired(inputSchema json.RawMessage) []string {
 	// Sorted, so a call missing two arguments is refused in the same words every
 	// time rather than in the order the schema happened to list them.
 	sort.Strings(names)
+	return names
+}
+
+// readRequiredList decodes the `required` keyword, refusing every spelling that
+// is not what JSON Schema defines it as. Absent is legal and means nothing is
+// required; `null` is NOT absent — it is a present member holding the wrong
+// thing, and accepting it would serve a schema this reader claims to have
+// checked.
+func readRequiredList(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal(raw, &names); err != nil || names == nil {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: input schema's `required` is not a list of strings: " + string(raw))
+	}
 	return names
 }
 

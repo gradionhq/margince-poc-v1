@@ -103,13 +103,23 @@ func (r *Registry) requireDeclaredArgs(name string, args json.RawMessage) error 
 // joinArgRefusals answers with both refusals when both fired, and with whichever
 // one did otherwise.
 //
-// A refusal this surface did not build is passed through UNJOINED. Both checks
-// answer *BadArgsError for an argument the caller got wrong, and anything else —
-// an authority error surfacing from a lookup, a wrapped infrastructure fault —
-// is not a sentence to splice into another one.
+// A refusal this surface did not build WINS, unjoined. Both checks answer
+// *BadArgsError for an argument the caller got wrong; anything else — an
+// authority error surfacing from a lookup, a wrapped infrastructure fault — is
+// not a sentence to splice into another one, and it must not be dropped in
+// favour of one either. Answering the argument refusal while a real failure was
+// also in hand would tell a caller to fix its arguments and try again, against
+// a server that was going to fail anyway.
 func joinArgRefusals(first, second error) error {
 	var firstArgs, secondArgs *BadArgsError
-	if !errors.As(first, &firstArgs) || !errors.As(second, &secondArgs) {
+	firstIsArgs, secondIsArgs := errors.As(first, &firstArgs), errors.As(second, &secondArgs)
+	if first != nil && !firstIsArgs {
+		return first
+	}
+	if second != nil && !secondIsArgs {
+		return second
+	}
+	if !firstIsArgs || !secondIsArgs {
 		return cmp.Or(first, second)
 	}
 	return &BadArgsError{
