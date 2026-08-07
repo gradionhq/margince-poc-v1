@@ -12,6 +12,41 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## In flight — company record page V2, slice B1 (draft PR #553)
+
+The approved product direction and the full implementation handoff live in
+`docs/explanation/company-record-page-v2-implementation-plan.md` (untracked on
+purpose — it is a working handoff, not a repo doc, and `.gitignore` carries it
+together with its four state mockups). Read it before picking any of this up:
+it specifies the page hierarchy, lifecycle-dependent behaviour, dossier and
+growth-fit evidence, scalable coverage for 40+ reps, documents and email
+attachments, finance ingestion, permissions, honest empty/withheld/stale
+states, contracts and data models, PR slices, tests, and definition of done.
+
+**What slice B1 settles** (PR #553, draft): the canonical company fields and
+field-level evidence. `organization.linkedin_url` becomes a validated,
+live-unique column; the readable website stays derived from the primary
+`organization_domain` row rather than gaining a second store; both evidence
+sidecars gain `retrieved_at` / `verified_at` / `verified_by`; and five contract
+operations land — the base currency setting plus correct/confirm on profile
+fields and facts. The rule the slice encodes: for any fact that is a column on
+`organization`, the column IS the value and the sidecar holds a proposal plus
+its evidence, joined at read.
+
+Kept as a draft because the rest of Gate 0 is still upstream. Before further
+slices touch schema or contract:
+
+- distinguish read-only ERP/finance ingestion from the standing prohibition on
+  building accounting/e-invoice creation inside Margince;
+- ratify the dossier and growth-fit response shapes, and evidence correction
+  semantics beyond what B1 already writes;
+- ratify account-started email plus inbound/outbound file attachments;
+- define finance/document RBAC, retention, erasure and overlay behaviour.
+
+The implementation must not begin those slices as a local POC workaround. A
+frontend card backed by fake or local-only finance data is explicitly not an
+acceptable interim step.
+
 ## Open — an install with no mailer AND no public base URL still onboards nobody
 
 ADR-0061 Amendment 1 closed the email-less case: an admin mints a single-use
