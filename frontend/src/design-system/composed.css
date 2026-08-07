@@ -13,12 +13,12 @@
 }
 .brief-item .brief-rank {
   font-family: var(--f-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--textMeta);
   flex: none;
 }
 .brief-item .brief-title {
-  font-weight: 600;
+  font-weight: var(--w-semibold);
   color: var(--textPrimary);
   flex: 1;
 }
@@ -27,7 +27,7 @@
   background: var(--warnBg);
   border-radius: var(--r-sm);
   padding: 3px 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -63,20 +63,20 @@
   padding: 2px 4px;
 }
 .board-col-head .stage {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--w-semibold);
   color: var(--textPrimary);
   flex: 1;
 }
 .board-col-head .prob {
   font-family: var(--f-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--textMeta);
 }
 .board-col-sub {
   display: flex;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: var(--text-2xs);
   color: var(--textMeta);
   padding: 0 4px 4px;
 }
@@ -107,24 +107,24 @@
   border-style: dashed;
 }
 .deal-card .deal-name {
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--w-semibold);
   color: var(--textPrimary);
 }
 .deal-card .deal-org {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--textMeta);
 }
 .deal-card .deal-meta {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--textMeta);
 }
 .deal-card .deal-value {
   font-family: var(--f-mono);
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   color: var(--textPrimary);
 }
 
@@ -169,12 +169,12 @@
 }
 .record-head h1 {
   font-family: var(--f-display);
-  font-size: 22px;
-  font-weight: 600;
+  font-size: var(--text-xl);
+  font-weight: var(--w-semibold);
   color: var(--textPrimary);
 }
 .record-head .record-sub {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--textMeta);
 }
 .record-badges {
@@ -188,7 +188,7 @@
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   color: var(--textMeta);
 }
 .record-actions {
@@ -211,9 +211,9 @@
    values under it read first. */
 .record-zones .card > .section-header h2,
 .record-zones .card > .list-head > .section-header h2 {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--textTertiary);
 }
@@ -318,9 +318,9 @@
 }
 .tl-period {
   margin: var(--space-4) 0 0;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
+  font-size: var(--text-3xs);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--textTertiary);
 }
@@ -363,14 +363,14 @@
   gap: 3px;
 }
 .timeline .tl-title {
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   color: var(--textContent);
 }
 .timeline .tl-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--textMeta);
 }
 
@@ -412,14 +412,14 @@
   gap: 2px;
 }
 .firmo dt {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--track-label);
   color: var(--textMeta);
 }
 .firmo dd {
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   color: var(--textContent);
 }
 
@@ -432,14 +432,14 @@
   gap: 8px 16px;
 }
 .detail-grid dt {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--track-label);
   color: var(--textMeta);
 }
 .detail-grid dd {
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   color: var(--textContent);
 }
 
@@ -451,8 +451,8 @@
   margin-bottom: 16px;
 }
 .stepper .step {
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--w-semibold);
   color: var(--textMeta);
   background: var(--bgCard);
   border-radius: var(--r-full);
@@ -477,7 +477,7 @@
   overflow: hidden;
   white-space: pre-wrap;
   color: var(--textMeta);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
 }
 
@@ -485,7 +485,7 @@
   display: block;
   white-space: pre-wrap;
   color: var(--textPrimary);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
 }
 
@@ -495,7 +495,7 @@
   padding: 0;
   margin-top: var(--space-1);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--accent);
   cursor: pointer;
 }
@@ -522,15 +522,15 @@
 }
 
 .tl-direction {
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--textMeta);
 }
 
 /* A collapsed conversation states what it is before what it says. */
 .tl-group-count {
-  font-weight: 500;
+  font-weight: var(--w-medium);
 }
 
 /* Members sit inside the group's own body, indented enough to read as

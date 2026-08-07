@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity ds-type font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -170,6 +170,12 @@ icon-lint:
 ## the scale). Diff-scoped vs origin/main; use the --space-* scale or a layout class.
 ds-spacing:
 	frontend/scripts/check-ds-spacing.sh
+## ds-type — type-scale gate: no NEW raw font-size/font-weight/letter-spacing,
+## in inline styles (*.tsx) or in stylesheets (*.css, including the
+## design-system tier — the type scale is meant to be consumed there too).
+## Diff-scoped vs origin/main; use the --text-*/--w-*/--track-* scale.
+ds-type:
+	frontend/scripts/check-ds-type.sh
 
 ## seed-dev — create/refresh the demo workspace (demo-workspace,
 ## admin@demo.test / demo-password-123) through the public API, then seed
@@ -187,7 +193,7 @@ verify-boot:
 	./scripts/verify-boot.sh
 
 
-## frontend-check — the frontend merge lane. The three token-purity gates
+## frontend-check — the frontend merge lane. The five design-system gates
 ## run first: cheap fail-closed greps
 ## on top of the vitest conformance suite, so the discipline holds even if
 ## the test tree regresses. The gen:api + diff pair is the
@@ -199,6 +205,7 @@ frontend-check:
 	frontend/scripts/check-font-lock.sh
 	frontend/scripts/check-icon-glyph.sh
 	frontend/scripts/check-ds-spacing.sh
+	frontend/scripts/check-ds-type.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
 		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \
 			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; } && \

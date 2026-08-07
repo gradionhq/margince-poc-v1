@@ -24,7 +24,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--textPrimary);
 }
 
@@ -33,7 +33,7 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--textMeta);
 }
 
@@ -73,7 +73,7 @@
 .co-row-meta time,
 .co-row-meta .co-due {
   font-family: var(--f-mono);
-  font-size: 11.5px;
+  font-size: var(--text-2xs);
 }
 
 /* A row's name is a link, so it reads as one: no button chrome, and the
@@ -101,7 +101,7 @@
    mistakes a permission boundary for an empty account. */
 .co-empty {
   margin-top: 6px;
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   color: var(--textMeta);
 }
 /* Reads --textMeta, the canonical AA small-text role: this text says a
@@ -110,7 +110,7 @@
    not the record" tone without leaning on colour. */
 .co-restricted {
   margin-top: 6px;
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   color: var(--textMeta);
   font-style: italic;
 }
@@ -121,7 +121,7 @@
    them as a note rather than body copy without borrowing Badge's tone. */
 .co-callout {
   margin-top: var(--space-2);
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   color: var(--textMeta);
 }
 
@@ -149,9 +149,9 @@
   margin-top: var(--space-3);
 }
 .co-part-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--textMeta);
 }
@@ -176,7 +176,7 @@
   flex-direction: column;
   gap: 6px;
   margin: 8px 0;
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   color: var(--textContent);
 }
 /* A sentence's citations sit in their own wrapping row after the prose, each
@@ -195,7 +195,7 @@
   border: 0;
   padding: 0;
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--text-2xs);
   color: var(--textMeta);
   cursor: pointer;
   text-decoration: underline dotted var(--borderStrong);
@@ -217,7 +217,7 @@
   padding: 0 var(--space-1);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
-  font-size: 11.5px;
+  font-size: var(--text-2xs);
   color: var(--textMeta);
 }
 
@@ -230,14 +230,14 @@
 }
 .co-suggest-kind {
   display: block;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--textMeta);
 }
 .co-suggest-reason {
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   color: var(--textContent);
 }
 
@@ -256,8 +256,8 @@
 }
 .co-ask-asked {
   margin: 10px 0 0;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--w-semibold);
   color: var(--textMeta);
 }
 
@@ -316,10 +316,21 @@
    share an edge, and the hairline between them says they belong to the
    same reading. This is the page's only elevated block: it is the one a
    reader acts from. */
-.co-plate {
+/* The page's container chrome, spelled ONCE. Three blocks were carrying three
+   near-copies of it that disagreed on the shadow for no reason a reader could
+   name, which is how a page of correct components still reads as unplanned.
+   There are exactly two tiers here and the rule below is the difference:
+   everything is a bordered surface, and elevation is spent on the single block
+   the reader acts from. A fourth container joins this list; it does not bring
+   its own border. */
+.co-plate,
+.co-group,
+.co-brief {
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
+}
+.co-plate {
   box-shadow: var(--shadow-card);
   overflow: hidden;
   margin-bottom: var(--space-3);
@@ -340,9 +351,6 @@
    down a narrow column, each with its own border and its own gap, which
    read as five subjects to weigh rather than two readings to take. */
 .co-group {
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
   overflow: hidden;
 }
 .co-group > .card {
@@ -371,7 +379,7 @@
   padding: 0 var(--space-2);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-full);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--textContent);
   text-decoration: none;
 }
@@ -392,11 +400,11 @@ a.co-chip:focus-visible {
    date, a count — so they set in the mono face that keeps digits aligned. */
 .record-sheet .co-strip .stat-card-value {
   font-family: var(--f-mono);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--track-display);
 }
 .record-sheet .co-strip .stat-card-label {
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--textTertiary);
 }
@@ -422,14 +430,14 @@ a.co-chip:focus-visible {
   padding: var(--space-3) 0 var(--space-2);
   box-shadow: none;
   color: var(--textMeta);
-  font-weight: 500;
+  font-weight: var(--w-medium);
 }
 .record-tabs .segmented button[aria-pressed="true"],
 .record-tabs .segmented button[aria-selected="true"] {
   background: none;
   border-block-end-color: var(--accent);
   color: var(--textPrimary);
-  font-weight: 600;
+  font-weight: var(--w-semibold);
 }
 
 /* Context: what Margince holds about the account, in one column at the
@@ -440,14 +448,10 @@ a.co-chip:focus-visible {
   gap: var(--space-3);
 }
 
-/* The brief is a reading, so it sits on the same ground as everything else
-   it is read beside. Borderless it floated between the plate above it and
-   the ask below, belonging to neither. */
-.co-brief {
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-}
+/* The brief is a reading, so it sits on the same ground as everything else it
+   is read beside. Borderless it floated between the plate above it and the ask
+   below, belonging to neither. Its chrome comes from the shared surface rule
+   above; it takes no shadow, because it is read rather than acted from. */
 
 /* What moved while the reader was away, first on the page. The tint is the
    AI-authorship indigo at whisper volume: the strip reports work the account
@@ -462,7 +466,7 @@ a.co-chip:focus-visible {
   border-radius: var(--r-sm);
   background: var(--aiLight);
   color: var(--textPrimary);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 .co-away svg {
   color: var(--ai);
@@ -534,7 +538,7 @@ a.co-chip:focus-visible {
   content: none;
 }
 .record-sheet .co-strip .stat-card-value {
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 
 /* The brief under the questions it answers. Sections are separated by space
@@ -566,7 +570,7 @@ a.co-chip:focus-visible {
   flex: none;
   width: 6.5rem;
   color: var(--textTertiary);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -639,7 +643,7 @@ a.co-chip:focus-visible {
   background: transparent;
   padding: var(--space-2);
   border-radius: var(--r-sm);
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   color: var(--textPrimary);
 }
 .co-owner-option[aria-selected="true"] {
@@ -670,8 +674,8 @@ a.co-chip:focus-visible {
    cards keep the quiet label. Two levels, applied by role, not by taste. */
 .co-lead-title {
   font-family: var(--f-display);
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
   line-height: 1.3;
   margin: 0 0 var(--space-3);
   color: var(--textPrimary);
@@ -685,7 +689,7 @@ a.co-chip:focus-visible {
 .co-legalname {
   margin: var(--space-3) 0 0;
   color: var(--textMeta);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
 }
 /* Grounded statements are sentences, so they stay rows — separated from the
    chips above by a rule, because they are a different KIND of knowing: read

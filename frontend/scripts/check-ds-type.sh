@@ -1,45 +1,41 @@
 #!/usr/bin/env bash
-# Design-system spacing gate: NEW code should not hand-set vertical rhythm with
-# raw pixel literals. Use the --space-* scale (src/design-system/tokens.css) or
-# a layout class (.filter-tabs, .form-stack, .card, …) so the same gap reads the
-# same everywhere — the drift this catches is the recurring "spacing not good"
-# report (10 vs 12 vs 14 vs 16 for the same separator), and the boundary rules
-# in atoms.css that own header/tab/card seams. A waiver REQUIRES a reason
-# after the `ds:ignore` token — a bare `// ds:ignore` or `/* ds:ignore */`
-# does not waive anything, it just fails like any other unwaived hit.
+# Design-system type gate: NEW code should not hand-set the type scale with
+# raw literals. Use the --text-*/--w-*/--track-* scale (src/design-system/
+# tokens.css) so the same size/weight/tracking reads the same everywhere —
+# the drift this catches is the same "spacing not good" failure mode, just
+# for type: 13 vs 14 vs 15px for the same body copy, 500 vs 600 for the same
+# emphasis. A waiver REQUIRES a reason after the `ds:ignore` token — a bare
+# `// ds:ignore` or `/* ds:ignore */` does not waive anything, it just fails
+# like any other unwaived hit.
 #
 # Two arms, one bar:
-#   *.tsx — inline React style props set to a bare non-zero number:
-#           margin* / padding* / gap / rowGap / columnGap : <n>
-#           String values ("0", "var(--space-3)") and a bare 0 reset are fine.
-#   *.css — declarations of padding, padding-*, margin, margin-*, gap, row-gap
-#           and column-gap whose value carries a raw non-zero px. 0 is fine, a
-#           token is fine (including mixed values like `var(--space-2) 0`), and
-#           a calc() built on a token is fine — the offset inside it is
-#           arithmetic on the scale, not a rhythm value of its own — but only
-#           that expression is exempt, not the rest of the value. A declaration
-#           is whatever sits between two separators, so a property and its value
-#           on different lines are one declaration. Every other
-#           property that legitimately measures in px (border, border-radius,
-#           min-height, top/left, font-size, box-shadow, …) is untouched: this
-#           gate is about rhythm, not about px.
+#   *.tsx — inline React style props set to a bare number or a raw string
+#           literal: fontSize / fontWeight / letterSpacing. A `var(--…)`
+#           string value is fine.
+#   *.css — declarations of font-size, font-weight and letter-spacing whose
+#           value carries a raw length/number instead of a token. A
+#           clamp()/calc() built entirely on --text-* tokens is fine — it is
+#           arithmetic on the scale, not a size value of its own — but only
+#           that expression is exempt, not the rest of the value.
+#           font-size: inherit / 0, font-weight: normal / bold / inherit and
+#           letter-spacing: normal / 0 are all fine; they name no size of
+#           their own.
 #
-# src/design-system/ is EXEMPT from the *.css arm because that tier DEFINES the
-# scale rather than consuming it: an atom's optical values (.input and .textarea
-# carry `padding: 9px 11px` so the text sits on the same baseline as the label
-# beside it) are deliberately off the 4/8/12/16/24 steps, and rounding them onto
-# the scale would be the regression. Screens consume the scale, so src/screens/
-# and src/app/ are what this gates.
+# Unlike check-ds-spacing.sh, src/design-system/ is NOT exempt from the
+# *.css arm: the type scale is meant to be consumed by atoms and composed
+# components too, not just screens, so an atom reaching past the tokens is
+# exactly the drift this gate exists to catch. tokens.css itself IS exempt —
+# it defines the scale rather than consuming it.
 #
-# DIFF-SCOPED, by design: it inspects only the lines THIS branch adds versus the
-# merge-base with origin/main. The large pre-existing backlog of raw px is NOT
-# gated — write it right the first time, exactly like the craft pre-push hook.
-# A genuine one-off is waived in-line with a reason, in the file's own comment
-# syntax: `// ds:ignore <reason>` in .tsx, `/* ds:ignore <reason> */` in .css.
-# The reason is not optional — a bare token with nothing (or only whitespace)
-# after it does not waive.
+# DIFF-SCOPED, by design: it inspects only the lines THIS branch adds versus
+# the merge-base with origin/main. The large pre-existing backlog of raw
+# type literals is NOT gated — write it right the first time, exactly like
+# the craft pre-push hook. A genuine one-off is waived in-line with a
+# reason, in the file's own comment syntax: `// ds:ignore <reason>` in .tsx,
+# `/* ds:ignore <reason> */` in .css. The reason is not optional — a bare
+# token with nothing (or only whitespace) after it does not waive.
 #
-# Usage: frontend/scripts/check-ds-spacing.sh   (wired into `make frontend-check`)
+# Usage: frontend/scripts/check-ds-type.sh   (wired into `make frontend-check`)
 
 set -euo pipefail
 
@@ -47,7 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel 2>/dev/null || true)"
 
 if [[ -z "$REPO_ROOT" ]]; then
-  echo "==> DS spacing check: not a git checkout — skipped"
+  echo "==> DS type check: not a git checkout — skipped"
   exit 0
 fi
 
@@ -60,7 +56,7 @@ if git -C "$REPO_ROOT" rev-parse --verify --quiet origin/main >/dev/null; then
   BASE="$(git -C "$REPO_ROOT" merge-base origin/main HEAD 2>/dev/null || echo origin/main)"
 fi
 if [[ -z "$BASE" ]]; then
-  echo "==> DS spacing check: no origin/main baseline — skipped"
+  echo "==> DS type check: no origin/main baseline — skipped"
   exit 0
 fi
 
@@ -86,7 +82,7 @@ done < <(
 CHANGED_CSS=()
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
-  [[ "$f" == frontend/src/design-system/* ]] && continue
+  [[ "$f" == frontend/src/design-system/tokens.css ]] && continue
   CHANGED_CSS+=("$f")
 done < <(
   git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.css' 'frontend/src/*.css' 2>/dev/null || true
@@ -106,11 +102,11 @@ added_diff() {
 }
 
 if [[ "${#CHANGED_TSX[@]}" -eq 0 && "${#CHANGED_CSS[@]}" -eq 0 ]]; then
-  echo "==> DS spacing check: no changed frontend *.tsx or *.css — nothing to gate"
+  echo "==> DS type check: no changed frontend *.tsx or *.css — nothing to gate"
   exit 0
 fi
 
-echo "==> DS spacing check (${#CHANGED_TSX[@]} changed *.tsx, ${#CHANGED_CSS[@]} changed *.css vs ${BASE:0:12})"
+echo "==> DS type check (${#CHANGED_TSX[@]} changed *.tsx, ${#CHANGED_CSS[@]} changed *.css vs ${BASE:0:12})"
 
 EXIT=0
 TSX_HEADER_DONE=0
@@ -140,7 +136,7 @@ for f in ${CHANGED_TSX[@]+"${CHANGED_TSX[@]}"}; do
           /^\+\+\+/ || /^-/ || /^\\/ { next }
           /^\+/ {
             line = substr($0, 2)
-            if (!waived(line) && line ~ /(margin|padding)([A-Z][A-Za-z]*)?[[:space:]]*:[[:space:]]*[1-9]|(gap|rowGap|columnGap)[[:space:]]*:[[:space:]]*[1-9]/)
+            if (!waived(line) && line ~ /(fontSize|fontWeight|letterSpacing)[[:space:]]*:[[:space:]]*[-0-9\x27"]/ && line !~ /(fontSize|fontWeight|letterSpacing)[[:space:]]*:[[:space:]]*[\x27"]?var\(--/)
               printf "  %s:%d: %s\n", FILENAME, ln, line
             ln++
             next
@@ -151,7 +147,7 @@ for f in ${CHANGED_TSX[@]+"${CHANGED_TSX[@]}"}; do
   if [[ -n "$hits" ]]; then
     if [[ "$TSX_HEADER_DONE" -eq 0 ]]; then
       echo ""
-      echo "FAIL: raw-px spacing in inline styles (new code)"
+      echo "FAIL: raw type literals in inline styles (new code)"
       TSX_HEADER_DONE=1
     fi
     echo "$hits"
@@ -192,16 +188,16 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
             return out
           }
 
-          # Drops every calc() built on a token: the offset inside one is
-          # arithmetic on the scale, not a rhythm value of its own. ONLY the
-          # expression is exempt — whatever else the value carries stays gated.
-          # Parentheses are matched by depth so a nested var() does not close
-          # the calc early.
-          function strip_token_calc(value,   out, p, i, depth, start, inner, ch) {
+          # Drops every clamp()/calc() built ENTIRELY on --text-* tokens: the
+          # expression is arithmetic on the scale, not a size value of its
+          # own. ONLY the expression is exempt — whatever else the value
+          # carries stays gated. Parentheses are matched by depth so a
+          # nested var() does not close the wrapper early.
+          function strip_token_fn(value, fname,   out, p, i, depth, start, inner, ch) {
             out = ""
-            while ((p = index(value, "calc(")) > 0) {
+            while ((p = index(value, fname "(")) > 0) {
               out = out substr(value, 1, p - 1)
-              start = p + 5
+              start = p + length(fname) + 1
               depth = 1
               for (i = start; i <= length(value); i++) {
                 ch = substr(value, i, 1)
@@ -209,28 +205,31 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
                 else if (ch == ")") { depth--; if (depth == 0) break }
               }
               inner = substr(value, start, i - start)
-              if (index(inner, "var(") == 0) out = out "calc(" inner ")"
+              if (inner ~ /var\(--text-/ && inner !~ /[0-9](px|rem|em)/) out = out fname "(" inner ")"
               value = substr(value, i + 1)
             }
             return out value
           }
 
-          # True when the value carries a px length other than zero.
-          function raw_px(value,   rest, n) {
-            rest = strip_token_calc(value)
-            while (match(rest, /([0-9]+(\.[0-9]+)?|\.[0-9]+)px/)) {
-              n = substr(rest, RSTART, RLENGTH - 2) + 0
-              if (n != 0) return 1
-              rest = substr(rest, RSTART + RLENGTH)
-            }
-            return 0
+          function strip_token_calc(value) {
+            value = strip_token_fn(value, "clamp")
+            value = strip_token_fn(value, "calc")
+            return value
           }
 
-          # The seven spacing properties, and only those. A leading letter or
-          # dash rules out both a custom property (--gap) and a different
-          # property that merely ends the same way (grid-gap, scroll-padding).
-          function spacing_prop(name) {
-            return name ~ /^(padding|margin)(-[a-z]+)*$/ || name ~ /^(gap|row-gap|column-gap)$/
+          # True when the value carries a raw px/rem/em length. No \b — the
+          # awk on the CI/dev host (the One True Awk) does not support it.
+          function raw_length(value,   rest) {
+            rest = strip_token_calc(value)
+            return rest ~ /([0-9]+(\.[0-9]+)?|\.[0-9]+)(px|rem|em)/
+          }
+
+          # True when the value carries a bare number (font-weight, or a
+          # unitless letter-spacing, which CSS treats as px).
+          function raw_number(value,   rest) {
+            rest = strip_token_calc(value)
+            gsub(/var\([^)]*\)/, "", rest)
+            return rest ~ /(^|[^0-9.])[0-9]+(\.[0-9]+)?([^0-9a-z%]|$)/
           }
 
           # True only when ds:ignore carries an actual reason after it, up to
@@ -255,7 +254,24 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
             prop = tolower(substr(text, 1, index(text, ":") - 1))
             value = tolower(substr(text, index(text, ":") + 1))
             sub(/^[ \t]+/, "", prop); sub(/[ \t]+$/, "", prop)
-            if (!spacing_prop(prop) || !raw_px(value)) return
+            sub(/^[ \t]+/, "", value); sub(/[ \t]+$/, "", value)
+
+            if (prop == "font-size") {
+              if (value == "inherit" || value == "0") return
+              if (index(value, "var(--text-") > 0 && !raw_length(value)) return
+              if (!raw_length(value)) return
+            } else if (prop == "font-weight") {
+              if (value == "normal" || value == "bold" || value == "inherit") return
+              if (index(value, "var(--w-") > 0 && !raw_number(value)) return
+              if (!raw_number(value)) return
+            } else if (prop == "letter-spacing") {
+              if (value == "normal" || value == "0") return
+              if (index(value, "var(--track-") > 0 && !raw_length(value) && !raw_number(value)) return
+              if (!raw_length(value) && !raw_number(value)) return
+            } else {
+              return
+            }
+
             shown = text
             gsub(/[ \t]+/, " ", shown); sub(/^ /, "", shown); sub(/ +$/, "", shown)
             printf "  %s:%d: %s\n", target, lineno, shown
@@ -313,7 +329,7 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
   if [[ -n "$hits" ]]; then
     if [[ "$CSS_HEADER_DONE" -eq 0 ]]; then
       echo ""
-      echo "FAIL: raw-px spacing in stylesheets (new code)"
+      echo "FAIL: raw type literals in stylesheets (new code)"
       CSS_HEADER_DONE=1
     fi
     echo "$hits"
@@ -322,12 +338,12 @@ for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
 done
 
 if [[ "$EXIT" == "0" ]]; then
-  echo "PASS — no new raw-px spacing"
+  echo "PASS — no new raw type literals"
 else
   echo ""
-  echo "Use the --space-* scale (tokens.css) or a layout class instead of a raw"
-  echo "px margin/padding/gap — e.g. className=\"filter-tabs\", the .card/.form-stack"
-  echo "rhythm, style={{ marginTop: 'var(--space-3)' }}, or gap: var(--space-2)."
+  echo "Use the --text-*/--w-*/--track-* scale (tokens.css) instead of a raw"
+  echo "font-size/font-weight/letter-spacing — e.g. font-size: var(--text-sm),"
+  echo "style={{ fontWeight: 'var(--w-semibold)' }}."
   echo "A genuine one-off is waived in-line, with a reason, on the offending line:"
   echo "  // ds:ignore <reason>      (.tsx)"
   echo "  /* ds:ignore <reason> */   (.css)"

@@ -131,6 +131,48 @@
   --f-body: "DM Sans", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, monospace;
 
+  /* Type scale — the counterpart to --space-*, and for the same reason. The
+   * screens had drifted to 43 distinct font sizes, 9 weights and 22 tracking
+   * values, which is why a page of correct components still reads as unplanned:
+   * when no two labels agree on a size, nothing is subordinate to anything and
+   * the eye finds no order to follow. These seven rungs are the sizes the tree
+   * was already clustering around (11/12/13 carry ~140 of the declarations);
+   * the strays between them (11.5 / 12.5 / 13.5) are rounding noise, not
+   * hierarchy. Like the spacing scale this is layout rhythm rather than §2
+   * Ledger-Green colour identity, and a type scale in the spec's
+   * design-language would supersede it (raised upstream).
+   *
+   * --text-3xs   10px  uppercase eyebrows, micro-legends
+   * --text-2xs   11px  meta and caption text (reads --textMeta for AA)
+   * --text-xs    12px  secondary UI: chips, table cells, helper text
+   * --text-sm    13px  the workhorse — body copy and default control text
+   * --text-md    15px  emphasis: card titles, list subjects
+   * --text-lg    18px  section headings
+   * --text-xl    24px  the record name, one per screen */
+  --text-3xs: 10px;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+
+  /* Four weights, down from nine: 550/560/580/620/650 were per-file guesses at
+   * the same "a bit heavier" intent, and a variable font renders them as
+   * near-identical. --w-strong is the display weight — headings and numerals
+   * that must win — not a general-purpose emphasis. */
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --w-strong: 700;
+
+  /* Two tracking values plus `normal`, which is the default and needs no token.
+   * Uppercase micro-labels need opening up or they set as a solid block;
+   * display sizes need closing up or they set loose. Everything else is normal
+   * — the 0.01/0.02/0.03em nudges the tree had accumulated are invisible. */
+  --track-label: 0.08em;
+  --track-display: -0.02em;
+
   /* Material overlays, NOT part of the §2 Ledger-Green canon and deliberately
    * not pinned by tokens.test.ts's canonical map: a highlight and a scrim are
    * material effects rather than brand colour — pure white and pure black at
