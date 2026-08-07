@@ -836,7 +836,7 @@ describe("mapOrgUpdate — domains change detection (P1)", () => {
 // fields evidence-or-omit — a returned field shows with its human label and
 // value, a field the read never grounded is simply absent, and an empty read
 // states so honestly instead of inventing rows.
-describe("CompanyScreen — profile fields card (B5)", () => {
+describe("CompanyScreen — grounded profile fields on the company card (B5)", () => {
   it("renders a confirmed field's label + value and omits absent fields", async () => {
     stubFetch(async (url) => {
       if (url.includes("/profile-fields")) {
@@ -861,7 +861,6 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await openContextTab();
 
     await waitFor(() =>
       expect(screen.getByText("What they promise")).toBeTruthy(),
@@ -893,7 +892,6 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await openContextTab();
 
     await waitFor(() =>
       expect(screen.getByText(/Nothing read yet/)).toBeTruthy(),

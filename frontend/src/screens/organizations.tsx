@@ -1109,50 +1109,6 @@ function ProfileFieldRow({
   );
 }
 
-// The Firmographics & legal card: the org's confirmed profile fields, rendered
-// evidence-or-omit — a field with no stored value is simply absent, never
-// guessed. An empty read is stated honestly ("nothing read yet"), never
-// fabricated into blank rows. This card carries the region's loading/error
-// surface; the sibling facts card stays silent when it has nothing to add.
-function ProfileFieldsCard({
-  orgId,
-  onOpenHistory,
-}: Readonly<{ orgId: string; onOpenHistory?: () => void }>) {
-  const t = useT();
-  const fieldsQuery = useQuery({
-    queryKey: ["org-profile-fields", orgId],
-    queryFn: async () => {
-      const { data, error } = await api.GET(
-        "/organizations/{id}/profile-fields",
-        { params: { path: { id: orgId } } },
-      );
-      if (error) {
-        throwProblem(error);
-      }
-      return data.data ?? [];
-    },
-  });
-
-  return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("co.profile.title")} />
-      <QueryStates query={fieldsQuery}>
-        {fieldsQuery.data && fieldsQuery.data.length === 0 ? (
-          <p className="t-caption">{t("org.firmographicsEmpty")}</p>
-        ) : (
-          (fieldsQuery.data ?? []).map((field) => (
-            <ProfileFieldRow
-              key={field.field}
-              field={field}
-              onOpenHistory={onOpenHistory}
-            />
-          ))
-        )}
-      </QueryStates>
-    </section>
-  );
-}
-
 // Facts read from the site, grouped into the four fixed categories. Empty
 // categories are omitted and an empty read renders nothing at all — the
 // profile card above already carries the region's honest empty state, so a
@@ -1728,9 +1684,30 @@ function CompanyIdentityChips({
  * when the record carries the value: an "Industry —" line teaches a reader
  * that the field exists and nothing about the company.
  */
-function CompanyFactsCard({ org }: Readonly<{ org: Organization }>) {
+function CompanyFactsCard({
+  org,
+  onOpenHistory,
+}: Readonly<{ org: Organization; onOpenHistory?: () => void }>) {
   const t = useT();
   const { locale } = useLocale();
+  // The site read's grounded statements, beside the record's own columns.
+  // They are the only values on this card that CAN carry evidence — a typed
+  // industry has provenance at the record, not at the field — so the mark's
+  // presence is the honest difference between what was read and what someone
+  // entered, which is exactly what it exists to say.
+  const groundedQuery = useQuery({
+    queryKey: ["org-profile-fields", org.id],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/organizations/{id}/profile-fields",
+        { params: { path: { id: org.id } } },
+      );
+      if (error) {
+        throwProblem(error);
+      }
+      return data.data ?? [];
+    },
+  });
   const primary = (org.domains ?? []).find((domain) => domain.is_primary);
   const rows: { key: MessageKey; value: ReactNode }[] = [];
   if (primary?.domain) {
@@ -1768,6 +1745,7 @@ function CompanyFactsCard({ org }: Readonly<{ org: Organization }>) {
     key: "co.company.added",
     value: formatDate(org.created_at, locale, RECORD_ZONE),
   });
+  const grounded = groundedQuery.data ?? [];
   return (
     <section className="card co-card">
       <SectionHeader title={t("co.company.title")} />
@@ -1778,7 +1756,29 @@ function CompanyFactsCard({ org }: Readonly<{ org: Organization }>) {
             <dd>{row.value}</dd>
           </div>
         ))}
+        {grounded.map((field) => (
+          <div key={field.field}>
+            <dt>{profileFieldLabel(field.field, t)}</dt>
+            <dd>
+              <EvidenceMark
+                value={field.value}
+                source={derivedSource(field, locale)}
+                onOpenHistory={onOpenHistory}
+              />
+            </dd>
+          </div>
+        ))}
       </dl>
+      {/* The read's own three states, each said rather than collapsed into
+          the record rows above: a failed read that rendered as "no grounded
+          fields" would tell the reader this company has never been read. */}
+      {groundedQuery.isPending && <Skeleton width="70%" />}
+      {groundedQuery.isError && (
+        <p className="t-caption">{problemMessageOf(groundedQuery.error, t)}</p>
+      )}
+      {groundedQuery.isSuccess && grounded.length === 0 && (
+        <p className="t-caption">{t("org.firmographicsEmpty")}</p>
+      )}
     </section>
   );
 }
@@ -2182,7 +2182,7 @@ function CompanyPage({
                 for. It reads the RECORD's own columns, so it survives
                 overlay mode — the mirror refuses the composite read, not the
                 account itself. */}
-            <CompanyFactsCard org={org} />
+            <CompanyFactsCard org={org} onOpenHistory={showChanges} />
             {!overlay &&
               businessRail({
                 org,
@@ -2515,30 +2515,39 @@ function ContextTab({
   const readOnly = Boolean(org.archived_at);
   return (
     <div className="co-context">
-      <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+      {/* The grounded profile fields moved to the company card on the
+          overview, where a reader looking for what this company IS already
+          goes. What stays here is the long tail: the read's own facts, the
+          two depths of website read, and how the record is filed. */}
       <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
-      {/* One capability at two depths, under one heading: separately edged
-          they read as two different features for reading a website. */}
+      {/* One capability at two depths. Each depth is already a card, so the
+          heading is a plain one above them rather than a fourth card holding
+          two more — a card inside a card reads as a mistake, not a group. */}
+      <h3 className="co-context-group t-label">{t("co.website.title")}</h3>
+      <EnrichCard orgId={org.id} />
+      <DeepReadCard orgId={org.id} />
+      {/* How the record is filed. Each is a card in its own right, folded,
+          because a rep opens these to change something rather than to learn
+          something. */}
       <section className="card co-card">
-        <SectionHeader title={t("co.website.title")} />
-        <EnrichCard orgId={org.id} />
-        <DeepReadCard orgId={org.id} />
+        <Disclosure summary={t("co.tags.title")}>
+          <TagsCard
+            view={view}
+            tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
+            listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
+          />
+        </Disclosure>
       </section>
-      {/* How the record is filed. Folded, because a rep opens these to change
-          something rather than to learn something. */}
-      <Disclosure summary={t("co.tags.title")}>
-        <TagsCard
-          view={view}
-          tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
-          listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
-        />
-      </Disclosure>
-      <Disclosure summary={t("co.relationships.title")}>
-        <RelationshipsTab scope={{ organization_id: org.id }} />
-      </Disclosure>
-      <Disclosure summary={t("co.tools.title")}>
-        <CustomFieldsCard object="organization" record={org} />
-      </Disclosure>
+      <section className="card co-card">
+        <Disclosure summary={t("co.relationships.title")}>
+          <RelationshipsTab scope={{ organization_id: org.id }} />
+        </Disclosure>
+      </section>
+      <section className="card co-card">
+        <Disclosure summary={t("co.tools.title")}>
+          <CustomFieldsCard object="organization" record={org} />
+        </Disclosure>
+      </section>
     </div>
   );
 }

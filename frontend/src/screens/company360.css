@@ -539,3 +539,14 @@ a.co-chip:focus-visible {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* A group heading over cards that already carry their own edge — the two
+   website reads are one capability at two depths, and wrapping them in a
+   fourth card to say so reads as a mistake rather than a grouping. */
+.co-context-group {
+  margin: var(--space-4) 0 calc(-1 * var(--space-1));
+  color: var(--textTertiary);
+}
+.co-context-group:first-child {
+  margin-block-start: 0;
+}
