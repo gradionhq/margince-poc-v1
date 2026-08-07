@@ -1,6 +1,7 @@
--- Deliberately a no-op. This migration writes nothing 0154 does not already
--- declare — it only re-applies it where row-level security discarded the write —
--- so reverting to 0189 must leave the channel_connection grants standing. 0154's
--- own down is what removes them. A down here that stripped the key would erase a
--- grant a rollback to 0189 is supposed to keep.
+-- Deliberately a no-op. This migration declares no grant of its own — it only
+-- re-applies the backfills 0035 through 0183 already declare, where row-level
+-- security discarded the original write. Reverting to 0189 must therefore leave
+-- every one of those grants standing; each backfill's own down is what removes
+-- its object. A down here that stripped the keys would erase grants a rollback
+-- to 0189 is supposed to keep.
 SELECT 1;
