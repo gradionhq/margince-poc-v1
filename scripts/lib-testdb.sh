@@ -66,17 +66,41 @@ export TEMPLATE_NAME="${TEMPLATE_NAME:-margince_test}"
 owner_clone_dsn() { local db="$1"; echo "${O_PREFIX}/${db}${O_QUERY:+?$O_QUERY}"; }
 app_clone_dsn()   { local db="$1"; echo "${A_PREFIX}/${db}${A_QUERY:+?$A_QUERY}"; }
 
-# build_template — (re)create margince_test and migrate it to head with the same
-# embedded migration set the app uses (cmd/migrate → migrations.Core/Custom).
-# Fresh each call so the template can never carry a stale schema. Runs from the
-# repo root; the caller must have cd'd there (both scripts do).
-build_template() {
-  db_admin recreate-db --name "$TEMPLATE_NAME" >/dev/null
-  ( cd backend && go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$TEMPLATE_NAME")" >/dev/null )
+# migrate_template — bring the template to head with the same embedded migration
+# set the app uses (cmd/migrate → migrations.Core/Custom, then River). Idempotent
+# by construction: the runner compares the tracking tables against the embedded
+# set, so at head it applies nothing. Prints what it applied — a heal is worth a
+# line, and a silent one reads exactly like a no-op.
+migrate_template() {
+  ( cd backend && go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$TEMPLATE_NAME")" )
 }
 
-# ensure_template — build the template only if it is missing (fast reuse for the
-# single-package inner loop; the full lane rebuilds fresh via build_template).
+# build_template — (re)create margince_test and migrate it to head. Fresh each
+# call so the template can never carry a stale schema. Runs from the repo root;
+# the caller must have cd'd there (both scripts do).
+build_template() {
+  db_admin recreate-db --name "$TEMPLATE_NAME" >/dev/null
+  migrate_template >/dev/null
+}
+
+# ensure_template — the fast path for the single-package inner loop: reuse the
+# template rather than rebuilding it, but never reuse it blindly.
+#
+# PRESENT IS NOT CURRENT. This probed only for existence, and reused whatever it
+# found however old it was, so a template built before a migration landed handed
+# every clone a schema behind head. The failure that produces is thoroughly
+# misleading: tests fail inside the constraint or column the new migration adds,
+# naming code that is correct, in a package that has nothing to do with the
+# change you pulled. The full lane never shows it — that path calls
+# build_template — so it bites exactly when you are iterating on one package.
+#
+# Migrating rather than rebuilding is the cheap fix: at head the runner applies
+# nothing, and behind it applies only the delta. What this does NOT heal is a
+# template that has diverged rather than fallen behind — an edited migration, or
+# a checkout that no longer has one the template already applied. Migrations are
+# additive by repo rule, so falling behind is the case that happens; for the
+# other, `make test-db-up` rebuilds from scratch.
+#
 # db-exists separates "absent" (prints false) from "could not ask" (non-zero
 # exit) exactly so this caller can too: a failed probe propagates with its
 # stderr instead of reading as "missing" and force-rebuilding a healthy
@@ -87,7 +111,11 @@ ensure_template() {
     echo "FAIL: could not probe for template ${TEMPLATE_NAME} — fix the error above; a failed probe is not 'missing'" >&2
     return 1
   fi
-  [[ "$exists" = "true" ]] || build_template
+  if [[ "$exists" != "true" ]]; then
+    build_template
+    return
+  fi
+  migrate_template
 }
 
 # make_clone db — drop any stale clone, then copy the migrated template (a fast
