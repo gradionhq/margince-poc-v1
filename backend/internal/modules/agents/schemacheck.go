@@ -25,8 +25,8 @@ package agents
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
+	"unicode/utf8"
 )
 
 // ResultDefect reports the first way value fails schema, or "" when it keeps
@@ -54,14 +54,14 @@ func checkValue(schema *jsonSchema, value json.RawMessage, at string) string {
 	if schema == nil || schema.Type == "" {
 		return ""
 	}
-	// A JSON null satisfies nothing typed. It IS how an absent OPTIONAL member
-	// arrives when a producer spells it out rather than omitting it, so it is
-	// accepted for one — but checkObject refuses it for a required member
-	// BEFORE the walk gets here, because "the key is present" and "the member
-	// has a value" are different claims and only the second is what required
-	// means.
+	// null reaches here only where the schema said something is present: an
+	// array element, a map value, a required member. encoding/json would decode
+	// it into a zero of almost any Go type without complaint, so it has to be
+	// refused explicitly or a hole would satisfy every scalar rule below. The
+	// ONE legitimate null — an optional member spelled out rather than omitted —
+	// never gets this far; checkObject passes over it.
 	if isNull(value) {
-		return ""
+		return fmt.Sprintf("%s: declared %s, got null", pathOr(at), schema.Type)
 	}
 	switch schema.Type {
 	case schemaObject:
@@ -80,15 +80,28 @@ func checkValue(schema *jsonSchema, value json.RawMessage, at string) string {
 	return fmt.Sprintf("%s: the advertised schema names an unknown type %q", pathOr(at), schema.Type)
 }
 
-// checkObject holds the two promises an object schema makes: every required
-// member is present, and every member it describes has the shape it described.
-// A member the schema does NOT name passes — every schema here is open, which
-// is the claim "at least these".
+// checkObject holds what an object schema promises, in the three separate
+// claims it is made of: every required member has a value, every member the
+// schema DESCRIBES has the shape it described, and every member it does not
+// describe is admitted on whatever terms `additionalProperties` set.
 func checkObject(schema *jsonSchema, value json.RawMessage, at string) string {
 	var members map[string]json.RawMessage
 	if err := json.Unmarshal(value, &members); err != nil || members == nil {
 		return fmt.Sprintf("%s: declared an object, got %s", pathOr(at), summarize(value))
 	}
+	if defect := checkRequired(schema, members, at); defect != "" {
+		return defect
+	}
+	if defect := checkDeclaredMembers(schema, members, at); defect != "" {
+		return defect
+	}
+	return checkExtraMembers(schema, members, at)
+}
+
+// checkRequired: a required member is required to have a VALUE, not merely a
+// key. `null` there is the shape of a bug — a producer that built the field and
+// left it empty — and a nil Go slice arrives as exactly that.
+func checkRequired(schema *jsonSchema, members map[string]json.RawMessage, at string) string {
 	for _, name := range schema.Required {
 		raw, present := members[name]
 		if !present {
@@ -99,24 +112,53 @@ func checkObject(schema *jsonSchema, value json.RawMessage, at string) string {
 				pathOr(at), name)
 		}
 	}
+	return ""
+}
+
+// checkDeclaredMembers walks the members the schema names. An OPTIONAL one
+// spelled out as null is the single place a null is legitimate: it is how a
+// producer says "absent" without omitting the key.
+func checkDeclaredMembers(schema *jsonSchema, members map[string]json.RawMessage, at string) string {
+	required := make(map[string]bool, len(schema.Required))
+	for _, name := range schema.Required {
+		required[name] = true
+	}
 	for name, member := range schema.Properties {
 		raw, present := members[name]
-		if !present {
+		if !present || (!required[name] && isNull(raw)) {
 			continue
 		}
 		if defect := checkValue(member, raw, at+"."+name); defect != "" {
 			return defect
 		}
 	}
-	// A map: the schema describes its VALUES, and every member is one. The
-	// BOOLEAN arm says nothing this check enforces — `false` closes the object,
-	// which is a claim about a caller's input rather than about output this
-	// server produced, and the surface is open by design anyway.
-	if schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
-		for name, raw := range members {
-			if defect := checkValue(schema.AdditionalProperties.Schema, raw, at+"."+name); defect != "" {
-				return defect
-			}
+	return ""
+}
+
+// checkExtraMembers applies `additionalProperties` to the members `properties`
+// does NOT name — that is what "additional" means, and applying it to a
+// declared member would hold that member to two schemas at once.
+//
+// The BOOLEAN arm closes the object. A hand-written schema that closes itself
+// is making a promise this server should keep: a result carrying MORE than it
+// declared is the same defect as one carrying less, read from the other side.
+func checkExtraMembers(schema *jsonSchema, members map[string]json.RawMessage, at string) string {
+	if schema.AdditionalProperties == nil {
+		return ""
+	}
+	closed := schema.AdditionalProperties.Closed
+	if closed != nil && *closed {
+		return ""
+	}
+	for name, raw := range members {
+		if _, declared := schema.Properties[name]; declared {
+			continue
+		}
+		if closed != nil {
+			return fmt.Sprintf("%s: member %q is not declared, and the schema is closed", pathOr(at), name)
+		}
+		if defect := checkValue(schema.AdditionalProperties.Schema, raw, at+"."+name); defect != "" {
+			return defect
 		}
 	}
 	return ""
@@ -157,11 +199,15 @@ func isNull(value json.RawMessage) bool { return strings.TrimSpace(string(value)
 // this surface, and a caller told so that receives a fraction has been told
 // something false.
 func checkInteger(value json.RawMessage, at string) string {
-	var number float64
+	var number json.Number
 	if err := json.Unmarshal(value, &number); err != nil {
 		return fmt.Sprintf("%s: declared an integer, got %s", pathOr(at), summarize(value))
 	}
-	if number != math.Trunc(number) {
+	// json.Number keeps the literal, and Int64 parses it as written. Decoding
+	// into float64 and testing for a whole value would lose the distinction
+	// past 2^53 — a large fraction rounds to a whole number and would pass a
+	// gate meant to refuse it.
+	if _, err := number.Int64(); err != nil {
 		return fmt.Sprintf("%s: declared an integer, got %s", pathOr(at), summarize(value))
 	}
 	return ""
@@ -175,6 +221,9 @@ func pathOr(at string) string {
 	return "the result" + at
 }
 
+// summaryBytes bounds what a defect line quotes back.
+const summaryBytes = 32
+
 // summarize describes what was found without quoting it back at length: a result
 // is this server's own output, but it can carry captured text, and a defect line
 // goes to a log a person reads.
@@ -183,8 +232,15 @@ func summarize(value json.RawMessage) string {
 	switch {
 	case trimmed == "":
 		return "nothing"
-	case len(trimmed) <= 32:
+	case len(trimmed) <= summaryBytes:
 		return trimmed
 	}
-	return trimmed[:32] + "…"
+	// Cut on a RUNE boundary. The comment above says a result can carry captured
+	// text, and captured text is exactly where a multi-byte rune sits — a byte
+	// slice through one writes invalid UTF-8 into a line a person reads.
+	cut := trimmed[:summaryBytes]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "…"
 }

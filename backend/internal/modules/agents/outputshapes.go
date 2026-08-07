@@ -217,6 +217,16 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // result type this cannot describe would otherwise be advertised as something
 // looser than it is, which is the failure the exact schemas exist to end.
 func describeType(t reflect.Type) (*jsonSchema, error) {
+	// A POINTER is absence, which `required` already expresses — and it is
+	// unwrapped FIRST, before anything asks what the type renders as. A pointer
+	// to an id satisfies json.Marshaler through the value's method set, so a
+	// walk that asked first would describe *ids.UUID as a string of no format:
+	// idFormat marshals the type's zero value, and a nil pointer renders as
+	// null rather than as an id. The caller would then be told the member is a
+	// string and left to invent its shape.
+	if t.Kind() == reflect.Pointer {
+		return describeType(t.Elem())
+	}
 	// A type that renders itself is a string on the wire whatever its Go kind
 	// is, and the walk must not look inside it. json.RawMessage is the one
 	// exception and is handled next: it renders as whatever it holds.
@@ -230,10 +240,6 @@ func describeType(t reflect.Type) (*jsonSchema, error) {
 		return &jsonSchema{Type: schemaObject}, nil
 	}
 	switch t.Kind() {
-	case reflect.Pointer:
-		// A pointer is absence, which `required` already expresses; the shape is
-		// the same either way.
-		return describeType(t.Elem())
 	case reflect.String:
 		return &jsonSchema{Type: schemaString}, nil
 	case reflect.Bool:

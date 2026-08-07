@@ -34,22 +34,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// The tools NOT reached here, and why — because a suite that quietly covered
-// half the surface under a name claiming all of it would be the more dangerous
-// half of a gate.
+// WHY THIS RUNS AS A HUMAN, and what that buys. The confirm-first tier gates
+// AGENT principals: a 🟡 call from a passport is staged and answers with an
+// approval reference rather than a result, so an agent-driven sweep could only
+// ever reach the 🟢 half of the surface. A human principal is admitted by RBAC
+// and receives the result itself — which is the document these schemas describe,
+// and the same document an agent gets once a human has released the call. So the
+// sweep covers the confirm-first tools too.
 //
-// The 🟡 confirm-first tools (archive_record, merge_records, promote_lead,
-// disqualify_lead's sibling advance_project_phase, book_meeting, send_email,
-// send_message, enrich) do not RETURN a result to an agent at all: the gate
-// stages them and answers with an approval reference, so there is no document
-// to hold to a schema until a human has decided. Reaching their results means
-// driving the approval loop, which is the approvals suites' subject, not this
-// one's. advance_deal and draft_follow_ups_for need a stage move onto a closing
-// stage and a drafting seam respectively.
-//
-// What that leaves unproven is named rather than implied: those tools' declared
-// schemas are checked by derivation (the type IS the schema) and by the
-// encoder-agreement test in the agents package, but not against a live handler.
+// What it still cannot reach is named rather than implied: the tools whose
+// handler needs a seam this lane does not stand up — a live calendar
+// (book_meeting), an outbound mail or channel provider (send_email,
+// send_message), a crawl runner or model path (enrich), a drafting brain
+// (draft_follow_ups_for). Their declared schemas are checked by derivation and
+// by the encoder-agreement test in the agents package, but not against a live
+// handler.
 func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
@@ -71,6 +70,17 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 			pipeline.String()+`","stage_id":"`+open.String()+`"}}`)
 	activity := createThroughTheToolSurface(ctx, t, registry,
 		`{"record_type":"activity","fields":{"kind":"note","body":"to be relinked"}}`)
+	// Records the confirm-first sweep consumes, each its own so one tool's write
+	// cannot decide whether the next tool's call is even legal.
+	promotable := createThroughTheToolSurface(ctx, t, registry,
+		`{"record_type":"lead","fields":{"email":"promote@conformance.example","full_name":"Promo Table"}}`)
+	spare := createThroughTheToolSurface(ctx, t, registry,
+		`{"record_type":"person","fields":{"full_name":"To Be Archived"}}`)
+	duplicate := createThroughTheToolSurface(ctx, t, registry,
+		`{"record_type":"person","fields":{"full_name":"Schema Conformance (dup)"}}`)
+	project := createThroughTheToolSurface(ctx, t, registry,
+		`{"record_type":"project","fields":{"name":"Conformance project","organization_id":"`+
+			org.String()+`"}}`)
 
 	for _, call := range []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
@@ -104,6 +114,13 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 			`","fields":{"title":"Head of Conformance"}}`},
 		{"progress_deal", `{"deal_id":"` + deal.String() + `","to_stage_id":"` + open.String() +
 			`","note":"still open"}`},
+		{"advance_deal", `{"deal_id":"` + deal.String() + `","to_stage_id":"` + open.String() + `"}`},
+		// The confirm-first tools, reachable here because this runs as a human.
+		{"promote_lead", `{"lead_id":"` + promotable.String() + `","trigger":"human_qualify"}`},
+		{"archive_record", `{"record_type":"person","id":"` + spare.String() + `"}`},
+		{"merge_records", `{"record_type":"person","source_id":"` + duplicate.String() +
+			`","target_id":"` + person.String() + `"}`},
+		{"advance_project_phase", `{"project_id":"` + project.String() + `","to_phase":"pursuing"}`},
 	} {
 		t.Run(call.tool+" "+call.args, func(t *testing.T) {
 			spec, registered := registry.Spec(call.tool)

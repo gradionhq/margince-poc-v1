@@ -73,8 +73,11 @@ func TestOnlyTheDeclaredExceptionsAdvertiseABareObject(t *testing.T) {
 			continue
 		}
 		var declared struct {
-			Type       string          `json:"type"`
-			Properties json.RawMessage `json:"properties"`
+			Type string `json:"type"`
+			// Decoded as a MAP rather than raw bytes: `"properties": {}` is a
+			// present member describing nothing, and a length check on the raw
+			// bytes would read it as a shape.
+			Properties map[string]json.RawMessage `json:"properties"`
 		}
 		if err := json.Unmarshal(spec.OutputSchema, &declared); err != nil {
 			t.Errorf("%s: output schema is not valid JSON: %v", spec.Name, err)

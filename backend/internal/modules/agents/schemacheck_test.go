@@ -202,3 +202,56 @@ func TestAFractionalValueDoesNotSatisfyADeclaredInteger(t *testing.T) {
 		t.Errorf("a whole number was reported as %q against a declared integer", defect)
 	}
 }
+
+// The holes a null can hide in. A required member was the obvious one; an array
+// element and a map value carry the same claim — the schema said what is in
+// there, and null is not one of those things.
+func TestNullIsAHoleEverywhereButAnOptionalMember(t *testing.T) {
+	for name, tc := range map[string]struct{ schema, value string }{
+		"an element of a declared array": {
+			`{"type":"object","properties":{"deals":{"type":"array","items":{"type":"object"}}}}`,
+			`{"deals":[null]}`,
+		},
+		"a value of a declared map": {
+			`{"type":"object","additionalProperties":{"type":"string"}}`,
+			`{"anything":null}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if defect := ResultDefect(json.RawMessage(tc.schema), json.RawMessage(tc.value)); defect == "" {
+				t.Errorf("%s was accepted as %s", name, tc.value)
+			}
+		})
+	}
+	// And the one place it belongs: an optional member a producer spelled out.
+	optional := `{"type":"object","properties":{"note_activity_id":{"type":"string"}},"required":[]}`
+	if defect := ResultDefect(json.RawMessage(optional), json.RawMessage(`{"note_activity_id":null}`)); defect != "" {
+		t.Errorf("an optional member spelled as null was reported as %q", defect)
+	}
+}
+
+// A schema that closes itself is making a promise, and a result carrying more
+// than it declared breaks it from the other side. `extensions/yogi` is the
+// surface's own closed schema, so this is not hypothetical.
+func TestAClosedSchemaRefusesAMemberItDidNotDeclare(t *testing.T) {
+	closed := `{"type":"object","properties":{"quote":{"type":"string"}},"required":["quote"],"additionalProperties":false}`
+	if defect := ResultDefect(json.RawMessage(closed), json.RawMessage(`{"quote":"a","extra":1}`)); defect == "" {
+		t.Error("a closed schema accepted a member it never declared")
+	}
+	if defect := ResultDefect(json.RawMessage(closed), json.RawMessage(`{"quote":"a"}`)); defect != "" {
+		t.Errorf("a result matching a closed schema exactly was reported as %q", defect)
+	}
+}
+
+// An integer past float64's reach: 9007199254740993 is not representable as a
+// float, and a check that decoded into one would see a whole number either way.
+// The fractional literal beside it is what must be refused.
+func TestALargeFractionDoesNotSurviveTheIntegerCheck(t *testing.T) {
+	schema := `{"type":"object","properties":{"n":{"type":"integer"}}}`
+	if defect := ResultDefect(json.RawMessage(schema), json.RawMessage(`{"n":9007199254740993.5}`)); defect == "" {
+		t.Error("a fraction past float64's precision was accepted as an integer")
+	}
+	if defect := ResultDefect(json.RawMessage(schema), json.RawMessage(`{"n":9007199254740993}`)); defect != "" {
+		t.Errorf("a large whole number was reported as %q", defect)
+	}
+}

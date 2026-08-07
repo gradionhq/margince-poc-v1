@@ -125,7 +125,6 @@ func TestEveryResultTypeSatisfiesTheSchemaDerivedFromIt(t *testing.T) {
 	currency := "EUR"
 	id := ids.NewV7()
 	record := wireRecord{RecordType: "deal", ID: id, Fields: json.RawMessage(`{"name":"Acme"}`), Version: 3}
-	evidence := []ContextEvidence{{Source: "deal.last_activity_at", Snippet: "quiet since June"}}
 
 	for name, value := range map[string]any{
 		"SearchRecordsResult":  SearchRecordsResult{Records: []wireRecord{record}, NextCursor: "cursor"},
@@ -168,7 +167,6 @@ func TestEveryResultTypeSatisfiesTheSchemaDerivedFromIt(t *testing.T) {
 			}
 		})
 	}
-	_ = evidence
 }
 
 // schemaOfValue derives the schema for a value's own type. schemaFor is generic
