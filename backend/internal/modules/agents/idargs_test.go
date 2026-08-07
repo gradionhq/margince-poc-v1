@@ -248,7 +248,7 @@ func uuidProps(t *testing.T, name string, inputSchema json.RawMessage) (all, req
 
 // malformedCall renders a tools/call putting a non-canonical UUID in prop and
 // nothing else. Only the offending property is set: the refusal under test has
-// to happen while the arguments decode, before any other validation.
+// to happen while the arguments decode, once the call is otherwise complete.
 func malformedCall(t *testing.T, spec mcp.ToolSpec, prop string) json.RawMessage {
 	t.Helper()
 	const notAUUID = `"not-a-uuid"`

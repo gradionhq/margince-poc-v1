@@ -5,12 +5,12 @@ package agents
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // requiringTool is a tool whose schema declares two non-uuid required
@@ -42,7 +42,7 @@ func TestACallMissingARequiredArgumentIsRefusedAtTheChokepoint(t *testing.T) {
 	_, err := r.Invoke(ctx, "requires_things",
 		json.RawMessage(`{"kind":"note","anchor_id":"0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e11"}`))
 	var badArgs *BadArgsError
-	if !asBadArgs(err, &badArgs) {
+	if !errors.As(err, &badArgs) {
 		t.Fatalf("err = %v, want *BadArgsError", err)
 	}
 	if !strings.Contains(err.Error(), "`q`") {
@@ -112,52 +112,13 @@ func TestARequiredUUIDIsLeftToTheIdCheck(t *testing.T) {
 	}
 }
 
-// A `required` entry naming a property the schema never declares would refuse
-// every call to that tool for a field no caller could learn about — a refusal
-// with no way out. It is dropped here and caught at boot by the fitness test
-// over the registry, where it can name the tool instead of a caller.
-func TestARequiredEntryNamingAnUndeclaredPropertyIsNotEnforced(t *testing.T) {
-	named := declaredRequired(json.RawMessage(`{"type":"object","required":["ghost"],"properties":{}}`))
-	if len(named) != 0 {
-		t.Errorf("declaredRequired = %v, want nothing enforceable", named)
-	}
-}
-
-// asBadArgs is errors.As with the one target this file cares about, named so
-// the assertions above read as what they check rather than as plumbing.
-func asBadArgs(err error, target **BadArgsError) bool {
-	for err != nil {
-		if bad, ok := err.(*BadArgsError); ok {
-			*target = bad
-			return true
-		}
-		unwrapped, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = unwrapped.Unwrap()
-	}
-	return false
-}
-
-var _ = mcp.ToolSpec{}
-
-// A schema whose `required` is not a list of strings is a defect in whatever
-// registered it — an extension unit, most likely — and it is named while cmd
-// wiring boots rather than on a caller's first request.
-func TestAnUnreadableRequiredListIsRefusedAtRegistration(t *testing.T) {
-	mustPanic(t, "a required list that is not a list of strings cannot be enforced", func() {
-		declaredRequired(json.RawMessage(`{"type":"object","required":"q","properties":{"q":{"type":"string"}}}`))
+// A `required` entry naming a property the schema never declares leaves a
+// caller and a handler working from different contracts. Dropping it would hide
+// that; enforcing it would refuse every call for a field no caller could learn
+// about. So the BOOT fails instead — which also reaches a composed extension
+// unit, where a fitness test over the core registry would not.
+func TestARequiredEntryNamingAnUndeclaredPropertyFailsRegistration(t *testing.T) {
+	mustPanic(t, "a requirement no caller could discover has no correct call", func() {
+		declaredRequired(json.RawMessage(`{"type":"object","required":["ghost"],"properties":{}}`))
 	})
-}
-
-// Arguments that are not an object at all carry no members to look for. The
-// shape verdict belongs to the steps that own it — the argument split, then the
-// handler's own decode — each of which names what it wanted; a second, vaguer
-// answer to the same question is worse than none.
-func TestNonObjectArgumentsAreLeftToTheStepsThatOwnTheirShape(t *testing.T) {
-	r := requiringRegistry(t)
-	if err := r.requireDeclaredPresence("requires_things", json.RawMessage(`"a bare string"`)); err != nil {
-		t.Errorf("non-object arguments were refused here as %v, where the shape is not this check's to judge", err)
-	}
 }

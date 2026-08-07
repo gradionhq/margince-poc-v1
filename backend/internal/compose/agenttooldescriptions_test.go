@@ -296,27 +296,3 @@ func toolsListDescriptions(t *testing.T, registry *agents.Registry) map[string]s
 	}
 	return out
 }
-
-// A `required` entry naming a property the schema never declares would refuse
-// every call to that tool for a field no caller could learn about — a refusal
-// with no way out. The registry drops such an entry rather than enforcing it,
-// which is the safe half; this is the other half, catching the defect itself
-// where it can name the tool.
-func TestNoToolRequiresAnArgumentItsSchemaDoesNotDeclare(t *testing.T) {
-	for _, spec := range servedSurface(t).Specs() {
-		var schema struct {
-			Required   []string                   `json:"required"`
-			Properties map[string]json.RawMessage `json:"properties"`
-		}
-		if err := json.Unmarshal(spec.InputSchema, &schema); err != nil {
-			t.Errorf("%s: input schema is not readable: %v", spec.Name, err)
-			continue
-		}
-		for _, name := range schema.Required {
-			if _, declared := schema.Properties[name]; !declared {
-				t.Errorf("%s requires %q, which its own properties never declare — a caller reading "+
-					"tools/list has no way to learn the argument exists", spec.Name, name)
-			}
-		}
-	}
-}

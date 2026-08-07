@@ -29,14 +29,16 @@ import (
 	"strings"
 )
 
-// declaredRequired reads a schema's `required` list once, at registration,
-// keeping only the names the schema also DECLARES as properties.
+// declaredRequired reads a schema's `required` list once, at registration.
 //
-// The intersection matters. A `required` entry naming an undeclared property is
-// a schema defect, and enforcing it would refuse every call to that tool for a
-// field no caller could ever learn about — a refusal with no way out. The gate
-// that catches the defect itself is a fitness test over the registry, where it
-// can name the tool at boot instead of at a caller.
+// A `required` entry naming an UNDECLARED property is refused here rather than
+// dropped. Dropping it would leave the surface advertising a requirement the
+// registry ignores, so a caller and a handler would be working from different
+// contracts with nothing saying so; enforcing it would refuse every call to
+// that tool for a field no caller could ever learn about. Neither is a state to
+// serve, and the schema is a literal in whatever registered the tool — so this
+// fails the BOOT, which is the only moment it can still be fixed, and covers a
+// composed extension unit exactly as it covers a core tool.
 //
 // The id-shaped arguments are left to idargs.go. Both would otherwise refuse the
 // same missing argument, and the caller would be told about it twice, in two
@@ -60,7 +62,12 @@ func declaredRequired(inputSchema json.RawMessage) []string {
 	names := make([]string, 0, len(schema.Required))
 	for _, name := range schema.Required {
 		prop, declared := schema.Properties[name]
-		if !declared || (prop.Type == "string" && prop.Format == "uuid") {
+		if !declared {
+			//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+			panic(fmt.Sprintf("crmagents: input schema requires %q, which its own properties never declare — "+
+				"a caller reading tools/list has no way to learn the argument exists", name))
+		}
+		if prop.Type == "string" && prop.Format == "uuid" {
 			continue
 		}
 		names = append(names, name)
