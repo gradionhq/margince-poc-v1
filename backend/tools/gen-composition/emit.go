@@ -73,6 +73,27 @@ const extensionsGenJobsDoc = `
 func Jobs() []extension.JobDeclaration {
 `
 
+// extensionsGenDurationHelper is emitted beside the job literals, and only when
+// there are any. A duration has no Go literal a reviewer can read — the value
+// IS a nanosecond count — so emitting 21600000000000 would put the one number
+// in this file nobody can check by eye into the field an operator most wants to
+// check. The contract's own spelling goes in instead, parsed back at the one
+// place it is used.
+//
+// It panics on a malformed string, which cannot happen: the generator parsed
+// the same string through the same function before emitting it. Same posture as
+// mustBe below, and for the same reason — a generated invariant that is somehow
+// false must stop the boot, not be worked around.
+const extensionsGenDurationHelper = `
+func mustDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		panic("composition: generated duration " + s + " does not parse: " + err.Error())
+	}
+	return d
+}
+`
+
 // frontendGenHeader is shared by the committed vanilla stub and every composed
 // output — the vanilla body below it must stay byte-identical to
 // frontend/src/composition/extensions.gen.ts (held by `-verify` via
@@ -251,7 +272,13 @@ func extensionsGen(units []extensionUnit, verbs []declaredVerb, jobDecls []exten
 	var b strings.Builder
 	b.WriteString(extensionsGenHeader)
 	if anySchema(verbs) {
-		b.WriteString("\t\"encoding/json\"\n\n")
+		b.WriteString("\t\"encoding/json\"\n")
+	}
+	if len(jobDecls) > 0 {
+		b.WriteString("\t\"time\"\n")
+	}
+	if anySchema(verbs) || len(jobDecls) > 0 {
+		b.WriteString("\n")
 	}
 	b.WriteString(extensionsGenSurfaceImport)
 	if len(units) > 0 {
@@ -279,6 +306,9 @@ func extensionsGen(units []extensionUnit, verbs []declaredVerb, jobDecls []exten
 	writeVerbLiterals(&b, verbs)
 	b.WriteString(extensionsGenJobsDoc)
 	writeJobLiterals(&b, jobDecls)
+	if len(jobDecls) > 0 {
+		b.WriteString(extensionsGenDurationHelper)
+	}
 	b.WriteString(`
 // mustBe pins a unit to its extensions/<name> directory: a declaration
 // whose Name disagrees with the directory it shipped in is a wiring
@@ -405,11 +435,9 @@ func writeSchemaLiteral(b *strings.Builder, field string, raw json.RawMessage) {
 
 // writeJobLiterals emits the composed job set as a Go slice literal.
 //
-// A duration is written as the integer nanosecond count it IS, not as a
-// `6 * time.Hour` expression: the emitted file would then have to import time,
-// and the value a reviewer reads would be an expression whose meaning depends
-// on the emitter and Go's parser agreeing about the same string twice. The
-// declaration's own spelling lives in the fragment, where a reviewer reads it.
+// Durations go through mustDuration carrying the contract's own spelling, so
+// the emitted file reads `mustDuration("6h0m0s")` rather than a nanosecond
+// count. See extensionsGenDurationHelper.
 //
 // Fields are written unconditionally rather than omitted when zero, for the
 // reason the verb literals are: the emitted source is what a reviewer reads to
@@ -426,9 +454,9 @@ func writeJobLiterals(b *strings.Builder, decls []extension.JobDeclaration) {
 		fmt.Fprintf(b, "\t\t\tUnit:              %q,\n", string(d.Unit))
 		fmt.Fprintf(b, "\t\t\tJob:               %q,\n", d.Job)
 		fmt.Fprintf(b, "\t\t\tQueue:             %q,\n", d.Queue)
-		fmt.Fprintf(b, "\t\t\tCadence:           %d,\n", int64(d.Cadence))
-		fmt.Fprintf(b, "\t\t\tDispatcherTimeout: %d,\n", int64(d.DispatcherTimeout))
-		fmt.Fprintf(b, "\t\t\tTimeout:           %d,\n", int64(d.Timeout))
+		fmt.Fprintf(b, "\t\t\tCadence:           mustDuration(%q),\n", d.Cadence.String())
+		fmt.Fprintf(b, "\t\t\tDispatcherTimeout: mustDuration(%q),\n", d.DispatcherTimeout.String())
+		fmt.Fprintf(b, "\t\t\tTimeout:           mustDuration(%q),\n", d.Timeout.String())
 		fmt.Fprintf(b, "\t\t\tMaxAttempts:       %d,\n", d.MaxAttempts)
 		fmt.Fprintf(b, "\t\t\tTier:              %q,\n", string(d.Tier))
 		fmt.Fprintf(b, "\t\t\tRequestedScope:    %q,\n", string(d.RequestedScope))

@@ -12,10 +12,12 @@ package compose
 // execution, and the two shapes this seam must never run are refused at boot.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -78,7 +80,14 @@ func composeJob(t *testing.T, decl extension.JobDeclaration, handle extension.Jo
 // in flight are the RunOnStart ones.
 func startRunner(t *testing.T, pool *pgxpool.Pool) (*jobs.Runner, <-chan *river.Event) {
 	t.Helper()
-	runner, err := NewJobRunner(pool, slog.New(slog.DiscardHandler), JobRunnerConfig{
+	return startRunnerLogging(t, pool, slog.New(slog.DiscardHandler))
+}
+
+// startRunnerLogging is startRunner with the process logger under the test's
+// control, for the one assertion that is ABOUT what was logged.
+func startRunnerLogging(t *testing.T, pool *pgxpool.Pool, log *slog.Logger) (*jobs.Runner, <-chan *river.Event) {
+	t.Helper()
+	runner, err := NewJobRunner(pool, log, JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -169,15 +178,7 @@ func TestDispatcherEnqueuesOneChildPerWorkspace(t *testing.T) {
 	live := seedWorkspaces(t, e, 2)
 
 	decl := testJobDecl()
-	var mu sync.Mutex
-	seen := map[ids.UUID]int{}
-	composeJob(t, decl, func(ctx context.Context, _ extension.Runtime) error {
-		ws, _ := principal.WorkspaceID(ctx)
-		mu.Lock()
-		defer mu.Unlock()
-		seen[ws]++
-		return nil
-	})
+	composeJob(t, decl, func(context.Context, extension.Runtime) error { return nil })
 	startRunner(t, e.Pool)
 
 	if got := awaitRows(t, e.Pool, decl.ChildKind(), len(live)); got != len(live) {
@@ -257,8 +258,7 @@ func TestHandlerSeesAPinnedWorkspace(t *testing.T) {
 		pinned[ws] = true
 		return nil
 	})
-	runner, sub := startRunner(t, e.Pool)
-	_ = runner
+	_, sub := startRunner(t, e.Pool)
 	awaitKindCompleted(mustDeadline(t), t, sub, decl.ChildKind())
 	// Every tick of the fan-out, not just the first: one pinned handler and one
 	// unpinned would still satisfy an any-of assertion.
@@ -293,11 +293,11 @@ func TestPanickingTickFailsOneAttemptNotTheWorker(t *testing.T) {
 	composeJob(t, decl, func(context.Context, extension.Runtime) error {
 		panic("the unit's tick exploded")
 	})
-	runner, sub := startRunner(t, e.Pool)
+	logged := &syncBuffer{}
+	runner, sub := startRunnerLogging(t, e.Pool, slog.New(slog.NewJSONHandler(logged, nil)))
 
 	// The row records the failure: River never marks a panicking attempt
-	// completed, and the recovery in tick() names the unit rather than letting
-	// an anonymous panic surface from a shared args type.
+	// completed.
 	waitUntil(t, func() bool {
 		var errs int
 		if err := e.Pool.QueryRow(context.Background(),
@@ -307,6 +307,34 @@ func TestPanickingTickFailsOneAttemptNotTheWorker(t *testing.T) {
 		}
 		return errs > 0
 	}, "the panicking tick to be recorded as a failed attempt")
+
+	// The stored failure is deliberately NOT the diagnosis: river_job.errors is
+	// fleet-visible with no RLS, so jobs.FaultContext replaces an unclassified
+	// cause with a fixed sentence, and a third-party unit's panic value is
+	// exactly the text that must not land there.
+	var stored string
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT errors[1] ->> 'error' FROM river_job WHERE kind = $1 LIMIT 1`,
+		decl.ChildKind()).Scan(&stored); err != nil {
+		t.Fatalf("reading the stored failure: %v", err)
+	}
+	if strings.Contains(stored, "exploded") {
+		t.Fatalf("a unit's panic value reached the fleet-visible errors column:\n%s", stored)
+	}
+
+	// The ATTRIBUTION is in the log, and it is the only thing tick()'s own
+	// recover buys over River's — which is what makes this the line that
+	// separates testing this seam from testing River. River recovers a
+	// panicking worker whatever we do, and `defer rt.release()` runs during
+	// unwinding whether or not anything recovers, so everything asserted above
+	// would hold against an implementation with no recover at all. What would
+	// not hold is a log line naming WHOSE tick panicked: one args type serves
+	// every composed job in the process, so River's own report names a shared
+	// Go type and a kind string. Delete the recover in tick() and this goes red.
+	waitUntil(t, func() bool {
+		out := logged.String()
+		return strings.Contains(out, `"unit":"jobtest"`) && strings.Contains(out, `"job":"refresh"`)
+	}, "the panic to be logged against the unit and the job that raised it")
 
 	// And the WORKER is still working. A close-date sweep enqueued after the
 	// panic completes, which it could not if the panic had taken the runner
@@ -544,4 +572,148 @@ func mustDeadline(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+// TestTheChildUniquenessKeyIsTheWorkspaceAlone is the other half of the ByArgs
+// story, and the half a naive reading gets wrong.
+//
+// ByArgs hashes the WHOLE encoded args unless some field carries
+// `river:"unique"`, and River adds the kind to that hash itself. Untagged, the
+// key would be (kind, workspace, principal_id) — so a workspace whose recorded
+// agent seat CHANGES between ticks gets a second concurrent child while the
+// first is still in flight, and the overlap bound TestOverlappingTicksAreBounded
+// asserts is not a bound at all. The reseat is not hypothetical: it is the
+// deactivate-and-replace case deriveAuthority exists for.
+//
+// Deliberately not folded into TestOverlappingTicksAreBounded: that test reuses
+// one args value for both enqueues, which cannot see this whatever the tag says.
+func TestTheChildUniquenessKeyIsTheWorkspaceAlone(t *testing.T) {
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
+	seedWorkspaces(t, e, 0)
+	decl := testJobDecl()
+	composeJob(t, decl, func(context.Context, extension.Runtime) error { return nil })
+
+	inserter, err := jobs.NewInserter(e.Pool, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewInserter: %v", err)
+	}
+	ctx := context.Background()
+	opts := workspaceSweepOpts(decl.ChildKind())
+
+	// The SAME workspace, a DIFFERENT principal — the reseat. One tick's child
+	// is still in flight when the next tick reads a new agent seat.
+	first := extJobWorkspaceArgs{JobKind: decl.ChildKind(), Workspace: e.WS, Principal: ids.NewV7()}
+	reseated := extJobWorkspaceArgs{JobKind: decl.ChildKind(), Workspace: e.WS, Principal: ids.NewV7()}
+	if first.Principal == reseated.Principal {
+		t.Fatal("the two principals are equal, so this test would pass with no tag at all")
+	}
+	for _, args := range []extJobWorkspaceArgs{first, reseated} {
+		if err := inserter.Enqueue(ctx, args, opts); err != nil {
+			t.Fatalf("enqueueing %s: %v", args.Principal, err)
+		}
+	}
+	if got := countJobRows(t, e.Pool, decl.ChildKind()); got != 1 {
+		t.Fatalf("child rows for one workspace across a reseat: got %d, want 1 — the uniqueness key is reading "+
+			"principal_id, so a changed agent seat starts a second concurrent pass for that tenant", got)
+	}
+
+	// And the tag narrows the key without collapsing the fan-out: a different
+	// WORKSPACE still gets its own row.
+	other := extJobWorkspaceArgs{JobKind: decl.ChildKind(), Workspace: ids.NewV7(), Principal: first.Principal}
+	if err := inserter.Enqueue(ctx, other, opts); err != nil {
+		t.Fatalf("enqueueing a second workspace's child: %v", err)
+	}
+	if got := countJobRows(t, e.Pool, decl.ChildKind()); got != 2 {
+		t.Fatalf("child rows across two workspaces: got %d, want 2 — the tag narrowed the key too far", got)
+	}
+}
+
+// TestAPrincipalFromAnotherTenantDoesNotResolve is the arm deriveAuthority's
+// doc comment leans on and that every other stale-principal case would pass
+// without: the read is workspace-pinned, so a principal id belonging to a
+// DIFFERENT tenant is not found here at all.
+//
+// It matters because the alternative — comparing workspace_id in the query —
+// is a rule someone has to remember to write, and this one is the tenant policy
+// the whole store already rides. The seat is deliberately live and valid in its
+// own workspace, so the refusal can only come from the pin.
+func TestAPrincipalFromAnotherTenantDoesNotResolve(t *testing.T) {
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
+	other := ids.NewV7()
+	if _, err := integration.OwnerConn(t).Exec(context.Background(),
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Other', 'other', 'EUR')`, other); err != nil {
+		t.Fatalf("seeding the other workspace: %v", err)
+	}
+	foreign := seedAgentSeat(t, other)
+
+	decl := testJobDecl()
+	worker := &extJobWorkspaceWorker{
+		pool: e.Pool, decl: decl, log: slog.New(slog.DiscardHandler),
+		handle: func(context.Context, extension.Runtime) error {
+			t.Error("the tick ran under another tenant's principal")
+			return nil
+		},
+	}
+	// The seat IS live and IS derivable — in its own workspace. Proving that
+	// first is what makes the refusal below about the pin rather than about the
+	// row's state.
+	if _, err := worker.deriveAuthority(principal.WithWorkspaceID(context.Background(), other),
+		extJobWorkspaceArgs{JobKind: decl.ChildKind(), Workspace: other, Principal: foreign}); err != nil {
+		t.Fatalf("the foreign seat does not derive in its OWN workspace: %v", err)
+	}
+
+	err := worker.Work(context.Background(), &river.Job[extJobWorkspaceArgs]{
+		Args: extJobWorkspaceArgs{JobKind: decl.ChildKind(), Workspace: e.WS, Principal: foreign},
+	})
+	if !errors.Is(err, errStaleJobPrincipal) {
+		t.Fatalf("a principal from another tenant gave %v, want the stale-principal refusal", err)
+	}
+}
+
+// TestAHumanSeatIsNotAcceptedAsAJobPrincipal: deriveAuthority mints a
+// PrincipalAgent, so the row it reads has to still BE an agent seat. Only the
+// dispatcher writes the field today, which is why this is not reachable in
+// production — but the function's premise is that the enqueue-time record is
+// not trusted, and "the only writer is careful" is a property of today's
+// callers rather than of the row.
+func TestAHumanSeatIsNotAcceptedAsAJobPrincipal(t *testing.T) {
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
+	decl := testJobDecl()
+	worker := &extJobWorkspaceWorker{
+		pool: e.Pool, decl: decl, log: slog.New(slog.DiscardHandler),
+		handle: func(context.Context, extension.Runtime) error {
+			t.Error("the tick ran as an agent principal derived from a human seat")
+			return nil
+		},
+	}
+	// e.Rep1 is the fixture's ordinary human: live, active, and not an agent.
+	err := worker.Work(context.Background(), &river.Job[extJobWorkspaceArgs]{
+		Args: extJobWorkspaceArgs{JobKind: decl.ChildKind(), Workspace: e.WS, Principal: e.Rep1},
+	})
+	if !errors.Is(err, errStaleJobPrincipal) {
+		t.Fatalf("a human seat gave %v, want the stale-principal refusal", err)
+	}
+}
+
+// syncBuffer is a writer several River goroutines log into at once. slog gives
+// a handler no synchronisation of its own beyond the one write call, and
+// bytes.Buffer is not safe for concurrent use.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

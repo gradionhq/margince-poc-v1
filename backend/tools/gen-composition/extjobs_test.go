@@ -200,3 +200,51 @@ func TestExtensionJobsAttributesAKindToTheLongestOwnedNamespace(t *testing.T) {
 		t.Fatalf("got %+v, want the kind attributed to a-b", decls)
 	}
 }
+
+// TestTheEmittedJobLiteralsAreCanonicalAndReadable covers the emitter arm no
+// committed unit reaches yet: the vanilla tree declares no jobs, so without this
+// the `time` import, the mustDuration helper and the literals themselves are
+// only exercised the first time somebody adds a job — at which point a
+// formatting slip fails the whole composition rather than this test.
+func TestTheEmittedJobLiteralsAreCanonicalAndReadable(t *testing.T) {
+	decls, err := extensionJobs(demoUnits(), jobsContract(wellFormedPair))
+	if err != nil {
+		t.Fatalf("extensionJobs: %v", err)
+	}
+	src := extensionsGen([]extensionUnit{{Name: "demo", ModulePath: "example.test/ext/demo"}}, nil, decls)
+	if _, err := canonicalGoSource("extensions_gen.go", src); err != nil {
+		t.Fatalf("the emitted composition is not canonical gofmt: %v\n%s", err, src)
+	}
+	for _, want := range []string{
+		`"time"`,
+		"func Jobs() []extension.JobDeclaration {",
+		`Unit:              "demo",`,
+		`Job:               "refresh",`,
+		// The point of the helper: a reviewer reads the contract's own
+		// spelling, not 21600000000000.
+		`Cadence:           mustDuration("6h0m0s"),`,
+		`DispatcherTimeout: mustDuration("1m0s"),`,
+		`Timeout:           mustDuration("5m0s"),`,
+		`MaxAttempts:       3,`,
+		"func mustDuration(s string) time.Duration {",
+	} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("the emitted composition misses %s:\n%s", want, src)
+		}
+	}
+	if strings.Contains(string(src), "21600000000000") {
+		t.Errorf("a raw nanosecond count reached the emitted composition:\n%s", src)
+	}
+}
+
+// TestTheVanillaCompositionImportsNoTime: the helper and its import are emitted
+// only where there are jobs, so the committed stub — which is compared byte for
+// byte against the empty-tree output — stays what it is.
+func TestTheVanillaCompositionImportsNoTime(t *testing.T) {
+	src := string(extensionsGen(nil, nil, nil))
+	for _, unwanted := range []string{`"time"`, "mustDuration"} {
+		if strings.Contains(src, unwanted) {
+			t.Errorf("the vanilla composition carries %s:\n%s", unwanted, src)
+		}
+	}
+}

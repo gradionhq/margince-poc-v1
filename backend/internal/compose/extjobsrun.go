@@ -49,11 +49,23 @@ func (a extJobDispatcherArgs) Kind() string { return a.JobKind }
 func (extJobDispatcherArgs) FleetWide() {}
 
 // extJobWorkspaceArgs is one workspace's tick of one composed job.
+//
+// The `river:"unique"` tag on Workspace is what makes the overlap bound mean
+// what it says. ByArgs uniqueness hashes the WHOLE encoded args unless some
+// field is tagged, and River adds the kind to that hash itself — so untagged,
+// the key would be (kind, workspace, principal), and a workspace whose agent
+// seat changed between ticks would get a SECOND concurrent child. That is
+// exactly the deactivate-and-reseat case this seam is otherwise careful about,
+// so the one field that identifies the unit of work is tagged and the two that
+// do not are left out: JobKind because River already keys on the kind, and
+// Principal because it is provenance the tick re-derives anyway. Same shape and
+// same reason as FxRateRefreshArgs, where RequestedBy is outside the hash.
 type extJobWorkspaceArgs struct {
 	JobKind string `json:"job_kind"`
-	// Workspace is the tenant this tick is for. The runner binds it before the
+	// Workspace is the tenant this tick is for, and the ONLY thing the
+	// uniqueness hash reads out of these args. The runner binds it before the
 	// handler is entered, so a unit's tick can never see a global scope.
-	Workspace ids.UUID `json:"workspace_id"`
+	Workspace ids.UUID `json:"workspace_id" river:"unique"`
 	// Principal is a REFERENCE to the app_user the dispatcher recorded as this
 	// tick's initiator — an id and nothing else. What that principal may do is
 	// deliberately NOT in the row: it is re-derived at execution (see
@@ -89,10 +101,26 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 	// The actor is resolved BEFORE the insert, per workspace, inside that
 	// workspace's own GUC — the sanctioned shape for a fleet pass that needs
 	// tenant rows: enumerate the workspace table (which carries no tenant
-	// scope), then enter each tenant to read anything of theirs. It costs one
-	// round trip per workspace, which is the price of app_user being
-	// RLS-scoped; a single fleet-wide read of it would have to be rls-exempt,
-	// and a job seam is not a place to widen that list.
+	// scope), then enter each tenant to read anything of theirs. app_user is
+	// RLS-scoped, so a single fleet-wide read of it would need a new rls-exempt
+	// site, and a job seam is not a place to widen that list.
+	//
+	// It costs one round trip per live workspace, serially, inside the
+	// dispatcher's DECLARED wall clock — so that number is a fleet-size
+	// decision the unit makes in its fragment, not a default it inherits. Said
+	// here rather than hidden because it is the one part of this fan-out whose
+	// cost grows with the installation.
+	//
+	// A read that FAILS aborts the whole dispatch, and that is not in tension
+	// with the totality argument on extensionJobActor below — the two answer
+	// different questions. "No seat" is a FACT about the tenant, and the tenant
+	// still gets a row so the fact surfaces as a failed child rather than as an
+	// absence. A failed read is not a fact about the tenant at all; it is a
+	// database fault, and continuing past it would enqueue that workspace with
+	// a zero principal, which is indistinguishable in the row from a tenant
+	// that genuinely has no seat. Aborting hands the dispatcher's own retry a
+	// clean slate, which is the same argument dispatchWith makes for its atomic
+	// insert.
 	actors := make(map[ids.UUID]ids.UUID, len(workspaces))
 	for _, ws := range workspaces {
 		actor, err := extensionJobActor(ctx, w.pool, ws)
@@ -191,9 +219,15 @@ func (w *extJobWorkspaceWorker) deriveAuthority(ctx context.Context, args extJob
 	}
 	var seat string
 	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
+		// is_agent is re-checked, not assumed. Only the dispatcher writes this
+		// field today, so nothing live can reach here with a human's id — but
+		// the whole premise of this function is that the enqueue-time record is
+		// not trusted, and "the only writer is careful" is a property of today's
+		// callers rather than of the row. A human seat minted as
+		// PrincipalAgent below would be an agent principal nobody granted.
 		return tx.QueryRow(ctx,
 			`SELECT seat_type FROM app_user
-			  WHERE id = $1 AND status = 'active' AND archived_at IS NULL`, args.Principal).Scan(&seat)
+			  WHERE id = $1 AND is_agent AND status = 'active' AND archived_at IS NULL`, args.Principal).Scan(&seat)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return principal.Principal{}, fmt.Errorf("%w (principal %s)", errStaleJobPrincipal, args.Principal)
@@ -218,13 +252,26 @@ func (w *extJobWorkspaceWorker) deriveAuthority(ctx context.Context, args extJob
 // releases it — the job seam's copy of extensionTool.Handle, and for the same
 // reason: nothing an extension can reach exists until this line runs.
 //
-// The panic recovery is HERE rather than left to River's. River does recover a
-// panicking worker and fails the attempt, which is the behaviour that matters —
-// one attempt dies, the runner does not. What recovering here buys is the two
-// things River's cannot: the released Runtime is guaranteed (the defer below
-// runs before the stack unwinds past this frame), and the failure names the
-// unit and the job rather than reporting an anonymous panic from inside a
-// shared args type that serves every composed job in the process.
+// The panic recovery is HERE rather than left to River's, and it does NOT buy
+// the things it looks like it buys. River already recovers a panicking worker
+// and fails the attempt — one attempt dies, the runner does not — and
+// `defer rt.release()` already runs during panic unwinding whether or not
+// anything recovers, so this frame guarantees neither.
+//
+// It buys two things River cannot, and both were confirmed by deleting it:
+//
+//   - ATTRIBUTION. One args type serves every composed job in the process, so
+//     River's report names a shared Go type and a kind string and says nothing
+//     about whose code ran. The slog line below names the unit, the job and the
+//     kind. It is the LOG rather than the row because river_job.errors is
+//     fleet-visible with no RLS, so jobs.FaultContext deliberately replaces an
+//     unclassified cause with a fixed sentence before it is stored — the
+//     diagnosis belongs where FaultContext already sends it.
+//   - CONTAINMENT of the panic value. River's own recovery does not go through
+//     FaultContext, so an unrecovered panic writes the unit's raw panic text
+//     straight into that fleet-visible column. A third-party unit's panic value
+//     is precisely the text that must not land there. Converting it to an error
+//     here puts it back on the path every other worker's failure takes.
 func (w *extJobWorkspaceWorker) tick(ctx context.Context) (err error) {
 	pool, vault := boundExtensionRuntime()
 	rt := runtimeFor(ctx, string(w.decl.Unit), pool, vault)

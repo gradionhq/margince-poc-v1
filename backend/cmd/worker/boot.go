@@ -221,7 +221,7 @@ func startRunnerLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	// the workspace's own vaulted incumbent token; wire the FromEnv
 	// vault-backed resolver so an autonomous run can write back (nil vault
 	// → clean errNoWriteIncumbent, never a crash).
-	runnerVault, runnerVaultConfigured, rverr := keyvault.FromEnv(pool)
+	runnerVault, _, rverr := keyvault.FromEnv(pool)
 	if rverr != nil {
 		return rverr
 	}
@@ -231,15 +231,17 @@ func startRunnerLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	// installation through. Bound here rather than at RegisterExtensions
 	// because a declaration is inert and needs neither.
 	//
-	// This is NOT the role's only binding. It sits behind the AgentLoop guard
-	// above, so a worker with no model configured never reaches it — and that
-	// worker still runs the job lane, whose extension ticks need the same
-	// handle. startJobRunner therefore binds too, with the SAME two values, so
-	// the two calls are idempotent whichever order the boot reaches them in:
-	// one pool, and the custodian only where one is actually configured (a
-	// half-configured vault would write mapping rows naming material nothing
-	// could unseal, which is why the unconfigured case binds nil).
-	compose.BindExtensionRuntime(pool, extensionRuntimeVault(runnerVault, runnerVaultConfigured))
+	// This is NOT the role's only binding, and it is not the load-bearing one.
+	// It sits behind the AgentLoop guard above, so a worker with no model
+	// configured never reaches it — and that worker still runs the job lane,
+	// whose extension ticks need the same handle. startJobRunner binds too, and
+	// that second call is what covers the job lane; this one only shortens the
+	// window for a Surface-B run that arrives before the runner is wired.
+	//
+	// Both pass the SAME two values, so the calls are idempotent whichever
+	// order the boot reaches them in: one pool, and keyvault.FromEnv's vault,
+	// which is already nil on a deployment that configured none.
+	compose.BindExtensionRuntime(pool, runnerVault)
 	runnerSvc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault), send)
 	_, _ = fmt.Fprintln(stdout, "worker resuming approved Surface-B runs (cg:overnight-agent)")
 	lanes.runner = runnerSvc
@@ -328,18 +330,4 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 	}
 	_, _ = fmt.Fprintf(stdout, "worker keyvault configured; migrated %d legacy connector credential(s) onto the vault\n", migrated)
 	return nil
-}
-
-// extensionRuntimeVault is the custodian the extension tier's per-call Runtime
-// is bound over: the configured one, or nil when this deployment configured
-// none. Spelled once because BOTH of this role's binding sites have to pass the
-// same value — two sites disagreeing about the custodian would make an
-// extension's secret reads depend on which lane bound last.
-//
-//nolint:ireturn // keyvault.Vault IS the custodian seam; this narrows what was resolved, unchanged.
-func extensionRuntimeVault(vault keyvault.Vault, configured bool) keyvault.Vault {
-	if !configured {
-		return nil
-	}
-	return vault
 }

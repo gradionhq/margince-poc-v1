@@ -353,3 +353,111 @@ func TestARoleTheDeclarationDoesNotDefineIsNamedRatherThanBlank(t *testing.T) {
 		t.Error("an undefined role is indistinguishable from a dispatcher on the wire")
 	}
 }
+
+// The ext_ split. A vanilla-built process scraping a composed database sees
+// rows of a kind it has no declaration for on EVERY rolling deploy and every
+// rollback, in both directions, because both builds run against one database
+// for the length of the rollout. The three tests below are the same three every
+// other family in this file gets — it is emitted, it is kept out of the family
+// beside it, and it is absent when there is nothing to report.
+
+// TestAnExtensionKindThisBuildDoesNotComposeIsItsOwnFamily — folding these rows
+// into margince_job_unrecognised_kind would fire that alert on every deploy,
+// and an alert that fires on every deploy is one nobody reads by the time a
+// genuinely retired core kind appears.
+func TestAnExtensionKindThisBuildDoesNotComposeIsItsOwnFamily(t *testing.T) {
+	out := renderJobMetrics(t, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "default", Kind: "ext_absent_unit_refresh_ws", State: "available", Count: 4},
+	}})
+
+	if !strings.Contains(out, `margince_job_unrecognised_extension_kind{kind="ext_absent_unit_refresh_ws"} 4`) {
+		t.Errorf("an ext_ kind this build does not compose was not reported\ngot:\n%s", out)
+	}
+	if strings.Contains(out, `margince_job_unrecognised_kind{kind="ext_absent_unit_refresh_ws"}`) {
+		t.Errorf("an ext_ kind was counted in the CORE unrecognised family — that family is what an operator "+
+			"alerts on for a retired kind, and a rolling deploy would trip it every time\ngot:\n%s", out)
+	}
+	// The core family must not appear at all here: with only ext_ rows in the
+	// snapshot it has nothing to say, and an empty header is the noise both
+	// families are written to avoid.
+	if strings.Contains(out, "margince_job_unrecognised_kind{") {
+		t.Errorf("the core unrecognised family appeared for a snapshot holding only ext_ rows\ngot:\n%s", out)
+	}
+	// Still counted where it is actually sitting, exactly as a retired core
+	// kind's rows are: the depth gauge answers what a queue is holding.
+	if !strings.Contains(out, `margince_job_queue_depth{queue="default"`) {
+		t.Errorf("the ext_ rows vanished from the queue they are actually in\ngot:\n%s", out)
+	}
+}
+
+// TestTheTwoUnrecognisedFamiliesSplitOneSnapshot — the split has to hold when
+// both kinds of row are present, which is the realistic case: a rollout that
+// adds a unit is also a rollout, and a core kind may have been retired in the
+// same release.
+func TestTheTwoUnrecognisedFamiliesSplitOneSnapshot(t *testing.T) {
+	out := renderJobMetrics(t, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "default", Kind: "retired_core_kind", State: "available", Count: 2},
+		{Queue: "default", Kind: "ext_absent_unit_refresh", State: "available", Count: 3},
+		{Queue: "other", Kind: "ext_absent_unit_refresh", State: "discarded", Count: 5},
+	}})
+
+	if !strings.Contains(out, `margince_job_unrecognised_kind{kind="retired_core_kind"} 2`) {
+		t.Errorf("the core family lost its row\ngot:\n%s", out)
+	}
+	// Every state summed, for the reason the core family sums them: a discarded
+	// backlog of a kind nobody composes is as much of an answer as a waiting one.
+	if !strings.Contains(out, `margince_job_unrecognised_extension_kind{kind="ext_absent_unit_refresh"} 8`) {
+		t.Errorf("the extension family did not sum every state\ngot:\n%s", out)
+	}
+}
+
+// TestAComposedExtensionKindIsNotUnrecognised — the family reports what this
+// build does not compose, so a kind the process DID declare through
+// jobs.RegisterComposed must be absent from it and present in the catalogue,
+// exactly as a core kind is.
+func TestAComposedExtensionKindIsNotUnrecognised(t *testing.T) {
+	const kind = "ext_composed_unit_refresh_ws"
+	if err := jobs.RegisterComposed([]jobs.Spec{{
+		Kind:      kind,
+		GoType:    "extJobWorkspaceArgs",
+		Role:      jobs.Workspace,
+		Queue:     "default",
+		Timeout:   jobs.TimeoutPolicy{Fixed: 5 * time.Minute},
+		OptsOwner: jobs.OptsFanOut,
+	}}); err != nil {
+		t.Fatalf("RegisterComposed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := jobs.RegisterComposed(nil); err != nil {
+			t.Errorf("restoring the composed table: %v", err)
+		}
+	})
+
+	out := renderJobMetrics(t, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "default", Kind: kind, State: "available", Count: 1},
+	}})
+
+	if strings.Contains(out, "margince_job_unrecognised_extension_kind") {
+		t.Errorf("a kind this build composes was reported as one it does not\ngot:\n%s", out)
+	}
+	if !strings.Contains(out, `margince_job_declared_info{kind="`+kind+`"`) {
+		t.Errorf("a composed kind is missing from the declared catalogue — the catalogue is what an alert "+
+			"joins against, and a composed kind has to be joinable like a core one\ngot:\n%s", out)
+	}
+}
+
+// TestAnIdleFleetEmitsNoUnrecognisedExtensionKindSeries — same posture as the
+// core family next door: present only when it has something to report, so a
+// permanently empty series is never on a dashboard.
+func TestAnIdleFleetEmitsNoUnrecognisedExtensionKindSeries(t *testing.T) {
+	if out := renderJobMetrics(t, jobs.Snapshot{}); strings.Contains(out, "margince_job_unrecognised_extension_kind") {
+		t.Errorf("an idle fleet emitted an unrecognised-extension-kind family, header and all\ngot:\n%s", out)
+	}
+	// And a fleet holding only DECLARED work does not emit it either.
+	out := renderJobMetrics(t, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "default", Kind: CloseDateSweepArgs{}.Kind(), State: "available", Count: 3},
+	}})
+	if strings.Contains(out, "margince_job_unrecognised_extension_kind") {
+		t.Errorf("a healthy fleet emitted an unrecognised-extension-kind family\ngot:\n%s", out)
+	}
+}

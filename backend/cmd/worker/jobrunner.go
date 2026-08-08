@@ -76,14 +76,19 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	}
 
 	// The extension tier's per-call Runtime, bound before the runner exists
-	// rather than beside the Surface-B lane that also binds it. A composed
-	// extension job is a River kind worked HERE, on every worker, including one
-	// with no model configured — where startRunnerLane returns at its
-	// AgentLoop guard without ever binding. An unbound process is not a crash
-	// (every capability answers errExtensionRuntimeUnwired, a clean refusal)
-	// but a tick that can only ever refuse is not a working job. Same two
-	// values as the other site, so the two bindings are idempotent.
-	compose.BindExtensionRuntime(pool, extensionRuntimeVault(vault, vaultConfigured))
+	// rather than beside the Surface-B lane that also binds it. This is the
+	// binding the job lane depends on: a composed extension job is a River kind
+	// worked HERE, on every worker, including one with no model configured —
+	// where startRunnerLane returns at its AgentLoop guard without ever
+	// binding. An unbound process is not a crash (every capability answers
+	// errExtensionRuntimeUnwired, a clean refusal) but a tick that can only
+	// ever refuse is not a working job.
+	//
+	// Unconditional, and that is the point: a guard here would reintroduce
+	// exactly the shape that left the job lane unbound. `vault` is
+	// keyvault.FromEnv's, already nil where none is configured, and it is the
+	// same value startRunnerLane passes — so the two bindings are idempotent.
+	compose.BindExtensionRuntime(pool, vault)
 
 	runner, err := newJobRunner(pool, logger, cfg, captureReg, watchCfg, configuredVault, lanes, rdb, overlayBudget, modelPath, boundModels)
 	if err != nil {
