@@ -134,7 +134,7 @@ func operandFor(field querySchemaField, op string) Predicate {
 	case KindText, KindID, KindDate, KindTimestamp:
 	}
 	if op == OpIn {
-		return Predicate{Field: field.Name, Op: op, Values: []json.RawMessage{operand}}
+		return Predicate{Field: field.Name, Op: op, Values: json.RawMessage("[" + string(operand) + "]")}
 	}
 	return Predicate{Field: field.Name, Op: op, Value: operand}
 }

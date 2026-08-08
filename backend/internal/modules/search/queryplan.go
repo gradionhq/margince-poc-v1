@@ -18,6 +18,12 @@ package search
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
+	"reflect"
+	"slices"
+	"strings"
+	"sync"
 )
 
 // PlanVersion is the only grammar this validator accepts. A plan naming any
@@ -42,7 +48,13 @@ type Plan struct {
 	// Absent means the contract default; out of range is refused rather than
 	// clamped, because a clamp answers a narrower question than the one asked
 	// without saying so.
-	Limit *int `json:"limit,omitempty"`
+	//
+	// Raw rather than *int because a POINTER cannot tell an ABSENT member from
+	// an explicit null — encoding/json produces nil for both — and the two
+	// mean different things here: absent asks for the default, while null is
+	// a value the grammar does not have. Silently reading null as absent
+	// would answer a page size the caller never asked for.
+	Limit json.RawMessage `json:"limit,omitempty"`
 }
 
 // Predicate is one exact `field op value` clause. Value carries the operand
@@ -50,10 +62,14 @@ type Plan struct {
 // member an operator reads is part of the operator's own definition, so
 // filling the wrong one is a refusal, not a coercion.
 type Predicate struct {
-	Field  string            `json:"field"`
-	Op     string            `json:"op"`
-	Value  json.RawMessage   `json:"value,omitempty"`
-	Values []json.RawMessage `json:"values,omitempty"`
+	Field string `json:"field"`
+	Op    string `json:"op"`
+	// Both operands stay RAW for the same reason Limit does: a decoded slice
+	// cannot tell an absent `values` from an explicit null, so an operator
+	// filling the member it does not read with null would slip past the
+	// unused-operand refusal and be silently ignored.
+	Value  json.RawMessage `json:"value,omitempty"`
+	Values json.RawMessage `json:"values,omitempty"`
 }
 
 // Traversal is one relationship hop.
@@ -90,24 +106,50 @@ func DecodePlan(raw []byte) (Plan, error) {
 	if err := dec.Decode(&p); err != nil {
 		return Plan{}, planDecodeRefusal(err)
 	}
-	// A second JSON value after the plan is a document the caller did not
-	// mean to send; accepting the first and ignoring the rest is the same
-	// silent narrowing DisallowUnknownFields exists to stop.
-	if dec.More() {
+	// Anything after the plan is bytes the caller did not mean to send, and
+	// accepting the first value while ignoring the rest is the same silent
+	// narrowing DisallowUnknownFields exists to stop.
+	//
+	// The test is a second decode reaching io.EOF, not dec.More(). More()
+	// reports whether another VALUE follows, so a stray delimiter — a plan
+	// with a trailing `]` — leaves it false and the garbage accepted.
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return Plan{}, refuse("", CodeMalformedPlan,
-			"the request carries more than one JSON document; send exactly one query plan")
+			"the request carries more than one query plan document, or bytes after the end of this one; send exactly one")
 	}
 	return p, nil
 }
 
-// jsonFrame is one open container while the duplicate-member scan walks a
-// document. Only objects carry a seen-set; an array frame exists so the scan
-// knows its elements are values rather than member names.
+// jsonFrame is one open container while the member scan walks a document.
+// Only objects carry a seen-set; an array frame exists so the scan knows its
+// elements are values rather than member names.
 type jsonFrame struct {
 	object    bool
 	seen      map[string]bool
 	expectKey bool
+	// member is the name whose value is currently being read, which is what
+	// tells a child container whether it is still grammar.
+	member string
+	// grammar marks a container the v1 GRAMMAR defines. An operand payload
+	// (the object a `within_radius` operand carries) is a caller-authored
+	// value, not grammar, so the canonical-spelling rule must not reach it —
+	// `{"center": …}` is a legitimate operand, not an unknown plan member.
+	// Repeated members are still refused inside one, because last-wins is
+	// just as silent there.
+	grammar bool
 }
+
+// The two operand members, named once so the grammar, the validator and the
+// payload boundary below cannot disagree about their spelling.
+const (
+	memberValue  = "value"
+	memberValues = "values"
+)
+
+// operandMembers are the grammar members whose VALUES are caller payloads.
+// Anything below one of them stops being grammar.
+var operandMembers = []string{memberValue, memberValues}
 
 // refuseDuplicateMembers refuses a document that names the same member twice
 // inside one object, at any depth.
@@ -151,21 +193,27 @@ func refuseDuplicateMembers(raw []byte) *PlanRefusal {
 				valueConsumed(top())
 				continue
 			}
+			if frame.grammar && !slices.Contains(canonicalMembers(), member) {
+				return unknownPlanMember(member)
+			}
 			if frame.seen[member] {
 				return refuse(member, CodeDuplicateMember,
 					"the plan names "+quote(member)+" more than once; a member may appear once, "+
 						"and this server will not choose which of them you meant")
 			}
 			frame.seen[member] = true
+			frame.member = member
 			frame.expectKey = false
 			continue
 		}
 		if delim, isDelim := tok.(json.Delim); isDelim {
 			switch delim {
 			case '{':
-				stack = append(stack, &jsonFrame{object: true, seen: map[string]bool{}, expectKey: true})
+				stack = append(stack, &jsonFrame{
+					object: true, seen: map[string]bool{}, expectKey: true, grammar: childIsGrammar(frame),
+				})
 			case '[':
-				stack = append(stack, &jsonFrame{})
+				stack = append(stack, &jsonFrame{grammar: childIsGrammar(frame)})
 			case '}', ']':
 				stack = stack[:len(stack)-1]
 				valueConsumed(top())
@@ -175,6 +223,44 @@ func refuseDuplicateMembers(raw []byte) *PlanRefusal {
 		valueConsumed(frame)
 	}
 }
+
+// childIsGrammar answers whether a container opening inside frame is still
+// part of the grammar. The root is; a container under `value` or `values` is
+// the caller's own payload; anything else inherits its parent.
+func childIsGrammar(frame *jsonFrame) bool {
+	if frame == nil {
+		return true
+	}
+	if frame.object && slices.Contains(operandMembers, frame.member) {
+		return false
+	}
+	return frame.grammar
+}
+
+// canonicalMembers is every member name the v1 grammar spells, derived from
+// the grammar's own struct tags rather than listed beside them.
+//
+// The scan needs it because encoding/json matches member names
+// CASE-INSENSITIVELY, and DisallowUnknownFields matches the same way: a plan
+// carrying `"TARGET": "person"` alongside `"target": "deal"` is neither an
+// unknown member nor — to a scan comparing exact strings — a duplicate, and
+// the decoder resolves it last-wins. The caller's target is silently replaced.
+// Requiring the canonical spelling is what closes that, and deriving the set
+// means a member added to the grammar is admitted without a second edit.
+var canonicalMembers = sync.OnceValue(func() []string {
+	var names []string
+	for _, t := range []reflect.Type{
+		reflect.TypeOf(Plan{}), reflect.TypeOf(Predicate{}), reflect.TypeOf(Traversal{}),
+	} {
+		for i := range t.NumField() {
+			name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+			if name != "" && name != "-" && !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+})
 
 // valueConsumed tells an enclosing object that its member's value is complete,
 // so the next token there is another member name.

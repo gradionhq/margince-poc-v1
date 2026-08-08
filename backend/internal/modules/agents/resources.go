@@ -80,6 +80,12 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 	if err := json.Unmarshal(params, &p); err != nil {
 		return resourceContents{}, &rpcError{Code: -32602, Message: "invalid params: " + err.Error()}
 	}
+	// An absent, null or empty uri is a request this server could not read,
+	// not a resource that is missing — a different thing for the caller to
+	// fix, and "" can never name a document any provider serves.
+	if p.URI == "" {
+		return resourceContents{}, &rpcError{Code: -32602, Message: "invalid params: resources/read needs a non-empty \"uri\""}
+	}
 	if s.resources == nil {
 		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
 	}

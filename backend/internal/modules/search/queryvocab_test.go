@@ -409,3 +409,20 @@ func TestOneResolvesCustomColumnsDoNotLeakIntoTheNext(t *testing.T) {
 		}
 	}
 }
+
+// A Field travels out of this package, so its operator set must not be the
+// shared map's own slice — one caller's edit would rewrite what every field
+// of that kind admits, for every later caller.
+func TestAFieldsOperatorsAreNotTheSharedSetItself(t *testing.T) {
+	first := newField("a", KindNumber)
+	if len(first.Ops) == 0 {
+		t.Fatal("a number field admits no operators")
+	}
+	if &first.Ops[0] == &operatorsByKind[KindNumber][0] {
+		t.Fatal("a Field hands out the kind's own operator slice; a caller's edit would reach every other field")
+	}
+	first.Ops[0] = "mutated"
+	if newField("b", KindNumber).Ops[0] == "mutated" {
+		t.Error("editing one field's operators changed what the next field admits")
+	}
+}

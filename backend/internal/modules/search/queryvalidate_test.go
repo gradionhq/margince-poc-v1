@@ -335,20 +335,26 @@ func TestAMalformedRadiusOperandIsRefusedRatherThanDeclaredUnavailable(t *testin
 // The classifier explains; it never admits. Whatever it thinks of a token,
 // the token is already out of the vocabulary by the time it is consulted.
 func TestTheClassifierOnlyExplainsARefusalItDidNotCause(t *testing.T) {
-	// A field named exactly like a SQL keyword IS in the vocabulary when the
-	// contract declares it, and the classifier's opinion never gets asked.
-	plan, err := validateJSON(readerFor("activity"), t,
-		`{"version":"v1","target":"activity","where":[{"field":"source","op":"eq","value":"import"}]}`)
+	// `converted_from_lead_id` is a real contract field AND one the classifier
+	// would call SQL if it were ever asked — it carries `from` as a whole
+	// word. It validates anyway, because membership is settled first and the
+	// classifier is only consulted about tokens already refused.
+	if !looksLikeSQL("converted_from_lead_id") {
+		t.Fatal("the fixture no longer exercises the classifier; pick a field it would call SQL")
+	}
+	plan, err := validateJSON(readerFor("person"), t,
+		`{"version":"v1","target":"person","where":[{"field":"converted_from_lead_id","op":"eq",`+
+			`"value":"00000000-0000-7000-8000-000000000001"}]}`)
 	if err != nil {
-		t.Fatalf("a legitimate contract field was refused: %v", err)
+		t.Fatalf("a legitimate contract field the classifier would call SQL was refused: %v", err)
 	}
 	if len(plan.Plan.Where) != 1 {
 		t.Fatalf("validated plan carries %d predicates", len(plan.Plan.Where))
 	}
 	// And a token the classifier has no opinion about is still refused,
 	// because membership — not shape — is what decides.
-	_, err = validateJSON(readerFor("activity"), t,
-		`{"version":"v1","target":"activity","where":[{"field":"innocent_looking_name","op":"eq","value":"x"}]}`)
+	_, err = validateJSON(readerFor("person"), t,
+		`{"version":"v1","target":"person","where":[{"field":"innocent_looking_name","op":"eq","value":"x"}]}`)
 	if codes := refusalCodes(t, err); !slices.Contains(codes, CodeUnknownField) {
 		t.Errorf("an unrecognised but harmless-looking token was refused with %v; want %q", codes, CodeUnknownField)
 	}
@@ -552,5 +558,128 @@ func TestTheDuplicateScanLeavesMalformedDocumentsToTheDecoder(t *testing.T) {
 	fault := singleFault(t, mustRefuse(readerFor("deal"), t, `{"version":"v1","target":`))
 	if fault.Code != CodeMalformedPlan {
 		t.Errorf("a truncated document was refused as %q; want %q", fault.Code, CodeMalformedPlan)
+	}
+}
+
+// encoding/json matches member names CASE-INSENSITIVELY, and so does
+// DisallowUnknownFields — so `TARGET` is neither unknown nor, to a scan
+// comparing exact strings, a duplicate, and the decoder resolves it
+// last-wins. The caller's target is silently replaced by one they did not
+// write. Only the canonical spelling is admitted.
+func TestACaseVariantMemberCannotOverwriteTheCanonicalOne(t *testing.T) {
+	for name, doc := range map[string]string{
+		"an upper-cased target":    `{"version":"v1","target":"deal","TARGET":"person"}`,
+		"a title-cased where":      `{"version":"v1","target":"deal","Where":[]}`,
+		"a variant inside a hop":   `{"version":"v1","target":"deal","traverse":{"Relation":"organization"}}`,
+		"a variant operand member": `{"version":"v1","target":"deal","where":[{"field":"name","op":"eq","VALUE":"x"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := validateJSON(readerFor("deal", "organization", "person"), t, doc)
+			if codes := refusalCodes(t, err); !slices.Contains(codes, CodeUnknownPlanMember) {
+				t.Errorf("refused with %v; want %q", codes, CodeUnknownPlanMember)
+			}
+		})
+	}
+}
+
+// A caller's own operand payload is not grammar: `within_radius` takes an
+// object whose members the plan grammar has never heard of, and the
+// canonical-spelling rule must not reach into it.
+func TestAnOperandPayloadIsNotJudgedAgainstTheGrammarsMemberNames(t *testing.T) {
+	plan, err := validateJSON(readerFor("organization"), t, `{"version":"v1","target":"organization",
+		"where":[{"field":"address","op":"within_radius","value":{"center":"Stuttgart","radius_km":50}}]}`)
+	if err != nil {
+		t.Fatalf("a legitimate operand payload was refused as a plan member: %v", err)
+	}
+	if len(plan.Unavailable) != 1 {
+		t.Errorf("the radius predicate reports %v", plan.Unavailable)
+	}
+}
+
+// A repeated member inside an operand payload is still refused: last-wins is
+// exactly as silent there as it is in the grammar.
+func TestARepeatedMemberInsideAnOperandPayloadIsStillRefused(t *testing.T) {
+	_, err := validateJSON(readerFor("organization"), t, `{"version":"v1","target":"organization",
+		"where":[{"field":"address","op":"within_radius","value":{"center":"a","center":"b","radius_km":50}}]}`)
+	if codes := refusalCodes(t, err); !slices.Contains(codes, CodeDuplicateMember) {
+		t.Errorf("refused with %v; want %q", codes, CodeDuplicateMember)
+	}
+}
+
+// Bytes after the end of the plan are refused. dec.More() is not the test:
+// it reports whether another VALUE follows, so a stray delimiter leaves it
+// false and the garbage travels with an otherwise valid plan.
+func TestBytesAfterThePlanAreRefused(t *testing.T) {
+	for name, doc := range map[string]string{
+		"a trailing delimiter": `{"version":"v1","target":"deal"}]`,
+		"a second document":    `{"version":"v1","target":"deal"} {"version":"v1","target":"deal"}`,
+		"a trailing scalar":    `{"version":"v1","target":"deal"} 7`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := validateJSON(readerFor("deal"), t, doc)
+			if codes := refusalCodes(t, err); !slices.Contains(codes, CodeMalformedPlan) {
+				t.Errorf("refused with %v; want %q", codes, CodeMalformedPlan)
+			}
+		})
+	}
+}
+
+// json.Unmarshal accepts null into EVERY Go type without error and leaves the
+// zero value behind, so a null operand would otherwise pass as a valid
+// number, string or boolean and reach an executor as a zero nobody wrote.
+func TestANullOperandIsRefusedRatherThanReadAsAZero(t *testing.T) {
+	for name, tc := range map[string]struct{ doc, want string }{
+		"a null value":          {`{"field":"amount_minor","op":"gt","value":null}`, CodeValueTypeMismatch},
+		"a null text value":     {`{"field":"name","op":"eq","value":null}`, CodeValueTypeMismatch},
+		"a null boolean value":  {`{"field":"stalled","op":"eq","value":null}`, CodeValueTypeMismatch},
+		"a null inside a list":  {`{"field":"name","op":"in","values":["a",null]}`, CodeValueTypeMismatch},
+		"a null list":           {`{"field":"name","op":"in","values":null}`, CodeValueMissing},
+		"a null unused operand": {`{"field":"name","op":"eq","value":"a","values":null}`, CodeValueNotApplicable},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := validateJSON(readerFor("deal", "organization", "person"), t,
+				`{"version":"v1","target":"deal","where":[`+tc.doc+`]}`)
+			if codes := refusalCodes(t, err); !slices.Contains(codes, tc.want) {
+				t.Errorf("refused with %v; want %q", codes, tc.want)
+			}
+		})
+	}
+}
+
+// The geo operand has its own null case, on a target that actually carries a
+// place.
+func TestANullRadiusOperandIsRefused(t *testing.T) {
+	_, err := validateJSON(readerFor("organization"), t,
+		`{"version":"v1","target":"organization","where":[{"field":"address","op":"within_radius","value":null}]}`)
+	if codes := refusalCodes(t, err); !slices.Contains(codes, CodeValueTypeMismatch) {
+		t.Errorf("refused with %v; want %q", codes, CodeValueTypeMismatch)
+	}
+}
+
+// A null limit is not an omitted limit. Reading it as absent would serve a
+// page size the caller never asked for.
+func TestANullLimitIsRefusedRatherThanReadAsOmitted(t *testing.T) {
+	fault := singleFault(t, mustRefuse(readerFor("deal"), t, `{"version":"v1","target":"deal","limit":null}`))
+	if fault.Code != CodeValueTypeMismatch {
+		t.Errorf("a null limit was refused as %q; want %q", fault.Code, CodeValueTypeMismatch)
+	}
+	// And a limit of the wrong SHAPE is the same refusal, not a range error.
+	fault = singleFault(t, mustRefuse(readerFor("deal"), t, `{"version":"v1","target":"deal","limit":"25"}`))
+	if fault.Code != CodeValueTypeMismatch {
+		t.Errorf("a string limit was refused as %q; want %q", fault.Code, CodeValueTypeMismatch)
+	}
+}
+
+// A refusal message carries the caller's own token, so a token containing a
+// quote or a newline must not be able to end the quoted run early or split
+// the message across lines.
+func TestARefusalMessageSurvivesAHostileToken(t *testing.T) {
+	fault := singleFault(t, mustRefuse(readerFor("deal"), t,
+		`{"version":"v1","target":"deal","where":[{"field":"a\"b\nc","op":"eq","value":"x"}]}`))
+	if strings.Contains(fault.Message, "\n") {
+		t.Errorf("the refusal message spans lines: %q", fault.Message)
+	}
+	if !strings.Contains(fault.Message, `\"`) || !strings.Contains(fault.Message, `\n`) {
+		t.Errorf("the token was not escaped into the message: %q", fault.Message)
 	}
 }

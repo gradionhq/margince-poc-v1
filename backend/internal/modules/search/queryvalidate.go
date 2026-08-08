@@ -227,17 +227,37 @@ func fieldAdmitsOp(field Field, op string) bool {
 // it named none. A limit outside the CAP-PAGE window is REFUSED rather than
 // clamped: clamping answers a narrower question than the caller asked
 // without saying so, which is the silent narrowing SEARCH-AC-14 forbids.
-func effectiveLimit(limit *int) (int, []apperrors.FieldRefusal) {
-	if limit == nil {
+//
+// An ABSENT limit takes the default; an explicit null does not. Reading null
+// as absent would serve a page size the caller never asked for, and null is
+// simply not a value this grammar has.
+func effectiveLimit(raw json.RawMessage) (int, []apperrors.FieldRefusal) {
+	if len(raw) == 0 {
 		return storekit.ClampLimit(nil), nil
 	}
-	if *limit < 1 || *limit > maxPlanLimit {
+	var limit int
+	if isJSONNull(raw) || json.Unmarshal(raw, &limit) != nil {
+		return 0, []apperrors.FieldRefusal{{
+			Field: "limit", Code: CodeValueTypeMismatch,
+			Message: "limit must be a whole number between 1 and " + strconv.Itoa(maxPlanLimit) + ", or omitted for the default page",
+		}}
+	}
+	if limit < 1 || limit > maxPlanLimit {
 		return 0, []apperrors.FieldRefusal{{
 			Field: "limit", Code: CodeLimitOutOfRange,
 			Message: "limit must be between 1 and " + strconv.Itoa(maxPlanLimit) + "; ask for a page and follow it with another",
 		}}
 	}
-	return *limit, nil
+	return limit, nil
+}
+
+// isJSONNull reports whether a raw operand is the literal null. It is checked
+// EXPLICITLY everywhere an operand is judged, because json.Unmarshal accepts
+// null into every Go type without error and leaves the zero value behind — so
+// a null operand would otherwise pass as a valid number, string or boolean
+// and reach the executor as a zero the caller never wrote.
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
 // maxPlanLimit is the contract's CAP-PAGE ceiling, DISCOVERED from the shared
@@ -278,34 +298,52 @@ func joinWithCommas(parts []string) string {
 // different question.
 func checkOperand(at string, field Field, clause Predicate) (apperrors.FieldRefusal, bool) {
 	// The operand member an operator does NOT read is refused when present
-	// rather than ignored. An ignored member is a plan half-answered: a
-	// caller who wrote `op: "eq"` and filled `values` meant the list, and
-	// silently matching on `value` instead answers a different question.
+	// rather than ignored — including when it is present as null. An ignored
+	// member is a plan half-answered: a caller who wrote `op: "eq"` and
+	// filled `values` meant the list, and silently matching on `value`
+	// instead answers a different question.
 	if unused, present := unusedOperand(clause); present {
 		return operandRefusal(at+"."+unused, CodeValueNotApplicable,
 			quote(clause.Op)+" reads "+quote(operandMember(clause.Op))+", not "+quote(unused)), true
 	}
 	if clause.Op == OpIn {
-		if len(clause.Values) == 0 {
-			return operandRefusal(at+".values", CodeValueMissing,
-				quote(OpIn)+" needs a non-empty "+quote("values")+" list"), true
-		}
-		for i, v := range clause.Values {
-			if !operandMatches(field.Kind, v) {
-				return operandRefusal(at+".values["+strconv.Itoa(i)+"]", CodeValueTypeMismatch,
-					operandMessage(clause.Field, field.Kind)), true
-			}
-		}
-		return apperrors.FieldRefusal{}, false
+		return checkListOperand(at, field, clause)
 	}
 	if len(clause.Value) == 0 {
-		return operandRefusal(at+".value", CodeValueMissing,
-			quote(clause.Op)+" needs a "+quote("value")), true
+		return operandRefusal(at+"."+memberValue, CodeValueMissing,
+			quote(clause.Op)+" needs a "+quote(memberValue)), true
 	}
 	if !operandMatches(field.Kind, clause.Value) {
-		return operandRefusal(at+".value", CodeValueTypeMismatch, operandMessage(clause.Field, field.Kind)), true
+		return operandRefusal(at+"."+memberValue, CodeValueTypeMismatch, operandMessage(clause.Field, field.Kind)), true
 	}
 	return apperrors.FieldRefusal{}, false
+}
+
+// checkListOperand judges the `in` operator's list: it must be present, be a
+// list, be non-empty, and every element must have the field's shape.
+func checkListOperand(at string, field Field, clause Predicate) (apperrors.FieldRefusal, bool) {
+	var values []json.RawMessage
+	if len(clause.Values) == 0 || isJSONNull(clause.Values) || json.Unmarshal(clause.Values, &values) != nil {
+		return listOperandMissing(at), true
+	}
+	if len(values) == 0 {
+		return listOperandMissing(at), true
+	}
+	for i, v := range values {
+		if !operandMatches(field.Kind, v) {
+			return operandRefusal(at+"."+memberValues+"["+strconv.Itoa(i)+"]", CodeValueTypeMismatch,
+				operandMessage(clause.Field, field.Kind)), true
+		}
+	}
+	return apperrors.FieldRefusal{}, false
+}
+
+// listOperandMissing is the one refusal an absent, null, non-list or empty
+// `in` operand gets: all four are the same thing to a caller — the list they
+// have to supply is not there.
+func listOperandMissing(at string) apperrors.FieldRefusal {
+	return operandRefusal(at+"."+memberValues, CodeValueMissing,
+		quote(OpIn)+" needs a non-empty "+quote(memberValues)+" list")
 }
 
 func operandRefusal(path, code, message string) apperrors.FieldRefusal {
@@ -316,18 +354,18 @@ func operandRefusal(path, code, message string) apperrors.FieldRefusal {
 // everything else a single value.
 func operandMember(op string) string {
 	if op == OpIn {
-		return "values"
+		return memberValues
 	}
-	return "value"
+	return memberValue
 }
 
 // unusedOperand answers the operand member this operator does NOT read, when
 // the plan filled it in anyway.
 func unusedOperand(clause Predicate) (string, bool) {
 	if clause.Op == OpIn {
-		return "value", len(clause.Value) > 0
+		return memberValue, len(clause.Value) > 0
 	}
-	return "values", clause.Values != nil
+	return memberValues, len(clause.Values) > 0
 }
 
 func operandMessage(field string, kind FieldKind) string {
@@ -359,6 +397,9 @@ func operandShape(kind FieldKind) string {
 // their FORMAT is the executor's business, and refusing a malformed date here
 // would duplicate a check with nothing to compare it to.
 func operandMatches(kind FieldKind, raw json.RawMessage) bool {
+	if isJSONNull(raw) {
+		return false
+	}
 	switch kind {
 	case KindNumber:
 		var v float64
@@ -392,6 +433,9 @@ type radiusOperand struct {
 // strict for the same reason the plan's is: a `unit: miles` this validator
 // drops is a request answered differently from the one that was sent.
 func geoOperandMatches(raw json.RawMessage) bool {
+	if isJSONNull(raw) {
+		return false
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	var operand radiusOperand

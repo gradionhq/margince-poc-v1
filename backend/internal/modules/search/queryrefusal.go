@@ -19,6 +19,7 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -157,10 +158,7 @@ var unknownFieldMember = regexp.MustCompile(`^json: unknown field "([^"]*)"$`)
 // JSON error here and a plan refusal there.
 func planDecodeRefusal(err error) *PlanRefusal {
 	if m := unknownFieldMember.FindStringSubmatch(err.Error()); m != nil {
-		member := m[1]
-		return refuse(member, classify(member, CodeUnknownPlanMember),
-			"the v1 query plan has no member named "+quote(member)+
-				"; read margince://schema/query for the plan grammar")
+		return unknownPlanMember(m[1])
 	}
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &typeErr) && typeErr.Field != "" {
@@ -170,7 +168,26 @@ func planDecodeRefusal(err error) *PlanRefusal {
 	return refuse("", CodeMalformedPlan, "the request body is not a well-formed v1 query plan document")
 }
 
-// quote wraps a caller-supplied token for a message. Messages reach an
-// untrusted agent, so the token is quoted rather than concatenated bare —
-// an unquoted empty string reads as a missing word rather than as a value.
-func quote(s string) string { return `"` + s + `"` }
+// unknownPlanMember is the ONE refusal a member the grammar lacks gets,
+// whether the raw scan caught it (a case-variant spelling, which the decoder
+// would resolve last-wins) or the strict decode did (a name the grammar has
+// never had). Two spellings of the same verdict would have a caller fixing
+// two different things.
+// It is deliberately NOT classified. classify explains a refused VOCABULARY
+// token, where a caller who pasted SQL needs to be told so; a member name is
+// a grammar question, and telling someone who wrote `"TARGET"` that they sent
+// a free expression sends them looking for one. The member they must fix is
+// named instead.
+func unknownPlanMember(member string) *PlanRefusal {
+	return refuse(member, CodeUnknownPlanMember,
+		"the v1 query plan has no member named "+quote(member)+
+			"; read margince://schema/query for the plan grammar")
+}
+
+// quote renders a caller-supplied token for a message.
+//
+// It ESCAPES rather than merely wrapping in quotes. The token is the caller's
+// own text, and a token carrying a quote or a newline concatenated bare would
+// end the quoted run early or split the message across lines — a refusal an
+// agent parses as two, or as one it cannot tell the boundaries of.
+func quote(s string) string { return strconv.Quote(s) }

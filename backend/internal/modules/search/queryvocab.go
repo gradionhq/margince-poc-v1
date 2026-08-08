@@ -93,8 +93,14 @@ type Field struct {
 
 // newField is the ONE way a Field comes into existence, so a field whose
 // operators disagree with its kind is unrepresentable.
+//
+// Ops is CLONED off the kind's set. A Field travels out of this package — the
+// published document and any future executor both read it — and handing out
+// the map's own slice would let one caller's edit rewrite what every field of
+// that kind admits, for every later caller. Cloning here is the same defence
+// contractFields applies to the field list itself.
 func newField(name string, kind FieldKind) Field {
-	return Field{Name: name, Kind: kind, Ops: operatorsByKind[kind]}
+	return Field{Name: name, Kind: kind, Ops: slices.Clone(operatorsByKind[kind])}
 }
 
 // Relation is one depth-1 hop.
