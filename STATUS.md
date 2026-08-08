@@ -59,14 +59,35 @@ closes the door on manually entered financial figures that plan §4.6 left ajar.
   actually exchanged messages, plus `+N`, with untried distinguished from cold;
   and a coverage explorer over up to eight colleagues the reader picks.
 
-**Next, and the one to read before starting it: PR 4 (growth fit) is a module,
-not a slice.** `company-dossier.md` specifies the dossier and growth fit
-together — two tables, six wire operations, an AI lane with a deterministic
-floor, per-reader caching with an input fingerprint, field masking, evidence
-receipts. Its sibling `compose/orgbrief` is 3,235 lines. Growth fit's
-deterministic floor is *abstention*, so building the floor first yields a panel
-that always says "not enough evidence": the model lane is not optional for this
-slice to be worth anything.
+- **PR 4 (part)** — the dossier and the growth-fit assessment, both serving.
+  `GET`/`POST /organizations/{id}/dossier` and `.../growth-fit` are live over
+  `compose/orgdossier`, on the two per-reader caches in migration `0197`.
+  DOSS-FORM-2 is complete: seven required inputs, completeness with both counts
+  and the missing ones named, abstention below the floor, and the DOSS-AC-13
+  cap at `moderate` when the workspace's own offering is unconfirmed
+  (`minimum_complete` on the anchor company is the confirmation signal).
+
+**What is left on PR 4, in order.** The model lane is the big one:
+`orgdossier.Service` and `GrowthFitService` both thread a `routingVersion` and
+carry a prompt-version constant, but neither has a `Completer`. That matters
+most for growth fit, whose deterministic floor is *abstention* by
+DOSS-PARAM-7 — what ships today is an honest "here is what I would need to
+know", never a band. Then `getClaimEvidence` (DOSS-WIRE-3, six source kinds),
+then the frontend panels. Neither surface has a panel yet.
+
+**Two things to know before touching it.** Adding a contract operation breaks
+the build until its handler exists — `compose.Server` asserts
+`ServerInterface` at compile time. And both drift gates want generated files
+*committed*: `make gen` for the backend, `pnpm gen:api` for `schema.d.ts`.
+
+**One spec gap, raised upstream, decided here for now.** The abstention floor
+has no number anywhere in `company-dossier.md` — only its behaviour and two
+worked examples (four of seven judges normally, two of seven abstains). It is
+pinned at one half in `growthfit.go`, which satisfies both; it wants a
+`DOSS-PARAM` of its own. The same chapter's `next_step` wording says the step
+is offered *instead of a score when the band is unknown*, but its own worked
+example also names one when the band was merely capped — this build follows
+the example.
 
 Still unbuilt beyond that: PR 5 (documents), PR 6 (attachments, `ADR-0086`),
 PR 8 (account-started email, `ADR-0087`), PR 9/10 (finance, `ADR-0083`). Each
@@ -76,10 +97,9 @@ needs a backend capability built from scratch.
 skips) are green. Nothing is pushed: this work stays in the worktree until it
 is tested locally.
 
-**Next**, in plan order: PR 2 (Today on this account), PR 3 (dossier, full
-facts, evidence drawer), PR 4 (growth fit), PR 5 (documents), PR 7 (scalable
-coverage), then PR 6/8 (attachments, account-started email) and PR 9/10
-(finance) against their ADRs.
+**Next**, in plan order: finish PR 4 (the model lane, then `getClaimEvidence`,
+then the dossier and growth-fit panels), PR 5 (documents), then PR 6/8
+(attachments, account-started email) and PR 9/10 (finance) against their ADRs.
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 
