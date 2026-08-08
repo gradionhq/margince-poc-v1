@@ -148,6 +148,9 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterCommsTools(r, &recordingComms{}, &multiLinkProvider{})
 	RegisterLifecycleTools(r, nil, inertLifecycle{}, inertLifecycle{}, inertLifecycle{})
 	RegisterEnrichTool(r, nil, inertLifecycle{})
+	RegisterQueryTool(r, nil, func(context.Context, json.RawMessage) (QueryAnswer, error) {
+		return QueryAnswer{Coverage: CoverageCompleteExact}, nil
+	})
 	return r
 }
 

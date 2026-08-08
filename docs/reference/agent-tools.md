@@ -44,9 +44,9 @@ the credential: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## The catalog
 
-The **30 core tools**, listed in the order `Registry.Specs()` sorts them — which
+The **31 core tools**, listed in the order `Registry.Specs()` sorts them — which
 is the order `tools/list` returns. An enabled extension unit adds its own verbs
-to the same listing, so a vanilla install answers 31: these plus `yogi_quote`
+to the same listing, so a vanilla install answers 32: these plus `yogi_quote`
 (🟢, `read`), which is not tabled here because the catalog tracks the core
 surface.
 
@@ -93,6 +93,7 @@ Columns:
 | `promote_lead` | 🟡 | `write` | — | `unsupported_by_sor` (no atomic incumbent projection) |
 | `qualify_lead` | 🟢 | `write` | — | Seam-routed: read + patch through the provider |
 | `read_record` | 🟢 | `read` | — | Mirror-backed; result carries `trust_tier: external` |
+| `query_workspace` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `relink_activity` | 🟢 | `write` | — | Runs: a link row is not an SoR record write, so it is available in either mode |
 | `run_report` | 🟢 | `read` | — | `unsupported_by_sor` (no incumbent analogue) |
 | `search_records` | 🟢 | `read` | — | Mirror-backed; results carry `trust_tier: external` |
@@ -131,11 +132,11 @@ passport's scopes and the granting human's live RBAC and seat — never the unio
 and never the passport alone.
 
 Counts are of the core catalog above; an enabled unit's verbs add to them
-(vanilla: `yogi_quote` makes `read` 13).
+(vanilla: `yogi_quote` makes `read` 14).
 
 | Scope | Tools it unlocks | What it means |
 |---|---|---|
-| `read` | 12 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
+| `read` | 13 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
 | `draft` | 2 | Proposes text. Not read-only: `draft_email` returns a proposal and writes nothing, while `draft_follow_ups_for` persists a draft activity on the deal's timeline. |
 | `write` | 12 | Creates, patches, archives, advances, merges, promotes, disqualifies, re-links — every change that stays inside the workspace. |
 | `send` | 3 | The three egress verbs. All three are 🟡, so the scope buys the right to *ask*, never the right to send unattended. |

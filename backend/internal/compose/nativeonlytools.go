@@ -7,9 +7,10 @@ package compose
 // mode.
 //
 // Most of the agent surface rides the datasource seam, so the Dispatcher
-// already routes it per workspace. Three dependencies cannot: the compiled
-// report engine, the retrieval seam behind the context intents, and the
-// pipeline-risk lister all query the native domain tables directly.
+// already routes it per workspace. Four dependencies cannot: the compiled
+// report engine, the retrieval seam behind the context intents, the
+// pipeline-risk lister and the query-plan executor all query the native domain
+// tables directly.
 //
 // Reports have a seam verb, but not this one: RunReport carries an ad-hoc
 // ReportPlan, while the tool names a prebuilt report key and answers with
@@ -240,4 +241,22 @@ func (g disqualifierGuard) DisqualifyLead(ctx context.Context, id ids.UUID) (jso
 		return nil, apperrors.ErrUnsupportedBySoR
 	}
 	return g.inner.DisqualifyLead(ctx, id)
+}
+
+// nativeOnlyQueryRunner guards query_workspace, for the reason every other
+// guard in nativeonlytools.go exists: the executor reads the native domain
+// tables directly, and an overlay workspace's records are not in them. An
+// answer assembled from tables holding none of this workspace's data is a
+// well-formed empty result — visibly right and actually wrong.
+func nativeOnlyQueryRunner(mode overlayModeChecker, run agents.QueryRunner) agents.QueryRunner {
+	return func(ctx context.Context, plan json.RawMessage) (agents.QueryAnswer, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.QueryAnswer{}, err
+		}
+		if overlay {
+			return agents.QueryAnswer{}, apperrors.ErrUnsupportedBySoR
+		}
+		return run(ctx, plan)
+	}
 }
