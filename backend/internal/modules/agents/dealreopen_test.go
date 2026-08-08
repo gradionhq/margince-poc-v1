@@ -6,6 +6,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -123,14 +124,18 @@ func (p *reopenProbeProvider) Read(context.Context, datasource.EntityRef) (datas
 // the source and the target can differ — which is the whole point.
 type reopenProbeStages struct {
 	semantics map[ids.UUID]string
-	err       error
+	pipeline  ids.UUID
+	// failFor names the stages this resolver cannot answer for, so a test can
+	// fail the SOURCE lookup while the target still resolves — which is the only
+	// way to reach a path that runs second.
+	failFor map[ids.UUID]bool
 }
 
 func (s *reopenProbeStages) StageSemantic(_ context.Context, stageID ids.UUID) (string, ids.UUID, error) {
-	if s.err != nil {
-		return "", ids.UUID{}, s.err
+	if s.failFor[stageID] {
+		return "", ids.UUID{}, errors.New("stage lookup failed")
 	}
-	return s.semantics[stageID], ids.NewV7(), nil
+	return s.semantics[stageID], s.pipeline, nil
 }
 
 // The three ways reading the deal's current stage can fail. Each is reported
@@ -139,7 +144,7 @@ func (s *reopenProbeStages) StageSemantic(_ context.Context, stageID ids.UUID) (
 // move against a deal this server could not read, and the human would have no
 // way to know that is what they were being asked.
 func TestAnUnreadableCurrentStageIsReportedRatherThanRaisedSilently(t *testing.T) {
-	target := ids.NewV7()
+	target, currentStage := ids.NewV7(), ids.NewV7()
 	args := []byte(`{"deal_id":"` + ids.NewV7().String() + `","to_stage_id":"` + target.String() + `"}`)
 
 	for name, tool := range map[string]dynamicTool{
@@ -151,9 +156,19 @@ func TestAnUnreadableCurrentStageIsReportedRatherThanRaisedSilently(t *testing.T
 			p:      &reopenProbeProvider{fields: []byte(`{"stage_id":42}`)},
 			stages: &reopenProbeStages{semantics: map[ids.UUID]string{target: "open"}},
 		},
-		"the stage's semantic cannot be resolved": advanceDeal{
-			p:      &reopenProbeProvider{stageID: ids.NewV7()},
-			stages: &reopenProbeStages{err: errors.New("stage lookup failed")},
+		"the deal's CURRENT stage has no resolvable semantic": advanceDeal{
+			p: &reopenProbeProvider{stageID: currentStage},
+			// The target resolves, the SOURCE does not — an error on every call
+			// would have fired on the target lookup, which runs first, and this
+			// case would have passed without reaching what it is named for.
+			stages: &reopenProbeStages{
+				semantics: map[ids.UUID]string{target: "open"},
+				failFor:   map[ids.UUID]bool{currentStage: true},
+			},
+		},
+		"the deal has no stage at all": advanceDeal{
+			p:      &reopenProbeProvider{fields: []byte(`{}`)},
+			stages: &reopenProbeStages{semantics: map[ids.UUID]string{target: "open"}},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -161,5 +176,38 @@ func TestAnUnreadableCurrentStageIsReportedRatherThanRaisedSilently(t *testing.T
 				t.Error("the tier was resolved against a deal whose current stage could not be read")
 			}
 		})
+	}
+}
+
+// The sentence a human is asked to approve names the move by BOTH endpoints,
+// because the two that reach this gate are opposites. "Close deal Acme as open"
+// is what a reopen used to read as — a summary that describes neither what is
+// happening nor what it costs, to someone whose whole view of the decision is
+// that line.
+func TestTheApprovalSummaryNamesAReopenAsOne(t *testing.T) {
+	target := ids.NewV7()
+	current := ids.NewV7()
+	stages := &reopenProbeStages{semantics: map[ids.UUID]string{current: "won", target: "open"}}
+	provider := &reopenProbeProvider{stageID: current}
+
+	summary := dealMoveSummary(context.Background(), provider, stages, ids.NewV7(), "Acme renewal", "open")
+	if !strings.Contains(summary, "REOPEN") || !strings.Contains(summary, "won") {
+		t.Errorf("summary = %q, want it to name the act as a reopen and say what the deal is now", summary)
+	}
+	if !strings.Contains(summary, "close date") {
+		t.Errorf("summary = %q, want it to say what approving costs", summary)
+	}
+
+	// A close still reads as a close, and a source this cannot read degrades to
+	// naming the destination rather than failing: the approval is already the
+	// safe answer, and refusing to describe it would turn a readable-enough
+	// decision into no decision at all.
+	stages.semantics[current] = "open"
+	if got := dealMoveSummary(context.Background(), provider, stages, ids.NewV7(), "Acme renewal", "won"); !strings.HasPrefix(got, "Close deal") {
+		t.Errorf("summary = %q, want a close to read as a close", got)
+	}
+	unreadable := &reopenProbeProvider{readErr: errors.New("nope")}
+	if got := dealMoveSummary(context.Background(), unreadable, stages, ids.NewV7(), "Acme renewal", "open"); !strings.HasPrefix(got, "Move deal") {
+		t.Errorf("summary = %q, want the destination named when the source cannot be read", got)
 	}
 }

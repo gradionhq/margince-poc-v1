@@ -52,19 +52,28 @@ func TestProgressDealResolverKeepsTheWonLostFloor(t *testing.T) {
 
 func TestProgressDealResolverInputReadsTheStageSemantic(t *testing.T) {
 	pipeline := ids.NewV7()
-	// A provider too: the resolver input now carries the deal's CURRENT stage,
-	// which means reading the deal.
+	// The two endpoints resolve DIFFERENTLY, so a source semantic dropped to
+	// empty — the reopen defect this file's sibling is about — fails here
+	// instead of matching a target that happened to say the same thing.
+	current, target := ids.NewV7(), ids.NewV7()
 	tool := progressDeal{
-		p:      &reopenProbeProvider{stageID: ids.NewV7()},
-		stages: fixedStages{semantic: "won", pipeline: pipeline},
+		p: &reopenProbeProvider{stageID: current},
+		stages: &reopenProbeStages{
+			semantics: map[ids.UUID]string{current: "open", target: "won"},
+			pipeline:  pipeline,
+		},
 	}
 	in, err := tool.ResolverInput(context.Background(),
-		json.RawMessage(`{"deal_id":"`+ids.NewV7().String()+`","to_stage_id":"`+ids.NewV7().String()+`"}`))
+		json.RawMessage(`{"deal_id":"`+ids.NewV7().String()+`","to_stage_id":"`+target.String()+`"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if in.TargetStageSemantic != "won" || in.PipelineID != pipeline.String() {
 		t.Fatalf("resolver input = %+v, want the configured semantic and pipeline", in)
+	}
+	if in.SourceStageSemantic != "open" {
+		t.Fatalf("resolver input = %+v, want the deal's own current stage — without it the "+
+			"resolver cannot tell a move from a reopen", in)
 	}
 }
 

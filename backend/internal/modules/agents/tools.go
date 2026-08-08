@@ -313,32 +313,6 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 	}
 }
 
-// advanceDealTier is the invocation-time exception (A34/ADR-0026): a move
-// between OPEN stages is 🟢, and a move with a terminal stage at EITHER end is
-// 🟡 — money and irreversibility.
-//
-// Either end, because the risk is not a property of the destination. Closing a
-// deal is the obvious half; reopening one is the other, and it was ungated. A
-// won deal moved back to Proposal clears its close date, its lost reason and
-// the FX rate frozen at close, and takes revenue out of a quarter that has
-// already been reported — the same money and the same irreversibility, reached
-// from the far side.
-//
-// The resolver may only ever RAISE: it auto-executes exactly when it can prove
-// BOTH endpoints open, so an unknown, absent or malformed semantic at either
-// end fails toward the approval gate rather than away from it.
-func advanceDealTier(in mcp.TierResolverInput) mcp.RiskTier {
-	if in.SourceStageSemantic == stageSemanticOpen && in.TargetStageSemantic == stageSemanticOpen {
-		return mcp.TierAutoExecute
-	}
-	return mcp.TierConfirmationRequired
-}
-
-// stageSemanticOpen is the one stage semantic that does not close a deal. Named
-// because the tier gate is the only place it decides anything, and a typo there
-// would silently open the gate rather than close it.
-const stageSemanticOpen = "open"
-
 // ResolverInput reads the target stage's semantic from pipeline config —
 // a renamed "Won" column still resolves 🟡, because the semantic, not the
 // label or the request, is what the gate trusts.
@@ -347,61 +321,7 @@ func (t advanceDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mcp
 	if err := decodeArgs(in, &args); err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	return dealMoveResolverInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
-}
-
-// dealMoveResolverInput is what the tier gate is shown for a deal move: both
-// endpoints of the move, resolved to their semantics, plus the pipeline the
-// target belongs to.
-//
-// One builder for both dynamic tools, because they share one resolver. Two
-// copies would let the gate be fed differently by each — and the difference
-// that mattered would be the one that stopped reading the source, putting the
-// reopen hole back on whichever tool was edited second.
-func dealMoveResolverInput(
-	ctx context.Context, p datasource.SystemOfRecordProvider, stages StageResolver,
-	dealID, toStageID ids.UUID, args json.RawMessage,
-) (mcp.TierResolverInput, error) {
-	target, pipelineID, err := stages.StageSemantic(ctx, toStageID)
-	if err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	source, err := dealStageSemantic(ctx, p, stages, dealID)
-	if err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	return mcp.TierResolverInput{
-		Args:                args,
-		SourceStageSemantic: source,
-		TargetStageSemantic: target,
-		PipelineID:          pipelineID.String(),
-	}, nil
-}
-
-// dealStageSemantic reads the semantic of the stage a deal is currently in.
-//
-// It goes through the same StageResolver the target does, so a renamed "Won"
-// column is judged by its semantic at both ends rather than by its label at one.
-// A deal whose stage cannot be read is an ERROR rather than an empty semantic:
-// the resolver would treat empty as not-open and raise, which is safe, but the
-// caller deserves the real reason instead of an approval request for a deal this
-// server could not read.
-func dealStageSemantic(ctx context.Context, p datasource.SystemOfRecordProvider, stages StageResolver, dealID ids.UUID) (string, error) {
-	rec, err := p.Read(ctx, datasource.EntityRef{Type: datasource.EntityDeal, ID: dealID})
-	if err != nil {
-		return "", err
-	}
-	var fields struct {
-		StageID ids.UUID `json:"stage_id"`
-	}
-	if err := json.Unmarshal(rec.Fields, &fields); err != nil {
-		return "", fmt.Errorf("crmagents: deal %s read back without a readable stage: %w", dealID, err)
-	}
-	semantic, _, err := stages.StageSemantic(ctx, fields.StageID)
-	if err != nil {
-		return "", err
-	}
-	return semantic, nil
+	return DealMoveTierInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
 }
 
 // StageInfo pins the staged move to the deal's CURRENT version, so an
@@ -425,7 +345,7 @@ func (t advanceDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageIn
 	}
 	return StageInfo{
 		TargetType: "deal", TargetID: args.DealID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Close deal %s as %s", recordLabel(rec), semantic),
+		Summary: dealMoveSummary(ctx, t.p, t.stages, args.DealID, recordLabel(rec), semantic),
 	}, nil
 }
 
