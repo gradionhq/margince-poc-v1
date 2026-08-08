@@ -466,6 +466,35 @@ func TestSplicingIntoASchemaThatCannotCarryAResultIsRefused(t *testing.T) {
 	}
 }
 
+// A tool served from a spec read at call time could report one version while
+// tools/list advertised another, and a client comparing them would see a shape
+// change nothing had made. The spec a call is served from is the registered one.
+func TestAResultReportsTheVersionTheSurfaceWasRegisteredWith(t *testing.T) {
+	drifting := &driftingTool{spec: objectSpec("drifting", principal.ScopeRead)}
+	r := NewRegistry(nil, auth.NewGate(unboundedAuthority{}))
+	r.Register(drifting)
+	drifting.spec.Version = "9.9.9-after-registration"
+
+	out, err := r.Invoke(readingAgent(), "drifting", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("drifting: %v", err)
+	}
+
+	if got := sealedEnvelope(t, out).SchemaVersion; got != testToolVersion {
+		t.Errorf("schema_version = %q, want the registered %q — a result and tools/list must describe one surface",
+			got, testToolVersion)
+	}
+}
+
+// driftingTool answers a different spec after registration than during it.
+type driftingTool struct{ spec mcp.ToolSpec }
+
+func (d *driftingTool) Spec() mcp.ToolSpec { return d.spec }
+
+func (d *driftingTool) Handle(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
+
 func warningNamed(env Envelope, code string) (Warning, bool) {
 	for _, warning := range env.Warnings {
 		if warning.Code == code {

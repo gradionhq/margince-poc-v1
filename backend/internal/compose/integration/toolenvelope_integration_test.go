@@ -23,22 +23,30 @@ import (
 // sealedResult is what a client reads: the six envelope fields, and the tool's
 // own answer under `data`.
 type sealedResult struct {
-	SchemaVersion string `json:"schema_version"`
-	TraceID       string `json:"trace_id"`
-	Freshness     *struct {
-		LastSyncedAt  *time.Time `json:"last_synced_at"`
-		Authoritative bool       `json:"authoritative"`
-	} `json:"freshness"`
-	Trust    string `json:"trust"`
-	Evidence []struct {
-		RecordType string   `json:"record_type"`
-		RecordID   ids.UUID `json:"record_id"`
-	} `json:"evidence"`
-	Warnings []struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"warnings"`
-	Data json.RawMessage `json:"data"`
+	SchemaVersion string           `json:"schema_version"`
+	TraceID       string           `json:"trace_id"`
+	Freshness     *sealedFreshness `json:"freshness"`
+	Trust         string           `json:"trust"`
+	Evidence      []sealedEvidence `json:"evidence"`
+	Warnings      []sealedWarning  `json:"warnings"`
+	Data          json.RawMessage  `json:"data"`
+}
+
+type sealedFreshness struct {
+	LastSyncedAt  *time.Time `json:"last_synced_at"`
+	Authoritative bool       `json:"authoritative"`
+}
+
+type sealedEvidence struct {
+	RecordType string   `json:"record_type"`
+	RecordID   ids.UUID `json:"record_id"`
+	Source     string   `json:"source,omitempty"`
+	CapturedBy string   `json:"captured_by,omitempty"`
+}
+
+type sealedWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // assertEnvelopePopulated is AC-MCP-7 over one real answer. Every field is
@@ -78,18 +86,18 @@ func assertEnvelopePopulated(t *testing.T, tool string, out json.RawMessage) {
 // ToolPayload is a tool's own answer, out of the envelope that carries it — what
 // a suite asserting on a handler's result wants.
 //
-// It holds the envelope to its own contract on the way past. A suite reading a
-// payload is not testing the envelope, but it is the one place a malformed one
-// would otherwise pass unnoticed, and a silent nil here would surface as a
-// confusing assertion failure three lines later.
+// It holds the WHOLE envelope on the way past, not only the member it answers
+// with. A suite reading a payload is not testing the envelope — but the tools the
+// registry-wide sweep cannot reach (an outbound provider, a live calendar) are
+// reached by suites that stand those seams up themselves, and this helper is how
+// they read the answer. Checking here is what stops those tools from being the
+// ones whose envelope nothing ever looks at.
 func ToolPayload(t *testing.T, out json.RawMessage) json.RawMessage {
 	t.Helper()
+	assertEnvelopePopulated(t, "the call under test", out)
 	var sealed sealedResult
 	if err := json.Unmarshal(out, &sealed); err != nil {
 		t.Fatalf("the result is not an envelope: %v (%s)", err, out)
-	}
-	if len(sealed.Data) == 0 {
-		t.Fatalf("the envelope carries no data: %s", out)
 	}
 	return sealed.Data
 }

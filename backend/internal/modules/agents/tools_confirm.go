@@ -261,7 +261,11 @@ func (t mergeRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err != nil {
 		return nil, err
 	}
+	// BOTH records, not only the one that survived: the source is what was
+	// folded in, and an evidence list naming only the survivor describes half of
+	// what happened.
 	noteEvidence(ctx, ref.Type, ref.ID)
+	noteEvidence(ctx, datasource.EntityType(args.RecordType), args.SourceID)
 	return json.Marshal(MergeRecordsResult{Merged: true, RecordType: ref.Type, SurvivorID: ref.ID})
 }
 

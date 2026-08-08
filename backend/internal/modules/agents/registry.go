@@ -188,13 +188,19 @@ func envelopedSpec(spec mcp.ToolSpec) mcp.ToolSpec {
 // decision; a retry carrying `approval_id` redeems that decision — bound
 // to the identical call by content hash — and only then reaches Handle.
 func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) (json.RawMessage, error) {
+	// The REGISTERED spec, not a fresh Spec() call. The two are the same for a
+	// tool whose spec is a literal, and every tool here is — but the registered
+	// one is what tools/list advertised and what the argument constraints were
+	// read off, so serving a call from anything else would let the version a
+	// result reports and the schema a client cached come from two different
+	// readings. One reading, taken once, under the same lock as the handler.
 	r.mu.RLock()
 	t, ok := r.tools[name]
+	spec := r.specs[name]
 	r.mu.RUnlock()
 	if !ok {
 		return nil, &UnknownToolError{Name: name}
 	}
-	spec := t.Spec()
 
 	args, approvalID, diffHash, err := splitApproval(in)
 	if err != nil {

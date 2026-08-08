@@ -69,9 +69,9 @@ func TestABoundedCallerIsToldTheAnswerIsBoundedAndNeverHowMuch(t *testing.T) {
 	// the server's own and say nothing about the corpus: the trace id it minted
 	// and the version the tool declares.
 	answering, err := json.Marshal(struct {
-		Data     json.RawMessage `json:"data"`
-		Evidence any             `json:"evidence"`
-		Warnings any             `json:"warnings"`
+		Data     json.RawMessage  `json:"data"`
+		Evidence []sealedEvidence `json:"evidence"`
+		Warnings []sealedWarning  `json:"warnings"`
 	}{Data: bounded.Data, Evidence: bounded.Evidence, Warnings: bounded.Warnings})
 	if err != nil {
 		t.Fatal(err)
