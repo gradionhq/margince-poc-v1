@@ -28,8 +28,11 @@ type window struct {
 	// to be the one it was written with, and has to survive a suspension.
 	fence promptfence.Fence
 	// knownSources is the closed vocabulary [window.observe] may name in the
-	// prompt's own voice: the tools this run was offered, plus the runner's own
+	// prompt's own voice: every tool the REGISTRY holds, plus the runner's own
 	// internal reporters. Everything else is model-chosen text.
+	//
+	// Deliberately the whole catalog and not the narrower set this run was
+	// offered — the two differ, and newWindow says why.
 	knownSources map[string]bool
 	msgs         []model.Message
 }
@@ -38,7 +41,12 @@ type window struct {
 const unknownSourceLabel = "an unrecognized tool"
 
 // sourceVocabulary is the closed set of names an observation may be attributed
-// to: every offered tool, plus the runner's own reporters.
+// to: every tool the registry holds, plus the runner's own reporters.
+//
+// It is built from the WHOLE catalog, never the offered subset. An observation
+// is about what already happened, and a run's own history must not be
+// relabelled because its author's authority narrowed afterwards — see
+// windowFromSnapshot.
 func sourceVocabulary(specs []mcp.ToolSpec) map[string]bool {
 	known := map[string]bool{outputValidatorSource: true}
 	for _, spec := range specs {

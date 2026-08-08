@@ -84,6 +84,12 @@ func (s *fakeSurface) Specs() []mcp.ToolSpec {
 			InputSchema:   json.RawMessage(`{"type":"object"}`),
 		},
 		{
+			Name:          "update_record",
+			Description:   "Change stored fields on a record you already hold the id for.",
+			RequiredScope: principal.ScopeWrite,
+			InputSchema:   json.RawMessage(`{"type":"object"}`),
+		},
+		{
 			Name:          "send_email",
 			Description:   "Put a mail on the wire to a real recipient, exactly as it is given.",
 			RequiredScope: principal.ScopeSend,
@@ -153,12 +159,34 @@ func TestARunIsOfferedOnlyTheToolsItsAuthorityAdmits(t *testing.T) {
 // holds as an unrecognized tool, which is the runner telling the model its own
 // past did not happen.
 func TestAResumedRunKeepsAttributingAToolItMayNoLongerCall(t *testing.T) {
-	staging := &fakeSurface{errs: map[string]error{
-		"send_email": &workflow.StagedApprovalError{ApprovalID: ids.New[ids.ApprovalKind]()},
-	}}
-	suspended, err := New(staging, &scriptedBrain{
-		texts: []string{`{"tool":"send_email","args":{"to":"a@b.c"}}`},
-	}).Run(context.Background(), Job{Goal: "follow up"})
+	// The pre-narrow leg does real work BEFORE it sends, so the suspended
+	// snapshot carries genuine historical turns — one of them (update_record)
+	// write-scoped, and so outside what the narrowed passport may still call.
+	//
+	// What those turns prove is narrower than it looks, and the distinction is
+	// worth stating because it is easy to claim too much here. A snapshot holds
+	// already-rendered TEXT: windowFromSnapshot replays it verbatim, so no
+	// vocabulary — whole or narrowed — can relabel a turn after the fact. The
+	// historical assertions therefore pin that resume REPLAYS the transcript
+	// rather than rebuilding it, not that the vocabulary stayed whole.
+	//
+	// The vocabulary claim is carried entirely by the send_email refusal below,
+	// which the resume leg writes fresh through sourceLabel. That is the only
+	// attribution in this test the two-catalog split can actually break.
+	staging := &fakeSurface{
+		results: map[string]json.RawMessage{
+			"read_record":   json.RawMessage(`{"record_type":"deal","fields":{"name":"Nordwind"}}`),
+			"update_record": json.RawMessage(`{"record_type":"deal","updated":true}`),
+		},
+		errs: map[string]error{
+			"send_email": &workflow.StagedApprovalError{ApprovalID: ids.New[ids.ApprovalKind]()},
+		},
+	}
+	suspended, err := New(staging, &scriptedBrain{texts: []string{
+		`{"tool":"read_record","args":{"record_type":"deal","id":"x"}}`,
+		`{"tool":"update_record","args":{"record_type":"deal","id":"x"}}`,
+		`{"tool":"send_email","args":{"to":"a@b.c"}}`,
+	}}).Run(context.Background(), Job{Goal: "follow up"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -166,14 +194,19 @@ func TestAResumedRunKeepsAttributingAToolItMayNoLongerCall(t *testing.T) {
 		t.Fatalf("expected a suspension to resume from: %+v", suspended)
 	}
 
-	// The authority narrowed while the approval sat: read-only from here, though
-	// the staged send still redeems — the human approved it under the old grant.
-	narrowed := &fakeSurface{results: map[string]json.RawMessage{
-		"send_email": json.RawMessage(`{"sent":true}`),
+	// The authority narrowed while the approval sat. The staged call is still
+	// PRESENTED on resume, and the gate decides: Registry.Invoke admits before it
+	// redeems, so a scope the passport no longer carries fails with
+	// ErrScopeExceeded and the approval is never spent — an approval does not
+	// outlive the grant behind it. That refusal is an observation like any
+	// other, and it is still attributed to the tool that earned it.
+	narrowed := &fakeSurface{errs: map[string]error{
+		"send_email": fmt.Errorf("gate: send_email needs scope %q: %w",
+			principal.ScopeSend, apperrors.ErrScopeExceeded),
 	}}
 	narrowed.offered = narrowed.scopedTo(principal.ScopeRead)
 
-	brain := &scriptedBrain{texts: []string{`{"final":{"summary":"sent"}}`}}
+	brain := &scriptedBrain{texts: []string{`{"final":{"summary":"the send was refused"}}`}}
 	if _, err := New(narrowed, brain).Resume(context.Background(), Job{Goal: "follow up"},
 		Decision{Pending: *suspended.Pending, Approved: true}); err != nil {
 		t.Fatalf("resume: %v", err)
@@ -187,13 +220,26 @@ func TestAResumedRunKeepsAttributingAToolItMayNoLongerCall(t *testing.T) {
 	if strings.Contains(req.System, "send_email") {
 		t.Errorf("the resumed run is still offered send_email after its scopes narrowed:\n%s", req.System)
 	}
-	// ...while the transcript it already holds keeps its names.
+
+	// ...while the transcript keeps every name it already held.
 	observations := strings.Join(observationsOf(req.Messages), "\n")
 	if strings.Contains(observations, unknownSourceLabel) {
 		t.Errorf("the resumed run's own history was relabelled %q:\n%s", unknownSourceLabel, observations)
 	}
-	if !strings.Contains(observations, "send_email") {
-		t.Errorf("the resumed run no longer attributes its transcript to send_email:\n%s", observations)
+	// The snapshot is replayed, not rebuilt: both pre-suspension turns are still
+	// here, including the write-scoped one this run may no longer call.
+	for _, historical := range []string{"observation from read_record", "observation from update_record"} {
+		if !strings.Contains(observations, historical) {
+			t.Errorf("a turn this run took BEFORE suspending is missing after resume (%q):\n%s",
+				historical, observations)
+		}
+	}
+	// The assertion the two-catalog split actually turns on: this observation is
+	// written on the resume leg, through sourceLabel, for a tool the narrowed
+	// passport cannot call. A vocabulary filtered to the offered set anonymises
+	// it; the whole catalog keeps its name.
+	if !strings.Contains(observations, "observation from send_email") {
+		t.Errorf("the refused redemption was not attributed to send_email:\n%s", observations)
 	}
 }
 

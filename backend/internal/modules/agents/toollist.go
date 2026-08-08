@@ -27,9 +27,15 @@ import (
 // surface that lies, and the client's only way to discover the truth is to
 // call and be denied.
 //
-// Registry.Offered is its only caller, and every surface that narrows a catalog
-// to one principal goes through there — the external tools/list and the tool
-// listing a Surface-B run is shown alike.
+// Registry.Offered is its only caller, and every narrowing of the TOOL catalog
+// goes through there — the external tools/list and the tool listing a Surface-B
+// run is shown alike.
+//
+// The resources catalogue is the one sibling that does not: readableByCaller
+// spells the same three branches over mcp.Resource. One rule, two spellings,
+// because neither type carries the other's fields — which is a real cost, not a
+// tidy separation. A third surface needing this rule should lift the predicate
+// rather than copy it a third time.
 //
 // It answers the SCOPE axis only, which is what §5.7 promises. The seat
 // ceiling and object RBAC are re-derived per call through the authority seam
