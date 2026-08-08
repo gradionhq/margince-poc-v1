@@ -133,39 +133,36 @@ fallback), **#495** (auth rate limits are process-local, so N replicas multiply
 every ceiling by N), **#496** (audit-verb down migrations cannot see the rows
 their refusal probe checks for, under production RLS).
 
-## Open — the integration lane's cost, profiled
+## Open — the integration lane, what is left
 
-The lane is 1828 tests over 25 packages, ~493s summed (~300s wall, parallel).
-Profiled per test on 2026-08-06 because the suite *looked* inflated. It is not
-inflated by count: the slowest decile is 55% of the time and the fastest 1328
-tests together are 29%, so converting the small majority to unit tests would
-delete three-quarters of the suite to recover under a third of the runtime —
-and most of them assert database behaviour (RLS, CHECK→4xx, keyset pagination)
-that has no meaning without Postgres.
+The lane is 1938 tests over 29 packages, ~437s summed, ~186s wall. The two
+levers worth pulling have been pulled — package splitting and connection
+sharing, ~15% off the wall clock between them; see the archive for what each
+bought and what it cost. What remains is small and none of it is on the
+critical path:
 
-Where the cost actually is, and what is worth doing about it:
-
-- **#524** — `internal/compose/integration` is half the lane (960 tests) and
-  runs 258–302s against a 300s per-package timeout, so it flakes on a loaded
-  machine. CI shards 12 ways and never sees it; the unsharded local lane and
-  `make test-it` do. The 300s default is documented against the sharded
-  assumption, and the script already bumps to 900s for the whole-package case
-  but gates that on `COVERDIR` rather than on `SHARD_TOTAL == 1`.
-- **#539** — that package's setup forks about five Postgres backends per test.
-  Sharing them measured ~18% (170.9s vs a 209.6s baseline) and is **blocked**:
-  the harness drops `cf_*` columns between tests, so a pooled connection
-  outliving that DDL serves a stale plan and fails with SQLSTATE 0A000 in a
-  suite unrelated to custom fields. The issue records the design that would
-  unblock it and the four cheaper approaches that were measured and do not pay.
 - **#535** — table-driven tests calling their harness inside `t.Run`, re-seeding
   Postgres per case (~44s), which also hides that the property under test is pure.
 - **#536** — a few tests assert pure logic through a booted app; `check-test-lanes.sh`
   forbids the mirror case (a unit test opening real infra) but cannot see this one.
+- **#639** — two packages hand-roll the process pool `testdb.Pool` now owns.
+  Neither is broken today (neither runs DDL), but the hazard belongs to the
+  pattern rather than to those packages.
+- **#482** — `SQLSTATE 53200 out of shared memory`, still unfixed and now seen
+  in CI as well as locally. It costs a rerun and has to be hand-diagnosed each
+  time to tell it apart from a real failure; a `max_locks_per_transaction` bump
+  is the likely cheap fix.
 
-Two measurement notes for whoever picks this up. Run-to-run variance on the same
-commit is ~15%, so compare within one sitting on an idle machine. And both
-failures found while attempting #539 were order-dependent — they appeared only
-in a full-package or full-lane run, never in isolation.
+Do not expect much more from splitting: ranked by measured seconds, the tail of
+116 clusters is 46% of the time, which no split reaches.
+
+Three measurement notes for whoever picks this up. Run-to-run variance on the
+same commit is ~15%, so compare within one sitting on an idle machine.
+**Restart Postgres between runs** — #482 otherwise contaminates the second
+consecutive lane run, and a fresh container is worth ~25% on its own, so numbers
+taken across a restart boundary are not comparable to each other. And the
+failures found while doing #539 were all order-dependent: they appeared only in
+a full-package or full-lane run, never in isolation.
 
 ## Open — contract drift: the reset's response gained five fields
 
