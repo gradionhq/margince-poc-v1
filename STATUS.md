@@ -76,12 +76,19 @@ closes the door on manually entered financial figures that plan §4.6 left ajar.
   labelled `deterministic`. The cert case runs production's own request builder
   and parser; its scenario is `aicert/corpus/growth_fit/clear_fit_01.yaml`.
 
-**What is left on PR 4, in order.** `getClaimEvidence` (DOSS-WIRE-3, six source
-kinds), then the frontend panels — neither the dossier nor growth fit has one,
-so both are curl-only today. The DOSSIER's model lane is also still unwired
-(`orgdossier.Service` threads a `routingVersion` but takes no `Completer`);
-that one is cosmetic rather than load-bearing, since its floor already
-describes a company from its own fields.
+- **PR 4 (growth-fit panel)** — `screens/companygrowthfit.tsx`, between the
+  account brief and the next steps. It reuses the brief's own `SentenceList`
+  and citation chips rather than a second copy, so the
+  fact/assessment/recommendation distinction is learned once. `unknown` is the
+  only band with no colour, on purpose: giving it one would put an abstention
+  on the same scale as a verdict.
+
+**What is left on PR 4.** `getClaimEvidence` (DOSS-WIRE-3, six source kinds),
+and the DOSSIER's own panel — the dossier endpoint is still curl-only. The
+dossier's model lane is also unwired (`orgdossier.Service` threads a
+`routingVersion` but takes no `Completer`); that one is cosmetic rather than
+load-bearing, since its floor already describes a company from its own fields,
+where growth fit's floor could only abstain.
 
 **Two things to know before touching it.** Adding a contract operation breaks
 the build until its handler exists — `compose.Server` asserts
@@ -105,9 +112,9 @@ needs a backend capability built from scratch.
 skips) are green. Nothing is pushed: this work stays in the worktree until it
 is tested locally.
 
-**Next**, in plan order: finish PR 4 (`getClaimEvidence`, then the dossier and
-growth-fit panels), PR 5 (documents), then PR 6/8 (attachments,
-account-started email) and PR 9/10 (finance) against their ADRs.
+**Next**, in plan order: finish PR 4 (`getClaimEvidence`, then the dossier
+panel), PR 5 (documents), then PR 6/8 (attachments, account-started email) and
+PR 9/10 (finance) against their ADRs.
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 
