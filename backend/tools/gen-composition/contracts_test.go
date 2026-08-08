@@ -177,7 +177,7 @@ func TestComposedFilesEmitsEveryContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := composedFiles(root)
+	files, _, err := composedFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,12 +5,19 @@
   "risk_tiers": [
     {
       "id": "tool/yogi_quote",
+      "unit": "yogi",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
       "operation": "agent.tool.invoke",
+      "operation_id": "yogiQuote",
+      "route": "/v1/ext/yogi/quote",
+      "method": "POST",
       "scopes": [
         "read"
       ],
       "tier": "auto_execute",
-      "digest": "sha256:4f21fbaaa8f364a1bf3447d33cbbb973ec5000b6f3f5b1e4bddabe016b9a2c4a"
+      "fragment_hash": "0683ac243f03fcd05521ba9c5f5fd0c5c62557e23fd65021821cfa9bef18f1f1",
+      "digest": "sha256:2349a8e8c3415f63a92c014d1157eb107c270e2edbd3a63707ccbc0ade538c39"
     }
   ]
 }

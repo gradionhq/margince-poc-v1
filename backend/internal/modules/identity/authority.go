@@ -40,7 +40,7 @@ var _ authz.Resolver = (*Service)(nil)
 // whose decision demands an ungrantable object can never be released or rejected
 // by anyone.
 func RBACObjectGrantable(object string) bool {
-	return policy.IsCoreObject(object)
+	return policy.IsGrantableObject(object)
 }
 
 // EffectiveRBAC reads the human's CURRENT role grants + teams. A user who

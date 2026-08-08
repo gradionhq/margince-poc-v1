@@ -5,6 +5,8 @@ package compose
 
 import (
 	"fmt"
+	"slices"
+	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -20,7 +22,7 @@ import (
 // registered extension never serves. This is also where the manifest
 // emission and the approval filtering slot in: both
 // operate on the declared set before anything is applied.
-func RegisterExtensions(exts []extension.Extension) error {
+func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb) error {
 	if err := validateExtensionSet(exts); err != nil {
 		return err
 	}
@@ -29,17 +31,53 @@ func RegisterExtensions(exts []extension.Extension) error {
 	// tools to the core seam can (in principle — preflightTools already
 	// precludes it, but this stays fail-closed) fail, and it must not fail
 	// with a jurisdiction pack already half-applied.
-	tools, err := buildExtensionTools(exts)
+	tools, err := buildExtensionTools(exts, verbs)
 	if err != nil {
 		return err
 	}
+	rbacObjects := extensionRbacObjects(verbs)
 	for _, e := range exts {
 		for _, p := range e.Jurisdictions {
 			jurisdiction.Register(p)
 		}
 	}
+	// After the jurisdiction packs, and still in the apply phase: the RBAC
+	// vocabulary is validate-then-apply inside RegisterRbacObjects itself (a set
+	// with one bad name registers none), so it cannot half-widen what a role
+	// document may grant. It is the one apply step that can still return an
+	// error, which is why it is LAST — a failure here leaves the packs applied
+	// and the boot aborting, and an aborting boot serves nothing either way.
+	if err := RegisterRbacObjects(rbacObjects); err != nil {
+		return err
+	}
 	setComposedTools(tools)
+	setComposedVerbs(verbs)
 	return nil
+}
+
+// composedVerbs holds the contract-declared operation set of this boot, written
+// once by RegisterExtensions before any surface serves. The route mounting reads
+// it, and so does the parity sweep that holds declaration and registration
+// equal. Same shape and same reason as composedTools: the mutex guards the
+// read/write ORDERING, not concurrent registrations.
+var composedVerbs struct {
+	mu    sync.RWMutex
+	verbs []extension.Verb
+}
+
+func setComposedVerbs(verbs []extension.Verb) {
+	composedVerbs.mu.Lock()
+	defer composedVerbs.mu.Unlock()
+	composedVerbs.verbs = verbs
+}
+
+// ComposedVerbs returns this boot's declared extension operations. Exported
+// because the composition root mounts their routes from it (routes.go) after the
+// Server is assembled, which is later than RegisterExtensions.
+func ComposedVerbs() []extension.Verb {
+	composedVerbs.mu.RLock()
+	defer composedVerbs.mu.RUnlock()
+	return slices.Clone(composedVerbs.verbs)
 }
 
 // validateExtensionSet preflights every unit and every capability —

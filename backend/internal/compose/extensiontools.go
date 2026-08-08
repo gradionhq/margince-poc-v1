@@ -44,7 +44,23 @@ var composedTools struct {
 // deliberately — the same trust a jurisdiction pack rides when it ships
 // enabled. A distributed, less-trusted unit is not the model until that
 // resolution lands.
-func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
+func buildExtensionTools(exts []extension.Extension, verbs []extension.Verb) ([]mcp.Tool, error) {
+	// The declaration side, keyed by (unit, verb). A unit's Go Tools entry is
+	// only a verb and a function now; everything the adapted spec carries —
+	// tier, scope, prose, schemas, version — comes from the contract-declared
+	// operation, re-emitted into the composition as a literal.
+	declared := make(map[string]extension.Verb, len(verbs))
+	for _, v := range verbs {
+		if err := v.Validate(); err != nil {
+			return nil, fmt.Errorf("compose: extension %q: %w", v.Unit, err)
+		}
+		key := verbKey(v.Unit, v.Tool)
+		if prior, dup := declared[key]; dup {
+			return nil, fmt.Errorf("compose: extension %q declares tool %q on both %s %s and %s %s — one verb, one operation",
+				v.Unit, v.Tool, prior.Method, prior.Route, v.Method, v.Route)
+		}
+		declared[key] = v
+	}
 	var tools []mcp.Tool
 	// preflightTools rejects a name declared twice WITHIN a unit; the tool
 	// registry's namespace is global, so a name two units both serve would
@@ -61,7 +77,15 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 				return nil, fmt.Errorf("compose: extensions %q and %q both serve a tool named %q", owner, e.Name, tool.Name)
 			}
 			served[tool.Name] = e.Name
-			adapted, err := adaptExtensionTool(e.Name, tool)
+			verb, ok := declared[verbKey(e.Name, tool.Name)]
+			if !ok {
+				// Behavior with no published surface. The generator already
+				// refuses this at the declaration's own line, so reaching it
+				// here means the composed set was assembled outside that path —
+				// which is exactly when a fail-closed boot matters.
+				return nil, fmt.Errorf("compose: extension %q serves tool %q but no operation in its contract fragments declares it", e.Name, tool.Name)
+			}
+			adapted, err := adaptExtensionTool(e.Name, tool, verb)
 			if err != nil {
 				return nil, fmt.Errorf("compose: extension %q, tool %q: %w", e.Name, tool.Name, err)
 			}
@@ -77,8 +101,8 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 // what the per-call Runtime is scoped to — the composed declaration is the
 // only place that fact exists, and the handler must never be able to supply
 // it.
-func adaptExtensionTool(unit extension.Name, tool extension.Tool) (extensionTool, error) {
-	tier, err := mcpTier(tool.Tier)
+func adaptExtensionTool(unit extension.Name, tool extension.Tool, verb extension.Verb) (extensionTool, error) {
+	tier, err := mcpTier(verb.Tier)
 	if err != nil {
 		return extensionTool{}, err
 	}
@@ -90,7 +114,7 @@ func adaptExtensionTool(unit extension.Name, tool extension.Tool) (extensionTool
 	if tier == mcp.TierConfirmationRequired {
 		return extensionTool{}, errors.New("a served confirmation-required tool is not yet supported (its approvals could never be staged)")
 	}
-	scope, err := mcpScope(tool.RequestedScope)
+	scope, err := mcpScope(verb.RequestedScope)
 	if err != nil {
 		return extensionTool{}, err
 	}
@@ -123,11 +147,11 @@ func adaptExtensionTool(unit extension.Name, tool extension.Tool) (extensionTool
 	// phase where the unit and the tool are both named, rather than as the core
 	// registry's boot panic. A handler-LESS tool is untouched: it is a manifest
 	// request no client is ever shown.
-	if strings.TrimSpace(tool.Description) == "" {
+	if strings.TrimSpace(verb.Description) == "" {
 		return extensionTool{}, errors.New("a served tool declares no Description — the text a model selects it by, " +
 			"which nothing about the tool can be derived from")
 	}
-	input := tool.InputSchema
+	input := verb.InputSchema
 	if input == nil {
 		// MCP requires every tool to advertise an object input schema; a tool
 		// that takes no arguments still needs one.
@@ -141,15 +165,15 @@ func adaptExtensionTool(unit extension.Name, tool extension.Tool) (extensionTool
 			// anyway. Optional rather than required on purpose: making a
 			// display string mandatory would refuse to boot an otherwise valid
 			// third-party unit over a label.
-			Title: cmp.Or(tool.Title, tool.Name),
+			Title: cmp.Or(verb.Title, tool.Name),
 			// Required above, so it is never the empty string a client would
 			// render as an undescribed tool.
-			Description:   tool.Description,
-			Version:       tool.Version,
+			Description:   verb.Description,
+			Version:       verb.Version,
 			RequiredScope: scope,
 			Tier:          tier,
 			InputSchema:   input,
-			OutputSchema:  tool.OutputSchema,
+			OutputSchema:  verb.OutputSchema,
 			// Derived, never declared: egress is a property of the cap spent,
 			// not something a unit asserts. The refusal above means it is
 			// false for everything this surface serves today.
@@ -158,6 +182,14 @@ func adaptExtensionTool(unit extension.Name, tool extension.Tool) (extensionTool
 		unit:   string(unit),
 		handle: tool.Handle,
 	}, nil
+}
+
+// verbKey pairs a unit with one of its verbs. A tool name is unique within a
+// unit but the registry's namespace is global, so the JOIN between behavior and
+// declaration has to be per unit — otherwise one unit's contract could supply
+// the governance for another unit's handler.
+func verbKey(unit extension.Name, tool string) string {
+	return string(unit) + "\x00" + tool
 }
 
 // setComposedTools records the boot's tool set. Called once by

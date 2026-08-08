@@ -143,7 +143,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // what this process is actually running.
 func registerComposedExtensions() ([]extension.Extension, error) {
 	extensions := composition.Extensions()
-	if err := compose.RegisterExtensions(extensions); err != nil {
+	if err := compose.RegisterExtensions(extensions, composition.Verbs()); err != nil {
 		return nil, err
 	}
 	return extensions, nil

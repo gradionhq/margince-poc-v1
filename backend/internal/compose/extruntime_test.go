@@ -39,11 +39,9 @@ func bindRuntimeForTest(t *testing.T, pool *pgxpool.Pool, vault keyvault.Vault) 
 // tests, deliberately: an extension never constructs one either.
 func invokeTool(t *testing.T, unit string, h extension.ToolHandler) {
 	t.Helper()
-	adapted, err := adaptExtensionTool(extension.Name(unit), extension.Tool{
-		Name: "probe", Description: unitToolDescription, Version: "1.0.0",
-		Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-		Handle: h,
-	})
+	adapted, err := adaptExtensionTool(extension.Name(unit),
+		extension.Tool{Name: "probe", Handle: h},
+		unitVerb(unit, "probe", extension.TierAutoExecute, extension.ScopeRead))
 	if err != nil {
 		t.Fatal(err)
 	}

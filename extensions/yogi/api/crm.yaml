@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: BUSL-1.1
+# SPDX-FileCopyrightText: 2026 Gradion
+#
+# yogi's contract fragment. The FILENAME names the core contract it extends
+# (crm.yaml); gen-composition merges it into build/composition/api/crm.yaml,
+# and that merged file is what the operator manifest, the client types and the
+# docs read. So this document — not yogi.go — is where yogi_quote's risk tier,
+# its Passport scope, the prose a model selects it by and its I/O schemas are
+# declared. yogi.go carries the one thing a YAML file cannot: the function.
+#
+# Routes-only, deliberately: there is no components.schemas action here. The
+# request and response schemas are declared INLINE on the operation, which is
+# where an OpenAPI reader already looks for them, so the fragment needs no
+# node outside $.paths.
+overlay: 1.0.0
+info:
+  title: yogi
+  version: "1.0.0"
+actions:
+  - target: $.paths['/v1/ext/yogi/quote']
+    update:
+      post:
+        operationId: yogiQuote
+        summary: Return one Yogi Berra quote.
+        tags: [Extensions]
+        x-mcp-tool:
+          verb: yogi_quote
+          version: 1.0.0
+          title: Yogi Berra quote
+          # 🟢 read: the tool reads nothing from this workspace and changes
+          # nothing in it, so there is nothing to confirm and nothing to stage.
+          tier: auto_execute
+          scope: read
+          description: >-
+            Return one Yogi Berra quote, chosen at random, when a light note is
+            what is wanted. It reads nothing from this workspace and changes
+            nothing in it, so no record, person or deal is involved either way.
+            There is nothing in the result to carry into a follow-up call.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+        responses:
+          '200':
+            description: One quote.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [quote]
+                  properties:
+                    quote: { type: string }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }

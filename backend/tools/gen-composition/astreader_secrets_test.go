@@ -58,8 +58,8 @@ func TestSecretsDeriveIntoManifest(t *testing.T) {
 // unconditional "secrets" key would rewrite every one of them for a field
 // they do not use, so an undeclared Secrets list must not appear at all.
 func TestNoSecretsOmitsTheField(t *testing.T) {
-	derived, err := deriveSynthetic(t, "x", toolUnitSource(
-		"\t\t\tName: \"t\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"))
+	derived, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tName: \"t\","),
+		syntheticVerb("x", "t", "auto_execute", "read"))
 	if err != nil {
 		t.Fatal(err)
 	}

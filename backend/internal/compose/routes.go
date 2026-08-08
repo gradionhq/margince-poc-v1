@@ -123,8 +123,15 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// router: each resolves its own token/slug → tenant, throttles, and
 	// binds a confined system principal. The preference edge wraps the
 	// booking edge — each passes a non-matching path straight through.
+	// The composed extension routes sit INSIDE this chain, wrapping the
+	// generated router: an extension operation is an authenticated,
+	// workspace-scoped call like any other /v1 route, and mounting it on the
+	// operational mux instead would win the longest-pattern match against
+	// "/v1/" and serve without a session. See extensionEdge.
 	publicEdge := publicPreferences(consent.NewStore(pool), newPublicPreferenceLimiters())(
-		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api),
+		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(
+			extensionEdge(srv, log)(api),
+		),
 	)
 	// publicPreferencesPrefix is named here twice on purpose: it is where
 	// the edge reads the capability token OUT of the path, and where the
@@ -222,5 +229,43 @@ func requireMetricsToken(token string, next http.HandlerFunc) http.HandlerFunc {
 func WithMetricsToken(token string) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.metricsToken = token
+	}
+}
+
+// extensionEdge builds the composed extension router and returns it as an edge
+// around the generated /v1 surface: a request matching a declared extension
+// route is served by that router, and everything else falls straight through.
+//
+// The fall-through is a "/" pattern on the extension mux, not a lookup-then-
+// dispatch: ServeMux already resolves longest-pattern-wins, so registering next
+// as the catch-all makes it decide, and a method mismatch on a declared route
+// still produces its own 405 instead of leaking into the core router as a 404.
+//
+// A boot with no declared operations (the vanilla tree) returns next
+// unchanged — no mux, no allocation, and no route that could shadow a core one.
+// A registry that is not wired yet returns next too, because a route that
+// answered "no registry" would be worse than a 404: it would tell a client the
+// operation exists and is broken, when what is true is that this ROLE does not
+// serve it.
+func extensionEdge(srv Server, log *slog.Logger) func(http.Handler) http.Handler {
+	verbs := ComposedVerbs()
+	if len(verbs) == 0 || srv.toolRegistry == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return func(next http.Handler) http.Handler {
+		mux := http.NewServeMux()
+		mux.Handle("/", next)
+		patterns, err := MountExtensionRoutes(mux, verbs, srv.toolRegistry.Invoke)
+		if err != nil {
+			// A composed set that reached here invalid means RegisterExtensions
+			// accepted something this mounting cannot serve, which is a wiring
+			// defect in the composition rather than a runtime condition — and
+			// serving the core surface with the extension routes silently
+			// missing would publish a contract nothing honours. Same posture as
+			// the composition's other boot-time refusals: fail loudly.
+			panic("compose: mounting the composed extension routes: " + err.Error())
+		}
+		log.Info("extensions: routes mounted", "routes", len(patterns))
+		return mux
 	}
 }

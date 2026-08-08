@@ -11,16 +11,10 @@ import (
 
 // handleUnitSource is a unit declaring one tool whose Handle field is
 // exactly handleExpr. describe controls whether a Description is present,
-// so a case that is genuinely served does not trip the separate
-// "served tool needs a Description" refusal instead of the rule under
-// test. quote, recv.Method, mkHandler and mustDial are declared but never
+// quote, recv.Method, mkHandler and mustDial are declared but never
 // called — the derivation only parses this source, it never compiles or
 // runs it.
-func handleUnitSource(handleExpr string, describe bool) string {
-	desc := ""
-	if describe {
-		desc = "\t\t\tDescription: \"Reads nothing this workspace holds.\",\n"
-	}
+func handleUnitSource(handleExpr string) string {
 	return `package x
 
 import "github.com/gradionhq/margince/backend/pkg/extension"
@@ -44,11 +38,8 @@ func New() extension.Extension {
 		Name:    "x",
 		Version: "0.1.0",
 		Tools: []extension.Tool{{
-			Name:    "t",
-			Version: "1.0.0",
-` + desc + `			Tier:           extension.TierAutoExecute,
-			RequestedScope: extension.ScopeRead,
-			Handle:         ` + handleExpr + `,
+			Name:   "t",
+			Handle: ` + handleExpr + `,
 		}},
 	}
 }
@@ -60,8 +51,7 @@ func New() extension.Extension {
 // from a liveness-reopening `recv.Method` without type information it does
 // not have, so identifier-only is the sole rule that keeps a declaration's
 // inertness checkable. The three documented inert spellings must keep
-// deriving regardless of shape (see TestAServedToolWithNoDescriptionIsRefusedAtTheDeclaration
-// in unitmanifest_test.go, which pins the same three at the call site).
+// deriving regardless of shape.
 func TestHandleMustBePlainIdentifier(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -84,11 +74,8 @@ func TestHandleMustBePlainIdentifier(t *testing.T) {
 		{"one-argument nil call to unit code", "mustDial(nil)", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// "quote" is the one case that is actually served; every other
-			// accepted case is a documented inert nil spelling and needs no
-			// Description.
-			describe := tc.handle == "quote"
-			_, err := deriveSynthetic(t, "x", handleUnitSource(tc.handle, describe))
+			_, err := deriveSynthetic(t, "x", handleUnitSource(tc.handle),
+				syntheticVerb("x", "t", "auto_execute", "read"))
 			if tc.wantErr {
 				if err == nil || !strings.Contains(err.Error(), "Tool.Handle must be a plain identifier") {
 					t.Fatalf("Handle: %s: err = %v, want the identifier-only refusal", tc.handle, err)

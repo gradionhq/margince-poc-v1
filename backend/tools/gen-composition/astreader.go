@@ -33,7 +33,7 @@ func scannableGoFile(name string) bool {
 	return !strings.HasSuffix(name, "_test.go")
 }
 
-func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error) {
+func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declaredVerb) ([]byte, error) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution)
 	if err != nil {
@@ -45,7 +45,7 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error
 	if err := rejectLiveInitializers(pkgs, fset); err != nil {
 		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
-	r := &unitReader{fset: fset, vocab: vocab}
+	r := &unitReader{fset: fset, vocab: vocab, verbs: verbs}
 	newFn, newFile, count := findNew(pkgs)
 	if count == 0 {
 		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is required", u.Name)
@@ -99,6 +99,11 @@ func encodeUnitManifest(m unitManifest) ([]byte, error) {
 type unitReader struct {
 	fset  *token.FileSet
 	vocab map[string]string
+	// verbs are the operations this unit's contract fragments declare, read
+	// from the MERGED contract before the AST is walked. The reader needs them
+	// to join behavior to declaration (joinToolsToContract) and to build the
+	// manifest's risk tiers, which are contract-derived, not AST-derived.
+	verbs []declaredVerb
 }
 
 func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManifest, error) {
@@ -110,7 +115,11 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 	if !ok || !isSelector(lit.Type, importAlias(file, extensionPkgPath), "Extension") {
 		return unitManifest{}, r.errAt(expr, "New must return an extension.Extension literal")
 	}
-	m := unitManifest{Schema: 1, RiskTiers: []riskTierRequest{}}
+	tiers, err := toolRequests(r.verbs)
+	if err != nil {
+		return unitManifest{}, err
+	}
+	m := unitManifest{Schema: 1, RiskTiers: tiers}
 	for _, elt := range lit.Elts {
 		if err := r.readExtensionField(elt, file, &m); err != nil {
 			return unitManifest{}, err
@@ -153,10 +162,13 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 	case "Version":
 		m.Version, err = r.stringLit(kv.Value, "Version")
 	case "Tools":
-		var tiers []riskTierRequest
-		tiers, err = r.readTools(kv.Value, file)
+		// The manifest's risk tiers are already set, from the merged contract.
+		// What the Go slice contributes is the join: behavior for a verb the
+		// contract does not declare is a defect, reported at its own line.
+		var tools []declaredTool
+		tools, err = r.readTools(kv.Value, file)
 		if err == nil {
-			m.RiskTiers = append(m.RiskTiers, tiers...)
+			err = r.joinToolsToContract(tools, r.verbs)
 		}
 	case "Jurisdictions":
 		// Recognized and deliberately skipped: a jurisdiction pack is
@@ -183,98 +195,83 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 	return err
 }
 
-func (r *unitReader) readTools(expr ast.Expr, file *ast.File) ([]riskTierRequest, error) {
+// readTools reads the unit's Tools slice. After the narrowing, a Tools entry
+// carries only {Name, Handle} — the verb, and the behavior. Nothing here
+// reaches the manifest: what an operator resolves is DECLARED in the unit's
+// contract fragment and derived from the merged contract (extverbs.go). What
+// this read is for is the join between the two halves, and its one refusal:
+// behavior for a verb no contract operation declares.
+func (r *unitReader) readTools(expr ast.Expr, file *ast.File) ([]declaredTool, error) {
 	lit, ok := expr.(*ast.CompositeLit)
 	if !ok {
 		return nil, r.errAt(expr, "Tools must be a slice literal")
 	}
 	ext := importAlias(file, extensionPkgPath)
-	tiers := make([]riskTierRequest, 0, len(lit.Elts))
+	tools := make([]declaredTool, 0, len(lit.Elts))
 	seen := map[string]bool{}
 	for _, elt := range lit.Elts {
-		c, err := r.readTool(elt, ext)
+		t, err := r.readTool(elt, ext)
 		if err != nil {
 			return nil, err
 		}
-		if seen[c.ID] {
-			return nil, r.errAt(elt, "governed operation %s declared twice", c.ID)
+		if seen[t.name] {
+			return nil, r.errAt(elt, "tool %s declared twice", t.name)
 		}
-		seen[c.ID] = true
-		tiers = append(tiers, c)
+		seen[t.name] = true
+		tools = append(tools, t)
 	}
-	return tiers, nil
+	return tools, nil
 }
 
-func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error) {
+func (r *unitReader) readTool(elt ast.Expr, ext string) (declaredTool, error) {
 	lit, ok := elt.(*ast.CompositeLit)
 	if !ok || (lit.Type != nil && !isSelector(lit.Type, ext, "Tool")) {
-		return riskTierRequest{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
+		return declaredTool{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
 	}
-	var name, title, description, version, tier, scope string
-	var served bool
+	var d declaredTool
+	d.at = lit
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
 		if !ok {
-			return riskTierRequest{}, r.errAt(e, "Tool fields must be keyed")
+			return declaredTool{}, r.errAt(e, "Tool fields must be keyed")
 		}
 		key, ok := kv.Key.(*ast.Ident)
 		if !ok {
-			return riskTierRequest{}, r.errAt(kv.Key, "Tool fields must be keyed by name")
+			return declaredTool{}, r.errAt(kv.Key, "Tool fields must be keyed by name")
 		}
 		var err error
 		switch key.Name {
 		case "Name":
-			name, err = r.stringLit(kv.Value, "Tool.Name")
-		case "Title":
-			// Read to be VALIDATED, not to be recorded: a display string
-			// grants nothing, so it stays out of the descriptor and its
-			// digest — but the core registry refuses a blank one at boot, and
-			// this is where a unit author is told so at the declaration.
-			title, err = r.stringLit(kv.Value, "Tool.Title")
-		case "Description":
-			// Read to be VALIDATED, like the title: selection prose grants
-			// nothing and stays out of the descriptor and its digest, but the
-			// composition refuses a SERVED tool without one, and this is where a
-			// unit author is told so — at the declaration, in their own source.
-			description, err = r.stringLit(kv.Value, "Tool.Description")
-		case "Version":
-			version, err = r.stringLit(kv.Value, "Tool.Version")
-		case "Tier":
-			tier, err = r.constValue(kv.Value, ext)
-		case "RequestedScope":
-			scope, err = r.constValue(kv.Value, ext)
+			d.name, err = r.stringLit(kv.Value, "Tool.Name")
 		case "Handle":
 			// Behavior is not a static declaration and never reaches the
 			// manifest. Whether one is SERVED is read anyway, because that is
-			// what separates a tool owing a description from an inert manifest
-			// request that does not. A declared `Handle: nil` is inert — it is
-			// how the seam spells "declare it, serve nothing", and the runtime
+			// what separates a live capability from a verb the unit publishes
+			// and does not run. A declared `Handle: nil` is inert — it is how
+			// the seam spells "declare it, serve nothing", and the runtime
 			// adapter skips exactly that — so the field's presence is not the
 			// question; its value being non-nil is. See isStaticallyNil for the
 			// spellings that count as nil, and readHandle for why a non-nil
 			// value must be a bare identifier.
-			served, err = r.readHandle(kv.Value, ext)
-		case "InputSchema", "OutputSchema":
-			// Client-facing I/O docs — recognized and skipped. The manifest
-			// records the governance descriptor, not the advertised schemas.
+			d.served, err = r.readHandle(kv.Value, ext)
 		default:
-			err = r.errAt(kv, "Tool field %s is not derivable by this generator", key.Name)
+			// Fail closed, and this arm is what keeps the narrowing HONEST: a
+			// unit still declaring Tier, Description or InputSchema in Go is
+			// told, at that line, that the field moved to its contract
+			// fragment — rather than having it silently ignored while the
+			// contract's value governs.
+			err = r.errAt(kv, "Tool field %s is not derivable by this generator — a Tool declares {Name, Handle}; tier, scope, version, title, description and the I/O schemas are declared in the unit's %s/<contract>.yaml fragment and read from the merged contract", key.Name, apiLayer)
 		}
 		if err != nil {
-			return riskTierRequest{}, err
+			return declaredTool{}, err
 		}
 	}
-	// The composition refuses a served tool with no description, because a
-	// verb is all a model would have to choose it by. That refusal is a boot
-	// failure in whatever process composes the unit; raised here it is a line
-	// and a column in the unit's own source, which is where it can be fixed.
-	if served && strings.TrimSpace(description) == "" {
-		return riskTierRequest{}, r.errAt(lit,
-			"tool %q serves a handler but declares no Description — the text a model selects it by", name)
+	// Grammar only. Every other rule about a tool is a rule about its
+	// DECLARATION, and the declaration is the contract's (extension.Verb).
+	if err := (extension.Tool{Name: d.name}).Validate(); err != nil {
+		return declaredTool{}, r.errPos(lit, "%v", err)
 	}
-	return r.toolRequest(lit, declaredTool{
-		name: name, title: title, description: description, version: version, tier: tier, scope: scope,
-	})
+	return d, nil
 }
 
 // readHandle reports whether a Tools entry serves a handler, refusing any
@@ -339,37 +336,66 @@ func isStaticallyNil(expr ast.Expr, ext string) bool {
 	return false
 }
 
-// declaredTool is one Tools entry as the source states it, before the
-// published grammar has passed judgement on it.
-type declaredTool struct{ name, title, description, version, tier, scope string }
+// declaredTool is one Tools entry as the source states it: the verb, whether
+// it serves a handler, and the position, so the join against the contract can
+// report a mismatch at the line that caused it.
+type declaredTool struct {
+	name   string
+	served bool
+	at     ast.Node
+}
 
-// toolRequest validates the declared tool through its published grammar
-// (the same Validate the boot preflight runs, raised here at the
-// declaration's position) and assembles its descriptor. A tool requires
-// one scope; the descriptor carries it as its (single-element) scope set,
-// the general shape shared across governed kinds. Version and Title are not
-// part of the descriptor: resolutions bind to the digest, never to a version
-// string, and never to a label.
-func (r *unitReader) toolRequest(at ast.Node, d declaredTool) (riskTierRequest, error) {
-	declared := extension.Tool{
-		Name: d.name, Title: d.title, Description: d.description, Version: d.version,
-		Tier: extension.Tier(d.tier), RequestedScope: extension.Scope(d.scope),
+// joinToolsToContract reconciles the unit's Go behavior with the operations its
+// contract fragment declares, and refuses the one direction that is a defect.
+//
+// Behavior for a verb no operation declares is refused: it is a capability with
+// no published surface — nothing lists it, nothing documents it, no manifest
+// entry asks an operator about it, and yet it would be registered into the same
+// registry the core tools ride. The reverse is NOT a defect: a declared verb
+// with no Go behavior is a contract-only governed request (fixtures'
+// crm-hello), which the manifest records and the boot serves nothing for.
+func (r *unitReader) joinToolsToContract(tools []declaredTool, verbs []declaredVerb) error {
+	declared := make(map[string]bool, len(verbs))
+	for _, d := range verbs {
+		declared[d.verb.Tool] = true
 	}
-	if err := declared.Validate(); err != nil {
-		return riskTierRequest{}, r.errPos(at, "%v", err)
+	for _, t := range tools {
+		if declared[t.name] {
+			continue
+		}
+		return r.errPos(t.at, "tool %q has behavior here but no operation in this unit's %s/ fragments declares it — declare it in the contract (the merged contract is what publishes a verb), or delete the entry", t.name, apiLayer)
 	}
-	c := riskTierRequest{
-		ID:        "tool/" + d.name,
-		Operation: opAgentToolInvoke,
-		Scopes:    []string{d.scope},
-		Tier:      d.tier,
+	return nil
+}
+
+// toolRequests turns the unit's contract-declared operations into its manifest
+// risk-tier entries. A tool requires one scope; the descriptor carries it as
+// its (single-element) scope set, the general shape shared across governed
+// kinds.
+func toolRequests(verbs []declaredVerb) ([]riskTierRequest, error) {
+	out := make([]riskTierRequest, 0, len(verbs))
+	for _, d := range verbs {
+		c := riskTierRequest{
+			ID:           "tool/" + d.verb.Tool,
+			Unit:         string(d.verb.Unit),
+			Kind:         kindAgentTool,
+			Contract:     d.verb.Contract,
+			Operation:    opAgentToolInvoke,
+			OperationID:  d.verb.OperationID,
+			Route:        d.verb.Route,
+			Method:       d.verb.Method,
+			Scopes:       []string{string(d.verb.RequestedScope)},
+			Tier:         string(d.verb.Tier),
+			FragmentHash: d.fragmentHash,
+		}
+		digest, err := descriptorDigest(c)
+		if err != nil {
+			return nil, err
+		}
+		c.Digest = digest
+		out = append(out, c)
 	}
-	digest, err := descriptorDigest(c)
-	if err != nil {
-		return riskTierRequest{}, err
-	}
-	c.Digest = digest
-	return c, nil
+	return out, nil
 }
 
 // constValue resolves a published constant (extension.X) through the

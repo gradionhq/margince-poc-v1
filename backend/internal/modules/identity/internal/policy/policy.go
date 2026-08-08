@@ -238,7 +238,13 @@ func Parse(raw []byte) (Document, error) {
 		return Document{}, fmt.Errorf("policy: malformed permissions document: %w", err)
 	}
 	for object := range doc.Objects {
-		if !IsCoreObject(object) {
+		// The GRANTABLE vocabulary, not the core one: a composed extension
+		// registers its ext_<unit>_<object> names at boot (composable.go), and a
+		// document granting one has to parse or the whole identity resolution
+		// fails for that user. An object outside both sets is still rejected —
+		// a typo'd object would otherwise silently grant nothing and read as a
+		// bug in the role rather than in the document.
+		if !IsGrantableObject(object) {
 			return Document{}, fmt.Errorf("policy: unknown object %q in permissions document", object)
 		}
 	}
@@ -257,9 +263,22 @@ func Parse(raw []byte) (Document, error) {
 // set: grants union (any role allowing an action allows it), row scope
 // widens to the maximum any role holds. Zero roles yield zero grants.
 func Merge(byRole map[string]Document) principal.Permissions {
+	extensionObjects := RegisteredObjects()
 	merged := principal.Permissions{
-		Objects:  make(map[string]principal.ObjectGrant, len(coreObjects)),
+		Objects:  make(map[string]principal.ObjectGrant, len(coreObjects)+len(extensionObjects)),
 		RowScope: principal.RowScopeOwn,
+	}
+	// Every registered extension object is SEEDED at the zero grant, before any
+	// role document is read. The seeded core role documents list all thirty core
+	// objects, so /me's snapshot has always been the complete vocabulary with
+	// the holder's grants filled in — a client can tell "you hold nothing on
+	// this" from "no such object". An extension object arrives after those
+	// documents were seeded, so without this it would be absent from the
+	// snapshot for every principal who was not explicitly granted it, and the
+	// unit's screen could not tell the two apart. A union follows below: a role
+	// that DOES grant the object widens the zero, never the reverse.
+	for _, object := range extensionObjects {
+		merged.Objects[object] = principal.ObjectGrant{}
 	}
 	for _, key := range slices.Sorted(maps.Keys(byRole)) {
 		doc := byRole[key]
