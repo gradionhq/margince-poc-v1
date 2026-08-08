@@ -315,6 +315,14 @@ func cimdCacheTTL(cacheControl string) time.Duration {
 		if err != nil {
 			continue
 		}
+		// Clamped in SECONDS, before the multiply. A client asking for a max-age
+		// near the int ceiling overflows the Duration and comes back negative,
+		// which the clamp below would then read as "below the floor" — so the
+		// longest cache anyone asked for would become the shortest this server
+		// offers, and the document would be refetched every five minutes.
+		if seconds > int(cimdMaxCache.Seconds()) {
+			return cimdMaxCache
+		}
 		return min(max(time.Duration(seconds)*time.Second, cimdMinCache), cimdMaxCache)
 	}
 	return cimdMinCache

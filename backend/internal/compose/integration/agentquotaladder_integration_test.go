@@ -18,7 +18,6 @@ package integration
 import (
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -33,7 +32,11 @@ import (
 // cross, plus the meter so a test can put a window into the state it is about.
 func ladderApp(t *testing.T, slug string, limits agentquota.Limits) (*apptest.AppEnv, *agentquota.Meter) {
 	t.Helper()
-	meter := agentquota.New(budgettest.Client(t), limits, time.Hour)
+	// The DEFAULT window, not a short one: these tests spend, stage, approve and
+	// re-read on the REAL clock, and a one-hour bucket resets under any run that
+	// crosses the top of the hour — a flake that would read as the release
+	// having failed.
+	meter := agentquota.New(budgettest.Client(t), limits, agentquota.DefaultWindow)
 	// The CONNECTOR composition, because half the ladder only exists behind
 	// /mcp: the REST door refuses on the quota but has no tool to name, so the
 	// step-up it would stage has no question in it. The hosted transport is

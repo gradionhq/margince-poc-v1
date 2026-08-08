@@ -104,10 +104,12 @@ func (m *Meter) WithCostCeiling(c CostCeiling) *Meter {
 // never races a charge — the same discipline overlaybudget.Meter.RebindFrom
 // follows.
 func (m *Meter) RebindFrom(src *Meter) {
-	m.rdb, m.limits, m.window, m.now, m.unbounded = src.rdb, src.limits, src.window, src.now, src.unbounded
-	if src.cost != nil {
-		m.cost = src.cost
-	}
+	// EVERY field, including a nil ceiling. A conditional copy would leave a
+	// rebound meter judging cost against the composition it used to be in,
+	// which is silent: the counter refuses nothing, so a wrong ceiling shows up
+	// only as a warning that fires at the wrong volume.
+	m.rdb, m.limits, m.window = src.rdb, src.limits, src.window
+	m.now, m.unbounded, m.cost = src.now, src.unbounded, src.cost
 }
 
 // Limit is the configured threshold for one counter, for a refusal envelope to
@@ -360,6 +362,12 @@ func asCount(v any) (int, error) {
 		// Atoi, not Sscanf: Sscanf reads "12abc" as 12 and reports no error,
 		// which is precisely the "neither absent nor an integer" case above.
 		return 0, fmt.Errorf("agentquota: counter value %q is not a number: %w", s, err)
+	}
+	if n < 0 {
+		// This meter only ever INCRBYs by a positive amount, so a negative
+		// counter is not a count — and reading one as headroom is the direction
+		// that matters: it puts an agent under a bound it has already passed.
+		return 0, fmt.Errorf("agentquota: counter value %d is negative; this meter never writes one", n)
 	}
 	return n, nil
 }

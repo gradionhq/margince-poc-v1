@@ -77,19 +77,6 @@ func askedOfAHuman(err error) bool {
 	return err == nil || errors.Is(err, apperrors.ErrRequiresApproval) || releasableQuotaRefusal(err) != nil
 }
 
-// willReachAHandler reports whether this admission outcome ends in a tool
-// actually running: an admitted call, or a confirm-first refusal the caller
-// answered with an approval it holds. A staged refusal and every other error
-// end here, and a call that never runs is not a call to charge — counting one
-// would let a caller exhaust its own ceiling with requests it was never
-// allowed to make.
-func willReachAHandler(err error, approvalID ids.ApprovalID, approvals Approvals) bool {
-	if err == nil {
-		return true
-	}
-	return errors.Is(err, apperrors.ErrRequiresApproval) && approvals != nil && !approvalID.IsZero()
-}
-
 // stageStepUp puts a releasable quota refusal in front of the human who lent
 // this passport, and answers what the agent is told.
 //

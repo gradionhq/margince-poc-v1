@@ -58,18 +58,33 @@ func WithQuotaCharger(quota QuotaCharger) RegistryOption {
 // never ran, and counting it would let a caller exhaust its own ceiling with
 // requests it was never allowed to make — which an attacker holding a
 // low-scoped passport could do to any workspace's real agent.
-func (r *Registry) chargeCall(ctx context.Context, spec mcp.ToolSpec) error {
+// refusable says whether this charge may still refuse the call. It is false
+// once a human's approval has been consumed: the redemption committed its own
+// transaction, so refusing here would burn that approval on a call that never
+// ran and can never be redeemed again.
+type refusable bool
+
+const (
+	nothingHasHappenedYet refusable = true
+	anApprovalWasConsumed refusable = false
+)
+
+func (r *Registry) chargeCall(ctx context.Context, spec mcp.ToolSpec, mayRefuse refusable) error {
 	if r.quota == nil {
 		return nil
 	}
-	if err := r.quota.Consume(ctx, agentquota.Calls, 1); err != nil {
-		slog.ErrorContext(ctx, "recording an admitted tool call against the call ceiling failed",
-			"tool", spec.Name, "err", err)
-		return fmt.Errorf(
-			"crmagents: %s could not be counted against this agent's call ceiling, so it was not run: %w",
-			spec.Name, apperrors.ErrBudgetExceeded)
+	err := r.quota.Consume(ctx, agentquota.Calls, 1)
+	if err == nil {
+		return nil
 	}
-	return nil
+	slog.ErrorContext(ctx, "recording an admitted tool call against the call ceiling failed",
+		"tool", spec.Name, "refusable", bool(mayRefuse), "err", err)
+	if !mayRefuse {
+		return nil
+	}
+	return fmt.Errorf(
+		"crmagents: %s could not be counted against this agent's call ceiling, so it was not run: %w",
+		spec.Name, apperrors.ErrBudgetExceeded)
 }
 
 // chargeAnswer records what one successful answer cost, at the one place every
@@ -204,7 +219,14 @@ func (r *Registry) noteCostShare(ctx context.Context) {
 // ChargeAdmittedCall runs after admission and before the handler, and REFUSES
 // what it cannot count, for the same reason chargeCall does.
 func (r *Registry) ChargeAdmittedCall(ctx context.Context, spec mcp.ToolSpec) error {
-	return r.chargeCall(ctx, spec)
+	return r.chargeCall(ctx, spec, nothingHasHappenedYet)
+}
+
+// ChargeRedeemedCall is ChargeAdmittedCall for a call whose approval has
+// already been consumed. It never refuses, for the reason refusable states.
+func (r *Registry) ChargeRedeemedCall(ctx context.Context, spec mcp.ToolSpec) {
+	//craft:ignore swallowed-errors chargeCall cannot fail on this path — it logs and returns nil once an approval is consumed
+	_ = r.chargeCall(ctx, spec, anApprovalWasConsumed)
 }
 
 // ChargeEffect records a completed mutating REST call against the counter its

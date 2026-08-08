@@ -227,8 +227,10 @@ type Server struct {
 	// Redis-backed meter at boot.
 	overlayMeter *overlaybudget.Meter
 	// quotaMeter is the MCP-SESS-READS bound this role enforces on agent
-	// reads, shared by the two things that must agree about it: the admission
-	// gate that REFUSES on it and the tool registry that CHARGES it.
+	// the five MCP-SESS-* counters, shared by everything that must agree about
+	// them: the admission gate that REFUSES on them, both doors' registries that
+	// CHARGE them, the approvals service that WIDENS one when a lender says
+	// continue, and the model path that charges the soft cost share.
 	//
 	// Always non-nil (newServer constructs it unconditionally, fail-closed
 	// with no Redis), and WithAgentQuota Rebinds this ONE pointer to the live

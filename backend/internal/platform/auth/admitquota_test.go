@@ -248,8 +248,11 @@ func TestACallUnderEveryBoundIsAdmitted(t *testing.T) {
 	if _, err := quotaGate(quota).Admit(agentCtx(principal.ScopeRead), readSpec, noResolve); err != nil {
 		t.Fatalf("a read under every bound → %v, want admitted", err)
 	}
-	if len(quota.asked) != 2 {
-		t.Errorf("one read consulted %v; it owes exactly the call ceiling and its own counter", quota.asked)
+	// WHICH two, not how many: a regression that asked Reads twice — dropping
+	// the call ceiling entirely — would satisfy a count and lose the ceiling
+	// every other quota sits under.
+	if len(quota.asked) != 2 || quota.asked[0] != agentquota.Calls || quota.asked[1] != agentquota.Reads {
+		t.Errorf("one read consulted %v; it owes the call ceiling FIRST and then its own counter", quota.asked)
 	}
 }
 

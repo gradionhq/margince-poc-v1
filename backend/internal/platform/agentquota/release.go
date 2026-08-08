@@ -50,13 +50,17 @@ func (m *Meter) Release(ctx context.Context, ws, passport ids.UUID, c Counter, b
 	if bucket > current {
 		return false, fmt.Errorf("agentquota: cannot release %s for a window that has not started", c)
 	}
+	if bucket < current {
+		// Judged with the other argument facts, ABOVE the meter's reachability:
+		// a window that has already rolled applies to nothing whether or not
+		// this meter can reach Redis, and ordering it after would make every
+		// test of this branch pass on the unreachable one instead.
+		return false, nil
+	}
 	if m.unbounded || m.rdb == nil {
 		// Unmetered bounds nothing, so there is nothing to widen; no Redis means
 		// the meter is refusing every read already and a release it cannot
 		// record must not be reported as one.
-		return false, nil
-	}
-	if bucket < current {
 		return false, nil
 	}
 	key := m.releaseKey(ws, passport.String(), c, bucket)

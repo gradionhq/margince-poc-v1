@@ -355,6 +355,11 @@ func TestACounterValueThisMeterDidNotWriteIsAnErrorNotAZero(t *testing.T) {
 	if n, err := asCount("17"); err != nil || n != 17 {
 		t.Errorf("a written counter read as (%d, %v), want (17, nil)", n, err)
 	}
+	// A NEGATIVE counter is corruption, and the direction matters: read as a
+	// count it would put an agent under a bound it has already passed.
+	if _, err := asCount("-5"); err == nil {
+		t.Error("a negative counter parsed as headroom; this meter never writes one")
+	}
 }
 
 // The window a caller must pro-rate against. It is exposed because a share of a

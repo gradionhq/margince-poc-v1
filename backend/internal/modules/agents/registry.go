@@ -128,19 +128,19 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	if stepUp := releasableQuotaRefusal(err); stepUp != nil {
 		return nil, r.stageStepUp(ctx, stepUp)
 	}
-	// The call ceiling is charged HERE — after admission, before any redemption
-	// and before any handler — because this is the last moment at which the
-	// answer to "has anything happened yet?" is still no, and that is the whole
-	// of what lets an uncountable call be REFUSED rather than absorbed.
+	// The call ceiling is charged where the call is known to RUN, and only
+	// there. A refusal, a staged 🟡, and a token that fails redemption all
+	// execute nothing — counting them would let a caller suspend its own
+	// Passport with requests it was never allowed to make, or with a replayed
+	// token that opens nothing.
 	//
-	// It cannot move later. RedeemAndMark below commits its own transaction and
-	// consumes the human's approval; a refusal after that point would burn the
-	// approval on a call that never ran, and the agent's retry with the same
-	// approval_id would be refused as already consumed. That is the failure
-	// approvals' own serverProposed guard exists to prevent, reached by a
-	// different door.
-	if reaching := willReachAHandler(err, approvalID, r.approvals); reaching {
-		if chargeErr := r.chargeCall(ctx, spec); chargeErr != nil {
+	// Whether it may REFUSE depends on what has already committed. Before a
+	// redemption, nothing has, so an uncountable call is not run. After one, the
+	// human's approval is consumed and refusing would burn it on a call that
+	// never happened and can never be redeemed again — so the charge is absorbed
+	// there instead, the same asymmetry a committed write takes.
+	if err == nil && approvalID.IsZero() {
+		if chargeErr := r.chargeCall(ctx, spec, nothingHasHappenedYet); chargeErr != nil {
 			return nil, chargeErr
 		}
 	}
@@ -169,6 +169,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		if rErr != nil {
 			return nil, rErr
 		}
+		r.ChargeRedeemedCall(marked, spec)
 		return r.handle(marked, t, spec, args)
 	default:
 		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, diffHash, err)

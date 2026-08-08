@@ -86,7 +86,14 @@ func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 	// It widens the window the staging named, from that row's own passport
 	// (quotarelease.go).
 	if approve && a.Kind == KindQuotaRelease {
-		return a, s.applyQuotaRelease(ctx, a)
+		if err := s.applyQuotaRelease(ctx, a); err != nil {
+			// Framed like the effect branch below, and for the same reason: the
+			// decision is COMMITTED. A human told only "redis is unreachable"
+			// would reasonably decide again, and the row would refuse them as
+			// already decided.
+			return a, fmt.Errorf("approved, but widening the agent's window failed: %w", err)
+		}
+		return a, nil
 	}
 	// The kind's follow-on effect runs after the decision committed: the
 	// approval IS decided either way; an effect failure surfaces to the

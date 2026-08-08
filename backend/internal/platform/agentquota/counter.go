@@ -101,9 +101,15 @@ const (
 
 // DefaultWindow is the span one counter covers. The spec names these bounds
 // after a session; ADR-0055 and ADR-0092 leave the Passport as the only thing
-// both doors share, so the Passport's rolling day is what "session" resolves to
-// here. It is stated in the tool copy an agent reads, so the surface and the
-// operator use the same words.
+// both doors share, so a Passport's day is what "session" resolves to here.
+//
+// It is a FIXED window, not a rolling one: the bucket is the moment divided by
+// the window, so every counter in an installation resets at the same instant
+// rather than a credential's own anniversary. That is what an operator needs to
+// know to answer "when does this agent read again" — and it is why a refusal
+// says "when the window rolls" rather than naming a duration. The span itself is
+// stated in the tool copy an agent reads, so the surface and the operator use
+// the same words.
 const DefaultWindow = 24 * time.Hour
 
 // Limits is one deployment's thresholds. A zero field takes the default above,

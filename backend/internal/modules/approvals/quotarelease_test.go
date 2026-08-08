@@ -23,12 +23,17 @@ type recordingReleaser struct {
 	bucket   int64
 	calls    int
 	err      error
+	// widened is what the real meter answers: false when the window the human
+	// was shown has already rolled. Held separately from err because
+	// "applied nothing" is not a failure, and a stub that could only ever
+	// answer true would make the test naming that case unable to fail.
+	widened bool
 }
 
 func (r *recordingReleaser) Release(_ context.Context, ws, passport ids.UUID, c agentquota.Counter, bucket int64) (bool, error) {
 	r.calls++
 	r.ws, r.passport, r.counter, r.bucket = ws, passport, c, bucket
-	return r.err == nil, r.err
+	return r.widened, r.err
 }
 
 // stepUpRow is a staged step-up as the decision path reads it back.
@@ -52,7 +57,7 @@ func releaseCtx(ws ids.UUID) context.Context {
 // look like it worked while the agent stayed refused.
 func TestAReleaseWidensTheAgentsWindowAndNotTheApproversContext(t *testing.T) {
 	ws, passport := ids.New[ids.WorkspaceKind]().UUID, ids.New[ids.PassportKind]().UUID
-	meter := &recordingReleaser{}
+	meter := &recordingReleaser{widened: true}
 	svc := NewService(nil).WithQuotaReleaser(meter)
 	a := stepUpRow(t, passport, agentquota.ReleaseProposal{
 		Counter: agentquota.Reads, Observed: 2431, Limit: 2000, Bucket: "42", Tool: "search_records",
@@ -78,7 +83,7 @@ func TestAReleaseWidensTheAgentsWindowAndNotTheApproversContext(t *testing.T) {
 // anyway — there is nothing to widen because there is nothing to release it
 // from. Their decision still stands as the record that they said yes.
 func TestAReleaseThatWidenedNothingIsNotAnError(t *testing.T) {
-	meter := &recordingReleaser{}
+	meter := &recordingReleaser{widened: false} // the rolled-window answer
 	svc := NewService(nil).WithQuotaReleaser(meter)
 	a := stepUpRow(t, ids.New[ids.PassportKind]().UUID,
 		agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: "1"})
