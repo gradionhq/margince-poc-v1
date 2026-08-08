@@ -5,11 +5,14 @@ package compose
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -104,5 +107,37 @@ func TestATokenSpendIsChargedAgainstTheCostCounter(t *testing.T) {
 
 	if err := (AgentTokenSpend{Meter: meter}).SpendAgentTokens(context.Background(), 500); err != nil {
 		t.Fatalf("charging an unmetered composition failed: %v", err)
+	}
+}
+
+// EVERY REST outcome that reaches a handler is charged, and only those. This is
+// the property three separate paths kept getting wrong: the plain admission was
+// charged, the approved 🟡 retry was not, and update_record's field split
+// returned early past the charge.
+//
+// Asserted on the PREDICATE rather than through the middleware, because what
+// went wrong each time was the decision, not the plumbing: a path was added and
+// nobody asked whether it ran a handler.
+func TestEveryRestOutcomeThatRunsAHandlerIsCharged(t *testing.T) {
+	withToken := httptest.NewRequest(http.MethodPatch, "/v1/deals/x", nil)
+	withToken.Header.Set(approvalTokenHeader, "019fe200-0000-7000-8000-000000000000")
+	without := httptest.NewRequest(http.MethodPatch, "/v1/deals/x", nil)
+
+	cases := []struct {
+		name string
+		err  error
+		req  *http.Request
+		want bool
+	}{
+		{"an admitted call runs its handler", nil, without, true},
+		{"an approved retry runs its handler too", apperrors.ErrRequiresApproval, withToken, true},
+		{"a confirm-first refusal with no token stages and runs nothing", apperrors.ErrRequiresApproval, without, false},
+		{"a scope refusal runs nothing", apperrors.ErrScopeExceeded, without, false},
+		{"a quota refusal runs nothing", apperrors.ErrBudgetExceeded, withToken, false},
+	}
+	for _, c := range cases {
+		if got := reachesAHandler(c.err, c.req); got != c.want {
+			t.Errorf("%s: reachesAHandler = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

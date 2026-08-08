@@ -165,7 +165,7 @@ func TestRedemptionCarriesThePinOntoTheForwardedRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/v1/offers/x", nil)
 	req.Header.Set(approvalTokenHeader, approvalID.String())
 
-	if !redeemIfPresented(httptest.NewRecorder(), req, next, pinningApprovals{version: 9}, pol, nil) {
+	if handled, _ := redeemIfPresented(httptest.NewRecorder(), req, next, pinningApprovals{version: 9}, pol, nil); !handled {
 		t.Fatal("a presented token must be handled by the gate")
 	}
 	if forwarded != "9" {
@@ -187,7 +187,7 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/custom-fields", nil)
 	req.Header.Set(approvalTokenHeader, approvalID.String())
 
-	if !redeemIfPresented(httptest.NewRecorder(), req, next, &capturingApprovals{}, pol, nil) {
+	if handled, _ := redeemIfPresented(httptest.NewRecorder(), req, next, &capturingApprovals{}, pol, nil); !handled {
 		t.Fatal("a presented token must be handled by the gate")
 	}
 	if forwarded != "" {

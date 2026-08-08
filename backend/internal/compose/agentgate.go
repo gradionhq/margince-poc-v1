@@ -75,7 +75,10 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			//
 			// Charged where the MCP door charges: the ceiling before anything
 			// happens (and refusing what it cannot count), the act after it has.
-			if err == nil {
+			// EVERY outcome that reaches a handler is charged, not only the
+			// plainly-admitted one — an approved 🟡 retry runs a handler too, and
+			// leaving it unpaid would make an approval the way to spend nothing.
+			if reachesAHandler(err, r) {
 				if chargeErr := reg.ChargeAdmittedCall(ctx, spec); chargeErr != nil {
 					httperr.Write(w, r, chargeErr)
 					return
@@ -214,17 +217,36 @@ type admissionOutcome struct {
 func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, outcome admissionOutcome) {
 	switch {
 	case outcome.err == nil:
+		// The effect is charged on BOTH arms. The field split forwards to the
+		// same handler through its own path, and an ordinary patch that took it
+		// would otherwise be the one mutation on this surface that costs nothing.
+		defer outcome.registry.ChargeEffect(r.Context(), outcome.spec)
 		if outcome.pol.Tool == "update_record" && !actionShapedUpdateOps[outcome.pol.Op] {
 			splitOrRedeemUpdate(w, r, next, outcome.staging, outcome.ownership, outcome.pol, outcome.body)
 			return
 		}
 		next.ServeHTTP(w, r)
-		outcome.registry.ChargeEffect(r.Context(), outcome.spec)
 	case !errors.Is(outcome.err, apperrors.ErrRequiresApproval) || outcome.staging == nil:
 		httperr.Write(w, r, outcome.err)
 	default:
-		stageOrRedeem(w, r, next, outcome.staging, outcome.pol, outcome.body)
+		// A redemption reaches the handler; a fresh staging does not. Charging
+		// the effect for both would bill a refusal, so this arm charges only
+		// where redeemIfPresented actually forwarded.
+		if redeemed := stageOrRedeem(w, r, next, outcome.staging, outcome.pol, outcome.body); redeemed {
+			outcome.registry.ChargeEffect(r.Context(), outcome.spec)
+		}
 	}
+}
+
+// reachesAHandler reports whether this admission outcome ends in a handler
+// running — an admitted call, or a confirm-first refusal whose caller presented
+// the approval that releases it. A staged refusal and every other error stop
+// here, and a call that never runs is not a call to charge.
+func reachesAHandler(err error, r *http.Request) bool {
+	if err == nil {
+		return true
+	}
+	return errors.Is(err, apperrors.ErrRequiresApproval) && r.Header.Get(approvalTokenHeader) != ""
 }
 
 // operationSpec resolves the ToolSpec the gate admits against. The

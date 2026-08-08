@@ -33,37 +33,50 @@ import (
 // X-Approval-Token redeems a previously approved identical call and lets
 // it through; otherwise the call is staged as a new approval and refused
 // with the redemption instructions.
-func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) {
-	if redeemIfPresented(w, r, next, staging, pol, body) {
-		return
+// It reports whether the call reached the HANDLER, which is what decides
+// whether an effect was performed and so whether one is charged. A redemption
+// that forwarded reports true; a refused token and a fresh staging both report
+// false, because neither ran anything.
+func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) bool {
+	handled, ran := redeemIfPresented(w, r, next, staging, pol, body)
+	if handled {
+		return ran
 	}
 	stageRefusal(w, r, staging, pol, body)
+	return false
 }
 
 // redeemIfPresented consumes an X-Approval-Token when the request carries
 // one: a valid token bound to this exact call lets it through to the
 // handler; an invalid one is answered with the failure — asserted
-// authority is validated, never ignored. Reports whether the request was
-// fully handled (no token → false, the caller continues its own flow).
-func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) bool {
+// authority is validated, never ignored.
+//
+// It answers TWO things, because they are two different facts and a caller
+// needs both: `handled` says the request has been answered and the caller
+// should stop, `ran` says a handler actually executed. They differ on every
+// refusal path here — a malformed token is handled and ran nothing — and the
+// difference is what decides whether an effect is charged. Reading one off the
+// other (by inspecting the status already written, say) would be a second
+// reading of one value, which is how these two come to disagree.
+func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) (handled, ran bool) {
 	token := r.Header.Get(approvalTokenHeader)
 	if token == "" {
-		return false
+		return false, false
 	}
 	approvalID, pErr := ids.ParseAs[ids.ApprovalKind](token)
 	if pErr != nil {
 		httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
-		return true
+		return true, false
 	}
 	_, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
 	if cErr != nil {
 		httperr.Write(w, r, cErr)
-		return true
+		return true, false
 	}
 	if staging == nil {
 		httperr.Write(w, r, fmt.Errorf("agent gate: %s presented but this surface has no approvals engine: %w",
 			approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
-		return true
+		return true, false
 	}
 	// Redeeming and marking are one step (agents.RedeemAndMark), so this
 	// transport cannot forward an approved call without the released marker the
@@ -71,7 +84,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 	released, pin, pinned, rErr := agents.RedeemAndMark(r.Context(), staging, approvalID, pol.Tool, diffHash)
 	if rErr != nil {
 		httperr.Write(w, r, rErr)
-		return true
+		return true, false
 	}
 	// Redemption commits its OWN transaction, and the handler below opens a
 	// fresh one to write. The skew check inside the redemption therefore
@@ -88,7 +101,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 	// WithContext shares the header map set just above, so the pin travels with
 	// the released request.
 	next.ServeHTTP(w, r.WithContext(released))
-	return true
+	return true, true
 }
 
 // stageRefusal stages the refused call as a pending approval and answers

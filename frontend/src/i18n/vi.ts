@@ -720,6 +720,7 @@ export const vi = {
   "approval.kind.send_email": "Gửi một email",
   "approval.kind.book_meeting": "Đặt một lịch họp",
   "approval.kind.send_offer": "Gửi một báo giá",
+  "approval.kind.quota_release": "Cho tác nhân tiếp tục",
   "approval.kind.coldstart": "Điền thông tin công ty mới",
   "approval.kind.enrich": "Bổ sung thông tin từ web",
   "approval.kind.deepread": "Đọc website công ty",
