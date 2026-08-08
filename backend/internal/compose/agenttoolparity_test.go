@@ -161,8 +161,14 @@ var composedIntents = map[string]bool{
 	// search_context ranks across record types through the retrieval index,
 	// which no single list operation is: `GET /search` is the lexical half
 	// alone and answers no vector lane, and the records the sweep names are
-	// read back through the datasource seam. Read-only, and it reaches nothing
-	// outside the workspace — TestComposedIntentsNeverEgress holds it to that.
+	// read back through the datasource seam. Read-only.
+	//
+	// It does not EGRESS in the sense this file's rule is about — no record
+	// leaves the workspace — but the caller's query string does reach the
+	// configured embed provider, exactly as query_workspace's similarity clause
+	// does and as every indexed record already did. That is the AI runtime's own
+	// lane, governed by the routing config rather than by a passport scope, and
+	// the rule below is about outbound authority no operation declared.
 	"search_context": true,
 	// resolve_entities asks the dedupe ladder a question, which is not an
 	// operation at all: `/dedupe/candidates` serves the STORED review queue,
