@@ -27,6 +27,7 @@ package agents
 // the densest read a surface can offer.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -184,7 +185,7 @@ func (t listRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	var args struct {
 		RecordType string            `json:"record_type"`
 		Filters    map[string]string `json:"filters"`
-		Limit      int               `json:"limit"`
+		Limit      json.RawMessage   `json:"limit"`
 		Cursor     string            `json:"cursor"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
@@ -194,19 +195,47 @@ func (t listRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 		return nil, &BadArgsError{Cause: fmt.Errorf(
 			"`record_type` must be one of %s", strings.Join(listRecordTypes, ", "))}
 	}
+	limit, err := pageLimit(args.Limit)
+	if err != nil {
+		return nil, err
+	}
 	if err := t.refuseUnaskableFilters(args.RecordType, args.Filters); err != nil {
 		return nil, err
 	}
 	res, err := t.p.Search(ctx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityType(args.RecordType)},
 		Filters:     args.Filters,
-		Limit:       args.Limit,
+		Limit:       limit,
 		Cursor:      args.Cursor,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(searchResult(ctx, res))
+}
+
+// pageLimit reads the page size, telling an ABSENT argument from an explicit
+// null.
+//
+// It is raw rather than an int for the reason the query grammar spells out
+// about its own `limit`: encoding/json gives both the zero value, and the two
+// mean different things. Absent asks for the contract's default; null is a page
+// size the schema does not have, and reading it as absent would serve a page
+// nobody asked for while reporting success.
+func pageLimit(raw json.RawMessage) (int, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return 0, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return 0, &BadArgsError{Cause: errors.New(
+			"`limit` is null; send a page size between 1 and 50, or leave the argument out for the default")}
+	}
+	var limit int
+	if err := json.Unmarshal(trimmed, &limit); err != nil {
+		return 0, &BadArgsError{Cause: errors.New("`limit` takes a whole number between 1 and 50")}
+	}
+	return limit, nil
 }
 
 // refuseUnaskableFilters holds the call to the vocabulary this deployment

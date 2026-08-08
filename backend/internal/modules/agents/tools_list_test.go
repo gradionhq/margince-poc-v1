@@ -213,3 +213,40 @@ func (p *listProbeProvider) Search(_ context.Context, q datasource.SearchQuery) 
 	p.queries = append(p.queries, q)
 	return datasource.SearchResult{Records: p.records}, nil
 }
+
+// An explicit null page size is REFUSED rather than read as an omission.
+//
+// encoding/json gives an absent `limit` and a null one the same zero value, and
+// the two mean different things: absent asks for the contract's default, while
+// null is a page size this schema does not have. Serving the default for it
+// would answer a page nobody asked for and report success.
+func TestANullPageSizeIsRefusedRatherThanDefaulted(t *testing.T) {
+	seam := &listProbeProvider{}
+	tool := listRecords{p: seam, filters: bindableFilters(probeVocabulary{})}
+
+	_, err := tool.Handle(t.Context(), json.RawMessage(`{"record_type":"deal","limit":null}`))
+
+	if err == nil {
+		t.Fatal("a null limit was served as the default page")
+	}
+	if !strings.Contains(err.Error(), "limit") {
+		t.Errorf("the refusal never names the argument: %v", err)
+	}
+	if seam.queries != nil {
+		t.Error("the call reached the seam before its page size was refused")
+	}
+}
+
+// An omitted page size still asks for the default — the argument is optional,
+// and refusing null must not make it required.
+func TestAnOmittedPageSizeStillAsksForTheDefault(t *testing.T) {
+	seam := &listProbeProvider{}
+	tool := listRecords{p: seam, filters: bindableFilters(probeVocabulary{})}
+
+	if _, err := tool.Handle(t.Context(), json.RawMessage(`{"record_type":"deal"}`)); err != nil {
+		t.Fatalf("listing with no limit: %v", err)
+	}
+	if len(seam.queries) != 1 || seam.queries[0].Limit != 0 {
+		t.Errorf("the seam saw %+v, want one query asking for the default page size", seam.queries)
+	}
+}

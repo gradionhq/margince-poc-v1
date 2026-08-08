@@ -32,21 +32,25 @@ func TestEveryDeclaredPeopleFilterNarrowsSomething(t *testing.T) {
 	})
 }
 
-// The vocabulary a caller is offered is the vocabulary the store binds. Two
-// lists would drift, and the direction that drifts silently is the dangerous
-// one: a name offered and not bound runs the list unnarrowed.
-func TestTheOfferedVocabularyIsTheBoundVocabulary(t *testing.T) {
+// Each entity type is offered ITS OWN vocabulary.
+//
+// The mapping is the part that can be wrong without anything else noticing: a
+// switch arm pointing at a sibling's table hands out a vocabulary the store
+// then refuses, and comparing what ListFilters returns against the same table
+// it returns would never see it. So the expectations are written out — a
+// person is listed by owner and nothing else, a lead by owner and its status.
+func TestEachEntityIsOfferedItsOwnVocabulary(t *testing.T) {
 	p := &Provider{}
 	for _, tc := range []struct {
 		entity datasource.EntityType
-		bound  []string
+		want   []string
 	}{
-		{datasource.EntityPerson, personListFilters.Names()},
-		{datasource.EntityOrganization, organizationListFilters.Names()},
-		{datasource.EntityLead, leadListFilters.Names()},
+		{datasource.EntityPerson, []string{"owner_id"}},
+		{datasource.EntityOrganization, []string{"lifecycle", "owner_id", "relationship_type"}},
+		{datasource.EntityLead, []string{"owner_id", "status"}},
 	} {
-		if got := p.ListFilters(tc.entity); !slices.Equal(got, tc.bound) {
-			t.Errorf("%s offers %v, binds %v", tc.entity, got, tc.bound)
+		if got := p.ListFilters(tc.entity); !slices.Equal(got, tc.want) {
+			t.Errorf("%s is offered %v, want %v", tc.entity, got, tc.want)
 		}
 	}
 }

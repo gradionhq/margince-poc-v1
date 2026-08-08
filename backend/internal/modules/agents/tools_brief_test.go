@@ -94,6 +94,24 @@ func TestAnEmptyBriefCarriesAnEmptyListRatherThanNull(t *testing.T) {
 	}
 }
 
+// A reader that answers a zero-value run still serves an empty LIST. The
+// promise belongs to the wire this tool serves, not to whichever seam is
+// behind it — and a zero-value result is the shape a seam answering "no queue"
+// is most likely to reach for.
+func TestAZeroValueRunStillServesAnEmptyList(t *testing.T) {
+	tool := readBrief{read: func(context.Context) (ReadBriefResult, error) {
+		return ReadBriefResult{}, nil
+	}}
+
+	raw, err := tool.Handle(t.Context(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("reading a zero-value run: %v", err)
+	}
+	if !strings.Contains(string(raw), `"items":[]`) {
+		t.Errorf("a zero-value run serves null items:\n%s", raw)
+	}
+}
+
 // The tool takes no arguments, and an argument sent anyway is refused rather
 // than ignored — a caller asking for someone else's brief must be told the ask
 // has no meaning here, not handed their own and left believing otherwise.

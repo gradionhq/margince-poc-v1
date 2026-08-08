@@ -283,7 +283,10 @@ func TestTheConformanceCheckFailsAgainstAMisdeclaredSchema(t *testing.T) {
 func snapshotBriefRun(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	engine := briefs.NewBriefEngine(pool, people.NewStore(pool))
-	if _, err := engine.SnapshotRun(ctx, time.Now().UTC()); err != nil {
+	// A fixed instant. The run only has to EXIST for read_brief to have
+	// something to re-read, and ranking against the wall clock would make what
+	// this lane certifies depend on the day it ran.
+	if _, err := engine.SnapshotRun(ctx, time.Date(2026, 8, 8, 6, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("assembling a brief run for the acting rep: %v", err)
 	}
 }

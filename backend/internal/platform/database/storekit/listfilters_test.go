@@ -55,7 +55,11 @@ func TestEachBindingNarrowsTheFieldItNames(t *testing.T) {
 func TestAnUnknownFilterIsRefusedRatherThanIgnored(t *testing.T) {
 	var in listInput
 
-	err := probeFilters.Apply(&in, map[string]string{"tag": "vip"})
+	// A KNOWN filter travels with it, and sorts first — so a set that bound
+	// what it could and then bailed would leave a half-narrowed input behind,
+	// which is the state the assertion below exists to catch. With the unknown
+	// name alone, nothing binds before the refusal and that check cannot fail.
+	err := probeFilters.Apply(&in, map[string]string{"status": "open", "tag": "vip"})
 
 	if err == nil {
 		t.Fatal("an unknown filter was accepted, so the list ran unnarrowed")

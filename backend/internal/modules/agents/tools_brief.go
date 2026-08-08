@@ -152,6 +152,21 @@ func (t readBrief) Handle(ctx context.Context, in json.RawMessage) (json.RawMess
 	if err != nil {
 		return nil, err
 	}
+	// The empty-list promise is kept HERE rather than by each reader. It is a
+	// property of the wire this tool serves, and a reader that answers a
+	// zero-value run — the shape a future seam is most likely to return for "no
+	// queue" — would otherwise serve `null` under a field documented never to
+	// be one.
+	if result.Items == nil {
+		result.Items = []BriefItem{}
+	}
+	// The queue is CONTENT built out of material this call did not read the
+	// provenance of — deals, their activities, the relationships behind them,
+	// folded into a score. Left unsaid, the answer would ride out at t0, the
+	// highest tier, and an assembly would have RAISED the trust of everything it
+	// was assembled from; much of what a ranking rests on is the capture
+	// firehose, which is untrusted by default.
+	noteDerivedContent(ctx)
 	chargeBriefItems(ctx, result.Items)
 	return json.Marshal(result)
 }

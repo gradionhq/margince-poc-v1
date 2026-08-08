@@ -28,18 +28,24 @@ func TestEveryDeclaredDealsFilterNarrowsSomething(t *testing.T) {
 	})
 }
 
-// The vocabulary a caller is offered is the vocabulary the store binds.
-func TestTheOfferedDealsVocabularyIsTheBoundVocabulary(t *testing.T) {
+// Each entity type is offered ITS OWN vocabulary — the deal and project half of
+// the check people/listfilters_test.go states: a switch arm pointing at a
+// sibling's table hands out a vocabulary the store then refuses, and comparing
+// ListFilters against the table it returns would never see it.
+func TestEachDealsEntityIsOfferedItsOwnVocabulary(t *testing.T) {
 	p := &Provider{}
 	for _, tc := range []struct {
 		entity datasource.EntityType
-		bound  []string
+		want   []string
 	}{
-		{datasource.EntityDeal, dealListFilters.Names()},
-		{datasource.EntityProject, projectListFilters.Names()},
+		{datasource.EntityDeal, []string{
+			"organization_id", "owner_id", "partner_org_id", "partner_sourced",
+			"pipeline_id", "project_id", "stage_id", "stalled", "status",
+		}},
+		{datasource.EntityProject, []string{"key", "organization_id", "owner_id", "phase"}},
 	} {
-		if got := p.ListFilters(tc.entity); !slices.Equal(got, tc.bound) {
-			t.Errorf("%s offers %v, binds %v", tc.entity, got, tc.bound)
+		if got := p.ListFilters(tc.entity); !slices.Equal(got, tc.want) {
+			t.Errorf("%s is offered %v, want %v", tc.entity, got, tc.want)
 		}
 	}
 }

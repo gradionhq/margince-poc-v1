@@ -6,7 +6,6 @@ package compose
 import (
 	"encoding/json"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +23,7 @@ import (
 // accident both produce a well-formed brief with a reason missing.
 var withheldFromTheTool = gatekit.Waive(map[string]string{
 	"UserID": "the run is the caller's own — naming them back to themselves adds nothing",
+
 	"RevenueNormMinor": "the workspace-wide base the revenue FACTOR was divided by; the factor is " +
 		"served already normalized, so the base explains nothing an agent can act on",
 })
@@ -61,17 +61,26 @@ func TestEveryPersistedBriefFieldIsServedOrNamedAsWithheld(t *testing.T) {
 		t.Fatalf("marshalling the served run: %v", err)
 	}
 
+	// Every probe is a WIRE FRAGMENT — key and value together — not a bare
+	// value. A served brief is full of uuids, and a uuid is 32 hex digits: a
+	// probe of `3` or `17` is found inside one by chance, so an assertion
+	// written that way passes with the field dropped.
 	assertEveryFieldSurvives(t, "BriefRun", reflect.TypeOf(run), map[string]string{
-		"ID": runID.String(), "UserID": "", "GeneratedAt": "2026-08-08T06:11:00Z",
-		"AsOf": "2026-08-08T05:22:00Z", "CandidateCount": "17", "RevenueNormMinor": "",
+		"ID": `"brief_id":"` + runID.String(), "UserID": userID.String(),
+		"GeneratedAt": `"generated_at":"2026-08-08T06:11:00Z"`,
+		"AsOf":        `"as_of":"2026-08-08T05:22:00Z"`,
+		// Withheld: the probes are what a leak would look like — the value, and
+		// the wire key it would most plausibly ship under.
+		"CandidateCount": `"candidate_count":17`, "RevenueNormMinor": "918273",
 		// The items are covered field by field below; what this row asserts is
 		// that the list itself arrived.
-		"Items": dealID.String(),
+		"Items": `"deal_id":"` + dealID.String(),
 	}, string(served))
 	assertEveryFieldSurvives(t, "BriefRunItem", reflect.TypeOf(run.Items[0]), map[string]string{
-		"ID": itemID.String(), "DealID": dealID.String(), "Rank": "3", "Composite": "0.815",
-		"Features": "0.44", "EvidenceIDs": evidence.String(), "State": "snoozed",
-		"StateAt": "2026-08-08T07:33:00Z", "SnoozedUntil": "2026-08-09T08:44:00Z",
+		"ID": `"item_id":"` + itemID.String(), "DealID": `"deal_id":"` + dealID.String(),
+		"Rank": `"rank":3`, "Composite": `"composite":0.815`, "Features": `"momentum":0.44`,
+		"EvidenceIDs": `"evidence_ids":["` + evidence.String(), "State": `"state":"snoozed"`,
+		"StateAt": `"state_at":"2026-08-08T07:33:00Z"`, "SnoozedUntil": `"snoozed_until":"2026-08-09T08:44:00Z"`,
 	}, string(served))
 	// An entry no field reached names something that is gone, which reads as a
 	// deliberate omission while certifying nothing.
@@ -94,9 +103,14 @@ func assertEveryFieldSurvives(t *testing.T, shape string, fields reflect.Type, p
 			t.Fatalf("%s.%s was added and this test has no probe for it, so nothing here says whether "+
 				"the tool serves it or drops it", shape, name)
 		}
+		// Both directions check the VALUE, never the field name. The two
+		// shapes tag their JSON differently from their Go fields, so a check
+		// for `"UserID"` in the served bytes would pass over a leak spelled
+		// `user_id` — an absence assertion that cannot fail is worse than none.
 		if withheldFromTheTool.Waived(t, name) {
-			if strings.Contains(served, strconv.Quote(name)) {
-				t.Errorf("%s.%s is named as withheld and the tool serves it anyway", shape, name)
+			if strings.Contains(served, probe) {
+				t.Errorf("%s.%s is ratified as withheld and its value %q is in the served brief anyway:\n%s",
+					shape, name, probe, served)
 			}
 			continue
 		}

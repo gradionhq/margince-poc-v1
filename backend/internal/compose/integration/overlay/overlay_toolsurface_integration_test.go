@@ -457,8 +457,10 @@ func TestOverlayListRecordsRefusesAFilterAndServesAnEnumeration(t *testing.T) {
 	}
 	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: "person", ExternalID: "100214862044",
-		Fields:     map[string]any{"firstname": "Enumerated", "lastname": "Mirror"},
-		ModifiedAt: time.Now().UTC(), OwnerExternalID: "owner-1",
+		Fields: map[string]any{"firstname": "Enumerated", "lastname": "Mirror"},
+		// A fixed instant: the row's age decides nothing here, and a test that
+		// reads the wall clock is a test whose fixture changes under it.
+		ModifiedAt: time.Date(2026, 8, 8, 6, 0, 0, 0, time.UTC), OwnerExternalID: "owner-1",
 	}); err != nil {
 		t.Fatalf("ingesting the overlay fixture record: %v", err)
 	}
