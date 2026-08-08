@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -40,19 +41,48 @@ func TestDerivedIdentifierExceedsBudget(t *testing.T) {
 	if err == nil {
 		t.Fatalf("accepted a %d-byte derived identifier over the 63-byte limit", len("ext_")+len(name)+len("_")+len(table))
 	}
-	for _, want := range []string{name, table, "63"} {
+	// The unit and the table must each be named in their OWN right. Asserting
+	// the bare strings would not prove that: both are substrings of the
+	// derived identifier the message already quotes, so a message naming only
+	// the identifier would pass. The "extensions/<name>:" prefix and the
+	// separately quoted table are what an author actually navigates by.
+	for _, want := range []string{
+		"extensions/" + name + ":",
+		fmt.Sprintf("%q", table),
+		fmt.Sprintf("%q", "ext_"+name+"_"+table),
+		"63",
+	} {
 		if !strings.Contains(err.Error(), want) {
-			t.Errorf("budget error does not name %s: %v", want, err)
+			t.Errorf("budget error does not carry %s: %v", want, err)
 		}
 	}
 }
 
-func TestDerivedIdentifierAcceptsTheBudgetBoundary(t *testing.T) {
-	// ext_ + 32 + _ = 37, leaving exactly 26 for the suffix. The boundary
-	// itself must be accepted, or the documented budget would be a lie.
+// TestDerivedIdentifierPinsBothSidesOfTheBudget pins the arithmetic itself,
+// not just that some over-long name is refused. 63 must be accepted and 64
+// must be refused: with only a far-over case and an at-limit case, a
+// comparison loosened to `> 64` would leave both passing while a 64-byte
+// identifier reached PostgreSQL and truncated silently — the exact failure
+// this rule exists to prevent.
+func TestDerivedIdentifierPinsBothSidesOfTheBudget(t *testing.T) {
+	// ext_ + 32 + _ = 37, leaving exactly 26 for the suffix.
 	name := strings.Repeat("a", 32)
-	if err := checkDerivedIdentifiers([]unitTables{{name: name, tables: []string{strings.Repeat("b", 26)}}}); err != nil {
-		t.Fatalf("refused a 63-byte derived identifier: %v", err)
+	for _, tc := range []struct {
+		suffix  int
+		refused bool
+	}{
+		{suffix: 26, refused: false}, // 63 — the documented budget
+		{suffix: 27, refused: true},  // 64 — one byte over
+	} {
+		table := strings.Repeat("b", tc.suffix)
+		derived := len("ext_") + len(name) + len("_") + len(table)
+		err := checkDerivedIdentifiers([]unitTables{{name: name, tables: []string{table}}})
+		if tc.refused && err == nil {
+			t.Errorf("accepted a %d-byte derived identifier — PostgreSQL would truncate it", derived)
+		}
+		if !tc.refused && err != nil {
+			t.Errorf("refused a %d-byte derived identifier, which is exactly the budget: %v", derived, err)
+		}
 	}
 }
 

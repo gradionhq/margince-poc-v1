@@ -244,8 +244,8 @@ func New() extension.Extension {
 // refusals must not collide.
 //
 // migrations/ used to be on this list and is deliberately no longer:
-// TestMigrationsLayerIsGovernedByItsOwnRule below pins what replaced the
-// blanket refusal.
+// TestMigrationsLayerIsGovernedByItsOwnRule, in scan_test.go, pins what
+// replaced the blanket refusal.
 func TestUnbuiltCapabilityLayersStayExemptFromTheSubpackageWalk(t *testing.T) {
 	for _, layer := range unbuiltCapabilityLayers {
 		t.Run(layer, func(t *testing.T) {

@@ -98,6 +98,14 @@ func derivedIdentifier(namespace, table string) (string, error) {
 //
 // A unit without migrations/ declares no tables; that is the common case and
 // not an error.
+//
+// On the schema: declaredTables checks the qualifier only when one is WRITTEN,
+// so a bare `CREATE TABLE ext_crm_demo_note (…)` is accepted here even though
+// an unqualified name resolves through search_path rather than to ext. That is
+// not a silent hole — the unit's migrations are applied as the ext_<name>
+// role, which holds CREATE on ext alone, so an unqualified create fails loudly
+// at apply time — but the rule this function enforces is "no OTHER schema is
+// named", not "every table lands in ext".
 func collectUnitTables(name, dir string) ([]string, error) {
 	layer := filepath.Join(dir, migrationsLayer)
 	entries, err := os.ReadDir(layer)
@@ -148,15 +156,38 @@ func collectUnitTables(name, dir string) ([]string, error) {
 // schema qualifier and double quotes — because everything it captures is then
 // validated: a shape this pattern matches but declaredTables cannot read is a
 // refusal, never a silent skip.
+//
+// That holds for what the pattern SEES; it is not a claim that the pattern
+// sees every CREATE TABLE. See declaredTables on why this gate is best-effort.
 var createTablePattern = regexp.MustCompile(
 	`(?is)\bCREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:(?:TEMPORARY|TEMP|UNLOGGED)\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_."]+)`)
 
 // declaredTables extracts the table suffixes one up-migration declares.
 //
 // Text, not a SQL parse: this generator has no database and must run in a
-// bare checkout. The cost is bounded by masking comments and literals first
-// (so a table name in prose or in a function body is not mistaken for a
-// declaration) and by refusing every shape it cannot read with confidence.
+// bare checkout. Masking comments and literals first keeps a table name in
+// prose or in a function body from reading as a declaration, and every shape
+// the pattern matches but cannot read with confidence is refused.
+//
+// This is a BEST-EFFORT gate, not a complete one, and the trade is deliberate:
+// a textual scanner that handled the remaining shapes would be a SQL parser,
+// which is the wrong thing to own here. Known gaps, all of them obscure and
+// all of them closed at apply time by extmigrategate's catalog gate (Task 7),
+// which applies the SQL as the restricted ext_<name> role and then asks
+// PostgreSQL what actually exists:
+//
+//   - A CREATE TABLE inside a DO $$ … $$ block is masked away as a
+//     dollar-quoted body yet executes, so the table it creates is invisible
+//     here.
+//   - A quote inside a double-quoted identifier (ext."it's") or a
+//     backslash-escaped quote in an E'…' string desynchronises maskNonCode's
+//     literal tracking, which can blank real statements after it.
+//   - Only tables are collected. CREATE INDEX, SEQUENCE, VIEW and MATERIALIZED
+//     VIEW share PostgreSQL's per-schema relation namespace with tables, so a
+//     unit's index named ext_a_b_c would collide with another unit's table of
+//     that derived name and checkDerivedIdentifiers would not see it. The
+//     brief scopes this rule to tables; the catalog gate enumerates every
+//     relkind.
 func declaredTables(unit, namespace, rel, sql string) ([]string, error) {
 	masked := maskNonCode(sql)
 	var tables []string

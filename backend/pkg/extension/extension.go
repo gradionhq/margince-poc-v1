@@ -84,11 +84,18 @@ const NamespacePrefix = "ext_"
 // It validates first rather than trusting its caller: the result is
 // interpolated into SQL identifiers (a migration tracking table, a role
 // name), and Validate is the ONE rule saying which byte sequences may get
-// there. The grammar already excludes every other shape an identifier could
-// not hold — upper case, dots, quotes, leading digits are all rejected by
-// nameGrammar, and the 32-byte cap keeps `schema_migrations_ext_<name>` (18 +
-// 4 + 32 = 54) inside PostgreSQL's 63-byte limit — so this function adds no
-// refusals of its own.
+// there. This function adds no refusals of its own, because between them the
+// grammar and the prefix already leave nothing an unquoted identifier could
+// not hold:
+//
+//   - nameGrammar excludes upper case, dots, quotes, spaces and every other
+//     byte outside [a-z0-9-], and the hyphen is the one it admits that this
+//     function converts.
+//   - nameGrammar does NOT exclude a leading digit — `1foo` is a legal unit
+//     name. The prefix is what makes that safe: a derived namespace always
+//     begins `ext_`, so its first byte is never a digit.
+//   - The 32-byte cap keeps `schema_migrations_ext_<name>` (18 + 4 + 32 = 54)
+//     inside PostgreSQL's 63-byte limit.
 //
 // The derived namespace is NOT by itself a promise that a complete
 // `ext_<name>_<table>` identifier fits: the table suffix's own share of the
