@@ -103,8 +103,14 @@ func TestAddNoteStoresTheBodyAndReturnsTheStoredRow(t *testing.T) {
 	// The body reaches SQL trimmed: leading and trailing whitespace is not
 	// content, and a note of spaces would render as an empty row nobody can
 	// find again.
-	if rt.tx.args[0][0] != "hello" {
-		t.Errorf("the insert argument is %q, want the trimmed body", rt.tx.args[0][0])
+	if rt.tx.args[0][1] != "hello" {
+		t.Errorf("the insert argument is %q, want the trimmed body", rt.tx.args[0][1])
+	}
+	// And it writes the NOTE kind: a row the heartbeat's prune must never
+	// select. The column is what separates the two, so the notes path stating
+	// its own kind is the other half of that guarantee.
+	if rt.tx.args[0][0] != kindNote {
+		t.Errorf("the insert writes kind %v, want %q", rt.tx.args[0][0], kindNote)
 	}
 	sql := rt.tx.only(t)
 	if !strings.Contains(sql, callerWorkspace) {

@@ -100,9 +100,13 @@ func addNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (jso
 		// RETURNING rather than a second read: the id and the timestamp are the
 		// database's, and reading them back in another statement would be a
 		// second answer that could differ from the row actually written.
+		// kind is written rather than left to the column default. The default
+		// would produce the same row, but the heartbeat's prune selects on this
+		// column — so which kind a statement creates is exactly the fact a
+		// reader of this insert needs, and a default states it somewhere else.
 		return tx.QueryRow(ctx,
-			`INSERT INTO `+noteTable+` (workspace_id, body) VALUES (`+callerWorkspace+`, $1)
-			 RETURNING id::text, body, created_at`, body).Scan(&n.ID, &n.Body, &created)
+			`INSERT INTO `+noteTable+` (workspace_id, kind, body) VALUES (`+callerWorkspace+`, $1, $2)
+			 RETURNING id::text, body, created_at`, kindNote, body).Scan(&n.ID, &n.Body, &created)
 	})
 	if err != nil {
 		return nil, err

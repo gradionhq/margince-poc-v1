@@ -312,12 +312,28 @@ func (t extensionTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	// the same principal could still reach through the agent.
 	//
 	// HERE rather than in the mounted route (extroutes.go), because this is
-	// where the two surfaces converge. The REST route and an MCP tools/call
-	// both arrive through Registry.Invoke, so a check in the route would leave
-	// the agent path open; and Invoke has already re-derived the granting
-	// human's live RBAC onto the context by the time it calls this, so the
-	// grant read below is the current one rather than whatever the transport
-	// stamped at session start.
+	// where the CALLER-BEARING surfaces converge. The REST route and an MCP
+	// tools/call both arrive through Registry.Invoke, so a check in the route
+	// would leave the agent path open.
+	//
+	// Where the grants come from differs by principal, and both are current:
+	// for an AGENT, Gate.Admit has just re-derived the granting human's live
+	// RBAC onto this context; for a HUMAN, Admit returns early and the grants
+	// are the ones the cookie resolve loaded for this request. Neither is a
+	// copy stamped at session start. (An earlier version of this comment
+	// credited Invoke with re-deriving in both cases — it does not, and the
+	// human path is sound for its own reason rather than that one.)
+	//
+	// WHAT THIS DOES NOT COVER, said plainly because the check reads like it
+	// covers everything a unit can do: a scheduled job tick reaches unit code
+	// without passing through here at all. For crm-demo that tick writes into
+	// ext_crm_demo_note — the very object the human path gates `create` on. The
+	// reason a check there would be wrong is not that a tick is harmless: it is
+	// that extjobsrun.go's deriveAuthority mints a principal carrying scopes and
+	// no permissions document, so auth.Require would deny EVERY tick
+	// unconditionally. A job's bound is its declared scope and the fact that its
+	// SQL is its own; the object grant is a caller's question, and a tick has no
+	// caller.
 	//
 	// It runs BEFORE the Runtime is minted: a principal who may not touch the
 	// records must not reach a live capability handle, even briefly.

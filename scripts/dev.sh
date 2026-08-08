@@ -529,7 +529,21 @@ up)
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
   # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
   # (a `(cd … & )` subshell would capture the subshell, not the server).
-  BACKEND_PORT="${api_port}" pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
+  #
+  # MARGINCE_COMPOSITION_FRONTEND is the runtime half of the composition alias,
+  # and `make dev` must set it for the same reason it builds the api under the
+  # composed GOWORK a few lines up: this stack IS the composed installation.
+  # Without it the api served an enabled unit's routes while the SPA resolved
+  # the empty-tree registry, so #/ext/<unit> answered "no extension named …" on
+  # the one command the docs tell a developer to run — the whole frontend
+  # surface of the tier was unreachable locally, and only Dockerfile.web set
+  # the variable. Found by Task 14's UAT (F3).
+  #
+  # The directory is always present here: gen-composition runs above, before
+  # the migration, and vanilla composes an empty registry rather than no file.
+  BACKEND_PORT="${api_port}" \
+  MARGINCE_COMPOSITION_FRONTEND="$PWD/build/composition/frontend" \
+    pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
   fe_pid=$!
 
   printf 'SLUG=%s\nAPI_PORT=%s\nFE_PORT=%s\nDB=%s\nBACKEND_PID=%s\nFE_PID=%s\nWORKER_PID=%s\nLOG=%s\n' \

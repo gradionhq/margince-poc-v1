@@ -37,10 +37,16 @@ import (
 )
 
 // grantingSeat is fullSeat with an object grant: the authority the gate
-// re-derives at admission, which is what lands on the context the handler
-// reads. Grants are held here rather than stamped on the principal precisely
-// because that is the live path — a test that stamped Permissions directly
-// would pass even if the gate overwrote them, which it does.
+// re-derives at admission for an AGENT principal, which is what lands on the
+// context the handler reads. Grants are held here rather than stamped on the
+// principal precisely because that is the live path for an agent — a test that
+// stamped Permissions directly would pass even if the gate overwrote them,
+// which it does.
+//
+// It does NOT overwrite them for a human: Gate.Admit returns early for a
+// non-agent, so a human's grants are whatever the request's cookie resolve
+// loaded. TestTheObjectBindsAHumanPrincipalToo covers that path, and it stamps
+// its principal directly because that is how the real one arrives.
 type grantingSeat struct{ grant principal.ObjectGrant }
 
 func (s grantingSeat) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
@@ -207,6 +213,11 @@ func TestAToolDeclaringNoObjectIsUnaffected(t *testing.T) {
 // returns early for a non-agent — "their authority is their RBAC, enforced at
 // the store" — so a check placed INSIDE the gate would leave every human
 // caller of an extension route ungated. The SPA's caller is a human.
+//
+// It also means the human path gets no re-derivation from Admit: the grants
+// this reads are the ones the request already carries. That is current — the
+// cookie resolve loads them per request — but it is a different mechanism from
+// the agent path's, and the two are worth not confusing.
 func TestTheObjectBindsAHumanPrincipalToo(t *testing.T) {
 	r, ran := gatedRegistry(t, extension.RbacRead, principal.ObjectGrant{})
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())

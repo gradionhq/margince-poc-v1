@@ -150,6 +150,15 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 // one row per live workspace, which is what makes a missed tenant visible as a
 // failed row rather than as an absence — and the tick that cannot name an
 // initiator fails at the authority derivation with a message that says so.
+//
+// It rests on an assumption that is currently FALSE on a fresh installation:
+// nothing in the product ever sets is_agent, so the seat this reads does not
+// exist until somebody inserts one by hand, and every extension tick therefore
+// fails three times per cadence interval forever. Found by Task 14's UAT;
+// tracked as margince-poc-v1#656, which also carries the workaround. The
+// resolution is a decision about seat bootstrapping and belongs there rather
+// than in this function — skipping the seatless workspace here would silence
+// the noise while leaving the capability just as dead.
 func extensionJobActor(ctx context.Context, pool *pgxpool.Pool, ws ids.UUID) (ids.UUID, error) {
 	var actor ids.UUID
 	err := database.WithWorkspaceTx(principal.WithWorkspaceID(ctx, ws), pool, func(tx pgx.Tx) error {

@@ -104,8 +104,20 @@ test-extensions: composition ## Every enabled extension's own test lane (each un
 build: composition ## Compile every package (composed workspace)
 	$(GOWORK_COMPOSED) $(GO) build ./...
 
-vet: composition ## Run go vet over every package (composed workspace)
+vet: composition ## Run go vet over every package, untagged AND -tags integration (composed workspace)
 	$(GOWORK_COMPOSED) $(GO) vet ./...
+	# The INTEGRATION lane, type-checked. `make check` otherwise never compiles
+	# a single //go:build integration file — build, vet, lint and test all run
+	# untagged — while internal/compose alone holds hundreds of them. A helper
+	# renamed, a signature changed, or a name that collides with one declared in
+	# a tagged file compiles clean untagged and fails only when somebody runs
+	# `make test-it`, which the merge gate does not. That is how a duplicate
+	# declaration reached a green check-q during this branch.
+	#
+	# vet, not test: type-checking the tagged lane needs no database, no Docker
+	# and no fixtures, so it costs seconds and belongs in the always-on gate.
+	# RUNNING those tests is the integration lane's job and stays there.
+	$(GOWORK_COMPOSED) $(GO) vet -tags integration ./...
 
 test: composition ## Unit tests (the root fitness tests run uncached)
 	$(GOWORK_COMPOSED) $(GO) test ./...

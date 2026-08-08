@@ -174,13 +174,73 @@ func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoke
 			httperr.Write(w, r, err)
 			return
 		}
-		// The tool's own result bytes, verbatim. Not re-encoded through a Go
-		// type: the response shape is the CONTRACT's (the operation's declared
-		// 200 schema), and a struct here would be a third statement of it that
-		// could disagree with both the contract and the handler.
+		// The DECLARED payload, not the governed-tool envelope Invoke sealed it
+		// into. This is the seam's one translation and it is load-bearing.
+		//
+		// Invoke answers every tool with `{schema_version, trace_id, freshness,
+		// trust, evidence, warnings, data}`, because an AGENT needs the answer
+		// and the provenance of the answer in one object. A REST client reads
+		// the CONTRACT, and the contract says the 200 body is whatever the
+		// unit's own `responses.200` schema declares — the same schema the
+		// generated client types, the docs and any SDK are built from. Writing
+		// the envelope there made the published document a lie: every read the
+		// composed SPA performed came back `undefined`, and no gate saw it
+		// because the types agreed with the contract and the tests stubbed the
+		// contract's shape. Task 14's UAT found it by clicking (F1).
+		//
+		// Unwrapping HERE rather than declaring the envelope in the contract,
+		// for two reasons that both cut the same way:
+		//   - a unit author would otherwise have to write the envelope into
+		//     every response schema they ever declare, forever, to describe
+		//     transport they do not own;
+		//   - gen-composition reads that same 200 schema and emits it as the
+		//     MCP tool's OutputSchema, so the envelope would be advertised to
+		//     models as part of the tool's RESULT — describing the wrapper as
+		//     if it were the answer.
+		// The envelope stays on the agent path, which is where the trust tier
+		// and the evidence set are the point.
+		payload, trace, err := unwrapToolEnvelope(out)
+		if err != nil {
+			httperr.Write(w, r, err)
+			return
+		}
+		// The trace id is the one part of the envelope a REST caller genuinely
+		// loses, and it is the handle that makes a call findable in the audit
+		// log. It moves to a header rather than into the body, because the body
+		// belongs to the unit's declared schema and nothing else may appear in
+		// it.
+		if trace != "" {
+			w.Header().Set(extensionTraceHeader, trace)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		//craft:ignore swallowed-errors WriteHeader already committed the response — nothing can report a write failure to the client anymore
-		_, _ = w.Write(out)
+		_, _ = w.Write(payload)
 	})
+}
+
+// extensionTraceHeader carries the governed call's correlation id on the REST
+// surface. `X-` prefixes are deprecated (RFC 6648) and the product's own header
+// vocabulary is unprefixed.
+const extensionTraceHeader = "Trace-Id"
+
+// unwrapToolEnvelope takes the unit's own payload out of the sealed result.
+//
+// It is strict about the ENVELOPE and permissive about the PAYLOAD. The
+// envelope is this codebase's own invariant — Registry.Invoke seals every
+// successful result — so bytes that are not one mean the seam changed
+// underneath this function, and answering with them anyway is how the original
+// defect looked from the outside: a 200 whose body is not what the contract
+// promised. The payload is the unit's business and is passed through untouched,
+// `null` included.
+func unwrapToolEnvelope(sealed json.RawMessage) (payload json.RawMessage, trace string, err error) {
+	var envelope struct {
+		TraceID string          `json:"trace_id"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if jsonErr := json.Unmarshal(sealed, &envelope); jsonErr != nil || envelope.Data == nil {
+		return nil, "", fmt.Errorf("compose: the tool registry answered with something that is not a sealed envelope, "+
+			"so this route has no payload to serve at the shape its contract declares: %w", errors.ErrUnsupported)
+	}
+	return envelope.Data, envelope.TraceID, nil
 }

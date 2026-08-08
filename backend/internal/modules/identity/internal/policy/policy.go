@@ -11,6 +11,7 @@ package policy
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 
@@ -229,9 +230,38 @@ func MustDefaultJSON(roleKey string) []byte {
 	return raw
 }
 
-// Parse validates one role.permissions document. It rejects unknown
-// objects and invalid row_scope tokens rather than ignoring them
-// (B-EP03.1 schema-validity requirement).
+// Parse reads one STORED role.permissions document.
+//
+// It rejects a malformed document and an invalid row_scope, and it DROPS an
+// object outside the grantable vocabulary — logged, never fatal. The asymmetry
+// is the point, and it was learned the hard way.
+//
+// A row_scope this code cannot read is a question with no safe answer: the
+// value decides how far the grants below it reach, and neither guessing nor
+// defaulting is honest. An unknown OBJECT is different — dropping it grants
+// nothing, which is the strictest possible reading, and the only reading that
+// cannot be exploited.
+//
+// Rejecting the whole document was the earlier behaviour, and it made the
+// vocabulary — which is a property of the COMPILED-IN code plus whichever
+// extensions this process happens to compose — a precondition for reading
+// STORED DATA that outlives both. Removing an extension therefore did not
+// degrade its screen: it took the whole installation's authentication down,
+// because `crmauth` fails the login when any of the user's roles will not
+// parse. Every user in a workspace whose role still carried
+// `ext_<unit>_<object>` was locked out, with no endpoint and no migration to
+// clear it — found by the Task 14 UAT, on the removal leg the tier's own
+// guarantee requires an operator to perform.
+//
+// Data outlives the code that gave it meaning. That is not a special case for
+// extensions; it is what a stored document IS.
+//
+// What is NOT given up: a typo'd object still grants nothing, so the
+// motivating case for strictness — "a typo must not read as a bug in the role"
+// — is answered by the log line rather than by refusing to authenticate. When
+// a role-editing endpoint lands (`/roles` CRUD is deferred), that WRITE path is
+// where an unknown object must be refused: refusing input a human just typed
+// costs them a correction, while refusing stored data costs them their session.
 func Parse(raw []byte) (Document, error) {
 	var doc Document
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -239,14 +269,19 @@ func Parse(raw []byte) (Document, error) {
 	}
 	for object := range doc.Objects {
 		// The GRANTABLE vocabulary, not the core one: a composed extension
-		// registers its ext_<unit>_<object> names at boot (composable.go), and a
-		// document granting one has to parse or the whole identity resolution
-		// fails for that user. An object outside both sets is still rejected —
-		// a typo'd object would otherwise silently grant nothing and read as a
-		// bug in the role rather than in the document.
-		if !IsGrantableObject(object) {
-			return Document{}, fmt.Errorf("policy: unknown object %q in permissions document", object)
+		// registers its ext_<unit>_<object> names at boot (composable.go).
+		if IsGrantableObject(object) {
+			continue
 		}
+		// Deleted from the parsed document, so the grant cannot reach
+		// principal.Permissions by any later path. Mutating the map while
+		// ranging it is defined in Go for the entry being visited.
+		delete(doc.Objects, object)
+		slog.Default().Warn("policy: dropping a grant on an object this installation does not know",
+			"object", object,
+			"why", "the object is neither a core object nor one a composed extension registered at boot; "+
+				"most likely its unit was removed, or the name is a typo. The grant is ignored — it "+
+				"authorizes nothing — and the rest of the document still applies.")
 	}
 	switch doc.RowScope {
 	case principal.RowScopeOwn, principal.RowScopeTeam, principal.RowScopeAll:

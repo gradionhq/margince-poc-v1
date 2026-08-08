@@ -19,7 +19,6 @@ package identity
 import (
 	"encoding/json"
 	"maps"
-	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -64,10 +63,12 @@ func TestExtensionRbacObjectReachesTheMeSnapshot(t *testing.T) {
 	const object = "ext_crm_demo_widget"
 	registerForTest(t, object)
 
-	// Step 1 — a stored role document may now GRANT it. Before registration
-	// this is where the whole thing stops: Parse rejects the unknown object, so
-	// resolving the user's identity fails outright and no snapshot exists to
-	// carry the object at all.
+	// Step 1 — a stored role document may now GRANT it. Without registration
+	// this is where the whole thing stops: Parse DROPS an object outside the
+	// vocabulary, so the grant never reaches the merge and no snapshot carries
+	// it. (It drops rather than refuses because Parse reads stored data that
+	// outlives the code defining the vocabulary — see policy.Parse and the
+	// UAT's F4.)
 	doc, err := policy.Parse([]byte(`{"objects":{"` + object + `":{"create":false,"read":true,"update":true,"delete":false}},"row_scope":"team"}`))
 	if err != nil {
 		t.Fatalf("a role document granting a registered extension object must parse: %v", err)
@@ -97,17 +98,27 @@ func TestExtensionRbacObjectReachesTheMeSnapshot(t *testing.T) {
 
 // TestAnUnregisteredExtensionObjectReachesNothing is the other direction, and it
 // is what makes the test above about REGISTRATION rather than about Merge being
-// permissive. Without it, a Parse that accepted anything would satisfy the pair.
+// permissive. Without it, a Parse that carried anything through would satisfy
+// the pair.
+//
+// The assertion is that the grant REACHES NOTHING, not that the document is
+// refused. Those were the same thing until the UAT's F4: refusing meant the
+// login failed, so removing a unit locked out every user whose role still
+// named its object. Dropping keeps the vocabulary closed where it matters —
+// nothing is granted — without making stored data unreadable.
 func TestAnUnregisteredExtensionObjectReachesNothing(t *testing.T) {
 	t.Cleanup(ResetRbacObjectsForTest)
 	const object = "ext_crm_demo_widget"
 	// Nothing registered.
-	_, err := policy.Parse([]byte(`{"objects":{"` + object + `":{"read":true}},"row_scope":"team"}`))
-	if err == nil {
-		t.Fatal("a document granting an unregistered object parsed — the vocabulary is not closed")
+	doc, err := policy.Parse([]byte(`{"objects":{"` + object + `":{"read":true}},"row_scope":"team"}`))
+	if err != nil {
+		t.Fatalf("a document granting an unregistered object must still parse: %v", err)
 	}
-	if !strings.Contains(err.Error(), "unknown object") {
-		t.Fatalf("err = %v, want the unknown-object refusal", err)
+	if perms := policy.Merge(map[string]policy.Document{"rep": doc}); perms.Objects[object].Read {
+		t.Fatal("an unregistered object reached the effective permissions — the vocabulary is not closed")
+	}
+	if _, ok := meObjects(t, policy.Merge(map[string]policy.Document{"rep": doc}))[object]; ok {
+		t.Fatal("/me carries an object nothing registered, so a screen would gate on a grant no server enforces")
 	}
 	if RBACObjectGrantable(object) {
 		t.Fatal("an unregistered object reports as grantable, so an authority requirement naming it would look satisfiable")

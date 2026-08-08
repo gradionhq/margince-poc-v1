@@ -121,7 +121,10 @@ func TestMigrationsAreEmbedded(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	slices.Sort(names)
-	if want := []string{"0001_note.down.sql", "0001_note.up.sql"}; !slices.Equal(names, want) {
+	if want := []string{
+		"0001_note.down.sql", "0001_note.up.sql",
+		"0002_note_kind.down.sql", "0002_note_kind.up.sql",
+	}; !slices.Equal(names, want) {
 		t.Fatalf("embedded migrations = %v, want %v — a pair missing from the EMBED is a pair nothing applies, however present it is on disk", names, want)
 	}
 
@@ -141,5 +144,15 @@ func TestMigrationsAreEmbedded(t *testing.T) {
 		if !strings.Contains(string(up), must) {
 			t.Errorf("the embedded migration does not carry %q — the catalog gate would refuse it", must)
 		}
+	}
+
+	// The SECOND pair, by its own bytes. 0002 adds the `kind` column the
+	// heartbeat marks and prunes its rows by, and a unit that shipped the file
+	// without embedding it would run every query against a column that is not
+	// there — which the migrate step would not notice, because it applies only
+	// what the FS carries.
+	kind, err := fs.ReadFile(layer, extension.MigrationsDir+"/0002_note_kind.up.sql")
+	if err != nil || !strings.Contains(string(kind), "ADD COLUMN kind") {
+		t.Fatalf("the embedded 0002 does not add the kind column: %v", err)
 	}
 }

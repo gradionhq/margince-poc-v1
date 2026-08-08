@@ -8,12 +8,25 @@ import { CrmDemoScreen } from "./crmdemo";
 
 // The reference extension's screen, over a stubbed transport.
 //
-// It is a *.test.tsx, so it is outside BOTH TypeScript programs (each lane
-// excludes tests) and vitest does not typecheck. That is what lets this suite
-// run in the vanilla lane at all, where the extension's routes are not in
-// `paths` — the same reason App.composed.test.tsx mocks the registry rather
-// than reading build/composition/. The screen's own types are held by
-// `make fe-typecheck-composed`, which compiles it against the merged contract.
+// It is a *.test.tsx, so it is outside the app and node TypeScript programs
+// (both exclude tests) and vitest does not typecheck. It IS compiled, by
+// tsconfig.composed-tests.json — the fourth project, added for exactly this
+// file and run by `make fe-typecheck-composed` — so the fixtures below are
+// held against the merged contract even though vitest never looks.
+//
+// WHAT THIS SUITE CANNOT SEE, and did not: it stubs `fetch`, so every
+// assertion here is against a fixture somebody wrote, not against a body the
+// server sent. The server used to answer the governed-tool envelope while the
+// contract declared the bare payload; these tests passed throughout, because
+// the stub returned the contract's shape and the screen read the contract's
+// shape — both wrong in the same direction. Task 14 found it by clicking (F1).
+//
+// The Go side is where that gap is now closed:
+// backend/internal/compose/extroutes_conformance_test.go issues a real request
+// through a real mounted route and asserts the body against the operation's
+// declared 200 schema. `envelopeLeak` below is this file's half of the pair —
+// it drives the screen against the shape the server ACTUALLY used to send, so
+// a regression on either side of the seam fails somewhere.
 
 /** The grants a full seat holds on the unit's object. */
 const FULL_GRANT = {
@@ -247,6 +260,40 @@ describe("the Demo Notepad screen", () => {
     expect(await screen.findByText(/visible to a reader/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+
+  // The screen against the WRONG body — the envelope the server used to send.
+  //
+  // Not a hypothetical: this is verbatim what `POST /v1/ext/crm-demo/…`
+  // returned before the unwrap, and it is why every read rendered `undefined`.
+  // The assertion is that the screen FAILS VISIBLY rather than rendering
+  // nothing, because a wrapper is exactly the shape a future transport change
+  // could reintroduce and "renders undefined" is the state no gate noticed.
+  it("shows an error, not a blank, when a read comes back wrapped", async () => {
+    const envelope = (data: unknown) => ({
+      schema_version: "1.0.0",
+      trace_id: "019fe351-1f62-749f-ac9f-a89d5a81abfa",
+      freshness: { authoritative: true },
+      trust: "t0",
+      evidence: [],
+      warnings: [],
+      data,
+    });
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/crm-demo/notes/list": () => envelope({ notes: [] }),
+      "/ext/crm-demo/signing-key/status": () => envelope({ stored: true }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    // The notes read fails loudly. `notes` is undefined on a wrapped body, and
+    // the query gate renders its error card rather than an empty list that
+    // would read as "you have no notes".
+    expect(await screen.findByText(/Couldn't load this view/)).toBeTruthy();
+    // And the connection state does NOT claim to be connected off a body it
+    // could not read — "No key stored" is wrong here too, but it is the
+    // failing-closed direction.
+    expect(screen.queryByText("Connected")).toBeNull();
   });
 
   it("says so when the principal cannot read the unit's notes at all", async () => {

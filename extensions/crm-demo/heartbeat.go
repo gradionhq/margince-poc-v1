@@ -19,9 +19,22 @@ import (
 // Naming the workspace is the point of the row, not decoration. A scheduled
 // extension job is a FAN-OUT: the cadenced dispatcher enqueues one workspace
 // child per live tenant, and on a single-workspace dev install that is one
-// child. A row that said only "tick #7" would demonstrate the single-tenant
-// case and leave the multi-tenant guarantee untested, so the tenant the runner
-// pinned is written into the row a human reads.
+// child. A row naming no tenant would demonstrate the single-tenant case and
+// leave the multi-tenant guarantee untested, so the tenant the runner pinned is
+// written into the row a human reads.
+//
+// THERE IS NO TICK NUMBER, and its absence is a correction. The row used to
+// carry `tick #N` counted as `count(*) + 1` over surviving rows — which, with
+// the prune holding the population at keptHeartbeats, meant the counter climbed
+// to 11 and then every subsequent tick wrote the identical string. The comment
+// here described "renumbering from the oldest kept tick"; nothing renumbered,
+// it simply saturated, and consecutive rows read the same. Raising the kept
+// count only moves the ceiling.
+//
+// created_at carries the sequence instead. The screen already renders it in
+// front of every row, so an ordering the database maintains is displayed rather
+// than a counter this unit would have to maintain — and a monotonic counter
+// would need a sequence the unit has no reason to own.
 //
 // THE PRUNE IS NOT HOUSEKEEPING. At a 60s cadence this writes 1,440 rows per
 // workspace per day, forever, into the same table the screen reads with
@@ -42,50 +55,48 @@ import (
 // is no result — nobody is waiting for one.
 func heartbeat(ctx context.Context, rt extension.Runtime) error {
 	return rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		// ONE statement for the write, so the tick number and the row it
-		// labels cannot disagree: a count in one statement and an insert in
-		// another would race two concurrent ticks of the same workspace onto
-		// one number. Neither statement carries a tenant predicate — the
-		// policy is what makes both of them this workspace's.
+		// kind, not a body prefix. What makes a row the tick's is a column the
+		// tick sets and a human's note cannot carry — the previous version
+		// matched on the body's leading glyph, which meant a note a person
+		// typed starting with the same characters was counted as a tick and
+		// then DELETED by the prune below. Neither statement carries a tenant
+		// predicate; the policy is what makes both of them this workspace's.
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO `+noteTable+` (workspace_id, body)
-			 SELECT `+callerWorkspace+`,
-			        '`+heartbeatPrefix+`' || (count(*) + 1)::text ||
-			        ' (workspace ' || `+callerWorkspace+`::text || ')'
-			   FROM `+noteTable+`
-			  WHERE body LIKE $1`, heartbeatLike); err != nil {
+			`INSERT INTO `+noteTable+` (workspace_id, kind, body)
+			 VALUES (`+callerWorkspace+`, $1, $2 || `+callerWorkspace+`::text)`,
+			kindHeartbeat, heartbeatPrefix); err != nil {
 			return err
 		}
-		// The counter keeps climbing while the history stays bounded: the
-		// count above is over surviving rows, so a pruned run renumbers from
-		// the oldest kept tick rather than continuing. That is honest for a
-		// demo — the number says "this many ticks are on screen", not "this
-		// many have ever run" — and a monotonic counter would need a sequence
-		// this unit has no reason to own.
-		//
-		// Same transaction as the insert, so a tick either writes and prunes
-		// or does neither.
+		// Same transaction as the insert, so a tick either writes and prunes or
+		// does neither.
 		_, err := tx.Exec(ctx,
 			`DELETE FROM `+noteTable+`
-			  WHERE body LIKE $1
+			  WHERE kind = $1
 			    AND id NOT IN (
 			      SELECT id FROM `+noteTable+`
-			       WHERE body LIKE $1
+			       WHERE kind = $1
 			       ORDER BY created_at DESC, id DESC
-			       LIMIT $2)`, heartbeatLike, keptHeartbeats)
+			       LIMIT $2)`, kindHeartbeat, keptHeartbeats)
 		return err
 	})
 }
 
-// heartbeatPrefix is what a tick's row starts with, and therefore what counts
-// as a previous tick — both for the numbering and for what the prune is
-// allowed to delete. A note a human typed must never match it.
-const heartbeatPrefix = "⟳ heartbeat — tick #"
+// kindNote and kindHeartbeat are the two values the table's `kind` column
+// admits (0002_note_kind.up.sql pins the pair in a CHECK constraint, so a third
+// value is refused by the database rather than by convention).
+//
+// kindNote is the column's DEFAULT, so nothing has to write it; it is named
+// here because the notes read filters on nothing and a reader needs to know
+// what the other value is.
+const (
+	kindNote      = "note"
+	kindHeartbeat = "heartbeat"
+)
 
-// heartbeatLike is the prefix as a LIKE pattern. The prefix must hold no %, _
-// or backslash or this would match more than it names — including, at worst,
-// notes the prune then deletes. heartbeat_test.go pins that it holds none.
-const heartbeatLike = heartbeatPrefix + "%"
+// heartbeatPrefix is the display text a tick's row carries, and it is display
+// text only — no query matches on it any more. The workspace id is appended by
+// the insert above.
+const heartbeatPrefix = "⟳ heartbeat — workspace "
 
 // keptHeartbeats bounds the tick history. Ten is enough to see a sequence
 // arrive on screen and small enough that the notes read (LIMIT 200) stays

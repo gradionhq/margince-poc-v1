@@ -24,8 +24,11 @@ func TestEverySystemRoleHasAValidDefaultDocument(t *testing.T) {
 }
 
 func TestParseRejectsDishonestDocuments(t *testing.T) {
+	// An unknown OBJECT is deliberately absent from this table; see
+	// TestParseDropsAnObjectThisInstallationDoesNotKnow. What is left is the
+	// pair that genuinely has no safe reading: bytes that are not a document,
+	// and a row_scope that decides how far every grant reaches.
 	cases := map[string]string{
-		"unknown object":    `{"objects":{"invoice":{"read":true}},"row_scope":"all"}`,
 		"invalid row_scope": `{"objects":{"person":{"read":true}},"row_scope":"everything"}`,
 		"malformed json":    `{"objects":`,
 	}
@@ -33,6 +36,61 @@ func TestParseRejectsDishonestDocuments(t *testing.T) {
 		if _, err := Parse([]byte(raw)); err == nil {
 			t.Errorf("Parse accepted a document with %s", name)
 		}
+	}
+}
+
+// TestParseDropsAnObjectThisInstallationDoesNotKnow is the regression test for
+// the UAT's F4, and the defect it guards is not a parsing detail.
+//
+// Parse reads STORED data. The grantable vocabulary is a property of the
+// compiled-in core set plus whichever extensions this process composes — so it
+// changes when a unit is removed, while the stored document does not. Rejecting
+// the document made that mismatch fatal at the only place it is read: the login
+// path fails the user's whole identity resolution, so removing a composed
+// extension locked out every user in a workspace whose role still carried its
+// object. No endpoint and no migration existed to clear it.
+//
+// Dropping grants nothing, which is the strictest available reading, and it is
+// the one that cannot lock anybody out of anything.
+func TestParseDropsAnObjectThisInstallationDoesNotKnow(t *testing.T) {
+	// `ext_departed_note` is exactly the shape a removed unit leaves behind: a
+	// well-formed extension object name that no installation composes.
+	doc, err := Parse([]byte(`{"objects":{"person":{"read":true,"update":true},` +
+		`"ext_departed_note":{"create":true,"read":true,"update":true,"delete":true}},` +
+		`"row_scope":"team"}`))
+	if err != nil {
+		t.Fatalf("a stored document naming a departed unit's object must still parse — "+
+			"refusing it fails the LOGIN, not the screen: %v", err)
+	}
+	if _, present := doc.Objects["ext_departed_note"]; present {
+		t.Error("the unknown object survived into the parsed document, so it could still reach a grant")
+	}
+	// The rest of the document is untouched: a leftover grant must degrade
+	// exactly itself and nothing else.
+	if got := doc.Objects["person"]; !got.Read || !got.Update {
+		t.Errorf("person grant = %+v, want the document's own read+update — the drop took more than it should", got)
+	}
+	if doc.RowScope != principal.RowScopeTeam {
+		t.Errorf("row_scope = %q, want team", doc.RowScope)
+	}
+	// And it grants nothing, which is the whole reason dropping is safe.
+	perms := Merge(map[string]Document{"admin": doc})
+	if perms.Allows("ext_departed_note", principal.ActionRead) {
+		t.Error("the dropped object still allows an action")
+	}
+}
+
+// TestParseDropsAnUnknownCoreLikeObjectToo: the leniency is about the
+// VOCABULARY, not about extensions. A typo'd core object is the case the old
+// strictness was written for, and it is still answered — the grant does
+// nothing — but by a log line rather than by refusing to authenticate the user.
+func TestParseDropsAnUnknownCoreLikeObjectToo(t *testing.T) {
+	doc, err := Parse([]byte(`{"objects":{"invoice":{"read":true}},"row_scope":"all"}`))
+	if err != nil {
+		t.Fatalf("a typo'd object must not fail a login: %v", err)
+	}
+	if len(doc.Objects) != 0 {
+		t.Errorf("objects = %v, want the typo dropped", doc.Objects)
 	}
 }
 

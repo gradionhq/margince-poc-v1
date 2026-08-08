@@ -164,18 +164,27 @@ func assertMatrix(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID
 //
 // An object the upgrade produced but the seed does not name FAILS OUTRIGHT,
 // whatever verbs it carries — including all-false. That asymmetry is the whole
-// point: identity.loadGrants runs every stored document through policy.Parse at
-// login, and Parse REJECTS an unknown object key rather than ignoring it. A
-// backfill with a typo'd path — `{objects,import_runs}` for `{objects,import_run}`
-// — writes a harmless-looking all-false row and locks every user holding that
-// role out of the product. Comparing that cell by value would call it equal.
+// point: a backfill with a typo'd path — `{objects,import_runs}` for
+// `{objects,import_run}` — writes a harmless-looking row under a name nothing
+// grants, so the real `import_run` grants stay absent and every user holding
+// that role 403s on the routes the upgrade was supposed to open. Comparing that
+// cell by value would call it equal, because a missing key and an all-false
+// grant both read as "may do nothing".
+//
+// The lockout this comment used to describe — policy.Parse refusing the whole
+// document at login — is gone: Parse now DROPS an object outside the vocabulary
+// and logs it, because a stored document outlives the code that defines the
+// vocabulary (see policy.Parse, and the Task 14 UAT's F4). The typo is
+// therefore quieter than it was, which makes this comparison more load-bearing
+// rather than less: nothing at run time will complain about it any more.
 func diffDocuments(got, want replayDocument) []string {
 	var lines []string
 	for _, object := range slices.Sorted(maps.Keys(got.Objects)) {
 		if _, known := want.Objects[object]; !known {
 			lines = append(lines, "holds a grant on "+object+", which is not in the seeded "+
-				"vocabulary. policy.Parse rejects an unknown object at login, so every user "+
-				"assigned this role would be locked out — check the JSON path the backfill writes")
+				"vocabulary. policy.Parse drops an object it does not know, so this grant "+
+				"authorizes nothing and the object it was meant to name has no grant at all "+
+				"— check the JSON path the backfill writes")
 		}
 	}
 	for _, object := range slices.Sorted(maps.Keys(want.Objects)) {

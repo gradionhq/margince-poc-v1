@@ -60,9 +60,18 @@ import (
 // noopInvoker stands in for the tool registry. These tests are about which
 // routes exist, not about what running one does — invocation through the
 // registry's admission gate is covered in extensiontools_test.go.
+//
+// It answers a SEALED envelope, because the real Registry.Invoke does and the
+// mounted route unwraps one (extroutes.go). A stub answering bare bytes would
+// let these tests pass over a route that cannot serve a real result — which is
+// how the envelope reached the SPA unnoticed (Task 14 UAT, F1).
 func noopInvoker(context.Context, string, json.RawMessage) (json.RawMessage, error) {
-	return json.RawMessage(`{}`), nil
+	return json.RawMessage(sealedEmptyResult), nil
 }
+
+// sealedEmptyResult is an empty payload in the envelope Invoke seals.
+const sealedEmptyResult = `{"schema_version":"1.0.0","trace_id":"019fe351-1f62-749f-ac9f-a89d5a81abfa",` +
+	`"freshness":{"authoritative":true},"trust":"t0","evidence":[],"warnings":[],"data":{}}`
 
 // mountForTest mounts verbs onto a fresh mux and returns both, so a test can
 // assert over the patterns AND make a real request against them.
@@ -246,7 +255,7 @@ func TestTheLiveComposedSetHasNoUnhandledInvocation(t *testing.T) {
 	mux := http.NewServeMux()
 	routes, err := MountExtensionRoutes(mux, verbs, served, func(_ context.Context, name string, _ json.RawMessage) (json.RawMessage, error) {
 		reached = name
-		return json.RawMessage(`{}`), nil
+		return json.RawMessage(sealedEmptyResult), nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -356,9 +365,16 @@ func TestAMountedRouteInvokesItsDeclaredVerb(t *testing.T) {
 	verbs := composedFixture()
 	var called string
 	mux := http.NewServeMux()
+	// The stub SEALS its answer, because the real invoker does: Registry.Invoke
+	// wraps every result in the governed-tool envelope, and the mounted route
+	// takes the payload back out of it (extroutes.go's unwrapToolEnvelope). A
+	// stub that answered bare bytes would be testing a seam shape that does not
+	// exist — which is how the envelope reached the SPA unnoticed.
 	if _, err := MountExtensionRoutes(mux, verbs, allServed(verbs), func(_ context.Context, name string, in json.RawMessage) (json.RawMessage, error) {
 		called = name
-		return json.RawMessage(`{"args":` + string(in) + `}`), nil
+		return json.RawMessage(`{"schema_version":"1.0.0","trace_id":"019fe351-1f62-749f-ac9f-a89d5a81abfa",` +
+			`"freshness":{"authoritative":true},"trust":"t0","evidence":[],"warnings":[],` +
+			`"data":{"args":` + string(in) + `}}`), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -371,8 +387,11 @@ func TestAMountedRouteInvokesItsDeclaredVerb(t *testing.T) {
 	if called != "audit_records" {
 		t.Fatalf("invoked %q, want the declared verb audit_records", called)
 	}
+	// The unit's payload, unwrapped from the envelope — the shape the
+	// operation's contract declares, and the only shape a generated client can
+	// read.
 	if got := rec.Body.String(); got != `{"args":{"k":1}}` {
-		t.Fatalf("body = %s, want the tool's own bytes verbatim", got)
+		t.Fatalf("body = %s, want the tool's own payload verbatim", got)
 	}
 
 	// The method is part of the declaration, so a declared PUT does not answer

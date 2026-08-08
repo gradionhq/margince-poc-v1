@@ -179,6 +179,19 @@ have to regenerate the composition and run the gates:
    class, or a bad period is caught in `RegisterExtensions`' validate phase *before* any surface
    serves, and names the offending unit.
 
+   `make dev` runs the **composed** stack on both sides: it materializes `build/composition/`, builds
+   the api and worker against the composed `GOWORK`, and starts Vite with
+   `MARGINCE_COMPOSITION_FRONTEND` pointing at the composed frontend registry — so a unit's routes,
+   its agent tools *and* `#/ext/<name>` are all live on the one port `make dev` prints. (It did not
+   set that variable until Task 14's UAT found the gap: only `Dockerfile.web` did, so the SPA
+   resolved the empty-tree registry and every unit route answered "no extension named …" while the
+   api served it perfectly.)
+
+   A **scheduled job** needs one more thing that no product path creates yet: the workspace's agent
+   seat. Without it every tick fails at the authority derivation — see
+   [margince-poc-v1#656](https://github.com/gradionhq/margince-poc-v1/issues/656), which carries the
+   reproduction and the one-statement workaround.
+
 Push only once `make check` is **green** — not red, not still running. The vanilla stub check keeps
 passing because it's keyed on the *empty* `extensions/` tree; your unit only changes the composed
 output, never the committed `composition/` stub.
