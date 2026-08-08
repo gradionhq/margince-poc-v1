@@ -1,4 +1,4 @@
--- 0197 — the company dossier and its growth-fit assessment (DOSS-DDL-1/2).
+-- 0198 — the company dossier and its growth-fit assessment (DOSS-DDL-1/2).
 --
 -- TWO READ-MODEL CACHES, OWNED BY THE COMPOSITION LAYER. Both are assemblies of
 -- facts owned elsewhere — profile fields, extracted facts, the source inventory

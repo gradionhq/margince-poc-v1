@@ -61,7 +61,7 @@ closes the door on manually entered financial figures that plan §4.6 left ajar.
 
 - **PR 4 (part)** — the dossier and the growth-fit assessment, both serving.
   `GET`/`POST /organizations/{id}/dossier` and `.../growth-fit` are live over
-  `compose/orgdossier`, on the two per-reader caches in migration `0197`.
+  `compose/orgdossier`, on the two per-reader caches in migration `0198`.
   DOSS-FORM-2 is complete: seven required inputs, completeness with both counts
   and the missing ones named, abstention below the floor, and the DOSS-AC-13
   cap at `moderate` when the workspace's own offering is unconfirmed
