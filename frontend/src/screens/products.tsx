@@ -160,12 +160,14 @@ export function ProductsScreen() {
           {
             key: "name",
             header: t("product.name"),
+            sort: "name",
             cell: (p: Product) => p.name,
             fixed: true,
           },
           {
             key: "sku",
             header: t("product.sku"),
+            sort: "sku",
             cell: (p: Product) => p.sku ?? "",
           },
           {

@@ -145,12 +145,14 @@ export function OfferTemplatesScreen() {
           {
             key: "name",
             header: t("template.name"),
+            sort: "name",
             cell: (tpl: OfferTemplate) => tpl.name,
             fixed: true,
           },
           {
             key: "locale",
             header: t("template.locale"),
+            sort: "locale",
             cell: (tpl: OfferTemplate) => tpl.locale,
           },
           {

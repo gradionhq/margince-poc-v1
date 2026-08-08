@@ -335,6 +335,7 @@ export const vi = {
   "list.sortScore": "Điểm",
   "list.viewAll": "Tất cả",
   "list.viewAZ": "A–Z",
+  "list.viewHighestScore": "Điểm cao nhất",
   "list.viewHot": "Tiềm năng cao",
   "list.overlayReadOnly": "Sắp xếp và bộ lọc đọc qua HubSpot — hãy mở bên đó",
   "table.range": "{first}–{last} trong {count} {unit}",

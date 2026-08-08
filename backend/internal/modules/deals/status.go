@@ -19,6 +19,10 @@ const (
 	DealLost DealStatus = "lost"
 )
 
+// stageSemanticField names the stage semantic: the field a refusal reports
+// and the audit key a stage write records it under.
+const stageSemanticField = "semantic"
+
 type StageSemantic string
 
 const (
@@ -37,8 +41,10 @@ func ParseStageSemantic(raw string) (StageSemantic, error) {
 	case SemanticOpen, SemanticWon, SemanticLost:
 		return s, nil
 	}
-	return "", &values.ParseError{Field: "semantic", Code: "invalid_stage_semantic",
-		Message: "semantic is one of open, won, lost"}
+	return "", &values.ParseError{
+		Field: stageSemanticField, Code: "invalid_stage_semantic",
+		Message: "semantic is one of open, won, lost",
+	}
 }
 
 // Offer status needs no local vocabulary: the generated contract enum

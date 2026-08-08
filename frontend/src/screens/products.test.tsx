@@ -4,7 +4,6 @@ import {
   cleanup,
   render as rtlRender,
   screen,
-  waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -93,8 +92,10 @@ describe("ProductsScreen", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<ProductsScreen />);
     await userEvent.click(await screen.findByTestId("new-record"));
-    await waitFor(() => screen.getByLabelText(/Name/));
-    await userEvent.type(screen.getByLabelText(/Name/), "Consulting Day");
+    // The column header is a sort button named "Sort by Name" now, so the
+    // form field is asked for as a textbox rather than by a loose text match.
+    const nameField = await screen.findByRole("textbox", { name: /Name/ });
+    await userEvent.type(nameField, "Consulting Day");
     await userEvent.type(screen.getByLabelText(/Unit price/), "1500");
     await userEvent.click(screen.getByText("Create"));
     expect(await screen.findByText("sku already in use")).toBeTruthy();
