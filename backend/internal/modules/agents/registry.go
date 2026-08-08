@@ -10,6 +10,7 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -334,7 +335,20 @@ func (r *Registry) Spec(name string) (mcp.ToolSpec, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	spec, ok := r.specs[name]
-	return spec, ok
+	return copySchemas(spec), ok
+}
+
+// copySchemas hands out a spec whose schemas are the CALLER's bytes.
+//
+// A json.RawMessage is a slice, so returning the registered one shares its
+// backing array: a caller that wrote through it would rewrite what tools/list
+// advertises and what results are validated against, for every later request,
+// from outside the lock. The schemas are the two members that can be written
+// through; everything else on a ToolSpec is copied by the assignment.
+func copySchemas(spec mcp.ToolSpec) mcp.ToolSpec {
+	spec.InputSchema = bytes.Clone(spec.InputSchema)
+	spec.OutputSchema = bytes.Clone(spec.OutputSchema)
+	return spec
 }
 
 // Specs lists the registered surface, stably ordered for tools/list.
@@ -343,7 +357,7 @@ func (r *Registry) Specs() []mcp.ToolSpec {
 	defer r.mu.RUnlock()
 	out := make([]mcp.ToolSpec, 0, len(r.specs))
 	for _, spec := range r.specs {
-		out = append(out, spec)
+		out = append(out, copySchemas(spec))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

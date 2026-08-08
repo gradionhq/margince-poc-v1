@@ -32,8 +32,9 @@ import (
 // probe, so an unpromoted captured contact 404s here exactly as it does on the
 // HTTP path rather than leaking through the agent.
 func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
-	return func(ctx context.Context, personID ids.UUID) ([]agents.KnownColleague, error) {
+	return func(ctx context.Context, personID ids.UUID) ([]agents.KnownColleague, bool, error) {
 		var out []agents.KnownColleague
+		var truncated bool
 		err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 			// Over-fetch, rank by warmth, THEN cap — the same three steps the
 			// HTTP surface takes, for the same reason. EdgesForPerson orders
@@ -48,6 +49,10 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 			now := clockNow()
 			search.SortByStrength(edges, now)
 			if len(edges) > agentWhoKnowsCap {
+				// Said out loud, not just done. The two other bounded walks on
+				// this surface report their cap, and a colleague list that
+				// stopped silently is the one a model will call complete.
+				truncated = true
 				edges = edges[:agentWhoKnowsCap]
 			}
 			names, err := search.MemberNames(ctx, tx, edges)
@@ -68,7 +73,7 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 			}
 			return nil
 		})
-		return out, err
+		return out, truncated, err
 	}
 }
 

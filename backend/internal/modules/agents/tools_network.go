@@ -41,7 +41,10 @@ type KnownColleague struct {
 // WhoKnowsLister answers "which colleagues know this contact", warmest first.
 // Compose implements it over the interaction projection through the same
 // row-scoped read the HTTP surface uses.
-type WhoKnowsLister func(ctx context.Context, personID ids.UUID) ([]KnownColleague, error)
+// The bool is truncation, spelled the way IntroPathLister spells it: the walk is
+// capped, and a capped list a model is handed with nothing marking it is one it
+// will report as the whole network.
+type WhoKnowsLister func(ctx context.Context, personID ids.UUID) (colleagues []KnownColleague, truncated bool, err error)
 
 // CoverageReader answers "how is this deal covered, and what is wrong with
 // it". Compose implements it over compose/network.
@@ -177,6 +180,12 @@ func (t whoKnowsTool) Spec() mcp.ToolSpec {
 	}
 }
 
+// whoKnowsTruncatedMessage is the third spelling of one rule: a ranked list that
+// stopped at its cap is not the whole network, and a model told nothing reports
+// it as one.
+const whoKnowsTruncatedMessage = "More colleagues know this contact than were returned. " +
+	"These are the warmest, not all of them."
+
 func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
 		PersonID ids.UUID `json:"person_id"`
@@ -184,7 +193,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	colleagues, err := t.list(ctx, args.PersonID)
+	colleagues, truncated, err := t.list(ctx, args.PersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +208,9 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	// would make the model narrate a problem instead of a fact.
 	noteDerivedContent(ctx)
 	noteEvidence(ctx, datasource.EntityPerson, args.PersonID)
+	if truncated {
+		noteWarning(ctx, warningSweepTruncated, whoKnowsTruncatedMessage)
+	}
 	return json.Marshal(WhoKnowsAnswer{PersonID: args.PersonID, Colleagues: colleagues})
 }
 
@@ -358,6 +370,14 @@ func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 			report.Deals[i].Risks = []CoverageRisk{}
 		}
 		noteEvidence(ctx, datasource.EntityDeal, report.Deals[i].DealID)
+		// The people a finding names, not only the deal it hangs on: a risk
+		// reading "the only contact has gone quiet" is checkable only against
+		// the contact, and evidence a caller cannot follow grounds nothing.
+		for _, risk := range report.Deals[i].Risks {
+			for _, person := range risk.PersonIDs {
+				noteEvidence(ctx, datasource.EntityPerson, person)
+			}
+		}
 	}
 	if report.Truncated {
 		noteWarning(ctx, warningSweepTruncated, atRiskTruncatedMessage)

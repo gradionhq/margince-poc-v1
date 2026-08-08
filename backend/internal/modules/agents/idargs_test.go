@@ -171,7 +171,7 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 		func(context.Context) ([]SlippingDeal, error) { return nil, errSeamReached },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", errSeamReached })
 	RegisterNetworkTools(r,
-		func(context.Context, ids.UUID) ([]KnownColleague, error) { return nil, errSeamReached },
+		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, errSeamReached },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) {
 			return DealCoverageAnswer{}, errSeamReached
 		},

@@ -62,23 +62,32 @@ func TestABoundedCallerIsToldTheAnswerIsBoundedAndNeverHowMuch(t *testing.T) {
 	}
 
 	// And the half that makes it safe: nothing in the bounded answer says how
-	// many rows the bound removed. A count is precisely the side channel
-	// existence-hiding closes, so every part of the answer that could CARRY one
-	// is read — the payload, the evidence list and the warning text together, not
-	// the warning alone. The two fields left out are the ones whose digits are
-	// the server's own and say nothing about the corpus: the trace id it minted
-	// and the version the tool declares.
-	answering, err := json.Marshal(struct {
-		Data     json.RawMessage  `json:"data"`
-		Evidence []sealedEvidence `json:"evidence"`
-		Warnings []sealedWarning  `json:"warnings"`
-	}{Data: bounded.Data, Evidence: bounded.Evidence, Warnings: bounded.Warnings})
-	if err != nil {
-		t.Fatal(err)
+	// many rows the bound removed.
+	//
+	// It reads the two places a count could be PHRASED — the warning a model
+	// reads, and the payload it parses — rather than scanning the whole document
+	// for a digit. A whole-document scan would look stricter and prove less: an
+	// evidence entry carries a uuid, which always contains digits, so the scan
+	// would pass today only because this answer is empty and would have to be
+	// weakened the first time a bounded answer legitimately named a record. What
+	// must never appear is a NUMBER OF WITHHELD ROWS, and these are the two
+	// members that could state one.
+	for _, warning := range bounded.Warnings {
+		if strings.ContainsAny(warning.Message, "0123456789") {
+			t.Errorf("the warning states a number: %q — the fact of filtering may ride the envelope, its size may not",
+				warning.Message)
+		}
 	}
-	if strings.ContainsAny(string(answering), "0123456789") {
-		t.Errorf("the withheld answer carries a number: %s — the fact of filtering may ride the envelope, its size may not",
-			answering)
+	if strings.ContainsAny(string(bounded.Data), "0123456789") {
+		t.Errorf("the withheld payload carries a number: %s — an empty answer must not count what it did not return",
+			bounded.Data)
+	}
+	// And the evidence names nothing, because there was nothing this caller could
+	// see. Its length is the count that must not leak, so it is asserted as a
+	// property of the answer rather than left to the scan above.
+	if len(bounded.Evidence) != 0 {
+		t.Errorf("the withheld answer names %d records the caller cannot read: %v",
+			len(bounded.Evidence), bounded.Evidence)
 	}
 }
 

@@ -84,7 +84,7 @@ func introPathLister(pool *pgxpool.Pool) agents.IntroPathLister {
 			// account bigger than the bound contributes only its first slice by
 			// id. The caller is told rather than left to assume the ranking saw
 			// everything.
-			truncated = len(contacts) >= accountContactFetch
+			contacts, truncated = trimToFetchBound(contacts)
 			if len(contacts) == 0 {
 				return nil
 			}
@@ -100,10 +100,12 @@ func introPathLister(pool *pgxpool.Pool) agents.IntroPathLister {
 // Over-fetch, rank, THEN cap — the order every warmth-ranked read here takes,
 // because the score is computed after the read and capping first would cut by
 // last contact instead of by warmth.
-func rankIntroRoutes(ctx context.Context, tx pgx.Tx, contacts map[ids.UUID]string) ([]agents.IntroRoute, error) {
+func rankIntroRoutes(ctx context.Context, tx pgx.Tx, contacts []accountContact) ([]agents.IntroRoute, error) {
 	people := make([]ids.UUID, 0, len(contacts))
-	for id := range contacts {
-		people = append(people, id)
+	names := make(map[ids.UUID]string, len(contacts))
+	for _, contact := range contacts {
+		people = append(people, contact.id)
+		names[contact.id] = contact.name
 	}
 	// EdgesForPeople takes the person grant; the contact set it is given
 	// already passed the person row scope in accountContacts, so an unpromoted
@@ -117,7 +119,10 @@ func rankIntroRoutes(ctx context.Context, tx pgx.Tx, contacts map[ids.UUID]strin
 	if len(edges) > introRouteCap {
 		edges = edges[:introRouteCap]
 	}
-	names, err := search.MemberNames(ctx, tx, edges)
+	// The colleague names, which are a different lookup from the CONTACT names
+	// gathered above: one side of a route is a workspace member, the other is
+	// the account's employee.
+	members, err := search.MemberNames(ctx, tx, edges)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +130,8 @@ func rankIntroRoutes(ctx context.Context, tx pgx.Tx, contacts map[ids.UUID]strin
 	for _, e := range edges {
 		score := e.StrengthOf(now)
 		route := agents.IntroRoute{
-			UserID: e.UserID, DisplayName: names[e.UserID],
-			PersonID: e.PersonID, PersonName: contacts[e.PersonID],
+			UserID: e.UserID, DisplayName: members[e.UserID],
+			PersonID: e.PersonID, PersonName: names[e.PersonID],
 			StrengthBucket: score.Bucket, Interactions90d: e.Count90d,
 		}
 		// A `none` band carries NO number: never spoken and spoken-then-cold
@@ -140,9 +145,33 @@ func rankIntroRoutes(ctx context.Context, tx pgx.Tx, contacts map[ids.UUID]strin
 	return out, nil
 }
 
+// trimToFetchBound cuts one over-fetched row back to the bound and answers
+// whether there was one.
+//
+// Reading ONE row past the bound is what makes the answer honest at the
+// boundary: the bound itself is not evidence of anything, so an account holding
+// exactly accountContactFetch contacts had none of them dropped — and telling a
+// model that warmer routes exist outside a complete list is the same false
+// claim as hiding a cap, in the other direction. The row dropped is the last by
+// id, which is the one the ORDER BY put past the bound.
+func trimToFetchBound(contacts []accountContact) ([]accountContact, bool) {
+	if len(contacts) <= accountContactFetch {
+		return contacts, false
+	}
+	return contacts[:accountContactFetch], true
+}
+
+// accountContact is one live employee of the account, in the id order the fetch
+// bound is applied over.
+type accountContact struct {
+	id   ids.UUID
+	name string
+}
+
 // accountContacts reads the account's live employees under the caller's person
-// row scope, keyed by id so a route can be named without a second read.
-func accountContacts(ctx context.Context, tx pgx.Tx, orgID ids.UUID) (map[ids.UUID]string, error) {
+// row scope, in id order, reading one row past the bound so the caller can tell
+// a full account from a cut one.
+func accountContacts(ctx context.Context, tx pgx.Tx, orgID ids.UUID) ([]accountContact, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
@@ -167,19 +196,18 @@ func accountContacts(ctx context.Context, tx pgx.Tx, orgID ids.UUID) (map[ids.UU
 		   AND r.archived_at IS NULL
 		   AND (r.ended_at IS NULL OR r.ended_at > current_date)
 		   AND (%s)
-		 ORDER BY p.id LIMIT %d`, orgPos, visible, accountContactFetch), args...)
+		 ORDER BY p.id LIMIT %d`, orgPos, visible, accountContactFetch+1), args...)
 	if err != nil {
 		return nil, fmt.Errorf("compose: reading an account's contacts for an intro route: %w", err)
 	}
 	defer rows.Close()
-	out := map[ids.UUID]string{}
+	out := make([]accountContact, 0, accountContactFetch+1)
 	for rows.Next() {
-		var id ids.UUID
-		var name string
-		if err := rows.Scan(&id, &name); err != nil {
+		var contact accountContact
+		if err := rows.Scan(&contact.id, &contact.name); err != nil {
 			return nil, err
 		}
-		out[id] = name
+		out = append(out, contact)
 	}
 	return out, rows.Err()
 }

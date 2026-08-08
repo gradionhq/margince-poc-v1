@@ -141,7 +141,7 @@ func fullRegistry(t *testing.T) *Registry {
 		func(context.Context) ([]SlippingDeal, error) { return nil, nil },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", nil })
 	RegisterNetworkTools(r,
-		func(context.Context, ids.UUID) ([]KnownColleague, error) { return nil, nil },
+		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, nil },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) { return DealCoverageAnswer{}, nil },
 		func(context.Context, ids.UUID) ([]IntroRoute, bool, error) { return nil, false, nil },
 		func(context.Context) (AtRiskReport, error) { return AtRiskReport{}, nil })

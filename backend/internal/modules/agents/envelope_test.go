@@ -166,7 +166,7 @@ func TestNoResultSchemaCarriesADeferredEnvelopeField(t *testing.T) {
 
 // The envelope reports the WORST freshness behind an answer, not the best: a
 // caller asking how current a result is, is asking about its stalest part.
-func TestFreshnessReportsTheOldestRecordAndTaintsOnOneMirror(t *testing.T) {
+func TestFreshnessReportsTheOldestContributingRecord(t *testing.T) {
 	oldest := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
 	newest := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
 
