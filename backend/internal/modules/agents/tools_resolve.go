@@ -196,9 +196,15 @@ func (t resolveEntities) Handle(ctx context.Context, in json.RawMessage) (json.R
 // the address or number they sent belongs to it.
 func (t resolveEntities) hydrate(ctx context.Context, labels []string, outcomes []ResolveOutcome) (ResolveEntitiesResult, error) {
 	result := ResolveEntitiesResult{Candidates: make([]ResolvedCandidate, 0, len(outcomes))}
+	// One bookkeeping for the whole batch, because two candidates routinely name
+	// ONE record — a card carrying two addresses, or a name and a phone number
+	// that belong to the same person. Stamping it per candidate would charge the
+	// caller twice for a record they were shown once, against a bound that
+	// measures what was handed over.
+	served := newServedRecords()
 	narrowed := false
 	for i, outcome := range outcomes {
-		matches, dropped, err := t.readable(ctx, outcome.Refs)
+		matches, dropped, err := t.readable(ctx, outcome.Refs, served)
 		if err != nil {
 			return ResolveEntitiesResult{}, err
 		}
@@ -227,7 +233,7 @@ func (t resolveEntities) hydrate(ctx context.Context, labels []string, outcomes 
 // Anything else is the absence of a verdict, and turning it into `unresolved`
 // would tell a caller that no record names this address when what happened is
 // that nothing could be read — and they would go on to create the duplicate.
-func (t resolveEntities) readable(ctx context.Context, refs []ResolveRef) ([]ResolvedRecord, bool, error) {
+func (t resolveEntities) readable(ctx context.Context, refs []ResolveRef, served *servedRecords) ([]ResolvedRecord, bool, error) {
 	out := make([]ResolvedRecord, 0, len(refs))
 	dropped := false
 	for _, ref := range refs {
@@ -240,7 +246,7 @@ func (t resolveEntities) readable(ctx context.Context, refs []ResolveRef) ([]Res
 			return nil, false, err
 		}
 		out = append(out, ResolvedRecord{
-			Record: newWireRecord(ctx, record), Confidence: ref.Confidence, MatchedOn: ref.MatchedOn,
+			Record: served.stamp(ctx, record), Confidence: ref.Confidence, MatchedOn: ref.MatchedOn,
 		})
 	}
 	return out, dropped, nil

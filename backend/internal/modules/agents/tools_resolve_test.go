@@ -200,6 +200,44 @@ func TestResolutionIsChargedPerRecordServed(t *testing.T) {
 	}
 }
 
+// One record named by two candidates is charged ONCE. A card carrying two
+// addresses, or a name and a phone number belonging to the same person, is the
+// ordinary case — and the bound counts records handed over, not answers.
+func TestARecordNamedByTwoCandidatesIsChargedOnce(t *testing.T) {
+	person := ids.NewV7()
+	provider := &queryProbeProvider{records: map[ids.UUID]datasource.Record{
+		person: recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
+	}}
+	shared := ResolveOutcome{Verdict: ResolveVerdictExact, Refs: []ResolveRef{
+		{Kind: "person", ID: person, Confidence: 1, MatchedOn: "email"},
+	}}
+	tool := resolveEntities{p: provider, resolve: fixedResolver([]ResolveOutcome{shared, shared})}
+	registry, charger, ctx := chargingRegistry(t, tool)
+
+	raw, err := registry.Invoke(ctx, "resolve_entities", json.RawMessage(
+		`{"candidates":[{"kind":"person","ref":"a"},{"kind":"person","ref":"b"}]}`))
+	if err != nil {
+		t.Fatalf("invoking resolve_entities: %v", err)
+	}
+
+	if charger.charged != 1 {
+		t.Errorf("charged %d for one record named by two candidates, want 1", charger.charged)
+	}
+	// Both answers still carry it: charging once must not cost the second
+	// candidate its match.
+	var sealed struct {
+		Data ResolveEntitiesResult `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &sealed); err != nil {
+		t.Fatalf("reading the result: %v", err)
+	}
+	for i, answer := range sealed.Data.Candidates {
+		if len(answer.Matches) != 1 || answer.Matches[0].Record.ID != person {
+			t.Errorf("candidate %d = %+v, want the shared record", i, answer)
+		}
+	}
+}
+
 // An empty batch and an oversized one are both named as the argument that is
 // wrong, before the resolver runs.
 func TestTheCandidateBatchIsBounded(t *testing.T) {

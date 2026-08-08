@@ -209,10 +209,10 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 		ExecutedPlan: answer.Narrative,
 		Limit:        answer.Limit,
 	}
-	served := servedRecords{hops: map[datasource.EntityRef]hopRead{}, noted: map[datasource.EntityRef]wireRecord{}}
+	served := newServedRecords()
 	var dropped bool
 	for _, ref := range answer.Refs {
-		row, admitted, err := t.admit(ctx, ref, &served)
+		row, admitted, err := t.admit(ctx, ref, served)
 		if err != nil {
 			return QueryWorkspaceResult{}, err
 		}
@@ -220,7 +220,7 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 			dropped = true
 			continue
 		}
-		result.Rows = append(result.Rows, t.serve(ctx, ref, row, &served))
+		result.Rows = append(result.Rows, t.serve(ctx, ref, row, served))
 	}
 	if dropped {
 		result.Coverage = CoveragePartialDegraded
@@ -341,6 +341,15 @@ type hopRead struct {
 type servedRecords struct {
 	hops  map[datasource.EntityRef]hopRead
 	noted map[datasource.EntityRef]wireRecord
+}
+
+// newServedRecords is the constructor both tools that serve several records in
+// one answer take, so neither can reach stamp through a nil map.
+func newServedRecords() *servedRecords {
+	return &servedRecords{
+		hops:  map[datasource.EntityRef]hopRead{},
+		noted: map[datasource.EntityRef]wireRecord{},
+	}
 }
 
 // stamp puts a record through newWireRecord the FIRST time it is served, and
