@@ -249,7 +249,10 @@ func (t extensionTool) Spec() mcp.ToolSpec { return t.spec }
 // the call it was granted for.
 func (t extensionTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	pool, vault := boundExtensionRuntime()
-	rt := runtimeFor(t.unit, pool, vault)
+	// ctx here is the INVOCATION's — the one the admission gate ran against —
+	// and the Runtime keeps it, so every capability re-derives the tenant from
+	// it rather than from whatever context the handler later passes back in.
+	rt := runtimeFor(ctx, t.unit, pool, vault)
 	// Deferred, not called on the return path: a handler that panics has
 	// still finished with its Runtime, and a panic recovered upstream must
 	// not leave a live one behind.

@@ -119,12 +119,20 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// collides with a core verb fails loudly (RegisterExtensions stashed
 	// them at boot, before this ran).
 	//
-	// They need no native-only guard: extension.ToolHandler is handed a context
-	// and raw JSON and nothing else — no provider, no pool, no store — and the
-	// boot adapter injects none, so an extension tool cannot read a domain table
-	// to answer wrongly for an overlay workspace. If that surface ever grants
-	// record access, it has to arrive mode-routed through the datasource seam,
-	// or gain the guard the three dependencies above take.
+	// They carry NO native-only guard, and that is now a debt rather than a
+	// property. It used to be a property: a handler was handed a context and
+	// raw JSON and nothing else, so it could not read a domain table at all.
+	// It can now — extension.ToolHandler receives a per-call Runtime whose Tx
+	// runs the unit's own SQL on this pool (compose/extruntime.go), which
+	// reaches core tables directly and bypasses the Dispatcher's mode routing
+	// entirely. An extension tool CAN therefore answer from native state for a
+	// workspace whose system of record is the overlay mirror.
+	//
+	// Nothing is exposed today: yogi is the only served first-party unit and it
+	// ignores its Runtime, and the composed set is the trust boundary (see
+	// buildExtensionTools). The guard — or the per-unit grants that would make
+	// it unnecessary — is issue #627, to settle before a unit reads a domain
+	// table.
 	registerComposedTools(registry)
 	return registry
 }

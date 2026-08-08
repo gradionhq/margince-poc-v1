@@ -52,11 +52,13 @@ type Runtime interface {
 	Secrets() Secrets
 
 	// Tx runs fn inside ONE database transaction, already pinned to the
-	// workspace the invocation belongs to. The pinning happens in the core
-	// before fn is called and there is no parameter through which fn could
-	// ask for a different workspace, so a handler cannot widen its own
-	// scope; the tenant policies on the unit's own tables then hold whatever
-	// SQL it writes to that workspace.
+	// workspace the invocation belongs to. The core takes that workspace
+	// from the INVOCATION, not from the ctx passed here: everything else
+	// this ctx carries is honoured — a shorter deadline, a cancellation, the
+	// values a handler put on it — but the tenant is re-bound from the call
+	// the Runtime was minted for. So a handler cannot widen its own scope,
+	// and it cannot do it by building a context either. The tenant policies
+	// then hold whatever SQL it writes to that workspace.
 	//
 	// fn returning an error rolls the transaction back; returning nil
 	// commits it. The Tx handed to fn is valid only for that call — it is
@@ -75,10 +77,22 @@ type Runtime interface {
 // over things the core must keep (the connection's lifetime, its GUCs, its
 // prepared-statement cache).
 //
-// The SQL is the extension's own, run under the extension's own database
-// role against its own ext_<name>_* tables. Nothing here parses or rewrites
-// it: the wall around what a unit may touch is the role's grants and the
-// tenant policies, which hold whatever statement arrives.
+// The SQL is the extension's own, and nothing here parses or rewrites it: a
+// wall made of statement inspection is a wall made of guesses. The wall is
+// the DATABASE's, and it is worth being precise about which part of it exists
+// today.
+//
+// What holds now is the tenant wall: the transaction is pinned to the calling
+// workspace before fn runs, and the row-level-security policies read that pin.
+// No statement a unit writes reaches another tenant's rows.
+//
+// What does NOT hold yet is the wall between a unit and the CORE's tables
+// within its own tenant. The intended posture is a per-unit database role
+// whose grants reach only that unit's own ext_<name>_* tables; there is no
+// such role in the tree yet, so this runs on the shared application role and a
+// unit's SQL can address a core table. Issue #628 tracks building it. Until
+// then the boundary is the composed set — the vanilla tree ships only
+// first-party units, and an installation adds one deliberately.
 //
 // args is ...any because SQL arguments are genuinely heterogeneous — a
 // statement's parameters are whatever its placeholders are — and every

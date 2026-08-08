@@ -15,6 +15,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/extsecrets"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
@@ -58,9 +60,18 @@ var extensionRuntimeDeps struct {
 // writing a mapping row naming material nothing could unseal. A nil pool
 // leaves the whole capability surface refusing with
 // errExtensionRuntimeUnwired.
+// A second bind to a DIFFERENT non-nil pool is a wiring fault: two pools in
+// one process means half the extension calls run on the wrong one, silently.
+// It is logged rather than refused because this is not the layer that gets to
+// end a boot, and because a test restoring a previous binding legitimately
+// rebinds — but it must never happen unremarked.
 func BindExtensionRuntime(pool *pgxpool.Pool, vault keyvault.Vault) {
 	extensionRuntimeDeps.mu.Lock()
 	defer extensionRuntimeDeps.mu.Unlock()
+	if prev := extensionRuntimeDeps.pool; prev != nil && pool != nil && prev != pool {
+		slog.Default().Warn("compose: the extension runtime was rebound to a different pool; " +
+			"every extension capability from now on runs against the new one")
+	}
 	extensionRuntimeDeps.pool = pool
 	extensionRuntimeDeps.vault = vault
 }
@@ -88,20 +99,34 @@ type callRuntime struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
 
-	// mu guards live. A handler may hand its Runtime to a goroutine it
-	// spawns, so the release that races that goroutine has to be ordered.
+	// callCtx is the context the INVOCATION arrived on, held for exactly one
+	// value: the workspace. Every capability re-derives the tenant from here
+	// rather than from the context the handler passes in, which is what makes
+	// "a handler cannot widen its own scope" a property of construction
+	// instead of a property of principal.WithWorkspaceID happening to be
+	// unreachable from an extension module. See scoped.
+	//
+	// Held in a field rather than threaded, because the capability methods
+	// are the published Runtime's and cannot grow a parameter for it.
+	callCtx context.Context //nolint:containedctx // the invocation's tenant scope IS this value's lifetime; see above.
+
+	// mu orders live: it is read and written under the same lock, so release
+	// and a handler-spawned goroutine cannot race the FLAG. It does not order
+	// the WORK — see usable.
 	mu   sync.RWMutex
 	live bool
 }
 
 var _ extension.Runtime = (*callRuntime)(nil)
 
-// runtimeFor mints the Runtime for one invocation of one unit's tool. It
-// returns the concrete type rather than the published interface because the
-// caller needs release, which is the core's side of the lifetime contract and
-// deliberately not on the surface a handler holds.
-func runtimeFor(unit string, pool *pgxpool.Pool, vault keyvault.Vault) *callRuntime {
-	return &callRuntime{unit: unit, pool: pool, vault: vault, live: true}
+// runtimeFor mints the Runtime for one invocation of one unit's tool. ctx is
+// the invocation's, not a handler's.
+//
+// It returns the concrete type rather than the published interface because
+// the caller needs release, which is the core's side of the lifetime contract
+// and deliberately not on the surface a handler holds.
+func runtimeFor(ctx context.Context, unit string, pool *pgxpool.Pool, vault keyvault.Vault) *callRuntime {
+	return &callRuntime{unit: unit, pool: pool, vault: vault, callCtx: ctx, live: true}
 }
 
 // release ends the Runtime's lifetime. Called when the handler returns, so a
@@ -116,6 +141,17 @@ func (r *callRuntime) release() {
 // usable is the one gate every capability passes through, in the order the
 // two failures matter: a released Runtime is the unit's own mistake, an
 // unwired role is the deployment's.
+//
+// It is a CHECK, not a hold. A handler-spawned goroutine that passes it
+// microseconds before release proceeds anyway, and Tx's re-check inside the
+// transaction narrows that window without closing it. Closing it would mean
+// holding the read lock for the whole of a capability call, which makes
+// release — and therefore the request that is trying to return — block until
+// a goroutine the handler leaked finishes its transaction. A hung request is
+// a worse failure than a last-microsecond call that completes, so the window
+// is documented rather than closed. What the lock DOES buy is that the flag
+// itself is race-free and that a retained Runtime used on any later call
+// (the actual failure mode this guards) is refused every time.
 func (r *callRuntime) usable() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -126,6 +162,31 @@ func (r *callRuntime) usable() error {
 		return errExtensionRuntimeUnwired
 	}
 	return nil
+}
+
+// scoped is the gate plus the pin: it checks the lifetime and returns ctx
+// re-bound to the workspace THE INVOCATION arrived under.
+//
+// Rebinding rather than trusting the incoming ctx is the point. Everything a
+// handler passes down — cancellation, deadline, request values — is kept,
+// because a handler shortening its own deadline is legitimate; the one thing
+// it cannot carry is a different tenant. Without this the workspace would be
+// whatever the handler supplied, and the design's claim that a unit cannot
+// widen its own scope would rest on principal.WithWorkspaceID being
+// unreachable from an extension module rather than on anything structural.
+func (r *callRuntime) scoped(ctx context.Context) (context.Context, error) {
+	if err := r.usable(); err != nil {
+		return nil, err
+	}
+	ws, ok := principal.WorkspaceID(r.callCtx)
+	if !ok {
+		// The same refusal WithWorkspaceTx would give, raised against the
+		// invocation rather than the handler's context — an unpinned
+		// invocation is a core wiring fault, and no ctx a handler builds
+		// should be able to supply the missing tenant.
+		return nil, database.ErrNoWorkspace
+	}
+	return principal.WithWorkspaceID(ctx, ws), nil
 }
 
 // Secrets hands out the unit's own namespace, guarded by this Runtime's
@@ -143,12 +204,13 @@ func (r *callRuntime) Secrets() extension.Secrets {
 //
 // The pinning is database.WithWorkspaceTx — the same transaction-local
 // app.workspace_id GUC every core store binds, read by the same tenant
-// policies — rather than a second mechanism this surface invents. It reads
-// the workspace off the call's context and takes no workspace parameter, so
-// there is nothing for a handler to widen: the pin is bound before fn runs
-// and the tenant policies hold whatever SQL fn then issues.
+// policies — rather than a second mechanism this surface invents. The
+// workspace comes from scoped, so it is the INVOCATION's and not whatever
+// tenant the handler's own ctx happens to carry: the pin is bound before fn
+// runs, and the tenant policies then hold whatever SQL fn issues.
 func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx extension.Tx) error) error {
-	if err := r.usable(); err != nil {
+	ctx, err := r.scoped(ctx)
+	if err != nil {
 		return err
 	}
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
@@ -162,52 +224,61 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 	})
 }
 
-// callSecrets is the unit's secret namespace with this call's lifetime
-// wrapped around it. Every method is the same two lines because the guard is
-// the same fact: the port has six methods and no place to hang a shared
-// pre-check that a handler could not step around by holding the value.
+// callSecrets is the unit's secret namespace with this call's lifetime and
+// this call's tenant wrapped around it. Every method is the same three lines
+// because the guard is the same fact: the port has six methods and no place
+// to hang a shared pre-check that a handler could not step around by holding
+// the value. The scoped call is the same one Tx makes — a secret read must
+// not be reachable in a workspace the invocation did not arrive under, and
+// the store resolves the tenant from the ctx it is handed.
 type callSecrets struct {
 	rt    *callRuntime
 	inner extension.Secrets
 }
 
 func (s callSecrets) Get(ctx context.Context, key string) ([]byte, error) {
-	if err := s.rt.usable(); err != nil {
+	ctx, err := s.rt.scoped(ctx)
+	if err != nil {
 		return nil, err
 	}
 	return s.inner.Get(ctx, key)
 }
 
 func (s callSecrets) Put(ctx context.Context, key string, secret []byte) error {
-	if err := s.rt.usable(); err != nil {
+	ctx, err := s.rt.scoped(ctx)
+	if err != nil {
 		return err
 	}
 	return s.inner.Put(ctx, key, secret)
 }
 
 func (s callSecrets) Delete(ctx context.Context, key string) error {
-	if err := s.rt.usable(); err != nil {
+	ctx, err := s.rt.scoped(ctx)
+	if err != nil {
 		return err
 	}
 	return s.inner.Delete(ctx, key)
 }
 
 func (s callSecrets) GetUser(ctx context.Context, userID extension.UserID, key string) ([]byte, error) {
-	if err := s.rt.usable(); err != nil {
+	ctx, err := s.rt.scoped(ctx)
+	if err != nil {
 		return nil, err
 	}
 	return s.inner.GetUser(ctx, userID, key)
 }
 
 func (s callSecrets) PutUser(ctx context.Context, userID extension.UserID, key string, secret []byte) error {
-	if err := s.rt.usable(); err != nil {
+	ctx, err := s.rt.scoped(ctx)
+	if err != nil {
 		return err
 	}
 	return s.inner.PutUser(ctx, userID, key, secret)
 }
 
 func (s callSecrets) DeleteUser(ctx context.Context, userID extension.UserID, key string) error {
-	if err := s.rt.usable(); err != nil {
+	ctx, err := s.rt.scoped(ctx)
+	if err != nil {
 		return err
 	}
 	return s.inner.DeleteUser(ctx, userID, key)

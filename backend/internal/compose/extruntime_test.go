@@ -23,6 +23,17 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
+// bindRuntimeForTest binds the process-wide runtime dependencies and restores
+// whatever was bound before, rather than clearing to nil: a test that clears
+// leaves the next one unwired if the two ever run concurrently, and the
+// refusal it would then meet names a deployment fault that is not there.
+func bindRuntimeForTest(t *testing.T, pool *pgxpool.Pool, vault keyvault.Vault) {
+	t.Helper()
+	prevPool, prevVault := boundExtensionRuntime()
+	BindExtensionRuntime(pool, vault)
+	t.Cleanup(func() { BindExtensionRuntime(prevPool, prevVault) })
+}
+
 // invokeTool adapts ONE handler-bearing declaration exactly as the boot does
 // and calls it once. It is the only route to a Runtime in this package's
 // tests, deliberately: an extension never constructs one either.
@@ -50,8 +61,7 @@ func TestRuntimeFailsClosedAfterHandlerReturns(t *testing.T) {
 	// against an unwired role every call below refuses anyway, and the test
 	// would pass without a lifetime at all. Nothing here reaches the pool —
 	// both refusals are decided before a connection is taken.
-	BindExtensionRuntime(&pgxpool.Pool{}, nil)
-	t.Cleanup(func() { BindExtensionRuntime(nil, nil) })
+	bindRuntimeForTest(t, &pgxpool.Pool{}, nil)
 
 	var escaped extension.Runtime
 	invokeTool(t, "demo", func(_ context.Context, rt extension.Runtime, _ json.RawMessage) (json.RawMessage, error) {
@@ -161,7 +171,7 @@ func stringParam(fn reflect.Type) string {
 // pgx — and it is NOT ErrRuntimeExpired, which would tell a unit author to
 // look at their own handler's lifetime for a deployment's wiring fault.
 func TestRuntimeRefusesBeforeTouchingAnUnwiredPool(t *testing.T) {
-	rt := runtimeFor("demo", nil, nil)
+	rt := runtimeFor(context.Background(), "demo", nil, nil)
 	if _, err := rt.Secrets().Get(context.Background(), "k"); !errors.Is(err, errExtensionRuntimeUnwired) {
 		t.Fatalf("unwired Secrets().Get = %v, want errExtensionRuntimeUnwired", err)
 	}
@@ -179,8 +189,7 @@ func TestBoundExtensionRuntimeDepsReachTheHandler(t *testing.T) {
 	// property under test is that the binding is what the adapter reads.
 	pool := &pgxpool.Pool{}
 	vault := keyvault.NewMemory()
-	BindExtensionRuntime(pool, vault)
-	t.Cleanup(func() { BindExtensionRuntime(nil, nil) })
+	bindRuntimeForTest(t, pool, vault)
 
 	var got *callRuntime
 	invokeTool(t, "alpha", func(_ context.Context, rt extension.Runtime, _ json.RawMessage) (json.RawMessage, error) {
