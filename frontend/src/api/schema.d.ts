@@ -813,6 +813,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/dossier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What this company IS — assembled from its own facts, every sentence citing one.
+         * @description The dossier describes the COMPANY; the account brief describes our relationship
+         *     with it. They are deliberately not merged: a page mixing "they operate in Germany
+         *     and Austria" with "the economic buyer has not replied in eighteen days" gives a
+         *     reader no way to know which claims age in weeks and which in hours.
+         *
+         *     **Built from the factual sidecars only** — profile fields, extracted facts, and the
+         *     inventory of sources that were read (DOSS-AC-4). Deliberately not the assembled
+         *     account composite: a dossier that could see the pipeline would describe the
+         *     pipeline, and the separation from the brief would collapse on the first prompt
+         *     revision.
+         *
+         *     **Cached per reader.** Not an optimisation detail — a guarantee. A claim's evidence
+         *     labels name files and activities, those records are row-scoped per reader, and a
+         *     shared assembly would disclose that such a record EXISTS to a reader who cannot see
+         *     it. No stable signature summarizes a reader's scope over an open-ended cited set,
+         *     so the safe key is the reader (DOSS-AC-N-2).
+         *
+         *     **A sentence with no grounding record is never rendered**, and one citing a record
+         *     the assembler did not supply is dropped whole rather than shown with its citation
+         *     stripped (DOSS-AC-1/2).
+         *
+         *     With no model lane configured the dossier still answers, deterministically, from
+         *     the same facts; `generated_by` says which produced it (DOSS-AC-7).
+         */
+        get: operations["getOrganizationDossier"];
+        put?: never;
+        /**
+         * Reassemble the dossier now, past a fingerprint that still matches.
+         * @description A stale fingerprint already rewrites before an ordinary read answers, so this is
+         *     for the reader who wants a rebuild anyway — after correcting a claim, or after a
+         *     fresh site read.
+         *
+         *     A refresh refused by the AI budget returns the CACHED assembly with its age
+         *     rather than an error: a reader who asked for fresher content and cannot have it
+         *     is better served by yesterday's dossier, labelled, than by a failure.
+         */
+        post: operations["refreshOrganizationDossier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/brief": {
         parameters: {
             query?: never;
@@ -7415,6 +7470,48 @@ export interface components {
             contact_count: number;
         };
         /**
+         * @description A factual description of one company, assembled from what the READER can see.
+         *     Every sentence carries the records it was written from, so the reader can open the
+         *     evidence rather than take the sentence on trust.
+         */
+        OrganizationDossier: {
+            /** Format: uuid */
+            organization_id: string;
+            /** Format: date-time */
+            generated_at: string;
+            generated_by: components["schemas"]["WrittenBy"];
+            /**
+             * @description The newest contributing source was retrieved more than thirty days ago
+             *     (DOSS-PARAM-6). The content is still shown — a stale dossier is more useful
+             *     than none — with the staleness said out loud beside it.
+             */
+            needs_refresh?: boolean;
+            /**
+             * @description A section with nothing to say is ABSENT rather than empty: a heading over
+             *     silence reads as a finding of nothing, which is a different claim. The compact
+             *     card renders `summary` only.
+             */
+            sections: components["schemas"]["OrganizationDossierSection"][];
+        };
+        OrganizationDossierSection: {
+            /**
+             * @description `summary` — what this company is, in a sentence or three.
+             *     `products_services` — what they sell.
+             *     `markets` — where and to whom.
+             *     `buying_center` — who decides.
+             *     `differentiation` — what they claim sets them apart.
+             *     `firmographics` — size, age, registration and the like.
+             * @enum {string}
+             */
+            kind: "summary" | "products_services" | "markets" | "buying_center" | "differentiation" | "firmographics";
+            /**
+             * @description The same claim shape the account brief uses, deliberately: one claim
+             *     vocabulary and one grounding rule across every generated surface, so a reader
+             *     learns the distinction once and it holds everywhere.
+             */
+            sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        /**
          * @description A written brief over one account, assembled from what the READER can see.
          *     Every sentence carries the records it was written from, so the reader can open
          *     the evidence rather than take the sentence on trust.
@@ -7509,7 +7606,7 @@ export interface components {
         /** @description One record a brief sentence was written from. */
         OrganizationBriefEvidence: {
             /** @enum {string} */
-            entity_type: "deal" | "activity" | "person" | "organization" | "fact";
+            entity_type: "deal" | "activity" | "person" | "organization" | "fact" | "profile_field";
             /** Format: uuid */
             entity_id: string;
         };
@@ -10763,6 +10860,11 @@ export interface components {
             history?: string | null;
         };
         CompanyProfileField: {
+            /**
+             * Format: uuid
+             * @description The stored row, so a dossier sentence written from this field can cite something the reader can open. Without it a field-derived claim could only cite the organization, which tells the reader where to look but not at what — and the grounding filter drops a sentence whose citation it cannot resolve.
+             */
+            readonly id?: string;
             /**
              * Format: date-time
              * @description When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
@@ -14371,6 +14473,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationGraph"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getOrganizationDossier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The company dossier. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationDossier"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    refreshOrganizationDossier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reassembled dossier. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationDossier"];
                 };
             };
             401: components["responses"]["Unauthorized"];
