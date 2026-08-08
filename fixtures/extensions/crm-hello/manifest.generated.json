@@ -10,14 +10,14 @@
       "contract": "crm.yaml",
       "operation": "agent.tool.invoke",
       "operation_id": "crmHelloPing",
-      "route": "/v1/ext/crm-hello/ping",
+      "route": "/ext/crm-hello/ping",
       "method": "POST",
       "scopes": [
         "read"
       ],
       "tier": "confirmation_required",
       "fragment_hash": "e2521f46fc2ac909f254554c51ed4fc889c11de87fcc4266dfc6b33f8539946c",
-      "digest": "sha256:a83eb655642193648edd427302dc9608d8584721ce56708424c09404efcb2d2c"
+      "digest": "sha256:020126feeab24462abcac95311e0c1efe88202e25adb241bd4adb9cbf3b5a249"
     }
   ]
 }

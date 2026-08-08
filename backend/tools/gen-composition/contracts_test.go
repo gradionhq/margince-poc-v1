@@ -235,14 +235,14 @@ func TestOverlayOnSameJSONPathIsABuildError(t *testing.T) {
 // downstream consumers can read — otherwise the whole layer is inert.
 func TestFragmentAddsItsNodesToTheComposedContract(t *testing.T) {
 	root := fragmentRoot(t, map[string]map[string]string{
-		"yogi": {"crm.yaml": overlayFor("yogi", "$.paths['/v1/ext/yogi/quote']", "      get:\n        operationId: yogiQuote\n")},
+		"yogi": {"crm.yaml": overlayFor("yogi", "$.paths['/ext/yogi/quote']", "      get:\n        operationId: yogiQuote\n")},
 	})
 	files, err := composeFrom(t, root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	crm := string(files["crm.yaml"])
-	for _, want := range []string{"/v1/ext/yogi/quote:", "yogiQuote", "/v1/deals:", "listDeals"} {
+	for _, want := range []string{"/ext/yogi/quote:", "yogiQuote", "/v1/deals:", "listDeals"} {
 		if !strings.Contains(crm, want) {
 			t.Fatalf("composed crm.yaml misses %q:\n%s", want, crm)
 		}
@@ -269,22 +269,22 @@ func TestFragmentRefusals(t *testing.T) {
 	}{
 		{
 			name:    "a file not named after a core contract",
-			api:     map[string]string{"api.yaml": overlayFor("u", "$.paths['/v1/ext/u/x']", "      get: {}\n")},
+			api:     map[string]string{"api.yaml": overlayFor("u", "$.paths['/ext/u/x']", "      get: {}\n")},
 			wantErr: "does not name a core contract",
 		},
 		{
 			name:    "a subdirectory",
-			api:     map[string]string{"v2/crm.yaml": overlayFor("u", "$.paths['/v1/ext/u/x']", "      get: {}\n")},
+			api:     map[string]string{"v2/crm.yaml": overlayFor("u", "$.paths['/ext/u/x']", "      get: {}\n")},
 			wantErr: "flat set of overlay documents",
 		},
 		{
 			name:    "an unknown overlay version",
-			api:     map[string]string{"crm.yaml": "overlay: 2.0.0\ninfo:\n  title: u\n  version: \"1\"\nactions:\n  - target: $.paths['/v1/ext/u/x']\n    update: {}\n"},
+			api:     map[string]string{"crm.yaml": "overlay: 2.0.0\ninfo:\n  title: u\n  version: \"1\"\nactions:\n  - target: $.paths['/ext/u/x']\n    update: {}\n"},
 			wantErr: "overlay 2.0.0",
 		},
 		{
 			name:    "an unknown field in the overlay document",
-			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/v1/ext/u/x']", "      get: {}\n") + "extends: crm.yaml\n"},
+			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/ext/u/x']", "      get: {}\n") + "extends: crm.yaml\n"},
 			wantErr: "extends",
 		},
 		{
@@ -299,7 +299,7 @@ func TestFragmentRefusals(t *testing.T) {
 		},
 		{
 			name:    "a second YAML document",
-			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/v1/ext/u/x']", "      get: {}\n") + "---\nactions: []\n"},
+			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/ext/u/x']", "      get: {}\n") + "---\nactions: []\n"},
 			wantErr: "more than one YAML document",
 		},
 		{
@@ -327,13 +327,26 @@ func TestFragmentRefusals(t *testing.T) {
 		},
 		{
 			name:    "a route outside the unit's namespace",
-			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/v1/deals/hijack']", "      get: {}\n")},
-			wantErr: "/v1/ext/u",
+			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/deals/hijack']", "      get: {}\n")},
+			wantErr: "/ext/u",
+		},
+		{
+			// The mistake the contract-relative convention exists to prevent.
+			// Every path in these documents is relative to the contract's own
+			// servers url, which ends in /v1 — so a fragment spelling the
+			// prefix itself would publish https://host/v1/v1/ext/u/x to every
+			// generated client, every SDK and the rendered docs at once. It has
+			// to be refused here, at the fragment, because by the time the
+			// merged document exists nothing downstream can tell the two
+			// conventions apart.
+			name:    "a route that spells the API base path itself",
+			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/v1/ext/u/x']", "      get: {}\n")},
+			wantErr: "/ext/u",
 		},
 		{
 			name:    "a route that only looks like the unit's namespace",
-			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/v1/ext/undercover/x']", "      get: {}\n")},
-			wantErr: "/v1/ext/u",
+			api:     map[string]string{"crm.yaml": overlayFor("u", "$.paths['/ext/undercover/x']", "      get: {}\n")},
+			wantErr: "/ext/u",
 		},
 	}
 	for _, tc := range cases {
@@ -468,7 +481,7 @@ func TestFragmentCannotAddATopLevelBlock(t *testing.T) {
 	// would replace every path in the contract at once.
 	t.Run("nor the container itself", func(t *testing.T) {
 		root := fragmentRoot(t, map[string]map[string]string{
-			"u": {"crm.yaml": overlayFor("u", "$.paths", "      /v1/ext/u/x: {}\n")},
+			"u": {"crm.yaml": overlayFor("u", "$.paths", "      /ext/u/x: {}\n")},
 		})
 		if _, err := composeFrom(t, root); err == nil || !strings.Contains(err.Error(), "never contract structure") {
 			t.Fatalf("err = %v, want the container refusal", err)
@@ -510,11 +523,11 @@ func TestUpdateBlockRejectsADuplicateKey(t *testing.T) {
 // refused here rather than evaluated approximately.
 func TestParseTargetGrammar(t *testing.T) {
 	accepted := map[string][]string{
-		"$.paths['/v1/ext/u/thing']":     {"paths", "/v1/ext/u/thing"},
+		"$.paths['/ext/u/thing']":        {"paths", "/ext/u/thing"},
 		"$.components.schemas.Thing":     {"components", "schemas", "Thing"},
 		"$.kinds.ext_u_send":             {"kinds", "ext_u_send"},
-		"$['paths']['/v1/ext/u']":        {"paths", "/v1/ext/u"},
-		"$.paths['/v1/ext/u/x'].get":     {"paths", "/v1/ext/u/x", "get"},
+		"$['paths']['/ext/u']":           {"paths", "/ext/u"},
+		"$.paths['/ext/u/x'].get":        {"paths", "/ext/u/x", "get"},
 		"$.components.schemas.Thing-Two": {"components", "schemas", "Thing-Two"},
 	}
 	for target, want := range accepted {
@@ -535,7 +548,7 @@ func TestParseTargetGrammar(t *testing.T) {
 		"$.paths[0]",               // an index is not a child key
 		"$..schemas.Thing",         // recursive descent
 		"$.paths[?(@.get)]",        // a filter
-		"$.paths['/v1/ext/u/x",     // an unterminated literal
+		"$.paths['/ext/u/x",        // an unterminated literal
 		"$.components.schemas.1st", // not an identifier
 	}
 	for _, target := range refused {
@@ -553,10 +566,10 @@ func TestParseTargetGrammar(t *testing.T) {
 func TestOverlayDocumentCompleteness(t *testing.T) {
 	head := "overlay: " + overlayVersion + "\n"
 	for name, tc := range map[string]struct{ doc, wantErr string }{
-		"no info":      {head + "actions:\n  - target: $.paths['/v1/ext/u/x']\n    update: {}\n", "info.title and info.version"},
-		"no version":   {head + "info: {title: u}\nactions:\n  - target: $.paths['/v1/ext/u/x']\n    update: {}\n", "info.title and info.version"},
+		"no info":      {head + "actions:\n  - target: $.paths['/ext/u/x']\n    update: {}\n", "info.title and info.version"},
+		"no version":   {head + "info: {title: u}\nactions:\n  - target: $.paths['/ext/u/x']\n    update: {}\n", "info.title and info.version"},
 		"empty target": {head + "info: {title: u, version: \"1\"}\nactions:\n  - target: \"\"\n    update: {}\n", "declares no target"},
-		"no update":    {head + "info: {title: u, version: \"1\"}\nactions:\n  - target: $.paths['/v1/ext/u/x']\n", "declares no update"},
+		"no update":    {head + "info: {title: u, version: \"1\"}\nactions:\n  - target: $.paths['/ext/u/x']\n", "declares no update"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseOverlay([]byte(tc.doc)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
@@ -581,9 +594,9 @@ func TestMergeRefusesABaseItCannotExtend(t *testing.T) {
 		}}
 	}
 	for name, tc := range map[string]struct{ base, target, wantErr string }{
-		"a sequence document":       {"- one\n- two\n", "$.paths['/v1/ext/u/x']", "not a YAML mapping"},
-		"an empty document":         {"", "$.paths['/v1/ext/u/x']", "not a YAML mapping"},
-		"a non-mapping parent node": {"paths: a string\n", "$.paths['/v1/ext/u/x']", "is not a mapping"},
+		"a sequence document":       {"- one\n- two\n", "$.paths['/ext/u/x']", "not a YAML mapping"},
+		"an empty document":         {"", "$.paths['/ext/u/x']", "not a YAML mapping"},
+		"a non-mapping parent node": {"paths: a string\n", "$.paths['/ext/u/x']", "is not a mapping"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := mergeContract([]byte(tc.base), frag(tc.target)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
@@ -611,8 +624,8 @@ func TestApiLayerIsGovernedByItsOwnRule(t *testing.T) {
 // walks the already-sorted unit list, so the merge is reproducible.
 func TestMergeIsDeterministicInExtensionNameOrder(t *testing.T) {
 	units := map[string]map[string]string{
-		"beta":  {"crm.yaml": overlayFor("beta", "$.paths['/v1/ext/beta/x']", "      get: {operationId: betaX}\n")},
-		"alpha": {"crm.yaml": overlayFor("alpha", "$.paths['/v1/ext/alpha/x']", "      get: {operationId: alphaX}\n")},
+		"beta":  {"crm.yaml": overlayFor("beta", "$.paths['/ext/beta/x']", "      get: {operationId: betaX}\n")},
+		"alpha": {"crm.yaml": overlayFor("alpha", "$.paths['/ext/alpha/x']", "      get: {operationId: alphaX}\n")},
 	}
 	first, err := composeFrom(t, fragmentRoot(t, units))
 	if err != nil {
@@ -629,7 +642,7 @@ func TestMergeIsDeterministicInExtensionNameOrder(t *testing.T) {
 	if !strings.Contains(crm, "alphaX") || !strings.Contains(crm, "betaX") {
 		t.Fatalf("composed contract lost a unit's operations:\n%s", crm)
 	}
-	if strings.Index(crm, "/v1/ext/alpha/x") > strings.Index(crm, "/v1/ext/beta/x") {
+	if strings.Index(crm, "/ext/alpha/x") > strings.Index(crm, "/ext/beta/x") {
 		t.Fatalf("units were not applied in name order:\n%s", crm)
 	}
 }

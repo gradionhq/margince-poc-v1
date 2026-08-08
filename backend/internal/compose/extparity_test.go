@@ -87,15 +87,23 @@ func allServed(verbs []extension.Verb) map[string]bool {
 }
 
 // declaredPatterns is the DECLARATION side, derived the one way the composition
-// root derives it: METHOD + " " + route, off each declared operation.
+// root derives it: METHOD + " " + the SERVED path.
+//
+// ServedPath, not Route: a contract path is relative to the contract's own
+// servers url (which ends in /v1) and a ServeMux pattern is not, so the two
+// sides of this sweep have to agree on which spelling they carry. They agree by
+// both going through the one function that converts.
 func declaredPatterns(verbs []extension.Verb) []string {
 	out := make([]string, 0, len(verbs))
 	for _, v := range verbs {
-		out = append(out, v.Method+" "+v.Route)
+		out = append(out, declaredPattern(v))
 	}
 	slices.Sort(out)
 	return out
 }
+
+// declaredPattern is the single conversion both directions of the sweep use.
+func declaredPattern(v extension.Verb) string { return v.Method + " " + v.ServedPath() }
 
 // unregisteredDeclarations is DIRECTION 1 of the sweep, as a function, so the
 // parent assertion and the mutation subtest run the same code. Each string it
@@ -107,7 +115,7 @@ func unregisteredDeclarations(mux *http.ServeMux, verbs []extension.Verb, routes
 	}
 	var violations []string
 	for _, v := range verbs {
-		pattern := v.Method + " " + v.Route
+		pattern := declaredPattern(v)
 		if !mounted[pattern] {
 			violations = append(violations, fmt.Sprintf(
 				"%s (%s, operation %s) is declared in the merged contract but no route is registered for it, "+
@@ -117,7 +125,7 @@ func unregisteredDeclarations(mux *http.ServeMux, verbs []extension.Verb, routes
 		}
 		// Registered is not the same as reachable: a pattern can be recorded and
 		// still not resolve if the mux never got it. Ask the mux.
-		req := httptest.NewRequest(v.Method, v.Route, strings.NewReader(`{}`))
+		req := httptest.NewRequest(v.Method, v.ServedPath(), strings.NewReader(`{}`))
 		if _, resolved := mux.Handler(req); resolved == "" {
 			violations = append(violations, fmt.Sprintf("%s reports as mounted but the router resolves nothing for it", pattern))
 		}
@@ -249,7 +257,7 @@ func TestTheLiveComposedSetHasNoUnhandledInvocation(t *testing.T) {
 		}
 		reached = ""
 		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(route.Verb.Method, route.Verb.Route, strings.NewReader(`{}`)))
+		mux.ServeHTTP(rec, httptest.NewRequest(route.Verb.Method, route.Verb.ServedPath(), strings.NewReader(`{}`)))
 		if reached != "" {
 			t.Errorf("%s has no served tool but its route invoked %q", route.Pattern, reached)
 		}
@@ -302,9 +310,9 @@ func TestAnUndeclaredRouteCannotBeMounted(t *testing.T) {
 	outsideNamespace := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
 	outsideNamespace.Route = "/v1/deals"
 	templated := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
-	templated.Route = "/v1/ext/alpha/{id}"
+	templated.Route = "/ext/alpha/{id}"
 	otherUnit := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
-	otherUnit.Route = "/v1/ext/beta/sync-contacts"
+	otherUnit.Route = "/ext/beta/sync-contacts"
 	bodyless := unitVerb("alpha", "sync_contacts", extension.TierAutoExecute, extension.ScopeRead)
 	bodyless.Method = http.MethodGet
 

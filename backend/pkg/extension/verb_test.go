@@ -17,7 +17,7 @@ func wellFormed() Verb {
 		Unit:           "crm-demo",
 		Contract:       "crm.yaml",
 		OperationID:    "crmDemoSync",
-		Route:          "/v1/ext/crm-demo/sync",
+		Route:          "/ext/crm-demo/sync",
 		Method:         http.MethodPost,
 		Tool:           "demo_sync",
 		Title:          "Sync the demo",
@@ -58,14 +58,20 @@ func TestVerbValidateAcceptsAWellFormedDeclaration(t *testing.T) {
 // at gen time and refused (or worse, served) at boot.
 func TestVerbValidateRefusals(t *testing.T) {
 	for name, mutate := range map[string]func(*Verb){
-		"a unit name outside the grammar":       func(v *Verb) { v.Unit = "Bad_Unit" },
-		"no source contract":                    func(v *Verb) { v.Contract = "" },
-		"no operationId":                        func(v *Verb) { v.OperationID = "" },
-		"a core route":                          func(v *Verb) { v.Route = "/v1/deals" },
-		"a route with a path template":          func(v *Verb) { v.Route = "/v1/ext/crm-demo/{id}" },
-		"a route with no leaf segment":          func(v *Verb) { v.Route = "/v1/ext/crm-demo" },
-		"a route with an upper-case segment":    func(v *Verb) { v.Route = "/v1/ext/crm-demo/Sync" },
-		"another unit's namespace":              func(v *Verb) { v.Route = "/v1/ext/other/sync" },
+		"a unit name outside the grammar": func(v *Verb) { v.Unit = "Bad_Unit" },
+		"no source contract":              func(v *Verb) { v.Contract = "" },
+		"no operationId":                  func(v *Verb) { v.OperationID = "" },
+		"a core route":                    func(v *Verb) { v.Route = "/v1/deals" },
+		"a route with a path template":    func(v *Verb) { v.Route = "/ext/crm-demo/{id}" },
+		// A contract path is relative to the document's own servers url, which
+		// already ends in /v1. A declaration spelling the prefix itself would
+		// resolve to https://host/v1/v1/ext/… for every consumer of the
+		// published contract, so the grammar refuses it rather than serving one
+		// spelling and publishing another.
+		"a route that spells the API base path": func(v *Verb) { v.Route = APIBasePath + "/ext/crm-demo/sync" },
+		"a route with no leaf segment":          func(v *Verb) { v.Route = "/ext/crm-demo" },
+		"a route with an upper-case segment":    func(v *Verb) { v.Route = "/ext/crm-demo/Sync" },
+		"another unit's namespace":              func(v *Verb) { v.Route = "/ext/other/sync" },
 		"a method with no request body":         func(v *Verb) { v.Method = http.MethodGet },
 		"a lower-case method":                   func(v *Verb) { v.Method = "post" },
 		"no method":                             func(v *Verb) { v.Method = "" },
@@ -114,7 +120,7 @@ func TestTheUnitNamespaceIsCheckedWithTheSqlSpelling(t *testing.T) {
 	}
 
 	underscored := wellFormed()
-	underscored.Route = "/v1/ext/crm_demo/sync" // the SQL spelling, in a route
+	underscored.Route = "/ext/crm_demo/sync" // the SQL spelling, in a route
 	if err := underscored.Validate(); err == nil {
 		t.Fatal("a route naming the underscored unit validated; the unit name IS the path segment")
 	}
@@ -125,10 +131,10 @@ func TestTheUnitNamespaceIsCheckedWithTheSqlSpelling(t *testing.T) {
 // and forcing one on a unit author would be a rule with no property behind it.
 func TestARouteMaySpellItsLeafEitherWay(t *testing.T) {
 	for _, route := range []string{
-		"/v1/ext/crm-demo/sync",
-		"/v1/ext/crm-demo/sync-records",
-		"/v1/ext/crm-demo/sync_records",
-		"/v1/ext/crm-demo/records/sync",
+		"/ext/crm-demo/sync",
+		"/ext/crm-demo/sync-records",
+		"/ext/crm-demo/sync_records",
+		"/ext/crm-demo/records/sync",
 	} {
 		v := wellFormed()
 		v.Route = route
@@ -137,16 +143,44 @@ func TestARouteMaySpellItsLeafEitherWay(t *testing.T) {
 		}
 	}
 	for _, route := range []string{
-		"/v1/ext/crm-demo/",
-		"/v1/ext/crm-demo//sync",
-		"/v1/ext/crm-demo/sync/",
+		"/ext/crm-demo/",
+		"/ext/crm-demo//sync",
+		"/ext/crm-demo/sync/",
 		"v1/ext/crm-demo/sync",
-		"/v1/ext/crm-demo/sync?x=1",
+		"/ext/crm-demo/sync?x=1",
 	} {
 		v := wellFormed()
 		v.Route = route
 		if err := v.Validate(); err == nil {
 			t.Errorf("route %q validated; want a refusal", route)
+		}
+	}
+}
+
+// TestServedPathPutsTheBasePathBackExactlyOnce: Route is the CONTRACT's
+// spelling, ServedPath is the server's, and the whole point of deriving the
+// second from the first is that they cannot disagree. A field pair could.
+func TestServedPathPutsTheBasePathBackExactlyOnce(t *testing.T) {
+	v := wellFormed()
+	if got, want := v.ServedPath(), "/v1/ext/crm-demo/sync"; got != want {
+		t.Fatalf("ServedPath() = %q, want %q", got, want)
+	}
+	if strings.HasPrefix(v.Route, APIBasePath) {
+		t.Fatalf("Route %q carries the base path — it is the contract's spelling and the contract's servers url already has it", v.Route)
+	}
+	if strings.Count(v.ServedPath(), APIBasePath+"/") != 1 {
+		t.Fatalf("ServedPath() = %q carries the base path other than exactly once", v.ServedPath())
+	}
+	// The conversion is total over every route the grammar admits, so no
+	// caller ever has to decide whether to prepend.
+	for unit, route := range map[Name]string{"a": "/ext/a/b", "a-b": "/ext/a-b/c_d", "deep": "/ext/deep/b/c/d"} {
+		v.Unit = unit
+		v.Route = route
+		if err := v.Validate(); err != nil {
+			t.Fatalf("route %q must validate: %v", route, err)
+		}
+		if got, want := v.ServedPath(), APIBasePath+route; got != want {
+			t.Errorf("ServedPath() = %q, want %q", got, want)
 		}
 	}
 }

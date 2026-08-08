@@ -21,6 +21,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // mergeContract applies frags to base, in the order given.
@@ -256,17 +258,26 @@ func checkOwnership(unit string, steps []string, owners map[string]string) error
 }
 
 // checkRouteNamespace holds the namespace wall this composer can state for
-// itself: a path item a unit adds lives under /v1/ext/<name>, the route
-// namespace the global constraints fix. Without it a fragment could declare
-// /v1/deals/anything and publish it into the core surface — contract-level
+// itself: a path item a unit adds lives under /ext/<name>, the route namespace
+// the global constraints fix. Without it a fragment could declare
+// /deals/anything and publish it into the core surface — contract-level
 // namespace squatting that no later gate is positioned to see as such.
+//
+// The spelling is the CONTRACT's, not the server's. Every path in these
+// documents is relative to the contract's own `servers` url, which already ends
+// in /v1 — core writes /me and /auth/login — so an extension writes
+// /ext/<name>/…. A fragment writing the full /v1/ext/… is refused here, and
+// that refusal is the point rather than a side effect: the merged document
+// would otherwise resolve those operations to https://host/v1/v1/ext/…, wrong
+// for every consumer of the published contract at once. The base path is put
+// back exactly once, at mount time, by extension.Verb.ServedPath.
 //
 // checkOwnership covers the deeper case (a fragment reaching inside an
 // existing path item); this covers the shallow one, where the path item is
 // new but its NAME belongs to core's namespace.
 //
-// It is a prefix rule with an explicit boundary: /v1/ext/undercover must not
-// pass for unit `u`.
+// It is a prefix rule with an explicit boundary: /ext/undercover must not pass
+// for unit `u`.
 //
 // Nothing analogous is enforced for job kinds, task names or schema names.
 // Those namespaces are real (ext_<name>_*) but their gates belong to the
@@ -276,7 +287,7 @@ func checkRouteNamespace(unit string, steps []string) error {
 	if len(steps) < 2 || steps[0] != "paths" {
 		return nil
 	}
-	prefix := "/v1/ext/" + unit
+	prefix := extension.RoutePrefix + unit
 	if steps[1] == prefix || strings.HasPrefix(steps[1], prefix+"/") {
 		return nil
 	}

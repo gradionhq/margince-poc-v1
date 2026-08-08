@@ -25,7 +25,7 @@ vi.mock("@composition/extensions", () => ({
       verbs: [
         {
           operationId: "crmDemoListNotes",
-          route: "/v1/ext/crm-demo/notes",
+          route: "/ext/crm-demo/notes",
           method: "GET",
           title: "List demo notes",
           version: "1.0.0",
@@ -68,7 +68,7 @@ describe("extension routes (composed registry)", () => {
     // then rendered nothing from it would pass a name-only assertion.
     expect(screen.getByText("Published operations")).toBeTruthy();
     expect(
-      screen.getByText("List demo notes — GET /v1/ext/crm-demo/notes"),
+      screen.getByText("List demo notes — GET /ext/crm-demo/notes"),
     ).toBeTruthy();
   });
 

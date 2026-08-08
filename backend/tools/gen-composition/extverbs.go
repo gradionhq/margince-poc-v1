@@ -141,7 +141,7 @@ func verbsInContract(base string, units []extensionUnit, raw []byte) ([]declared
 // extensionRoutePrefix is the route namespace every extension operation lives
 // under, spelled once. checkRouteNamespace in contractmerge.go enforces it on
 // the way in; this is the same wall read from the other side.
-const extensionRoutePrefix = "/v1/ext/"
+const extensionRoutePrefix = extension.RoutePrefix
 
 // routeUnit takes the unit name out of an extension route. The name is a
 // single path segment, so this is exact, not a prefix guess.

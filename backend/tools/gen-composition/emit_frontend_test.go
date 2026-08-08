@@ -46,12 +46,12 @@ func composedFixture() ([]extensionUnit, []declaredVerb) {
 	units := []extensionUnit{{Name: "alpha"}, {Name: "beta"}}
 	verbs := []declaredVerb{
 		{verb: extension.Verb{
-			Unit: "alpha", OperationID: "alphaSync", Route: "/v1/ext/alpha/sync",
+			Unit: "alpha", OperationID: "alphaSync", Route: "/ext/alpha/sync",
 			Method: "POST", Title: "Sync contacts", Version: "1.2.0",
 			RbacObject: "ext_alpha_contact",
 		}},
 		{verb: extension.Verb{
-			Unit: "beta", OperationID: "betaPing", Route: "/v1/ext/beta/ping",
+			Unit: "beta", OperationID: "betaPing", Route: "/ext/beta/ping",
 			Method: "GET", Title: "Ping", Version: "0.1.0",
 		}},
 	}
@@ -63,7 +63,7 @@ func TestFrontendRegistryCarriesEveryDeclaredVerbUnderItsUnit(t *testing.T) {
 	for _, want := range []string{
 		`    name: "alpha",`,
 		`        operationId: "alphaSync",`,
-		`        route: "/v1/ext/alpha/sync",`,
+		`        route: "/ext/alpha/sync",`,
 		`        method: "POST",`,
 		`        title: "Sync contacts",`,
 		`        version: "1.2.0",`,

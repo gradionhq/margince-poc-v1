@@ -235,7 +235,7 @@ func syntheticVerb(unit, tool, tier, scope string) declaredVerb {
 			Unit:           extension.Name(unit),
 			Contract:       "crm.yaml",
 			OperationID:    tool + "Op",
-			Route:          "/v1/ext/" + unit + "/" + strings.ReplaceAll(tool, "_", "-"),
+			Route:          "/ext/" + unit + "/" + strings.ReplaceAll(tool, "_", "-"),
 			Method:         http.MethodPost,
 			Tool:           tool,
 			Version:        "1.0.0",
@@ -356,7 +356,7 @@ func TestToolDerivesIntoRiskTier(t *testing.T) {
 		`"contract": "crm.yaml"`,
 		`"operation": "agent.tool.invoke"`,
 		`"operation_id": "sync_contactsOp"`,
-		`"route": "/v1/ext/x/sync-contacts"`,
+		`"route": "/ext/x/sync-contacts"`,
 		`"method": "POST"`,
 		`"tier": "auto_execute"`,
 		`"write"`,
@@ -384,7 +384,7 @@ func TestToolDerivesIntoRiskTier(t *testing.T) {
 func TestEveryDescriptorFieldMovesTheDigest(t *testing.T) {
 	base := riskTierRequest{
 		ID: "tool/t", Unit: "x", Kind: kindAgentTool, Contract: "crm.yaml",
-		Operation: opAgentToolInvoke, OperationID: "tOp", Route: "/v1/ext/x/t",
+		Operation: opAgentToolInvoke, OperationID: "tOp", Route: "/ext/x/t",
 		Method: http.MethodPost, Scopes: []string{"read"}, Tier: "auto_execute",
 		FragmentHash: "aa",
 	}
@@ -399,7 +399,7 @@ func TestEveryDescriptorFieldMovesTheDigest(t *testing.T) {
 		"contract":      func(c *riskTierRequest) { c.Contract = "jobs.yaml" },
 		"operation":     func(c *riskTierRequest) { c.Operation = "job.tick" },
 		"operation_id":  func(c *riskTierRequest) { c.OperationID = "otherOp" },
-		"route":         func(c *riskTierRequest) { c.Route = "/v1/ext/x/other" },
+		"route":         func(c *riskTierRequest) { c.Route = "/ext/x/other" },
 		"method":        func(c *riskTierRequest) { c.Method = http.MethodPut },
 		"scopes":        func(c *riskTierRequest) { c.Scopes = []string{"send"} },
 		"tier":          func(c *riskTierRequest) { c.Tier = "confirmation_required" },

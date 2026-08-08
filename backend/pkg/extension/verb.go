@@ -45,10 +45,20 @@ type Verb struct {
 	// OperationID is the merged contract's operationId — the identity every
 	// generated client, the docs and the manifest agree on.
 	OperationID string
-	// Route and Method are the HTTP surface the operation publishes. Route is
-	// namespaced /v1/ext/<unit>/… (the composer enforces it) so no fragment can
-	// squat a core path.
-	Route  string
+	// Route is the operation's path AS THE CONTRACT SPELLS IT — relative to the
+	// contract's own `servers` url, which ends in /v1. So it reads
+	// /ext/<unit>/…, exactly like every core path (/me, /auth/login), and is a
+	// verbatim copy of the merged document's `paths` key rather than anything
+	// derived from it. It is namespaced to the declaring unit (the composer
+	// enforces it) so no fragment can squat a core path.
+	//
+	// This is NOT the path a server mounts. For that, see ServedPath, which is
+	// the one place the base path is prepended. The field holds the contract
+	// spelling because that is the spelling that can be CHECKED: it appears in
+	// the published document, so it can be compared to it, and the manifest
+	// digest pins something an operator can find by reading the contract.
+	Route string
+	// Method is the HTTP method, upper-case.
 	Method string
 	// Tool is the agent tool verb the operation backs (the fragment's
 	// x-mcp-tool). Every extension operation backs one today: an operation
@@ -76,12 +86,27 @@ type Verb struct {
 	RbacObject string
 }
 
-// routeGrammar: an extension route is /v1/ext/<unit>/<segment>[/<segment>…],
-// each segment lower-case [a-z0-9] with single hyphens or underscores. No
-// path parameters ({id}) today — a served extension operation is a tool
-// invocation, whose arguments are the request body, and admitting a template
-// would mean this seam had to route and decode one.
-var routeGrammar = regexp.MustCompile(`^/v1/ext/[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+([-_][a-z0-9]+)*)+$`)
+// APIBasePath is the prefix the contract's `servers` url already carries
+// (https://…/v1), spelled once. A contract path is written relative to it —
+// core writes /me, an extension writes /ext/<unit>/… — and a server that mounts
+// paths on a bare host has to put it back. ServedPath is the only place that
+// happens.
+const APIBasePath = "/v1"
+
+// routeGrammar: an extension route as the CONTRACT spells it —
+// /ext/<unit>/<segment>[/<segment>…], each segment lower-case [a-z0-9] with
+// single hyphens or underscores. No path parameters ({id}) today — a served
+// extension operation is a tool invocation, whose arguments are the request
+// body, and admitting a template would mean this seam had to route and decode
+// one.
+//
+// Anchored at /ext, which also makes the one mistake this convention exists to
+// prevent a loud refusal rather than a silent double prefix: a fragment that
+// writes the full /v1/ext/… — believing it is spelling an absolute URL path —
+// does not match, and is told so at generation time. The merged document would
+// otherwise publish https://host/v1/v1/ext/… to every generated client, every
+// SDK and the docs.
+var routeGrammar = regexp.MustCompile(`^/ext/[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+([-_][a-z0-9]+)*)+$`)
 
 // Validate enforces everything about a declared operation that must hold
 // wherever it is read — the generator that derives it from the merged
@@ -110,13 +135,13 @@ func (v Verb) validateSurface() error {
 		return fmt.Errorf("%s %s declares no operationId — the identity clients, docs and the manifest agree on", v.Method, v.Route)
 	}
 	if !routeGrammar.MatchString(v.Route) {
-		return fmt.Errorf("route %q is not an extension route (/v1/ext/<unit>/<segment>, no path templates)", v.Route)
+		return fmt.Errorf("route %q is not an extension route — a contract path is relative to the contract's own servers url (which already ends in %s), so an extension writes /ext/<unit>/<segment>, no path templates", v.Route, APIBasePath)
 	}
 	// The route must be the DECLARING unit's. gen-composition already refuses
 	// a fragment targeting another namespace, but this value also arrives at
 	// the boot through generated code, and a namespace check that lived only
 	// in the generator would be a rule the served surface never re-applied.
-	if prefix := "/v1/ext/" + string(v.Unit) + "/"; !strings.HasPrefix(v.Route, prefix) {
+	if prefix := RoutePrefix + string(v.Unit) + "/"; !strings.HasPrefix(v.Route, prefix) {
 		return fmt.Errorf("extension %q declares route %q, which is outside its %s namespace", v.Unit, v.Route, prefix)
 	}
 	return validateMethod(v.Method)
@@ -166,6 +191,24 @@ func (v Verb) validateGovernance() error {
 	}
 	return nil
 }
+
+// RoutePrefix opens every extension path in the contract, spelled once: a unit
+// owns /ext/<name>/…, and nothing else in the document may begin that way.
+const RoutePrefix = "/ext/"
+
+// ServedPath is the path a SERVER mounts this operation at — Route with the
+// API base path put back, /v1/ext/<unit>/….
+//
+// It is a method rather than a second field on purpose. A field would be a
+// second statement of one fact, and the two could disagree: a generator that
+// emitted the pair could emit them inconsistently and nothing downstream could
+// tell which was right. Derived, there is one fact (the contract's own path)
+// and one total function over it, and a route that is wrong is wrong in the
+// document where a reviewer will see it.
+//
+// Callers that mount or match HTTP paths want this; callers that speak about
+// the contract — the client, the docs, the operator manifest — want Route.
+func (v Verb) ServedPath() string { return APIBasePath + v.Route }
 
 // validateMethod admits the closed set of methods this seam can mount. The
 // list is short because a served extension operation is a tool invocation

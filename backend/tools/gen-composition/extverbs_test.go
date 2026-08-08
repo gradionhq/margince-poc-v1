@@ -18,7 +18,7 @@ func contractWith(pathItem string) []byte {
 
 // yogiOperation is a well-formed extension operation, indented for a paths
 // mapping. Cases below substitute one line of it.
-const yogiOperation = `  /v1/ext/u/quote:
+const yogiOperation = `  /ext/u/quote:
     post:
       operationId: uQuote
       x-mcp-tool:
@@ -61,7 +61,7 @@ func TestExtensionVerbsReadsAnOperationOutOfTheMergedContract(t *testing.T) {
 	if v.Unit != "u" || v.Contract != "crm.yaml" || v.OperationID != "uQuote" {
 		t.Fatalf("identity = %+v", v)
 	}
-	if v.Route != "/v1/ext/u/quote" || v.Method != "POST" {
+	if v.Route != "/ext/u/quote" || v.Method != "POST" {
 		t.Fatalf("surface = %s %s", v.Method, v.Route)
 	}
 	if v.Tool != "u_quote" || v.Tier != extension.TierAutoExecute || v.RequestedScope != extension.ScopeRead {
@@ -134,7 +134,7 @@ func TestExtensionVerbRefusals(t *testing.T) {
 		wantErr  string
 	}{
 		"an operation with no x-mcp-tool": {
-			pathItem: "  /v1/ext/u/quote:\n    post:\n      operationId: uQuote\n",
+			pathItem: "  /ext/u/quote:\n    post:\n      operationId: uQuote\n",
 			wantErr:  "declares no x-mcp-tool",
 		},
 		"an unknown key in the annotation": {
@@ -142,11 +142,11 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			wantErr:  "field scopes not found",
 		},
 		"a route no enabled unit owns": {
-			pathItem: strings.ReplaceAll(yogiOperation, "/v1/ext/u/quote", "/v1/ext/other/quote"),
+			pathItem: strings.ReplaceAll(yogiOperation, "/ext/u/quote", "/ext/other/quote"),
 			wantErr:  "no enabled unit owns it",
 		},
 		"a path item with no operation": {
-			pathItem: "  /v1/ext/u/quote:\n    summary: nothing here\n",
+			pathItem: "  /ext/u/quote:\n    summary: nothing here\n",
 			wantErr:  "declares no operation",
 		},
 		"a tier outside the vocabulary": {
@@ -162,7 +162,7 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			wantErr:  "is not one an extension operation may declare",
 		},
 		"no requestBody": {
-			pathItem: "  /v1/ext/u/quote:\n    post:\n      operationId: uQuote\n      x-mcp-tool:\n        verb: u_quote\n        version: 1.0.0\n        tier: auto_execute\n        scope: read\n        description: Does one thing.\n",
+			pathItem: "  /ext/u/quote:\n    post:\n      operationId: uQuote\n      x-mcp-tool:\n        verb: u_quote\n        version: 1.0.0\n        tier: auto_execute\n        scope: read\n        description: Does one thing.\n",
 			wantErr:  "declares no requestBody",
 		},
 		"a requestBody with no JSON schema": {
@@ -256,10 +256,10 @@ func TestAContractWithNoPathsDeclaresNothing(t *testing.T) {
 // on map iteration. Two units, two operations each, deliberately declared in
 // reverse order.
 func TestExtensionVerbsIsOrderedAndCoversEveryContract(t *testing.T) {
-	crm := strings.ReplaceAll(yogiOperation, "/v1/ext/u/quote", "/v1/ext/zeta/quote")
+	crm := strings.ReplaceAll(yogiOperation, "/ext/u/quote", "/ext/zeta/quote")
 	crm = strings.ReplaceAll(crm, "verb: u_quote", "verb: zeta_quote")
 	crm = strings.ReplaceAll(crm, "operationId: uQuote", "operationId: zetaQuote")
-	alpha := strings.ReplaceAll(yogiOperation, "/v1/ext/u/quote", "/v1/ext/alpha/quote")
+	alpha := strings.ReplaceAll(yogiOperation, "/ext/u/quote", "/ext/alpha/quote")
 	alpha = strings.ReplaceAll(alpha, "verb: u_quote", "verb: alpha_quote")
 	alpha = strings.ReplaceAll(alpha, "operationId: uQuote", "operationId: alphaQuote")
 
@@ -293,13 +293,13 @@ func TestExtensionVerbsIsOrderedAndCoversEveryContract(t *testing.T) {
 }
 
 // TestRouteUnitTakesTheWholeSegment: the unit is a path SEGMENT, so a route
-// under /v1/ext/alpha-two/ must not be attributed to a unit named "alpha".
+// under /ext/alpha-two/ must not be attributed to a unit named "alpha".
 func TestRouteUnitTakesTheWholeSegment(t *testing.T) {
 	for route, want := range map[string]string{
-		"/v1/ext/alpha/quote":     "alpha",
-		"/v1/ext/alpha-two/quote": "alpha-two",
-		"/v1/ext/alpha":           "alpha",
-		"/v1/ext/alpha/a/b/c":     "alpha",
+		"/ext/alpha/quote":     "alpha",
+		"/ext/alpha-two/quote": "alpha-two",
+		"/ext/alpha":           "alpha",
+		"/ext/alpha/a/b/c":     "alpha",
 	} {
 		if got := routeUnit(route); got != want {
 			t.Errorf("routeUnit(%q) = %q, want %q", route, got, want)

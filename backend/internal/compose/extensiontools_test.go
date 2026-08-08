@@ -53,7 +53,7 @@ func unitVerb(unit, tool string, tier extension.Tier, scope extension.Scope) ext
 		Unit:           extension.Name(unit),
 		Contract:       "crm.yaml",
 		OperationID:    tool + "Op",
-		Route:          "/v1/ext/" + unit + "/" + strings.ReplaceAll(tool, "_", "-"),
+		Route:          "/ext/" + unit + "/" + strings.ReplaceAll(tool, "_", "-"),
 		Method:         http.MethodPost,
 		Tool:           tool,
 		Description:    unitToolDescription,

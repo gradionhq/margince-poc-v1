@@ -103,7 +103,13 @@ func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, served map
 		}
 		// Method-and-path patterns (Go 1.22's ServeMux), so a declared POST
 		// route answers 405 rather than 200 on a GET — the contract said POST.
-		pattern := v.Method + " " + v.Route
+		//
+		// ServedPath, never Route: a contract path is relative to the
+		// contract's own servers url (which ends in /v1) and this mux serves a
+		// bare host, so the base path is put back HERE — the one place it is,
+		// and the reason Verb carries the contract's spelling rather than two
+		// spellings that could disagree.
+		pattern := v.Method + " " + v.ServedPath()
 		if owner, dup := seen[pattern]; dup {
 			// ServeMux PANICS on a duplicate pattern. That panic would be a
 			// boot crash naming a path and nothing else; this names both units.

@@ -95,11 +95,11 @@ func TestExtensionRoutesAreBehindTheSessionMiddleware(t *testing.T) {
 	// matches it. Every declared route must resolve through "/v1/" — the one
 	// entry the session middleware wraps.
 	for _, v := range verbs {
-		req := httptest.NewRequest(v.Method, v.Route, strings.NewReader(`{}`))
+		req := httptest.NewRequest(v.Method, v.ServedPath(), strings.NewReader(`{}`))
 		if _, pattern := mux.Handler(req); pattern != "/v1/" {
 			t.Errorf("the operational mux resolves %s %s through %q, want \"/v1/\" — an extension route mounted "+
 				"beside the core surface wins longest-pattern-match and serves with no session and no workspace",
-				v.Method, v.Route, pattern)
+				v.Method, v.ServedPath(), pattern)
 		}
 	}
 	// The same pattern a CORE route resolves through, so the assertion above is
@@ -142,7 +142,7 @@ func TestExtensionEdgeFallsThroughToTheCoreRouter(t *testing.T) {
 	// would be "everything", which passes the loop above and mounts nothing.
 	coreHit = ""
 	rec := httptest.NewRecorder()
-	edged.ServeHTTP(rec, httptest.NewRequest(verb.Method, verb.Route, strings.NewReader(`{}`)))
+	edged.ServeHTTP(rec, httptest.NewRequest(verb.Method, verb.ServedPath(), strings.NewReader(`{}`)))
 	if coreHit != "" {
 		t.Fatalf("the declared extension route fell through to the core router")
 	}
@@ -169,9 +169,9 @@ func TestExtensionEdgeMountsWhatComposedVerbsDeclares(t *testing.T) {
 	for _, v := range verbs {
 		coreHit = ""
 		rec := httptest.NewRecorder()
-		edged.ServeHTTP(rec, httptest.NewRequest(v.Method, v.Route, strings.NewReader(`{}`)))
+		edged.ServeHTTP(rec, httptest.NewRequest(v.Method, v.ServedPath(), strings.NewReader(`{}`)))
 		if coreHit != "" {
-			t.Errorf("%s %s is declared but the edge let it fall through to the core router", v.Method, v.Route)
+			t.Errorf("%s %s is declared but the edge let it fall through to the core router", v.Method, v.ServedPath())
 		}
 	}
 

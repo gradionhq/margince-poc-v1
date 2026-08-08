@@ -12,12 +12,18 @@
 # request and response schemas are declared INLINE on the operation, which is
 # where an OpenAPI reader already looks for them, so the fragment needs no
 # node outside $.paths.
+# The target path is written the way EVERY path in these contracts is written:
+# relative to the document's own `servers` url, which already ends in /v1. Core
+# writes /me and /auth/login; an extension writes /ext/<unit>/…. The server puts
+# the base path back when it mounts the route (extension.Verb.ServedPath), so the
+# served route is /v1/ext/yogi/… — spelling it here too would publish
+# https://host/v1/v1/ext/… to every generated client, and the composer refuses it.
 overlay: 1.0.0
 info:
   title: yogi
   version: "1.0.0"
 actions:
-  - target: $.paths['/v1/ext/yogi/quote']
+  - target: $.paths['/ext/yogi/quote']
     update:
       post:
         operationId: yogiQuote

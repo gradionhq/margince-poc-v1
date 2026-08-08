@@ -10,14 +10,14 @@
       "contract": "crm.yaml",
       "operation": "agent.tool.invoke",
       "operation_id": "yogiQuote",
-      "route": "/v1/ext/yogi/quote",
+      "route": "/ext/yogi/quote",
       "method": "POST",
       "scopes": [
         "read"
       ],
       "tier": "auto_execute",
       "fragment_hash": "0683ac243f03fcd05521ba9c5f5fd0c5c62557e23fd65021821cfa9bef18f1f1",
-      "digest": "sha256:2349a8e8c3415f63a92c014d1157eb107c270e2edbd3a63707ccbc0ade538c39"
+      "digest": "sha256:5734dc8ed99fc6c2178fdacc3a532000e81dddb075b21f0a8dff7ba78b0e7598"
     }
   ]
 }
