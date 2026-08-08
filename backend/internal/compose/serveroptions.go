@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
@@ -211,6 +212,21 @@ func WithOverlayBackfillLimit(limit int) Option {
 // no Redis.
 func WithOverlayMeter(meter *overlaybudget.Meter) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.overlayMeter.RebindFrom(meter) }
+}
+
+// WithReadMeter Rebinds the Server's shared MCP-SESS-READS meter to the live,
+// Redis-backed one cmd built. newServer constructs it fail-closed (nil Redis)
+// and hands that ONE pointer to both halves of the bound — the admission gate
+// that refuses on it and the tool registry that charges it — so this
+// RebindFrom reaches both together and they can never end up counting against
+// different windows.
+//
+// Taking the already-built *readmeter.Meter (not a *redis.Client) keeps the
+// raw-Redis dependency in cmd, never in compose. Without this option the meter
+// stays fail-closed: a role serving the agent surface with no Redis cannot
+// tell whether an agent has passed its read bound, and answers that it has.
+func WithReadMeter(meter *readmeter.Meter) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.readMeter.RebindFrom(meter) }
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.

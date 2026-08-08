@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
 
@@ -119,6 +120,12 @@ func SetupAppWithOriginOptions(t *testing.T, opts func(origin string) []compose.
 	allOpts := append([]compose.Option{
 		compose.WithPublicBaseURL("https://mail.example.test"),
 		compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter)),
+		// This harness serves no Redis, and a meter that cannot reach its
+		// counter fails CLOSED — correct in production, and it would refuse
+		// every agent read in a lane that is testing something else. Declaring
+		// the app under test unbounded is the honest spelling: a suite that
+		// wants the bound composes its own metered Server.
+		compose.WithReadMeter(readmeter.Unmetered()),
 	}, opts(origin)...)
 	ts.Config.Handler = compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), allOpts...)
 	ts.StartTLS()

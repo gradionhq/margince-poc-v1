@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package auth is the ONE admission point for governed agent actions
-// (interfaces.md §2, ADR-0055): scope ∧ seat ∧ tier, resolved against the
-// calling Principal, BEFORE any handler runs — whether the action arrives
+// (interfaces.md §2, ADR-0055): scope ∧ seat ∧ tier ∧ quota, resolved against
+// the calling Principal, BEFORE any handler runs — whether the action arrives
 // as an MCP tool call or a mutating REST operation. It is its own package
 // so nothing else can mint an admitted capability — Surface A (inbound
 // agents) and Surface B (our own runner) both enter here, and there is no
@@ -15,11 +15,21 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
+
+// ReadBound answers whether the calling agent has been handed more records
+// this window than MCP-SESS-READS allows. It is an interface rather than the
+// concrete meter so this package — the one admission point — stays testable
+// without a Redis client, and so a deployment that has not composed a bound is
+// a visible nil rather than a meter that silently answers "plenty".
+type ReadBound interface {
+	Read(ctx context.Context) readmeter.Reading
+}
 
 // Gate admits governed actions. Its authority source is the
 // shared/ports/authz seam: identity implements it, the composition root
@@ -28,10 +38,33 @@ import (
 // instead of surviving on whatever the transport stamped earlier.
 type Gate struct {
 	authority authz.Resolver
+	reads     ReadBound
 }
 
-func NewGate(authority authz.Resolver) *Gate {
-	return &Gate{authority: authority}
+// GateOption configures a Gate at construction. Variadic rather than
+// positional so the six existing composition sites are not rewritten every
+// time the gate grows a dependency, which is how one of them ends up passing
+// nil by copy-paste.
+type GateOption func(*Gate)
+
+// WithReadBound installs the MCP-SESS-READS meter. A gate built WITHOUT one
+// does not enforce the read bound at all, which is a real composition rather
+// than an oversight: the Surface-B runner and the workflow paths build a gate
+// and run as the human or system that started them, whom this bound does not
+// govern. The api server — the one role an agent principal ever reaches —
+// passes it, from the same pointer it gives the registry that charges it.
+func WithReadBound(reads ReadBound) GateOption {
+	return func(g *Gate) { g.reads = reads }
+}
+
+// NewGate builds the admission point over its authority seam. Options add
+// the dependencies only some roles have — today, the read bound.
+func NewGate(authority authz.Resolver, opts ...GateOption) *Gate {
+	g := &Gate{authority: authority}
+	for _, opt := range opts {
+		opt(g)
+	}
+	return g
 }
 
 // Admit decides whether the context's principal may run the action with
@@ -41,8 +74,8 @@ func NewGate(authority authz.Resolver) *Gate {
 //
 // The decision order is deliberate: scope first (a caller without the
 // verb never learns the tier, and pays no authority read), then the live
-// seat ceiling, then tier. A 🟡 outcome (declared or dynamically
-// resolved) returns ErrRequiresApproval. On admission the returned
+// seat ceiling, then the read quota, then tier. A 🟡 outcome (declared or
+// dynamically resolved) returns ErrRequiresApproval. On admission the returned
 // context carries the principal refreshed with the re-derived authority,
 // so downstream store RBAC runs on current grants.
 func (g *Gate) Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp.TierResolverInput, error)) (context.Context, error) {
@@ -95,6 +128,26 @@ func (g *Gate) Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp
 			spec.Name, p.ID, apperrors.ErrSeatTierInsufficient)
 	}
 
+	// Quota, the third term of "scope ∧ tier ∧ quota" (interfaces.md §2). It
+	// runs AFTER scope and seat so a caller who may not run the verb at all
+	// never learns that a quota exists, let alone how much of it is spent.
+	//
+	// It binds READ-ONLY tools only, through the spec's own predicate rather
+	// than a second scope comparison — one definition of "this tool only
+	// reads", so the refusal here and the charge in the agents registry cannot
+	// drift apart as scope semantics evolve. The bound is MCP-SESS-READS and it
+	// counts records handed over; refusing a write because reading was heavy
+	// would enforce a limit nobody wrote. A write that returns a record still
+	// COUNTS toward the window (the charge point is where records leave the
+	// surface, not here) — it is only the refusal that is read-scoped.
+	if spec.ReadOnly() && g.reads != nil {
+		if reading := g.reads.Read(ctx); reading.Exceeded {
+			return ctx, fmt.Errorf(
+				"gate: %s: this agent has been handed %d records against a limit of %d for this window; it may read again when the window rolls, or once an operator raises the limit: %w",
+				spec.Name, reading.Observed, reading.Limit, apperrors.ErrBudgetExceeded)
+		}
+	}
+
 	tier := spec.Tier
 	if tier == mcp.TierDynamic {
 		if spec.TierResolver == nil {
@@ -122,4 +175,31 @@ func deniedIfGone(what, tool string, err error) error {
 		return fmt.Errorf("gate: %s: granting human no longer resolvable (%s): %w", tool, what, apperrors.ErrPermissionDenied)
 	}
 	return fmt.Errorf("gate: %s: resolving %s: %w", tool, what, err)
+}
+
+// AdmitRead applies the READ QUOTA alone, for a call that has no tool spec to
+// admit against — the ADR-0055 REST surface's non-mutating half.
+//
+// It exists because that path has no tier to resolve and no scope to check
+// against a spec (a GET's authority is the granting human's RBAC at the store),
+// but it does spend the same bound. Without it a Passport that tripped the
+// counter through the MCP door could keep reading the very same records through
+// /v1 — one credential, two doors, one of them unbounded. ADR-0055's whole
+// claim is that those two doors are governed alike.
+//
+// Non-agents are admitted untouched, exactly as Admit leaves them.
+func (g *Gate) AdmitRead(ctx context.Context) error {
+	if g == nil || g.reads == nil {
+		return nil
+	}
+	p, ok := principal.Actor(ctx)
+	if !ok || p.Type != principal.PrincipalAgent {
+		return nil
+	}
+	if reading := g.reads.Read(ctx); reading.Exceeded {
+		return fmt.Errorf(
+			"gate: this agent has been handed %d records against a limit of %d for this window; it may read again when the window rolls, or once an operator raises the limit: %w",
+			reading.Observed, reading.Limit, apperrors.ErrBudgetExceeded)
+	}
+	return nil
 }

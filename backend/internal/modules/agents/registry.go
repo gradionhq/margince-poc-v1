@@ -58,10 +58,17 @@ type Registry struct {
 	// granting human's authority live per call. A nil gate fails closed
 	// for agent principals (Gate.Admit owns that rule).
 	gate *auth.Gate
+	// reads is the MCP-SESS-READS meter this surface CHARGES. The gate holds
+	// the same meter and does the refusing; the split is deliberate — a bound
+	// is enforced where admission is decided and paid where records leave.
+	reads ReadCharger
 }
 
-func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
-	return &Registry{
+// NewRegistry builds the tool surface over its approvals engine and admission
+// gate. Options add the dependencies only some roles have — today, the meter
+// served records are charged against.
+func NewRegistry(approvals Approvals, gate *auth.Gate, opts ...RegistryOption) *Registry {
+	r := &Registry{
 		tools:        map[string]mcp.Tool{},
 		specs:        map[string]mcp.ToolSpec{},
 		idArgs:       map[string]idArgSpec{},
@@ -70,6 +77,10 @@ func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 		approvals:    approvals,
 		gate:         gate,
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 var _ mcp.Registry = (*Registry)(nil)
@@ -237,7 +248,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			}
 			ctx = marked
 		}
-		return handle(ctx, t, spec, args)
+		return r.handle(ctx, t, spec, args)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
 	case !approvalID.IsZero():
@@ -245,7 +256,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		if rErr != nil {
 			return nil, rErr
 		}
-		return handle(marked, t, spec, args)
+		return r.handle(marked, t, spec, args)
 	default:
 		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, diffHash, err)
 	}
@@ -262,7 +273,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 // The failure path deliberately seals nothing: a refusal is an error, and an
 // error carries the sentinel and the message the caller acts on, not a document
 // with an empty payload inside it.
-func handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
+func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
 	ctx, trace := withTrace(ctx)
 	ctx, facts := withEnvelopeFacts(ctx)
 	noteRowScope(ctx)
@@ -270,7 +281,19 @@ func handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMes
 	if err != nil {
 		return nil, err
 	}
-	return sealEnvelope(spec, trace, facts, out)
+	sealed, err := sealEnvelope(spec, trace, facts, out)
+	if err != nil {
+		return nil, err
+	}
+	// Charged AFTER sealing and BEFORE returning: at this point the answer
+	// exists but has not reached the caller, so a charge that cannot be
+	// recorded can still refuse it. An answer sealed and then charged in the
+	// other order would spend the window on a result a marshalling failure was
+	// about to discard.
+	if err := r.chargeReads(ctx, spec, facts.servedCount()); err != nil {
+		return nil, err
+	}
+	return sealed, nil
 }
 
 // tierResolverFor builds the resolver Admit consults for the call's tier. A

@@ -49,7 +49,14 @@ func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumben
 	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{})
 }
 
-func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher) *agents.Registry {
+// registryWithGate composes the tool surface. The read-bound charger arrives as
+// an option rather than a parameter because only the API server — the one role
+// that serves agent principals through the MCP and REST doors — has a meter to
+// charge. The Surface-B runner and the workflow paths run as the human or the
+// system that started them, and readmeter governs agents only, so a registry
+// built without one is not an unmetered agent surface; it is a surface no agent
+// reaches.
+func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, opts ...agents.RegistryOption) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -65,7 +72,7 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
 	// windows.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
 	// cached mode. See overlayModeChecker for why that distinction is typed.
