@@ -130,6 +130,10 @@ func TestEveryClaimedDomainFormReducesToTheStoredKey(t *testing.T) {
 		"www.acme.example",
 		"https://www.acme.example/careers",
 		"http://acme.example",
+		// The FQDN root form: the same name to DNS, a different string to an
+		// index, so an unstripped dot is a key that matches nothing.
+		"acme.example.",
+		"https://www.acme.example./careers",
 	} {
 		t.Run(claimed, func(t *testing.T) {
 			got := companyDomains(ResolveCandidate{Domains: []string{claimed}}, freemail.New(nil, nil))

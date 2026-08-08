@@ -362,12 +362,22 @@ func companyDomains(c ResolveCandidate, consumerMail *freemail.Matcher) []string
 		// write path runs before storing a domain, so a claimed URL and a stored
 		// row meet in the middle instead of the caller's typing deciding whether
 		// this is an exact hit or a name guess.
-		// Trimmed first: companyHost prefixes a scheme onto anything without
-		// one, and a stray space would make that unparseable. The write path it
-		// is shared with arrives through a transport that has already validated
-		// the string; a tool argument has not.
-		domain, err := companyHost(strings.TrimSpace(claimed))
-		if err != nil || consumerMail.IsConsumer(domain) {
+		// Whitespace comes off BEFORE companyHost, which prefixes a scheme onto
+		// anything without one and cannot parse a stray space. The FQDN root dot
+		// comes off AFTER, because it can sit inside a URL — `https://acme.example./x`
+		// — where trimming the string would never reach it. Both are the same
+		// name to DNS and a different string to an index, so an unstripped one is
+		// a key that matches nothing.
+		//
+		// Neither is companyHost's job: the write path it is shared with arrives
+		// through a transport that has already validated the string, and a tool
+		// argument has not.
+		host, err := companyHost(strings.TrimSpace(claimed))
+		if err != nil {
+			return
+		}
+		domain := strings.TrimSuffix(host, ".")
+		if domain == "" || consumerMail.IsConsumer(domain) {
 			return
 		}
 		if _, dup := seen[domain]; dup {
