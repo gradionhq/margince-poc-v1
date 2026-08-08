@@ -311,3 +311,28 @@ func readScopedProvider() stubResources {
 		},
 	}
 }
+
+// An absent, null or empty uri is a request this server could not read, not a
+// resource that is missing — a different thing for the caller to fix. The
+// boundary between the two answers is what this pins.
+func TestAnEmptyURIIsInvalidParamsRatherThanNotFound(t *testing.T) {
+	d := dispatcherWith(readScopedProvider())
+	for name, params := range map[string]string{
+		"an empty uri":  `{"uri":""}`,
+		"a null uri":    `{"uri":null}`,
+		"no uri at all": `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := rpc(t, d, "resources/read", params)
+			if resp.Error == nil || resp.Error.Code != -32602 {
+				t.Fatalf("answered %+v; want -32602, not a not-found", resp.Error)
+			}
+			if !strings.Contains(resp.Error.Message, "uri") {
+				t.Errorf("the refusal does not name what to fix: %q", resp.Error.Message)
+			}
+			if resp.Result != nil {
+				t.Error("a refused read carried a result")
+			}
+		})
+	}
+}
