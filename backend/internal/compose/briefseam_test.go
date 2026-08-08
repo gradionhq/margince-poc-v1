@@ -67,11 +67,12 @@ func TestEveryPersistedBriefFieldIsServedOrNamedAsWithheld(t *testing.T) {
 	// written that way passes with the field dropped.
 	assertEveryFieldSurvives(t, "BriefRun", reflect.TypeOf(run), map[string]string{
 		"ID": `"brief_id":"` + runID.String(), "UserID": userID.String(),
-		"GeneratedAt": `"generated_at":"2026-08-08T06:11:00Z"`,
-		"AsOf":        `"as_of":"2026-08-08T05:22:00Z"`,
-		// Withheld: the probes are what a leak would look like — the value, and
-		// the wire key it would most plausibly ship under.
-		"CandidateCount": `"candidate_count":17`, "RevenueNormMinor": "918273",
+		"GeneratedAt":    `"generated_at":"2026-08-08T06:11:00Z"`,
+		"AsOf":           `"as_of":"2026-08-08T05:22:00Z"`,
+		"CandidateCount": `"candidate_count":17`,
+		// Withheld — so the probe is what a LEAK would look like: the value
+		// itself, which must appear nowhere in what the tool served.
+		"RevenueNormMinor": "918273",
 		// The items are covered field by field below; what this row asserts is
 		// that the list itself arrived.
 		"Items": `"deal_id":"` + dealID.String(),
