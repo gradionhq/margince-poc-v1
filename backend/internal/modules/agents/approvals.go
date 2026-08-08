@@ -14,16 +14,12 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
-
-var errInvalidApprovalID = errors.New("approval_id must be a UUID string")
 
 // Approvals is the staging/redemption dependency, implemented by the
 // approvals module and injected at the composition root (this package
@@ -175,30 +171,8 @@ func refuseStagingElsewhere(rec datasource.Record) error {
 		rec.Ref.Type, apperrors.ErrUnsupportedBySoR)
 }
 
-// splitApproval pops the approval_id argument and canonicalizes what
-// remains through the shared diffhash spelling: the diff_hash is
-// computed over the SAME bytes on staging, redemption, and
-// modify-then-approve, so "identical call" is a property of content,
-// not of whitespace or key order.
-func splitApproval(in json.RawMessage) (args json.RawMessage, approvalID ids.ApprovalID, diffHash string, err error) {
-	var m map[string]any
-	if err := json.Unmarshal(in, &m); err != nil {
-		return nil, ids.ApprovalID{}, "", &BadArgsError{Cause: err}
-	}
-	if raw, ok := m["approval_id"]; ok {
-		s, isStr := raw.(string)
-		if !isStr {
-			return nil, ids.ApprovalID{}, "", &BadArgsError{Cause: errInvalidApprovalID}
-		}
-		approvalID, err = ids.ParseAs[ids.ApprovalKind](s)
-		if err != nil {
-			return nil, ids.ApprovalID{}, "", &BadArgsError{Cause: err}
-		}
-		delete(m, "approval_id")
-	}
-	canonical, diffHash, err := diffhash.Object(m)
-	if err != nil {
-		return nil, ids.ApprovalID{}, "", err
-	}
-	return canonical, approvalID, diffHash, nil
-}
+// The `approval_id` argument is popped in reserved.go, with the surface's
+// other reserved member and in the same reading of the caller's bytes. The
+// diff_hash the redemption above checks is taken over what remains, which is
+// why an approval binds to the CALL and not to the transport bookkeeping
+// wrapped around it.
