@@ -78,13 +78,13 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 		URI string `json:"uri"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
-		return resourceContents{}, &rpcError{Code: -32602, Message: "invalid params: " + err.Error()}
+		return resourceContents{}, &rpcError{Code: codeInvalidParams, Message: "invalid params: " + err.Error()}
 	}
 	// An absent, null or empty uri is a request this server could not read,
 	// not a resource that is missing — a different thing for the caller to
 	// fix, and "" can never name a document any provider serves.
 	if p.URI == "" {
-		return resourceContents{}, &rpcError{Code: -32602, Message: "invalid params: resources/read needs a non-empty \"uri\""}
+		return resourceContents{}, &rpcError{Code: codeInvalidParams, Message: "invalid params: resources/read needs a non-empty \"uri\""}
 	}
 	if s.resources == nil {
 		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
@@ -102,7 +102,7 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 		// The cause is server-side knowledge (a pool fault, a wrapped SQL
 		// error); the client learns only that the read did not happen.
 		s.log.Error("mcp: reading resource", "uri", p.URI, "err", err)
-		return resourceContents{}, &rpcError{Code: -32603, Message: "the resource could not be read; retry, and if it persists ask an administrator to check the server logs"}
+		return resourceContents{}, &rpcError{Code: codeInternalError, Message: "the resource could not be read; retry, and if it persists ask an administrator to check the server logs"}
 	}
 	return resourceContents{Contents: []resourceContentBlock{{
 		URI: contents.URI, MIMEType: contents.MIMEType, Text: contents.Text,

@@ -38,13 +38,13 @@ import (
 // silently downgrades every client, so this is verified against the spec when
 // it changes.
 //
-// The window is written down rather than implied (ADR-0092 §3): 2025-03-26 is
-// dropped, so a client still on it falls back to the newest revision this
-// server offers instead of being served a framing nobody maintains. 2024-11-05
-// was never here — it predates Streamable HTTP (HTTP+SSE only), a transport
-// this server does not serve. The modern era is not in this list because it
-// establishes no session at all; it is modernProtocolVersion, and
-// supportedProtocolVersions is the two of them together.
+// The window is a written-down decision rather than an implied one (ADR-0092
+// §3), and it is exactly these two. A client on any older revision is answered
+// the newest of them instead of a framing nobody maintains; 2024-11-05 is
+// outside it for a second reason, since it predates Streamable HTTP (HTTP+SSE
+// only) and this server serves no other transport. The modern era is not in
+// this list because it establishes no session at all — it is
+// modernProtocolVersion, and supportedProtocolVersions is the two together.
 var legacyProtocolVersions = []string{"2025-11-25", "2025-06-18"}
 
 // The JSON-RPC and MCP wire tokens both framings repeat. Named once so a typo
@@ -149,8 +149,10 @@ type rpcError struct {
 	Message string `json:"message"`
 	// Data carries the structured half of an error a client is expected to act
 	// on rather than display — the version list an UnsupportedProtocolVersion
-	// refusal must name, today. It is omitted when there is nothing to act on.
-	Data any `json:"data,omitempty"`
+	// refusal must name, today. It is omitted when there is nothing to act on,
+	// and it is a JSON object rather than `any` so the wire shape of an error
+	// stays as constrained as the wire shape of a result.
+	Data map[string]any `json:"data,omitempty"`
 }
 
 type rpcResponse struct {
@@ -173,33 +175,22 @@ func (s *Dispatcher) handle(ctx context.Context, req rpcRequest, fr framing) rpc
 }
 
 func (s *Dispatcher) dispatch(ctx context.Context, req rpcRequest, fr framing) rpcResponse {
+	if answered, owned := s.eraOwned(req, fr); owned {
+		return answered
+	}
 	resp := rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID}
-	switch {
-	// initialize and server/discover are each one era's own method. Answering
-	// either in the other framing would tell a client it had reached a server
-	// of the era it was probing for, which is exactly the question those two
-	// calls exist to settle.
-	case req.Method == methodInitialize && !fr.modern:
-		if result, rpcErr := s.initialize(req.Params); rpcErr != nil {
-			resp.Error = rpcErr
-		} else {
-			resp.Result = result
-		}
-	case req.Method == methodDiscover && fr.modern:
-		resp.Result = s.discover()
-	case req.Method == methodPing:
-		resp.Result = map[string]any{}
-	case req.Method == methodToolsList:
+	switch req.Method {
+	case methodToolsList:
 		resp.Result = map[string]any{"tools": s.toolList(ctx)}
-	case req.Method == methodToolsCall:
+	case methodToolsCall:
 		resp.Result = s.call(ctx, req.Params)
-	case req.Method == methodResourcesList:
+	case methodResourcesList:
 		// Answered even with no provider wired: claude.ai calls this right
 		// after initialize regardless, and an unadvertised capability
 		// answering -32601 there reads as a broken server rather than a
 		// legitimate empty catalog.
 		resp.Result = map[string]any{"resources": s.resourceList(ctx)}
-	case req.Method == methodResourcesRead:
+	case methodResourcesRead:
 		// Assigned on separate branches so a failed read never carries a
 		// result alongside its error, which JSON-RPC forbids.
 		if result, rpcErr := s.readResource(ctx, req.Params); rpcErr != nil {
@@ -207,14 +198,57 @@ func (s *Dispatcher) dispatch(ctx context.Context, req rpcRequest, fr framing) r
 		} else {
 			resp.Result = result
 		}
-	case req.Method == methodResourceTemplatesList:
+	case methodResourceTemplatesList:
 		resp.Result = map[string]any{"resourceTemplates": []any{}}
-	case req.Method == methodPromptsList:
+	case methodPromptsList:
 		resp.Result = map[string]any{"prompts": []any{}}
 	default:
-		resp.Error = &rpcError{Code: codeMethodNotFound, Message: "method not found: " + req.Method}
+		return methodNotFound(req)
 	}
 	return resp
+}
+
+// eraOwned answers the calls that exist in ONE framing only, and reports
+// whether the method was one of them at all.
+//
+// Each era's opening call belongs here because answering the other era's would
+// tell a client it had reached the kind of server it was probing for, which is
+// exactly the question those two calls exist to settle. ping is here for a
+// different reason: the 2026-07-28 revision REMOVED it along with the handshake
+// it kept alive, so it stays answered only in the era that still defines it.
+func (s *Dispatcher) eraOwned(req rpcRequest, fr framing) (rpcResponse, bool) {
+	resp := rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID}
+	switch req.Method {
+	case methodInitialize:
+		if fr.modern {
+			return methodNotFound(req), true
+		}
+		if result, rpcErr := s.initialize(req.Params); rpcErr != nil {
+			resp.Error = rpcErr
+		} else {
+			resp.Result = result
+		}
+	case methodDiscover:
+		if !fr.modern {
+			return methodNotFound(req), true
+		}
+		resp.Result = s.discover()
+	case methodPing:
+		if fr.modern {
+			return methodNotFound(req), true
+		}
+		resp.Result = map[string]any{}
+	default:
+		return rpcResponse{}, false
+	}
+	return resp, true
+}
+
+func methodNotFound(req rpcRequest) rpcResponse {
+	return rpcResponse{
+		JSONRPC: jsonRPCVersion, ID: req.ID,
+		Error: &rpcError{Code: codeMethodNotFound, Message: "method not found: " + req.Method},
+	}
 }
 
 // initialize answers the handshake era's opening call: the revision this

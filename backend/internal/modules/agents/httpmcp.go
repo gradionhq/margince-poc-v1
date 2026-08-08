@@ -323,6 +323,18 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// this needs saying to the linter as well as to the reader.
 	r = r.WithContext(ctx) //nolint:contextcheck // ctx is derived from r.Context() inside the injected authenticate closure
 	if r.Method == http.MethodDelete {
+		if servesAsModern(r.Header.Get(headerProtocolVersion)) {
+			// The modern revision has no protocol-level session, so it has
+			// nothing to tear down. Answering 405 tells a client that named
+			// that revision what is true of it, rather than letting it close a
+			// session it could not have opened.
+			httperr.Write(w, r, &httperr.DetailedError{
+				Status: http.StatusMethodNotAllowed,
+				Code:   "method_not_allowed",
+				Detail: "This protocol revision establishes no session, so there is none to close.",
+			})
+			return
+		}
 		h.teardownSession(w, r)
 		return
 	}
@@ -350,7 +362,7 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 	var req rpcRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeRPCResponse(w, r,
-			rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: -32700, Message: "parse error"}},
+			rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: codeParseError, Message: "parse error"}},
 			http.StatusOK)
 		return
 	}
@@ -371,7 +383,13 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ID == nil {
-		// A notification gets no response by JSON-RPC rule.
+		// A notification gets no response by JSON-RPC rule — but it is judged
+		// by the same framing rules first, which is why this sits below them.
+		// The 2026-07-28 revision leaves a notification's header requirements
+		// undefined and defines no client-to-server notification over this
+		// transport at all, so no conforming client reaches here; holding one
+		// to the request rules is the conservative reading, and inventing a
+		// laxer path would be a second way in.
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
@@ -382,14 +400,12 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 // outside the compatibility window, and reports whether the caller may
 // proceed.
 //
-// The refusal is the modern -32022, listing every revision this server serves.
-// It used to be a prose 400 on purpose — a -32022 would have told a dual-era
-// client this was a modern server and sent it to a framing this server could
-// not answer. It can answer that framing now, so naming what is supported is
-// what actually helps: the client reads `supported` and retries rather than
-// guessing. initialize is exempt because it negotiates through its own body,
-// and a client has no version to put in this header until initialize has
-// answered one.
+// The refusal names every revision this server serves, in both eras, so the
+// client retries on one of them rather than guessing — which it can only do
+// because this server does answer the modern framing a dual-era client would
+// retry with. initialize is exempt: it negotiates through its own body, and a
+// client has no version to put in this header until initialize has answered
+// one.
 func (h *httpMCPHandler) legacyVersionServed(w http.ResponseWriter, r *http.Request, req rpcRequest) bool {
 	v := r.Header.Get(headerProtocolVersion)
 	if req.Method == methodInitialize || v == "" || slices.Contains(legacyProtocolVersions, v) {

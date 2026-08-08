@@ -14,10 +14,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // The wire tokens, spelled here as the specification writes them rather than
@@ -101,6 +103,30 @@ func TestTheEraIsDecidedByTheBodyOrByTheHeaderThatNamesIt(t *testing.T) {
 			"params that are not an object declare nothing",
 			json.RawMessage(`[1,2]`), "", false, 0,
 		},
+		// EITHER reserved key is a declaration. A body naming only its
+		// capabilities has claimed the modern framing and got the declaration
+		// wrong — serving it as a handshake-era call would answer a malformed
+		// modern request instead of refusing it.
+		{
+			"capabilities alone, with no transport version",
+			json.RawMessage(`{"_meta":{"io.modelcontextprotocol/clientCapabilities":{}}}`), "",
+			true, codeInvalidParams,
+		},
+		// And a version of the wrong TYPE is a declaration too. Reading it as
+		// an absent one would demote the request to the other era, which is the
+		// same escape by a different door.
+		{
+			"a version sent as a number",
+			json.RawMessage(`{"_meta":{"io.modelcontextprotocol/protocolVersion":20260728,` +
+				`"io.modelcontextprotocol/clientCapabilities":{}}}`), "",
+			true, codeInvalidParams,
+		},
+		{
+			"a version sent as null",
+			json.RawMessage(`{"_meta":{"io.modelcontextprotocol/protocolVersion":null,` +
+				`"io.modelcontextprotocol/clientCapabilities":{}}}`), "",
+			true, codeInvalidParams,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fr, refusal := modernPrecheck(tc.params, tc.transportVersion)
@@ -120,9 +146,9 @@ func TestTheEraIsDecidedByTheBodyOrByTheHeaderThatNamesIt(t *testing.T) {
 	}
 }
 
-// Both per-request fields are required, and their absence is a malformed
-// request rather than an empty value — the distinction the pointer members
-// exist to keep.
+// Both per-request fields are required, and a request that carries one of them
+// wrongly is malformed rather than empty — which is why the metadata is held
+// raw and each member judged on its own.
 func TestAModernRequestMustCarryItsVersionAndItsCapabilities(t *testing.T) {
 	for _, tc := range []struct{ name, params, wantNamed string }{
 		{
@@ -135,18 +161,40 @@ func TestAModernRequestMustCarryItsVersionAndItsCapabilities(t *testing.T) {
 			`{"_meta":{"io.modelcontextprotocol/clientCapabilities":{}}}`,
 			metaProtocolVersion,
 		},
+		// A JSON null unmarshals into a map WITHOUT error, leaving it nil, so a
+		// check that read only the error would call `null` an object.
+		{
+			"capabilities present as null",
+			`{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",` +
+				`"io.modelcontextprotocol/clientCapabilities":null}}`,
+			metaClientCapabilities,
+		},
+		// And present-but-unreadable is refused too: capabilities this server
+		// cannot read are capabilities it would have to assume.
+		{
+			"capabilities present as an array",
+			`{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",` +
+				`"io.modelcontextprotocol/clientCapabilities":[]}}`,
+			metaClientCapabilities,
+		},
+		{
+			"capabilities present as a string",
+			`{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",` +
+				`"io.modelcontextprotocol/clientCapabilities":"tools"}}`,
+			metaClientCapabilities,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, refusal := modernPrecheck(json.RawMessage(tc.params), modernProtocolVersion)
 
 			if refusal == nil {
-				t.Fatal("admitted a request missing a required _meta field")
+				t.Fatal("admitted a request whose required _meta field is missing or unreadable")
 			}
 			if refusal.Code != codeInvalidParams {
 				t.Errorf("code = %d, want %d", refusal.Code, codeInvalidParams)
 			}
 			if !strings.Contains(refusal.Message, tc.wantNamed) {
-				t.Errorf("message %q must name the missing field %q", refusal.Message, tc.wantNamed)
+				t.Errorf("message %q must name the field at fault %q", refusal.Message, tc.wantNamed)
 			}
 		})
 	}
@@ -168,9 +216,9 @@ func TestAnUnservedModernVersionIsRefusedWithEveryVersionThisServerServes(t *tes
 			if refusal == nil || refusal.Code != codeUnsupportedProtocolVersion {
 				t.Fatalf("refusal = %#v, want %d", refusal, codeUnsupportedProtocolVersion)
 			}
-			data, ok := refusal.Data.(map[string]any)
-			if !ok {
-				t.Fatalf("data = %#v, want the supported/requested pair a client acts on", refusal.Data)
+			data := refusal.Data
+			if data == nil {
+				t.Fatal("the refusal carries no data, so a client has nothing to retry on")
 			}
 			supported, ok := data["supported"].([]string)
 			if !ok || !slices.Equal(supported, supportedProtocolVersions()) {
@@ -180,6 +228,31 @@ func TestAnUnservedModernVersionIsRefusedWithEveryVersionThisServerServes(t *tes
 				t.Errorf("data.requested = %v, want %q", data["requested"], requested)
 			}
 		})
+	}
+}
+
+// A refusal answers a request; it does not amplify one. The version is
+// caller-controlled and its length is not — a body is admitted up to 8 MiB and
+// the value is reflected twice — so what travels back is cut to a length this
+// server chose.
+func TestARefusedVersionIsNotEchoedBackWhole(t *testing.T) {
+	huge := strings.Repeat("A", 200_000)
+
+	refusal := unsupportedProtocolVersion(huge)
+
+	rendered, err := json.Marshal(refusal)
+	if err != nil {
+		t.Fatalf("marshalling the refusal: %v", err)
+	}
+	if len(rendered) > 1_000 {
+		t.Errorf("a %d-byte version produced a %d-byte refusal — the echo is unbounded",
+			len(huge), len(rendered))
+	}
+	// Multi-byte input is cut on a rune boundary: a cut through the middle of a
+	// character would put invalid UTF-8 into a JSON string, which the encoder
+	// silently rewrites into replacement characters.
+	if !utf8.ValidString(boundedEcho(strings.Repeat("é", 200))) {
+		t.Error("the bounded echo cut a multi-byte character in half")
 	}
 }
 
@@ -241,7 +314,7 @@ func TestEveryModernResultNamesItsTypeAndItsServer(t *testing.T) {
 	s := modernDispatcher(t)
 	ctx := scopedAgentCtx(principal.ScopeRead)
 
-	for _, method := range append([]string{methodPing, methodDiscover, methodToolsCall}, modernPrivateCatalogs...) {
+	for _, method := range append([]string{methodDiscover, methodToolsCall}, modernPrivateCatalogs...) {
 		t.Run(method, func(t *testing.T) {
 			params := modernParams("")
 			switch method {
@@ -369,10 +442,12 @@ func TestAToolResultCarriesNoCachingHint(t *testing.T) {
 	}
 }
 
-// Each era owns its opening call. Answering the other era's would tell a
-// client it had reached the server it was probing for, which is the one thing
-// those two calls exist to settle.
-func TestEachEraAnswersOnlyItsOwnOpeningCall(t *testing.T) {
+// A method belongs to the era that defines it. Answering another era's opening
+// call would tell a client it had reached the server it was probing for, which
+// is the one thing those two calls exist to settle — and answering a method
+// the modern revision REMOVED would advertise a surface that revision does not
+// have.
+func TestAMethodIsAnsweredOnlyInTheEraThatDefinesIt(t *testing.T) {
 	s := modernDispatcher(t)
 	for _, tc := range []struct {
 		name   string
@@ -381,6 +456,9 @@ func TestEachEraAnswersOnlyItsOwnOpeningCall(t *testing.T) {
 	}{
 		{"initialize in the modern framing", methodInitialize, framing{modern: true, version: modernProtocolVersion}},
 		{"server/discover in the handshake framing", methodDiscover, legacyFraming},
+		// ping went with the handshake it kept alive: a stateless request has
+		// no session to keep.
+		{"ping in the modern framing", methodPing, framing{modern: true, version: modernProtocolVersion}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := s.handle(context.Background(), rpcRequest{
@@ -439,23 +517,71 @@ func TestALegacyResultIsRenderedExactlyAsItWasBefore(t *testing.T) {
 	}
 }
 
-// The caching contract names methods by hand, and a name that no longer
-// dispatches would leave a MUST unmet in silence. Deriving the check from the
-// dispatcher is what keeps the two sets from drifting apart.
-func TestEveryMethodDeclaredCacheableIsAnsweredByThisServer(t *testing.T) {
+// The six operations the specification makes carry a caching hint, spelled out
+// as IT spells them rather than read back off this server's own set.
+//
+// Reading the set the code declares would make this test agree with any set the
+// code declared, including one a method had quietly dropped out of — the MUST
+// would go unmet in silence, which is exactly the drift a fitness test is for.
+// The methods are also checked against the dispatcher, so a name here that no
+// longer answers fails rather than passing on a -32601.
+func TestEveryOperationTheProtocolMakesCacheableCarriesAHint(t *testing.T) {
 	s := modernDispatcher(t)
 
-	for _, method := range append([]string{methodDiscover}, modernPrivateCatalogs...) {
-		if _, cacheable := modernCacheHint(method); !cacheable {
-			t.Fatalf("%s is in the cacheable set but carries no hint", method)
-		}
-		resp := s.handle(scopedAgentCtx(principal.ScopeRead), rpcRequest{
-			JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: method,
-			Params: modernParams(""),
-		}, framing{modern: true, version: modernProtocolVersion})
-		if resp.Error != nil && resp.Error.Code == codeMethodNotFound {
-			t.Errorf("%s is declared cacheable and this server does not answer it", method)
-		}
+	for _, method := range []string{
+		"server/discover", "tools/list", "prompts/list",
+		"resources/list", "resources/templates/list", "resources/read",
+	} {
+		t.Run(method, func(t *testing.T) {
+			hint, cacheable := modernCacheHint(method)
+			if !cacheable {
+				t.Fatalf("%s carries no caching hint, and the specification makes one a MUST", method)
+			}
+			if hint.ttlMs < 0 {
+				t.Errorf("ttlMs = %d, and the specification requires >= 0", hint.ttlMs)
+			}
+			if hint.scope != cacheScopePublic && hint.scope != cacheScopePrivate {
+				t.Errorf("cacheScope = %q, want one of the two values the protocol defines", hint.scope)
+			}
+			resp := s.handle(scopedAgentCtx(principal.ScopeRead), rpcRequest{
+				JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: method,
+				Params: modernParams(`"uri":"margince://schema/query"`),
+			}, framing{modern: true, version: modernProtocolVersion})
+			if resp.Error != nil && resp.Error.Code == codeMethodNotFound {
+				t.Errorf("%s is declared cacheable and this server does not answer it", method)
+			}
+		})
+	}
+}
+
+// A document is not a catalog. resources/read answers the CONTENT, so a stale
+// copy is the disclosure rather than a menu that misleads — this server
+// promises no freshness on one and says so with a zero TTL, which keeps the
+// required member present rather than absent.
+func TestADocumentReadPromisesNoFreshnessAndIsNeverShared(t *testing.T) {
+	s := modernDispatcher(t).WithResources(stubResources{
+		published: []mcp.Resource{{
+			URI: "margince://schema/query", Name: "query_vocabulary", Title: "Workspace query vocabulary",
+			Description: "what you may ask", MIMEType: "application/json",
+			RequiredScope: principal.ScopeRead,
+		}},
+		contents: map[string]mcp.ResourceContents{
+			"margince://schema/query": {URI: "margince://schema/query", MIMEType: "application/json", Text: `{"fields":[]}`},
+		},
+	})
+
+	members := modernRPC(scopedAgentCtx(principal.ScopeRead), t, s, methodResourcesRead,
+		modernParams(`"uri":"margince://schema/query"`))
+
+	if got := string(members[fieldCacheScope]); got != `"`+cacheScopePrivate+`"` {
+		t.Errorf("%s = %s, want %q", fieldCacheScope, got, cacheScopePrivate)
+	}
+	if got := string(members[fieldTTLMs]); got != "0" {
+		t.Errorf("%s = %s, want 0 — a document read is not a catalog, and this server "+
+			"promises no freshness on content whose readability it re-derives per call", fieldTTLMs, got)
+	}
+	if _, present := members["contents"]; !present {
+		t.Errorf("the read answered no contents: %v", members)
 	}
 }
 
@@ -516,6 +642,70 @@ func TestBothFramingsReachOneAdmissionGate(t *testing.T) {
 	}
 	if got, want := answer(modern), answer(legacyFraming); got != want {
 		t.Errorf("the two framings answer differently:\nmodern %s\nlegacy %s", got, want)
+	}
+}
+
+// The conformance obligation that has to survive the second framing: a tool
+// declaring an outputSchema MUST answer with structured content conforming to
+// it, and the serialized JSON stays beside it in a text block.
+//
+// The modern framing merges its own members into that same result object, so
+// this is where decoration could quietly cost a result its structuredContent —
+// or widen the handler's bytes on the way through. Both renderings are checked
+// against the handler's own answer, byte for byte.
+func TestTheStructuredContentObligationHoldsInBothFramings(t *testing.T) {
+	const answer = `{"record_type":"deal","version":9007199254740993,"name":"Acme"}`
+	s := NewDispatcher(NewRegistry(nil, auth.NewGate(fullSeatAuthority{})), bindAuthenticated, "margince-crm", "test").
+		WithLogger(discardLog())
+	s.registry.Register(echoTool{
+		spec: objectSpec("read_record", principal.ScopeRead),
+		out:  json.RawMessage(answer),
+	})
+
+	for _, tc := range []struct {
+		name string
+		fr   framing
+	}{
+		{"the handshake era", legacyFraming},
+		{"the modern era", framing{modern: true, version: modernProtocolVersion}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := s.handle(scopedAgentCtx(principal.ScopeRead), rpcRequest{
+				JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodToolsCall,
+				Params: modernParams(`"name":"read_record","arguments":{}`),
+			}, tc.fr)
+			if resp.Error != nil {
+				t.Fatalf("tools/call → %d %q", resp.Error.Code, resp.Error.Message)
+			}
+			rendered, err := json.Marshal(resp.Result)
+			if err != nil {
+				t.Fatalf("marshalling the result: %v", err)
+			}
+			var result struct {
+				//nolint:tagliatelle // structuredContent is the MCP wire member, camelCase by the protocol
+				StructuredContent json.RawMessage `json:"structuredContent"`
+				Content           []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			}
+			if err := json.Unmarshal(rendered, &result); err != nil {
+				t.Fatalf("decoding the result: %v", err)
+			}
+
+			if len(result.StructuredContent) == 0 {
+				t.Fatalf("no structuredContent on a tool that declares an outputSchema: %s", rendered)
+			}
+			if got := string(payloadOf(t, result.StructuredContent)); got != answer {
+				t.Errorf("structuredContent payload = %s, want the handler's bytes unchanged %s", got, answer)
+			}
+			if len(result.Content) != 1 {
+				t.Fatalf("content = %v, want exactly one block", result.Content)
+			}
+			if result.Content[0].Text != string(result.StructuredContent) {
+				t.Errorf("the two renderings of one answer disagree:\ntext %s\nstructured %s",
+					result.Content[0].Text, result.StructuredContent)
+			}
+		})
 	}
 }
 

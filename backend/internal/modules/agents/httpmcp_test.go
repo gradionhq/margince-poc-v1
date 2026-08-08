@@ -119,9 +119,14 @@ func authenticatedForTest(*http.Request) (context.Context, error) {
 // `supported` and retries on one of them instead of guessing, and both eras
 // are in it because this server answers both.
 //
-// The dropped 2025-03-26 is in the table because dropping it is the visible
-// half of the compatibility window (ADR-0092 §3) — a client still on it must
-// be refused here rather than quietly served.
+// 2025-03-26 is in the table because it is the revision the window dropped
+// (ADR-0092 §3) — but read what this actually proves. The header was
+// introduced in 2025-06-18, so a genuine 2025-03-26 client never sends one;
+// what is refused here is an implementation that knows the header and names a
+// revision outside the window. A header-LESS request is still served, because
+// the handshake-era revisions this server does serve only say a client SHOULD
+// send it, and refusing every client that omits it would break the era this
+// window exists to keep working.
 func TestUnsupportedProtocolVersionHeaderIsRefusedWithTheSupportedList(t *testing.T) {
 	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
 		func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())

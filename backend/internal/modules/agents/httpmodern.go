@@ -21,9 +21,11 @@ import (
 	"strings"
 )
 
-// The mirrored headers. Case is irrelevant on the wire (RFC 9110) and
-// http.Header canonicalizes on both sides of Get, so these are the canonical
-// spellings rather than a claim about what a client sends.
+// The mirrored headers, in the specification's own spelling — which is NOT
+// Go's canonical form for the first of them (textproto canonicalizes it to
+// Mcp-Protocol-Version). That difference is invisible because every read here
+// goes through http.Header.Get, which canonicalizes its argument; a direct map
+// index on one of these would silently miss.
 const (
 	headerProtocolVersion = "MCP-Protocol-Version"
 	headerMethod          = "Mcp-Method"
@@ -38,16 +40,51 @@ const (
 	base64SentinelSuffix = "?="
 )
 
-// modernNamedMethods maps each method whose body carries a name to the params
-// member holding it, which is what Mcp-Name mirrors.
+// mirroredName is how one method's name is read out of its params — and it is
+// deliberately the SAME reading its handler makes, not an equivalent one.
+//
+// This is the whole safety of the mirror. A map lookup and a struct decode do
+// not agree on a JSON object: encoding/json matches members case-insensitively
+// and takes the LAST of a duplicate pair, so a body carrying both
+// {"name":"harmless","NAME":"read_record"} reads as `harmless` to a map and as
+// `read_record` to the handler. Comparing the header against the first would
+// admit exactly the request the mirror exists to refuse — a gateway allowing
+// one tool while the server runs another.
+type mirroredName func(json.RawMessage) string
+
+// modernNamedMethods maps each method whose body carries a name to that reader.
 //
 // It lists the name-carrying methods THIS server answers. The specification
 // also names prompts/get; this server has no prompts and answers that -32601,
 // and demanding a header for a method that does not exist would refuse the
 // caller for the wrong reason.
-var modernNamedMethods = map[string]string{
-	methodToolsCall:     "name",
-	methodResourcesRead: "uri",
+var modernNamedMethods = map[string]mirroredName{
+	methodToolsCall:     calledToolName,
+	methodResourcesRead: readResourceURI,
+}
+
+// calledToolName reads the tool a tools/call body invokes, through the same
+// shape Dispatcher.call decodes.
+func calledToolName(params json.RawMessage) string {
+	var p struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return ""
+	}
+	return p.Name
+}
+
+// readResourceURI reads the document a resources/read body asks for, through
+// the same shape Dispatcher.readResource decodes.
+func readResourceURI(params json.RawMessage) string {
+	var p struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return ""
+	}
+	return p.URI
 }
 
 // validateModernHeaders holds a modern request to the mirroring contract: the
@@ -68,46 +105,37 @@ func validateModernHeaders(header http.Header, req rpcRequest, fr framing) *rpcE
 	if header.Get(headerMethod) != req.Method {
 		return headerMismatch(headerMethod, "method")
 	}
-	member, named := modernNamedMethods[req.Method]
+	readName, named := modernNamedMethods[req.Method]
 	if !named {
+		// A method that mirrors no name must present none. A header naming a
+		// tool on a call that invokes none tells an intermediary metering or
+		// filtering on Mcp-Name about an invocation that never happens.
+		if header.Get(headerName) != "" {
+			return &rpcError{
+				Code: codeHeaderMismatch,
+				Message: "header mismatch: " + headerName + " names something on a method whose body " +
+					"names nothing, so it describes a call this server will not make",
+			}
+		}
 		return nil
 	}
-	return validateMirroredName(header.Get(headerName), req.Params, member)
+	return validateMirroredName(header.Get(headerName), req.Params, readName)
 }
 
-// validateMirroredName compares the Mcp-Name header with the params member it
-// mirrors. Absent on both sides is admissible: a body that names nothing is
-// answered by the dispatcher, which can say what is actually missing, and a
-// header requirement here would report the wrong fault.
-func validateMirroredName(presented string, params json.RawMessage, member string) *rpcError {
-	inBody := paramsMember(params, member)
-	if presented == "" && inBody == "" {
-		return nil
-	}
+// validateMirroredName compares the Mcp-Name header with the name its method's
+// handler will act on.
+//
+// The header is REQUIRED on every one of these methods, not merely when the
+// body happens to name something: an absent one is a validation failure in its
+// own right. A body that names nothing therefore cannot be rescued by a client
+// that also sends nothing — and it would be malformed anyway, since the name is
+// the one param each of these methods cannot be called without.
+func validateMirroredName(presented string, params json.RawMessage, readName mirroredName) *rpcError {
 	decoded, ok := decodeHeaderValue(presented)
-	if !ok || decoded != inBody {
-		return headerMismatch(headerName, "params."+member)
+	if presented == "" || !ok || decoded != readName(params) {
+		return headerMismatch(headerName, "the name its own body invokes")
 	}
 	return nil
-}
-
-// paramsMember reads one string member out of a request's params, answering
-// the empty string when the params are absent, are not an object, or hold
-// something other than a string there. Each of those is a body that does not
-// name what the header claims, which is the only question this file asks.
-func paramsMember(params json.RawMessage, member string) string {
-	if len(params) == 0 {
-		return ""
-	}
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(params, &members); err != nil {
-		return ""
-	}
-	var value string
-	if err := json.Unmarshal(members[member], &value); err != nil {
-		return ""
-	}
-	return value
 }
 
 // decodeHeaderValue resolves the Base64 sentinel a client must use for any
@@ -137,8 +165,8 @@ func decodeHeaderValue(presented string) (string, bool) {
 func headerMismatch(header, member string) *rpcError {
 	return &rpcError{
 		Code: codeHeaderMismatch,
-		Message: "header mismatch: " + header + " is missing or does not match " + member +
-			" in the request body, which is what this server executes",
+		Message: "header mismatch: " + header + " is missing or disagrees with " + member +
+			", and the body is what this server executes",
 	}
 }
 

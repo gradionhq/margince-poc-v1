@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
+	"unicode/utf8"
 )
 
 // modernProtocolVersion is the revision this server serves in the modern
@@ -41,14 +43,21 @@ const (
 	metaServerInfo         = "io.modelcontextprotocol/serverInfo"
 )
 
-// The MCP error codes the modern framing answers with. -32020..-32099 is the
-// sub-range the specification reserves for itself, so a code from it may only
-// ever be emitted with the meaning the spec gives it.
+// The JSON-RPC codes this server answers with, in both eras — named once so
+// the package cannot end up with two spellings of one code.
+const (
+	codeParseError     = -32700
+	codeMethodNotFound = -32601
+	codeInvalidParams  = -32602
+	codeInternalError  = -32603
+)
+
+// The two codes the MODERN framing adds. -32020..-32099 is the sub-range the
+// specification reserves for itself, so a code from it may only ever be
+// emitted with the meaning the spec gives it — and never invented here.
 const (
 	codeHeaderMismatch             = -32020
 	codeUnsupportedProtocolVersion = -32022
-	codeInvalidParams              = -32602
-	codeMethodNotFound             = -32601
 )
 
 // The members a modern result carries.
@@ -67,30 +76,42 @@ const (
 	cacheScopePrivate  = "private"
 )
 
-// How long a client may consider a catalog fresh.
+// How long a client may consider an answer fresh. There are three numbers
+// because there are three kinds of answer, and the argument that licenses a
+// non-zero TTL holds for only two of them.
 //
-// A TTL is a freshness hint, never a permission: a client reusing a
-// minute-old tools/list cannot call anything with it, because every call
-// re-authenticates and the gate re-derives scope, seat and RBAC from live
-// state. That is what makes a non-zero TTL defensible on a scope-filtered
-// catalog at all — the stale copy can mislead a client about what it may try,
-// and cannot make the attempt succeed.
+// A TTL is a freshness hint, never a permission. A client reusing a minute-old
+// CATALOG cannot call anything with it: every call re-authenticates and the
+// gate re-derives scope, seat and RBAC from live state, so a stale menu can
+// mislead a client about what it may try and cannot make the attempt succeed.
+// Discovery is the same argument over an answer that does not vary at all.
+//
+// A DOCUMENT is not a menu. A resources/read result IS the content, so a stale
+// copy is the disclosure rather than a hint about one, and nothing downstream
+// re-checks it. This server therefore promises no freshness on a read and asks
+// the client to come back — which the specification spells `0`, and which
+// leaves the required member present rather than absent.
 const (
 	catalogCacheTTLMs  = 60_000
 	discoverCacheTTLMs = 300_000
+	documentCacheTTLMs = 0
 )
 
-// modernPrivateCatalogs are the cacheable methods whose answer is composed
-// from the CALLING principal's own context — the tool list is scope-filtered
-// per passport and every resource is assembled from what this principal may
-// read. A shared cache entry on any of them is a disclosure that never reaches
-// the server to be audited (ADR-0092 §5), so all of them answer `private`.
+// modernPrivateCatalogs are the cacheable LISTS. Two of them are scope-filtered
+// per caller today — the tool list by passport scopes, the resource list by
+// what this principal may read — and a shared cache entry on either is a
+// disclosure that never reaches the server to be audited (ADR-0092 §5).
 //
-// The two that happen to answer an empty list today are in here for the same
-// reason as the rest: they are answered by the same per-caller code path, and
-// `public` is a claim about every future answer, not just this one.
+// The other two answer nothing at all today, and they are `private` for a
+// different reason: `public` is a claim about every future answer, not just
+// this one, and the cheapest way to never make that claim wrongly is to never
+// make it here.
+//
+// resources/read is deliberately NOT in this list. It is also private, but it
+// is a document rather than a catalog and carries its own TTL for the reason
+// above.
 var modernPrivateCatalogs = []string{
-	methodToolsList, methodPromptsList, methodResourcesList, methodResourceTemplatesList, methodResourcesRead,
+	methodToolsList, methodPromptsList, methodResourcesList, methodResourceTemplatesList,
 }
 
 // framing is the protocol era ONE request is parsed under. It is decided once,
@@ -108,16 +129,26 @@ type framing struct {
 // value so a reader of a call site can see which era is meant.
 var legacyFraming = framing{}
 
-// modernMeta is the per-request protocol metadata a modern client sends. Both
-// members are POINTERS because their absence is the condition being tested:
-// the specification makes each required, and a missing one is a malformed
-// request rather than an empty value.
+// modernMeta is the per-request protocol metadata a modern client sends, held
+// as the RAW members rather than decoded values.
+//
+// Raw, because this type answers two different questions and they must not be
+// confused: whether the request DECLARED itself modern at all, and whether what
+// it declared is well formed. A member present but of the wrong type is a
+// modern request with a malformed field — it must be refused, never demoted to
+// the other era, which is what decoding straight into typed fields would do
+// with a version sent as a number.
 type modernMeta struct {
-	//nolint:tagliatelle // the wire member is a reserved reverse-DNS key, spelled by the protocol
-	ProtocolVersion *string `json:"io.modelcontextprotocol/protocolVersion"`
-	//nolint:tagliatelle // the wire member is a reserved reverse-DNS key, spelled by the protocol
-	ClientCapabilities *json.RawMessage `json:"io.modelcontextprotocol/clientCapabilities"`
+	version      json.RawMessage
+	capabilities json.RawMessage
 }
+
+// declared reports whether the body claims the modern framing at all. EITHER
+// reserved per-request key is enough: the specification's dual-era rule keys on
+// a request "carrying modern per-request `_meta`", and a body that carries one
+// of the two has done so — with the other one missing, which is a refusal
+// rather than a reason to read it as a handshake-era call.
+func (m modernMeta) declared() bool { return m.version != nil || m.capabilities != nil }
 
 // servesAsModern reports whether version names the revision this server serves
 // in the modern framing.
@@ -133,15 +164,19 @@ func supportedProtocolVersions() []string {
 
 // metaOf reads the modern per-request metadata out of a request's params.
 //
-// Params that do not decode into an object carry no declaration, which is the
-// honest answer rather than an error: JSON-RPC permits positional params, this
-// protocol does not use them, and a request whose params are not an object has
-// not declared a protocol version by any reading. The legacy path reports
-// whatever is actually wrong with such a body when it tries to use it.
+// Params that do not decode into an object carrying a `_meta` object declare
+// nothing, which is the honest answer rather than an error: JSON-RPC permits
+// positional params, this protocol does not use them, and such a body has not
+// declared a protocol version by any reading. The legacy path reports whatever
+// is actually wrong with it when it tries to use it.
+//
+// The reserved keys are matched EXACTLY. encoding/json would match them
+// case-insensitively, and nothing else on this path reads them, so exact is
+// both correct and the stricter of the two.
 func metaOf(params json.RawMessage) modernMeta {
 	var envelope struct {
 		//nolint:tagliatelle // _meta is the protocol's own member name, underscore and all
-		Meta modernMeta `json:"_meta"`
+		Meta map[string]json.RawMessage `json:"_meta"`
 	}
 	if len(params) == 0 {
 		return modernMeta{}
@@ -149,7 +184,10 @@ func metaOf(params json.RawMessage) modernMeta {
 	if err := json.Unmarshal(params, &envelope); err != nil {
 		return modernMeta{}
 	}
-	return envelope.Meta
+	return modernMeta{
+		version:      envelope.Meta[metaProtocolVersion],
+		capabilities: envelope.Meta[metaClientCapabilities],
+	}
 }
 
 // modernPrecheck decides one request's era and, for a modern request, whether
@@ -165,14 +203,10 @@ func metaOf(params json.RawMessage) modernMeta {
 // specification says it is.
 func modernPrecheck(params json.RawMessage, transportVersion string) (framing, *rpcError) {
 	meta := metaOf(params)
-	switch {
-	case meta.ProtocolVersion != nil:
-		return modernPreconditions(framing{modern: true, version: *meta.ProtocolVersion}, meta)
-	case servesAsModern(transportVersion):
-		return modernPreconditions(framing{modern: true}, meta)
-	default:
+	if !meta.declared() && !servesAsModern(transportVersion) {
 		return legacyFraming, nil
 	}
+	return modernPreconditions(meta)
 }
 
 // modernPreconditions holds a modern request to the two things every one of
@@ -185,21 +219,19 @@ func modernPrecheck(params json.RawMessage, transportVersion string) (framing, *
 // tool on this surface needs sampling, elicitation or roots, so there is no
 // capability whose absence could stop a call; a server that demanded one it
 // never uses would refuse callers for nothing.
-func modernPreconditions(fr framing, meta modernMeta) (framing, *rpcError) {
-	for _, missing := range []struct {
-		absent bool
-		key    string
-	}{
-		{meta.ProtocolVersion == nil, metaProtocolVersion},
-		{meta.ClientCapabilities == nil, metaClientCapabilities},
-	} {
-		if missing.absent {
-			return fr, &rpcError{
-				Code: codeInvalidParams,
-				Message: fmt.Sprintf("invalid params: a %s request must carry _meta[%q]",
-					modernProtocolVersion, missing.key),
-			}
-		}
+func modernPreconditions(meta modernMeta) (framing, *rpcError) {
+	fr := framing{modern: true}
+	version, malformed := declaredVersion(meta.version)
+	if malformed != nil {
+		return fr, malformed
+	}
+	fr.version = version
+	// Capabilities this server cannot READ are capabilities it would have to
+	// assume, which is the one thing a declaration exists to stop — so present
+	// is not enough, and a JSON null (which the wire allows anywhere) is the
+	// same as absent.
+	if !isJSONObject(meta.capabilities) {
+		return fr, missingModernField(metaClientCapabilities, "an object")
 	}
 	if !servesAsModern(fr.version) {
 		return fr, unsupportedProtocolVersion(fr.version)
@@ -207,18 +239,80 @@ func modernPreconditions(fr framing, meta modernMeta) (framing, *rpcError) {
 	return fr, nil
 }
 
+// declaredVersion reads the revision a modern body names, or the refusal for a
+// body that names one this server cannot read. A member of the wrong type is
+// NOT an absent member: the request declared itself modern and got the
+// declaration wrong, and demoting it to the handshake era would serve a
+// malformed modern call instead of refusing it.
+func declaredVersion(raw json.RawMessage) (string, *rpcError) {
+	var version string
+	// A JSON null unmarshals into a string WITHOUT error, leaving it empty, so
+	// the empty check is not belt-and-braces: it is what folds absent, null and
+	// "" into the one refusal each of them deserves.
+	if err := json.Unmarshal(raw, &version); err != nil || version == "" {
+		return "", missingModernField(metaProtocolVersion, "a string")
+	}
+	return version, nil
+}
+
+func missingModernField(key, shape string) *rpcError {
+	return &rpcError{
+		Code: codeInvalidParams,
+		Message: fmt.Sprintf("invalid params: a %s request must carry _meta[%q] as %s",
+			modernProtocolVersion, key, shape),
+	}
+}
+
+// isJSONObject reports whether raw is a JSON object — false for an absent
+// member, for a null, and for every other JSON type.
+//
+// The nil-map check carries the null case, which is the one a reader will
+// doubt: a JSON null unmarshals into a map without error and leaves it nil, so
+// testing only the error would call `null` an object.
+func isJSONObject(raw json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	return json.Unmarshal(raw, &object) == nil && object != nil
+}
+
 // unsupportedProtocolVersion is the refusal that names every revision this
 // server serves. The message says how the handshake-era ones are reached,
 // because the `supported` list alone would tell a modern client that a version
 // it cannot use per-request is available to it.
+//
+// What it echoes back is BOUNDED. `requested` is caller-controlled and its
+// length is not — a body is admitted up to 8 MiB — and it is reflected twice,
+// so an unbounded echo would answer a large refused request with a larger
+// response. A protocol revision is a date; anything longer than that is not
+// one, and the client already knows what it sent.
 func unsupportedProtocolVersion(requested string) *rpcError {
+	echoed := boundedEcho(requested)
 	return &rpcError{
 		Code: codeUnsupportedProtocolVersion,
 		Message: fmt.Sprintf("unsupported protocol version %q: this server serves %s per request, "+
-			"and %v through the initialize handshake",
-			requested, modernProtocolVersion, legacyProtocolVersions),
-		Data: map[string]any{"supported": supportedProtocolVersions(), "requested": requested},
+			"and %s through the initialize handshake",
+			echoed, modernProtocolVersion, strings.Join(legacyProtocolVersions, ", ")),
+		Data: map[string]any{"supported": supportedProtocolVersions(), "requested": echoed},
 	}
+}
+
+// maxEchoedVersion is how much of a refused version travels back to its
+// sender. A revision is a ten-character date, so this is generous for anything
+// a client meant and short for anything else.
+const maxEchoedVersion = 32
+
+// boundedEcho is caller-controlled text cut to a length this server chose,
+// on a rune boundary — a cut through the middle of a multi-byte character
+// would put invalid UTF-8 into a JSON string, which the encoder then silently
+// rewrites into replacement characters.
+func boundedEcho(value string) string {
+	if len(value) <= maxEchoedVersion {
+		return value
+	}
+	cut := value[:maxEchoedVersion]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "…"
 }
 
 // discover answers server/discover: the supported revisions, the capabilities
@@ -282,10 +376,12 @@ type cacheHint struct {
 // carry no hint, and tools/call is the one that matters — a tool result is not
 // a catalog and must never be served twice.
 func modernCacheHint(method string) (cacheHint, bool) {
-	if method == methodDiscover {
+	switch {
+	case method == methodDiscover:
 		return cacheHint{ttlMs: discoverCacheTTLMs, scope: cacheScopePublic}, true
-	}
-	if slices.Contains(modernPrivateCatalogs, method) {
+	case method == methodResourcesRead:
+		return cacheHint{ttlMs: documentCacheTTLMs, scope: cacheScopePrivate}, true
+	case slices.Contains(modernPrivateCatalogs, method):
 		return cacheHint{ttlMs: catalogCacheTTLMs, scope: cacheScopePrivate}, true
 	}
 	return cacheHint{}, false

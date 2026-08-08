@@ -366,35 +366,142 @@ func TestDecodingAMirroredHeaderValue(t *testing.T) {
 	}
 }
 
-// A body that names nothing is not a body that agrees with a header. Each
-// case here is a params shape that carries no readable name, and a header
-// presented against any of them is a mismatch rather than a match against the
-// empty string.
-func TestABodyThatNamesNothingMatchesNoPresentedHeader(t *testing.T) {
-	for _, tc := range []struct{ name, params string }{
-		{"params are not an object", `[1,2]`},
-		{"the member is absent", `{"arguments":{}}`},
-		{"the member is not a string", `{"name":42}`},
-		{"there are no params at all", ``},
+// A body that names nothing is not a body that agrees with a header. Each case
+// here is a params shape carrying no readable name, and NEITHER a presented
+// header nor an absent one is a match: the header is required on this method,
+// so sending nothing is a validation failure rather than a way to agree with a
+// body that says nothing either.
+func TestABodyThatNamesNothingMatchesNoHeaderAtAll(t *testing.T) {
+	// Both readers, because both methods carry the rule and a gap in either is
+	// a method whose header goes unchecked.
+	for reader, readName := range map[string]mirroredName{
+		"tools/call": calledToolName, "resources/read": readResourceURI,
+	} {
+		for _, tc := range []struct{ name, params string }{
+			{"params are not an object", `[1,2]`},
+			{"the member is absent", `{"arguments":{}}`},
+			{"the member is not a string", `{"name":42,"uri":42}`},
+			{"there are no params at all", ``},
+		} {
+			t.Run(reader+": "+tc.name, func(t *testing.T) {
+				params := json.RawMessage(tc.params)
+				if tc.params == "" {
+					params = nil
+				}
+
+				if got := readName(params); got != "" {
+					t.Fatalf("read %q out of a body that names nothing", got)
+				}
+				for _, presented := range []string{"read_record", ""} {
+					if refusal := validateMirroredName(presented, params, readName); refusal == nil {
+						t.Errorf("Mcp-Name %q was accepted against a body that carries no name", presented)
+					}
+				}
+			})
+		}
+	}
+}
+
+// THE defect this whole file exists to prevent, and the one shape that gets
+// past a mirror that reads the body its own way.
+//
+// encoding/json matches members case-insensitively and takes the LAST of a
+// duplicate pair, so a body carrying both `name` and `NAME` reads as one tool
+// to a map lookup and as another to the handler. A mirror comparing the header
+// against the first would admit exactly what it exists to refuse: a gateway
+// allowing one tool while this server runs another. Each row below is a body
+// whose two readings could differ, and the assertion is that the ONE the
+// dispatcher will execute is the one the header had to match.
+func TestTheMirrorComparesTheNameTheDispatcherWillExecute(t *testing.T) {
+	for _, tc := range []struct{ name, params, executes string }{
+		{"a case-variant member", `{"NAME":"read_record","arguments":{}}`, "read_record"},
+		{
+			"a benign name shadowed by a case variant",
+			`{"name":"harmless_tool","NAME":"read_record","arguments":{}}`, "read_record",
+		},
+		{
+			"a duplicate member, last one winning",
+			`{"name":"harmless_tool","name":"read_record","arguments":{}}`, "read_record",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			params := json.RawMessage(tc.params)
-			if tc.params == "" {
-				params = nil
+			// What the handler will act on, decoded exactly as Dispatcher.call
+			// decodes it. This is the value the header must be held to.
+			var executed struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(params, &executed); err != nil {
+				t.Fatalf("decoding as the dispatcher does: %v", err)
+			}
+			if executed.Name != tc.executes {
+				t.Fatalf("this body executes %q, not the %q the case is written around",
+					executed.Name, tc.executes)
 			}
 
-			if got := paramsMember(params, "name"); got != "" {
-				t.Fatalf("read %q out of a body that names nothing", got)
+			// A header naming anything else is refused...
+			if refusal := validateMirroredName("harmless_tool", params, calledToolName); refusal == nil {
+				t.Errorf("Mcp-Name %q was accepted for a body that executes %q — "+
+					"a gateway would allow one tool while this server ran another",
+					"harmless_tool", executed.Name)
 			}
-			if refusal := validateMirroredName("read_record", params, "name"); refusal == nil {
-				t.Error("a presented name matched a body that carries none")
-			}
-			// And with nothing presented either, the dispatcher gets to report
-			// what is actually wrong with the body.
-			if refusal := validateMirroredName("", params, "name"); refusal != nil {
-				t.Errorf("refused %d %q, want the dispatcher to answer instead", refusal.Code, refusal.Message)
+			// ...and the header naming what actually runs is admitted, so the
+			// rule refuses a mismatch rather than refusing everything.
+			if refusal := validateMirroredName(executed.Name, params, calledToolName); refusal != nil {
+				t.Errorf("Mcp-Name %q was refused for the tool the dispatcher executes: %q",
+					executed.Name, refusal.Message)
 			}
 		})
+	}
+}
+
+// A method that mirrors no name must present none. A header naming a tool on a
+// call that invokes none tells an intermediary metering or filtering on
+// Mcp-Name about an invocation that never happens.
+func TestAPresentedNameIsRefusedOnAMethodThatCarriesNone(t *testing.T) {
+	srv := modernServer(t)
+
+	status, body := modernPOST(t, srv,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{`+modernMetaJSON+`}}`,
+		map[string]string{
+			headerProtocolVersion: modernProtocolVersion,
+			headerMethod:          "tools/list",
+			headerName:            "send_email",
+		})
+
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", status)
+	}
+	if got := errorCode(t, body); got != codeHeaderMismatch {
+		t.Errorf("code = %d, want %d", got, codeHeaderMismatch)
+	}
+}
+
+// The modern revision establishes no session, so it has nothing to tear down.
+// A DELETE that names it is answered 405 rather than being routed into the
+// handshake era's session registry, where it could only ever look for a
+// session it had no way to open.
+func TestADeleteNamingTheModernRevisionIsRefused(t *testing.T) {
+	srv := modernServer(t)
+	req, err := http.NewRequest(http.MethodDelete, srv.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set(headerProtocolVersion, modernProtocolVersion)
+	req.Header.Set("Mcp-Session-Id", "01234567-89ab-cdef-0123-456789abcdef")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("closing response body: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", resp.StatusCode)
 	}
 }
 

@@ -132,6 +132,27 @@ func TestBothFramingsConnectAndLandTheSameEffect(t *testing.T) {
 		}
 	})
 
+	t.Run("a revision outside the window connects in neither", func(t *testing.T) {
+		// The deny arm belongs beside the allow arms: the same origin, the same
+		// credential, and the one revision the window dropped (ADR-0092 §3).
+		headers := withContentType(bearer)
+		headers["MCP-Protocol-Version"] = "2025-03-26"
+		refused := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
+			`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, headers)
+
+		if refused.StatusCode != http.StatusBadRequest {
+			t.Fatalf("the dropped revision → %d %s, want 400", refused.StatusCode, refused.Body)
+		}
+		if code := rpcErrorCode(t, refused.Body); code != -32022 {
+			t.Fatalf("error code = %d, want -32022 UnsupportedProtocolVersion", code)
+		}
+		for _, served := range []string{modernRevision, "2025-11-25", "2025-06-18"} {
+			if !strings.Contains(refused.Body, served) {
+				t.Errorf("the refusal %s does not name %q, so the client cannot retry on it", refused.Body, served)
+			}
+		}
+	})
+
 	// Both eras ended in a real effect or the assertions above were satisfied
 	// by a surface answering from nothing.
 	for _, created := range []string{"Modern Framing Person", "Handshake Era Person"} {
@@ -195,31 +216,6 @@ func TestAModernRequestWhoseHeaderContradictsItsBodyRunsNothing(t *testing.T) {
 	}
 	if created != 0 {
 		t.Errorf("the refused call created %d record(s) — it was refused after it ran", created)
-	}
-}
-
-// The compatibility window is a decision a client can read rather than
-// discover by breaking: a revision outside it is refused with the list of
-// revisions that are inside it, both eras included.
-func TestARevisionOutsideTheWindowIsRefusedWithTheSupportedList(t *testing.T) {
-	e := setupConnector(t)
-	bearer := passportBearer(t, e.AppEnv, "stale client", "read")
-
-	headers := withContentType(bearer)
-	headers["MCP-Protocol-Version"] = "2025-03-26"
-	refused := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
-		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, headers)
-
-	if refused.StatusCode != http.StatusBadRequest {
-		t.Fatalf("the dropped revision → %d %s, want 400", refused.StatusCode, refused.Body)
-	}
-	if code := rpcErrorCode(t, refused.Body); code != -32022 {
-		t.Fatalf("error code = %d, want -32022 UnsupportedProtocolVersion", code)
-	}
-	for _, served := range []string{modernRevision, "2025-11-25", "2025-06-18"} {
-		if !strings.Contains(refused.Body, served) {
-			t.Errorf("the refusal %s does not name %q, so the client cannot retry on it", refused.Body, served)
-		}
 	}
 }
 

@@ -292,10 +292,19 @@ the `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers must each say
 what the body says (missing or contradicting → `400` + `-32020 HeaderMismatch`).
 The headers exist so an intermediary can route without parsing the body; the
 body is what this server executes, and the comparison is what stops those two
-readings from parting company. `Mcp-Name` may arrive Base64-sentinel encoded
-(`=?base64?…?=`) and is decoded before comparison.
+readings from parting company — and the comparison is against the value the
+handler will actually act on, decoded exactly as the handler decodes it, because
+`encoding/json` matches members case-insensitively and takes the last of a
+duplicate pair while a map lookup does neither.
 `-32021 MissingRequiredClientCapability` is never emitted: no tool here needs
 sampling, elicitation or roots.
+
+**One caveat for anyone putting a gateway in front of `/mcp`.** `Mcp-Name` may
+arrive Base64-sentinel encoded (`=?base64?…?=`), and the protocol lets a client
+encode *any* value that way, including plain ASCII. This server decodes before
+comparing; an intermediary that filters on the raw header without implementing
+the sentinel is bypassed by encoding the value. Route on these headers only if
+you decode them the same way.
 
 **Every modern result carries `resultType: "complete"` and
 `_meta["io.modelcontextprotocol/serverInfo"]`**, and every cacheable one carries
