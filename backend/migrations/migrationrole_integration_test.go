@@ -59,6 +59,21 @@ func asMigrator(t *testing.T, admin *pgx.Conn) *pgx.Conn {
 		`DROP ROLE IF EXISTS ` + migratorRole,
 		`CREATE ROLE ` + migratorRole + ` LOGIN PASSWORD '` + password + `' NOSUPERUSER NOBYPASSRLS`,
 		`GRANT CREATE, USAGE ON SCHEMA public TO ` + migratorRole,
+		// CREATE on the DATABASE, not just on public: since 0198_ext_schema the
+		// migrations create a second schema (ext), and CREATE SCHEMA is a
+		// database-level privilege. A deployed installation's migration role
+		// already holds it and always has — scripts/deploy/db-bootstrap.sql
+		// runs `CREATE DATABASE margince OWNER margince_owner`, and a database
+		// owner holds CREATE on it implicitly — so this closes a gap between
+		// the stand-in and the role it stands in for rather than widening what
+		// the role may do. Nothing in this file's charter is loosened: the
+		// privilege confers neither rolsuper nor rolbypassrls, which is the
+		// one thing every test here rests on (assertNoRLSExemption).
+		//
+		// Contrast extensionsTheOperatorInstalls below, which stays an
+		// out-of-band operator step for the opposite reason: `vector` is
+		// untrusted and needs SUPERUSER, a privilege this role must never hold.
+		`DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO %I', current_database(), '` + migratorRole + `'); END $$`,
 	} {
 		if _, err := admin.Exec(ctx, statement); err != nil {
 			t.Fatalf("preparing the %s role: %v", migratorRole, err)
