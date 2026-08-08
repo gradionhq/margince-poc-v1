@@ -14,6 +14,7 @@ package compose
 import (
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -36,6 +37,32 @@ func TestTheContactFetchReportsACapOnlyWhenARowWasActuallyCut(t *testing.T) {
 			if capped != tc.wantCapped {
 				t.Errorf("reported capped=%v, want %v — the bound itself is not evidence that anything was dropped",
 					capped, tc.wantCapped)
+			}
+		})
+	}
+}
+
+// The colleague scan has the same boundary and the same failure: a contact with
+// exactly the scan bound had every colleague ranked, and telling a model the
+// ranking saw only a sample would make it hedge about an answer that is whole.
+func TestTheColleagueScanReportsItsBoundOnlyWhenARowWasActuallyCut(t *testing.T) {
+	for name, tc := range map[string]struct {
+		read       int
+		wantKept   int
+		wantCapped bool
+	}{
+		"a contact well inside the bound":      {read: 3, wantKept: 3, wantCapped: false},
+		"a contact holding exactly the bound":  {read: agentWhoKnowsFetch, wantKept: agentWhoKnowsFetch, wantCapped: false},
+		"a contact with one colleague past it": {read: agentWhoKnowsFetch + 1, wantKept: agentWhoKnowsFetch, wantCapped: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			kept, capped := trimToScanBound(make([]search.InteractionEdge, tc.read))
+
+			if len(kept) != tc.wantKept {
+				t.Errorf("kept %d edges, want %d", len(kept), tc.wantKept)
+			}
+			if capped != tc.wantCapped {
+				t.Errorf("reported capped=%v, want %v", capped, tc.wantCapped)
 			}
 		})
 	}

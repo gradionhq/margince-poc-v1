@@ -184,12 +184,14 @@ func (t whoKnowsTool) Spec() mcp.ToolSpec {
 // stopped at its cap is not the whole network, and a model told nothing reports
 // it as one.
 //
-// It claims warmth only among the colleagues that were EXAMINED. The walk bounds
-// what it reads before it ranks, so past that bound the returned list is the
-// warmest of a sample rather than of the network — and "the warmest" would be a
-// global claim the scan cannot have made.
-const whoKnowsTruncatedMessage = "More colleagues know this contact than were examined. " +
-	"These are the warmest of the ones examined, not the warmest overall."
+// It has to be true of BOTH bounds the seam reports through one flag, and they
+// differ in what they cost: the result cap trims a full ranking, so the ten
+// returned really are the warmest, while the scan bound stops the reading before
+// the ranking, so past it they are the warmest of a sample. A message asserting
+// either would be false half the time — so it states what holds in both cases,
+// which is that colleagues exist beyond this list and it is not the network.
+const whoKnowsTruncatedMessage = "More colleagues know this contact than are listed here. " +
+	"Report these as the ones found, not as everyone who knows them."
 
 func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {

@@ -50,10 +50,8 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 			if err != nil {
 				return err
 			}
-			if len(edges) > agentWhoKnowsFetch {
-				truncated = true
-				edges = edges[:agentWhoKnowsFetch]
-			}
+			edges, scanCut := trimToScanBound(edges)
+			truncated = scanCut
 			now := clockNow()
 			search.SortByStrength(edges, now)
 			if len(edges) > agentWhoKnowsCap {
@@ -83,6 +81,19 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 		})
 		return out, truncated, err
 	}
+}
+
+// trimToScanBound cuts the one over-fetched edge back to the scan bound and
+// answers whether there was one.
+//
+// It reads one row past the bound for the same reason the contact fetch does:
+// the bound itself is not evidence that anything was dropped, and a contact with
+// exactly agentWhoKnowsFetch colleagues had all of them ranked.
+func trimToScanBound(edges []search.InteractionEdge) ([]search.InteractionEdge, bool) {
+	if len(edges) <= agentWhoKnowsFetch {
+		return edges, false
+	}
+	return edges[:agentWhoKnowsFetch], true
 }
 
 // agentWhoKnowsCap bounds what the tool hands a model. The question is who to
