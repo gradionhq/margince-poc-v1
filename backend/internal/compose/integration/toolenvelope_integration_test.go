@@ -33,8 +33,12 @@ type sealedResult struct {
 }
 
 type sealedFreshness struct {
-	LastSyncedAt  *time.Time `json:"last_synced_at"`
-	Authoritative bool       `json:"authoritative"`
+	LastSyncedAt *time.Time `json:"last_synced_at"`
+	// A POINTER, so an OMITTED member is distinguishable from a false one.
+	// encoding/json decodes an absent bool as false, which reads here as a
+	// perfectly good "not authoritative" — so a result that dropped the field
+	// entirely would satisfy an assertion meant to prove it carries one.
+	Authoritative *bool `json:"authoritative"`
 }
 
 type sealedEvidence struct {
@@ -64,8 +68,12 @@ func assertEnvelopePopulated(t *testing.T, tool string, out json.RawMessage) {
 	if _, err := ids.Parse(sealed.TraceID); err != nil {
 		t.Errorf("%s: trace_id %q is not an id the audit log can be searched by: %v", tool, sealed.TraceID, err)
 	}
-	if sealed.Freshness == nil {
+	switch {
+	case sealed.Freshness == nil:
 		t.Errorf("%s: freshness is absent, so mirror staleness cannot be read off the answer", tool)
+	case sealed.Freshness.Authoritative == nil:
+		t.Errorf("%s: freshness carries no authoritative member, so a caller cannot tell a live read "+
+			"from a mirror pending sync", tool)
 	}
 	switch sealed.Trust {
 	case "t0", "t1", "t2":
