@@ -180,6 +180,12 @@ type envelopeFacts struct {
 	authoritative bool
 	warnings      []Warning
 	warned        map[string]struct{}
+	// served counts records HANDED OVER, which is not the same number as the
+	// evidence list's length: evidence dedupes by value, because one record
+	// read twice is one thing to cite. The read bound asks a different
+	// question — how much has this agent been given — and deduping it would
+	// let a handler that reads the same page twice pay for it once.
+	served int
 }
 
 func newEnvelopeFacts() *envelopeFacts {
@@ -220,6 +226,7 @@ func noteRecord(ctx context.Context, rec datasource.Record) {
 	source, capturedBy := provenanceOf(rec)
 	facts.mu.Lock()
 	defer facts.mu.Unlock()
+	facts.served++
 	facts.addRef(EvidenceRef{
 		RecordType: rec.Ref.Type, RecordID: rec.Ref.ID,
 		Source: source, CapturedBy: capturedBy,
@@ -230,6 +237,13 @@ func noteRecord(ctx context.Context, rec datasource.Record) {
 		(facts.oldestSync.IsZero() || stamp.Before(facts.oldestSync)) {
 		facts.oldestSync = stamp
 	}
+}
+
+// servedCount is what the call handed over, for the read bound to charge.
+func (f *envelopeFacts) servedCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.served
 }
 
 // tierOf reads one record's tier off what it was STAMPED with, which is the only

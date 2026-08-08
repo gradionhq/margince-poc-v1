@@ -3,8 +3,17 @@
 
 // Package readmeter is the MCP-SESS-READS consumption meter
 // (api-rate-limits-and-abuse §2.2): how many RECORDS an agent has been handed
-// inside one window, and whether that has passed the threshold at which a
-// human must confirm before it is handed any more.
+// inside one window, and whether that has passed the threshold beyond which it
+// is handed no more.
+//
+// WHAT THIS IS AND IS NOT. It is the BOUND — the counter and the threshold that
+// A139 calls "the load-bearing half". It is not yet the §2.4 LADDER: crossing
+// the threshold refuses the next read (ErrBudgetExceeded, the sentinel
+// interfaces.md §0 reserves for MCP-SESS-*), and the only release is the window
+// rolling or an operator raising the limit. Confirm-and-continue — a human
+// releasing the window from the approval surface — belongs with the rest of the
+// per-Passport counters and the step-up ladder in ADR-0092/C-6, and is
+// deliberately absent here rather than half-built.
 //
 // PER RECORD, NOT PER CALL. That is the whole control. The spec's own wording
 // is that the bound exists "so a single search_records returning 5,000 rows
@@ -46,10 +55,10 @@ import (
 )
 
 // DefaultLimit is MCP-SESS-READS: the records a Passport may be handed inside
-// one window before the next read demands human confirmation
-// (api-rate-limits-and-abuse §2.2). It is a default and mode-tunable, and §4.2
-// makes lowering it below a floor an ADR matter — it is a security control,
-// not a performance knob.
+// one window before its next read is refused (api-rate-limits-and-abuse §2.2).
+// It is a default and mode-tunable — the operator's lever until the step-up
+// ladder lands — and §4.2 makes lowering it below a floor an ADR matter, since
+// it is a security control rather than a performance knob.
 const DefaultLimit = 2000
 
 // DefaultWindow is the span one counter covers. The spec names the bound after
@@ -113,12 +122,11 @@ func (m *Meter) Limit() int { return m.limit }
 type Reading struct {
 	// Observed is the records served in this window so far.
 	Observed int
-	// Limit is the threshold Observed is judged against, including any
-	// headroom a human has already granted this window.
+	// Limit is the threshold Observed is judged against.
 	Limit int
-	// Exceeded reports that the next read needs human confirmation. It is a
-	// field rather than a comparison the caller makes, so the fail-closed
-	// answer cannot be reconstructed wrongly by a second caller.
+	// Exceeded reports that the next read must be refused. It is a field
+	// rather than a comparison the caller makes, so the fail-closed answer
+	// cannot be reconstructed wrongly by a second caller.
 	Exceeded bool
 }
 
@@ -129,20 +137,10 @@ func (m *Meter) countKey(ws ids.UUID, agent string, bucket int64) string {
 	return fmt.Sprintf(keyPrefix+"%s:%s:reads:%d", ws.String(), agent, bucket)
 }
 
-// grantKey holds the extra headroom a human granted for this window by
-// approving a step-up. It is a SEPARATE key from the count deliberately:
-// resetting the count would erase the evidence of how much this agent has
-// read, and the audit question "how many records did it see" must stay
-// answerable after the human said continue.
-func (m *Meter) grantKey(ws ids.UUID, agent string, bucket int64) string {
-	return fmt.Sprintf(keyPrefix+"%s:%s:grant:%d", ws.String(), agent, bucket)
-}
-
-// addScript adds n to a window counter and returns the new total, setting the
+// addScript adds n to the window counter and returns the new total, setting the
 // fixed-window expiry on FIRST write only — so the window is fixed rather than
-// sliding, and a busy Passport's counter does not renew itself into never
-// resetting. Both counters this package keeps (the count and the granted
-// headroom) have exactly this shape. ARGV=[n, ttlSeconds].
+// sliding, and a busy agent's counter does not renew itself into never
+// resetting. ARGV=[n, ttlSeconds].
 var addScript = redis.NewScript(`
 local n = tonumber(ARGV[1])
 local total = redis.call('INCRBY', KEYS[1], n)
@@ -214,26 +212,9 @@ func (m *Meter) Consume(ctx context.Context, n int) error {
 	return nil
 }
 
-// add applies one counter's increment and its first-write expiry.
+// add applies the counter's increment and its first-write expiry.
 func (m *Meter) add(ctx context.Context, key string, n int) error {
 	return addScript.Run(ctx, m.rdb, []string{key}, n, m.ttlSeconds()).Err()
-}
-
-// Grant adds n records of headroom for the rest of the current window — what
-// an approved step-up buys. The count itself is untouched, so the answer to
-// "how many records has this agent been handed" survives the grant.
-func (m *Meter) Grant(ctx context.Context, n int) error {
-	if n <= 0 {
-		return fmt.Errorf("readmeter: a step-up grant must be positive, got %d", n)
-	}
-	ws, agent, ok := m.usable(ctx)
-	if !ok {
-		return fmt.Errorf("readmeter: no metered agent on this call to grant headroom to")
-	}
-	if err := m.add(ctx, m.grantKey(ws, agent, m.bucket()), n); err != nil {
-		return fmt.Errorf("readmeter: granting %d records of headroom: %w", n, err)
-	}
-	return nil
 }
 
 // Read answers what the meter knows about ctx's agent before a read tool
@@ -256,17 +237,11 @@ func (m *Meter) Read(ctx context.Context) Reading {
 	if m.rdb == nil {
 		return Reading{Limit: m.limit, Exceeded: true}
 	}
-	bucket := m.bucket()
-	observed, err := m.counter(ctx, m.countKey(ws, agent, bucket))
+	observed, err := m.counter(ctx, m.countKey(ws, agent, m.bucket()))
 	if err != nil {
 		return Reading{Limit: m.limit, Exceeded: true}
 	}
-	granted, err := m.counter(ctx, m.grantKey(ws, agent, bucket))
-	if err != nil {
-		return Reading{Observed: observed, Limit: m.limit, Exceeded: true}
-	}
-	limit := m.limit + granted
-	return Reading{Observed: observed, Limit: limit, Exceeded: observed >= limit}
+	return Reading{Observed: observed, Limit: m.limit, Exceeded: observed >= m.limit}
 }
 
 // counter reads one window key, treating a missing key (redis.Nil) as zero —

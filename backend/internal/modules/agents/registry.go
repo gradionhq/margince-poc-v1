@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -58,10 +59,37 @@ type Registry struct {
 	// granting human's authority live per call. A nil gate fails closed
 	// for agent principals (Gate.Admit owns that rule).
 	gate *auth.Gate
+	// reads is the MCP-SESS-READS meter this surface CHARGES. The gate holds
+	// the same meter and does the refusing; the split is deliberate — a bound
+	// is enforced where admission is decided and paid where records leave.
+	reads ReadCharger
 }
 
-func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
-	return &Registry{
+// ReadCharger records records handed over against the caller's read bound.
+// Registry only ever charges; reading the bound and refusing on it belongs to
+// the one admission point, so this half of the seam cannot be used to decide
+// anything.
+type ReadCharger interface {
+	Consume(ctx context.Context, n int) error
+}
+
+// RegistryOption configures a Registry at construction.
+type RegistryOption func(*Registry)
+
+// WithReadCharger installs the meter tool results are charged against. It is
+// the same pointer compose hands the admission gate as its ReadBound, so the
+// half that refuses and the half that pays can never end up counting against
+// different windows. A registry without one records nothing — the composition
+// no agent principal reaches (see auth.WithReadBound).
+func WithReadCharger(reads ReadCharger) RegistryOption {
+	return func(r *Registry) { r.reads = reads }
+}
+
+// NewRegistry builds the tool surface over its approvals engine and admission
+// gate. Options add the dependencies only some roles have — today, the meter
+// served records are charged against.
+func NewRegistry(approvals Approvals, gate *auth.Gate, opts ...RegistryOption) *Registry {
+	r := &Registry{
 		tools:        map[string]mcp.Tool{},
 		specs:        map[string]mcp.ToolSpec{},
 		idArgs:       map[string]idArgSpec{},
@@ -70,6 +98,10 @@ func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 		approvals:    approvals,
 		gate:         gate,
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 var _ mcp.Registry = (*Registry)(nil)
@@ -237,7 +269,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			}
 			ctx = marked
 		}
-		return handle(ctx, t, spec, args)
+		return r.handle(ctx, t, spec, args)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
 	case !approvalID.IsZero():
@@ -245,7 +277,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		if rErr != nil {
 			return nil, rErr
 		}
-		return handle(marked, t, spec, args)
+		return r.handle(marked, t, spec, args)
 	default:
 		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, diffHash, err)
 	}
@@ -262,7 +294,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 // The failure path deliberately seals nothing: a refusal is an error, and an
 // error carries the sentinel and the message the caller acts on, not a document
 // with an empty payload inside it.
-func handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
+func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
 	ctx, trace := withTrace(ctx)
 	ctx, facts := withEnvelopeFacts(ctx)
 	noteRowScope(ctx)
@@ -270,7 +302,33 @@ func handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMes
 	if err != nil {
 		return nil, err
 	}
+	r.chargeReads(ctx, spec, facts.servedCount())
 	return sealEnvelope(spec, trace, facts, out)
+}
+
+// chargeReads records what one answer handed over against MCP-SESS-READS, at
+// the one place every tool's result passes through. Charging per TOOL instead
+// would be a list to maintain, and the read tool added next is the one that
+// forgets — which is exactly how a densely-joined answer becomes the cheapest
+// bulk read on the surface (A139).
+//
+// It charges only after a SUCCESSFUL answer: the bound counts records the agent
+// was actually given, and a handler that failed gave it none.
+//
+// A charge that cannot be recorded is logged rather than returned. The records
+// have already left the surface, so failing the call here would hide a
+// completed read behind an error AND still leave it uncounted. Nothing is
+// spent through the gap either: the gate reads the same counter and fails
+// closed when it is unreachable, so the next call is refused rather than
+// waved through.
+func (r *Registry) chargeReads(ctx context.Context, spec mcp.ToolSpec, served int) {
+	if r.reads == nil || served <= 0 {
+		return
+	}
+	if err := r.reads.Consume(ctx, served); err != nil {
+		slog.ErrorContext(ctx, "recording served records against the read bound failed",
+			"tool", spec.Name, "records", served, "err", err)
+	}
 }
 
 // tierResolverFor builds the resolver Admit consults for the call's tier. A

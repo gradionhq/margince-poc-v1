@@ -12,8 +12,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// agentCtx is a call carrying a Passport — the only kind of caller this bound
-// is written for.
+// agentCtx is an agent call carrying a Passport — the caller this bound is
+// written for.
 func agentCtx(t *testing.T) context.Context {
 	t.Helper()
 	ctx := principal.WithWorkspaceID(t.Context(), ids.New[ids.WorkspaceKind]().UUID)
@@ -24,8 +24,8 @@ func agentCtx(t *testing.T) context.Context {
 	})
 }
 
-// humanCtx is a call with no Passport. Humans are outside this control: their
-// authority is RBAC at the store.
+// humanCtx is a human call. Humans are outside this control: their authority
+// is RBAC at the store, and they answered for the action themselves.
 func humanCtx(t *testing.T) context.Context {
 	t.Helper()
 	ctx := principal.WithWorkspaceID(t.Context(), ids.New[ids.WorkspaceKind]().UUID)
@@ -55,9 +55,9 @@ func TestAnUnreachableCounterRefusesTheAgentRatherThanAdmittingIt(t *testing.T) 
 }
 
 // The other side of the same branch, and the reason it is a branch at all: an
-// unreachable counter and a caller who is not metered both make resolve say
-// no, and only one of them may be refused. Conflating them would deny the
-// product to its own users on a bound written for agents.
+// unreachable counter and a caller this bound does not govern are both "no",
+// and only one of them may be refused. Conflating them would deny the product
+// to its own users on a bound written for agents.
 func TestAHumanIsNotMeteredEvenWhenTheCounterIsUnreachable(t *testing.T) {
 	meter := New(nil, DefaultLimit, DefaultWindow)
 
@@ -71,15 +71,15 @@ func TestAHumanIsNotMeteredEvenWhenTheCounterIsUnreachable(t *testing.T) {
 	}
 }
 
-// A call with no actor at all — a background job, an unauthenticated path
-// reaching the meter by mistake — carries no Passport and so is not metered.
-// It is asserted rather than assumed because the alternative reading (treat
-// "no actor" as fail-closed) would break every internal read path.
+// A call with no actor at all — a background job, an internal read reaching the
+// meter by mistake — is not an agent and so is not metered. Asserted rather
+// than assumed because the alternative reading (treat "no actor" as
+// fail-closed) would refuse every internal read path in the product.
 func TestACallWithNoActorIsNotMetered(t *testing.T) {
 	meter := New(nil, DefaultLimit, DefaultWindow)
 
 	if meter.Read(t.Context()).Exceeded {
-		t.Error("a call with no actor was refused by a bound that only governs Passports")
+		t.Error("a call with no actor was refused by a bound that only governs agents")
 	}
 }
 
@@ -94,20 +94,6 @@ func TestChargingAnUnmeteredCallerRecordsNothingAndDoesNotFail(t *testing.T) {
 	}
 	if err := meter.Consume(agentCtx(t), 0); err != nil {
 		t.Errorf("charging an empty page failed: %v", err)
-	}
-}
-
-// Granting headroom to a caller the meter does not govern is a wiring fault,
-// not a silent no-op: a step-up approval that quietly grants nothing would
-// leave the agent refused forever with a human believing they had released it.
-func TestGrantingHeadroomToAnUngovernedCallerIsAnError(t *testing.T) {
-	meter := New(nil, DefaultLimit, DefaultWindow)
-
-	if err := meter.Grant(humanCtx(t), 500); err == nil {
-		t.Error("granting step-up headroom to a human reported success")
-	}
-	if err := meter.Grant(agentCtx(t), 0); err == nil {
-		t.Error("a zero-record step-up grant reported success; it releases nothing")
 	}
 }
 
@@ -177,47 +163,50 @@ func TestTheCounterOutlivesItsWindowByTheSkewSlackOnly(t *testing.T) {
 	}
 }
 
-// A window's grant is keyed to that window, not to the Passport at large, so
-// releasing one window's reading cannot silently release the next one's.
-func TestTheGrantIsScopedToTheWindowItWasGivenIn(t *testing.T) {
-	now := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
-	meter := NewWithClock(nil, DefaultLimit, time.Hour, func() time.Time { return now })
-	ws, passport := ids.New[ids.WorkspaceKind]().UUID, ids.New[ids.PassportKind]().UUID.String()
-
-	first := meter.grantKey(ws, passport, meter.bucket())
-	now = now.Add(time.Hour)
-	second := meter.grantKey(ws, passport, meter.bucket())
-
-	if first == second {
-		t.Error("one window's step-up grant is stored under the next window's key, so it never expires")
-	}
-}
-
-// The count and the grant are separate keys on purpose: a step-up must not
-// erase the evidence of how much the agent has already been handed, because
-// "how many records did it see" has to stay answerable after the human said
-// continue.
-func TestTheGrantDoesNotShareTheCountersKey(t *testing.T) {
-	meter := New(nil, DefaultLimit, DefaultWindow)
-	ws, passport := ids.New[ids.WorkspaceKind]().UUID, ids.New[ids.PassportKind]().UUID.String()
-
-	if meter.countKey(ws, passport, 1) == meter.grantKey(ws, passport, 1) {
-		t.Error("a step-up grant increments the same key as the read count, erasing the audit answer")
-	}
-}
-
 // Two Passports in one workspace, and one Passport across two workspaces, each
 // get their own counter. Sharing either would let one agent's reading refuse
 // another's.
 func TestEachPassportAndWorkspaceCountsSeparately(t *testing.T) {
 	meter := New(nil, DefaultLimit, DefaultWindow)
 	ws, other := ids.New[ids.WorkspaceKind]().UUID, ids.New[ids.WorkspaceKind]().UUID
-	passport, second := ids.New[ids.PassportKind]().UUID.String(), ids.New[ids.PassportKind]().UUID.String()
+	passport, second := ids.New[ids.PassportKind]().String(), ids.New[ids.PassportKind]().String()
 
 	if meter.countKey(ws, passport, 1) == meter.countKey(ws, second, 1) {
 		t.Error("two Passports in one workspace share a read counter")
 	}
 	if meter.countKey(ws, passport, 1) == meter.countKey(other, passport, 1) {
 		t.Error("one Passport shares a read counter across two workspaces")
+	}
+}
+
+// The rebind is what keeps the two halves of the bound on ONE counter: compose
+// builds a fail-closed meter, hands the SAME pointer to the gate that refuses
+// and the registry that charges, and cmd rebinds it once Redis is known. If the
+// rebind did not reach a holder, that holder would keep enforcing against a
+// meter nothing pays into.
+func TestRebindingReachesEveryHolderOfTheSharedPointer(t *testing.T) {
+	shared := New(nil, DefaultLimit, DefaultWindow)
+	held := shared // the gate's copy of the pointer, taken before the rebind
+
+	shared.RebindFrom(New(nil, 50, time.Hour))
+
+	if held.Limit() != 50 {
+		t.Errorf("a holder that took the pointer before the rebind still reads limit %d, not the rebound 50", held.Limit())
+	}
+}
+
+// A non-positive window is a misconfiguration, not an instruction to divide by
+// zero when the bucket is computed. It falls back to the spec's default for the
+// same reason the limit does.
+func TestAnUnusableConfiguredWindowFallsBackToTheSpecDefault(t *testing.T) {
+	meter := NewWithClock(nil, DefaultLimit, 0, func() time.Time {
+		return time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
+	})
+
+	if meter.window != DefaultWindow {
+		t.Errorf("a zero window resolved to %s, not the %s default", meter.window, DefaultWindow)
+	}
+	if meter.bucket() <= 0 {
+		t.Error("the window fallback did not produce a usable bucket")
 	}
 }

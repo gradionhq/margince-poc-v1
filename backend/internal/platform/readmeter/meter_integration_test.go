@@ -76,32 +76,6 @@ func TestOneOversizedCallTripsTheThresholdByItself(t *testing.T) {
 	}
 }
 
-// An approved step-up releases the agent WITHOUT erasing what it has read: the
-// count stays, the limit moves. A human asked to confirm a second time must
-// see the true running total, not a total reset by the first confirmation.
-func TestAStepUpGrantRaisesTheLimitAndLeavesTheCountIntact(t *testing.T) {
-	meter := New(budgettest.Client(t), 100, time.Hour)
-	ctx := meteredCall(t, ids.New[ids.PassportKind]().UUID)
-	if err := meter.Consume(ctx, 120); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := meter.Grant(ctx, 100); err != nil {
-		t.Fatal(err)
-	}
-
-	reading := meter.Read(ctx)
-	if reading.Exceeded {
-		t.Errorf("an approved step-up did not release the read: %+v", reading)
-	}
-	if reading.Observed != 120 {
-		t.Errorf("the step-up reset the count to %d; the audit answer to \"how many records did it see\" is gone", reading.Observed)
-	}
-	if reading.Limit != 200 {
-		t.Errorf("the granted limit is %d, not the 100 default plus the 100 granted", reading.Limit)
-	}
-}
-
 // Two Passports reading the same workspace do not spend each other's budget —
 // otherwise one busy agent would step-up every other agent the workspace runs.
 func TestOnePassportsReadingDoesNotRefuseAnother(t *testing.T) {
@@ -144,25 +118,5 @@ func TestTheWindowRollsOverAndReleasesTheThreshold(t *testing.T) {
 	}
 	if reading.Observed != 0 {
 		t.Errorf("a fresh window opened at %d records", reading.Observed)
-	}
-}
-
-// A step-up granted in one window does not release the next one. A human
-// confirming "read 200 more today" has not confirmed tomorrow.
-func TestAStepUpGrantDoesNotSurviveIntoTheNextWindow(t *testing.T) {
-	now := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
-	meter := NewWithClock(budgettest.Client(t), 100, time.Hour, func() time.Time { return now })
-	ctx := meteredCall(t, ids.New[ids.PassportKind]().UUID)
-	if err := meter.Grant(ctx, 1000); err != nil {
-		t.Fatal(err)
-	}
-
-	now = now.Add(time.Hour)
-	if err := meter.Consume(ctx, 150); err != nil {
-		t.Fatal(err)
-	}
-
-	if reading := meter.Read(ctx); !reading.Exceeded {
-		t.Errorf("the previous window's step-up grant released this one: %+v", reading)
 	}
 }
