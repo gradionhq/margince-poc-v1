@@ -67,7 +67,7 @@ func rpcAs(ctx context.Context, t *testing.T, d *Dispatcher, method string, para
 	if params != "" {
 		req.Params = json.RawMessage(params)
 	}
-	return d.handle(ctx, req)
+	return d.handle(ctx, req, legacyFraming)
 }
 
 // A wired provider's documents are advertised; the catalogue is what a client
