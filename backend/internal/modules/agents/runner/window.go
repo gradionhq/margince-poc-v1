@@ -28,8 +28,11 @@ type window struct {
 	// to be the one it was written with, and has to survive a suspension.
 	fence promptfence.Fence
 	// knownSources is the closed vocabulary [window.observe] may name in the
-	// prompt's own voice: the tools this run was offered, plus the runner's own
+	// prompt's own voice: every tool the REGISTRY holds, plus the runner's own
 	// internal reporters. Everything else is model-chosen text.
+	//
+	// Deliberately the whole catalog and not the narrower set this run was
+	// offered — the two differ, and newWindow says why.
 	knownSources map[string]bool
 	msgs         []model.Message
 }
@@ -38,7 +41,12 @@ type window struct {
 const unknownSourceLabel = "an unrecognized tool"
 
 // sourceVocabulary is the closed set of names an observation may be attributed
-// to: every offered tool, plus the runner's own reporters.
+// to: every tool the registry holds, plus the runner's own reporters.
+//
+// It is built from the WHOLE catalog, never the offered subset. An observation
+// is about what already happened, and a run's own history must not be
+// relabelled because its author's authority narrowed afterwards — see
+// windowFromSnapshot.
 func sourceVocabulary(specs []mcp.ToolSpec) map[string]bool {
 	known := map[string]bool{outputValidatorSource: true}
 	for _, spec := range specs {
@@ -67,9 +75,15 @@ const roleUser = "user"
 // tightens it further.
 const perCallOutputCeiling = 4096
 
-func newWindow(job Job, specs []mcp.ToolSpec) *window {
+// newWindow takes TWO catalogs, and the split is the point.
+//
+// `offered` is what this run may call, and it is what the system prompt lists.
+// `known` is the whole catalog, and it is only ever used to attribute an
+// observation to a name. Collapsing them would make a run's own history depend
+// on its author's CURRENT authority — see windowFromSnapshot.
+func newWindow(job Job, offered, known []mcp.ToolSpec) *window {
 	fence := promptfence.New()
-	w := &window{system: systemPrompt(specs, fence), fence: fence, knownSources: sourceVocabulary(specs)}
+	w := &window{system: systemPrompt(offered, fence), fence: fence, knownSources: sourceVocabulary(known)}
 	w.msgs = append(w.msgs, model.Message{Role: roleUser, Content: goalPrompt(job, fence)})
 	return w
 }
@@ -89,9 +103,9 @@ func newWindow(job Job, specs []mcp.ToolSpec) *window {
 // a clean transcript after the fact: the goal prompt legitimately holds several
 // spans, so "one balanced span per message" is not an invariant to check against,
 // and a `</m>…<m>` injection reads as two well-formed spans either way.
-func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message, fence promptfence.Fence, transcriptVersion int) (*window, error) {
+func windowFromSnapshot(job Job, offered, known []mcp.ToolSpec, snapshot []model.Message, fence promptfence.Fence, transcriptVersion int) (*window, error) {
 	if len(snapshot) == 0 {
-		return newWindow(job, specs), nil
+		return newWindow(job, offered, known), nil
 	}
 	if !fence.Minted() {
 		return nil, fmt.Errorf("%w: this run was suspended before prompt boundaries were per-run; start it again rather than resuming it", apperrors.ErrConflict)
@@ -99,7 +113,15 @@ func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message,
 	if transcriptVersion < neutralisedObservations {
 		return nil, fmt.Errorf("%w: this run was suspended before its observations were bounded against the marker the model can read; start it again rather than resuming it", apperrors.ErrConflict)
 	}
-	w := &window{system: systemPrompt(specs, fence), fence: fence, knownSources: sourceVocabulary(specs)}
+	// The vocabulary is the WHOLE catalog here, not the offered set, and this is
+	// the case that proves the two must differ. A passport's scopes can narrow
+	// between suspension and resume — a seat change, a re-issued passport — and
+	// a vocabulary filtered by the CURRENT scopes would turn every observation
+	// this transcript already holds into "an unrecognized tool". That rewrites
+	// what the run was told, after the fact, because its author's authority
+	// changed afterwards. What may be CALLED from here is narrowed; what was
+	// already answered keeps its name.
+	w := &window{system: systemPrompt(offered, fence), fence: fence, knownSources: sourceVocabulary(known)}
 	w.msgs = append(w.msgs, snapshot...)
 	return w, nil
 }

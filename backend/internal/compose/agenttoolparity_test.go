@@ -158,6 +158,23 @@ var composedIntents = map[string]bool{
 	// datasource seam. It is read-only and reaches nothing outside the
 	// workspace, which is what TestComposedIntentsNeverEgress holds it to.
 	"query_workspace": true,
+	// search_context ranks across record types through the retrieval index,
+	// which no single list operation is: `GET /search` is the lexical half
+	// alone and answers no vector lane, and the records the sweep names are
+	// read back through the datasource seam. Read-only.
+	//
+	// It does not EGRESS in the sense this file's rule is about — no record
+	// leaves the workspace — but the caller's query string does reach the
+	// configured embed provider, exactly as query_workspace's similarity clause
+	// does and as every indexed record already did. That is the AI runtime's own
+	// lane, governed by the routing config rather than by a passport scope, and
+	// the rule below is about outbound authority no operation declared.
+	"search_context": true,
+	// resolve_entities asks the dedupe ladder a question, which is not an
+	// operation at all: `/dedupe/candidates` serves the STORED review queue,
+	// a different question from "who does this payload name". Read-only, and
+	// every record it names is read back through the datasource seam.
+	"resolve_entities": true,
 }
 
 // An intent may write inside the workspace; it may NOT reach outside it.

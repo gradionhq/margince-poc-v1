@@ -38,15 +38,17 @@ func queryVocabulary(pool *pgxpool.Pool) *search.VocabularyResolver {
 // queryRunner joins the three steps a plan takes into the one function the tool
 // seam calls.
 //
-// The embedder is nil, which is what every request-path construction in this
-// tree passes (search.NewHandlers and the intent retriever both do). A
-// similarity clause therefore ranks lexically and the executor SAYS SO — the
-// answer comes back partial_degraded carrying
-// semantic_ranking_degraded_to_lexical. Binding a real embed lane on the
-// request path is a change to all three call sites at once, not to this one.
-func queryRunner(pool *pgxpool.Pool) agents.QueryRunner {
+// The embedder is the role's own retrieval embed lane, and it is the SAME one
+// the intent retriever takes — one binding for both, decided at the
+// composition root. A role that resolved no model path passes nil, and a
+// `similar_to` clause then ranks lexically and the executor says so: the answer
+// comes back partial_degraded carrying semantic_ranking_degraded_to_lexical.
+// That marker is not a fallback for the unbound case alone — an embed call that
+// FAILS answers it too, because a caller reading a ranked page needs to know
+// which lane ranked it, not why.
+func queryRunner(pool *pgxpool.Pool, embedder search.Embedder) agents.QueryRunner {
 	validator := search.NewPlanValidator(queryVocabulary(pool))
-	executor := search.NewQueryExecutor(search.NewStore(pool), nil, search.NewColumnCatalog(pool))
+	executor := search.NewQueryExecutor(search.NewStore(pool), embedder, search.NewColumnCatalog(pool))
 	return func(ctx context.Context, raw json.RawMessage) (agents.QueryAnswer, error) {
 		plan, err := search.DecodePlan(raw)
 		if err != nil {

@@ -402,6 +402,28 @@ func (r *Registry) Specs() []mcp.ToolSpec {
 	return out
 }
 
+// Offered is the surface THIS caller may invoke: the catalog both the external
+// tools/list and a Surface-B run's tool listing are drawn from.
+//
+// One function serves both, rather than two filters that agree today. A run
+// offered a verb its passport cannot spend is being asked to choose among names
+// it will be refused for, and every one of them rides in a system prompt that
+// elision never touches.
+//
+// It answers the SCOPE axis only. Invoke remains the authority on the seat
+// ceiling and object RBAC, which are re-derived per call — this narrows what is
+// advertised and enforces nothing.
+func (r *Registry) Offered(ctx context.Context) []mcp.ToolSpec {
+	all := r.Specs()
+	out := make([]mcp.ToolSpec, 0, len(all))
+	for _, spec := range all {
+		if invocableByCaller(ctx, spec) {
+			out = append(out, spec)
+		}
+	}
+	return out
+}
+
 // assertObjectSchemas holds two promises tools/list and tools/call have to
 // keep, at the one door every tool comes through.
 //

@@ -73,6 +73,15 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		// table. The plan only has to be well-formed — the refusal lands
 		// before the vocabulary is resolved, let alone the statement run.
 		"query_workspace": `{"plan":{"version":"v1","target":"deal"}}`,
+		// The ranked sweep: the lexical and vector indexes hold no mirrored
+		// content, so an unguarded call answers an empty page — a believable
+		// "there is nothing like that here" for a workspace full of records.
+		"search_context": `{"query":"renewal risk"}`,
+		// Identity resolution, and the most damaging empty answer of the set.
+		// `unresolved` is the one decision that tells a caller creating a record
+		// is safe, so a ladder run against empty native tables would turn the
+		// duplicate guard into a duplicate factory.
+		"resolve_entities": `{"candidates":[{"kind":"person","name":"Anna Weber"}]}`,
 		// The morning brief, ranked out of the rep's own open deals in the
 		// native tables. It takes no arguments: the queue a caller may read is
 		// the one belonging to the human they act for.

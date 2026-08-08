@@ -209,10 +209,10 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 		ExecutedPlan: answer.Narrative,
 		Limit:        answer.Limit,
 	}
-	served := servedRecords{hops: map[datasource.EntityRef]hopRead{}, noted: map[datasource.EntityRef]wireRecord{}}
+	served := newServedRecords()
 	var dropped bool
 	for _, ref := range answer.Refs {
-		row, admitted, err := t.admit(ctx, ref, &served)
+		row, admitted, err := t.admit(ctx, ref, served)
 		if err != nil {
 			return QueryWorkspaceResult{}, err
 		}
@@ -220,7 +220,7 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 			dropped = true
 			continue
 		}
-		result.Rows = append(result.Rows, t.serve(ctx, ref, row, &served))
+		result.Rows = append(result.Rows, t.serve(ctx, ref, row, served))
 	}
 	if dropped {
 		result.Coverage = CoveragePartialDegraded
@@ -241,8 +241,14 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 // admit reads one ref's target and every hop behind it, and reports whether the
 // row survives. It NOTES nothing: a row that fails here is never served, and a
 // record the caller was not given may not be charged to them.
+//
+// Both reads go through servedRecords.read — the ONE cached seam read this
+// package has — so a hop shared by a page of rows is asked for once, and the
+// rule about what a denial means as against a fault is written down once.
 func (t queryWorkspace) admit(ctx context.Context, ref QueryRef, served *servedRecords) (admittedRow, bool, error) {
-	record, readable, err := t.read(ctx, ref.Type, ref.ID)
+	record, readable, err := served.read(ctx, t.p, datasource.EntityRef{
+		Type: datasource.EntityType(ref.Type), ID: ref.ID,
+	})
 	if err != nil || !readable {
 		return admittedRow{}, false, err
 	}
@@ -252,7 +258,9 @@ func (t queryWorkspace) admit(ctx context.Context, ref QueryRef, served *servedR
 	// disclosure the hop's own row scope refused at selection.
 	hops := make([]datasource.Record, 0, len(ref.Evidence))
 	for _, hop := range ref.Evidence {
-		read, admitted, err := t.readHop(ctx, hop, served)
+		read, admitted, err := served.read(ctx, t.p, datasource.EntityRef{
+			Type: datasource.EntityType(hop.RecordType), ID: hop.ID,
+		})
 		if err != nil || !admitted {
 			return admittedRow{}, false, err
 		}
@@ -294,39 +302,6 @@ type admittedRow struct {
 	hops   []datasource.Record
 }
 
-// read fetches one record through the seam, WITHOUT stamping it.
-//
-// The BOOL is the verdict, kept separate from the error because the two mean
-// different things to the caller. False is a definite answer — archived, or an
-// authority narrowed since the plan ran — and the row is dropped. An error is
-// the ABSENCE of an answer, and is returned: reporting an unreachable store as
-// a partial result would describe an infrastructure fault as a property of the
-// caller's data, and they would act on the rows that did come back.
-func (t queryWorkspace) read(ctx context.Context, recordType string, id ids.UUID) (datasource.Record, bool, error) {
-	record, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(recordType), ID: id})
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
-			return datasource.Record{}, false, nil
-		}
-		return datasource.Record{}, false, err
-	}
-	return record, true, nil
-}
-
-// readHop reads one hop record, through the cache.
-func (t queryWorkspace) readHop(ctx context.Context, hop QueryEvidence, served *servedRecords) (datasource.Record, bool, error) {
-	key := datasource.EntityRef{Type: datasource.EntityType(hop.RecordType), ID: hop.ID}
-	if cached, ok := served.hops[key]; ok {
-		return cached.record, cached.readable, nil
-	}
-	record, readable, err := t.read(ctx, hop.RecordType, hop.ID)
-	if err != nil {
-		return datasource.Record{}, false, err
-	}
-	served.hops[key] = hopRead{record: record, readable: readable}
-	return record, readable, nil
-}
-
 // hopRead is one hop read and its verdict, so an unreadable hop is remembered
 // as a verdict rather than as a missing map entry — the two are
 // indistinguishable otherwise, and a second row sharing the hop would ask again.
@@ -341,6 +316,39 @@ type hopRead struct {
 type servedRecords struct {
 	hops  map[datasource.EntityRef]hopRead
 	noted map[datasource.EntityRef]wireRecord
+}
+
+// newServedRecords is the constructor both tools that serve several records in
+// one answer take, so neither can reach stamp through a nil map.
+func newServedRecords() *servedRecords {
+	return &servedRecords{
+		hops:  map[datasource.EntityRef]hopRead{},
+		noted: map[datasource.EntityRef]wireRecord{},
+	}
+}
+
+// read fetches one record through the seam, through the cache and WITHOUT
+// stamping it. A verdict is remembered as a verdict, so a record two rows or two
+// candidates name is asked for once whether the answer was yes or no — the two
+// are indistinguishable as a missing map entry, which is why hopRead exists.
+//
+// The BOOL is the verdict, kept apart from the error: false is a definite answer
+// and the ref is dropped, while an error is the ABSENCE of one and is returned.
+func (s *servedRecords) read(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) (datasource.Record, bool, error) {
+	if cached, ok := s.hops[ref]; ok {
+		return cached.record, cached.readable, nil
+	}
+	record, err := p.Read(ctx, ref)
+	switch {
+	case err == nil:
+	case errors.Is(err, apperrors.ErrNotFound), errors.Is(err, apperrors.ErrPermissionDenied):
+		s.hops[ref] = hopRead{readable: false}
+		return datasource.Record{}, false, nil
+	default:
+		return datasource.Record{}, false, err
+	}
+	s.hops[ref] = hopRead{record: record, readable: true}
+	return record, true, nil
 }
 
 // stamp puts a record through newWireRecord the FIRST time it is served, and

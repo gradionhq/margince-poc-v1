@@ -117,6 +117,73 @@ type QueryNote struct {
 	Detail string `json:"detail"`
 }
 
+// SearchContextResult is what search_context answers: the records a description
+// ranked highest, and what kind of ranking produced them.
+type SearchContextResult struct {
+	Hits []SearchContextHit `json:"hits"`
+	// Coverage is from the closed set searchContext.CoverageClasses publishes,
+	// which does NOT include complete_exact — a ranked page is the top of an
+	// ordering, never a whole match set. Not omitempty: an absent coverage
+	// would read as a complete one, which is the claim this tool never makes.
+	Coverage string `json:"coverage"`
+	// Notes are the machine-readable reasons the coverage is what it is, never
+	// null on the wire — an agent reading `null` cannot tell "no reasons" from
+	// "not computed", and only one of those is true.
+	Notes []QueryNote `json:"notes"`
+}
+
+// SearchContextHit is one ranked record and the material that ranked it.
+type SearchContextHit struct {
+	Record wireRecord `json:"record"`
+	// Score is the fused rank score. It orders the page and nothing else: it is
+	// not a probability and is not comparable between two searches.
+	Score float64 `json:"score"`
+	// Excerpts are the source snippets this record ranked on — what makes a hit
+	// legible as a reason rather than as an unexplained position in a list.
+	// Never null, for the same reason Notes is not.
+	Excerpts []ContextEvidence `json:"excerpts"`
+}
+
+// ResolveEntitiesResult is what resolve_entities answers: one answer per
+// candidate, in the order they were sent.
+type ResolveEntitiesResult struct {
+	Candidates []ResolvedCandidate `json:"candidates"`
+}
+
+// ResolvedCandidate is one payload's answer.
+type ResolvedCandidate struct {
+	// Ref is the caller's own label for the candidate, echoed back. It is
+	// absent when they sent none — the order is the other way to line a batch
+	// up, and echoing an empty string would read as a label they chose.
+	Ref string `json:"ref,omitempty"`
+	// Decision is `matched`, `ambiguous` or `unresolved`. Not omitempty: an
+	// absent decision would read as the safest one, and only one of the three
+	// is safe to act on.
+	Decision string `json:"decision"`
+	// Matches are the records this candidate could name, best first — one on a
+	// `matched` answer, several on an `ambiguous` one, none on `unresolved`.
+	// Never null, so an agent can iterate without branching.
+	Matches []ResolvedRecord `json:"matches"`
+}
+
+// ResolvedRecord is one record a candidate could name, and why.
+type ResolvedRecord struct {
+	Record wireRecord `json:"record"`
+	// Confidence is 1 for a unique-key hit — a shared address is not a
+	// probability — and the ladder's similarity score for a near match.
+	Confidence float64 `json:"confidence"`
+	// MatchedOn is the axis that produced the match: `email`, `phone`,
+	// `channel_identity` or `domain` for a key, and the name field compared for
+	// a near match. It is what makes an ambiguous answer reviewable — a pair
+	// scored on a registered name must not be read as a trading-name collision.
+	MatchedOn string `json:"matched_on"`
+	// exact is UNEXPORTED and never on the wire: it is what decisionFor reads to
+	// tell a key hit from a name similarity, and `decision` is the answer a
+	// caller acts on. Publishing it too would be a second, quieter spelling of
+	// the same fact for a client to disagree with.
+	exact bool
+}
+
 // ArchiveResult is what archive_record answers: the record it retired, named the
 // way every other tool names one.
 type ArchiveResult struct {

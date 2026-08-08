@@ -308,6 +308,30 @@ func noteEvidence(ctx context.Context, recordType datasource.EntityType, id ids.
 	facts.addRef(EvidenceRef{RecordType: recordType, RecordID: id})
 }
 
+// noteProbe charges the read bound for a question that was ASKED but answered
+// with no record.
+//
+// It exists because the bound otherwise leaves the one call shape that is pure
+// probing entirely free. A tool that looks a caller-supplied key up and finds
+// nothing — or finds something the caller may not read — serves no record, so
+// noteRecord never runs and chargeReads returns early on served == 0. The
+// caller can then repeat that call without limit, which is exactly the shape
+// MCP-SESS-READS exists to bound.
+//
+// It adds NO evidence ref, because there is no record to source: this is the
+// count without the citation. And it discloses nothing by existing — the caller
+// already knows how many questions they asked, which is the only thing it
+// counts.
+func noteProbe(ctx context.Context, n int) {
+	facts := factsOn(ctx)
+	if facts == nil || n <= 0 {
+		return
+	}
+	facts.mu.Lock()
+	defer facts.mu.Unlock()
+	facts.served += n
+}
+
 // noteDerivedContent says the answer CARRIES content built out of material this
 // call did not read the provenance of — an aggregate report's rows, a summarized
 // timeline, a free/busy window computed from calendar entries, a page crawled off

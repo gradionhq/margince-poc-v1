@@ -48,8 +48,8 @@ func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) (i
 // intent and comms registrations; the test only reads Specs().
 type stubRetriever struct{}
 
-func (stubRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
-	return nil, nil
+func (stubRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
+	return retrieval.Result{}, nil
 }
 
 func (stubRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
