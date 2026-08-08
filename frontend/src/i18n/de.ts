@@ -118,6 +118,10 @@ export const de = {
   "screen.pending":
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
 
+  "ext.notFound":
+    "Auf dieser Installation ist keine Erweiterung namens „{name}“ aktiviert.",
+  "ext.operations": "Veröffentlichte Operationen",
+
   "search.title": "Suche",
   "search.placeholder":
     "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",

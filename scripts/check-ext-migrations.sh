@@ -34,6 +34,20 @@ fi
 source "$(pwd)/scripts/lib-testdb.sh"
 parse_test_dsn
 
+# FAIL LOUDLY, never skip. From here on a unit HAS migrations, so an
+# unreachable cluster means the one non-textual gate in the tier is not running
+# — and the failure a bare connection error produces further down reads like a
+# flaky test rather than like a disarmed gate. A CI lane that gained a unit with
+# migrations but not a Postgres service container is exactly the case this
+# names: the deterministic-gates job starts the dev stack when (and only when)
+# this glob matches, and this line is what tells you it did not.
+if ! db_admin db-exists --name postgres >/dev/null 2>&1; then
+  echo "FAIL: check-ext-migrations — ${#units[@]} unit(s) declare migrations/ but the test cluster at ${O_PREFIX}/ is unreachable." >&2
+  echo "      This gate applies unreviewed DDL as each unit's restricted ext_<name> role against a throwaway database; it cannot be checked without one." >&2
+  echo "      Run 'make db-up' locally, or give the CI job a Postgres service (see .github/workflows/ci.yml, deterministic-gates)." >&2
+  exit 1
+fi
+
 # The root workspace, like every other backend/tools generator: the gate is in
 # the separate tools module, so a caller-exported GOWORK would break resolution.
 root="$(pwd)"

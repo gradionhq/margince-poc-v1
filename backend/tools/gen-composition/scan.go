@@ -282,6 +282,11 @@ func coreDigest(root string) (string, error) {
 		"backend/api/crm.yaml",
 		"composition/go.mod",
 		"composition/extensions_gen.go",
+		// The SPA's committed vanilla registry, for the same reason as the Go
+		// stub beside it: stubMatchesVanilla compares the generator's empty-tree
+		// output against it, so a hand edit changes what the composition means
+		// and must restale the fast probe rather than wait for a full -verify.
+		frontendVanillaStub,
 	} {
 		if err := h.addFile(rel); err != nil {
 			return "", err

@@ -123,6 +123,44 @@ describe("custom-fields route", () => {
   });
 });
 
+// The VANILLA extension lane, end to end through the real router and the real
+// registry. This is the lane a fresh clone, a core developer's `pnpm dev` and
+// the web image all build: the committed empty-tree stub, where every unit
+// name misses. What must hold is that #/ext/<anything> still renders the
+// authenticated shell with an honest not-found card — not a blank frame, not a
+// crash, and not the "not built yet" copy, which would be a different (and
+// false) claim about the same URL.
+//
+// The composed half of the pair is app/extensions.test.ts, which hands the
+// generator's own descriptor shape to the same lookup. Rendering a composed
+// unit here is not possible without build/composition/ existing, and this
+// suite must pass in a tree where it does not.
+describe("extension routes (vanilla registry)", () => {
+  it("renders the honest not-found card for a unit no installation composed", async () => {
+    window.location.hash = "#/ext/crm-demo";
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <LocaleProvider>
+          <App />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    expect(
+      await screen.findByText(
+        "No extension named \u201Ccrm-demo\u201D is enabled on this installation.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Not built yet — this surface arrives with its build ticket.",
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("locale switch", () => {
   it("mounts in English (A100) and flips the chrome to German on switch", async () => {
     const client = new QueryClient({

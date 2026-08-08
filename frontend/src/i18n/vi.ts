@@ -126,6 +126,10 @@ export const vi = {
   "screen.pending":
     "Chưa dựng — màn hình này sẽ có cùng ticket xây dựng của nó.",
 
+  "ext.notFound":
+    "Bản cài đặt này không bật tiện ích mở rộng nào tên “{name}”.",
+  "ext.operations": "Các thao tác đã công bố",
+
   "search.title": "Tìm kiếm",
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",
   "search.empty": "Không có kết quả cho “{q}”.",

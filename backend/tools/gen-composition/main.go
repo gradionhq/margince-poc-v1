@@ -332,18 +332,48 @@ func verifyNoExtraFiles(root string, outputs map[string]string) error {
 	})
 }
 
-// stubMatchesVanilla holds the two lanes together: the committed
-// composition/ stub (what a bare go build wires) must be byte-identical
-// to this generator's vanilla output (what a composed vanilla build
-// wires) — otherwise "vanilla output unchanged" would be an assertion,
-// not a checked fact.
+// vanillaStubs are the committed empty-tree outputs, one per lane: the Go
+// stub a bare `go build` wires, and the TypeScript registry a bare
+// `pnpm build` resolves through tsconfig's "@composition/*" alias. Both are
+// checked-in copies of what this generator emits for an empty extensions/
+// tree, and stubMatchesVanilla is what keeps them copies.
+var vanillaStubs = []struct {
+	rel   string
+	emit  func() []byte
+	align string
+}{
+	{
+		rel:   "composition/extensions_gen.go",
+		emit:  func() []byte { return extensionsGen(nil, nil) },
+		align: "align the committed stub with tools/gen-composition",
+	},
+	{
+		rel:   frontendVanillaStub,
+		emit:  func() []byte { return frontendGen(nil, nil) },
+		align: "align the committed stub with tools/gen-composition (emit.go's frontendGenHeader)",
+	},
+}
+
+// frontendVanillaStub is the SPA's committed empty-tree registry. It sits
+// under frontend/src rather than beside composition/ because the vanilla lane
+// must resolve it with no alias pointing outside the Vite root and no build
+// step having run — a core developer's `pnpm dev` on a fresh clone is the
+// case, and it has never needed build/composition/ to exist.
+const frontendVanillaStub = "frontend/src/composition/extensions.gen.ts"
+
+// stubMatchesVanilla holds the lanes together: each committed stub (what a
+// bare build wires) must be byte-identical to this generator's vanilla output
+// (what a composed vanilla build wires) — otherwise "vanilla output
+// unchanged" would be an assertion, not a checked fact.
 func stubMatchesVanilla(root string) error {
-	stub, err := os.ReadFile(filepath.Join(root, "composition", "extensions_gen.go"))
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(stub, extensionsGen(nil, nil)) {
-		return fmt.Errorf("composition/extensions_gen.go differs from the generator's vanilla output — align the committed stub with tools/gen-composition")
+	for _, s := range vanillaStubs {
+		stub, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.rel)))
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(stub, s.emit()) {
+			return fmt.Errorf("%s differs from the generator's vanilla output — %s", s.rel, s.align)
+		}
 	}
 	return nil
 }

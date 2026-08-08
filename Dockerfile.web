@@ -13,7 +13,28 @@
 # those builds faster would need an exported cache (cache-to/cache-from type=gha)
 # or a persistent builder, which is a separate change to the workflow.
 
-# ── Stage 1: build ───────────────────────────────────────────────────────────
+# ── Stage 1: compose (ADR-0069) ──────────────────────────────────────────────
+# The SPA has two lanes, exactly like the Go roles: a VANILLA build resolves the
+# committed empty-tree registry (frontend/src/composition/extensions.gen.ts) and
+# the committed contract types, and a COMPOSED build resolves the generated
+# registry and the MERGED contracts under build/composition/. A shipped image is
+# always the composed one — an installation's image must serve the units that
+# installation enabled — so gen-composition runs first, here, for the same
+# reason Dockerfile.api runs it before `go build`.
+#
+# The whole repo is the build context: gen-composition reads go.work, every
+# workspace member's go.mod, the base contracts and extensions/*, so a partial
+# copy would compose a different (smaller) installation and report success.
+FROM golang:1.26-alpine AS composer
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+COPY . .
+WORKDIR /src/backend
+RUN GOWORK=/src/go.work go run ./tools/gen-composition
+
+# ── Stage 2: build ───────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
 
 RUN corepack enable
@@ -33,15 +54,30 @@ RUN --mount=type=cache,id=margince-pnpm-store,target=/pnpm-store \
     --mount=type=cache,id=margince-corepack,target=/root/.cache/node/corepack \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm-store
 
-# The OpenAPI contract the TS types are generated from (pnpm gen:api reads
-# ../backend/api/*.yaml), then the app source.
+# The composition: the MERGED contracts the TS types are generated from and the
+# generated extension registry the SPA routes into. Both are copied from the
+# composer stage rather than regenerated here — this image has no Go toolchain,
+# and a second derivation of the same artifacts could disagree with the one the
+# api image ships.
 WORKDIR /app
-COPY backend/api/crm.yaml backend/api/public-events.yaml ./backend/api/
+COPY --from=composer /src/build/composition/api/ ./build/composition/api/
+COPY --from=composer /src/build/composition/frontend/ ./build/composition/frontend/
 COPY frontend/ ./frontend/
 
-# Regenerate the contract types from the shipped crm.yaml, then build. This keeps
-# the image's types pinned to the contract it was built against rather than
-# trusting the committed schema.d.ts.
+# Regenerate the contract types from the MERGED crm.yaml, then build the composed
+# lane. This keeps the image's types pinned to the contract it was built against
+# rather than trusting the committed schema.d.ts — and note the committed file is
+# NOT what is regenerated in the repository: schema.d.ts is overwritten inside
+# this container only, so the empty-tree byte-identity the composition gates
+# prove is untouched by building an image.
+#
+# MARGINCE_COMPOSITION_FRONTEND is the runtime half of the alias (vite.config.ts)
+# and tsconfig.composed.json is the compile-time half. Both FAIL LOUDLY when the
+# composer stage produced nothing: vite throws on the missing directory and tsc
+# cannot resolve "@composition/extensions". A lane that skipped composition
+# cannot silently fall back to the vanilla registry and ship an image that routes
+# none of the installation's units.
+ENV MARGINCE_COMPOSITION_FRONTEND=/app/build/composition/frontend
 WORKDIR /app/frontend
 # `tsc -b` dominates this step (~40s of ~51s locally; vite itself is ~6s). Both
 # composite projects write their .tsbuildinfo into node_modules/.tmp, which is
@@ -51,9 +87,9 @@ WORKDIR /app/frontend
 # and the type gate over the freshly generated schema.d.ts is unchanged.
 RUN --mount=type=cache,id=margince-tsbuildinfo,target=/app/frontend/node_modules/.tmp \
     --mount=type=cache,id=margince-corepack,target=/root/.cache/node/corepack \
-    pnpm gen:api && pnpm build
+    pnpm gen:api:composed && pnpm build:composed
 
-# ── Stage 2: serve ───────────────────────────────────────────────────────────
+# ── Stage 3: serve ───────────────────────────────────────────────────────────
 # nginx-unprivileged runs as a non-root user (uid 101) and listens on 8080.
 FROM nginxinc/nginx-unprivileged:alpine
 

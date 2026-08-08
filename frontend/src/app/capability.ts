@@ -20,7 +20,34 @@ import { useMe } from "../screens/common";
 // authority on every call, and a client that gets this wrong shows the wrong
 // button, not the wrong data.
 
-export type RbacObject = components["schemas"]["RbacObject"];
+/**
+ * The CLOSED core vocabulary, mirrored from crm.yaml's enum.
+ *
+ * Exported under its own name because "core" is a real distinction on the
+ * server: `policy.IsCoreObject` stays closed and is what the contract-enum
+ * parity gate holds the compiled-in set equal to, while `IsGrantableObject` is
+ * core ∪ the objects the enabled units registered at boot.
+ */
+export type CoreRbacObject = components["schemas"]["RbacObject"];
+
+/**
+ * An object an enabled extension unit registered (`ext_<unit>_<object>`).
+ *
+ * It is NOT in the generated union and cannot be: `$.components.schemas.RbacObject`
+ * is a core node, and the fragment composer lets a unit extend only nodes it
+ * created itself — additive-only ownership is the property that makes an
+ * installation's contract reproducible, and an enum-append action would spend
+ * it. Widening here instead costs the core vocabulary nothing: a misspelled
+ * CORE object is still a type error, because a string that does not start with
+ * `ext_` has to be a member of the enum.
+ *
+ * The runtime never needed the change — `/me`'s `authorization.objects` is
+ * string-keyed and already carries registered extension objects — so this is
+ * the client catching up to a response it was already being handed.
+ */
+export type ExtensionRbacObject = `ext_${string}`;
+
+export type RbacObject = CoreRbacObject | ExtensionRbacObject;
 export type RbacAction = components["schemas"]["RbacAction"];
 
 /**

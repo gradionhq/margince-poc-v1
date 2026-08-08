@@ -1,0 +1,30 @@
+{
+  // The COMPOSED frontend lane — the TypeScript mirror of
+  // GOWORK=build/composition/go.work. Same sources, same strictness, one
+  // difference: "@composition/extensions" resolves the generated registry under
+  // build/composition/frontend/ instead of the committed empty-tree stub.
+  //
+  // It is a separate project rather than a committed regeneration of the
+  // vanilla file on purpose. A single committed-from-composed file cannot
+  // serve both worlds: it would make the vanilla tree's output depend on which
+  // units happened to be enabled when someone last ran `make gen`, and the
+  // empty-tree byte-identity that stubMatchesVanilla and the UAT's final
+  // acceptance step prove would be gone.
+  //
+  // Run it through `make fe-typecheck-composed`, which fails loudly when
+  // build/composition/frontend/ is absent rather than falling back to the
+  // vanilla alias and typechecking a lane nobody composed.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    // Not a member of the solution build (tsconfig.json references only the
+    // app + node projects), so it needs neither project-reference metadata nor
+    // a build-info file shared with the vanilla lane.
+    "composite": false,
+    "tsBuildInfoFile": "node_modules/.tmp/tsconfig.composed.tsbuildinfo",
+    "paths": {
+      "@composition/extensions": [
+        "../build/composition/frontend/extensions.gen"
+      ]
+    }
+  }
+}
