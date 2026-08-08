@@ -287,7 +287,29 @@ arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
 # resolves their dependencies. Generated files are committed and drift-gated,
 # so a generator whose own build inputs move with the caller's environment
 # turns a clean checkout into a red gate on somebody else's machine.
+#
+# gen is two-phase, and the ORDER is the contract between them.
+#
+# Phase 1 is gen-composition. It merges every enabled unit's api/ fragments
+# into build/composition/api/ — the EFFECTIVE contracts for this
+# installation. It used to run last, which was safe only while nothing read
+# its output; the composed contracts are inputs now, so a generator that ran
+# before them would compile the vanilla surface into a composed build and
+# look correct, because a stale build/composition/ from the previous run is
+# already on disk. Running it first is what makes that impossible.
+#
+# gen-composition itself reads only committed files (the base contracts, the
+# unit trees, go.work, the composition stub), so it has no dependency back on
+# phase 2 and works from a deleted build/composition/.
+#
+# Phase 2 are the committed, drift-gated generators. They read the BASE
+# contracts on purpose: their outputs are checked in and must be identical on
+# every installation. The composed lane's own artifacts are emitted into
+# build/composition/ beside the merged contracts (frontend/extensions.gen.ts
+# today, the composed client types and docs as their slices land) — the same
+# split Task 11's tsconfig alias makes for TypeScript.
 gen: ## Regenerate everything derived from the contract
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 	$(GOWORK_ROOT) $(GO) generate ./internal/contracts
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-stubs
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
@@ -296,7 +318,6 @@ gen: ## Regenerate everything derived from the contract
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-jobs -contract api/jobs.yaml \
 		-out-specs internal/platform/jobs/specs_gen.go \
 		-out-kinds internal/compose/jobkinds_gen.go
-	$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 
 drift: gen ## Fail when any generated file drifted from the contract
 	# gen regenerates the committed per-unit manifests too (via composition);

@@ -107,7 +107,10 @@ func TestScanExtensions(t *testing.T) {
 		{name: "go files without a module", unit: "no-mod", files: map[string]string{"a.go": "package a\n"}, wantErr: "no go.mod"},
 		{name: "module without a root package", unit: "no-pkg", files: map[string]string{"go.mod": goMod}, wantErr: "no root package"},
 		{name: "invalid unit name", unit: "Bad_Name", files: map[string]string{}, wantErr: "not a valid unit name"},
-		{name: "unbuilt capability layer", unit: "with-api", files: map[string]string{"go.mod": goMod, "a.go": "package a\n", "api/api.yaml": "{}\n"}, wantErr: "api/ composition is not built yet"},
+		// api/ used to be here; it has a composition now (contracts.go), and
+		// TestApiLayerIsGovernedByItsOwnRule plus TestFragmentRefusals pin
+		// what replaced the blanket refusal.
+		{name: "unbuilt capability layer", unit: "with-frontend", files: map[string]string{"go.mod": goMod, "a.go": "package a\n", "frontend/app.tsx": "export {};\n"}, wantErr: "frontend/ composition is not built yet"},
 		{name: "empty unit", unit: "empty", files: map[string]string{}, wantErr: "nothing to compose"},
 	}
 	for _, tc := range cases {

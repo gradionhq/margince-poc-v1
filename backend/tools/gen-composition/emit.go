@@ -53,7 +53,7 @@ func composedFiles(root string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	contract, err := os.ReadFile(filepath.Join(root, "backend", "api", "crm.yaml"))
+	contracts, err := composedContracts(root, units)
 	if err != nil {
 		return nil, err
 	}
@@ -61,15 +61,18 @@ func composedFiles(root string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string][]byte{
+	files := map[string][]byte{
 		goWorkFile:                   work,
 		"backend/go.mod":             composedGoMod(goVersion),
 		"backend/extensions_gen.go":  wiring,
 		"frontend/extensions.gen.ts": frontendGen(),
-		// The effective contract: base + extension fragments/overlays once
-		// the contract slice lands; until then the base, byte-identical.
-		"api/crm.yaml": contract,
-	}, nil
+	}
+	// The effective contracts: base + every enabled unit's fragments. With
+	// no fragments each one is its base, byte-identical — see mergeContract.
+	for base, content := range contracts {
+		files["api/"+base] = content
+	}
+	return files, nil
 }
 
 // canonicalGoSource parses emitted Go source and requires it to already

@@ -27,6 +27,9 @@ type extensionUnit struct {
 	// already stripped of its ext_<namespace>_ prefix — the suffixes whose
 	// join with the namespace checkDerivedIdentifiers validates.
 	Tables []string
+	// Fragments are the unit's contract overlays, keyed by the core contract
+	// each targets (composedContractBases). Nil for a Go-only unit.
+	Fragments map[string]contractFragment
 }
 
 // scanExtensions reads the enabled set. Every capability layer the
@@ -92,13 +95,15 @@ func scanExtensions(root string) ([]extensionUnit, error) {
 // composed yet, refused on sight" — and stay a single list.
 //
 // A layer that HAS a composition is governed by that composition's own rule
-// and leaves this list entirely. migrations/ is the first: collectUnitTables
+// and leaves this list entirely. migrations/ was the first: collectUnitTables
 // says what its subtree may hold, and it deliberately does NOT re-grant the
 // walk exemption, so a Go package under migrations/ is refused exactly like
 // one anywhere else in the unit — an init() there would run just as
-// unchecked. Lifting the next layer means the same two edits: drop the string
-// here, add the layer's own rule.
-var unbuiltCapabilityLayers = []string{"api", "frontend"}
+// unchecked. api/ is the second, on identical terms: collectUnitFragments
+// (contracts.go) says what it may hold, and it stays subject to the walk.
+// Lifting the next layer means the same two edits: drop the string here, add
+// the layer's own rule.
+var unbuiltCapabilityLayers = []string{"frontend"}
 
 func scanUnit(name, dir string) (extensionUnit, error) {
 	for _, sub := range unbuiltCapabilityLayers {
@@ -137,7 +142,11 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 	if err != nil {
 		return extensionUnit{}, err
 	}
-	return extensionUnit{Name: name, Dir: dir, ModulePath: mod.Module.Mod.Path, Tables: tables}, nil
+	fragments, err := collectUnitFragments(name, dir)
+	if err != nil {
+		return extensionUnit{}, err
+	}
+	return extensionUnit{Name: name, Dir: dir, ModulePath: mod.Module.Mod.Path, Tables: tables, Fragments: fragments}, nil
 }
 
 // refuseNonRootGoPackages refuses any Go package inside a unit's tree other
