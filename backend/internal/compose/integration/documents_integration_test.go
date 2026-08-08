@@ -330,7 +330,8 @@ func seedActivityWithDeal(t *testing.T, e *Env, deal ids.UUID) ids.UUID {
 	id := ids.NewV7()
 	e.WsExec(t, `
 		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'Contract', now(), 'manual', 'human:test')`, id, e.WS)
+		VALUES ($1, $2, 'email', 'Contract', $3::timestamptz, 'manual', 'human:test')`,
+		id, e.WS, activityOccurredAt)
 	e.WsExec(t, `
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
 		VALUES ($1, $2, 'deal', $3)`, e.WS, id, deal)
@@ -374,3 +375,8 @@ func TestAnOrganizationMergeCarriesTheDocumentsAcross(t *testing.T) {
 		t.Error("the survivor's own contract went missing across the merge")
 	}
 }
+
+// activityOccurredAt is a fixed instant: nothing here turns on when the email
+// arrived, and a real clock in a fixture is a flake waiting for the boundary
+// it happens to sit on.
+const activityOccurredAt = "2026-08-01T09:00:00Z"

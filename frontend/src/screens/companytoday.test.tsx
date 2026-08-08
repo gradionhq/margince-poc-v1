@@ -117,4 +117,14 @@ describe("what needs a person on this account today", () => {
     });
     expect(screen.getByText(/3 new on the timeline/)).toBeTruthy();
   });
+
+  it("reports the failure even when a view is in hand", () => {
+    // show(undefined, {failed:true}) passes on the missing view alone, so it
+    // cannot tell `if (failed || !view)` from `if (!view)`. This one can: the
+    // view is present and quiet, and the failure still has to win.
+    show(BASE, { failed: true });
+
+    expect(screen.getByText(/could not be assembled/)).toBeTruthy();
+    expect(screen.queryByText("Nothing here needs you today.")).toBeNull();
+  });
 });
