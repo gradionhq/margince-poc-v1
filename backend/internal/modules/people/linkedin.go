@@ -10,6 +10,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
+// linkedinURLField names the profile-URL field every refusal below reports.
+const linkedinURLField = "linkedin_url"
+
 // NormalizeLinkedInURL reduces a LinkedIn profile URL to the one stored
 // spelling the E12.11 exact-match dedupe key compares on: https scheme,
 // lowercased host, no query, no fragment, no trailing slash. Parsed once
@@ -18,8 +21,10 @@ import (
 func NormalizeLinkedInURL(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return "", &values.ParseError{Field: "linkedin_url", Code: "linkedin_url_empty",
-			Message: "a LinkedIn profile URL is required"}
+		return "", &values.ParseError{
+			Field: linkedinURLField, Code: "linkedin_url_empty",
+			Message: "a LinkedIn profile URL is required",
+		}
 	}
 	// A pasted profile often arrives without a scheme; the key is the
 	// host+path identity, so default the scheme rather than refuse.
@@ -28,12 +33,16 @@ func NormalizeLinkedInURL(raw string) (string, error) {
 	}
 	u, err := url.Parse(trimmed)
 	if err != nil || u.Hostname() == "" {
-		return "", &values.ParseError{Field: "linkedin_url", Code: "linkedin_url_malformed",
-			Message: "not a resolvable profile URL"}
+		return "", &values.ParseError{
+			Field: linkedinURLField, Code: "linkedin_url_malformed",
+			Message: "not a resolvable profile URL",
+		}
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", &values.ParseError{Field: "linkedin_url", Code: "linkedin_url_malformed",
-			Message: "a profile URL uses http or https"}
+		return "", &values.ParseError{
+			Field: linkedinURLField, Code: "linkedin_url_malformed",
+			Message: "a profile URL uses http or https",
+		}
 	}
 	// http and https address the same profile; canonicalizing to https
 	// keeps the dedupe key one spelling per identity. Ports, query and

@@ -330,7 +330,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "archive", "lead", id.UUID,
-			map[string]any{"status": current.Status}, map[string]any{"status": "disqualified"})
+			map[string]any{leadStatusColumn: current.Status}, map[string]any{leadStatusColumn: "disqualified"})
 		if err != nil {
 			return err
 		}

@@ -350,9 +350,9 @@ describe("removing an applied filter", () => {
     await userEvent.click(screen.getByRole("button", { name: "Status" }));
     await userEvent.click(screen.getByRole("button", { name: "Working" }));
     await waitFor(() =>
-      expect(
-        fetchPage.mock.calls.some(([query]) => query.filters.status),
-      ).toBe(true),
+      expect(fetchPage.mock.calls.some(([query]) => query.filters.status)).toBe(
+        true,
+      ),
     );
 
     await userEvent.click(
@@ -360,7 +360,9 @@ describe("removing an applied filter", () => {
         name: "More actions for the Status filter",
       }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Delete filter" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete filter" }),
+    );
 
     await waitFor(() =>
       expect(fetchPage.mock.calls.at(-1)?.[0].filters).not.toHaveProperty(

@@ -216,7 +216,7 @@ func buildLeadPatch(current crmcontracts.Lead, in UpdateLeadInput) (*storekit.Pa
 		if err != nil {
 			return nil, false, err
 		}
-		p.Set("status", current.Status, string(status))
+		p.Set(leadStatusColumn, current.Status, string(status))
 	}
 	resumeRecompute, err := applyScoreOverride(p, current, in)
 	if err != nil {

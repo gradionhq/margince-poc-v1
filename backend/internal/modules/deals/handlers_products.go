@@ -19,6 +19,7 @@ func (h Handlers) ListProducts(w http.ResponseWriter, r *http.Request, params cr
 		Query:           params.Q,
 		Active:          params.Active,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+		Sort:            params.Sort,
 	}
 	products, page, err := h.store.ListProducts(r.Context(), in)
 	if err != nil {
