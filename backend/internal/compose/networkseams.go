@@ -42,9 +42,17 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 			// most RECENT colleagues under the label "who knows them best".
 			// The HTTP path and this one must rank identically, or the answer
 			// depends on who asked rather than on the relationships.
-			edges, err := search.EdgesForPerson(ctx, tx, personID, agentWhoKnowsFetch)
+			// One row past the FETCH bound, because the fetch is a bound too and
+			// a quieter one: the ranking runs over what was read, so a contact
+			// with more colleagues than this reads has some of them ranked
+			// against nothing. Both bounds are reported the same way.
+			edges, err := search.EdgesForPerson(ctx, tx, personID, agentWhoKnowsFetch+1)
 			if err != nil {
 				return err
+			}
+			if len(edges) > agentWhoKnowsFetch {
+				truncated = true
+				edges = edges[:agentWhoKnowsFetch]
 			}
 			now := clockNow()
 			search.SortByStrength(edges, now)

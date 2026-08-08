@@ -183,8 +183,13 @@ func (t whoKnowsTool) Spec() mcp.ToolSpec {
 // whoKnowsTruncatedMessage is the third spelling of one rule: a ranked list that
 // stopped at its cap is not the whole network, and a model told nothing reports
 // it as one.
-const whoKnowsTruncatedMessage = "More colleagues know this contact than were returned. " +
-	"These are the warmest, not all of them."
+//
+// It claims warmth only among the colleagues that were EXAMINED. The walk bounds
+// what it reads before it ranks, so past that bound the returned list is the
+// warmest of a sample rather than of the network — and "the warmest" would be a
+// global claim the scan cannot have made.
+const whoKnowsTruncatedMessage = "More colleagues know this contact than were examined. " +
+	"These are the warmest of the ones examined, not the warmest overall."
 
 func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {

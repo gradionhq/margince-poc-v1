@@ -99,5 +99,12 @@ func ToolPayload(t *testing.T, out json.RawMessage) json.RawMessage {
 	if err := json.Unmarshal(out, &sealed); err != nil {
 		t.Fatalf("the result is not an envelope: %v (%s)", err, out)
 	}
+	// FATAL, where the sweep only reports: a caller is about to assert on these
+	// bytes, and handing back an empty payload turns one clear failure into a
+	// confusing second one three lines later, in a suite that is not about the
+	// envelope at all.
+	if len(sealed.Data) == 0 {
+		t.Fatalf("the envelope carries no data: %s", out)
+	}
 	return sealed.Data
 }
