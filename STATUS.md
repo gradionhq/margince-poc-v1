@@ -67,13 +67,21 @@ closes the door on manually entered financial figures that plan §4.6 left ajar.
   cap at `moderate` when the workspace's own offering is unconfirmed
   (`minimum_complete` on the anchor company is the confirmation signal).
 
-**What is left on PR 4, in order.** The model lane is the big one:
-`orgdossier.Service` and `GrowthFitService` both thread a `routingVersion` and
-carry a prompt-version constant, but neither has a `Completer`. That matters
-most for growth fit, whose deterministic floor is *abstention* by
-DOSS-PARAM-7 — what ships today is an honest "here is what I would need to
-know", never a band. Then `getClaimEvidence` (DOSS-WIRE-3, six source kinds),
-then the frontend panels. Neither surface has a panel yet.
+- **PR 4 (model lane)** — growth fit can now propose a band. The `growth_fit`
+  AI task reads our own offering through its company-context policy (offer,
+  positioning, proof) and is bound by `compose.WithGrowthFit` on the api role.
+  The model proposes; `Assess` re-counts and can lower that band to `unknown`
+  or cap it at `moderate`, never raise it. Every model-side failure — including
+  a model that answers `unknown` itself — degrades to the floor's abstention,
+  labelled `deterministic`. The cert case runs production's own request builder
+  and parser; its scenario is `aicert/corpus/growth_fit/clear_fit_01.yaml`.
+
+**What is left on PR 4, in order.** `getClaimEvidence` (DOSS-WIRE-3, six source
+kinds), then the frontend panels — neither the dossier nor growth fit has one,
+so both are curl-only today. The DOSSIER's model lane is also still unwired
+(`orgdossier.Service` threads a `routingVersion` but takes no `Completer`);
+that one is cosmetic rather than load-bearing, since its floor already
+describes a company from its own fields.
 
 **Two things to know before touching it.** Adding a contract operation breaks
 the build until its handler exists — `compose.Server` asserts
@@ -97,9 +105,9 @@ needs a backend capability built from scratch.
 skips) are green. Nothing is pushed: this work stays in the worktree until it
 is tested locally.
 
-**Next**, in plan order: finish PR 4 (the model lane, then `getClaimEvidence`,
-then the dossier and growth-fit panels), PR 5 (documents), then PR 6/8
-(attachments, account-started email) and PR 9/10 (finance) against their ADRs.
+**Next**, in plan order: finish PR 4 (`getClaimEvidence`, then the dossier and
+growth-fit panels), PR 5 (documents), then PR 6/8 (attachments,
+account-started email) and PR 9/10 (finance) against their ADRs.
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 
