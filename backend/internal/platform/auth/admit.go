@@ -132,12 +132,15 @@ func (g *Gate) Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp
 	// runs AFTER scope and seat so a caller who may not run the verb at all
 	// never learns that a quota exists, let alone how much of it is spent.
 	//
-	// It binds READ-scoped tools only. The bound is MCP-SESS-READS and it
+	// It binds READ-ONLY tools only, through the spec's own predicate rather
+	// than a second scope comparison — one definition of "this tool only
+	// reads", so the refusal here and the charge in the agents registry cannot
+	// drift apart as scope semantics evolve. The bound is MCP-SESS-READS and it
 	// counts records handed over; refusing a write because reading was heavy
 	// would enforce a limit nobody wrote. A write that returns a record still
 	// COUNTS toward the window (the charge point is where records leave the
 	// surface, not here) — it is only the refusal that is read-scoped.
-	if spec.RequiredScope == principal.ScopeRead && g.reads != nil {
+	if spec.ReadOnly() && g.reads != nil {
 		if reading := g.reads.Read(ctx); reading.Exceeded {
 			return ctx, fmt.Errorf(
 				"gate: %s: this agent has been handed %d records against a limit of %d for this window; it may read again when the window rolls, or once an operator raises the limit: %w",

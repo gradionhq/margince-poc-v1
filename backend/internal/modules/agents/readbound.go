@@ -18,7 +18,6 @@ import (
 	"log/slog"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -77,8 +76,8 @@ func (r *Registry) chargeReads(ctx context.Context, spec mcp.ToolSpec, served in
 		return nil
 	}
 	slog.ErrorContext(ctx, "recording served records against the read bound failed",
-		"tool", spec.Name, "records", served, "scope", spec.RequiredScope, "err", err)
-	if spec.RequiredScope != principal.ScopeRead {
+		"tool", spec.Name, "records", served, "read_only", spec.ReadOnly(), "err", err)
+	if !spec.ReadOnly() {
 		// The effect already happened. Reporting it as a failure is worse than
 		// an uncounted read.
 		return nil
