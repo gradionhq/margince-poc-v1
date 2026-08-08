@@ -14,28 +14,43 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
+// The filter names this module answers, spelled once each. They are wire names
+// — a caller's query parameter — which is why they are not the column
+// constants they happen to match today.
+const (
+	filterOrganizationID = "organization_id"
+	filterOwnerID        = "owner_id"
+	filterPartnerOrgID   = "partner_org_id"
+	filterPartnerSourced = "partner_sourced"
+	filterPipelineID     = "pipeline_id"
+	filterProjectID      = "project_id"
+	filterStageID        = "stage_id"
+	filterStalled        = "stalled"
+	filterStatus         = "status"
+	filterKey            = "key"
+	filterPhase          = "phase"
+)
+
 var dealListFilters = storekit.FilterSet[ListDealsInput]{
-	"organization_id": storekit.FilterID("organization_id",
+	filterOrganizationID: storekit.FilterID(
 		func(in *ListDealsInput, id *ids.OrganizationID) { in.OrganizationID = id }),
-	"owner_id": storekit.FilterID("owner_id", func(in *ListDealsInput, id *ids.UserID) { in.OwnerID = id }),
-	"partner_org_id": storekit.FilterID("partner_org_id",
+	filterOwnerID: storekit.FilterID(func(in *ListDealsInput, id *ids.UserID) { in.OwnerID = id }),
+	filterPartnerOrgID: storekit.FilterID(
 		func(in *ListDealsInput, id *ids.OrganizationID) { in.PartnerOrgID = id }),
-	"partner_sourced": storekit.FilterFlag("partner_sourced", func(in *ListDealsInput, v *bool) { in.PartnerSourced = v }),
-	"pipeline_id": storekit.FilterID("pipeline_id",
-		func(in *ListDealsInput, id *ids.PipelineID) { in.PipelineID = id }),
-	"project_id": storekit.FilterID("project_id",
-		func(in *ListDealsInput, id *ids.ProjectID) { in.ProjectID = id }),
-	"stage_id": storekit.FilterID("stage_id", func(in *ListDealsInput, id *ids.StageID) { in.StageID = id }),
-	"stalled":  storekit.FilterFlag("stalled", func(in *ListDealsInput, v *bool) { in.Stalled = v }),
-	"status":   storekit.FilterWord(func(in *ListDealsInput, v *string) { in.Status = v }),
+	filterPartnerSourced: storekit.FilterFlag(func(in *ListDealsInput, v *bool) { in.PartnerSourced = v }),
+	filterPipelineID:     storekit.FilterID(func(in *ListDealsInput, id *ids.PipelineID) { in.PipelineID = id }),
+	filterProjectID:      storekit.FilterID(func(in *ListDealsInput, id *ids.ProjectID) { in.ProjectID = id }),
+	filterStageID:        storekit.FilterID(func(in *ListDealsInput, id *ids.StageID) { in.StageID = id }),
+	filterStalled:        storekit.FilterFlag(func(in *ListDealsInput, v *bool) { in.Stalled = v }),
+	filterStatus:         storekit.FilterWord(func(in *ListDealsInput, v *string) { in.Status = v }),
 }
 
 var projectListFilters = storekit.FilterSet[ListProjectsInput]{
-	"key": storekit.FilterWord(func(in *ListProjectsInput, v *string) { in.Key = v }),
-	"organization_id": storekit.FilterID("organization_id",
+	filterKey: storekit.FilterWord(func(in *ListProjectsInput, v *string) { in.Key = v }),
+	filterOrganizationID: storekit.FilterID(
 		func(in *ListProjectsInput, id *ids.OrganizationID) { in.OrganizationID = id }),
-	"owner_id": storekit.FilterID("owner_id", func(in *ListProjectsInput, id *ids.UserID) { in.OwnerID = id }),
-	"phase":    storekit.FilterWord(func(in *ListProjectsInput, v *string) { in.Phase = v }),
+	filterOwnerID: storekit.FilterID(func(in *ListProjectsInput, id *ids.UserID) { in.OwnerID = id }),
+	filterPhase:   storekit.FilterWord(func(in *ListProjectsInput, v *string) { in.Phase = v }),
 }
 
 // ListFilters names what SearchEntity can narrow one entity type by.

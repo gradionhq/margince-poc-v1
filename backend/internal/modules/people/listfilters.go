@@ -22,20 +22,30 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
+// The filter names this module answers, spelled once each. They are wire names
+// — a caller's query parameter — which is why they are not the column
+// constants they happen to match today.
+const (
+	filterOwnerID          = "owner_id"
+	filterLifecycle        = "lifecycle"
+	filterRelationshipType = "relationship_type"
+	filterStatus           = "status"
+)
+
 var personListFilters = storekit.FilterSet[ListPeopleInput]{
-	"owner_id": storekit.FilterID("owner_id", func(in *ListPeopleInput, id *ids.UserID) { in.OwnerID = id }),
+	filterOwnerID: storekit.FilterID(func(in *ListPeopleInput, id *ids.UserID) { in.OwnerID = id }),
 }
 
 var organizationListFilters = storekit.FilterSet[ListOrganizationsInput]{
-	"lifecycle": storekit.FilterWord(func(in *ListOrganizationsInput, v *string) { in.Lifecycle = v }),
-	"owner_id": storekit.FilterID("owner_id",
-		func(in *ListOrganizationsInput, id *ids.UserID) { in.OwnerID = id }),
-	"relationship_type": storekit.FilterWord(func(in *ListOrganizationsInput, v *string) { in.RelationshipType = v }),
+	filterLifecycle: storekit.FilterWord(func(in *ListOrganizationsInput, v *string) { in.Lifecycle = v }),
+	filterOwnerID:   storekit.FilterID(func(in *ListOrganizationsInput, id *ids.UserID) { in.OwnerID = id }),
+	filterRelationshipType: storekit.FilterWord(
+		func(in *ListOrganizationsInput, v *string) { in.RelationshipType = v }),
 }
 
 var leadListFilters = storekit.FilterSet[ListLeadsInput]{
-	"owner_id": storekit.FilterID("owner_id", func(in *ListLeadsInput, id *ids.UserID) { in.OwnerID = id }),
-	"status":   storekit.FilterWord(func(in *ListLeadsInput, v *string) { in.Status = v }),
+	filterOwnerID: storekit.FilterID(func(in *ListLeadsInput, id *ids.UserID) { in.OwnerID = id }),
+	filterStatus:  storekit.FilterWord(func(in *ListLeadsInput, v *string) { in.Status = v }),
 }
 
 // ListFilters names what SearchEntity can narrow one entity type by. An entity

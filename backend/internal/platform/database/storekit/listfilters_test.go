@@ -20,9 +20,9 @@ type listInput struct {
 }
 
 var probeFilters = FilterSet[listInput]{
-	"owner_id": FilterID("owner_id", func(in *listInput, id *ids.UserID) { in.Owner = id }),
+	"owner_id": FilterID(func(in *listInput, id *ids.UserID) { in.Owner = id }),
 	"status":   FilterWord(func(in *listInput, v *string) { in.Status = v }),
-	"stalled":  FilterFlag("stalled", func(in *listInput, v *bool) { in.Flag = v }),
+	"stalled":  FilterFlag(func(in *listInput, v *bool) { in.Flag = v }),
 }
 
 // Each binding writes the field it names. A binding that parsed its operand and

@@ -64,7 +64,10 @@ type FilterVocabulary interface {
 // the description present it. It is the set that has BOTH a contract list
 // operation and a store behind the seam; `activity` is deliberately absent,
 // since a timeline is reached through the record it hangs off rather than swept.
-var listRecordTypes = []string{"person", "organization", "deal", "lead", "project"}
+var listRecordTypes = []string{
+	string(datasource.EntityPerson), string(datasource.EntityOrganization),
+	string(datasource.EntityDeal), string(datasource.EntityLead), string(datasource.EntityProject),
+}
 
 // RegisterListTool joins list_records to the surface.
 //
@@ -139,7 +142,26 @@ func (t listRecords) describeFilters() string {
 		}
 		lines = append(lines, recordType+" — "+strings.Join(names, ", "))
 	}
-	return strings.Join(lines, " ")
+	return strings.Join(append(lines, t.sourceOfStageIDs()...), " ")
+}
+
+// sourceOfStageIDs says where a pipeline or stage id comes from, when the
+// published vocabulary asks for one.
+//
+// A filter naming an id nothing on the surface yields is a correct refusal that
+// dead-ends, which is the defect list_pipelines exists to close;
+// TestEveryToolNeedingAPipelineOrStageIDPointsAtListPipelines holds every tool
+// that takes one to saying so.
+func (t listRecords) sourceOfStageIDs() []string {
+	for _, filters := range t.filters {
+		for _, filter := range filters {
+			if filter.Name == "pipeline_id" || filter.Name == "stage_id" {
+				return []string{"A pipeline_id or stage_id comes from list_pipelines; " +
+					"nothing else on this surface yields one."}
+			}
+		}
+	}
+	return nil
 }
 
 // describe renders one filter as a caller must spell it: the closed vocabulary

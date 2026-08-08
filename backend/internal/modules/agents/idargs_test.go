@@ -184,6 +184,10 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	RegisterQueryTool(r, seamProbeProvider{}, func(context.Context, json.RawMessage) (QueryAnswer, error) {
 		return QueryAnswer{}, errSeamReached
 	})
+	RegisterListTool(r, seamProbeProvider{}, probeVocabulary{})
+	RegisterBriefTool(r, func(context.Context) (ReadBriefResult, error) {
+		return ReadBriefResult{}, errSeamReached
+	})
 	return NewDispatcher(r, bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }

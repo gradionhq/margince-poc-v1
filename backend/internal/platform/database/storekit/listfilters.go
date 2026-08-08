@@ -53,7 +53,10 @@ func (s FilterSet[I]) Apply(in *I, filters map[string]string) error {
 			return fmt.Errorf("storekit: %q is not a filter this record type can be listed by", name)
 		}
 		if err := bind(in, filters[name]); err != nil {
-			return err
+			// The FILTER is named here and the SHAPE by the binding, so neither
+			// half has to know the other's — and the operand itself is named by
+			// nobody, since it is caller text on its way back to the caller.
+			return fmt.Errorf("storekit: the %s filter %w", name, err)
 		}
 	}
 	return nil
@@ -73,11 +76,11 @@ func FilterWord[I any](set func(*I, *string)) FilterBinding[I] {
 
 // FilterID binds a reference operand, parsed as the kind the field holds so a
 // person id cannot be handed to a pipeline filter.
-func FilterID[K ids.EntityKind, I any](name string, set func(*I, *ids.ID[K])) FilterBinding[I] {
+func FilterID[K ids.EntityKind, I any](set func(*I, *ids.ID[K])) FilterBinding[I] {
 	return func(in *I, value string) error {
 		id, err := ids.ParseAs[K](value)
 		if err != nil {
-			return badOperand(name, "a uuid, in the 8-4-4-4-12 hex form")
+			return operandShape("a uuid, in the 8-4-4-4-12 hex form")
 		}
 		set(in, &id)
 		return nil
@@ -85,27 +88,27 @@ func FilterID[K ids.EntityKind, I any](name string, set func(*I, *ids.ID[K])) Fi
 }
 
 // FilterFlag binds a boolean operand, spelled as JSON spells it.
-func FilterFlag[I any](name string, set func(*I, *bool)) FilterBinding[I] {
+func FilterFlag[I any](set func(*I, *bool)) FilterBinding[I] {
 	return func(in *I, value string) error {
 		flag, err := strconv.ParseBool(value)
 		if err != nil {
-			return badOperand(name, "true or false")
+			return operandShape("true or false")
 		}
 		set(in, &flag)
 		return nil
 	}
 }
 
-// badOperand says which filter was wrong and what it takes, and does NOT carry
+// operandShape says what a filter's operand must look like, and does NOT carry
 // the parse error.
 //
-// That is deliberate, not a swallowed cause: every parse failure here says one
-// thing — this value is not of that shape — and the only detail it adds is the
-// value itself. This message travels back to a caller who may be an agent, so
-// it lands in that run's later prompts, and echoing an operand of the caller's
-// choosing there is the unbounded write the surface's other echoes are already
-// bounded against. What a caller needs to fix the call is the field and the
-// shape, and both are here.
-func badOperand(filter, takes string) error {
-	return fmt.Errorf("storekit: the %s filter takes %s", filter, takes)
+// That is deliberate rather than a swallowed cause: every parse failure here
+// says one thing — this value is not of that shape — and the only detail the
+// cause adds is the value itself. This message travels back to a caller who may
+// be an agent, so it lands in that run's later prompts, and echoing an operand
+// of the caller's choosing there is the unbounded write the surface's other
+// echoes are already bounded against. What a caller needs in order to fix the
+// call is the field and the shape, and Apply supplies the field.
+func operandShape(takes string) error {
+	return fmt.Errorf("takes %s", takes)
 }
