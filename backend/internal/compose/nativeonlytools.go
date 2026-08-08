@@ -279,3 +279,22 @@ func nativeOnlyQueryRunner(mode overlayModeChecker, run agents.QueryRunner) agen
 		return run(ctx, plan)
 	}
 }
+
+// nativeOnlyBriefReader guards read_brief. The brief ranks the rep's own open
+// deals out of the native tables, and an overlay workspace keeps its deals in
+// the incumbent — so the run would be assembled from rows this workspace does
+// not have. An empty queue is the one failure shape a caller cannot see through:
+// "nothing needs your attention today" and "this cannot be answered here" read
+// identically, and only one of them is true.
+func nativeOnlyBriefReader(mode overlayModeChecker, read agents.BriefReader) agents.BriefReader {
+	return func(ctx context.Context) (agents.ReadBriefResult, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.ReadBriefResult{}, err
+		}
+		if overlay {
+			return agents.ReadBriefResult{}, apperrors.ErrUnsupportedBySoR
+		}
+		return read(ctx)
+	}
+}

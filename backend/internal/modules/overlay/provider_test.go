@@ -261,6 +261,61 @@ func TestProviderSearchRequiresExactlyOneEntityType(t *testing.T) {
 	}
 }
 
+// A structured filter the mirror cannot evaluate is refused, not dropped.
+//
+// Dropping it would answer the unnarrowed page — a SUPERSET of what was asked
+// for, wearing the shape of the right answer — which is the silent break
+// AC-OV-2 forbids. The guard runs before the store is touched, so a zero-value
+// MirrorStore is enough to prove it, and the refusal is the declared
+// unsupported-by-SoR sentinel rather than a generic error, because a caller
+// branches on it to say "not available here" instead of "this failed".
+func TestProviderSearchRefusesAFilterTheMirrorCannotAnswer(t *testing.T) {
+	p := NewProvider(&MirrorStore{}, nil)
+	// A caller who MAY read. The refusal sits behind the object gate on
+	// purpose — see below — so an ungranted principal here would be refused for
+	// a reason that has nothing to do with filters.
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:reader",
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+
+	_, err := p.Search(ctx, datasource.SearchQuery{
+		EntityTypes: []datasource.EntityType{datasource.EntityDeal},
+		Filters:     map[string]string{"stage_id": ids.NewV7().String()},
+	})
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("Search with a filter: got %v, want %v — a dropped filter answers a wider question",
+			err, apperrors.ErrUnsupportedBySoR)
+	}
+}
+
+// And a caller who may NOT read hears the object gate, filter or no filter.
+//
+// The order matters more than it looks: refusing the filter first would let an
+// unauthorized caller learn this workspace's system-of-record mode by attaching
+// one, since the two refusals are different words.
+func TestProviderSearchRefusesAnUngrantedCallerBeforeItsFilters(t *testing.T) {
+	p := NewProvider(&MirrorStore{}, nil)
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:no-grants",
+		Permissions: principal.Permissions{RoleKeys: []string{"rep"}},
+	})
+
+	for _, filters := range []map[string]string{nil, {"stage_id": ids.NewV7().String()}} {
+		_, err := p.Search(ctx, datasource.SearchQuery{
+			EntityTypes: []datasource.EntityType{datasource.EntityDeal}, Filters: filters,
+		})
+		if !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("Search with %d filters and no read grant: got %v, want %v",
+				len(filters), err, apperrors.ErrPermissionDenied)
+		}
+	}
+}
+
 // TestProviderSearchRequiresAMirrorStore proves Search's own nil-store
 // guard, mirroring TestProviderReadRequiresAMirrorStore.
 func TestProviderSearchRequiresAMirrorStore(t *testing.T) {

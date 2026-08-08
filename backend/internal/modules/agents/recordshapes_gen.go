@@ -32,3 +32,46 @@ var updateRecordShapes = map[string]string{
 const activityKindEnum = `["email","call","meeting","note","task","whatsapp","telegram"]`
 
 const activityLinkEntityTypeEnum = `["person","organization","deal","lead"]`
+
+// listRecordFilters is the CONTRACT half of what list_records may be asked to
+// filter by, per record_type: each list operation's OWN declared query
+// parameters, read off crm.yaml rather than authored (A139).
+//
+// It is not the published vocabulary. A name here that no store can bind is
+// dropped at registration by bindableFilters — publishing it would run a list
+// unnarrowed while looking narrowed — and
+// TestOnlyAFilterBothTheContractAndAStoreCarryIsPublished holds that.
+var listRecordFilters = map[string][]listFilter{
+	"person": {
+		{Name: "owner_id", Type: "string"},
+		{Name: "tag", Type: "string"},
+	},
+	"organization": {
+		{Name: "domain", Type: "string"},
+		{Name: "lifecycle", Type: "string", Enum: []string{"unknown", "target", "prospect", "opportunity", "customer", "former_customer", "disqualified"}},
+		{Name: "owner_id", Type: "string"},
+		{Name: "relationship_type", Type: "string", Enum: []string{"customer", "partner", "supplier", "investor", "portfolio_company", "competitor", "other"}},
+	},
+	"deal": {
+		{Name: "organization_id", Type: "string"},
+		{Name: "owner_id", Type: "string"},
+		{Name: "partner_org_id", Type: "string"},
+		{Name: "partner_sourced", Type: "boolean"},
+		{Name: "pipeline_id", Type: "string"},
+		{Name: "project_id", Type: "string"},
+		{Name: "stage_id", Type: "string"},
+		{Name: "stalled", Type: "boolean"},
+		{Name: "status", Type: "string", Enum: []string{"open", "won", "lost"}},
+	},
+	"lead": {
+		{Name: "min_score", Type: "integer"},
+		{Name: "owner_id", Type: "string"},
+		{Name: "status", Type: "string", Enum: []string{"new", "working", "promoted", "disqualified"}},
+	},
+	"project": {
+		{Name: "key", Type: "string"},
+		{Name: "organization_id", Type: "string"},
+		{Name: "owner_id", Type: "string"},
+		{Name: "phase", Type: "string", Enum: []string{"initiative", "pursuing", "delivering", "closed"}},
+	},
+}

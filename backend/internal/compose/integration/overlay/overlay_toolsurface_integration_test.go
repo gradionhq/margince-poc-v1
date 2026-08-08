@@ -82,6 +82,10 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		// is safe, so a ladder run against empty native tables would turn the
 		// duplicate guard into a duplicate factory.
 		"resolve_entities": `{"candidates":[{"kind":"person","name":"Anna Weber"}]}`,
+		// The morning brief, ranked out of the rep's own open deals in the
+		// native tables. It takes no arguments: the queue a caller may read is
+		// the one belonging to the human they act for.
+		"read_brief": `{}`,
 		// A WRITE, and the one whose tool calls its module store directly — so
 		// it needs a decorator (nativeOnlyDisqualifier) where the other
 		// unservable writes inherit the provider's own refusal.
@@ -400,15 +404,19 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 	ctx := e.As(e.Rep1, nil, nativeToolReaderPerms())
 
-	// The anchored intents may honestly answer not-found (their anchor id is
-	// minted, not seeded); the ones that take no record must SUCCEED, so a
-	// native report path that broke outright cannot hide behind "well, it
+	// The tools whose NOT-FOUND is itself a served answer — the answer only a
+	// workspace that actually ran the lookup can give. Everything else must
+	// SUCCEED, so a native path that broke outright cannot hide behind "well, it
 	// didn't say unsupported_by_sor".
-	anchored := map[string]bool{
+	notFoundIsAnAnswer := map[string]bool{
+		// Anchored intents and writes, against an anchor id that is minted
+		// rather than seeded.
 		"catch_me_up_on": true, "prep_for_meeting": true, "intro_path_to": true,
-		// Writes against minted ids: not-found IS the served answer, and it is
-		// the answer only a workspace that actually ran the lookup can give.
 		"disqualify_lead": true, "promote_lead": true, "merge_records": true, "advance_deal": true,
+		// A rep with no assembled brief: read_brief re-reads a persisted run and
+		// never ranks, so "none has been generated" is what it owes rather than
+		// an empty queue that reads as a quiet morning.
+		"read_brief": true,
 	}
 
 	anchor := ids.NewV7()
@@ -419,11 +427,58 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 				t.Fatalf("%s refused a NATIVE workspace with unsupported_by_sor — the mode guard is inverted", name)
 			}
 			switch {
-			case anchored[name] && err != nil && !errors.Is(err, apperrors.ErrNotFound):
+			case notFoundIsAnAnswer[name] && err != nil && !errors.Is(err, apperrors.ErrNotFound):
 				t.Fatalf("%s err = %v, want nil or ErrNotFound", name, err)
-			case !anchored[name] && err != nil:
+			case !notFoundIsAnAnswer[name] && err != nil:
 				t.Fatalf("%s err = %v, want nil — a native workspace must actually be served", name, err)
 			}
 		})
+	}
+}
+
+// An enumeration of a mirrored workspace splits on whether it was asked to
+// narrow.
+//
+// Unfiltered it is a read like any other and the mirror serves it. Filtered it
+// cannot be: the mirror holds the incumbent's rows as opaque fields, so
+// `owner_id` has nothing to bind to — and the failure that matters is the quiet
+// one, where the filter is dropped and the caller is handed the whole page as
+// though it were the narrowed answer. Both arms are asserted together, because
+// a guard that refused everything would pass the half that matters on its own.
+func TestOverlayListRecordsRefusesAFilterAndServesAnEnumeration(t *testing.T) {
+	e := integration.Setup(t)
+	ws, user := seedOverlayModeWorkspace(t)
+	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	ctx := overlayActorCtxWith(ws, user, nativeToolReaderPerms())
+
+	_, err := registry.Invoke(ctx, "list_records",
+		json.RawMessage(fmt.Sprintf(`{"record_type":"person","filters":{"owner_id":%q}}`, ids.NewV7())))
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("a filtered list of a mirrored workspace: err = %v, want ErrUnsupportedBySoR — "+
+			"a dropped filter answers a wider question in the shape of the right answer", err)
+	}
+
+	// The served arm needs a row to serve: the mirror's visibility join is
+	// fail-closed, so an unmapped rep reads as not-found rather than as empty.
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](user), "hubspot", "owner-1", "manual"); err != nil {
+		t.Fatalf("mapping the acting user to owner-1: %v", err)
+	}
+	if err := mirror.Ingest(ctx, overlaymod.Record{
+		ObjectClass: "person", ExternalID: "100214862044",
+		Fields: map[string]any{"firstname": "Enumerated", "lastname": "Mirror"},
+		// A fixed instant: the row's age decides nothing here, and a test that
+		// reads the wall clock is a test whose fixture changes under it.
+		ModifiedAt: time.Date(2026, 8, 8, 6, 0, 0, 0, time.UTC), OwnerExternalID: "owner-1",
+	}); err != nil {
+		t.Fatalf("ingesting the overlay fixture record: %v", err)
+	}
+
+	out, err := registry.Invoke(ctx, "list_records", json.RawMessage(`{"record_type":"person"}`))
+	if err != nil {
+		t.Fatalf("an unfiltered list of a mirrored workspace: err = %v, want it served from the mirror", err)
+	}
+	if !bytes.Contains(out, []byte("Enumerated")) {
+		t.Errorf("the enumeration answered %s, without the mirror row it was asked for", out)
 	}
 }

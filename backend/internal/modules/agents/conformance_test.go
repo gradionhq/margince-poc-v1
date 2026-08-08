@@ -155,6 +155,8 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterResolveTool(r, nil, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
 		return nil, nil
 	})
+	RegisterListTool(r, nil, probeVocabulary{})
+	RegisterBriefTool(r, briefOf(0))
 	return r
 }
 

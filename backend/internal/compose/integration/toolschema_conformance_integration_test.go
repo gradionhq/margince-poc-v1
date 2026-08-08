@@ -28,9 +28,14 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/briefs"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -83,8 +88,19 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		`{"record_type":"project","fields":{"name":"Conformance project","organization_id":"`+
 			org.String()+`"}}`)
 
+	// The brief is a persisted read-model, so the lane assembles one for this
+	// rep before reading it: read_brief never ranks, and an unassembled brief
+	// answers not-found rather than an empty queue.
+	snapshotBriefRun(ctx, t, e.Pool)
+
 	calls := []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
+		{"read_brief", `{}`},
+		// An enumeration, narrowed and unnarrowed. The narrowed one is the
+		// answer worth holding to the shape: a filter that reached no SQL still
+		// returns a well-formed page, of the wrong rows.
+		{"list_records", `{"record_type":"deal","filters":{"pipeline_id":"` + pipeline.String() + `"}}`},
+		{"list_records", `{"record_type":"person","limit":5}`},
 		{"run_report", `{"report":"deals-by-stage"}`},
 		{"search_records", `{"q":"Conformance"}`},
 		{"search_records", `{"q":"Conformance","record_type":"person","limit":5}`},
@@ -266,5 +282,22 @@ func TestTheConformanceCheckFailsAgainstAMisdeclaredSchema(t *testing.T) {
 					"the defect it exists to catch")
 			}
 		})
+	}
+}
+
+// snapshotBriefRun assembles one morning brief for the acting rep, the way the
+// human home surface does.
+//
+// read_brief re-reads a persisted run and never ranks — that is the contract's
+// own rule, not a limitation of this lane — so without a run the sweep would be
+// certifying a not-found instead of an answer.
+func snapshotBriefRun(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	engine := briefs.NewBriefEngine(pool, people.NewStore(pool))
+	// A fixed instant. The run only has to EXIST for read_brief to have
+	// something to re-read, and ranking against the wall clock would make what
+	// this lane certifies depend on the day it ran.
+	if _, err := engine.SnapshotRun(ctx, time.Date(2026, 8, 8, 6, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("assembling a brief run for the acting rep: %v", err)
 	}
 }

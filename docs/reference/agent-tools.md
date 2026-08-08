@@ -44,9 +44,9 @@ the credential: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## The catalog
 
-The **31 core tools**, listed in the order `Registry.Specs()` sorts them — which
+The **33 core tools**, listed in the order `Registry.Specs()` sorts them — which
 is the order `tools/list` returns. An enabled extension unit adds its own verbs
-to the same listing, so a vanilla install answers 32: these plus `yogi_quote`
+to the same listing, so a vanilla install answers 34: these plus `yogi_quote`
 (🟢, `read`), which is not tabled here because the catalog tracks the core
 surface.
 
@@ -86,12 +86,14 @@ Columns:
 | `enrich` | 🟡 | `enrich` | yes | Reads the company's own website, not a record store; the write-back is seam-routed |
 | `intro_path_to` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `list_pipelines` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
+| `list_records` | 🟢 | `read` | — | Mirror-backed unfiltered; a FILTERED call is `unsupported_by_sor` (see below) |
 | `log_activity` | 🟢 | `write` | — | Seam-routed: write-back through the incumbent |
 | `merge_records` | 🟡 | `write` | — | `unsupported_by_sor` (no atomic incumbent projection) |
 | `prep_for_meeting` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `progress_deal` | dynamic | `write` | — | `unsupported_by_sor` (shares `advance_deal`'s seam) |
 | `promote_lead` | 🟡 | `write` | — | `unsupported_by_sor` (no atomic incumbent projection) |
 | `qualify_lead` | 🟢 | `write` | — | Seam-routed: read + patch through the provider |
+| `read_brief` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `read_record` | 🟢 | `read` | — | Mirror-backed; result carries `trust_tier: external` |
 | `query_workspace` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `relink_activity` | 🟢 | `write` | — | Runs: a link row is not an SoR record write, so it is available in either mode |
@@ -103,7 +105,7 @@ Columns:
 | `whats_slipping_this_week` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `who_knows` | 🟢 | `read` | — | Native relationship read; carries no mode guard |
 
-Three rows deserve their footnote:
+Four rows deserve their footnote:
 
 - **`update_record` is 🟢 with a 🟡 residue.** The patch splits per field: the
   fields no human last wrote apply immediately, and the fields a human *did*
@@ -123,6 +125,15 @@ Three rows deserve their footnote:
   deals are slipping" is a worse failure than "this is not available here",
   because only one of them is visibly wrong. The wrappers live in
   `internal/compose/nativeonlytools.go`.
+- **`list_records` splits on whether it was asked to narrow.** Unfiltered, it is
+  an enumeration the mirror can serve like any other read. Filtered, it cannot
+  be: the mirror holds the incumbent's rows as opaque fields, so `owner_id` or
+  `stage_id` has nothing to bind to — and answering the unnarrowed page would
+  return a superset of what was asked for wearing the shape of the right answer.
+  So the overlay provider refuses the filtered call outright (AC-OV-2). Which
+  filters exist at all is not written here or in the tool: they are the
+  intersection of each list operation's own `crm.yaml` parameters and what the
+  record's store can bind, resolved at boot and published in the tool's schema.
 
 ## What each scope buys
 
@@ -132,11 +143,11 @@ passport's scopes and the granting human's live RBAC and seat — never the unio
 and never the passport alone.
 
 Counts are of the core catalog above; an enabled unit's verbs add to them
-(vanilla: `yogi_quote` makes `read` 14).
+(vanilla: `yogi_quote` makes `read` 16).
 
 | Scope | Tools it unlocks | What it means |
 |---|---|---|
-| `read` | 13 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
+| `read` | 15 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
 | `draft` | 2 | Proposes text. Not read-only: `draft_email` returns a proposal and writes nothing, while `draft_follow_ups_for` persists a draft activity on the deal's timeline. |
 | `write` | 12 | Creates, patches, archives, advances, merges, promotes, disqualifies, re-links — every change that stays inside the workspace. |
 | `send` | 3 | The three egress verbs. All three are 🟡, so the scope buys the right to *ask*, never the right to send unattended. |
