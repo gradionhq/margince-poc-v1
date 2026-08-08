@@ -97,7 +97,9 @@ Columns:
 | `read_record` | 🟢 | `read` | — | Mirror-backed; result carries `trust_tier: external` |
 | `query_workspace` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `relink_activity` | 🟢 | `write` | — | Runs: a link row is not an SoR record write, so it is available in either mode |
+| `resolve_entities` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `run_report` | 🟢 | `read` | — | `unsupported_by_sor` (no incumbent analogue) |
+| `search_context` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `search_records` | 🟢 | `read` | — | Mirror-backed; results carry `trust_tier: external` |
 | `send_email` | 🟡 | `send` | yes | Staging refuses a mirror-held anchor |
 | `send_message` | 🟡 | `send` | yes | Staging refuses a mirror-held anchor |
@@ -105,7 +107,7 @@ Columns:
 | `whats_slipping_this_week` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `who_knows` | 🟢 | `read` | — | Native relationship read; carries no mode guard |
 
-Four rows deserve their footnote:
+Five rows deserve their footnote:
 
 - **`update_record` is 🟢 with a 🟡 residue.** The patch splits per field: the
   fields no human last wrote apply immediately, and the fields a human *did*
@@ -134,6 +136,20 @@ Four rows deserve their footnote:
   filters exist at all is not written here or in the tool: they are the
   intersection of each list operation's own `crm.yaml` parameters and what the
   record's store can bind, resolved at boot and published in the tool's schema.
+- **`resolve_entities` and `search_context` answer records the CALLER may see,
+  from engines that look wider.** The dedupe ladder behind `resolve_entities` is
+  workspace-wide on purpose — a duplicate is a duplicate whoever is looking, and
+  a match set that narrowed per caller would let one payload create a second
+  record for one rep and not another — so every id it names is read back through
+  the datasource seam before it is served. That read is what applies object RBAC
+  and row scope, stamps the trust tier, and charges the record against
+  MCP-SESS-READS. Two consequences are deliberate: a match the caller may not
+  read answers `unresolved`, the same word a genuine miss gets, because a
+  distinct answer would let a caller probe one address at a time for records they
+  may not know exist; and an `ambiguous` answer stays ambiguous when only one
+  rival survives, because collapsing it would settle a disagreement using the
+  caller's own blindness. The narrowing is reported once per call, without a
+  count.
 
 ## What each scope buys
 
@@ -143,11 +159,11 @@ passport's scopes and the granting human's live RBAC and seat — never the unio
 and never the passport alone.
 
 Counts are of the core catalog above; an enabled unit's verbs add to them
-(vanilla: `yogi_quote` makes `read` 16).
+(vanilla: `yogi_quote` makes `read` 18).
 
 | Scope | Tools it unlocks | What it means |
 |---|---|---|
-| `read` | 15 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
+| `read` | 17 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
 | `draft` | 2 | Proposes text. Not read-only: `draft_email` returns a proposal and writes nothing, while `draft_follow_ups_for` persists a draft activity on the deal's timeline. |
 | `write` | 12 | Creates, patches, archives, advances, merges, promotes, disqualifies, re-links — every change that stays inside the workspace. |
 | `send` | 3 | The three egress verbs. All three are 🟡, so the scope buys the right to *ask*, never the right to send unattended. |
