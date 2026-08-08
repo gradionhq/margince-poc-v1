@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -49,11 +51,11 @@ func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumben
 	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil)
 }
 
-// registryWithGate composes the tool surface. The read-bound charger arrives as
+// registryWithGate composes the tool surface. The quota charger arrives as
 // an option rather than a parameter because only the API server — the one role
 // that serves agent principals through the MCP and REST doors — has a meter to
 // charge. The Surface-B runner and the workflow paths run as the human or the
-// system that started them, and readmeter governs agents only, so a registry
+// system that started them, and the quota meter governs agents only, so a registry
 // built without one is not an unmetered agent surface; it is a surface no agent
 // reaches.
 //
@@ -258,6 +260,45 @@ func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (id
 		TargetType:     in.TargetType,
 		TargetID:       in.TargetID,
 		Summary:        in.Summary,
+	})
+}
+
+// StageQuotaRelease puts a §2.4 step-up in front of the human who lent the
+// calling passport.
+//
+// It stages through the DECLINED-AWARE path, unlike Stage above, and both
+// differences that drives are deliberate. JoinPending + Identity means ONE
+// question per counter per window: an agent looping on a refusal re-asks
+// nothing, where the ordinary path would fill an inbox with copies of one
+// question and leave the rest to be dismissed after the first was answered. And
+// a human's NO is remembered — a rejected step-up is not re-offered on the next
+// call, which is the difference between a control and a nag.
+//
+// It carries NO target, because a step-up is about a credential's volume rather
+// than about a record. That shape is what makes it decidable by the lender alone
+// (approvals' selfOnlyKinds over a target-less staging), and it is why the
+// identity carries the discrimination a diff hash carries for every other kind:
+// there is no diff.
+func (a approvalsAdapter) StageQuotaRelease(ctx context.Context, in agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	payload, err := json.Marshal(in.Proposal)
+	if err != nil {
+		return ids.ApprovalID{}, false, fmt.Errorf("compose: encoding a step-up proposal: %w", err)
+	}
+	identity, err := in.Proposal.Identity()
+	if err != nil {
+		return ids.ApprovalID{}, false, err
+	}
+	_, diffHash, err := diffhash.Object(map[string]any{"quota_release": string(identity)})
+	if err != nil {
+		return ids.ApprovalID{}, false, fmt.Errorf("compose: hashing a step-up proposal: %w", err)
+	}
+	return a.svc.StageUnlessDeclined(ctx, approvals.StageInput{
+		Kind:           approvals.KindQuotaRelease,
+		ProposedChange: payload,
+		DiffHash:       diffHash,
+		Summary:        in.Summary,
+		JoinPending:    true,
+		Identity:       identity,
 	})
 }
 

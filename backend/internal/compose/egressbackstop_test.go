@@ -74,7 +74,7 @@ func TestRESTRedemptionMarksTheCallReleasedForTheSeam(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPatch, "/v1/people/"+ids.NewV7().String(), http.NoBody)
 	req.Header.Set(approvalTokenHeader, approvalID.String())
 
-	handled := redeemIfPresented(httptest.NewRecorder(), req, next, stubApprovals{},
+	handled, _ := redeemIfPresented(httptest.NewRecorder(), req, next, stubApprovals{},
 		agentPolicy{Op: "updatePerson", Access: "tool", Tool: "update_record", RecordType: "person"}, []byte(`{}`))
 
 	if !handled {
@@ -94,7 +94,7 @@ func TestRESTGateDoesNotMarkAnUnredeemedCall(t *testing.T) {
 	})
 	req := httptest.NewRequest(http.MethodPatch, "/v1/people/"+ids.NewV7().String(), http.NoBody)
 
-	if redeemIfPresented(httptest.NewRecorder(), req, next, stubApprovals{}, agentPolicy{Tool: "update_record"}, []byte(`{}`)) {
+	if handled, _ := redeemIfPresented(httptest.NewRecorder(), req, next, stubApprovals{}, agentPolicy{Tool: "update_record"}, []byte(`{}`)); handled {
 		t.Fatal("a request with no approval token was treated as a redemption")
 	}
 	if seen {

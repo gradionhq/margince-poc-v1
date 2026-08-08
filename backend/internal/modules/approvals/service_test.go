@@ -505,7 +505,15 @@ func TestDecisionGrantObjectsNamesWhatTheDecisionEnforces(t *testing.T) {
 			continue
 		}
 		if len(objects) == 0 {
-			t.Errorf("kind %q demands no object at all — anyone could release its stagings", kind)
+			// A kind may demand no OBJECT only if something else narrows it to
+			// one human, and selfOnlyKinds is the only such narrowing there is.
+			// Absent that clause an empty set means "anyone holding nothing in
+			// particular", which is precisely the failure this walk exists to
+			// catch — so the exemption is DERIVED from the narrowing rather than
+			// granted to a kind by name.
+			if !selfOnlyKinds[kind] {
+				t.Errorf("kind %q demands no object at all and is not self-only — anyone could release its stagings", kind)
+			}
 			continue
 		}
 		for _, withheld := range objects {

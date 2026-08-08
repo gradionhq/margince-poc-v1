@@ -22,6 +22,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -40,7 +41,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// The SAME meter the tool registry charges: this door refuses on the bound
 	// the other door pays into, so a Passport cannot spend its window on one
 	// and keep reading on the other.
-	gate := auth.NewGate(identitySvc, auth.WithReadBound(srv.readMeter))
+	gate := auth.NewGate(identitySvc, auth.WithQuota(srv.quotaMeter))
 	// This registry admits REST calls; it never INVOKES a tool — a REST enrich
 	// runs scrapeHandlers, not the tool — so the enricher here supplies only the
 	// spec's cap and tier, and the ZERO value supplies those. Deliberately not
@@ -49,7 +50,14 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// about, and it would read as if something ran through it. The MCP
 	// transport invokes tools through srv.toolRegistry, which holds the live
 	// server.
-	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send, companyEnricher{}, srv.retrievalEmbedder)
+	//
+	// It DOES carry the quota charger, even though it invokes nothing: the two
+	// charge points agentGate calls (ChargeAdmittedCall, ChargeEffect) hang off
+	// this registry, so a registry built without one would refuse REST calls on
+	// a counter it then never paid — the exact half-a-control this change exists
+	// to remove.
+	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send,
+		companyEnricher{}, srv.retrievalEmbedder, agents.WithQuotaCharger(srv.quotaMeter))
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode

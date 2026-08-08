@@ -361,19 +361,62 @@ each tool advertises the exact shape its handler marshals, and a result that
 misses it is withheld from `structuredContent` and logged as this server's own
 defect rather than served in violation of a promise it just made.
 
-**Sessions, in the handshake era only.** A successful `initialize` mints one and
-returns it as `Mcp-Session-Id`. `DELETE /mcp` closes only the session the
-*presenting* passport opened; a session id that does not exist under that
-passport — whether it never existed or belongs to someone else — answers `404`
-identically, so a probe cannot tell the two apart. A **modern** call mints none,
-and an `Mcp-Session-Id` presented on one is ignored rather than echoed: a call
-that carries its own state can land on any replica.
+**No sessions, in either era.** `initialize` still answers a handshake-era
+client, and it mints no `Mcp-Session-Id`; a presented one is ignored rather than
+echoed, and `DELETE /mcp` answers `405` — this server establishes no session, so
+there is none to close. The id was never authority (every call re-authenticates
+on its Bearer passport), and what it cost was real: it pinned a conversation to
+the one process that answered `initialize`.
+
+**Four volume counters instead, per Passport, per window** (`MCP-SESS-*`,
+ADR-0092 §6) — the bound the session was implicitly carrying, made explicit and
+kept in Redis where every replica reads the same number. Which counter a call
+spends is derived from what it already declares, never from a list of tool
+names: an egress-flagged tool spends `egress`, a read-only one spends `reads`
+per **record** served, anything else spends `writes`, and every admitted call
+also spends one of `calls`. Crossing one does one of two things. `reads` and
+`writes` are **step-ups**: the call is refused *and* the question — "this agent
+has been handed N of its M records for this window; continue?" — goes to the
+human who lent the passport, whose approval widens that window by one more
+allowance. Nobody else can answer it, not an admin and not the workspace owner:
+an agent's ceiling is its lender's authority. `egress` and `calls` are **hard
+stops** that no approval lifts and only the window ends. A fifth counter,
+`cost`, is soft — it refuses nothing, and says on the answer when this
+credential has spent its share of the workspace AI budget.
 
 **Every call re-authenticates.** The binder runs per call, not per session, so
 revoking the passport or demoting the granting human takes effect on the very
 next `tools/call`, mid-session. A credential the server cannot *reach* a verdict
 on answers `503`, never `401` — a 401 would tell a well-behaved client its good
 token is bad and turn an outage into mass re-consent.
+
+**How a client gets a `client_id`.** Two ways, and a client that reads the
+profile's own priority order picks the first:
+
+- **A Client ID Metadata Document (CIMD)** — the forward path. The `client_id`
+  IS an `https` URL with a path, resolving to a JSON document that states its
+  own `client_id`, `client_name` and `redirect_uris`. This server fetches it,
+  and the fetch is the part worth knowing about: **redirects are not followed**
+  (a followed hop is a second URL the caller chose), the address is refused at
+  connect time if it resolves anywhere inside the deployment, the body is capped
+  at 64 KiB, the timeout is 5s, and the document's own `client_id` must equal
+  the URL it came from **byte for byte** — no normalizing, because a normalizer
+  is a second reading of one value. A validated document becomes an ordinary
+  `oauth_client` row with `created_via = 'cimd'`, so an admin disables, deletes
+  and revokes it exactly as they would a registered one, and it is refetched
+  when the client's own cache headers say it has gone stale (clamped to between
+  5 minutes and 24 hours).
+- **Dynamic client registration** (`POST /oauth/register`) — deprecated in the
+  profile, and **retained here for the compatibility window** (ADR-0092 §4), so
+  a client registered before any of this is not stranded by a revision it never
+  asked for. `client_id_metadata_document_supported: true` and
+  `registration_endpoint` are both advertised in the authorization-server
+  metadata, on purpose.
+
+Either way the consent screen names the **host** the authorization will be sent
+back to, and says so again when that host is an address on this computer — a
+metadata document can prove what a client calls itself, and cannot prove which
+program holds a loopback port.
 
 ## Where to go next
 

@@ -40,6 +40,10 @@ type Service struct {
 	// commits, only on approve; exactly-once is the effect's own duty
 	// (the redeem-then-execute discipline every 🟡 executor follows).
 	effects map[string]ApprovedEffect
+	// quota is the volume meter an approved step-up widens (quotarelease.go).
+	// Nil in a composition that serves no agents, where a step-up can never be
+	// staged in the first place.
+	quota QuotaReleaser
 }
 
 const (
