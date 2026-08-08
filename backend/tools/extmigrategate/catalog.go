@@ -372,9 +372,64 @@ func assertRLSBindsTheOwner(ctx context.Context, conn *pgx.Conn, rel relation, w
 	// the migration did not already have, but a gate that can be made to emit a
 	// confusing error instead of a verdict is not one to leave standing.
 	target := pgx.Identifier{extSchema, rel.name}.Sanitize()
-	rows, err := conn.Query(ctx, `EXPLAIN (COSTS OFF) SELECT * FROM `+target)
+
+	plan, err := seqScanPlan(ctx, conn, target)
 	if err != nil {
 		return fmt.Errorf("planning a read of %s as its owner: %w", where, err)
+	}
+	// The whole rendered predicate, not the bare column name: a unit table
+	// called ext_de_workspace_id_map puts "workspace_id" into the plan's
+	// `Seq Scan on …` line, and a probe that looked for that would pass
+	// vacuously on exactly the table it exists to check.
+	if !strings.Contains(plan, "Filter: "+tenantPredicate) {
+		return fmt.Errorf("a read of %s by its own owner plans without the tenant filter:\n%s— row-level security is not binding the owner, so the policy on this table isolates nothing", where, plan)
+	}
+	return nil
+}
+
+// seqScanPlan renders the plan for a bare read of target with index and bitmap
+// scans disabled, so the policy's qualifier can only appear as a `Filter:` line.
+//
+// Forcing the plan shape is what makes the probe deterministic. Left to the
+// planner, a table with an index on workspace_id — the natural thing to declare
+// under RLS, since the policy compares that column — plans the policy qualifier
+// as `Index Cond:` instead, and does so on a freshly created, empty, un-ANALYZEd
+// table, which is precisely the state this gate sees. The probe would then
+// report "row-level security is not binding the owner" about a table that is
+// correctly isolated.
+//
+// The alternative — accepting `Index Cond:` as well — was rejected. That form
+// renders the predicate differently, so matching it would mean matching loosely,
+// and loose matching is the exact vacuity the `Filter:` comparison was
+// introduced to close. Better to decide the plan shape than to widen the match.
+//
+// enable_indexonlyscan is not set: PostgreSQL requires enable_indexscan for an
+// index-only scan, so turning the former off already excludes it.
+//
+// The transaction exists only to scope the SET: SET LOCAL is a no-op outside
+// one. Nothing is written, so it is rolled back rather than committed.
+func seqScanPlan(ctx context.Context, conn *pgx.Conn, target string) (string, error) {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		//craft:ignore swallowed-errors nothing was written; a rollback failure cannot change the verdict
+		_ = tx.Rollback(ctx)
+	}()
+
+	for _, setting := range []string{
+		`SET LOCAL enable_indexscan = off`,
+		`SET LOCAL enable_bitmapscan = off`,
+	} {
+		if _, err := tx.Exec(ctx, setting); err != nil {
+			return "", fmt.Errorf("%s: %w", setting, err)
+		}
+	}
+
+	rows, err := tx.Query(ctx, `EXPLAIN (COSTS OFF) SELECT * FROM `+target)
+	if err != nil {
+		return "", err
 	}
 	defer rows.Close()
 
@@ -382,22 +437,12 @@ func assertRLSBindsTheOwner(ctx context.Context, conn *pgx.Conn, rel relation, w
 	for rows.Next() {
 		var line string
 		if err := rows.Scan(&line); err != nil {
-			return fmt.Errorf("planning a read of %s as its owner: %w", where, err)
+			return "", err
 		}
 		plan.WriteString(line)
 		plan.WriteString("\n")
 	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("planning a read of %s as its owner: %w", where, err)
-	}
-	// The whole rendered predicate, not the bare column name: a unit table
-	// called ext_de_workspace_id_map puts "workspace_id" into the plan's
-	// `Seq Scan on …` line, and a probe that looked for that would pass
-	// vacuously on exactly the table it exists to check.
-	if !strings.Contains(plan.String(), "Filter: "+tenantPredicate) {
-		return fmt.Errorf("a read of %s by its own owner plans without the tenant filter:\n%s— row-level security is not binding the owner, so the policy on this table isolates nothing", where, plan.String())
-	}
-	return nil
+	return plan.String(), rows.Err()
 }
 
 func nullability(notNull bool) string {

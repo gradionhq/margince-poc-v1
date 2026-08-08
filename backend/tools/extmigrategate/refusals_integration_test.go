@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -430,5 +431,46 @@ func TestGateRefusesARoleTheClusterHasWidened(t *testing.T) {
 			ns := namespaceOf(t, unit)
 			requireRefusal(t, runGate(t, unit, migrationDir(t, scaffoldUp(ns), scaffoldDown(ns))), c.mustMention)
 		})
+	}
+}
+
+// assertNoRules excludes the rule named _RETURN, because that rule IS a view and
+// a view in ext is already refused by name with a better message. This pins the
+// reason that exclusion cannot be abused, rather than leaving it as a fact about
+// PostgreSQL internals somebody verified by hand once.
+//
+// There are two worlds and the gate refuses in both, so the test accepts either
+// and says which fired:
+//
+//   - PostgreSQL 16, where this runs: the server refuses an ON SELECT rule on a
+//     table outright. There is no way to attach _RETURN to anything but a view.
+//   - The legacy conversion, if a server still supports it: attaching _RETURN to
+//     a table is the exact mechanism that TURNS it into one, so relkind flips to
+//     'v' and assertRelationAllowed refuses it by name.
+//
+// The table is created bare — no primary key, no foreign key — because the
+// legacy conversion refuses a table carrying indexes or constraints, and a
+// fixture that failed for THAT reason would prove nothing about _RETURN.
+func TestGateRefusesAManualReturnRule(t *testing.T) {
+	unit := unitName(t, "retrule")
+	ns := namespaceOf(t, unit)
+	up := scaffoldUp(ns) + fmt.Sprintf(`
+CREATE TABLE ext.%[1]s_asview (id uuid, workspace_id uuid);
+CREATE RULE "_RETURN" AS ON SELECT TO ext.%[1]s_asview
+    DO INSTEAD SELECT id, workspace_id FROM ext.%[1]s_note;
+`, ns)
+	down := fmt.Sprintf("DROP TABLE IF EXISTS ext.%s_asview CASCADE;\n", ns) + scaffoldDown(ns)
+
+	err := runGate(t, unit, migrationDir(t, up, down))
+	if err == nil {
+		t.Fatal("a manual _RETURN rule must not reach the catalog unrefused — it is the one rule assertNoRules skips")
+	}
+	switch {
+	case strings.Contains(err.Error(), "cannot have ON SELECT rules"):
+		t.Logf("refused by PostgreSQL: an ON SELECT rule cannot be attached to a table at all\n%v", err)
+	case strings.Contains(err.Error(), "is a VIEW"):
+		t.Logf("refused by the catalog gate: the conversion flipped relkind to 'v'\n%v", err)
+	default:
+		t.Errorf("the gate refused, but for neither of the two reasons that make the _RETURN exclusion safe:\n%v", err)
 	}
 }

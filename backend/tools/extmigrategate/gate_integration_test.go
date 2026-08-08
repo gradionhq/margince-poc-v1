@@ -195,6 +195,74 @@ func TestGateAcceptsTheScaffoldedShape(t *testing.T) {
 	}
 }
 
+// Indexing workspace_id is the natural thing to do under RLS — the policy's
+// predicate is a comparison on it, so every query filters on it — and it is the
+// case the plan probe is most likely to get wrong. On a freshly created, empty,
+// un-ANALYZEd table the planner's default statistics favour the index, so the
+// predicate renders as `Index Cond:` and never as `Filter:`. That is exactly the
+// state the gate sees right after applying a migration.
+func TestGateAcceptsATenantTableIndexedOnWorkspaceID(t *testing.T) {
+	unit := unitName(t, "idx")
+	ns := namespaceOf(t, unit)
+	up := scaffoldUp(ns) + fmt.Sprintf("CREATE INDEX %[1]s_note_ws ON ext.%[1]s_note (workspace_id);\n", ns)
+
+	if err := runGate(t, unit, migrationDir(t, up, scaffoldDown(ns))); err != nil {
+		t.Fatalf("a correctly isolated table that indexes %s must pass: %v", tenantColumn, err)
+	}
+}
+
+// The plan probe's whole job is to refuse a connection row-level security does
+// not bind, and the trap it guards is that such a connection reports
+// relforcerowsecurity=true just like a bound one. This drives the probe directly
+// with a SUPERUSER connection — the dev and CI owner, the exact Stage A trap —
+// over a table deliberately NAMED so that the bare string "workspace_id" appears
+// in the plan without the predicate binding anything.
+//
+// A probe that looked for the column name rather than the rendered predicate
+// passes this. That is the false-pass the exact match exists to close, and this
+// is the test that keeps it closed.
+func TestTheRLSProbeRefusesAConnectionRowLevelSecurityDoesNotBind(t *testing.T) {
+	ctx := context.Background()
+	owner := admin(t)
+
+	// Not created through the gate: the point is to hold the table's shape
+	// correct and vary only the connection the probe runs over.
+	name := fmt.Sprintf("ext_probe_%d_workspace_id_map", os.Getpid())
+	for _, statement := range []string{
+		fmt.Sprintf(`CREATE TABLE ext.%s (id uuid NOT NULL, workspace_id uuid NOT NULL)`, name),
+		fmt.Sprintf(`ALTER TABLE ext.%s ENABLE ROW LEVEL SECURITY`, name),
+		fmt.Sprintf(`ALTER TABLE ext.%s FORCE ROW LEVEL SECURITY`, name),
+		fmt.Sprintf(`CREATE POLICY %s_iso ON ext.%s USING %s WITH CHECK %s`, name, name, predicateSQL, predicateSQL),
+	} {
+		if _, err := owner.Exec(ctx, statement); err != nil {
+			t.Fatalf("building the probe fixture (%s): %v", statement, err)
+		}
+	}
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(), `DROP TABLE IF EXISTS ext.`+name); err != nil {
+			t.Errorf("dropping the probe fixture: %v — every later gate run enumerates schema ext", err)
+		}
+	})
+
+	var super bool
+	if err := owner.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = current_user`).Scan(&super); err != nil {
+		t.Fatalf("reading the owner's attributes: %v", err)
+	}
+	if !super {
+		t.Fatalf("this cluster's owner is not a superuser, so FORCE binds it and the probe would pass — the trap being tested does not exist here")
+	}
+
+	rel := relation{name: name}
+	if err := owner.QueryRow(ctx, `
+		SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND c.relname = $2`, extSchema, name).Scan(&rel.oid); err != nil {
+		t.Fatalf("locating the probe fixture: %v", err)
+	}
+
+	requireRefusal(t, assertRLSBindsTheOwner(ctx, owner, rel, extSchema+"."+name),
+		"row-level security is not binding the owner", name)
+}
+
 func TestGateRejectsTableWithoutWorkspaceID(t *testing.T) {
 	unit := unitName(t, "nows")
 	ns := namespaceOf(t, unit)
