@@ -101,7 +101,12 @@ func (r *Registry) Register(t mcp.Tool) {
 		panic(fmt.Sprintf("crmagents: duplicate tool %s", spec.Name))
 	}
 	r.tools[spec.Name] = t
-	r.specs[spec.Name] = envelopedSpec(spec)
+	// The registered spec owns its OWN bytes. A json.RawMessage is a slice, so
+	// a tool that kept a reference to the one it registered could rewrite what
+	// tools/list advertises and what the argument constraints below were read
+	// off — for every later request, from outside the lock. copySchemas already
+	// hands out clones for the same reason; this is the other half of it.
+	r.specs[spec.Name] = copySchemas(envelopedSpec(spec))
 	r.idArgs[spec.Name] = declaredIDArgs(spec.InputSchema)
 	r.numArgs[spec.Name] = declaredNumBounds(spec.InputSchema)
 	r.requiredArgs[spec.Name] = declaredRequired(spec.InputSchema)
