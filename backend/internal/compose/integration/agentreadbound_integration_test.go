@@ -15,15 +15,10 @@ package integration
 // own Server with a live bound. Without it nothing would prove the REST door
 // enforces the bound at all.
 //
-// WHAT IS PROVEN HERE, precisely. The window is spent by charging the meter
-// DIRECTLY rather than by reading over REST, because REST reads are consulted
-// against the bound and not yet CHARGED against it (poc-v1#623). That is not a
-// convenience; it is the property under test stated honestly. The hole this
-// closes is a passport spending its window through the MCP door and then
-// continuing to read the same records through /v1 — one credential, two doors,
-// one of them unbounded. Charging directly IS that spent window, without
-// standing up a JSON-RPC client to produce it.
-
+// The window is spent by charging the meter directly: that IS a window already
+// spent through the MCP door, which is the shape this bound has to answer —
+// one credential presenting at a second door must meet the same counter.
+//
 import (
 	"net/http"
 	"testing"
@@ -80,8 +75,18 @@ func TestASpentWindowRefusesTheSamePassportOnTheRestDoor(t *testing.T) {
 
 	spendWindow(t, e, meter, passport, 100)
 
-	if status := e.Call(t, "GET", "/v1/people", nil, bearer, nil); status == http.StatusOK {
-		t.Error("a passport that spent its window was served again over REST; /v1 is outside the bound")
+	// The QUOTA response specifically: a 403 or a 500 would also fail an
+	// is-not-200 check while meaning something entirely different.
+	var problem struct {
+		Code string `json:"code"`
+	}
+	status := e.Call(t, "GET", "/v1/people", nil, bearer, &problem)
+
+	if status != http.StatusTooManyRequests {
+		t.Errorf("a passport that spent its window → %d, want 429; /v1 is outside the bound", status)
+	}
+	if problem.Code != "rate_limited" {
+		t.Errorf("the refusal carried code %q, want \"rate_limited\" — a caller branches on the code, not the prose", problem.Code)
 	}
 }
 

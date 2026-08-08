@@ -260,3 +260,37 @@ func TestASubSecondWindowBucketsRatherThanDividingByZero(t *testing.T) {
 		t.Errorf("a sub-second window asked Redis for a %ds expiry, which never expires", meter.ttlSeconds())
 	}
 }
+
+// An agent whose counter cannot be NAMED is refused, not admitted. A call with
+// no workspace bound is the live shape of this: the gate's MCP path rejects it
+// before the quota, but the REST path has no such check, so a meter that
+// admitted it would hand out a free pass on a wiring fault.
+func TestAnAgentWithNoWorkspaceIsRefusedRatherThanUnmetered(t *testing.T) {
+	meter := Unmetered() // even an unmetered composition must not be the reason
+	if meter.Read(t.Context()).Exceeded {
+		t.Fatal("an unmetered composition refused a call")
+	}
+
+	bounded := New(nil, DefaultLimit, DefaultWindow)
+	ctx := principal.WithActor(t.Context(), principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:no-workspace",
+		PassportID: ids.New[ids.PassportKind]().UUID,
+	})
+
+	if !bounded.Read(ctx).Exceeded {
+		t.Error("an agent with no workspace bound escaped the read bound entirely")
+	}
+}
+
+// And the other side of that branch stays intact: a human with no workspace is
+// still outside the control, not refused by it.
+func TestAHumanWithNoWorkspaceIsStillUnmetered(t *testing.T) {
+	meter := New(nil, DefaultLimit, DefaultWindow)
+	ctx := principal.WithActor(t.Context(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:rep",
+	})
+
+	if meter.Read(ctx).Exceeded {
+		t.Error("a human with no workspace was refused by the agent read bound")
+	}
+}

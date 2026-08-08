@@ -268,3 +268,23 @@ func TestAToolThatNamesRecordsChargesForThem(t *testing.T) {
 		t.Errorf("a 50-record answer built from named records charged %d", charger.charged)
 	}
 }
+
+// A WRITE whose charge fails is still served. By the time the charge runs the
+// mutation has committed and any approval it redeemed is consumed — send_email
+// has SENT. Reporting that as a failure invites the caller to retry an
+// irreversible act, and a second email costs more than an uncounted read.
+func TestAWriteIsServedEvenWhenItsChargeCannotBeRecorded(t *testing.T) {
+	spec := readToolSpec("send_email")
+	spec.RequiredScope = principal.ScopeWrite
+	r, _, ctx := chargingRegistry(t, &servingTool{spec: spec, records: 1},
+		withScope(principal.ScopeWrite),
+		withChargerError(errors.New("redis is unreachable")))
+
+	out, err := r.Invoke(ctx, "send_email", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("a committed write was reported as failed because it could not be counted: %v", err)
+	}
+	if len(out) == 0 {
+		t.Error("the write's result was withheld")
+	}
+}

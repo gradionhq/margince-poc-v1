@@ -18,6 +18,7 @@ import (
 	"log/slog"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -50,29 +51,39 @@ func WithReadCharger(reads ReadCharger) RegistryOption {
 // It charges only after a SUCCESSFUL answer: the bound counts records the agent
 // was actually given, and a handler that failed gave it none.
 //
-// A charge that cannot be recorded REFUSES the answer. If the surface cannot
-// count what it is about to hand over, it does not hand it over — the same
-// fail-closed rule the gate applies on the way in, applied on the way out.
+// A charge that cannot be recorded REFUSES a READ, and only a read. If the
+// surface cannot count what it is about to hand over, it does not hand it over
+// — the gate's rule on the way in, applied on the way out.
 //
-// Logging and serving anyway was tried and is wrong. It looks contained,
+// A WRITE is served anyway, and the asymmetry is the whole point. By the time
+// this runs the mutation has committed and any approval it redeemed is
+// consumed: `send_email` has SENT. Withholding that result would report a
+// completed, irreversible act as a failure, and the caller — reasonably —
+// retries it. An uncounted read is a small accounting loss; a second email is
+// not. So a write is logged and returned, and the read bound absorbs the
+// undercount.
+//
+// Logging and serving a READ was tried and is wrong. It looks contained,
 // because the gate fails closed while the counter is unreachable — but a charge
 // lost to a TRANSIENT write error is lost for good: Redis recovers, the counter
-// is short by those records, and the agent reads them again for free. Every
-// blip would quietly raise the ceiling.
-//
-// The caller is told the truth: the read was made and could not be accounted
-// for, so it was not served. Retrying once the counter is reachable both counts
-// and answers.
+// comes back short, and those records are read again for free. Every blip would
+// quietly raise the ceiling.
 func (r *Registry) chargeReads(ctx context.Context, spec mcp.ToolSpec, served int) error {
 	if r.reads == nil || served <= 0 {
 		return nil
 	}
-	if err := r.reads.Consume(ctx, served); err != nil {
-		slog.ErrorContext(ctx, "recording served records against the read bound failed",
-			"tool", spec.Name, "records", served, "err", err)
-		return fmt.Errorf(
-			"crmagents: %s read %d records that could not be counted against this agent's read bound, so the answer is withheld: %w",
-			spec.Name, served, apperrors.ErrBudgetExceeded)
+	err := r.reads.Consume(ctx, served)
+	if err == nil {
+		return nil
 	}
-	return nil
+	slog.ErrorContext(ctx, "recording served records against the read bound failed",
+		"tool", spec.Name, "records", served, "scope", spec.RequiredScope, "err", err)
+	if spec.RequiredScope != principal.ScopeRead {
+		// The effect already happened. Reporting it as a failure is worse than
+		// an uncounted read.
+		return nil
+	}
+	return fmt.Errorf(
+		"crmagents: %s read %d records that could not be counted against this agent's read bound, so the answer is withheld: %w",
+		spec.Name, served, apperrors.ErrBudgetExceeded)
 }

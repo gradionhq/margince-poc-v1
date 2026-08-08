@@ -168,25 +168,36 @@ local total = redis.call('INCRBY', KEYS[1], n)
 if total == n then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2])) end
 return total`)
 
-// meteredAgent names the counter one call belongs to, and reports whether this
-// caller is inside the control at all.
+// governed reports whether this caller is inside the control at all.
 //
-// ONLY an agent is metered. A human's authority is RBAC at the store and they
-// answered for the action themselves; this bound exists to make an AGENT's bulk
-// reading visible to the human who granted it. That is the same line
-// auth.Gate.Admit already draws, drawn again here so the meter is safe to call
-// from anywhere rather than only from behind the gate.
+// ONLY an agent is. A human's authority is RBAC at the store and they answered
+// for the action themselves; this bound exists to make an AGENT's bulk reading
+// visible to the human who granted it. That is the same line auth.Gate.Admit
+// draws, drawn again here so the meter is safe to call from anywhere rather
+// than only from behind the gate.
+func governed(ctx context.Context) bool {
+	actor, present := principal.Actor(ctx)
+	return present && actor.Type == principal.PrincipalAgent
+}
+
+// counterFor names the counter a governed call belongs to, and reports whether
+// one could be named at all.
 //
-// The key is the Passport, and falls back to the principal's own id when there
-// is none. Every agent principal this product mints carries a Passport
+// The two "no" answers this package gives are DIFFERENT and must not be folded
+// together. `governed` says the caller is outside the control — admit. This
+// says the caller is inside it and the meter cannot identify them — refuse. An
+// agent with no workspace bound to its context is the second: it is a caller
+// this bound governs whose counter cannot be built, and admitting it would be a
+// free pass handed out by a wiring fault.
+//
+// The key is the Passport, falling back to the principal's own id. Every agent
+// principal this product mints carries a Passport
 // (identity.AgentIdentity.Principal), so the fallback is not a live path — but
 // keying on something ALWAYS present is what stops a future agent principal
-// without one from being silently exempt. An agent that cannot be identified at
-// all is not a caller this meter can bound, and says so by returning false,
-// which the read side turns into a refusal rather than a free pass.
-func (m *Meter) meteredAgent(ctx context.Context) (ws ids.UUID, agent string, metered bool) {
+// without one from being silently exempt.
+func counterFor(ctx context.Context) (ws ids.UUID, agent string, named bool) {
 	actor, present := principal.Actor(ctx)
-	if !present || actor.Type != principal.PrincipalAgent {
+	if !present {
 		return ws, "", false
 	}
 	if actor.PassportID != (ids.UUID{}) {
@@ -198,10 +209,13 @@ func (m *Meter) meteredAgent(ctx context.Context) (ws ids.UUID, agent string, me
 	return ws, agent, bound && agent != ""
 }
 
-// usable reports that the meter can actually reach its counter for this call.
+// usable reports that the meter can actually reach this call's counter.
 func (m *Meter) usable(ctx context.Context) (ws ids.UUID, agent string, ok bool) {
-	ws, agent, metered := m.meteredAgent(ctx)
-	return ws, agent, metered && m.rdb != nil
+	if !governed(ctx) || m.rdb == nil {
+		return ws, "", false
+	}
+	ws, agent, named := counterFor(ctx)
+	return ws, agent, named
 }
 
 // bucket is the fixed window a moment falls in.
@@ -254,14 +268,14 @@ func (m *Meter) add(ctx context.Context, key string, n int) error {
 //     the fail-closed branch: the meter does not know whether the threshold has
 //     been passed, and a control that cannot answer must not answer "no".
 func (m *Meter) Read(ctx context.Context) Reading {
-	if m.unbounded {
+	if m.unbounded || !governed(ctx) {
 		return Reading{Limit: m.limit}
 	}
-	ws, agent, metered := m.meteredAgent(ctx)
-	if !metered {
-		return Reading{Limit: m.limit}
-	}
-	if m.rdb == nil {
+	ws, agent, named := counterFor(ctx)
+	if !named || m.rdb == nil {
+		// Governed, and unidentifiable or uncountable. Both are the
+		// fail-closed branch: this caller is inside the control and the meter
+		// cannot answer for them.
 		return Reading{Limit: m.limit, Exceeded: true}
 	}
 	observed, err := m.counter(ctx, m.countKey(ws, agent, m.bucket()))
