@@ -345,13 +345,28 @@ each tool advertises the exact shape its handler marshals, and a result that
 misses it is withheld from `structuredContent` and logged as this server's own
 defect rather than served in violation of a promise it just made.
 
-**Sessions, in the handshake era only.** A successful `initialize` mints one and
-returns it as `Mcp-Session-Id`. `DELETE /mcp` closes only the session the
-*presenting* passport opened; a session id that does not exist under that
-passport — whether it never existed or belongs to someone else — answers `404`
-identically, so a probe cannot tell the two apart. A **modern** call mints none,
-and an `Mcp-Session-Id` presented on one is ignored rather than echoed: a call
-that carries its own state can land on any replica.
+**No sessions, in either era.** `initialize` still answers a handshake-era
+client, and it mints no `Mcp-Session-Id`; a presented one is ignored rather than
+echoed, and `DELETE /mcp` answers `405` — this server establishes no session, so
+there is none to close. The id was never authority (every call re-authenticates
+on its Bearer passport), and what it cost was real: it pinned a conversation to
+the one process that answered `initialize`.
+
+**Four volume counters instead, per Passport, per window** (`MCP-SESS-*`,
+ADR-0092 §6) — the bound the session was implicitly carrying, made explicit and
+kept in Redis where every replica reads the same number. Which counter a call
+spends is derived from what it already declares, never from a list of tool
+names: an egress-flagged tool spends `egress`, a read-only one spends `reads`
+per **record** served, anything else spends `writes`, and every admitted call
+also spends one of `calls`. Crossing one does one of two things. `reads` and
+`writes` are **step-ups**: the call is refused *and* the question — "this agent
+has been handed N of its M records for this window; continue?" — goes to the
+human who lent the passport, whose approval widens that window by one more
+allowance. Nobody else can answer it, not an admin and not the workspace owner:
+an agent's ceiling is its lender's authority. `egress` and `calls` are **hard
+stops** that no approval lifts and only the window ends. A fifth counter,
+`cost`, is soft — it refuses nothing, and says on the answer when this
+credential has spent its share of the workspace AI budget.
 
 **Every call re-authenticates.** The binder runs per call, not per session, so
 revoking the passport or demoting the granting human takes effect on the very
