@@ -247,3 +247,34 @@ func (s stubFacts) ListOrganizationFacts(
 ) ([]crmcontracts.OrganizationFact, error) {
 	return s.in.Facts, nil
 }
+
+// A receipt must not both NAME a field as missing and render it blank. The
+// reader believes whichever they see first, and the two say opposite things.
+func TestAnAbsentCapturerIsNamedAsAGapAndNotAlsoRenderedBlank(t *testing.T) {
+	field := siteReadField()
+	field.Source = crmcontracts.CompanyProfileFieldSourceHuman
+	field.CapturedBy = nil
+
+	got := receiptFor(t, field)
+
+	if got.ProducedBy != "" {
+		t.Errorf("produced by = %q, want empty — nothing recorded who", got.ProducedBy)
+	}
+	if got.Identity != nil {
+		if _, present := (*got.Identity)["actor"]; present {
+			t.Error("an unrecorded capturer was rendered as an empty actor")
+		}
+	}
+	if got.Gaps == nil {
+		t.Fatal("no gaps: the missing capturer was not named")
+	}
+	named := false
+	for _, gap := range *got.Gaps {
+		if gap == "produced_by" {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("gaps = %v, want produced_by named", *got.Gaps)
+	}
+}

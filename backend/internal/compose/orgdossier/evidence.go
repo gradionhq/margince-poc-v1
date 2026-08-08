@@ -189,6 +189,15 @@ func identityFor(kind crmcontracts.ClaimEvidenceSourceKind, row receiptRow, prod
 		}
 		identity[name] = *value
 	}
+	// The capturer under whatever name this kind gives it. An absent one is
+	// named as a gap by the caller, so it must not ALSO appear here as an empty
+	// attribution — a receipt that does both says the field is missing and
+	// renders it as blank, and the reader believes whichever they see first.
+	nameCapturer := func(name string) {
+		if producedBy != "" {
+			identity[name] = producedBy
+		}
+	}
 	switch kind {
 	case crmcontracts.ClaimEvidenceSourceKindSiteRead:
 		need("source_url", row.sourceURL)
@@ -197,17 +206,17 @@ func identityFor(kind crmcontracts.ClaimEvidenceSourceKind, row receiptRow, prod
 		// Who said so, and when they confirmed it. The actor is always present
 		// — it is stamped from the authenticated principal, never a request —
 		// so only the confirmation can be missing.
-		identity["actor"] = producedBy
+		nameCapturer("actor")
 		if row.verifiedAt == nil {
 			gaps = append(gaps, "verified_at")
 		}
 	case crmcontracts.ClaimEvidenceSourceKindConnector:
-		identity["connector"] = producedBy
+		nameCapturer("connector")
 		need("source_url", row.sourceURL)
 	case crmcontracts.ClaimEvidenceSourceKindMigration:
-		identity["import"] = producedBy
+		nameCapturer("import")
 	case crmcontracts.ClaimEvidenceSourceKindRule:
-		identity["produced_by"] = producedBy
+		nameCapturer("produced_by")
 	}
 	return identity, gaps
 }

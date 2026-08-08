@@ -141,6 +141,10 @@ tags:
     description: Owner or team revenue quota targets for a period, with server-computed attainment (RD-WIRE-2/RD-WIRE-3).
   - name: Agents
     description: The governed agent tool surface — registry metadata for the operator UI.
+  - name: Provenance
+    description: >-
+      Where a generated claim came from. Every sentence these surfaces write carries the records
+      it was written from, and this is what a reader gets when they open one.
   - name: Overlay
     description: The HubSpot mirror overlay — incumbent connection, mirror sync health, budget, and the read→overlay flip.
 
