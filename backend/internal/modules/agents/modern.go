@@ -20,6 +20,7 @@ package agents
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -404,12 +405,18 @@ func (m modernResult) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshalling the result to decorate: %w", err)
 	}
-	decorated := map[string]json.RawMessage{}
+	// Every method's result is an object; anything else here is this server's
+	// own defect, and the transport turns it into a 500 rather than shipping a
+	// result the framing cannot describe.
+	var decorated map[string]json.RawMessage
 	if err := json.Unmarshal(body, &decorated); err != nil {
-		// Every method's result is an object; a non-object here is this
-		// server's own defect, and the transport turns it into a 500 rather
-		// than shipping a result the framing cannot describe.
 		return nil, fmt.Errorf("a modern result must be a JSON object: %w", err)
+	}
+	// A JSON null decodes into a map WITHOUT error and leaves it nil, so this
+	// is not a second spelling of the check above: without it, a null result
+	// reaches the loop below and panics on the first member assigned to it.
+	if decorated == nil {
+		return nil, errors.New("a modern result must be a JSON object, and this one is null")
 	}
 	for name, value := range m.members {
 		member, err := json.Marshal(value)

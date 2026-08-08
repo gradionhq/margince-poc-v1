@@ -361,9 +361,17 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 	}
 	var req rpcRequest
 	if err := json.Unmarshal(body, &req); err != nil {
+		// The body is what normally decides the era, and this one does not
+		// decode, so the header is the only thing left that can say. A caller
+		// that named the modern revision gets the status that framing pins for
+		// a malformed request; anything else keeps the answer it always had.
+		status := http.StatusOK
+		if servesAsModern(r.Header.Get(headerProtocolVersion)) {
+			status = http.StatusBadRequest
+		}
 		writeRPCResponse(w, r,
 			rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: codeParseError, Message: "parse error"}},
-			http.StatusOK)
+			status)
 		return
 	}
 	fr, refusal := modernPrecheck(req.Params, r.Header.Get(headerProtocolVersion))

@@ -99,6 +99,19 @@ func readResourceURI(params json.RawMessage) string {
 // its length is not, and naming the header and the member it contradicts is
 // what a client author acts on anyway.
 func validateModernHeaders(header http.Header, req rpcRequest, fr framing) *rpcError {
+	// A mirrored header sent TWICE is the same defect as a body member sent
+	// twice, one layer up: Get answers the first value while an intermediary
+	// may route on the last, so the two readings can disagree with nothing on
+	// the wire to say which was meant. One value or none.
+	for _, mirrored := range []string{headerProtocolVersion, headerMethod, headerName} {
+		if len(header.Values(mirrored)) > 1 {
+			return &rpcError{
+				Code: codeHeaderMismatch,
+				Message: "header mismatch: " + mirrored + " was sent more than once, so this server " +
+					"and an intermediary between us could read different values from it",
+			}
+		}
+	}
 	if header.Get(headerProtocolVersion) != fr.version {
 		return headerMismatch(headerProtocolVersion, "_meta["+metaProtocolVersion+"]")
 	}

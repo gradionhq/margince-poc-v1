@@ -758,16 +758,29 @@ func TestBothFramingsFilterTheToolListByTheCallersScopes(t *testing.T) {
 // A result this server cannot render as an object is its own defect, and it
 // must surface as one rather than as a result the framing cannot describe.
 func TestAModernResultThatIsNotAnObjectIsReportedRatherThanShipped(t *testing.T) {
-	_, err := json.Marshal(modernResult{
-		inner:   []string{"not", "an", "object"},
-		members: map[string]any{fieldResultType: resultTypeComplete},
-	})
+	for _, tc := range []struct {
+		name  string
+		inner any
+	}{
+		{"an array", []string{"not", "an", "object"}},
+		// A null decodes into a map WITHOUT error and leaves it nil, so this
+		// case reaches the member loop and panics unless it is caught by name.
+		{"a null", nil},
+		{"a nil map, which marshals to null", map[string]any(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := json.Marshal(modernResult{
+				inner:   tc.inner,
+				members: map[string]any{fieldResultType: resultTypeComplete},
+			})
 
-	if err == nil {
-		t.Fatal("a non-object result marshalled cleanly, so the framing's own members went missing in silence")
-	}
-	if !strings.Contains(err.Error(), "must be a JSON object") {
-		t.Errorf("error = %v, want it to name what is wrong", err)
+			if err == nil {
+				t.Fatal("it marshalled cleanly, so the framing's own members went missing in silence")
+			}
+			if !strings.Contains(err.Error(), "must be a JSON object") {
+				t.Errorf("error = %v, want it to name what is wrong", err)
+			}
+		})
 	}
 }
 

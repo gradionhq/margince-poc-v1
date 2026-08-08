@@ -455,6 +455,68 @@ func TestTheMirrorComparesTheNameTheDispatcherWillExecute(t *testing.T) {
 	}
 }
 
+// A mirrored header sent twice is the same defect as a body member sent twice,
+// one layer up: Get answers the first value while an intermediary may route on
+// the last, and nothing on the wire says which was meant.
+func TestAMirroredHeaderSentTwiceIsRefused(t *testing.T) {
+	srv := modernServer(t)
+	for _, mirrored := range []string{headerProtocolVersion, headerMethod, headerName} {
+		t.Run(mirrored, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(modernCallBody))
+			if err != nil {
+				t.Fatalf("NewRequest: %v", err)
+			}
+			for name, value := range modernCallHeaders() {
+				req.Header.Set(name, value)
+			}
+			// A second value that AGREES with the first is still refused: the
+			// point is that two readings exist, not that they differ.
+			req.Header.Add(mirrored, req.Header.Get(mirrored))
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					t.Errorf("closing response body: %v", err)
+				}
+			}()
+
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
+// A body that does not decode leaves the header as the only thing that can say
+// which era the caller meant, and a caller that named the modern revision is
+// owed that framing's status for a malformed request.
+func TestAMalformedBodyAnswers400WhenTheHeaderNamesTheModernRevision(t *testing.T) {
+	srv := modernServer(t)
+	for _, tc := range []struct {
+		name       string
+		version    string
+		wantStatus int
+	}{
+		{"named modern", modernProtocolVersion, http.StatusBadRequest},
+		{"named nothing", "", http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, body := modernPOST(t, srv, `{"jsonrpc":"2.0","id":1,`,
+				map[string]string{headerProtocolVersion: tc.version})
+
+			if status != tc.wantStatus {
+				t.Errorf("status = %d, want %d", status, tc.wantStatus)
+			}
+			if got := errorCode(t, body); got != codeParseError {
+				t.Errorf("code = %d, want %d", got, codeParseError)
+			}
+		})
+	}
+}
+
 // A method that mirrors no name must present none. A header naming a tool on a
 // call that invokes none tells an intermediary metering or filtering on
 // Mcp-Name about an invocation that never happens.
