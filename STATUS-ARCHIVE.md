@@ -21,6 +21,69 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-08 — the integration lane got faster, and the measurement mattered more than the idea
+
+Closes #539. Landed as #556, #568, #574, #584 (splitting), #625 (a Redis-db
+collision the timing change exposed) and #626 (the connection sharing).
+
+Measured on one machine with Postgres restarted before each run: **220.5s wall
+and 512.3s summed before, 185.8s and 435.7s after** — about 15% off the wall
+clock. `compose/integration` went 188.3s to 160.6s, `compose` 74.5s to 59.2s.
+
+Two levers, and only the second was worth much.
+
+**Splitting packages is nearly spent.** The lane's wall clock cannot fall below
+its longest package, so `org360`, `capture` and the overlay suites became sibling
+packages under `compose/integration`. That is most of what splitting can give:
+ranked by measured seconds the tail of 116 clusters is 46% of the time, which no
+split reaches. `compose/integration/harness.go`'s package doc now states when a
+group is splittable and the two traps a split hits — a fixture is only importable
+if its METHODS are also in a non-test file, and once its type is foreign a suite
+cannot declare methods on it at all.
+
+**Sharing the connections was the real cut.** `testdb.Pool` gives each test
+PROCESS one pool per DSN instead of one per test. What sharing costs is the
+statement cache: a connection outliving a test also outlives any DDL that test
+ran, and pgx's default keeps a server-side prepared statement per connection, so
+a shared pool draws `SQLSTATE 0A000 "cached plan must not change result type"` in
+whichever suite runs next — a failure with nothing in it pointing at the DDL that
+caused it. The pools therefore run in `cache_describe`, which holds no
+server-side plan. Retiring connections at each reset was implemented first and
+discarded: it needs a list of which operations invalidate what, and most of the
+DDL is run by the tests themselves, so the reset is not in a position to keep
+that list.
+
+Three things this cost that are worth remembering.
+
+**The first version of the shared pool built its own pgxpool config and silently
+lost `jit=off`** — which `database.go` documents as 475ms of JIT behind 12ms of
+work on the `/search` union. The lane had been paying it. `testdb.Pool` now
+builds through `database.NewPool` and declares its differences as DSN parameters
+that constructor already honours, so the test pool is the product's pool with a
+named delta rather than a second constructor free to drift.
+
+**The timing change exposed a Redis-db collision that had been latent** (#625).
+The lane mapped packages onto logical dbs with `1 + (idx-1) % 15` and had grown
+past 15 packages, so two could share a db — and two of them `FLUSHDB` between
+tests, making a collision a corruption rather than a slowdown. Redis now serves
+64 dbs and the lane refuses to start rather than wrap the mapping.
+
+**Both `testdb` gates were mutation-tested, and one of them changed what I
+believed.** Rebuilding the pool from a bare `pgxpool.ParseConfig` turns the
+`jit` assertion red but leaves the typed-id slice bind green — under
+`cache_describe` the parameter OID always arrives from the server, so pgx never
+consults the registered type to encode `[]ids.PersonID`. The missing
+`RegisterIDTypes` was inert; the live loss was `jit`. Both assertions were kept
+with the asymmetry written down.
+
+Two obligations sharing creates are gated rather than documented, per the rule
+against rationalizing a gap in a comment: `Pool` refuses before `EnsureSchema`
+has run (a connection older than the migration's `DROP SCHEMA` would poison the
+whole package, not one test), and the fixtures assert the pool is quiesced at
+test end — closing the pool per test used to be an accidental backstop against a
+goroutine a test left running, and without it a half-stopped River client would
+write into the database the next test had just reset.
+
 ## 2026-08-07 — the integration lane's per-package timeout, and the lane it did not reach
 
 Closes #524 (#538 was the same report, closed as a duplicate of it).
