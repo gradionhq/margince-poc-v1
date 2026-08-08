@@ -7,11 +7,13 @@ package compose
 // match ladder, the agents module owns the tool. Neither imports the other
 // (ADR-0054 §3), so the edge is composed here.
 //
-// This file carries the two seam types across and NOTHING else. In particular
-// it makes no decision about a match: the ladder's verdict travels verbatim and
-// the tool reads it through what the caller may see. A translation layer that
-// decided anything here would be a third opinion about identity, in the one
-// place neither owner could see it.
+// This file carries the two seam types across and NOTHING else. In particular it
+// makes no decision about a match: what crosses is the RECORDS the ladder named,
+// each carrying whether a key or a similarity named it, and the tool derives the
+// caller-visible decision from the ones that survive their row scope. No verdict
+// word crosses here, and that is load-bearing rather than tidy — a word computed
+// over the whole workspace is a word a record the caller cannot read helped
+// choose, which is the visibility oracle agents.decisionFor exists to close.
 
 import (
 	"context"

@@ -25,7 +25,7 @@ func NewHandlers(pool *pgxpool.Pool) Handlers {
 	store := NewStore(pool)
 	// Embedder is nil, and stays nil: the only thing this retriever serves is
 	// AssembleContext, which walks the context graph and never embeds. The
-	// request-path embed lane compose binds (#629) is for the RANKED half, and
+	// request-path embed lane compose binds is for the RANKED half, and
 	// `GET /v1/search` does not use it — it calls the lexical lane directly,
 	// which is what its contract describes.
 	return Handlers{store: store, retriever: NewRetriever(store, nil)}

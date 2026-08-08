@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -152,6 +153,10 @@ func (t searchContext) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	// Trimmed before it is judged AND before it is sent: "   " is not a query,
+	// and passing it on answers an empty page that a caller reads as "there is
+	// nothing like that here" — the wrong answer this refusal exists to prevent.
+	args.Query = strings.TrimSpace(args.Query)
 	if args.Query == "" {
 		return nil, &BadArgsError{Cause: errors.New("`query` is required and takes the words to look for; " +
 			"an empty query has no ranking to produce")}

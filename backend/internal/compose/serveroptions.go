@@ -232,7 +232,7 @@ func WithReadMeter(meter *readmeter.Meter) Option {
 
 // WithRetrievalEmbedder binds this role's embed lane to the REQUEST path, so
 // hybrid retrieval can use its vector half for a caller and not only for a
-// background job (#629).
+// background job.
 //
 // It rebuilds the tool registry, because the registry is where the lane is
 // consumed: the intent retriever, search_context and the query executor are all

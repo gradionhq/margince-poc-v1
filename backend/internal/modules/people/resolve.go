@@ -60,30 +60,15 @@ type ResolveCandidate struct {
 	Domains []string
 }
 
-// ResolveVerdict is the ladder's answer for one candidate, in the vocabulary
-// this read publishes.
-type ResolveVerdict string
-
-const (
-	// VerdictExact is a unique-key hit — same address, same phone, same
-	// established channel binding, same company domain. Deterministic.
-	VerdictExact ResolveVerdict = "exact"
-	// VerdictAmbiguous is every case a person has to settle: a near-match at or
-	// above the review threshold, or two exact lanes naming different records.
-	// The ladder never resolves either one, and neither does this.
-	VerdictAmbiguous ResolveVerdict = "ambiguous"
-	// VerdictNone is no match at or above the threshold.
-	VerdictNone ResolveVerdict = "none"
-)
-
-// ResolveOutcome is one candidate's answer: the verdict and the records it
-// named, best first.
+// ResolveOutcome is one candidate's answer: the records its keys or its name
+// named, in ladder precedence.
 //
-// Refs is a LIST even for an exact hit, so a caller reads one shape whichever
-// verdict came back. It is empty exactly when the verdict is VerdictNone.
+// There is no verdict word here. Whether an answer is a match, an ambiguity or a
+// miss depends on which of these records the ASKING caller may read, and this
+// read does not know that — it is workspace-wide by design. The refs are the
+// facts; the word is the caller's, and the tool derives it.
 type ResolveOutcome struct {
-	Verdict ResolveVerdict
-	Refs    []ResolveRef
+	Refs []ResolveRef
 }
 
 // ResolveRef is one record the ladder named, and what named it.
@@ -197,16 +182,31 @@ func resolveOne(ctx context.Context, tx pgx.Tx, c ResolveCandidate, consumerMail
 	}
 }
 
-// resolvePerson runs PO-F-1 and translates its result.
+// resolvePerson answers which people this payload names.
 //
-// A LANE CONFLICT IS AMBIGUITY, and this is the one translation worth reading
-// twice. The ladder ROUTES a conflict — it has to, because an inbound message
-// with nowhere to land is worse than one on the record whose binding was
-// established first — and it reports the rival alongside. A read has no message
-// to land, so routing past a disagreement would hand a caller one id and hide
-// that another key says someone else. Both records come back, the routed one
-// first, and the verdict says a person decides.
+// IT ASKS THE EXACT LANES ONE KEY AT A TIME, and that is the one place this read
+// deliberately diverges from what the write paths do. `DedupePerson` ROUTES: its
+// email lane takes `ORDER BY person_id LIMIT 1` across every address, because a
+// message must land somewhere and landing it on the record whose binding was
+// established first is better than deferring it to a human. A read has nothing
+// to land. Handed a card carrying two addresses that belong to two different
+// people, the routed answer is one id chosen by uuid order, reported with
+// certainty — and the tool above publishes that as "act on this".
+//
+// So the lanes are asked per key and every distinct owner is kept. No matching
+// logic is written here: these are the ladder's own lane functions, asked a
+// question the routing answer cannot express.
+//
+// The FUZZY tier is untouched and still the ladder's, reached only when no key
+// matched at all.
 func resolvePerson(ctx context.Context, tx pgx.Tx, c ResolveCandidate, consumerMail *freemail.Matcher) (ResolveOutcome, error) {
+	keyed, err := exactPersonOwners(ctx, tx, c)
+	if err != nil {
+		return ResolveOutcome{}, err
+	}
+	if len(keyed) > 0 {
+		return ResolveOutcome{Refs: keyed}, nil
+	}
 	match, err := DedupePerson(ctx, tx, PersonCandidate{
 		FullName:     c.Name,
 		Emails:       c.Emails,
@@ -219,37 +219,69 @@ func resolvePerson(ctx context.Context, tx pgx.Tx, c ResolveCandidate, consumerM
 	return personOutcome(match), nil
 }
 
-// personOutcome is the translation, kept apart from the query so the rules it
-// encodes can be held to without a database — they are the part of this file a
-// reader has to be convinced by.
-func personOutcome(match PersonResolution) ResolveOutcome {
-	switch match.Decision {
-	case DecisionExactCollision:
-		routed := ResolveRef{
-			Kind: ResolvePerson, ID: match.PersonID.UUID, Exact: true,
-			Confidence: 1, MatchedOn: match.MatchedLane,
+// exactPersonOwners is every DISTINCT person the candidate's keys name, in
+// ladder precedence: addresses first, then phone numbers.
+//
+// A PHONE HIT IS NOT MARKED EXACT, and this is the module's own policy rather
+// than a judgement made here: `resolvecreate.go` refuses a create on an exact
+// collision *unless the lane was the phone one*, because households, reception
+// desks and switchboards share numbers. A read that published a lone phone match
+// as actionable would contradict the write path one file over.
+func exactPersonOwners(ctx context.Context, tx pgx.Tx, c ResolveCandidate) ([]ResolveRef, error) {
+	var out []ResolveRef
+	seen := map[ids.PersonID]bool{}
+	// The first lane to name someone keeps them: precedence is the ladder's, and
+	// a person found by both their address and their phone is an address match.
+	keep := func(id ids.PersonID, found bool, lane string, exact bool) {
+		if !found || seen[id] {
+			return
 		}
-		if match.Conflict == nil {
-			return ResolveOutcome{Verdict: VerdictExact, Refs: []ResolveRef{routed}}
-		}
-		return ResolveOutcome{Verdict: VerdictAmbiguous, Refs: []ResolveRef{routed, {
-			Kind: ResolvePerson, ID: match.Conflict.Rival.UUID, Exact: true,
-			Confidence: 1, MatchedOn: match.Conflict.RivalLane,
-		}}}
-	case DecisionFuzzyReview:
-		// Never VerdictExact, however high the score: the fuzzy tier is a
-		// comparison a person makes, and a caller told "this is them" would
-		// write against a record nobody confirmed.
-		return ResolveOutcome{Verdict: VerdictAmbiguous, Refs: []ResolveRef{{
-			Kind: ResolvePerson, ID: match.PersonID.UUID,
-			Confidence: match.Confidence, MatchedOn: axisFullName,
-		}}}
-	default:
-		return ResolveOutcome{Verdict: VerdictNone}
+		seen[id] = true
+		out = append(out, ResolveRef{
+			Kind: ResolvePerson, ID: id.UUID, Exact: exact, Confidence: 1, MatchedOn: lane,
+		})
 	}
+	for _, email := range c.Emails {
+		hit, found, err := exactPersonByEmail(ctx, tx, []string{email})
+		if err != nil {
+			return nil, err
+		}
+		keep(hit, found, laneEmail, true)
+	}
+	for _, phone := range c.Phones {
+		hit, found, err := exactPersonByPhone(ctx, tx, []string{phone})
+		if err != nil {
+			return nil, err
+		}
+		keep(hit, found, lanePhone, false)
+	}
+	return out, nil
 }
 
-// resolveOrganization runs PO-F-2 and translates its result.
+// personOutcome translates the ladder's FUZZY answer, kept apart from the query
+// so the rule it encodes can be held to without a database.
+//
+// It never answers an exact hit: exactPersonOwners has already run and found
+// none by the time this is reached.
+func personOutcome(match PersonResolution) ResolveOutcome {
+	if match.Decision != DecisionFuzzyReview {
+		return ResolveOutcome{}
+	}
+	// Not Exact, however high the score: the fuzzy tier is a comparison a person
+	// makes, and a caller told "this is them" would write against a record
+	// nobody confirmed.
+	return ResolveOutcome{Refs: []ResolveRef{{
+		Kind: ResolvePerson, ID: match.PersonID.UUID,
+		Confidence: match.Confidence, MatchedOn: axisFullName,
+	}}}
+}
+
+// resolveOrganization answers which companies this payload names.
+//
+// It asks the domain lane PER DOMAIN, for the reason exactPersonOwners does:
+// `exactOrgByDomain` takes the lowest id across every domain it is handed, so a
+// card carrying two employers' addresses would resolve to one company chosen by
+// uuid order and be published as certain.
 //
 // The domain list is WIDENED with each email's own domain, minus the consumer
 // ones. A caller holding a business card has an address, not a domain, and the
@@ -260,10 +292,18 @@ func personOutcome(match PersonResolution) ResolveOutcome {
 // domain must never reach it, and one that did would collide every private
 // address onto whichever company first claimed that provider.
 func resolveOrganization(ctx context.Context, tx pgx.Tx, c ResolveCandidate, consumerMail *freemail.Matcher) (ResolveOutcome, error) {
+	domains := companyDomains(c, consumerMail)
+	keyed, err := exactOrganizationOwners(ctx, tx, domains)
+	if err != nil {
+		return ResolveOutcome{}, err
+	}
+	if len(keyed) > 0 {
+		return ResolveOutcome{Refs: keyed}, nil
+	}
 	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{
 		DisplayName: c.Name,
 		LegalName:   c.LegalName,
-		Domains:     companyDomains(c, consumerMail),
+		Domains:     domains,
 	})
 	if err != nil {
 		return ResolveOutcome{}, err
@@ -271,27 +311,42 @@ func resolveOrganization(ctx context.Context, tx pgx.Tx, c ResolveCandidate, con
 	return organizationOutcome(match), nil
 }
 
-// organizationOutcome is PO-F-2's translation, split from its query for the same
-// reason personOutcome is.
-func organizationOutcome(match OrganizationMatch) ResolveOutcome {
-	switch match.Decision {
-	case DecisionExactCollision:
-		return ResolveOutcome{Verdict: VerdictExact, Refs: []ResolveRef{{
-			Kind: ResolveOrganization, ID: match.OrganizationID.UUID, Exact: true,
-			Confidence: 1, MatchedOn: axisDomain,
-		}}}
-	case DecisionFuzzyReview:
-		refs := make([]ResolveRef, 0, len(match.Ranked))
-		for _, scored := range match.Ranked {
-			refs = append(refs, ResolveRef{
-				Kind: ResolveOrganization, ID: scored.OrganizationID.UUID,
-				Confidence: scored.Confidence, MatchedOn: scored.MatchedField,
-			})
+// exactOrganizationOwners is every DISTINCT organization the candidate's domains
+// name. A domain belongs to one company, so each hit is exact; two domains
+// naming two companies is a contradiction the caller has to see.
+func exactOrganizationOwners(ctx context.Context, tx pgx.Tx, domains []string) ([]ResolveRef, error) {
+	var out []ResolveRef
+	seen := map[ids.OrganizationID]bool{}
+	for _, domain := range domains {
+		hit, found, err := exactOrgByDomain(ctx, tx, []string{domain}, nil)
+		if err != nil {
+			return nil, err
 		}
-		return ResolveOutcome{Verdict: VerdictAmbiguous, Refs: refs}
-	default:
-		return ResolveOutcome{Verdict: VerdictNone}
+		if !found || seen[hit] {
+			continue
+		}
+		seen[hit] = true
+		out = append(out, ResolveRef{
+			Kind: ResolveOrganization, ID: hit.UUID, Exact: true, Confidence: 1, MatchedOn: axisDomain,
+		})
 	}
+	return out, nil
+}
+
+// organizationOutcome translates PO-F-2's FUZZY answer, split from its query for
+// the same reason personOutcome is, and reached only when no domain matched.
+func organizationOutcome(match OrganizationMatch) ResolveOutcome {
+	if match.Decision != DecisionFuzzyReview {
+		return ResolveOutcome{}
+	}
+	refs := make([]ResolveRef, 0, len(match.Ranked))
+	for _, scored := range match.Ranked {
+		refs = append(refs, ResolveRef{
+			Kind: ResolveOrganization, ID: scored.OrganizationID.UUID,
+			Confidence: scored.Confidence, MatchedOn: scored.MatchedField,
+		})
+	}
+	return ResolveOutcome{Refs: refs}
 }
 
 // companyDomains is the candidate's claimed domains plus each email's own,
@@ -300,8 +355,14 @@ func companyDomains(c ResolveCandidate, consumerMail *freemail.Matcher) []string
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(c.Domains)+len(c.Emails))
 	add := func(domain string) {
-		domain = normalizeDomain(domain)
-		if domain == "" || consumerMail.IsConsumer(domain) {
+		// The canonical parser, not a lowercase: a model handed "company
+		// domains" passes what is on the card, which is routinely
+		// `https://www.acme.example/`. Hostname strips the scheme, the path and
+		// the subdomain down to the registrable name the organization's own
+		// domain rows are stored under — so the difference between an exact hit
+		// and a name guess stops depending on how the caller happened to type it.
+		domain, ok := freemail.Hostname(domain)
+		if !ok || consumerMail.IsConsumer(domain) {
 			return
 		}
 		if _, dup := seen[domain]; dup {

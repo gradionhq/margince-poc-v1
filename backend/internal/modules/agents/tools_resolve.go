@@ -29,7 +29,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -258,7 +257,9 @@ func (t resolveEntities) hydrate(ctx context.Context, labels []string, outcomes 
 	return result, nil
 }
 
-// readable reads every ref and keeps the ones this caller may see.
+// readable reads every ref and keeps the ones this caller may see, through the
+// batch's own cache: two candidates naming one record read it once, and a
+// DENIAL is remembered as a denial rather than asked again.
 //
 // It reports nothing about what it dropped, and it has nowhere to report it to:
 // the caveat above is unconditional, so a drop leaves no trace in the answer at
@@ -273,12 +274,14 @@ func (t resolveEntities) hydrate(ctx context.Context, labels []string, outcomes 
 func (t resolveEntities) readable(ctx context.Context, refs []ResolveRef, served *servedRecords) ([]ResolvedRecord, error) {
 	out := make([]ResolvedRecord, 0, len(refs))
 	for _, ref := range refs {
-		record, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(ref.Kind), ID: ref.ID})
+		record, readable, err := served.read(ctx, t.p, datasource.EntityRef{
+			Type: datasource.EntityType(ref.Kind), ID: ref.ID,
+		})
 		if err != nil {
-			if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
-				continue
-			}
 			return nil, err
+		}
+		if !readable {
+			continue
 		}
 		out = append(out, ResolvedRecord{
 			Record: served.stamp(ctx, record), Confidence: ref.Confidence,

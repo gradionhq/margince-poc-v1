@@ -158,8 +158,8 @@ The passport vocabulary is closed: `read`, `draft`, `write`, `send`, `enrich`
 passport's scopes and the granting human's live RBAC and seat — never the union,
 and never the passport alone.
 
-Counts are of the core catalog above; an enabled unit's verbs add to them
-(vanilla: `yogi_quote` makes `read` 18).
+Counts are of the core catalog above — 35 tools; an enabled unit's verbs add to
+them (vanilla: `yogi_quote` makes it 36, and `read` 18).
 
 | Scope | Tools it unlocks | What it means |
 |---|---|---|

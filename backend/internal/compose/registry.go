@@ -58,8 +58,8 @@ func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumben
 // reaches.
 //
 // embedder is the RETRIEVAL embed lane, and it is a parameter rather than a
-// construction detail because until now every request-path retriever in this
-// tree was built with nil (#629). A nil lane is still legal — a role with no
+// construction detail because it is the composition root's to choose: a role
+// with no model path has none. A nil lane is still legal — a role with no
 // model path has none, and the offline fake binds no embeddings model — and
 // every path that can lose the vector lane says so on the wire rather than
 // serving a lexically-ranked page under a semantic label.

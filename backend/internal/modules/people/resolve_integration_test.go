@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -32,14 +33,74 @@ func TestResolveFindsAPersonByAClaimedAddress(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	if len(out) != 1 || out[0].Verdict != VerdictExact {
-		t.Fatalf("got %+v, want one exact answer", out)
+	if len(out) != 1 || len(out[0].Refs) != 1 {
+		t.Fatalf("got %+v, want one answer naming one person", out)
 	}
 	if out[0].Refs[0].ID != person.UUID {
 		t.Errorf("resolved to %s, want the seeded person %s", out[0].Refs[0].ID, person.UUID)
 	}
-	if out[0].Refs[0].MatchedOn != laneEmail {
-		t.Errorf("matched on %q, want the address lane", out[0].Refs[0].MatchedOn)
+	if out[0].Refs[0].MatchedOn != laneEmail || !out[0].Refs[0].Exact {
+		t.Errorf("ref = %+v, want an exact hit on the address lane", out[0].Refs[0])
+	}
+}
+
+// TWO ADDRESSES NAMING TWO PEOPLE IS A CONTRADICTION, and the read reports both.
+//
+// The ladder ROUTES this — its email lane takes the lowest person id across
+// every address, because a message has to land somewhere. A read has nothing to
+// land, so routing would answer one id, chosen by uuid order, with certainty:
+// the tool above publishes that as "act on this", and the caller writes to
+// whichever of two people sorted first.
+func TestTwoAddressesNamingTwoPeopleAreBothReported(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	anna, _ := e.seedEmployedPerson(ctx, t, "Anna Weber", "anna@acme.example", "Acme GmbH", "acme.example")
+	bernd, _ := e.seedEmployedPerson(ctx, t, "Bernd Kruse", "bernd@logistik.example", "Logistik AG", "logistik.example")
+
+	out, err := e.store.Resolve(ctx, []ResolveCandidate{
+		{Kind: ResolvePerson, Emails: []string{"anna@acme.example", "bernd@logistik.example"}},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if len(out[0].Refs) != 2 {
+		t.Fatalf("got %+v, want both people the two addresses name", out[0].Refs)
+	}
+	named := map[ids.UUID]bool{out[0].Refs[0].ID: true, out[0].Refs[1].ID: true}
+	if !named[anna.UUID] || !named[bernd.UUID] {
+		t.Errorf("refs = %+v, want %s and %s", out[0].Refs, anna.UUID, bernd.UUID)
+	}
+}
+
+// A PHONE HIT IS NOT ACTIONABLE, and the read says so by not marking it exact.
+// It is the module's own policy: resolvecreate.go refuses a create on an exact
+// collision unless the lane was the phone one, because households, reception
+// desks and switchboards share numbers.
+func TestAPhoneHitIsReportedWithoutClaimingCertainty(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	created, err := e.store.CreatePerson(ctx, CreatePersonInput{
+		FullName: "Anna Weber", Source: "manual",
+		Phones: []PersonPhoneInput{{Phone: "+4915112345678", PhoneType: "work", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("seeding the person: %v", err)
+	}
+	person := ids.From[ids.PersonKind](ids.UUID(created.Id))
+
+	out, err := e.store.Resolve(ctx, []ResolveCandidate{
+		{Kind: ResolvePerson, Phones: []string{"+4915112345678"}},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if len(out[0].Refs) != 1 || out[0].Refs[0].ID != person.UUID {
+		t.Fatalf("refs = %+v, want the person the number names", out[0].Refs)
+	}
+	if out[0].Refs[0].Exact {
+		t.Error("a phone hit was marked as a key hit, which publishes a shared number as an identity")
 	}
 }
 
@@ -58,7 +119,7 @@ func TestResolveFindsAnOrganizationByTheDomainInsideAnAddress(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	if len(out) != 1 || out[0].Verdict != VerdictExact {
+	if len(out) != 1 || len(out[0].Refs) != 1 || !out[0].Refs[0].Exact {
 		t.Fatalf("got %+v, want the domain to have resolved exactly", out)
 	}
 	if out[0].Refs[0].ID != org.UUID {
@@ -106,13 +167,13 @@ func TestResolveAnswersAMixedBatchInOrder(t *testing.T) {
 	if len(out) != 3 {
 		t.Fatalf("got %d answers for 3 candidates", len(out))
 	}
-	if out[0].Verdict != VerdictExact || out[0].Refs[0].ID != org.UUID {
+	if len(out[0].Refs) != 1 || out[0].Refs[0].ID != org.UUID {
 		t.Errorf("answer 0 = %+v, want the organization", out[0])
 	}
-	if out[1].Verdict != VerdictNone {
+	if len(out[1].Refs) != 0 {
 		t.Errorf("answer 1 = %+v, want no match for an address nobody holds", out[1])
 	}
-	if out[2].Verdict != VerdictExact || out[2].Refs[0].ID != person.UUID {
+	if len(out[2].Refs) != 1 || out[2].Refs[0].ID != person.UUID {
 		t.Errorf("answer 2 = %+v, want the person", out[2])
 	}
 }

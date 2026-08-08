@@ -352,6 +352,30 @@ func newServedRecords() *servedRecords {
 	}
 }
 
+// read fetches one record through the seam, through the cache and WITHOUT
+// stamping it. A verdict is remembered as a verdict, so a record two rows or two
+// candidates name is asked for once whether the answer was yes or no — the two
+// are indistinguishable as a missing map entry, which is why hopRead exists.
+//
+// The BOOL is the verdict, kept apart from the error: false is a definite answer
+// and the ref is dropped, while an error is the ABSENCE of one and is returned.
+func (s *servedRecords) read(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) (datasource.Record, bool, error) {
+	if cached, ok := s.hops[ref]; ok {
+		return cached.record, cached.readable, nil
+	}
+	record, err := p.Read(ctx, ref)
+	switch {
+	case err == nil:
+	case errors.Is(err, apperrors.ErrNotFound), errors.Is(err, apperrors.ErrPermissionDenied):
+		s.hops[ref] = hopRead{readable: false}
+		return datasource.Record{}, false, nil
+	default:
+		return datasource.Record{}, false, err
+	}
+	s.hops[ref] = hopRead{record: record, readable: true}
+	return record, true, nil
+}
+
 // stamp puts a record through newWireRecord the FIRST time it is served, and
 // returns the same wire record for every later row that names it. Stamping
 // twice would count one record twice against a bound that measures what the

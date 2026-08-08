@@ -75,8 +75,17 @@ func TestSearchContextNarrowsToTheCallersRowScope(t *testing.T) {
 	f := seedContextFixture(t, e)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 
-	answer := contextPayload(t, invokeContextSearch(e.teamRep(e.Rep1, e.Team1), t, registry,
-		`{"query":"Turbinenbau","record_types":["person"]}`).Data)
+	sealed := invokeContextSearch(e.teamRep(e.Rep1, e.Team1), t, registry,
+		`{"query":"Turbinenbau","record_types":["person"]}`)
+	answer := contextPayload(t, sealed.Data)
+
+	// The ENVELOPE has to omit it too. Evidence is the read ledger — what this
+	// answer rests on and what it was charged for — so a record absent from the
+	// hits but present there would have been read and paid for on the caller's
+	// behalf and then quietly dropped.
+	if sealedNames(sealed, f.rep3Person) {
+		t.Errorf("the envelope sources the other team's person %s", f.rep3Person)
+	}
 
 	if contextHas(answer, f.rep3Person) {
 		t.Fatalf("a rep was served the other team's person %s", f.rep3Person)

@@ -15,72 +15,27 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// A single exact lane is the one answer that resolves itself.
-func TestAnUncontestedExactLaneResolves(t *testing.T) {
-	person := ids.PersonID{UUID: ids.NewV7()}
-	got := personOutcome(PersonResolution{
-		Decision: DecisionExactCollision, PersonID: person, MatchedLane: laneEmail,
-	})
-
-	if got.Verdict != VerdictExact {
-		t.Fatalf("verdict = %q, want exact", got.Verdict)
-	}
-	if len(got.Refs) != 1 || got.Refs[0].ID != person.UUID {
-		t.Fatalf("refs = %+v, want the one person the address named", got.Refs)
-	}
-	if got.Refs[0].Confidence != 1 || got.Refs[0].MatchedOn != laneEmail {
-		t.Errorf("ref = %+v, want certainty 1 on the lane that matched", got.Refs[0])
-	}
-}
-
-// A lane conflict is AMBIGUITY here, even though the ladder routes it.
-//
-// The ladder must route: an inbound message with nowhere to land is worse than
-// one on the record whose binding was established first. A read has no message
-// to land, so passing the routed id along alone would hand a caller one answer
-// while hiding that another key names someone else.
-func TestALaneConflictIsReportedAsAmbiguityRatherThanRouted(t *testing.T) {
-	routed, rival := ids.PersonID{UUID: ids.NewV7()}, ids.PersonID{UUID: ids.NewV7()}
-	got := personOutcome(PersonResolution{
-		Decision: DecisionExactCollision, PersonID: routed, MatchedLane: laneEmail,
-		Conflict: &LaneConflict{
-			RoutedTo: routed, Rival: rival, RoutedLane: laneEmail, RivalLane: lanePhone,
-		},
-	})
-
-	if got.Verdict != VerdictAmbiguous {
-		t.Fatalf("verdict = %q, want ambiguous — two keys named two people", got.Verdict)
-	}
-	if len(got.Refs) != 2 {
-		t.Fatalf("refs = %+v, want both sides of the disagreement", got.Refs)
-	}
-	if got.Refs[0].ID != routed.UUID || got.Refs[1].ID != rival.UUID {
-		t.Errorf("refs = %+v, want the routed record first", got.Refs)
-	}
-	if got.Refs[1].MatchedOn != lanePhone {
-		t.Errorf("the rival's own lane was lost: %+v", got.Refs[1])
-	}
-}
-
-// A fuzzy hit is never exact, whatever it scored — DEDUPE_FUZZY_AUTOMERGE is
-// pinned *never*, and this read must not be the surface that undoes that.
+// The fuzzy tier is never marked Exact, whatever it scored — DEDUPE_FUZZY_AUTOMERGE
+// is pinned *never*, and this read must not be the surface that undoes it.
 func TestAFuzzyHitIsNeverExactHoweverHighItScored(t *testing.T) {
 	got := personOutcome(PersonResolution{
 		Decision: DecisionFuzzyReview, PersonID: ids.PersonID{UUID: ids.NewV7()}, Confidence: 0.99,
 	})
 
-	if got.Verdict != VerdictAmbiguous {
-		t.Errorf("verdict = %q for a 0.99 fuzzy match, want ambiguous", got.Verdict)
+	if len(got.Refs) != 1 {
+		t.Fatalf("got %+v, want the scored candidate", got)
 	}
-	if len(got.Refs) != 1 || got.Refs[0].Confidence != 0.99 {
-		t.Errorf("refs = %+v, want the scored candidate with its score", got.Refs)
+	if got.Refs[0].Exact {
+		t.Error("a 0.99 name similarity was marked as a key hit, which makes it actionable")
+	}
+	if got.Refs[0].Confidence != 0.99 || got.Refs[0].MatchedOn != axisFullName {
+		t.Errorf("ref = %+v, want the score and the axis it was scored on", got.Refs[0])
 	}
 }
 
 func TestNoMatchResolvesToNothing(t *testing.T) {
-	got := personOutcome(PersonResolution{Decision: DecisionNoMatch})
-	if got.Verdict != VerdictNone || len(got.Refs) != 0 {
-		t.Errorf("got %+v, want an empty `none`", got)
+	if got := personOutcome(PersonResolution{Decision: DecisionNoMatch}); len(got.Refs) != 0 {
+		t.Errorf("got %+v, want nothing", got)
 	}
 }
 
@@ -97,22 +52,28 @@ func TestEveryRankedOrganizationRivalSurvivesTranslation(t *testing.T) {
 		},
 	})
 
-	if got.Verdict != VerdictAmbiguous || len(got.Refs) != 2 {
+	if len(got.Refs) != 2 {
 		t.Fatalf("got %+v, want both ranked rivals", got)
 	}
 	if got.Refs[1].MatchedOn != "legal_name" {
 		t.Errorf("the axis a pair was scored on was lost: %+v", got.Refs[1])
 	}
+	for _, ref := range got.Refs {
+		if ref.Exact {
+			t.Errorf("a name similarity was marked as a key hit: %+v", ref)
+		}
+	}
 }
 
-func TestOrganizationDomainHitAndMissTranslate(t *testing.T) {
+func TestTheOrganizationFuzzyTranslationIgnoresANonFuzzyDecision(t *testing.T) {
+	// The exact tier is answered before this is reached (exactOrganizationOwners),
+	// so a collision arriving here would be a second, quieter exact path.
 	org := ids.OrganizationID{UUID: ids.NewV7()}
-	hit := organizationOutcome(OrganizationMatch{Decision: DecisionExactCollision, OrganizationID: org})
-	if hit.Verdict != VerdictExact || len(hit.Refs) != 1 || hit.Refs[0].MatchedOn != axisDomain {
-		t.Errorf("got %+v, want an exact hit on the domain axis", hit)
+	if got := organizationOutcome(OrganizationMatch{Decision: DecisionExactCollision, OrganizationID: org}); len(got.Refs) != 0 {
+		t.Errorf("got %+v, want nothing: the exact tier does not come through here", got)
 	}
-	if miss := organizationOutcome(OrganizationMatch{Decision: DecisionNoMatch}); miss.Verdict != VerdictNone {
-		t.Errorf("got %+v, want an empty `none`", miss)
+	if got := organizationOutcome(OrganizationMatch{Decision: DecisionNoMatch}); len(got.Refs) != 0 {
+		t.Errorf("got %+v, want nothing", got)
 	}
 }
 
@@ -146,7 +107,9 @@ func TestResolveRequiresTheGrantForEveryKindInTheBatch(t *testing.T) {
 // private address onto whichever company first claimed that provider.
 func TestCompanyDomainsDerivesFromEmailsAndDropsConsumerMail(t *testing.T) {
 	got := companyDomains(ResolveCandidate{
-		Domains: []string{"Acme.example", " acme.example "},
+		// A URL, a bare name and a subdomain: what a model actually passes when
+		// asked for "company domains".
+		Domains: []string{"https://www.Acme.example/careers", " acme.example "},
 		Emails:  []string{"anna@acme.example", "anna@gmail.com", "not-an-address"},
 	}, freemail.New(nil, nil))
 
@@ -157,7 +120,7 @@ func TestCompanyDomainsDerivesFromEmailsAndDropsConsumerMail(t *testing.T) {
 		t.Errorf("domains = %v, want no consumer-mail domain — it matches every private address", got)
 	}
 	if len(got) != 1 {
-		t.Errorf("domains = %v, want one entry: the same domain claimed twice is one key", got)
+		t.Errorf("domains = %v, want one entry: a URL, a bare name and an address all name one key", got)
 	}
 }
 
