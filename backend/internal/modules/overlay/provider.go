@@ -208,6 +208,15 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 	if len(q.EntityTypes) != 1 {
 		return datasource.SearchResult{}, fmt.Errorf("overlay: search requires exactly one entity type in this branch, got %d", len(q.EntityTypes))
 	}
+	// A structured filter the mirror cannot evaluate is REFUSED, never dropped.
+	// The mirror holds the incumbent's rows as opaque fields, so a narrowing by
+	// owner or stage has nothing to bind to — and answering the unnarrowed page
+	// instead would return a superset of what was asked for, in the shape of the
+	// right answer. That is the silent break AC-OV-2 forbids: a tool either
+	// behaves identically across modes or declares it cannot serve this one.
+	if len(q.Filters) > 0 {
+		return datasource.SearchResult{}, apperrors.ErrUnsupportedBySoR
+	}
 	et := q.EntityTypes[0]
 	// Object RBAC before any mirror read — the MCP search_records path
 	// reaches the provider directly, so the gate the REST search shadow

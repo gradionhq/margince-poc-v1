@@ -100,9 +100,9 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 		)
 		switch t {
 		case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
-			records, next, more, err = p.people.SearchEntity(ctx, t, text, limit, cursor)
+			records, next, more, err = p.people.SearchEntity(ctx, t, text, limit, cursor, q.Filters)
 		case datasource.EntityDeal, datasource.EntityProject:
-			records, next, more, err = p.deals.SearchEntity(ctx, t, text, limit, cursor)
+			records, next, more, err = p.deals.SearchEntity(ctx, t, text, limit, cursor, q.Filters)
 		default:
 			return datasource.SearchResult{}, &datasource.UnsupportedEntityError{Type: string(t)}
 		}

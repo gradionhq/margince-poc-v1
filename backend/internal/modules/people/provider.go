@@ -83,8 +83,16 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 }
 
 // SearchEntity lists one of this module's entity types under the shared
-// search contract (text query, CAP-PAGE limit, per-entity keyset cursor).
-func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, text *string, limit int, cursor *string) ([]datasource.Record, string, bool, error) {
+// search contract (text query, structured filters, CAP-PAGE limit, per-entity
+// keyset cursor).
+//
+// A filter this type has no binding for is an ERROR rather than a dropped
+// clause — see listfilters.go. It is unreachable while the composition root
+// publishes only what ListFilters names, which is what makes it a safe
+// assertion instead of a silent widening.
+func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, text *string, limit int, cursor *string,
+	filters map[string]string,
+) ([]datasource.Record, string, bool, error) {
 	var (
 		records []datasource.Record
 		next    string
@@ -100,7 +108,11 @@ func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, te
 	}
 	switch t {
 	case datasource.EntityPerson:
-		rows, page, err := p.store.ListPeople(ctx, ListPeopleInput{Query: text, Limit: &limit, Cursor: cursor})
+		in := ListPeopleInput{Query: text, Limit: &limit, Cursor: cursor}
+		if err := personListFilters.Apply(&in, filters); err != nil {
+			return nil, "", false, err
+		}
+		rows, page, err := p.store.ListPeople(ctx, in)
 		if err != nil {
 			return nil, "", false, err
 		}
@@ -111,7 +123,11 @@ func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, te
 		}
 		next, more = page.NextCursor, page.HasMore
 	case datasource.EntityOrganization:
-		rows, page, err := p.store.ListOrganizations(ctx, ListOrganizationsInput{Query: text, Limit: &limit, Cursor: cursor})
+		in := ListOrganizationsInput{Query: text, Limit: &limit, Cursor: cursor}
+		if err := organizationListFilters.Apply(&in, filters); err != nil {
+			return nil, "", false, err
+		}
+		rows, page, err := p.store.ListOrganizations(ctx, in)
 		if err != nil {
 			return nil, "", false, err
 		}
@@ -122,7 +138,11 @@ func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, te
 		}
 		next, more = page.NextCursor, page.HasMore
 	case datasource.EntityLead:
-		rows, page, err := p.store.ListLeads(ctx, ListLeadsInput{Query: text, Limit: &limit, Cursor: cursor})
+		in := ListLeadsInput{Query: text, Limit: &limit, Cursor: cursor}
+		if err := leadListFilters.Apply(&in, filters); err != nil {
+			return nil, "", false, err
+		}
+		rows, page, err := p.store.ListLeads(ctx, in)
 		if err != nil {
 			return nil, "", false, err
 		}

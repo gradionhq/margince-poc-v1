@@ -261,6 +261,28 @@ func TestProviderSearchRequiresExactlyOneEntityType(t *testing.T) {
 	}
 }
 
+// A structured filter the mirror cannot evaluate is refused, not dropped.
+//
+// Dropping it would answer the unnarrowed page — a SUPERSET of what was asked
+// for, wearing the shape of the right answer — which is the silent break
+// AC-OV-2 forbids. The guard runs before the store is touched, so a zero-value
+// MirrorStore is enough to prove it, and the refusal is the declared
+// unsupported-by-SoR sentinel rather than a generic error, because a caller
+// branches on it to say "not available here" instead of "this failed".
+func TestProviderSearchRefusesAFilterTheMirrorCannotAnswer(t *testing.T) {
+	p := NewProvider(&MirrorStore{}, nil)
+
+	_, err := p.Search(context.Background(), datasource.SearchQuery{
+		EntityTypes: []datasource.EntityType{datasource.EntityDeal},
+		Filters:     map[string]string{"stage_id": ids.NewV7().String()},
+	})
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("Search with a filter: got %v, want %v — a dropped filter answers a wider question",
+			err, apperrors.ErrUnsupportedBySoR)
+	}
+}
+
 // TestProviderSearchRequiresAMirrorStore proves Search's own nil-store
 // guard, mirroring TestProviderReadRequiresAMirrorStore.
 func TestProviderSearchRequiresAMirrorStore(t *testing.T) {
