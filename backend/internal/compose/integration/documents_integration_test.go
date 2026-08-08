@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -334,4 +335,42 @@ func seedActivityWithDeal(t *testing.T, e *Env, deal ids.UUID) ids.UUID {
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
 		VALUES ($1, $2, 'deal', $3)`, e.WS, id, deal)
 	return id
+}
+
+// When two companies turn out to be one, the survivor's library has to hold
+// both sides' files. organization_id is a denormalized read path, so nothing
+// moves it on its own — a file left pointing at the dissolved company is filed
+// under a record that no longer exists, and to a user the contract has simply
+// vanished.
+func TestAnOrganizationMergeCarriesTheDocumentsAcross(t *testing.T) {
+	e := Setup(t)
+	files := activities.NewStore(e.Pool)
+	orgs := people.NewStore(e.Pool)
+	survivor := e.SeedOrg(t, "Acme", &e.Rep1)
+	dissolved := e.SeedOrg(t, "Acme Holdings", &e.Rep1)
+
+	seedDocument(t, e, dissolved, "organization", dissolved, "old-msa.pdf", "contract", false)
+	seedDocument(t, e, survivor, "organization", survivor, "new-msa.pdf", "contract", false)
+
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, docUploadPerms)
+	if _, err := orgs.MergeOrganization(ctx,
+		ids.From[ids.OrganizationKind](dissolved), ids.From[ids.OrganizationKind](survivor)); err != nil {
+		t.Fatalf("merging the duplicate company: %v", err)
+	}
+
+	docs, _, err := files.ListOrganizationDocuments(
+		e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms), survivor, activities.DocumentFilters{})
+	if err != nil {
+		t.Fatalf("ListOrganizationDocuments: %v", err)
+	}
+	found := map[string]bool{}
+	for _, d := range docs {
+		found[d.Filename] = true
+	}
+	if !found["old-msa.pdf"] {
+		t.Error("the dissolved company's contract did not follow the merge — it is filed under a record that no longer exists")
+	}
+	if !found["new-msa.pdf"] {
+		t.Error("the survivor's own contract went missing across the merge")
+	}
 }
