@@ -62,6 +62,12 @@ type Registry struct {
 	// the same meter and does the refusing; the split is deliberate — a bound
 	// is enforced where admission is decided and paid where records leave.
 	reads ReadCharger
+	// claims is what makes `idempotency_key` mean something. Nil refuses a
+	// keyed call rather than running it unprotected (idempotency.go).
+	claims Idempotency
+	// replayReader re-reads the records a recorded result rests on, so a replay
+	// is gated as the read it is.
+	replayReader ReplayReader
 }
 
 // NewRegistry builds the tool surface over its approvals engine and admission
@@ -166,39 +172,26 @@ func (r *Registry) Register(t mcp.Tool) {
 		panic(fmt.Sprintf("crmagents: duplicate tool %s", spec.Name))
 	}
 	r.tools[spec.Name] = t
-	r.specs[spec.Name] = envelopedSpec(spec)
+	// The two schema transforms the SURFACE owns, applied once here so no tool
+	// carries either: its result wrapped in the envelope, and — for a mutating
+	// tool — the retry key it may be called with.
+	r.specs[spec.Name] = withRetryKey(envelopedSpec(spec))
+	// Derived from the tool's OWN schema, never the spliced one: the reserved
+	// members are popped before any of these checks runs, so a check that knew
+	// about them would be describing arguments no handler can be reached with.
 	r.idArgs[spec.Name] = declaredIDArgs(spec.InputSchema)
 	r.numArgs[spec.Name] = declaredNumBounds(spec.InputSchema)
 	r.requiredArgs[spec.Name] = declaredRequired(spec.InputSchema)
-}
-
-// envelopedSpec is the spec every surface is served: the tool's own, with its
-// declared output shape wrapped in the envelope Invoke seals results into.
-//
-// It is computed HERE, once at registration, rather than where each surface
-// serves it. The advertised schema and the answered document are two halves of
-// one promise, and the only way they cannot drift is for one wrapper to produce
-// both — the tool declares the shape of its payload and knows nothing about the
-// envelope, exactly as its handler does.
-func envelopedSpec(spec mcp.ToolSpec) mcp.ToolSpec {
-	if spec.OutputSchema == nil {
-		// A tool promising no output shape owes tools/call no structured
-		// content; its result is still sealed, but there is nothing to wrap.
-		return spec
-	}
-	sealed, err := envelopedSchema(spec.OutputSchema)
-	if err != nil {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: cannot advertise %s's result inside the envelope: %v", spec.Name, err))
-	}
-	spec.OutputSchema = sealed
-	return spec
 }
 
 // Invoke runs the admission gate, then the tool. There is no other path
 // to a Handle in this package. A refused 🟡 call is staged for human
 // decision; a retry carrying `approval_id` redeems that decision — bound
 // to the identical call by content hash — and only then reaches Handle.
+//
+// A call carrying `idempotency_key` reaches Handle at most once for that key
+// (idempotency.go): the claim is taken AFTER admission, so a caller the gate
+// turns away never occupies a key, and the effect is what the claim protects.
 func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) (json.RawMessage, error) {
 	// The REGISTERED spec, not a fresh Spec() call. The two are the same for a
 	// tool whose spec is a literal, and every tool here is — but the registered
@@ -214,10 +207,11 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		return nil, &UnknownToolError{Name: name}
 	}
 
-	args, approvalID, diffHash, err := splitApproval(in)
+	res, err := splitReserved(in)
 	if err != nil {
 		return nil, err
 	}
+	args := res.Args
 
 	admitted, err := r.gate.Admit(ctx, spec, r.tierResolverFor(ctx, t, name, args))
 	// Static-tier tools, whose resolver Admit never runs. After authority and
@@ -238,27 +232,27 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		// auto-execute tier, so its asserted authority is consumed HERE — validated against
 		// the identical-call hash, never ignored. The redeemed mark tells
 		// the handler the overwrite it is about to make was human-released.
-		if !approvalID.IsZero() {
+		if !res.ApprovalID.IsZero() {
 			if r.approvals == nil {
 				return nil, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
 			}
-			marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
+			marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, res.ApprovalID, spec.Name, res.DiffHash)
 			if rErr != nil {
 				return nil, rErr
 			}
 			ctx = marked
 		}
-		return r.handle(ctx, t, spec, args)
+		return r.runOnce(ctx, t, spec, res)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
-	case !approvalID.IsZero():
-		marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
+	case !res.ApprovalID.IsZero():
+		marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, res.ApprovalID, spec.Name, res.DiffHash)
 		if rErr != nil {
 			return nil, rErr
 		}
-		return r.handle(marked, t, spec, args)
+		return r.runOnce(marked, t, spec, res)
 	default:
-		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, diffHash, err)
+		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, res.DiffHash, err)
 	}
 }
 
@@ -406,56 +400,6 @@ func (r *Registry) Offered(ctx context.Context) []mcp.ToolSpec {
 		}
 	}
 	return out
-}
-
-// assertObjectSchemas holds two promises tools/list and tools/call have to
-// keep, at the one door every tool comes through.
-//
-// The first is ENCODABILITY. Both schemas are hand-written JSON literals
-// spliced together from constants, and they reach the client by being embedded
-// verbatim into the tools/list response — so ONE misplaced brace does not
-// break one tool, it makes the whole listing unencodable and every tool
-// disappears behind a 500. That is a boot-time defect discovered on a client's
-// first request, which is exactly the wrong end.
-//
-// The second is that both are OBJECT schemas. MCP requires an object input
-// schema, and a declared outputSchema obliges the server to answer with
-// structured content conforming to it — which the dispatcher can only do for
-// an object, because structuredContent is typed as one. A schema written some
-// other way (a $ref, a bare allOf) fails here on purpose: not wrong, but not
-// something the dispatcher has been taught to honour, and failing at boot
-// beats advertising a shape the results miss.
-func assertObjectSchemas(spec mcp.ToolSpec) error {
-	if spec.InputSchema == nil {
-		// The protocol requires one. A tool taking no arguments still declares
-		// `{"type":"object"}`; nil would put a bare null on tools/list.
-		return fmt.Errorf("%s declares no InputSchema; MCP requires every tool to advertise an object input schema", spec.Name)
-	}
-	for _, s := range []struct {
-		field string
-		raw   json.RawMessage
-	}{
-		{field: "InputSchema", raw: spec.InputSchema},
-		// Optional: a tool promising no output shape owes tools/call no
-		// structured content.
-		{field: "OutputSchema", raw: spec.OutputSchema},
-	} {
-		if s.raw == nil {
-			continue
-		}
-		var declared struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(s.raw, &declared); err != nil {
-			return fmt.Errorf("%s has an %s that is not valid JSON, which makes the whole tools/list response unencodable: %w",
-				spec.Name, s.field, err)
-		}
-		if declared.Type != "object" {
-			return fmt.Errorf("%s declares %s type %q; this surface serves object schemas only",
-				spec.Name, s.field, declared.Type)
-		}
-	}
-	return nil
 }
 
 // dynamicTool is implemented by TierDynamic tools that need more than the

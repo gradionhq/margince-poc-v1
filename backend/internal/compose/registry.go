@@ -80,6 +80,18 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// windows.
 	native := NewProvider(pool)
 	provider := NewDispatcher(native, NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
+	// Retry safety, wired for EVERY role that composes this surface rather than
+	// arriving as the API server's option the way the read charger does. The
+	// difference is who the promise is made to: the read bound governs agent
+	// principals, so a role no agent reaches needs no meter — but the retry key
+	// is advertised on every mutating tool's schema by the registry itself, so
+	// any surface built here can be asked to honour one, and a surface that
+	// advertises the key and cannot claim it refuses the call.
+	//
+	// The replay reader is the composite provider this registry is already
+	// composed over, so a recorded result's records are re-checked through the
+	// same door — mirror included — that a live read of them would take.
+	opts = append(opts, agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the

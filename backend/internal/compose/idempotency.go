@@ -55,6 +55,12 @@ const (
 	claimMismatch                       // same key, different request digest
 )
 
+// The claim itself — claimKey, settleClaim, releaseClaim — takes a CONTEXT and
+// the four values that identify a claim, never an *http.Request: the governed
+// tool surface claims keys through the same three functions for a tools/call
+// (agentidempotency.go), and two transports each holding their own claim
+// transaction would be two answers to the question "is this the same call".
+//
 // idempotency is a contract-router middleware; it rides inside the
 // session middleware, so workspace and principal are bound (the claim
 // table is RLS-guarded and scoped per principal).
@@ -96,7 +102,16 @@ func idempotency(pool *pgxpool.Pool, probes map[string]replayProbe) func(http.Ha
 			// key per request-path, so /deals/A and /deals/B never collide.
 			endpoint := r.Method + " " + r.URL.Path
 
-			outcome, stored := claimKey(r, pool, actor.ID, key, endpoint, digest)
+			outcome, stored, err := claimKey(r.Context(), pool, actor.ID, key, endpoint, digest)
+			if err != nil {
+				// Degraded, not refused: idempotency is a retry-safety layer,
+				// and refusing the request because the layer itself hiccupped
+				// would make retries LESS safe than not sending the header at
+				// all. The tool surface takes the same posture for the same
+				// reason (agents.Registry.runOnce).
+				slog.ErrorContext(r.Context(), "idempotency claim failed; executing without replay protection", "err", err)
+				outcome, stored = claimFresh, storedResponse{}
+			}
 			if outcome != claimFresh {
 				writeClaimOutcome(w, r, pool, probes, route, outcome, stored)
 				return
@@ -104,7 +119,10 @@ func idempotency(pool *pgxpool.Pool, probes map[string]replayProbe) func(http.Ha
 
 			rec := &replayRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rec, r)
-			settleClaim(r, pool, actor.ID, key, endpoint, rec)
+			if err := settleClaim(r.Context(), pool, actor.ID, key, endpoint,
+				rec.status, rec.buf.String(), rec.Header().Get("Content-Type")); err != nil {
+				slog.ErrorContext(r.Context(), "idempotency claim settlement failed", "err", err)
+			}
 		})
 	}
 }
@@ -158,25 +176,24 @@ type storedResponse struct {
 // degrades to claimFresh: idempotency is a retry-safety layer, and
 // refusing the request because the layer itself hiccupped would make
 // retries LESS safe than not sending the header at all.
-func claimKey(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint, digest string) (claimOutcome, storedResponse) {
+func claimKey(ctx context.Context, pool *pgxpool.Pool, principalID, key, endpoint, digest string) (claimOutcome, storedResponse, error) {
 	outcome := claimFresh
 	var stored storedResponse
-	err := database.WithWorkspaceTx(r.Context(), pool, func(tx pgx.Tx) error {
-		claimed, err := insertClaim(r.Context(), tx, principalID, key, endpoint, digest)
+	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		claimed, err := insertClaim(ctx, tx, principalID, key, endpoint, digest)
 		if err != nil {
 			return err
 		}
 		if claimed {
 			return nil // fresh claim
 		}
-		outcome, stored, err = resolveExistingClaim(r.Context(), tx, principalID, key, endpoint, digest)
+		outcome, stored, err = resolveExistingClaim(ctx, tx, principalID, key, endpoint, digest)
 		return err
 	})
 	if err != nil {
-		slog.ErrorContext(r.Context(), "idempotency claim failed; executing without replay protection", "err", err)
-		return claimFresh, storedResponse{}
+		return claimFresh, storedResponse{}, err
 	}
-	return outcome, stored
+	return outcome, stored, nil
 }
 
 // insertClaim writes the claim row insert-first and reports whether THIS
@@ -259,24 +276,33 @@ func resolveExistingClaim(ctx context.Context, tx pgx.Tx, principalID, key, endp
 // settleClaim records a 2xx outcome for replay and releases the claim on
 // anything else (see the package comment for why failures are not
 // replayed).
-func settleClaim(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint string, rec *replayRecorder) {
-	err := database.WithWorkspaceTx(r.Context(), pool, func(tx pgx.Tx) error {
-		if rec.status >= 200 && rec.status < 300 {
-			_, err := tx.Exec(r.Context(), `
-				UPDATE idempotency_key SET response_status = $4, response_body = $5, response_content_type = $6
-				WHERE principal_id = $1 AND key = $2 AND endpoint = $3`,
-				principalID, key, endpoint, rec.status, rec.buf.String(), rec.Header().Get("Content-Type"))
-			return err
-		}
-		_, err := tx.Exec(r.Context(), `
+func settleClaim(ctx context.Context, pool *pgxpool.Pool, principalID, key, endpoint string,
+	status int, body, contentType string,
+) error {
+	if status < 200 || status >= 300 {
+		return releaseClaim(ctx, pool, principalID, key, endpoint)
+	}
+	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE idempotency_key SET response_status = $4, response_body = $5, response_content_type = $6
+			WHERE principal_id = $1 AND key = $2 AND endpoint = $3`,
+			principalID, key, endpoint, status, body, contentType)
+		return err
+	})
+}
+
+// releaseClaim gives an unsettled key back, so the caller may retry it. Only a
+// claim with no recorded response is released: a settled one is a result
+// somebody may still replay, and deleting it here would turn a completed call
+// into one that executes a second time.
+func releaseClaim(ctx context.Context, pool *pgxpool.Pool, principalID, key, endpoint string) error {
+	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 			DELETE FROM idempotency_key
 			WHERE principal_id = $1 AND key = $2 AND endpoint = $3 AND response_status IS NULL`,
 			principalID, key, endpoint)
 		return err
 	})
-	if err != nil {
-		slog.ErrorContext(r.Context(), "idempotency claim settlement failed", "err", err)
-	}
 }
 
 // replayRecorder tees the response so a later replay can repeat it.
