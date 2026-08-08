@@ -173,9 +173,15 @@ func deniedIfGone(what, tool string, err error) error {
 // MCP-SESS-CALLS is deliberately NOT applied here. It counts TOOL calls, and a
 // REST GET is not one: charging it would meter the same credential against a
 // ceiling written for a surface this request never touched, and the two doors
-// would then disagree about what a call is. The mutating REST half has no such
-// gap — it resolves the operation's tool twin and admits against that spec
-// (compose/agentgate.go), so writes, egress and calls all bind there.
+// would then disagree about what a call is. The mutating REST half is bound AND
+// paid — compose/agentgate.go resolves the operation's tool twin, admits against
+// that spec, and charges the same two points the MCP door charges.
+//
+// What is NOT closed, stated rather than implied: this read path refuses on the
+// bound and charges nothing back, so a credential that reads only through /v1
+// never accrues toward it. The charge is per RECORD, and no single point on this
+// door knows how many a handler served — see #646, which carries the shape a fix
+// has to take.
 //
 // Non-agents are admitted untouched, exactly as Admit leaves them.
 func (g *Gate) AdmitRead(ctx context.Context) error {
