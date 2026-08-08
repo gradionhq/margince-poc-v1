@@ -196,8 +196,14 @@ func TestAHardStopTellsTheAgentNoApprovalWillLiftIt(t *testing.T) {
 	if !strings.Contains(hard.Error(), "no approval lifts it") {
 		t.Errorf("a hard stop does not say that no approval lifts it: %q", hard)
 	}
-	if !strings.Contains(soft.Error(), "must confirm") {
-		t.Errorf("a step-up does not name the human who can answer it: %q", soft)
+	if !strings.Contains(soft.Error(), "releases the window") {
+		t.Errorf("a releasable refusal does not say a release would end it: %q", soft)
+	}
+	// And it does NOT claim one has been asked for. This error is answered on
+	// both doors and only the MCP one stages the question; promising a human is
+	// looking would leave a REST caller waiting on an approval nobody created.
+	if strings.Contains(soft.Error(), "has been asked") {
+		t.Errorf("a bare quota refusal claims somebody was asked: %q", soft)
 	}
 }
 

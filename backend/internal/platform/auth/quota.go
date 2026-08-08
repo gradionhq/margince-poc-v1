@@ -65,8 +65,13 @@ func (e *QuotaExceededError) Unwrap() error { return apperrors.ErrBudgetExceeded
 
 // Error states the numbers and what ends the refusal, because those are two
 // different things per rung and an agent's next move depends on which it got.
-// A releasable refusal names the human; a hard stop names the window, so a
-// client does not sit waiting for an approval nobody can grant.
+//
+// A releasable refusal says a release is POSSIBLE, not that one has been asked
+// for. This type is answered on both doors, and only the MCP one stages the
+// question (StepUpStagedError says so, and is what an agent reads there); the
+// REST door has no tool to name and stages nothing. Promising here that
+// somebody is looking at it would leave a REST caller waiting on an approval
+// that was never created.
 func (e *QuotaExceededError) Error() string {
 	what := "this agent"
 	if e.Tool != "" {
@@ -74,7 +79,7 @@ func (e *QuotaExceededError) Error() string {
 	}
 	if e.Releasable() {
 		return fmt.Sprintf(
-			"%s: this agent has spent %d of its %d %s for this window; the person who connected it must confirm before it continues",
+			"%s: this agent has spent %d of its %d %s for this window; it may continue once the person who connected it releases the window, or when the window rolls",
 			what, e.Reading.Observed, e.Reading.Limit, e.Reading.Counter)
 	}
 	return fmt.Sprintf(

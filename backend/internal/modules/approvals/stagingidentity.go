@@ -148,7 +148,7 @@ func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID
 // decision the human actually made: this record, this proposed value.
 func declinedProbeSQL(byIdentity bool) string {
 	const prefix = `SELECT status FROM approval
-		 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND `
+		 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3 AND `
 	const suffix = `
 		 ORDER BY created_at
 		 FOR UPDATE`
@@ -279,7 +279,7 @@ func (s *Service) StageUnlessDeclined(ctx context.Context, in StageInput) (ids.A
 		if byIdentity {
 			discriminator = in.Identity
 		}
-		rows, err := tx.Query(ctx, declinedProbeSQL(byIdentity), wsID, in.Kind, in.TargetID, discriminator)
+		rows, err := tx.Query(ctx, declinedProbeSQL(byIdentity), wsID, in.Kind, nullUUID(in.TargetID), discriminator)
 		if err != nil {
 			return fmt.Errorf("lock the prior offers for this proposal: %w", err)
 		}

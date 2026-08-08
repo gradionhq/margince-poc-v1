@@ -129,9 +129,15 @@ func (r *Registry) charge(ctx context.Context, spec mcp.ToolSpec, c agentquota.C
 	}
 	slog.ErrorContext(ctx, "recording what an answer spent against its quota failed",
 		"tool", spec.Name, "quota", string(c), "amount", n, "read_only", spec.ReadOnly(), "err", err)
-	if !spec.ReadOnly() {
+	if !spec.ReadOnly() || spec.Egress {
 		// The effect already happened. Reporting it as a failure is worse than
 		// an uncounted write.
+		//
+		// Egress is named separately rather than assumed to imply a write:
+		// CounterFor admits a READ-scoped egress tool, and for one of those the
+		// send has already left the workspace by the time this runs. Withholding
+		// its answer would invite exactly the retry this branch exists to
+		// prevent, on the one call where a retry costs the most.
 		return nil
 	}
 	return fmt.Errorf(
@@ -182,4 +188,44 @@ func (r *Registry) noteCostShare(ctx context.Context) {
 		"This agent has spent %d of the %d model tokens that are its share of this workspace's AI budget for the current window. "+
 			"Nothing is being withheld; the workspace's own budget guardrail is what acts on overspend.",
 		reading.Observed, reading.Limit))
+}
+
+// ChargeAdmittedCall and ChargeEffect are the SECOND door's charge points
+// (ADR-0055): a mutating REST call admits against its tool twin's spec but
+// never invokes this registry, so without these the counters the gate reads on
+// that door are counters nothing pays into — every threshold sits at zero
+// forever and a credential that never touches /mcp is unbounded.
+//
+// They are exported, and they are the only exported charge points, because the
+// composition layer owns that door and this package may not import it. They
+// mirror Invoke's own two moments exactly: the ceiling before anything happens,
+// the act after it has.
+//
+// ChargeAdmittedCall runs after admission and before the handler, and REFUSES
+// what it cannot count, for the same reason chargeCall does.
+func (r *Registry) ChargeAdmittedCall(ctx context.Context, spec mcp.ToolSpec) error {
+	return r.chargeCall(ctx, spec)
+}
+
+// ChargeEffect records a completed mutating REST call against the counter its
+// kind names. It takes no record count: the REST read path is charged
+// separately and per record where records leave that surface, and a mutation's
+// own read-back is not this call's to count twice.
+//
+// It never fails the caller. By the time it runs the effect has committed —
+// the handler has already answered — so an uncounted write is a small
+// accounting loss where a reported failure would invite the retry of something
+// that already happened.
+func (r *Registry) ChargeEffect(ctx context.Context, spec mcp.ToolSpec) {
+	if r.quota == nil {
+		return
+	}
+	act := agentquota.CounterFor(spec)
+	if act == agentquota.Reads {
+		return
+	}
+	if err := r.quota.Consume(ctx, act, 1); err != nil {
+		slog.ErrorContext(ctx, "recording a completed REST effect against its quota failed",
+			"tool", spec.Name, "quota", string(act), "err", err)
+	}
 }

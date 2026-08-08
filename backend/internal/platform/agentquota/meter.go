@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -113,6 +114,12 @@ func (m *Meter) RebindFrom(src *Meter) {
 // report without a second reading of the window.
 func (m *Meter) Limit(c Counter) int { return m.limits.of(c) }
 
+// Window is the span one counter covers. A caller computing anything PER window
+// — the cost ceiling's share of a monthly budget is the one today — must
+// pro-rate against this rather than against the default, or it compares a share
+// of one span with a count over another.
+func (m *Meter) Window() time.Duration { return m.window }
+
 // Reading is what the meter knows about one Passport's window for one counter.
 type Reading struct {
 	// Counter is which quota this reading is of, so a refusal can name it
@@ -123,6 +130,12 @@ type Reading struct {
 	// Limit is the EFFECTIVE threshold Observed is judged against — the
 	// configured one plus whatever a human has released this window.
 	Limit int
+	// Allowance is what ONE release adds, which is the configured threshold and
+	// NOT the effective one. They differ the moment a window has been released
+	// once, and the approval screen quotes this: telling a human "continue for
+	// another 200" while approving adds 100 is a number that is wrong in the
+	// direction that matters.
+	Allowance int
 	// Exceeded reports that the next call must be refused. It is a field
 	// rather than a comparison the caller makes, so the fail-closed answer
 	// cannot be reconstructed wrongly by a second caller.
@@ -257,7 +270,7 @@ func (m *Meter) Consume(ctx context.Context, c Counter, n int) error {
 func (m *Meter) Read(ctx context.Context, c Counter) Reading {
 	bucket := m.Bucket()
 	if m.unbounded || !governed(ctx) {
-		return Reading{Counter: c, Limit: m.limits.of(c), Bucket: bucket}
+		return Reading{Counter: c, Limit: m.limits.of(c), Allowance: m.limits.of(c), Bucket: bucket}
 	}
 	if c == Cost {
 		return m.readCost(ctx, bucket)
@@ -267,14 +280,17 @@ func (m *Meter) Read(ctx context.Context, c Counter) Reading {
 		// Governed, and unidentifiable or uncountable. Both are the fail-closed
 		// branch: this caller is inside the control and the meter cannot answer
 		// for them.
-		return Reading{Counter: c, Limit: m.limits.of(c), Exceeded: true, Bucket: bucket}
+		return Reading{Counter: c, Limit: m.limits.of(c), Allowance: m.limits.of(c), Exceeded: true, Bucket: bucket}
 	}
 	observed, released, err := m.observe(ctx, ws, agent, c, bucket)
 	if err != nil {
-		return Reading{Counter: c, Limit: m.limits.of(c), Exceeded: true, Bucket: bucket}
+		return Reading{Counter: c, Limit: m.limits.of(c), Allowance: m.limits.of(c), Exceeded: true, Bucket: bucket}
 	}
 	limit := m.effectiveLimit(c, released)
-	return Reading{Counter: c, Observed: observed, Limit: limit, Exceeded: observed >= limit, Bucket: bucket}
+	return Reading{
+		Counter: c, Observed: observed, Limit: limit, Allowance: m.limits.of(c),
+		Exceeded: observed >= limit, Bucket: bucket,
+	}
 }
 
 // readCost answers the soft counter.
@@ -339,8 +355,10 @@ func asCount(v any) (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("agentquota: counter value is %T, not a string", v)
 	}
-	var n int
-	if _, err := fmt.Sscanf(s, "%d", &n); err != nil {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		// Atoi, not Sscanf: Sscanf reads "12abc" as 12 and reports no error,
+		// which is precisely the "neither absent nor an integer" case above.
 		return 0, fmt.Errorf("agentquota: counter value %q is not a number: %w", s, err)
 	}
 	return n, nil

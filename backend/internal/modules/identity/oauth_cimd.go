@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -122,6 +123,14 @@ func (s *Service) resolveCIMDClient(ctx context.Context, clientID string) error 
 	}
 	doc, ttl, err := fetchCIMD(ctx, clientID)
 	if err != nil {
+		// The operator's half. The caller is answered `invalid_client` and
+		// nothing else — a detailed refusal would make this server a network
+		// prober reporting back to the prober — so this log line is the ONLY
+		// place the reason survives, and without it a client author whose
+		// document is subtly wrong is indistinguishable from one that is not
+		// registered.
+		slog.WarnContext(ctx, "a client's metadata document was refused",
+			"client_id", clientID, "err", err)
 		return err
 	}
 	return s.upsertCIMDClient(ctx, doc, ttl)
@@ -176,7 +185,16 @@ func (s *Service) upsertCIMDClient(ctx context.Context, doc cimdDocument, ttl ti
 	})
 }
 
-// cimdClient is the HTTP client every metadata fetch rides.
+// cimdClient is the HTTP client every metadata fetch rides — ONE of them, for
+// the process, which is the same discipline platform/webread and
+// modules/webhooks keep.
+//
+// Per-fetch was wrong in a way that does not look wrong: the Transport becomes
+// unreachable after the call, but the idle connection it parked holds a
+// readLoop goroutine that keeps it alive, and an unset IdleConnTimeout means
+// nothing ever reaps it. A caller naming a fresh path per request — which costs
+// it nothing, since each miss is a cache miss — leaks a socket and two
+// goroutines per request until the process runs out of file descriptors.
 //
 // Two guards, and the second is the one that is easy to leave out. The DIALER
 // refuses any non-public address, checked on the resolved IP inside the socket's
@@ -185,16 +203,24 @@ func (s *Service) upsertCIMDClient(ctx context.Context, doc cimdDocument, ttl ti
 // REDIRECTS ARE NOT FOLLOWED: a followed redirect is a second URL the caller
 // chose, which the client_id equality check below no longer covers, and which
 // would walk straight past the first guard on the next hop.
-func cimdClient() *http.Client {
+var cimdClient = func() *http.Client {
 	dialer := &net.Dialer{Timeout: cimdFetchTimeout, Control: netguard.RefusePrivate}
 	return &http.Client{
-		Timeout:   cimdFetchTimeout,
-		Transport: &http.Transport{DialContext: dialer.DialContext},
+		Timeout: cimdFetchTimeout,
+		Transport: &http.Transport{
+			DialContext:         dialer.DialContext,
+			TLSHandshakeTimeout: cimdFetchTimeout,
+			// Bounded on every axis, because the hosts here are named by
+			// callers: an unbounded idle pool is a caller-sized pool.
+			IdleConnTimeout:     30 * time.Second,
+			MaxIdleConns:        16,
+			MaxIdleConnsPerHost: 2,
+		},
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
-}
+}()
 
 // fetchCIMD reads and validates the document at clientID, and answers how long
 // it may be believed.
@@ -206,7 +232,7 @@ func fetchCIMD(ctx context.Context, clientID string) (cimdDocument, time.Duratio
 	}
 	req.Header.Set("Accept", "application/json")
 	//nolint:gosec // G704: see the guards named on the request above
-	resp, err := cimdClient().Do(req)
+	resp, err := cimdClient.Do(req)
 	if err != nil {
 		return cimdDocument{}, 0, fmt.Errorf("identity: fetching the client's metadata document: %w", err)
 	}

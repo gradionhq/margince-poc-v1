@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // QuotaReleaseRequest is what the surface asks the approvals engine to put in
@@ -76,6 +77,19 @@ func askedOfAHuman(err error) bool {
 	return err == nil || errors.Is(err, apperrors.ErrRequiresApproval) || releasableQuotaRefusal(err) != nil
 }
 
+// willReachAHandler reports whether this admission outcome ends in a tool
+// actually running: an admitted call, or a confirm-first refusal the caller
+// answered with an approval it holds. A staged refusal and every other error
+// end here, and a call that never runs is not a call to charge — counting one
+// would let a caller exhaust its own ceiling with requests it was never
+// allowed to make.
+func willReachAHandler(err error, approvalID ids.ApprovalID, approvals Approvals) bool {
+	if err == nil {
+		return true
+	}
+	return errors.Is(err, apperrors.ErrRequiresApproval) && approvals != nil && !approvalID.IsZero()
+}
+
 // stageStepUp puts a releasable quota refusal in front of the human who lent
 // this passport, and answers what the agent is told.
 //
@@ -93,7 +107,11 @@ func (r *Registry) stageStepUp(ctx context.Context, refusal *auth.QuotaExceededE
 	if r.approvals == nil {
 		return refusal
 	}
-	proposal := agentquota.NewReleaseProposal(refusal.Reading, refusal.Tool)
+	// The passport this call presented, which is the window the question is
+	// about. Read from the principal rather than passed down, because it is the
+	// same value the staging stamps the row with.
+	actor, _ := principal.Actor(ctx)
+	proposal := agentquota.NewReleaseProposal(refusal.Reading, actor.PassportID, refusal.Tool)
 	id, staged, err := r.approvals.StageQuotaRelease(ctx, QuotaReleaseRequest{
 		Proposal: proposal,
 		Summary:  stepUpSummary(proposal),
@@ -123,5 +141,5 @@ func stepUpSummary(p agentquota.ReleaseProposal) string {
 	}
 	return fmt.Sprintf(
 		"This agent has %s %d %s against a limit of %d for this window (most recently through %s). Approve to let it continue for another %d.",
-		act, p.Observed, unit, p.Limit, p.Tool, p.Limit)
+		act, p.Observed, unit, p.Limit, p.Tool, p.Allowance)
 }

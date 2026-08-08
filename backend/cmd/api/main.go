@@ -137,7 +137,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// MCP-SESS-COST: the same meter the gate reads, charged where the tokens
 	// are known. A model path bound to a different meter would meter an agent's
 	// spend into a window nothing else looks at.
-	*modelPath = modelPath.WithAgentTokenSpend(compose.AgentTokenSpend{Meter: quotaMeter})
+	//
+	// Nil is a SUPPORTED deployment, not an error: an api started with neither
+	// --ai-routing nor --ai-fake resolves no model path at all, and every other
+	// consumer here guards it the same way. There is no model call to charge in
+	// that shape, so there is nothing to bind.
+	if modelPath != nil {
+		*modelPath = modelPath.WithAgentTokenSpend(compose.AgentTokenSpend{Meter: quotaMeter})
+	}
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	apiHandler := compose.New(pool, logger, opts...)

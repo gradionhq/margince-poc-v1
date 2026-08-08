@@ -44,11 +44,11 @@ func (s *Dispatcher) explain(tool string, err error) string {
 	)
 	switch {
 	case errors.As(err, &steppedUp):
-		// The step-up, ANSWERED FIRST because it also matches the budget branch
-		// below and only this one says what has changed: a human is now looking
-		// at the question. The instruction differs from the 🟡 loop's in the one
-		// way that matters — there is no token to present, because approving
-		// widens the window rather than releasing a call.
+		// A step-up that reached a human. It is its own branch rather than a
+		// wording variant of the one below because the INSTRUCTION differs: wait
+		// for the person who connected this agent, then repeat the call
+		// unchanged — and specifically do not present an approval_id, which is
+		// the 🟡 loop's move and cannot work for a kind no tool redeems.
 		return "This agent has reached a volume limit for this window, and the person who connected it has been " +
 			"asked whether it may continue. Do not send an approval_id: once they approve, repeat this call unchanged. (" +
 			steppedUp.Error() + ")"

@@ -233,7 +233,7 @@ func WithOverlayMeter(meter *overlaybudget.Meter) Option {
 // owns what the workspace's own numbers mean.
 func WithAgentQuota(meter *agentquota.Meter) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		s.quotaMeter.RebindFrom(meter.WithCostCeiling(newPassportShareCeiling(pool, agentquota.DefaultWindow)))
+		s.quotaMeter.RebindFrom(meter.WithCostCeiling(newPassportShareCeiling(pool, meter.Window())))
 	}
 }
 

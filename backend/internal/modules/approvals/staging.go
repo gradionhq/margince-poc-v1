@@ -190,10 +190,16 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 	if err := lockProposalIdentity(ctx, tx, wsID, in); err != nil {
 		return ids.ApprovalID{}, err
 	}
+	// IS NOT DISTINCT FROM, and nullUUID, because a kind may legitimately stage
+	// with NO target — a question about a credential rather than about a record.
+	// The insert writes NULL for one (insertProposalInTx), so an `=` comparison
+	// against the zero uuid matches nothing at all: the join never joins, the
+	// supersede never supersedes, and the declined memory never remembers. Every
+	// one of those fails SILENTLY, as a control that quietly does nothing.
 	err := tx.QueryRow(ctx, `SELECT id FROM approval
-			WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND diff_hash = $4
+			WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3 AND diff_hash = $4
 			  AND status = 'pending' AND expires_at > now()
-			ORDER BY created_at DESC LIMIT 1`, wsID, in.Kind, in.TargetID, in.DiffHash).Scan(&id)
+			ORDER BY created_at DESC LIMIT 1`, wsID, in.Kind, nullUUID(in.TargetID), in.DiffHash).Scan(&id)
 	switch {
 	case err == nil:
 	case errors.Is(err, pgx.ErrNoRows):
@@ -230,10 +236,10 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.
 	// which may trail the database by ordinary NTP skew — never by a day.
 	rows, err := tx.Query(ctx, `
 		UPDATE approval SET expires_at = now() - interval '1 day'
-		WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3
+		WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3
 		  AND status = 'pending' AND expires_at > now()
 		  AND id <> $4 AND proposed_change @> $5
-		RETURNING id`, wsID, in.Kind, in.TargetID, survivor, in.Identity)
+		RETURNING id`, wsID, in.Kind, nullUUID(in.TargetID), survivor, in.Identity)
 	if err != nil {
 		return fmt.Errorf("supersede pending approvals: %w", err)
 	}

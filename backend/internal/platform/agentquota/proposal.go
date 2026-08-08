@@ -17,6 +17,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // ReleaseProposal is the staged proposal's payload: what the agent has spent,
@@ -32,22 +34,37 @@ type ReleaseProposal struct {
 	Counter  Counter `json:"counter"`
 	Observed int     `json:"observed"`
 	Limit    int     `json:"limit"`
+	// Allowance is what approving ADDS — the configured threshold, not the
+	// effective one, which have differed since the first release.
+	Allowance int `json:"allowance"`
 	// Bucket is the window, decimal, as a STRING. The approvals engine's
 	// proposal identity is a map of string values and is matched against the
 	// stored payload by jsonb containment, so a numeric window here would be
 	// refused at staging and — worse, if it were ever accepted on one side only
 	// — would stop matching the identity it is supposed to deduplicate on.
 	Bucket string `json:"bucket"`
+	// Passport names WHOSE window this is, and it is part of the identity below
+	// rather than decoration. Two agents lent by two different humans in one
+	// workspace cross the same counter in the same window constantly; without
+	// this the two questions are byte-identical, the second joins the first's
+	// row, and whichever lender answers releases only the other's passport —
+	// leaving one agent refused with no question anybody can see.
+	//
+	// It is NOT authority. applyQuotaRelease takes the passport from the staged
+	// row's own passport_id, stamped from the authenticated principal, precisely
+	// so an edited payload cannot re-aim a release.
+	Passport string `json:"passport"`
 	// Tool is the call that was refused, for the screen to name. It is not
 	// authority: releasing the window releases the counter, not one tool.
 	Tool string `json:"tool"`
 }
 
 // NewReleaseProposal builds the proposal one refusal asks about.
-func NewReleaseProposal(reading Reading, tool string) ReleaseProposal {
+func NewReleaseProposal(reading Reading, passport ids.UUID, tool string) ReleaseProposal {
 	return ReleaseProposal{
 		Counter: reading.Counter, Observed: reading.Observed,
-		Limit: reading.Limit, Bucket: strconv.FormatInt(reading.Bucket, 10), Tool: tool,
+		Limit: reading.Limit, Allowance: reading.Allowance,
+		Bucket: strconv.FormatInt(reading.Bucket, 10), Passport: passport.String(), Tool: tool,
 	}
 }
 
@@ -94,9 +111,10 @@ func (p ReleaseProposal) Window() (int64, error) {
 // tool answers it for all of them.
 func (p ReleaseProposal) Identity() (json.RawMessage, error) {
 	raw, err := json.Marshal(struct {
-		Counter Counter `json:"counter"`
-		Bucket  string  `json:"bucket"`
-	}{p.Counter, p.Bucket})
+		Counter  Counter `json:"counter"`
+		Bucket   string  `json:"bucket"`
+		Passport string  `json:"passport"`
+	}{p.Counter, p.Bucket, p.Passport})
 	if err != nil {
 		return nil, fmt.Errorf("agentquota: naming a release proposal's identity: %w", err)
 	}

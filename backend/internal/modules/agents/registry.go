@@ -128,6 +128,22 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	if stepUp := releasableQuotaRefusal(err); stepUp != nil {
 		return nil, r.stageStepUp(ctx, stepUp)
 	}
+	// The call ceiling is charged HERE — after admission, before any redemption
+	// and before any handler — because this is the last moment at which the
+	// answer to "has anything happened yet?" is still no, and that is the whole
+	// of what lets an uncountable call be REFUSED rather than absorbed.
+	//
+	// It cannot move later. RedeemAndMark below commits its own transaction and
+	// consumes the human's approval; a refusal after that point would burn the
+	// approval on a call that never ran, and the agent's retry with the same
+	// approval_id would be refused as already consumed. That is the failure
+	// approvals' own serverProposed guard exists to prevent, reached by a
+	// different door.
+	if reaching := willReachAHandler(err, approvalID, r.approvals); reaching {
+		if chargeErr := r.chargeCall(ctx, spec); chargeErr != nil {
+			return nil, chargeErr
+		}
+	}
 	switch {
 	case err == nil:
 		// An auto-execute call may still carry approval_id: the retry of a
@@ -171,13 +187,6 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 // error carries the sentinel and the message the caller acts on, not a document
 // with an empty payload inside it.
 func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
-	// The call ceiling is charged HERE, at the one point every admitted call
-	// passes on its way to a handler, and BEFORE the handler runs — the only
-	// moment at which "has anything happened yet?" is still no, which is what
-	// lets an uncountable call be refused rather than absorbed.
-	if err := r.chargeCall(ctx, spec); err != nil {
-		return nil, err
-	}
 	ctx, trace := withTrace(ctx)
 	ctx, facts := withEnvelopeFacts(ctx)
 	noteRowScope(ctx)
