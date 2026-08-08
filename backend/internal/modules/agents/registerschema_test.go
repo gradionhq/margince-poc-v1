@@ -129,3 +129,19 @@ func TestTheAdvertisedKeyBoundIsTheOneTheSurfaceEnforces(t *testing.T) {
 		t.Errorf("advertised maxLength = %d, but the surface refuses past %d", int(bound), maxRetryKeyLen)
 	}
 }
+
+// A composed schema cannot be spliced by adding one top-level member: a closed
+// branch inside `allOf` still rejects the key the surface just advertised, so a
+// schema-aware client would be told to send an argument its own validator
+// refuses.
+func TestAComposedInputSchemaIsRefusedAtBoot(t *testing.T) {
+	for _, keyword := range []string{"allOf", "anyOf", "oneOf", "$ref"} {
+		t.Run(keyword, func(t *testing.T) {
+			spec := mutatingSpec("compose_probe")
+			spec.InputSchema = json.RawMessage(`{"type":"object","properties":{},"` + keyword + `":[]}`)
+			mustPanic(t, "a composed schema was spliced anyway", func() {
+				NewRegistry(nil, nil).Register(&fakeTool{spec: spec})
+			})
+		})
+	}
+}

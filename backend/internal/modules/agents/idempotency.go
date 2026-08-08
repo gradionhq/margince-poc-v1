@@ -322,6 +322,16 @@ func (r *Registry) replay(ctx context.Context, spec mcp.ToolSpec, claim Claim) (
 // answers with the record it changed, so this refuses nothing the surface
 // produces today; a tool that stopped doing so would lose replay rather than
 // quietly lose its gate.
+//
+// THE READ IS LIVE, and one consequence is worth stating rather than
+// discovering: a tool whose effect REMOVES its own evidence trades its receipt
+// for that. `archive_record` names exactly the record it archived, so its retry
+// is refused rather than replayed — the effect still happens once, which is the
+// promise, but the answer is gone. An include-archived probe would return the
+// receipt and is the wrong trade: Art. 17 erasure anonymizes a row IN PLACE and
+// stamps archived_at, so the same relaxation would replay pre-erasure names and
+// e-mail addresses out of a 24h-old snapshot that every live read path now
+// refuses. Held by TestAnArchivesReceiptIsRefusedAndItsEffectStillHappensOnce.
 func (r *Registry) ensureReplayVisible(ctx context.Context, evidence []EvidenceRef) error {
 	// Before the emptiness question, because a surface with no reader cannot
 	// prove anything about any document — the composition root is the only place

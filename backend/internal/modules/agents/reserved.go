@@ -45,18 +45,22 @@ const (
 )
 
 var (
-	errInvalidApprovalID = errors.New("`approval_id` must be a UUID string")
-	errInvalidRetryKey   = errors.New("`idempotency_key` must be a string")
-	errEmptyRetryKey     = errors.New("`idempotency_key` is empty; omit it, or send the key you will retry with")
-	errRetryKeyTooLong   = fmt.Errorf("`idempotency_key` is longer than %d characters", maxRetryKeyLen)
-	errControlInRetryKey = errors.New("`idempotency_key` contains a control character; use printable text")
+	errInvalidApprovalID    = errors.New("`approval_id` must be a UUID string")
+	errInvalidRetryKey      = errors.New("`idempotency_key` must be a string")
+	errEmptyRetryKey        = errors.New("`idempotency_key` is empty; omit it, or send the key you will retry with")
+	errRetryKeyTooLong      = fmt.Errorf("`idempotency_key` is longer than %d characters", maxRetryKeyLen)
+	errControlInRetryKey    = errors.New("`idempotency_key` contains a control character; use printable text")
+	errArgumentsNotUTF8     = errors.New("the arguments are not valid UTF-8")
+	errArgumentsNotAnObject = errors.New("the arguments must be a JSON object")
 )
 
-// maxRetryKeyLen bounds the caller-chosen retry key, in the characters the
-// advertised `maxLength` counts. It is the same 255 the REST middleware applies
-// to the Idempotency-Key header, because the two doors write the same column
-// and a key one door accepts and the other refuses would be one promise with
-// two edges.
+// maxRetryKeyLen bounds the caller-chosen retry key. It is the same NUMBER the
+// REST middleware applies to the Idempotency-Key header — one promise, one
+// bound — counted in the unit each wire format actually has: that door measures
+// a header, which is bytes, and this one measures a JSON string against a
+// published `maxLength`, which JSON Schema defines as characters. Counting
+// bytes here would refuse keys this server's own schema calls legal. The column
+// behind both is `text`, so neither unit is a storage constraint.
 const maxRetryKeyLen = 255
 
 // reserved is one call's surface-owned arguments, plus what is left of it.
@@ -78,9 +82,22 @@ type reserved struct {
 // through the shared diffhash spelling, so "the identical call" is a property of
 // content rather than of whitespace or key order.
 func splitReserved(in json.RawMessage) (reserved, error) {
+	// Before the decode, because the decode DESTROYS the evidence: encoding/json
+	// replaces every invalid byte with U+FFFD, so two different wire keys arrive
+	// as one string and would claim, and replay, a single claim between them.
+	if !utf8.Valid(in) {
+		return reserved{}, &BadArgsError{Cause: errArgumentsNotUTF8}
+	}
 	var m map[string]any
 	if err := json.Unmarshal(in, &m); err != nil {
 		return reserved{}, &BadArgsError{Cause: err}
+	}
+	if m == nil {
+		// `null` decodes into a nil map without error, and would reach a handler
+		// as an argument-less call — while every tool on this surface advertises
+		// an object input. An absent object and an empty one are different
+		// claims; only one of them is something a caller can have meant.
+		return reserved{}, &BadArgsError{Cause: errArgumentsNotAnObject}
 	}
 	var out reserved
 	if raw, ok := m[approvalIDArg]; ok {

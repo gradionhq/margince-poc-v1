@@ -149,6 +149,16 @@ func spliceRetryKey(inputSchema json.RawMessage) (json.RawMessage, error) {
 		// them says nothing about whether repeating it twice is safe.
 		properties = map[string]json.RawMessage{}
 	}
+	// A schema that COMPOSES cannot be spliced by adding one top-level member: a
+	// closed branch inside `allOf` still rejects the key this surface just
+	// advertised, so a schema-aware client would be told to send an argument its
+	// own validator refuses. No tool here composes today; the one that tries gets
+	// an answer at boot rather than a puzzle at call time.
+	for _, keyword := range []string{"allOf", "anyOf", "oneOf", "$ref"} {
+		if _, composed := shape[keyword]; composed {
+			return nil, fmt.Errorf("its input schema uses `%s`, which this splice cannot reason about", keyword)
+		}
+	}
 	if _, taken := properties[idempotencyKeyArg]; taken {
 		// A tool that wrote the member itself would have TWO definitions of it —
 		// its own, and this one — and only one can win a splice. Refused at boot

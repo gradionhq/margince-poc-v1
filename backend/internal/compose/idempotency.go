@@ -108,8 +108,8 @@ func idempotency(pool *pgxpool.Pool, probes map[string]replayProbe) func(http.Ha
 				// Degraded, not refused: idempotency is a retry-safety layer,
 				// and refusing the request because the layer itself hiccupped
 				// would make retries LESS safe than not sending the header at
-				// all. The tool surface takes the same posture for the same
-				// reason (agents.Registry.runOnce).
+				// all. The tool surface REFUSES instead, and the two are
+				// reasoned about together in claimKey's own comment.
 				slog.ErrorContext(r.Context(), "idempotency claim failed; executing without replay protection", "err", err)
 				outcome, stored = claimFresh, storedResponse{}
 			}
@@ -166,6 +166,12 @@ func writeClaimOutcome(w http.ResponseWriter, r *http.Request, pool *pgxpool.Poo
 		})
 	case claimFresh:
 		// Unreachable: the caller returns early only for a non-fresh claim.
+	case claimFailed:
+		// Unreachable from this door: only the tool surface records a run that
+		// produced no result (agentidempotency.go), and this middleware releases
+		// the claim on any non-2xx instead. Named rather than defaulted, so a
+		// door that starts recording failures has to answer for what a REST
+		// caller should be told.
 	}
 }
 
@@ -178,10 +184,17 @@ type storedResponse struct {
 	records int
 }
 
-// claimKey runs the insert-first claim. Any claim-infrastructure failure
-// degrades to claimFresh: idempotency is a retry-safety layer, and
-// refusing the request because the layer itself hiccupped would make
-// retries LESS safe than not sending the header at all.
+// claimKey runs the insert-first claim and REPORTS a claim-infrastructure
+// failure to its caller rather than deciding what it means.
+//
+// The two doors answer that question differently on purpose, so neither answer
+// belongs here. This middleware degrades to executing — a client may not even
+// have meant the header it sent, and refusing would leave its retries less safe
+// than sending no header at all. The tool surface refuses, because there the
+// argument IS the caller asking for at-most-once about an irreversible act
+// (agents.Registry.claimFor). A caller reading claimFresh from this function
+// must therefore check err first: fresh with an error means no claim was
+// acquired.
 func claimKey(ctx context.Context, pool *pgxpool.Pool, principalID, key, endpoint, digest string) (claimOutcome, storedResponse, error) {
 	outcome := claimFresh
 	var stored storedResponse

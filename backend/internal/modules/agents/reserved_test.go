@@ -160,3 +160,44 @@ func TestAKeyAtTheBoundIsAccepted(t *testing.T) {
 		t.Fatalf("key length = %d, want %d", len(res.RetryKey), maxRetryKeyLen)
 	}
 }
+
+// `null` decodes into a nil map without error, so it would reach a handler as
+// an argument-less call — while every tool on this surface advertises an object
+// input. An absent object and an empty one are different claims.
+func TestNullArgumentsAreRefusedRatherThanReadAsEmpty(t *testing.T) {
+	if _, err := splitReserved(json.RawMessage(`null`)); !errors.Is(err, errArgumentsNotAnObject) {
+		t.Fatalf("err = %v, want the not-an-object refusal", err)
+	}
+	// An EMPTY object is a legal call and stays one.
+	if _, err := splitReserved(json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("an empty argument object was refused: %v", err)
+	}
+}
+
+// encoding/json replaces every invalid byte with U+FFFD, so two distinct wire
+// keys would arrive as one string and claim — and replay — a single claim
+// between them. Checked on the raw bytes, because the decode destroys the
+// evidence.
+func TestInvalidUTF8ArgumentsAreRefusedBeforeTheyAreNormalized(t *testing.T) {
+	first := []byte(`{"idempotency_key":"` + "\xff" + `"}`)
+	second := []byte(`{"idempotency_key":"` + "\xfe" + `"}`)
+	for _, in := range [][]byte{first, second} {
+		if _, err := splitReserved(in); !errors.Is(err, errArgumentsNotUTF8) {
+			t.Fatalf("err = %v, want the UTF-8 refusal", err)
+		}
+	}
+	// And the defect that makes the refusal worth having: decoded rather than
+	// refused, the two DIFFERENT wire keys are one string — so one caller's
+	// recorded result answers the other's key.
+	var firstKey, secondKey map[string]string
+	if err := json.Unmarshal(first, &firstKey); err != nil {
+		t.Fatalf("decoding the first probe: %v", err)
+	}
+	if err := json.Unmarshal(second, &secondKey); err != nil {
+		t.Fatalf("decoding the second probe: %v", err)
+	}
+	if firstKey[idempotencyKeyArg] != secondKey[idempotencyKeyArg] {
+		t.Fatalf("the two probes decode differently (%q vs %q), so this test is not exercising the collision it describes",
+			firstKey[idempotencyKeyArg], secondKey[idempotencyKeyArg])
+	}
+}

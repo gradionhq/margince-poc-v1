@@ -28,13 +28,24 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// createPersonWithKey builds the call through the encoder rather than by
+// splicing strings: a name or key carrying a quote would otherwise emit invalid
+// JSON and fail as a decode error, which reads exactly like the refusal these
+// tests are trying to observe.
 func createPersonWithKey(ctx context.Context, t *testing.T, registry *agents.Registry, name, key string) (json.RawMessage, error) {
 	t.Helper()
-	args := `{"record_type":"person","fields":{"full_name":"` + name + `"}`
-	if key != "" {
-		args += `,"idempotency_key":"` + key + `"`
+	args := map[string]any{
+		"record_type": "person",
+		"fields":      map[string]any{"full_name": name},
 	}
-	return registry.Invoke(ctx, "create_record", json.RawMessage(args+`}`))
+	if key != "" {
+		args["idempotency_key"] = key
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("encoding the call: %v", err)
+	}
+	return registry.Invoke(ctx, "create_record", encoded)
 }
 
 func TestATooledCreateRetriedUnderOneKeyCreatesOneRecord(t *testing.T) {
@@ -105,9 +116,55 @@ func TestAReplayIsRefusedOnceTheCallerCanNoLongerReadWhatItCarries(t *testing.T)
 	if err == nil {
 		t.Fatalf("the recorded answer was replayed after its record left the caller's reach: %s", replay)
 	}
+	// Refused, and refused BEFORE the tool — a late write would look the same
+	// from the error alone.
+	if n := e.WsCount(t, `SELECT count(*) FROM person WHERE full_name = $1`, "Receipt Holder"); n != 1 {
+		t.Fatalf("the refused replay left %d people, want the 1 the first call created", n)
+	}
 	// Existence-hiding: the refusal says the record is not there, not that it
 	// used to be.
 	if strings.Contains(strings.ToLower(err.Error()), "archiv") {
 		t.Errorf("the refusal describes what changed rather than answering not-found: %v", err)
+	}
+}
+
+// The boundary the live-only probe draws, stated as a test rather than as a
+// comment: a tool whose effect REMOVES its own evidence keeps the promise and
+// loses the receipt.
+//
+// `archive_record` names exactly the record it archived, so the retry cannot
+// prove the caller may still read it and refuses. Both halves are asserted,
+// because only one of them is the promise: the effect must still have happened
+// exactly once. Relaxing the probe to include archived rows would return the
+// receipt and reopen a worse hole — Art. 17 erasure anonymizes in place and
+// stamps archived_at, so the same relaxation replays pre-erasure PII.
+func TestAnArchivesReceiptIsRefusedAndItsEffectStillHappensOnce(t *testing.T) {
+	e := Setup(t)
+	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
+	person := e.SeedPerson(t, "Archived Once", &e.Rep1)
+
+	args, err := json.Marshal(map[string]any{
+		"record_type": "person", "id": person.String(), "idempotency_key": "archive-k-1",
+	})
+	if err != nil {
+		t.Fatalf("encoding the call: %v", err)
+	}
+	if _, err := registry.Invoke(ctx, "archive_record", args); err != nil {
+		t.Fatalf("the first archive: %v", err)
+	}
+	archivedAt := e.WsCount(t, `SELECT count(*) FROM person WHERE id = $1 AND archived_at IS NOT NULL`, person)
+	if archivedAt != 1 {
+		t.Fatalf("the first call archived %d rows, want 1", archivedAt)
+	}
+
+	// The receipt is gone: its only evidence is the record it just removed.
+	if out, err := registry.Invoke(ctx, "archive_record", args); err == nil {
+		t.Fatalf("the archived record's receipt was replayed: %s", out)
+	}
+	// And the promise held — the retry did not archive a second time, nor
+	// re-run the tool at all.
+	if n := e.WsCount(t, `SELECT count(*) FROM person WHERE id = $1 AND archived_at IS NOT NULL`, person); n != 1 {
+		t.Fatalf("after the retry %d rows are archived, want the same 1", n)
 	}
 }
