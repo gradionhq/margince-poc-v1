@@ -90,8 +90,8 @@ func (c *planCompiler) compileStatement(ctx context.Context, plan ValidatedPlan,
 		return "", false, err
 	}
 	where := []string{"t.archived_at IS NULL"}
-	if binding.branch.extraWhere != "" {
-		where = append(where, binding.branch.extraWhere)
+	if narrowing := binding.branch.narrowing("t"); narrowing != "" {
+		where = append(where, narrowing)
 	}
 	if scope != "" {
 		where = append(where, scope)
@@ -144,6 +144,14 @@ func (c *planCompiler) lateralHop(ctx context.Context, plan ValidatedPlan, bindi
 		return "", "", nil, false, err
 	}
 	where := []string{"h.archived_at IS NULL", c.edgeCondition(*hop)}
+	// The hop carries the SAME discovery narrowing the target does. A
+	// traversal selects the hop record by its attributes, which is discovery
+	// by any other name — so a plan asking for "deals at an organization in
+	// Stuttgart" must not reach the installation's own company through a door
+	// the search arm keeps shut.
+	if narrowing := hop.branch.narrowing("h"); narrowing != "" {
+		where = append(where, narrowing)
+	}
 	if scope != "" {
 		where = append(where, scope)
 	}
@@ -318,11 +326,16 @@ func bindNumber(at string, field Field, raw json.RawMessage) (any, string, *appe
 	if whole, err := value.Int64(); err == nil {
 		return whole, "", nil
 	}
-	fractional, err := value.Float64()
-	if err != nil {
+	// A FRACTIONAL number binds as its own digits, cast to numeric. Through a
+	// float64 it would not: 0.1 is not representable in binary, so a `numeric`
+	// column holding exactly 0.1 would compare unequal to the 0.1 the caller
+	// wrote — an exact predicate answering "no rows" for a value that is
+	// there. The digits are the caller's own text and go through a bind
+	// parameter, so nothing is interpolated.
+	if _, err := value.Float64(); err != nil {
 		return nil, "", operandFault(at, field, "a number")
 	}
-	return fractional, "", nil
+	return value.String(), "::numeric", nil
 }
 
 //craft:ignore naked-any a bound parameter is whatever Go type the column's kind encodes as (string, int64, float64, bool, time.Time, ids.UUID) — the kind switch IS the conversion contract, so there is no narrower signature

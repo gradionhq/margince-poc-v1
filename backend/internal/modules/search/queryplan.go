@@ -206,6 +206,9 @@ func refuseDuplicateMembers(raw []byte) *PlanRefusal {
 			frame.expectKey = false
 			continue
 		}
+		if refusal := refuseNullMember(frame, tok); refusal != nil {
+			return refusal
+		}
 		if delim, isDelim := tok.(json.Delim); isDelim {
 			switch delim {
 			case '{':
@@ -222,6 +225,28 @@ func refuseDuplicateMembers(raw []byte) *PlanRefusal {
 		}
 		valueConsumed(frame)
 	}
+}
+
+// refuseNullMember refuses a literal null where the GRAMMAR expects a value.
+//
+// It is the third way encoding/json resolves something the caller did not
+// write: json.Unmarshal accepts null into every Go type without error and
+// leaves the zero value behind, so `"similar_to": null` decodes to the empty
+// string and reads exactly like a plan that asked for no ranking at all — the
+// caller's clause dropped, and the answer indistinguishable from any other.
+//
+// The two OPERAND members are exempt: `value` and `values` are the caller's
+// own payload slots, and the validator judges a null in one of them against
+// the field it belongs to, which is a better answer than this scan can give.
+func refuseNullMember(frame *jsonFrame, tok json.Token) *PlanRefusal {
+	if tok != nil || frame == nil || !frame.object || !frame.grammar {
+		return nil
+	}
+	if slices.Contains(operandMembers, frame.member) {
+		return nil
+	}
+	return refuse(frame.member, CodeValueTypeMismatch,
+		quote(frame.member)+" is null; the v1 query plan has no null value — omit the member, or give it a value")
 }
 
 // childIsGrammar answers whether a container opening inside frame is still

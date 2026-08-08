@@ -360,6 +360,27 @@ func TestQueryPlanARankedAnswerNeverLabelsItselfComplete(t *testing.T) {
 	}
 }
 
+// The ranking runs WITHIN the plan's record type. A global page filtered
+// afterwards spends itself on types the plan never named — here the same word
+// names an organization, a project and a deal, and a page of two would answer
+// no deals at all for a corpus that has one.
+func TestQueryPlanRanksWithinTheRecordTypeItWasAsked(t *testing.T) {
+	q := setupQuery(t)
+	f := q.seedFixture(t)
+	// "Rollout" names the project and the deal; the organizations rank on
+	// "Stuttgart". Asking about deals must answer the deal.
+	result := q.run(q.admin(), t, `{
+		"version": "v1", "target": "deal", "similar_to": "Rollout", "limit": 1}`)
+	if len(result.Rows) != 1 || result.Rows[0].ID != f.rep1Deal {
+		t.Fatalf("rows are %v", rowNames(result))
+	}
+	for _, row := range result.Rows {
+		if row.Type != "deal" {
+			t.Errorf("a %s row came back for a deal plan", row.Type)
+		}
+	}
+}
+
 // A ranking that admits nothing answers nothing. Running the statement without
 // the membership test would answer the unfiltered question instead — every
 // deal in the workspace, under a sentence promising a ranked few.
@@ -396,10 +417,11 @@ func TestQueryPlanNeverReturnsArchivedRecordsOrTheOwnCompany(t *testing.T) {
 }
 
 // The fitness function this PR turns on: EVERY field the vocabulary publishes
-// is answerable end to end, against the real schema. A field the contract
-// declares and no table holds would otherwise refuse at execution what it
-// advertised at discovery — and only the live catalog can say which fields
-// those are.
+// is answerable end to end, against the real schema — either as rows, or, for
+// a place, as the declared note that says this deployment cannot rank by it. A
+// field the contract declares and no table holds would otherwise refuse at
+// execution what it advertised at discovery, and only the live catalog can say
+// which fields those are.
 func TestEveryPublishedFieldCompilesToAStoragePath(t *testing.T) {
 	q := setupQuery(t)
 	q.seedFixture(t)
@@ -418,8 +440,26 @@ func TestEveryPublishedFieldCompilesToAStoragePath(t *testing.T) {
 		for _, field := range target.Fields {
 			doc := fmt.Sprintf(`{"version": "v1", "target": %q, "where": [{"field": %q, "op": %q, "value": %s}]}`,
 				target.Target, field.Name, field.Ops[0], probeOperand(field.Kind))
-			if _, err := q.answer(ctx, doc); err != nil {
+			result, err := q.answer(ctx, doc)
+			if err != nil {
 				t.Errorf("%s.%s (%s) is published and cannot be asked: %v", target.Target, field.Name, field.Kind, err)
+				continue
+			}
+			// A PLACE is the one published field with no storage behind it,
+			// and it is published precisely so that it answers the note rather
+			// than reading as an unknown operator (SEARCH-AC-17). Asserting
+			// that here is what keeps this test's claim exact: every other
+			// published field runs, and this one is declared unanswerable
+			// rather than quietly exempt.
+			if field.Kind == search.KindGeo {
+				if !hasNote(result, search.CodeDistanceRankingUnavailable) {
+					t.Errorf("%s.%s is a place and did not answer %s: %v",
+						target.Target, field.Name, search.CodeDistanceRankingUnavailable, result.Notes)
+				}
+				continue
+			}
+			if hasNote(result, search.CodeDistanceRankingUnavailable) {
+				t.Errorf("%s.%s (%s) answered a place's note", target.Target, field.Name, field.Kind)
 			}
 		}
 	}

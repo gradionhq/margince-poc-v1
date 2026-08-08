@@ -263,23 +263,25 @@ func (e *QueryExecutor) rankCandidates(ctx context.Context, plan ValidatedPlan) 
 	if plan.Plan.SimilarTo == "" {
 		return nil, false, nil
 	}
-	// Overfetched, because the arm ranks across every record type and only
-	// this plan's type can be admitted; the fused page would otherwise be
-	// spent on types the plan never asked about.
-	hits, err := e.store.HybridSearch(ctx, plan.Plan.SimilarTo, e.embedder, clampLimit(plan.Limit*candidateDepth))
+	// Narrowed to the plan's own record type and overfetched. Narrowing is
+	// what makes the ranking answer the question that was asked: a global
+	// page filtered afterwards spends itself on types the plan never named,
+	// and can come back empty for a target that simply ranks below five
+	// others — a recall hole the caller reads as "no such records".
+	//
+	// Overfetching is what is left honest afterwards: the exact predicates
+	// still run over the ranked candidates, so a page of them can narrow
+	// further. That bound IS what ranked_semantic means.
+	ranked, err = e.store.HybridSearch(ctx, plan.Plan.SimilarTo, e.embedder,
+		clampLimit(plan.Limit*candidateDepth), plan.Target.Target)
 	if err != nil {
 		return nil, false, err
-	}
-	for _, hit := range hits {
-		if hit.Type == plan.Target.Target {
-			ranked = append(ranked, hit)
-		}
 	}
 	return ranked, !embeddingLaneBound(e.embedder), nil
 }
 
-// candidateDepth overfetches the ranking lane relative to the page, since the
-// fused ranking spans every record type and only one of them is admissible.
+// candidateDepth overfetches the ranking lane relative to the page, so the
+// exact predicates have more than a page of ranked candidates to narrow.
 const candidateDepth = 3
 
 // embeddingLaneBound asks the embedder the same question the hybrid arm asks

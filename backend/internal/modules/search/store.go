@@ -72,7 +72,21 @@ type searchBranch struct {
 	// out of results: search is how people find accounts, and the company
 	// running the CRM is not one to find (ADR-0082/A127). It stays reachable
 	// by id, and the company page is where it is read.
+	//
+	// It carries a %s for the ALIAS rather than a fixed one, because a query
+	// plan's traversal reads two record types in one statement and the
+	// narrowing belongs to whichever of them is being discovered. A fixed
+	// alias silently narrowed the wrong table.
 	extraWhere string
+}
+
+// narrowing renders this branch's discovery narrowing for one alias, and the
+// empty string when the branch has none.
+func (b searchBranch) narrowing(alias string) string {
+	if b.extraWhere == "" {
+		return ""
+	}
+	return fmt.Sprintf(b.extraWhere, alias)
 }
 
 // branchScope is the ONE admission + row-scope resolution every union
@@ -100,7 +114,7 @@ func branchScope(ctx context.Context, branch searchBranch, alias string, arg fun
 
 var searchBranches = []searchBranch{
 	{entity: "person", table: "person", title: "full_name", snippet: "NULL"},
-	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL", extraWhere: "NOT t.is_anchor"},
+	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL", extraWhere: "NOT %s.is_anchor"},
 	{entity: "deal", table: "deal", title: "name", snippet: "NULL"},
 	{entity: "lead", table: "lead", title: "coalesce(full_name, company_name, email)", snippet: "NULL"},
 	{entity: "project", table: "project", title: "name", snippet: "NULL"},
@@ -218,8 +232,8 @@ func admittedBranchSQL(ctx context.Context, types []string, qPos int, arg func(a
 			 WHERE t.search_tsv @@ %s
 			   AND t.archived_at IS NULL`,
 			branch.entity, branch.title, branch.snippet, tsquery, branch.table, tsquery)
-		if branch.extraWhere != "" {
-			sql += " AND " + branch.extraWhere
+		if narrowing := branch.narrowing("t"); narrowing != "" {
+			sql += " AND " + narrowing
 		}
 		if scope != "" {
 			sql += " AND " + scope

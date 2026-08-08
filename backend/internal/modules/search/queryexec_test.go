@@ -231,3 +231,38 @@ func TestAnAbsentSimilarityClauseIsNotARefusal(t *testing.T) {
 		t.Fatalf("similarity clause is %q", plan.Plan.SimilarTo)
 	}
 }
+
+// json.Unmarshal accepts null into every Go type and leaves the zero value, so
+// a null grammar member reads as one the caller never sent. `similar_to: null`
+// is the costly one: it decodes to "" and reads exactly like a plan that asked
+// for no ranking, dropping the caller's clause in silence.
+func TestANullGrammarMemberIsRefusedRatherThanReadAsAbsent(t *testing.T) {
+	for _, doc := range []string{
+		`{"version": "v1", "target": "deal", "similar_to": null}`,
+		`{"version": "v1", "target": "deal", "traverse": null}`,
+		`{"version": "v1", "target": "deal", "where": null}`,
+	} {
+		if _, err := DecodePlan([]byte(doc)); err == nil {
+			t.Errorf("a null grammar member decoded: %s", doc)
+		}
+	}
+}
+
+// The two OPERAND members keep their own, better-targeted refusals: the
+// validator judges a null there against the field it belongs to.
+func TestANullOperandKeepsItsOwnRefusal(t *testing.T) {
+	doc := `{"version": "v1", "target": "deal", "where": [{"field": "name", "op": "in", "values": null}]}`
+	decoded, err := DecodePlan([]byte(doc))
+	if err != nil {
+		t.Fatalf("the operand scan refused a null the validator judges: %v", err)
+	}
+	validator := NewPlanValidator(NewVocabularyResolver().WithColumnReader(stubColumns{tables: planTables}))
+	_, err = validator.Validate(readerFor(entityDeal), decoded)
+	var refusal *PlanRefusal
+	if !errors.As(err, &refusal) {
+		t.Fatalf("a null operand list validated: %v", err)
+	}
+	if faults := refusal.FieldFaults(); len(faults) != 1 || faults[0].Code != CodeValueMissing {
+		t.Fatalf("faults are %v", faults)
+	}
+}

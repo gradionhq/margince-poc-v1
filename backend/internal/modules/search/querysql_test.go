@@ -420,3 +420,62 @@ func TestTheEdgeDirectionIsReadOffTheDerivedReference(t *testing.T) {
 // already renders, so an operand fault reads as a 422 rather than as an
 // unclassified internal error.
 var _ apperrors.FieldFaults = (*PlanRefusal)(nil)
+
+// A fractional operand binds as its own DIGITS, cast to numeric. Through a
+// float64 it would not: 0.1 has no binary representation, so a numeric column
+// holding exactly 0.1 compares unequal to the 0.1 the caller wrote — an exact
+// predicate answering "no rows" for a value that is there.
+func TestAFractionalOperandKeepsItsDigits(t *testing.T) {
+	compiler := &planCompiler{}
+	value, cast, refusal := compiler.bind("where[0].value", newField("cf_rate", KindNumber), []byte("0.1"))
+	if refusal != nil {
+		t.Fatalf("refusal is %v", refusal)
+	}
+	if value != "0.1" || cast != "::numeric" {
+		t.Fatalf("bound %v%q; a float64 would round it", value, cast)
+	}
+	// A ten-place decimal survives whole, which a float64 cannot promise.
+	value, _, refusal = compiler.bind("where[0].value", newField("cf_rate", KindNumber), []byte("1.0000000001"))
+	if refusal != nil || value != "1.0000000001" {
+		t.Fatalf("bound %v (%v)", value, refusal)
+	}
+}
+
+// A WHOLE number still binds as an integer, so a bigint column compares
+// against a bigint rather than through a cast that costs it its index.
+func TestAWholeOperandStillBindsAsAnInteger(t *testing.T) {
+	compiler := &planCompiler{}
+	value, cast, refusal := compiler.bind("where[0].value", newField("amount_minor", KindNumber), []byte("100000"))
+	if refusal != nil || value != int64(100000) || cast != "" {
+		t.Fatalf("bound %v%q (%v)", value, cast, refusal)
+	}
+}
+
+// The hop is discovered by its attributes, which is discovery by any other
+// name — so a traversal must not reach the installation's own company through
+// a door the search arm keeps shut.
+func TestTheHopCarriesTheSameDiscoveryNarrowingTheTargetDoes(t *testing.T) {
+	sql, _ := compilePlanDoc(readerFor(entityDeal, entityOrganization), t, `{
+		"version": "v1", "target": "deal",
+		"traverse": {"relation": "organization"}}`)
+	if !strings.Contains(sql, "NOT h.is_anchor") {
+		t.Fatalf("the hop does not carry the branch narrowing: %s", sql)
+	}
+	// And it is rendered against the HOP, not the target — the target here is
+	// a deal, which has no anchor column at all.
+	if strings.Contains(sql, "NOT t.is_anchor") {
+		t.Fatalf("the narrowing is rendered against the wrong table: %s", sql)
+	}
+}
+
+// The narrowing is a template over the alias, so the branch declaration cannot
+// silently narrow whichever table happens to be called `t`.
+func TestABranchNarrowingRendersForTheAliasItIsAskedFor(t *testing.T) {
+	branch := mustBranch(t, entityOrganization)
+	if got := branch.narrowing("h"); got != "NOT h.is_anchor" {
+		t.Errorf("narrowing renders as %q", got)
+	}
+	if got := mustBranch(t, entityDeal).narrowing("t"); got != "" {
+		t.Errorf("a branch with no narrowing renders %q", got)
+	}
+}
