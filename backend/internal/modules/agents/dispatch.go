@@ -86,6 +86,12 @@ type Dispatcher struct {
 	bind     Binder
 	name     string
 	version  string
+	// resources publishes the read-only documents beside the tool surface
+	// (the query vocabulary today). Nil is a server with no resources, which
+	// is why the capability is advertised conditionally: claiming one with
+	// nothing behind it sends a client to a resources/read that can only
+	// fail.
+	resources mcp.ResourceProvider
 	// log receives the true cause of failures the tool client only sees
 	// generically — the client is an untrusted agent, so infrastructure
 	// detail (DSNs, hosts, wrap chains) stays server-side.
@@ -96,6 +102,14 @@ type Dispatcher struct {
 // are what initialize reports as serverInfo.
 func NewDispatcher(registry *Registry, bind Binder, name, version string) *Dispatcher {
 	return &Dispatcher{registry: registry, bind: bind, name: name, version: version, log: slog.Default()}
+}
+
+// WithResources wires the resource provider. Compose calls it: the documents
+// published here are composed by other modules (the query vocabulary is the
+// search module's), and a module never reaches for a sibling.
+func (s *Dispatcher) WithResources(provider mcp.ResourceProvider) *Dispatcher {
+	s.resources = provider
+	return s
 }
 
 // WithLogger routes server-side diagnostics to log. They are kept away from
@@ -144,15 +158,21 @@ func (s *Dispatcher) handle(ctx context.Context, req rpcRequest) rpcResponse {
 				return resp
 			}
 		}
+		// listChanged is FALSE on both capabilities because this server has no
+		// way to send the notification: notifications/*/list_changed travels
+		// on the GET SSE stream, and GET /mcp answers 405 here. Both surfaces
+		// really do change — each is filtered per caller — so the claim would
+		// promise a message that can never arrive.
+		capabilities := map[string]any{"tools": map[string]any{"listChanged": false}}
+		if s.resources != nil {
+			// subscribe is FALSE for the same reason, and separately: a
+			// per-caller document has no shared state to subscribe to.
+			capabilities["resources"] = map[string]any{"listChanged": false, "subscribe": false}
+		}
 		resp.Result = map[string]any{
 			"protocolVersion": negotiateProtocolVersion(params.ProtocolVersion),
-			// listChanged is FALSE because this server has no way to send the
-			// notification: notifications/tools/list_changed travels on the GET
-			// SSE stream, and GET /mcp answers 405 here. The surface really
-			// does change — tools/list is scope-filtered per caller — so the
-			// claim would promise a message that can never arrive.
-			"capabilities": map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":   map[string]any{fieldName: s.name, "version": s.version},
+			"capabilities":    capabilities,
+			"serverInfo":      map[string]any{fieldName: s.name, "version": s.version},
 		}
 	case "ping":
 		resp.Result = map[string]any{}
@@ -161,11 +181,19 @@ func (s *Dispatcher) handle(ctx context.Context, req rpcRequest) rpcResponse {
 	case "tools/call":
 		resp.Result = s.call(ctx, req.Params)
 	case "resources/list":
-		// This server has no resources; claude.ai calls this right after
-		// initialize regardless, and an unadvertised capability answering
-		// -32601 there reads as a broken server rather than a legitimate
-		// empty catalog.
-		resp.Result = map[string]any{"resources": []any{}}
+		// Answered even with no provider wired: claude.ai calls this right
+		// after initialize regardless, and an unadvertised capability
+		// answering -32601 there reads as a broken server rather than a
+		// legitimate empty catalog.
+		resp.Result = map[string]any{"resources": s.resourceList(ctx)}
+	case "resources/read":
+		// Assigned on separate branches so a failed read never carries a
+		// result alongside its error, which JSON-RPC forbids.
+		if result, rpcErr := s.readResource(ctx, req.Params); rpcErr != nil {
+			resp.Error = rpcErr
+		} else {
+			resp.Result = result
+		}
 	case "resources/templates/list":
 		resp.Result = map[string]any{"resourceTemplates": []any{}}
 	case "prompts/list":
