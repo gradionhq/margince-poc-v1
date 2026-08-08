@@ -213,6 +213,12 @@ func modelSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgx
 	opts = append(opts, compose.WithAssistantProfile(aiState, assistantProfile))
 	if modelPath != nil {
 		opts = append(opts, compose.WithAIMetrics(modelPath.WriteMetrics))
+		// The retrieval embed lane, on the REQUEST path — the same lane the
+		// reindex job and the drift sweep already take from this path. Until it
+		// was bound here it existed only for jobs, so the hybrid arm's vector
+		// half was unreachable from a request and every caller was served a
+		// lexically ranked page (#629).
+		opts = append(opts, compose.WithRetrievalEmbedder(modelPath.Embedder))
 		// The backfill preview's cost pre-flight (ADR-0068) prices observed
 		// history at this role's live tier bindings; self-gates to a no-op when
 		// the backfill surface isn't wired. Appended after baseComposeOptions'

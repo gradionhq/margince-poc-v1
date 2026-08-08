@@ -235,6 +235,13 @@ type Server struct {
 	// Redis-backed meter at boot — so no option order can leave the gate
 	// enforcing a different counter from the one the registry pays into.
 	readMeter *readmeter.Meter
+	// retrievalEmbedder is this role's embed lane for REQUEST-TIME ranking —
+	// the same ModelPath.Embedder the background reindex and drift sweep use,
+	// bound here so the hybrid arm's vector half is available to a caller and
+	// not only to a job (#629). Nil in a role that resolved no model path, and
+	// nil is honest rather than broken: every surface that ranks says which
+	// lane ranked it.
+	retrievalEmbedder search.Embedder
 	// overlayBackfillLimit bounds the overlay initial mirror backfill per
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
@@ -411,6 +418,7 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	s.toolRegistry = registryWithGate(pool,
 		auth.NewGate(identity.NewService(pool), auth.WithReadBound(s.readMeter)),
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
+		s.retrievalEmbedder,
 		agents.WithReadCharger(s.readMeter))
 }
 

@@ -158,6 +158,12 @@ var composedIntents = map[string]bool{
 	// datasource seam. It is read-only and reaches nothing outside the
 	// workspace, which is what TestComposedIntentsNeverEgress holds it to.
 	"query_workspace": true,
+	// search_context ranks across record types through the retrieval index,
+	// which no single list operation is: `GET /search` is the lexical half
+	// alone and answers no vector lane, and the records the sweep names are
+	// read back through the datasource seam. Read-only, and it reaches nothing
+	// outside the workspace — TestComposedIntentsNeverEgress holds it to that.
+	"search_context": true,
 }
 
 // An intent may write inside the workspace; it may NOT reach outside it.

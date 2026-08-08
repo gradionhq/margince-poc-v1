@@ -49,7 +49,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// about, and it would read as if something ran through it. The MCP
 	// transport invokes tools through srv.toolRegistry, which holds the live
 	// server.
-	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send, companyEnricher{})
+	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send, companyEnricher{}, srv.retrievalEmbedder)
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode

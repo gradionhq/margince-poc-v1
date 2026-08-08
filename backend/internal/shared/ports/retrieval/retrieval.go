@@ -18,7 +18,7 @@ import (
 type Retriever interface {
 	// Search is ranked hybrid retrieval (full-text + vector) scoped to the
 	// caller's workspace and row visibility.
-	Search(ctx context.Context, q Query) ([]Hit, error)
+	Search(ctx context.Context, q Query) (Result, error)
 
 	// AssembleContext builds the provenance-stamped context object an
 	// intent tool returns for one anchor record — the assembled picture,
@@ -30,6 +30,24 @@ type Query struct {
 	Text        string
 	EntityTypes []datasource.EntityType
 	Limit       int
+}
+
+// Result is one ranked page and what kind of ranking produced it.
+//
+// The second member is why this is a struct rather than a slice. Hybrid
+// retrieval has two lanes, and the vector lane can be absent — no embed
+// model is bound, or the embedding call failed and the answer fell back to
+// the lexical half. Both cases still return hits, and a caller reading them
+// as semantically ranked when they were ranked by word overlap is the
+// failure this reports: the flagship phrasing of a semantic search shares no
+// words with the records it is meant to rank, so a lexical answer to it is
+// not a worse answer, it is an answer to a different question.
+type Result struct {
+	Hits []Hit
+	// SemanticRanking is false when the vector lane did not contribute.
+	// A caller that publishes ranking as semantic must say so when it is not
+	// — it is never a reason to withhold the hits.
+	SemanticRanking bool
 }
 
 // Hit is one ranked result with the evidence that grounds it.

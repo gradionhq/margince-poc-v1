@@ -122,9 +122,9 @@ type recordingRetriever struct {
 	assembled bool
 }
 
-func (r *recordingRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
+func (r *recordingRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
 	r.searched = true
-	return nil, nil
+	return retrieval.Result{}, nil
 }
 
 func (r *recordingRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {

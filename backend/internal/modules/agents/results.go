@@ -117,6 +117,33 @@ type QueryNote struct {
 	Detail string `json:"detail"`
 }
 
+// SearchContextResult is what search_context answers: the records a description
+// ranked highest, and what kind of ranking produced them.
+type SearchContextResult struct {
+	Hits []SearchContextHit `json:"hits"`
+	// Coverage is from the closed set searchContext.CoverageClasses publishes,
+	// which does NOT include complete_exact — a ranked page is the top of an
+	// ordering, never a whole match set. Not omitempty: an absent coverage
+	// would read as a complete one, which is the claim this tool never makes.
+	Coverage string `json:"coverage"`
+	// Notes are the machine-readable reasons the coverage is what it is, never
+	// null on the wire — an agent reading `null` cannot tell "no reasons" from
+	// "not computed", and only one of those is true.
+	Notes []QueryNote `json:"notes"`
+}
+
+// SearchContextHit is one ranked record and the material that ranked it.
+type SearchContextHit struct {
+	Record wireRecord `json:"record"`
+	// Score is the fused rank score. It orders the page and nothing else: it is
+	// not a probability and is not comparable between two searches.
+	Score float64 `json:"score"`
+	// Excerpts are the source snippets this record ranked on — what makes a hit
+	// legible as a reason rather than as an unexplained position in a list.
+	// Never null, for the same reason Notes is not.
+	Excerpts []ContextEvidence `json:"excerpts"`
+}
+
 // ArchiveResult is what archive_record answers: the record it retired, named the
 // way every other tool names one.
 type ArchiveResult struct {

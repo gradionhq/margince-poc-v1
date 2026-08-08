@@ -115,13 +115,13 @@ type nativeOnlyRetriever struct {
 	inner retrieval.Retriever
 }
 
-func (r nativeOnlyRetriever) Search(ctx context.Context, q retrieval.Query) ([]retrieval.Hit, error) {
+func (r nativeOnlyRetriever) Search(ctx context.Context, q retrieval.Query) (retrieval.Result, error) {
 	overlay, err := r.mode.isOverlayUncached(ctx)
 	if err != nil {
-		return nil, err
+		return retrieval.Result{}, err
 	}
 	if overlay {
-		return nil, apperrors.ErrUnsupportedBySoR
+		return retrieval.Result{}, apperrors.ErrUnsupportedBySoR
 	}
 	return r.inner.Search(ctx, q)
 }

@@ -157,8 +157,8 @@ func TestTheRiskRetrieverDropsTheSectionNotTheAnswerWhenTheDealIsRefused(t *test
 // decorator's own behaviour is what is under test rather than the walk's.
 type stubContext struct{ out retrieval.Context }
 
-func (s stubContext) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
-	return nil, nil
+func (s stubContext) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
+	return retrieval.Result{}, nil
 }
 
 func (s stubContext) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {

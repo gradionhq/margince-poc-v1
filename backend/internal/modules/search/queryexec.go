@@ -256,9 +256,12 @@ func scanPlanRows(queried pgx.Rows, plan ValidatedPlan, binding planBinding) ([]
 }
 
 // rankCandidates runs the similarity clause through the module's hybrid arm, narrowed to
-// the plan's target type. degraded reports that the arm had no embedding lane
-// to rank with and fell back to the lexical one — the arm degrades silently, so
-// the same question is asked here to be able to say so.
+// the plan's target type. degraded reports that the arm fell back to the
+// lexical lane. The ARM answers that now rather than being asked the same
+// question twice here: there are two ways to lose the vector lane — no bound
+// embed model, and an embed CALL that failed — and only the arm can see the
+// second. Re-deriving it from the embedder alone said "semantic" about a page
+// that was ranked by word overlap.
 func (e *QueryExecutor) rankCandidates(ctx context.Context, plan ValidatedPlan) (ranked []Hit, degraded bool, err error) {
 	if plan.Plan.SimilarTo == "" {
 		return nil, false, nil
@@ -272,29 +275,17 @@ func (e *QueryExecutor) rankCandidates(ctx context.Context, plan ValidatedPlan) 
 	// Overfetching is what is left honest afterwards: the exact predicates
 	// still run over the ranked candidates, so a page of them can narrow
 	// further. That bound IS what ranked_semantic means.
-	ranked, err = e.store.HybridSearch(ctx, plan.Plan.SimilarTo, e.embedder,
+	ranked, semantic, err := e.store.HybridSearch(ctx, plan.Plan.SimilarTo, e.embedder,
 		clampLimit(plan.Limit*candidateDepth), plan.Target.Target)
 	if err != nil {
 		return nil, false, err
 	}
-	return ranked, !embeddingLaneBound(e.embedder), nil
+	return ranked, !semantic, nil
 }
 
 // candidateDepth overfetches the ranking lane relative to the page, so the
 // exact predicates have more than a page of ranked candidates to narrow.
 const candidateDepth = 3
-
-// embeddingLaneBound asks the embedder the same question the hybrid arm asks
-// before it degrades: a nil embedder and one whose identity is empty (the
-// offline fake, or a routing config that never bound an embeddings model) are
-// the same shape from the query side.
-func embeddingLaneBound(embedder Embedder) bool {
-	if embedder == nil {
-		return false
-	}
-	identity, _ := embedder.EmbedIdentity()
-	return identity != ""
-}
 
 func rankedIDs(ranked []Hit) []ids.UUID {
 	out := make([]ids.UUID, len(ranked))
