@@ -180,15 +180,16 @@ func verbsInPathItem(base, unit, route string, item *yaml.Node) ([]declaredVerb,
 	return out, nil
 }
 
-// operationDoc is the subset of an OpenAPI operation this tier reads. Strict
-// decoding is deliberately NOT applied here (an operation legitimately carries
-// summary, tags, parameters, security and more); what IS strict is the
-// x-mcp-tool annotation, which is the part a unit author writes to request
-// authority.
+// operationDoc is the subset of an OpenAPI operation this tier reads. A whole
+// operation cannot be decoded strictly — it legitimately carries summary, tags,
+// parameters, security, callbacks and more, none of which this reader has any
+// business knowing about. What IS strict is every part a unit author writes to
+// request authority: the x-mcp-tool annotation (decodeStrict, below) and the
+// SET of x- keys on the operation (checkExtensionKeys).
 type operationDoc struct {
 	OperationID string    `yaml:"operationId"`
 	Tool        yaml.Node `yaml:"x-mcp-tool"`
-	RbacObject  string    `yaml:"x-rbac-object"`
+	RbacObject  string    `yaml:"x-rbac-object"` // key spelled once in rbacObjectExtension
 	RequestBody yaml.Node `yaml:"requestBody"`
 	Responses   yaml.Node `yaml:"responses"`
 }
@@ -212,6 +213,9 @@ type toolAnnotation struct {
 func readOperation(base, unit, route, method string, node *yaml.Node) (declaredVerb, error) {
 	var op operationDoc
 	if err := node.Decode(&op); err != nil {
+		return declaredVerb{}, err
+	}
+	if err := checkExtensionKeys(node); err != nil {
 		return declaredVerb{}, err
 	}
 	if op.Tool.IsZero() {
@@ -261,6 +265,43 @@ func readOperation(base, unit, route, method string, node *yaml.Node) (declaredV
 		return declaredVerb{}, err
 	}
 	return declaredVerb{verb: v, fragmentHash: hash}, nil
+}
+
+// readExtensionKeys are the x- annotations an extension operation may carry.
+// The set is closed and short on purpose; see checkExtensionKeys.
+var readExtensionKeys = []string{mcpToolExtension, rbacObjectExtension}
+
+// rbacObjectExtension names the RBAC object an extension operation gates on.
+const rbacObjectExtension = "x-rbac-object"
+
+// checkExtensionKeys refuses an x- key this reader does not act on.
+//
+// The same argument that makes x-mcp-tool a strict decode, applied one level
+// out — and it has to be, because the failure mode here is worse. A fragment
+// writing `x-rbac-objects` would decode to the empty string, register no object,
+// and look fine at generation time. The damage lands later and somewhere else:
+// a stored role document granting the object makes policy.Parse reject the
+// document, which fails that user's ENTIRE identity resolution — not the one
+// screen the unit shipped. A typo in a fragment must not be able to lock a
+// person out of the product.
+//
+// Closed rather than "check the ones we know": an operation carrying, say,
+// x-agent-access would be stating an authority posture this tier does not read,
+// and silently publishing it is the same class of lie. When a unit needs another
+// annotation, this list gains a reviewed line.
+func checkExtensionKeys(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("the operation is not a mapping")
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		if !strings.HasPrefix(key, "x-") || slices.Contains(readExtensionKeys, key) {
+			continue
+		}
+		return fmt.Errorf("the operation carries %s, which this generator does not read — an annotation nothing acts on is published and ignored (an extension operation may declare %s)",
+			key, strings.Join(readExtensionKeys, ", "))
+	}
+	return nil
 }
 
 // decodeStrict reads a yaml.Node into T with KnownFields(true). node.Decode

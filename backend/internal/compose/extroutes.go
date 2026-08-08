@@ -43,6 +43,26 @@ import (
 // identical cap, and cannot diverge on who may run what.
 type toolInvoker func(ctx context.Context, name string, in json.RawMessage) (json.RawMessage, error)
 
+// MountedRoute is one mounted extension pattern and the state it was mounted
+// in. The state matters to the parity sweep, which has THREE cases to tell
+// apart, not two:
+//
+//   - declared, mounted, handled — a unit's Go Tools entry backs the verb;
+//   - declared, mounted, unimplemented — a contract-only governed request
+//     (fixtures/extensions/crm-hello's hello_ping is exactly this), legitimate
+//     and answered 501;
+//   - declared and missing — the defect the sweep exists to catch.
+//
+// Collapsing the first two is what let a published route reach the registry for
+// a verb nothing registered, and answer an opaque logged 500.
+type MountedRoute struct {
+	Pattern string
+	Verb    extension.Verb
+	// Implemented reports whether a served tool stands behind the verb, i.e.
+	// whether the unit shipped a Handle for it.
+	Implemented bool
+}
+
 // maxExtensionRequestBody bounds the argument document a mounted route reads.
 // A tool's arguments are a small JSON object by construction (the declared
 // input schema is one), and the body is fully buffered before the handler runs,
@@ -60,15 +80,22 @@ const maxExtensionRequestBody = 1 << 20 // 1 MiB
 // this mounts from is the difference between a seam whose inputs are visible
 // and one that reads a package variable.
 //
-// Returned patterns are the registration side of the parity pair. They are
+// served names the verbs a composed unit actually registered a handler for
+// (compose's composedToolNames at the call site). A declared verb outside it is
+// still MOUNTED — the contract publishes the route either way, and a 404 would
+// contradict the document a client generated its call from — but it answers a
+// named 501 instead of reaching a registry that has never heard of it.
+//
+// Returned routes are the registration side of the parity pair. They are
 // returned rather than recorded in a package variable because a ServeMux cannot
 // be enumerated: if the caller did not learn what was mounted, nothing could
-// ever check the two directions against each other.
-func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, invoke toolInvoker) ([]string, error) {
+// ever check the two directions against each other. See extparity_test.go for
+// the residual that remains even so.
+func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, served map[string]bool, invoke toolInvoker) ([]MountedRoute, error) {
 	if invoke == nil {
 		return nil, errors.New("compose: extension routes need a tool registry to invoke through — mounting them without one would publish routes that answer nothing")
 	}
-	patterns := make([]string, 0, len(verbs))
+	mounted := make([]MountedRoute, 0, len(verbs))
 	seen := make(map[string]extension.Name, len(verbs))
 	for _, v := range verbs {
 		if err := v.Validate(); err != nil {
@@ -83,10 +110,11 @@ func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, invoke too
 			return nil, fmt.Errorf("compose: extensions %q and %q both declare %s", owner, v.Unit, pattern)
 		}
 		seen[pattern] = v.Unit
-		mux.Handle(pattern, extensionRouteHandler(v, invoke))
-		patterns = append(patterns, pattern)
+		implemented := served[v.Tool]
+		mux.Handle(pattern, extensionRouteHandler(v, implemented, invoke))
+		mounted = append(mounted, MountedRoute{Pattern: pattern, Verb: v, Implemented: implemented})
 	}
-	return patterns, nil
+	return mounted, nil
 }
 
 // extensionRouteHandler serves one declared operation by invoking its tool.
@@ -97,8 +125,24 @@ func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, invoke too
 // by the same gate the MCP transport goes through. That is what keeps "an
 // extension gets one governed surface" true rather than "two surfaces that
 // agree today".
-func extensionRouteHandler(v extension.Verb, invoke toolInvoker) http.Handler {
+func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoker) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !implemented {
+			// A contract-only declaration is a legitimate state, not an error:
+			// the unit published the operation and shipped no behavior for it,
+			// which is what a governed request awaiting an operator's decision
+			// looks like. Answered HERE rather than left to reach the registry,
+			// because agents.UnknownToolError has no httperr classifier — it
+			// would become an opaque 500 plus an "unhandled error" log line on
+			// every call, and an operator reading that log would be looking for
+			// a fault that does not exist.
+			//
+			// 501, not 404: the merged contract publishes this route, so a
+			// client generated a call for it from a document that is telling the
+			// truth. "Not implemented" is what is actually the case.
+			httperr.NotImplemented(w, r, v.OperationID)
+			return
+		}
 		args, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxExtensionRequestBody))
 		if err != nil {
 			httperr.Write(w, r, httperr.Validation("body", "malformed_json", "the request body could not be read"))

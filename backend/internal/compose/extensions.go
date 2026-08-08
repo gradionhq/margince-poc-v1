@@ -35,7 +35,10 @@ func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb) erro
 	if err != nil {
 		return err
 	}
-	rbacObjects := extensionRbacObjects(verbs)
+	rbacObjects, err := extensionRbacObjects(verbs)
+	if err != nil {
+		return err
+	}
 	for _, e := range exts {
 		for _, p := range e.Jurisdictions {
 			jurisdiction.Register(p)

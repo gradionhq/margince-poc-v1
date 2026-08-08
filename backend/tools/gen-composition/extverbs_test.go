@@ -181,6 +181,17 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			pathItem: strings.Replace(yogiOperation, "verb: u_quote", "verb: U-Quote", 1),
 			wantErr:  "not a valid verb",
 		},
+		"a misspelled x-rbac-object": {
+			// The worst failure mode in this reader if it were tolerated: the
+			// object never registers, and a stored role document granting it
+			// then fails the whole of that user's identity resolution.
+			pathItem: strings.Replace(yogiOperation, "      operationId: uQuote", "      operationId: uQuote\n      x-rbac-objects: ext_u_widget", 1),
+			wantErr:  "which this generator does not read",
+		},
+		"an x- annotation this tier does not act on": {
+			pathItem: strings.Replace(yogiOperation, "      operationId: uQuote", "      operationId: uQuote\n      x-agent-access: human-only", 1),
+			wantErr:  "which this generator does not read",
+		},
 		"an RBAC object outside the unit's namespace": {
 			pathItem: strings.Replace(yogiOperation, "      operationId: uQuote", "      operationId: uQuote\n      x-rbac-object: ext_other_widget", 1),
 			wantErr:  "outside extension",

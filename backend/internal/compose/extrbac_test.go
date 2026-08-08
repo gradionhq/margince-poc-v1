@@ -24,16 +24,58 @@ func TestExtensionRbacObjectsComeFromTheDeclaredOperations(t *testing.T) {
 	alsoGated.RbacObject = "ext_crm_demo_widget"
 	ungated := unitVerb("yogi", "yogi_quote", extension.TierAutoExecute, extension.ScopeRead)
 
-	got := extensionRbacObjects([]extension.Verb{gated, alsoGated, ungated})
+	got, err := extensionRbacObjects([]extension.Verb{gated, alsoGated, ungated})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 || got[0] != "ext_crm_demo_widget" {
 		t.Fatalf("derived %v, want exactly [ext_crm_demo_widget]", got)
 	}
 	// A unit owning no records declares nothing, which is the live tree's state.
-	if got := extensionRbacObjects([]extension.Verb{ungated}); len(got) != 0 {
-		t.Fatalf("derived %v from an operation declaring no object", got)
+	if got, err := extensionRbacObjects([]extension.Verb{ungated}); err != nil || len(got) != 0 {
+		t.Fatalf("derived %v (err %v) from an operation declaring no object", got, err)
 	}
-	if got := extensionRbacObjects(nil); len(got) != 0 {
-		t.Fatalf("derived %v from no operations", got)
+	if got, err := extensionRbacObjects(nil); err != nil || len(got) != 0 {
+		t.Fatalf("derived %v (err %v) from no operations", got, err)
+	}
+}
+
+// TestTwoUnitsDerivingOneRbacObjectAreRefusedByName: `ext_` + the unit name with
+// hyphens underscored is NOT injective — unit `crm` object `demo_widget` and
+// unit `crm-demo` object `widget` both derive `ext_crm_demo_widget`, and both
+// clear Verb.Validate because each really is inside its own unit's namespace.
+// The vocabulary would refuse the second registration naming neither unit, which
+// reads as one unit declaring an object twice and sends an operator to the wrong
+// file.
+func TestTwoUnitsDerivingOneRbacObjectAreRefusedByName(t *testing.T) {
+	crm := unitVerb("crm", "crm_sync", extension.TierAutoExecute, extension.ScopeRead)
+	crm.RbacObject = "ext_crm_demo_widget"
+	crmDemo := unitVerb("crm-demo", "demo_sync", extension.TierAutoExecute, extension.ScopeRead)
+	crmDemo.RbacObject = "ext_crm_demo_widget"
+	// Both are individually valid; that is the whole difficulty.
+	for _, v := range []extension.Verb{crm, crmDemo} {
+		if err := v.Validate(); err != nil {
+			t.Fatalf("%s's declaration must be individually valid: %v", v.Unit, err)
+		}
+	}
+
+	_, err := extensionRbacObjects([]extension.Verb{crm, crmDemo})
+	if err == nil {
+		t.Fatal("two units deriving one object name were accepted")
+	}
+	for _, want := range []string{`"crm"`, `"crm-demo"`, "ext_crm_demo_widget"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %s: %v", want, err)
+		}
+	}
+	// And it reaches the boot rather than being a local nicety.
+	t.Cleanup(identity.ResetRbacObjectsForTest)
+	t.Cleanup(func() { setComposedTools(nil); setComposedVerbs(nil) })
+	bootErr := RegisterExtensions([]extension.Extension{
+		{Name: "crm", Version: "0.1.0"}, {Name: "crm-demo", Version: "0.1.0"},
+	}, []extension.Verb{crm, crmDemo})
+	if bootErr == nil || !strings.Contains(bootErr.Error(), "both derive RBAC object") {
+		t.Fatalf("boot err = %v, want the derived-name collision", bootErr)
 	}
 }
 
@@ -97,11 +139,12 @@ func TestRegisterExtensionsRegistersTheDeclaredObjects(t *testing.T) {
 func TestRegisterExtensionsRefusesAnObjectOutsideTheNamespace(t *testing.T) {
 	t.Cleanup(identity.ResetRbacObjectsForTest)
 	t.Cleanup(func() { setComposedTools(nil); setComposedVerbs(nil) })
+	// Verb.Validate refuses a CROSS-UNIT object, so the escape this checks is
+	// the one it cannot see: a name correctly inside the unit's namespace that
+	// the VOCABULARY still refuses (a doubled underscore is not a legal SQL
+	// identifier segment). The two rules are owned by different packages on
+	// purpose, and this is the case that proves the second one still runs.
 	squatting := unitVerb("crm-demo", "demo_sync", extension.TierAutoExecute, extension.ScopeRead)
-	squatting.RbacObject = "ext_crm_demo_widget"
-	// Validate would refuse a cross-unit object, so the escape this checks is
-	// the one Validate cannot see: a well-namespaced name the VOCABULARY refuses
-	// (a doubled underscore is not a legal SQL identifier segment).
 	squatting.RbacObject = "ext_crm_demo__widget"
 	if err := RegisterExtensions([]extension.Extension{{Name: "crm-demo", Version: "0.1.0"}}, []extension.Verb{squatting}); err == nil {
 		t.Fatal("the boot accepted an object the vocabulary refuses")

@@ -255,7 +255,11 @@ func extensionEdge(srv Server, log *slog.Logger) func(http.Handler) http.Handler
 	return func(next http.Handler) http.Handler {
 		mux := http.NewServeMux()
 		mux.Handle("/", next)
-		patterns, err := MountExtensionRoutes(mux, verbs, srv.toolRegistry.Invoke)
+		// composedToolNames is this boot's SERVED set — the verbs a unit shipped
+		// a Handle for. A declared verb outside it is mounted and answers 501
+		// rather than reaching a registry that never heard of it; see
+		// MountExtensionRoutes.
+		routes, err := MountExtensionRoutes(mux, verbs, composedToolNames(), srv.toolRegistry.Invoke)
 		if err != nil {
 			// A composed set that reached here invalid means RegisterExtensions
 			// accepted something this mounting cannot serve, which is a wiring
@@ -265,7 +269,17 @@ func extensionEdge(srv Server, log *slog.Logger) func(http.Handler) http.Handler
 			// the composition's other boot-time refusals: fail loudly.
 			panic("compose: mounting the composed extension routes: " + err.Error())
 		}
-		log.Info("extensions: routes mounted", "routes", len(patterns))
+		implemented := 0
+		for _, route := range routes {
+			if route.Implemented {
+				implemented++
+			}
+		}
+		// Both counts, because their difference is the contract-only set — the
+		// operations this installation publishes and answers 501 for. An
+		// operator seeing a 501 in the access log should find the number here
+		// rather than reading it as a fault.
+		log.Info("extensions: routes mounted", "routes", len(routes), "implemented", implemented)
 		return mux
 	}
 }

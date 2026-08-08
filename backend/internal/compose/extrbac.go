@@ -55,6 +55,29 @@ func RegisterRbacObjects(objects []identity.RbacObject) error {
 	return nil
 }
 
+// THE NAMESPACE IS NOT INJECTIVE, and this is where that is handled.
+//
+// A unit name may hold hyphens (it is a URL path segment); a SQL identifier may
+// not, so the derived namespace underscores them — `ext_` + `crm-demo` → `ext_
+// crm_demo_`. That map is not one-to-one: unit `crm` declaring object
+// `demo_widget` and unit `crm-demo` declaring object `widget` derive the same
+// `ext_crm_demo_widget`, and both clear Verb.Validate, because each name really
+// is inside its own declaring unit's namespace.
+//
+// The vocabulary would then refuse the second registration with "already
+// registered" and name neither unit — an operator would read it as one unit
+// declaring the same object twice and go looking in the wrong file. So the
+// collision is detected HERE, where both unit names are in hand, and the error
+// names both. Not reachable with a single unit in the tree; reachable as soon as
+// a second one ships.
+//
+// A stronger fix — a per-unit ownership map in the vocabulary, so two units
+// could hold distinct objects that happen to derive one name — is deliberately
+// NOT taken: the derived name is what a stored role document and the /me
+// snapshot carry, so two objects sharing one derived name would be one grant
+// wherever it matters. Refusing the ambiguity is the honest resolution; the
+// error tells both units to pick different names.
+
 // extensionRbacObjects collects the distinct RBAC objects the composed verb set
 // declares, in the verbs' own (already deterministic) order.
 //
@@ -63,15 +86,25 @@ func RegisterRbacObjects(objects []identity.RbacObject) error {
 // state — the seam exists because a unit with records cannot be written without
 // it, and the alternative (ship the unit first, then discover its screen renders
 // nothing) is the failure this file's header describes.
-func extensionRbacObjects(verbs []extension.Verb) []identity.RbacObject {
+func extensionRbacObjects(verbs []extension.Verb) ([]identity.RbacObject, error) {
 	var objects []identity.RbacObject
-	seen := map[string]bool{}
+	owner := map[string]extension.Name{}
 	for _, v := range verbs {
-		if v.RbacObject == "" || seen[v.RbacObject] {
+		if v.RbacObject == "" {
 			continue
 		}
-		seen[v.RbacObject] = true
+		if prior, claimed := owner[v.RbacObject]; claimed {
+			// The same unit declaring one object on several operations is the
+			// normal case — a unit's screens share it — and de-duplicates.
+			if prior == v.Unit {
+				continue
+			}
+			return nil, fmt.Errorf("compose: extensions %q and %q both derive RBAC object %q — "+
+				"the unit namespace underscores hyphens, so two unit names can derive one object name; "+
+				"rename one of the objects", prior, v.Unit, v.RbacObject)
+		}
+		owner[v.RbacObject] = v.Unit
 		objects = append(objects, identity.RbacObject(v.RbacObject))
 	}
-	return objects
+	return objects, nil
 }
