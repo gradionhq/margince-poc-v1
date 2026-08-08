@@ -113,30 +113,45 @@ func dealStageSemantic(ctx context.Context, p datasource.SystemOfRecordProvider,
 	return semantic, nil
 }
 
-// dealMoveSummary is the sentence a human is asked to approve. It names the
-// move by BOTH endpoints, because the two that reach this gate are opposites:
-// closing a deal and reopening one.
+// dealMoveSummary is the sentence a human is asked to approve. It names the move
+// by BOTH endpoints, because the ones that reach this gate are opposites:
+// closing a deal, reopening one, and rewriting one outcome as another.
 //
 // "Close deal Acme as open" is what a reopen used to read as — a sentence that
 // describes neither what is happening nor what it costs. A human approving from
 // an inbox has the summary and nothing else, so a summary that names the wrong
 // act is the whole decision going wrong.
 //
-// A source this cannot read degrades to naming the destination alone rather than
+// It reads the source out of the record STAGING ALREADY READ rather than
+// fetching the deal again. Two reads are two moments, and the summary would
+// then be free to describe a transition the staged version never had — a move
+// labelled REOPEN against a version that is already open. One read, one moment,
+// and the version pinned to the approval is the one the sentence describes.
+//
+// A stage it cannot resolve degrades to naming the destination rather than
 // failing: the approval is already the safe answer, and refusing to describe it
 // would turn a readable-enough decision into no decision at all.
-func dealMoveSummary(
-	ctx context.Context, p datasource.SystemOfRecordProvider, stages StageResolver,
-	dealID ids.UUID, label, target string,
-) string {
-	source, err := dealStageSemantic(ctx, p, stages, dealID)
-	switch {
-	case err != nil:
+func dealMoveSummary(ctx context.Context, stages StageResolver, rec datasource.Record, target string) string {
+	label := recordLabel(rec)
+	var fields struct {
+		StageID ids.UUID `json:"stage_id"`
+	}
+	if err := json.Unmarshal(rec.Fields, &fields); err != nil || fields.StageID.IsZero() {
 		return fmt.Sprintf("Move deal %s to %s", label, target)
+	}
+	source, _, err := stages.StageSemantic(ctx, fields.StageID)
+	switch {
+	case err != nil || source == "":
+		return fmt.Sprintf("Move deal %s to %s", label, target)
+	case source == stageSemanticOpen && target == stageSemanticOpen:
+		// Reachable even though the tier gate calls this transition 🟢: a
+		// per-field precedence split stages an otherwise auto-execute call, and
+		// the human then reads this line about a routine move.
+		return fmt.Sprintf("Move deal %s to another open stage", label)
 	case source != stageSemanticOpen && target == stageSemanticOpen:
 		return fmt.Sprintf("REOPEN deal %s, which is currently %s — this clears its close date, "+
 			"its lost reason and the exchange rate frozen when it closed", label, source)
-	case source != stageSemanticOpen && target != stageSemanticOpen:
+	case source != stageSemanticOpen:
 		return fmt.Sprintf("Change deal %s from %s to %s", label, source, target)
 	}
 	return fmt.Sprintf("Close deal %s as %s", label, target)

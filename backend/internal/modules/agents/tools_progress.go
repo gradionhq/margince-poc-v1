@@ -92,7 +92,7 @@ func (t progressDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 		// The same sentence advance_deal stages, because the two tools stage the
 		// same act — a human reading an inbox should not have to know which tool
 		// proposed a move to understand what approving it does.
-		Summary: dealMoveSummary(ctx, t.p, t.stages, args.DealID, recordLabel(rec), semantic),
+		Summary: dealMoveSummary(ctx, t.stages, rec, semantic),
 	}, nil
 }
 

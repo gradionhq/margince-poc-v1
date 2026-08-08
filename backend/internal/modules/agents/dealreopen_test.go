@@ -184,30 +184,43 @@ func TestAnUnreadableCurrentStageIsReportedRatherThanRaisedSilently(t *testing.T
 // is what a reopen used to read as — a summary that describes neither what is
 // happening nor what it costs, to someone whose whole view of the decision is
 // that line.
-func TestTheApprovalSummaryNamesAReopenAsOne(t *testing.T) {
-	target := ids.NewV7()
-	current := ids.NewV7()
-	stages := &reopenProbeStages{semantics: map[ids.UUID]string{current: "won", target: "open"}}
-	provider := &reopenProbeProvider{stageID: current}
-
-	summary := dealMoveSummary(context.Background(), provider, stages, ids.NewV7(), "Acme renewal", "open")
-	if !strings.Contains(summary, "REOPEN") || !strings.Contains(summary, "won") {
-		t.Errorf("summary = %q, want it to name the act as a reopen and say what the deal is now", summary)
-	}
-	if !strings.Contains(summary, "close date") {
-		t.Errorf("summary = %q, want it to say what approving costs", summary)
+func TestTheApprovalSummaryNamesTheMoveItActuallyIs(t *testing.T) {
+	current, target := ids.NewV7(), ids.NewV7()
+	stages := &reopenProbeStages{semantics: map[ids.UUID]string{target: "open"}}
+	record := func(stage ids.UUID) datasource.Record {
+		return datasource.Record{Fields: []byte(`{"name":"Acme renewal","stage_id":"` + stage.String() + `"}`)}
 	}
 
-	// A close still reads as a close, and a source this cannot read degrades to
-	// naming the destination rather than failing: the approval is already the
-	// safe answer, and refusing to describe it would turn a readable-enough
-	// decision into no decision at all.
-	stages.semantics[current] = "open"
-	if got := dealMoveSummary(context.Background(), provider, stages, ids.NewV7(), "Acme renewal", "won"); !strings.HasPrefix(got, "Close deal") {
-		t.Errorf("summary = %q, want a close to read as a close", got)
+	for name, tc := range map[string]struct {
+		source, target, want string
+	}{
+		"a reopen says so, and says what it costs": {"won", "open", "REOPEN"},
+		"a close still reads as a close":           {"open", "won", "Close deal"},
+		"one outcome rewritten as another":         {"won", "lost", "Change deal"},
+		// Reachable even though the tier gate calls it 🟢: a per-field precedence
+		// split stages an otherwise auto-execute call, and the human then reads
+		// this line about a routine move.
+		"a routine move is not a close": {"open", "open", "another open stage"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stages.semantics[current] = tc.source
+			stages.semantics[target] = tc.target
+			got := dealMoveSummary(context.Background(), stages, record(current), tc.target)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("summary = %q, want it to name the act (%q)", got, tc.want)
+			}
+		})
 	}
-	unreadable := &reopenProbeProvider{readErr: errors.New("nope")}
-	if got := dealMoveSummary(context.Background(), unreadable, stages, ids.NewV7(), "Acme renewal", "open"); !strings.HasPrefix(got, "Move deal") {
+	// The table above leaves the map on its last case, so the reopen is set up
+	// again explicitly rather than inherited from whichever ran last.
+	stages.semantics[current], stages.semantics[target] = "won", "open"
+	if got := dealMoveSummary(context.Background(), stages, record(current), "open"); !strings.Contains(got, "close date") {
+		t.Errorf("summary = %q, want a reopen to say what approving costs", got)
+	}
+	// A stage it cannot resolve degrades to naming the destination rather than
+	// failing — the approval is already the safe answer.
+	blank := datasource.Record{Fields: []byte(`{"name":"Acme renewal"}`)}
+	if got := dealMoveSummary(context.Background(), stages, blank, "open"); !strings.HasPrefix(got, "Move deal") {
 		t.Errorf("summary = %q, want the destination named when the source cannot be read", got)
 	}
 }

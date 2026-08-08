@@ -345,7 +345,7 @@ func (t advanceDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageIn
 	}
 	return StageInfo{
 		TargetType: "deal", TargetID: args.DealID, TargetVersion: &rec.Version,
-		Summary: dealMoveSummary(ctx, t.p, t.stages, args.DealID, recordLabel(rec), semantic),
+		Summary: dealMoveSummary(ctx, t.stages, rec, semantic),
 	}, nil
 }
 
