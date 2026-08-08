@@ -164,6 +164,7 @@ function ConsentGuide({
 // its own no-nonce guard. That is what makes the two forms below honest — a
 // selector whose submission the double-submit check must refuse is a worse
 // answer than no selector at all, because it looks actionable.
+
 function ConsentSelector({
   data,
   params,
@@ -212,6 +213,7 @@ function ConsentSelector({
     <Card>
       <h1>{t("consent.title")}</h1>
       <p>{t("consent.asks", { client: data.client_name })}</p>
+      <RedirectDisclosure redirectURI={params.get("redirect_uri") ?? ""} />
       {errorCode === "unlendable_passport" && (
         <div className="card card-inset">
           <strong>{t("consent.unlendableTitle")}</strong>
@@ -397,5 +399,38 @@ export function OAuthConsent() {
         }}
       </QueryGate>
     </div>
+  );
+}
+
+// The redirect the authorization code will be sent to, named by HOST.
+//
+// The 2026-07-28 profile makes this a MUST for a reason a human can act on: a
+// client id is a URL and a client name is whatever that URL's document says it
+// is, so the destination is the one fact about this connection that nobody but
+// the human can judge. A loopback destination carries an extra line, because a
+// metadata document cannot prove WHO is listening on a port on this machine —
+// the profile's own words, and the one case where "the name looks right" is not
+// enough.
+function RedirectDisclosure({ redirectURI }: { redirectURI: string }) {
+  const t = useT();
+  let host: string;
+  let loopback: boolean;
+  try {
+    const parsed = new URL(redirectURI);
+    host = parsed.host;
+    loopback =
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "[::1]";
+  } catch {
+    // An unparseable redirect never reaches a code — the server refuses it
+    // before this screen is rendered — so there is nothing honest to name.
+    return null;
+  }
+  return (
+    <p className="t-small">
+      {t("consent.redirectsTo", { host })}
+      {loopback ? ` ${t("consent.redirectsToLoopback")}` : ""}
+    </p>
   );
 }

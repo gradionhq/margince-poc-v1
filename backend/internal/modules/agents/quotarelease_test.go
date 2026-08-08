@@ -267,7 +267,6 @@ func TestASpentBudgetShareWarnsOnTheAnswerAndWithholdsNothing(t *testing.T) {
 	})
 
 	out, err := r.Invoke(ctx, "search_records", json.RawMessage(`{}`))
-
 	if err != nil {
 		t.Fatalf("a spent budget share refused the call; the spec calls this quota soft: %v", err)
 	}

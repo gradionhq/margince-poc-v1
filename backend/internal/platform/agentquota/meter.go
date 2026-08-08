@@ -170,8 +170,8 @@ func governed(ctx context.Context) bool {
 	return present && actor.Type == principal.PrincipalAgent
 }
 
-// counterFor names the counter a governed call belongs to, and reports whether
-// one could be named at all.
+// callerKey names the (workspace, Passport) pair a governed call's counters are
+// kept under, and reports whether one could be named at all.
 //
 // The two "no" answers this package gives are DIFFERENT and must not be folded
 // together. `governed` says the caller is outside the control — admit. This says
@@ -185,7 +185,7 @@ func governed(ctx context.Context) bool {
 // (identity.AgentIdentity.Principal), so the fallback is not a live path — but
 // keying on something ALWAYS present is what stops a future agent principal
 // without one from being silently exempt.
-func counterFor(ctx context.Context) (ws ids.UUID, agent string, named bool) {
+func callerKey(ctx context.Context) (ws ids.UUID, agent string, named bool) {
 	actor, present := principal.Actor(ctx)
 	if !present {
 		return ws, "", false
@@ -204,7 +204,7 @@ func (m *Meter) usable(ctx context.Context) (ws ids.UUID, agent string, ok bool)
 	if !governed(ctx) || m.rdb == nil {
 		return ws, "", false
 	}
-	ws, agent, named := counterFor(ctx)
+	ws, agent, named := callerKey(ctx)
 	return ws, agent, named
 }
 
@@ -262,7 +262,7 @@ func (m *Meter) Read(ctx context.Context, c Counter) Reading {
 	if c == Cost {
 		return m.readCost(ctx, bucket)
 	}
-	ws, agent, named := counterFor(ctx)
+	ws, agent, named := callerKey(ctx)
 	if !named || m.rdb == nil {
 		// Governed, and unidentifiable or uncountable. Both are the fail-closed
 		// branch: this caller is inside the control and the meter cannot answer
@@ -289,7 +289,7 @@ func (m *Meter) readCost(ctx context.Context, bucket int64) Reading {
 		return Reading{Counter: Cost, Bucket: bucket}
 	}
 	limit := m.cost.TokensPerPassport(ctx)
-	ws, agent, named := counterFor(ctx)
+	ws, agent, named := callerKey(ctx)
 	if limit <= 0 || !named || m.rdb == nil {
 		return Reading{Counter: Cost, Limit: limit, Bucket: bucket}
 	}
@@ -329,6 +329,8 @@ func (m *Meter) observe(ctx context.Context, ws ids.UUID, agent string, c Counte
 // this meter did not write, and it is an ERROR rather than a zero: reading a
 // value it cannot parse as "nothing spent" is how a corrupted key becomes an
 // unbounded allowance.
+//
+//craft:ignore naked-any go-redis MGet answers []any, so the slot's type is the client library's and not a choice made here
 func asCount(v any) (int, error) {
 	if v == nil {
 		return 0, nil

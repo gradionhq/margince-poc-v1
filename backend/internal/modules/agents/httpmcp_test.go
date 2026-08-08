@@ -272,27 +272,6 @@ func authenticateAsPassport(passports map[string]ids.UUID) func(*http.Request) (
 	}
 }
 
-// deleteSession sends DELETE /mcp naming sessionID under asPassport (the
-// X-Test-Passport header authenticateAsPassport reads) and returns the
-// response status.
-func deleteSession(t *testing.T, srv *httptest.Server, sessionID, asPassport string) int {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodDelete, srv.URL, nil)
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	req.Header.Set("Mcp-Session-Id", sessionID)
-	req.Header.Set("X-Test-Passport", asPassport)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("DELETE: %v", err)
-	}
-	if err := resp.Body.Close(); err != nil {
-		t.Errorf("closing response body: %v", err)
-	}
-	return resp.StatusCode
-}
-
 // ADR-0092 §6: nothing here holds per-connection state any more. `initialize`
 // mints no session id, and DELETE answers 405 in BOTH framings with the same
 // sentence.

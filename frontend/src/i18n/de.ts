@@ -3670,6 +3670,9 @@ export const de = {
 
   "consent.title": "Zugriff autorisieren",
   "consent.asks": "{client} möchte in Margince als du handeln.",
+  "consent.redirectsTo": "Margince sendet die Autorisierung zurück an {host}.",
+  "consent.redirectsToLoopback":
+    "Das ist eine Adresse auf diesem Computer, und diese Verbindung kann nicht belegen, welches Programm dort lauscht.",
   "consent.lend": "Leih ihm einen deiner Agent-Passports",
   "consent.grantedNote":
     "Diese Verbindung erhält genau die gezeigten Berechtigungen — die dieses Passports.",

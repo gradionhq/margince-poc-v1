@@ -44,7 +44,6 @@ func TestAReleaseAnsweredAfterItsWindowRolledAppliesToNothingAndSaysSo(t *testin
 
 	applied, err := meter.Release(t.Context(), ids.New[ids.WorkspaceKind]().UUID,
 		ids.New[ids.PassportKind]().UUID, Reads, staged)
-
 	if err != nil {
 		t.Fatalf("releasing a window that has already rolled is not an error: %v", err)
 	}

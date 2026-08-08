@@ -3662,6 +3662,9 @@ export const vi = {
   "consent.title": "Cho phép truy cập",
   "consent.asks":
     "{client} muốn hành động trong Margince với danh nghĩa của bạn.",
+  "consent.redirectsTo": "Margince sẽ gửi ủy quyền trở lại {host}.",
+  "consent.redirectsToLoopback":
+    "Đó là địa chỉ trên chính máy này, và kết nối này không thể chứng minh chương trình nào đang lắng nghe ở đó.",
   "consent.lend": "Cho nó mượn một passport Agent của bạn",
   "consent.grantedNote":
     "Kết nối này nhận đúng những phạm vi hiển thị ở đây — đúng những gì passport này mang.",

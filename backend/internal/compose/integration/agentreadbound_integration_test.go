@@ -36,7 +36,7 @@ import (
 // test can put the window into whatever state it is about.
 func boundedApp(t *testing.T, slug string, limit int) (*apptest.AppEnv, *agentquota.Meter) {
 	t.Helper()
-	meter := agentquota.New(budgettest.Client(t), limit, time.Hour)
+	meter := agentquota.New(budgettest.Client(t), agentquota.Limits{Reads: limit}, time.Hour)
 	e := apptest.SetupAppWithOptions(t, compose.WithAgentQuota(meter))
 	e.Slug = slug
 	apptest.BootstrapWorkspaceSession(t, e, "Read Bound", slug+"@fable.test", "Admin")
@@ -54,7 +54,7 @@ func spendWindow(t *testing.T, e *apptest.AppEnv, meter *agentquota.Meter, passp
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalAgent, ID: "agent:" + passport.String(), PassportID: passport,
 	})
-	if err := meter.Consume(ctx, records); err != nil {
+	if err := meter.Consume(ctx, agentquota.Reads, records); err != nil {
 		t.Fatalf("spending the window: %v", err)
 	}
 }

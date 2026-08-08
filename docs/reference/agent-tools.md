@@ -374,6 +374,34 @@ next `tools/call`, mid-session. A credential the server cannot *reach* a verdict
 on answers `503`, never `401` — a 401 would tell a well-behaved client its good
 token is bad and turn an outage into mass re-consent.
 
+**How a client gets a `client_id`.** Two ways, and a client that reads the
+profile's own priority order picks the first:
+
+- **A Client ID Metadata Document (CIMD)** — the forward path. The `client_id`
+  IS an `https` URL with a path, resolving to a JSON document that states its
+  own `client_id`, `client_name` and `redirect_uris`. This server fetches it,
+  and the fetch is the part worth knowing about: **redirects are not followed**
+  (a followed hop is a second URL the caller chose), the address is refused at
+  connect time if it resolves anywhere inside the deployment, the body is capped
+  at 64 KiB, the timeout is 5s, and the document's own `client_id` must equal
+  the URL it came from **byte for byte** — no normalizing, because a normalizer
+  is a second reading of one value. A validated document becomes an ordinary
+  `oauth_client` row with `created_via = 'cimd'`, so an admin disables, deletes
+  and revokes it exactly as they would a registered one, and it is refetched
+  when the client's own cache headers say it has gone stale (clamped to between
+  5 minutes and 24 hours).
+- **Dynamic client registration** (`POST /oauth/register`) — deprecated in the
+  profile, and **retained here for the compatibility window** (ADR-0092 §4), so
+  a client registered before any of this is not stranded by a revision it never
+  asked for. `client_id_metadata_document_supported: true` and
+  `registration_endpoint` are both advertised in the authorization-server
+  metadata, on purpose.
+
+Either way the consent screen names the **host** the authorization will be sent
+back to, and says so again when that host is an address on this computer — a
+metadata document can prove what a client calls itself, and cannot prove which
+program holds a loopback port.
+
 ## Where to go next
 
 - What a human may do, which every agent is capped by:

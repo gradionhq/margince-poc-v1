@@ -26,24 +26,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// agentTokenSpend charges a served model call to the agent that caused it.
-type agentTokenSpend struct{ meter *agentquota.Meter }
-
-// AgentTokenSpend adapts the quota meter to the AI runtime's token seam.
+// AgentTokenSpend adapts the quota meter to the AI runtime's token seam, so a
+// served model call is charged to the agent that caused it.
 //
 // Exported because the two things it joins are assembled in cmd: the meter is
 // built there (the raw-Redis dependency stays out of compose) and so is the
-// model path. This is the one line that makes a model call charge the agent
-// that caused it, and it is the whole of what cmd has to remember.
-func AgentTokenSpend(meter *agentquota.Meter) ai.AgentTokenSpender {
-	return agentTokenSpend{meter: meter}
-}
+// model path. This is the one line that makes the join, and it is the whole of
+// what cmd has to remember.
+type AgentTokenSpend struct{ Meter *agentquota.Meter }
 
 // SpendAgentTokens records tokens against the calling Passport's cost window.
 // A human's model call records nothing — the meter's own governed check decides
 // that, so this side never has to re-answer "which callers are metered".
-func (s agentTokenSpend) SpendAgentTokens(ctx context.Context, tokens int) error {
-	return s.meter.Consume(ctx, agentquota.Cost, tokens)
+func (s AgentTokenSpend) SpendAgentTokens(ctx context.Context, tokens int) error {
+	return s.Meter.Consume(ctx, agentquota.Cost, tokens)
 }
 
 // budgetShareWindow is how much of the month one quota window covers. The

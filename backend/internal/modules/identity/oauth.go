@@ -173,6 +173,18 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 	if req.Resource != "" && req.Resource != h.mcpResource {
 		return authorizeRequest{}, "invalid_target", "the requested resource is not this installation's MCP endpoint"
 	}
+	// A metadata-document client resolves ITSELF, into the same row every other
+	// client is looked up from — so everything below is one lookup whichever
+	// door the client came through, and a CIMD client is disabled, deleted and
+	// revoked by exactly the machinery that governs a registered one.
+	//
+	// A resolution failure is invalid_client and NOTHING more specific. The
+	// caller chose the URL, so a detailed answer here — "connection refused",
+	// "not JSON", "203 bytes over" — is a probe of the deployment's network
+	// with this server as the prober, reported back to the prober.
+	if err := h.svc.resolveCIMDClient(r.Context(), req.ClientID); err != nil && !errors.Is(err, errNotCIMD) {
+		return authorizeRequest{}, "invalid_client", "unknown client_id"
+	}
 	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
 		var uris []string
 		// A disabled or deleted client reads as UNKNOWN, deliberately: the same

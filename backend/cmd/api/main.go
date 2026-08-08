@@ -137,7 +137,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// MCP-SESS-COST: the same meter the gate reads, charged where the tokens
 	// are known. A model path bound to a different meter would meter an agent's
 	// spend into a window nothing else looks at.
-	*modelPath = modelPath.WithAgentTokenSpend(compose.AgentTokenSpend(quotaMeter))
+	*modelPath = modelPath.WithAgentTokenSpend(compose.AgentTokenSpend{Meter: quotaMeter})
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	apiHandler := compose.New(pool, logger, opts...)
