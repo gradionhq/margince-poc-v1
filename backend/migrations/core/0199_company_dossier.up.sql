@@ -39,7 +39,7 @@ CREATE TABLE org_dossier (
   -- Which lane produced it, or the deterministic floor. The surface says which,
   -- because a plainer answer from the floor is honest and a plainer answer
   -- passed off as the model's is not (DOSS-AC-7).
-  generated_by    text NOT NULL,
+  generated_by    text NOT NULL CHECK (generated_by IN ('model', 'deterministic')),
   generated_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, user_id, organization_id),
   -- COMPOSITE references, carrying workspace_id into the key. A single-column
@@ -62,7 +62,7 @@ CREATE TABLE org_growth_fit (
   fingerprint     text NOT NULL,
   -- Band, completeness with both counts, factors, whitespace, angle, objections.
   payload         jsonb NOT NULL,
-  generated_by    text NOT NULL,
+  generated_by    text NOT NULL CHECK (generated_by IN ('model', 'deterministic')),
   generated_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, user_id, organization_id),
   CONSTRAINT org_growth_fit_user_fkey FOREIGN KEY (workspace_id, user_id)

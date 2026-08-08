@@ -146,13 +146,17 @@ func refuseUngroundableFit(want growthFitExpectation, label map[string]string) e
 	if len(want.Bands) == 0 {
 		return errors.New("the scenario accepts no band, so every reply fails it")
 	}
+	distinct := map[string]bool{}
 	for _, band := range want.Bands {
 		if !orgdossier.BandIsJudgeable(crmcontracts.GrowthFitBand(band)) {
 			return fmt.Errorf(
 				"the scenario accepts band %q, which is not a band the model may propose", band)
 		}
+		// Counted distinctly, so a list padded with repeats cannot slip past the
+		// accepts-everything check below while still accepting everything.
+		distinct[band] = true
 	}
-	if len(want.Bands) == orgdossier.JudgeableBandCount {
+	if len(distinct) == orgdossier.JudgeableBandCount {
 		return errors.New("the scenario accepts every band, so no reply could disagree with it")
 	}
 	return nil

@@ -96,7 +96,11 @@ func TestAScenarioThatCouldNeverDisagreeWithAReplyIsRefused(t *testing.T) {
 		"a record the fixture lacks":    `{"cites":["their_revenue"],"bands":["strong"]}`,
 		"no band accepted":              `{"cites":["their_offer"],"bands":[]}`,
 		"every judgeable band accepted": `{"cites":["their_offer"],"bands":["strong","moderate","weak"]}`,
-		"the abstention accepted":       `{"cites":["their_offer"],"bands":["unknown"]}`,
+		// The same scenario padded with repeats. It accepts every band just as
+		// surely, and a length check would wave it through.
+		"every band, padded with repeats": `{"cites":["their_offer"],` +
+			`"bands":["strong","strong","moderate","weak"]}`,
+		"the abstention accepted": `{"cites":["their_offer"],"bands":["unknown"]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := (growthFitCases{}).Prepare(

@@ -70,6 +70,13 @@ func GrowthFitRequest(in Input) model.Request {
 	}
 }
 
+// encodeInput renders the assembled company as the JSON both prompts read.
+//
+// Nothing here can fail to encode — Input is our own struct of scalars, slices
+// and time values — and every caller has already marshalled the same value to
+// fingerprint it, which returns the error a genuine failure would raise. An
+// empty prompt would still reach the model fenced, and the grounding filter
+// refuses the reply that came back from it.
 func encodeInput(in Input) string {
 	encoded, _ := json.Marshal(in) //nolint:errchkjson // Input is a plain struct of scalars; marshal cannot fail
 	return string(encoded)

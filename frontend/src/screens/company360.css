@@ -389,7 +389,7 @@
 .co-evidence-excerpt {
   margin-top: var(--space-3);
   padding-left: var(--space-3);
-  border-left: 2px solid var(--border);
+  border-left: 2px solid var(--borderStrong);
 }
 .co-evidence-identity {
   margin-top: var(--space-3);

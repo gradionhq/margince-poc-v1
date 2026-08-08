@@ -9,6 +9,7 @@ package orgdossier
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -124,8 +125,10 @@ func (h Handlers) native(w http.ResponseWriter, r *http.Request) bool {
 	if h.overlay == nil {
 		// An unwired mode check is a deployment defect on a surface whose whole
 		// premise is which system of record it reads. It refuses rather than
-		// assuming native, which is the silent fallback overlay exists to stop.
-		httperr.Write(w, r, httperr.Validation("id", "unsupported_in_overlay_mode",
+		// assuming native, which is the silent fallback overlay exists to stop
+		// — and it refuses as OUR fault, because nothing about the request is
+		// wrong and a 4xx would send the reader looking for a bad field.
+		httperr.Write(w, r, errors.New(
 			"the dossier cannot confirm which system of record this workspace reads from"))
 		return false
 	}

@@ -82,7 +82,20 @@ export function DossierPanel({
   // A payload this build cannot read is not a company we know nothing about.
   // Without this the two render identically, and a schema skew would look like
   // a company nobody has described.
-  const readable = Array.isArray(written?.sections) ? written : undefined;
+  // The sections are checked one by one, not just as an array: a section whose
+  // kind this build has no label for would render as an unnamed heading, which
+  // reads as a defect in the dossier rather than in the payload carrying it.
+  const readable =
+    written &&
+    Array.isArray(written.sections) &&
+    typeof written.generated_by === "string" &&
+    typeof written.generated_at === "string" &&
+    written.sections.every(
+      (section) =>
+        section?.kind in SECTION_LABELS && Array.isArray(section.sentences),
+    )
+      ? written
+      : undefined;
 
   return (
     <section className="co-part co-dossier" aria-label={t("co.dossier.title")}>

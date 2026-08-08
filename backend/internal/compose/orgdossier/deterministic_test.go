@@ -8,6 +8,7 @@ package orgdossier
 // reader can open, and nothing it writes is an inference.
 
 import (
+	"strings"
 	"testing"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -90,7 +91,10 @@ func TestAnEmptyFieldWritesNoSentence(t *testing.T) {
 	sections := Deterministic(in)
 	for _, section := range sections {
 		for _, sentence := range section.Sentences {
-			if sentence.Text == "Ideal customer: .   " || len(sentence.Text) < 5 {
+			// The blank field is named, so a sentence built around it is caught
+			// however it was worded — matching one exact rendering would pass
+			// the moment the phrasing changed.
+			if strings.Contains(sentence.Text, "Ideal customer") {
 				t.Errorf("an empty field produced a sentence: %q", sentence.Text)
 			}
 		}

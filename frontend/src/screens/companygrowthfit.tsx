@@ -94,8 +94,19 @@ export function GrowthFitPanel({
   // A payload this build cannot read is not a company we know nothing about.
   // Without this check the two would render identically, and a schema skew
   // would look like a data gap the reader could go and close.
+  // Every field the panel goes on to read is checked here, not just the band:
+  // a half-shaped payload that passes a one-field guard crashes further down,
+  // which is a worse answer than the unavailable state this falls back to.
   const readable =
-    written && typeof written.band === "string" ? written : undefined;
+    written &&
+    typeof written.band === "string" &&
+    typeof written.generated_by === "string" &&
+    typeof written.generated_at === "string" &&
+    written.data_completeness &&
+    typeof written.data_completeness.present === "number" &&
+    typeof written.data_completeness.expected === "number"
+      ? written
+      : undefined;
 
   return (
     <section

@@ -2046,9 +2046,6 @@ function CompanyPage({
           page did not already answer the question. It belongs to the account
           rather than to its history, so it stays on the overview instead of
           following the chronology onto its own tab. */}
-      {tab === "overview" && (
-        <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
-      )}
       {tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
@@ -2146,7 +2143,7 @@ function CompanyOverviewStack({
           orgId={org.id}
           view={view}
           enabled={!overlay}
-          onOpenRecord={openCitation}
+          onOpenRecord={openCited}
           onPerform={(action) =>
             performSuggestion(action, {
               compose: onCompose,
@@ -2172,6 +2169,12 @@ function CompanyOverviewStack({
         enabled={!overlay}
         onOpenRecord={openCited}
       />
+      {/* Asking sits UNDER the account's own story: it is the tool for when
+          the page did not already answer the question. It lives in this stack
+          rather than beside it so its answers cite through the same handler
+          the brief and the dossier do — one receipt at a time, and no chip
+          that is clickable in one panel and flat in the next. */}
+      <AssistantPanel orgId={org.id} enabled onOpenRecord={openCited} />
       {cited && (
         <EvidenceModal
           orgId={org.id}

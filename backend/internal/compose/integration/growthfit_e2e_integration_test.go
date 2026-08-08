@@ -117,15 +117,26 @@ func TestTheGrowthFitCacheRowIsKeyedToTheReaderWhoAskedForIt(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.BootstrapWorkspace(t)
 	orgID := createBareOrganization(t, e)
+	// Another reader's assembly, already cached for this same company. It is
+	// what a keyed read has to step over: keying the row and then reading it
+	// unkeyed would hand this payload to whoever asks next.
+	other := seedAnotherReadersGrowthFit(t, e, orgID)
 
-	if status := e.Call(t, "GET", "/v1/organizations/"+orgID+"/growth-fit", nil, nil, nil); status != http.StatusOK {
+	var served struct {
+		Band string `json:"band"`
+	}
+	if status := e.Call(t, "GET", "/v1/organizations/"+orgID+"/growth-fit", nil, nil, &served); status != http.StatusOK {
 		t.Fatalf("GET growth-fit = %d, want 200", status)
+	}
+	if served.Band == otherReadersBand {
+		t.Fatalf("the read served the other reader's cached assessment (%q)", served.Band)
 	}
 
 	var cachedFor ids.UUID
 	if err := e.Owner.QueryRow(context.Background(),
-		`SELECT user_id FROM org_growth_fit WHERE organization_id = $1`, orgID).Scan(&cachedFor); err != nil {
-		t.Fatalf("the read cached no row for this company: %v", err)
+		`SELECT user_id FROM org_growth_fit WHERE organization_id = $1 AND user_id <> $2`,
+		orgID, other).Scan(&cachedFor); err != nil {
+		t.Fatalf("the read cached no row of its own for this company: %v", err)
 	}
 	var acting ids.UUID
 	if err := e.Owner.QueryRow(context.Background(),
@@ -199,4 +210,39 @@ func seedRequiredProfileFields(t *testing.T, e *apptest.AppEnv, orgID string) {
 			t.Fatalf("seed profile field %s: %v", field, err)
 		}
 	}
+}
+
+// otherReadersBand is a band no assembly of a bare company could produce, so
+// seeing it in a response can only mean the read crossed readers.
+const otherReadersBand = "strong"
+
+// seedAnotherReadersGrowthFit puts a second reader's cached assessment on the
+// same company and returns that reader's id.
+//
+// Written straight to the table rather than through a second signed-in session:
+// what is under test is whether the READ is keyed, and a hand-written row is a
+// sharper probe than a second session, which would also have to be granted a
+// seat and visibility before it could produce one.
+func seedAnotherReadersGrowthFit(t *testing.T, e *apptest.AppEnv, orgID string) ids.UUID {
+	t.Helper()
+	var workspaceID ids.UUID
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&workspaceID); err != nil {
+		t.Fatalf("workspace lookup: %v", err)
+	}
+	other := ids.NewV7()
+	if _, err := e.Owner.Exec(context.Background(),
+		`INSERT INTO app_user (id, workspace_id, email, display_name)
+		 VALUES ($1, $2, 'grace@example.com', 'Grace')`, other, workspaceID); err != nil {
+		t.Fatalf("seed the other reader: %v", err)
+	}
+	payload := `{"fingerprint":"theirs","version":1,"band":"` + otherReadersBand + `"}`
+	if _, err := e.Owner.Exec(context.Background(),
+		`INSERT INTO org_growth_fit (workspace_id, user_id, organization_id,
+		     fingerprint, payload, generated_by)
+		 VALUES ($1, $2, $3, 'theirs', $4::jsonb, 'model')`,
+		workspaceID, other, orgID, payload); err != nil {
+		t.Fatalf("seed the other reader's assessment: %v", err)
+	}
+	return other
 }

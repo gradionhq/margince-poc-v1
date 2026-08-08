@@ -298,7 +298,10 @@ func ParseBriefSections(reply, orgID string, in Input) ([]Section, error) {
 	}
 	out := make([]Section, 0, len(briefSectionOrder))
 	for _, kind := range briefSectionOrder {
-		if sentences := byKind[kind]; len(sentences) > 0 {
+		// Deduped here as the flat parser dedupes there: the same record cited
+		// twice renders as two identical chips going to the same place, and a
+		// reader must not be able to tell which parser wrote their brief.
+		if sentences := claims.Dedupe(byKind[kind]); len(sentences) > 0 {
 			out = append(out, Section{Kind: kind, Sentences: sentences})
 		}
 	}

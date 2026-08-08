@@ -60,7 +60,10 @@ async function show(fit: GrowthFit) {
       </LocaleProvider>
     </QueryClientProvider>,
   );
-  await screen.findByText(/fit|judge/i);
+  // The footer only renders once the query has resolved, so waiting for it is
+  // what makes the synchronous assertions below run against loaded content.
+  // The panel heading is static and would match while the skeleton is up.
+  await screen.findByText(/as of /i);
 }
 
 describe("how well this company fits what we sell", () => {
@@ -134,7 +137,10 @@ describe("how well this company fits what we sell", () => {
     // A judgment that read as a stored fact would be the one claim the reader
     // could not check, so only the assessment carries a label.
     expect(screen.getByText("Our read")).toBeTruthy();
-    expect(screen.queryByText("Recorded")).toBeNull();
+    // "Fact" is the label a fact WOULD carry if facts were labelled, so its
+    // absence is what proves the badge is reserved for judgments. Asserting a
+    // string the panel never renders under any nature would prove nothing.
+    expect(screen.queryByText("Fact")).toBeNull();
   });
 
   it("distinguishes a payload it cannot read from a company it knows nothing about", async () => {

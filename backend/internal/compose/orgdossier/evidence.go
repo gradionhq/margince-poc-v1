@@ -140,7 +140,7 @@ func receipt(row receiptRow) crmcontracts.ClaimEvidence {
 		Value:          &row.value,
 		ProducedBy:     producedBy,
 		Identity:       &identity,
-		Excerpt:        row.excerpt,
+		Excerpt:        quoted(row.excerpt),
 		RetrievedAt:    row.retrievedAt,
 		LastVerifiedAt: row.verifiedAt,
 	}
@@ -154,6 +154,16 @@ func receipt(row receiptRow) crmcontracts.ClaimEvidence {
 		out.Confidence = row.confidence
 	}
 	return out
+}
+
+// quoted drops an excerpt that would render as an empty quotation. A blank
+// string and an absent one are the same fact — nothing was quoted — and only
+// the absent one renders honestly; the blank one draws quote marks around air.
+func quoted(excerpt *string) *string {
+	if excerpt == nil || strings.TrimSpace(*excerpt) == "" {
+		return nil
+	}
+	return excerpt
 }
 
 // sourceKind maps the stored provenance vocabulary (migration 0099) onto the

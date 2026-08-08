@@ -57,6 +57,12 @@ func TestASiteReadReceiptCarriesTheURLAndTheSpanItWasReadFrom(t *testing.T) {
 	if got.Identity == nil || (*got.Identity)["source_url"] != "https://voltaq.example/about" {
 		t.Errorf("identity = %v, want the canonical URL the value was read from", got.Identity)
 	}
+	// The span the value was read from, which is the half of this test's name
+	// the URL does not cover: a URL alone sends the reader to a page and leaves
+	// them to find the sentence themselves.
+	if got.Excerpt == nil || *got.Excerpt != "We build load-shifting software for industry." {
+		t.Errorf("excerpt = %v, want the quoted span the value was read from", got.Excerpt)
+	}
 	if got.Gaps != nil {
 		t.Errorf("gaps = %v, want none — this row carries everything its kind owes", *got.Gaps)
 	}
@@ -88,6 +94,12 @@ func TestAReceiptNamesTheFieldsItsKindOwesAndCannotFill(t *testing.T) {
 		if _, present := (*got.Identity)["source_url"]; present {
 			t.Error("a missing URL was rendered into identity as an empty value")
 		}
+	}
+	// Named as a gap AND withheld from the body. A receipt that did both by
+	// halves would tell the reader the excerpt is missing and draw quote marks
+	// around nothing beside it, and they would believe whichever they saw.
+	if got.Excerpt != nil {
+		t.Errorf("excerpt = %q, want none — a blank quotation is not a quotation", *got.Excerpt)
 	}
 }
 

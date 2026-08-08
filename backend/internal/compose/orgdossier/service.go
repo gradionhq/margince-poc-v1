@@ -230,9 +230,15 @@ func Fingerprint(in Input, routingVersion string) (string, error) {
 func (d stored) wire(orgID ids.OrganizationID, now time.Time) crmcontracts.OrganizationDossier {
 	sections := make([]crmcontracts.OrganizationDossierSection, 0, len(d.Sections))
 	for _, section := range d.Sections {
+		sentences := wireSentences(section.Sentences)
+		if len(sentences) == 0 {
+			// Omitted rather than rendered as a heading over nothing, the same
+			// rule keepGrounded applies at assembly (DOSS-FORM-1).
+			continue
+		}
 		sections = append(sections, crmcontracts.OrganizationDossierSection{
 			Kind:      crmcontracts.OrganizationDossierSectionKind(section.Kind),
-			Sentences: wireSentences(section.Sentences),
+			Sentences: sentences,
 		})
 	}
 	out := crmcontracts.OrganizationDossier{
@@ -254,21 +260,13 @@ func (d stored) wire(orgID ids.OrganizationID, now time.Time) crmcontracts.Organ
 func wireSentences(in []claims.Sentence) []crmcontracts.OrganizationBriefSentence {
 	out := make([]crmcontracts.OrganizationBriefSentence, 0, len(in))
 	for _, sentence := range in {
-		evidence := make([]crmcontracts.OrganizationBriefEvidence, 0, len(sentence.Evidence))
-		for _, cited := range sentence.Evidence {
-			id, err := ids.Parse(cited.EntityID)
-			if err != nil {
-				// A citation whose id will not parse names no record, so the
-				// chip would go nowhere. The sentence has already passed the
-				// grounding filter against ids that came from our own rows, so
-				// this is unreachable in practice and dropped rather than
-				// rendered as a link to nothing.
-				continue
-			}
-			evidence = append(evidence, crmcontracts.OrganizationBriefEvidence{
-				EntityType: crmcontracts.OrganizationBriefEvidenceEntityType(cited.EntityType),
-				EntityId:   openapi_types.UUID(id),
-			})
+		evidence, ok := wireEvidence(sentence.Evidence)
+		if !ok {
+			// The same verdict the grounding filter reaches on a citation it
+			// cannot resolve: the sentence goes, not the chip. Keeping the prose
+			// and dropping its receipts would render an unbacked claim in the
+			// one place whose whole promise is that every claim is checkable.
+			continue
 		}
 		nature := crmcontracts.OrganizationBriefSentenceNature(sentence.Nature)
 		out = append(out, crmcontracts.OrganizationBriefSentence{
@@ -278,6 +276,23 @@ func wireSentences(in []claims.Sentence) []crmcontracts.OrganizationBriefSentenc
 		})
 	}
 	return out
+}
+
+// wireEvidence converts a sentence's citations, and refuses the whole sentence
+// if any of them names an id no record could carry.
+func wireEvidence(cited []claims.Evidence) ([]crmcontracts.OrganizationBriefEvidence, bool) {
+	out := make([]crmcontracts.OrganizationBriefEvidence, 0, len(cited))
+	for _, one := range cited {
+		id, err := ids.Parse(one.EntityID)
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, crmcontracts.OrganizationBriefEvidence{
+			EntityType: crmcontracts.OrganizationBriefEvidenceEntityType(one.EntityType),
+			EntityId:   openapi_types.UUID(id),
+		})
+	}
+	return out, len(out) > 0
 }
 
 // cached reads this READER's dossier out of the shared per-reader cache.

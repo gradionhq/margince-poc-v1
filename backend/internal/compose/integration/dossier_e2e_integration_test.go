@@ -112,6 +112,13 @@ func TestAReceiptForARecordThisCompanyDoesNotHoldIsNotFound(t *testing.T) {
 	if status := e.Call(t, "GET", "/v1/organizations/"+orgID+"/dossier", nil, nil, &mine); status != http.StatusOK {
 		t.Fatalf("GET dossier = %d, want 200", status)
 	}
+	// Named rather than indexed into: an empty dossier here means the setup
+	// stopped describing the company, and that must read as the setup failing
+	// rather than as an index panic in the disclosure check below.
+	if len(mine.Sections) == 0 || len(mine.Sections[0].Sentences) == 0 ||
+		len(mine.Sections[0].Sentences[0].Evidence) == 0 {
+		t.Fatalf("the dossier cited nothing, so there is no record to ask for: %+v", mine.Sections)
+	}
 	cited := mine.Sections[0].Sentences[0].Evidence[0]
 
 	// The SAME record id, asked for under a company that does not hold it.
