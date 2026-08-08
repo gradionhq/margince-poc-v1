@@ -16,11 +16,17 @@ import (
 // and writes extension rows under RLS, and nothing else has business here.
 const appRole = "margince_app"
 
-// appDML is the privilege set appRole may hold, as PostgreSQL spells it in an
-// ACL item: a(ppend/INSERT), r(ead/SELECT), w(rite/UPDATE), d(elete). Notably
-// absent are D (TRUNCATE — bypasses the policy's USING clause and empties every
-// tenant's rows at once), x (REFERENCES) and t (TRIGGER).
-const appDML = "arwd"
+// tableDML is the privilege set appRole may hold on a TABLE, as PostgreSQL
+// spells it in an ACL item: a(ppend/INSERT), r(ead/SELECT), w(rite/UPDATE),
+// d(elete). Notably absent are D (TRUNCATE — bypasses the policy's USING clause
+// and empties every tenant's rows at once), x (REFERENCES) and t (TRIGGER).
+const tableDML = "arwd"
+
+// sequenceUse is the equivalent for a SEQUENCE: r(SELECT), w(UPDATE) and
+// U(SAGE). USAGE is the one that matters — an INSERT into a table whose column
+// defaults to nextval() needs it — and a sequence carries no tenant rows, so
+// the allowlist here is about completeness rather than isolation.
+const sequenceUse = "rwU"
 
 // tenantColumn is the column that makes a row belong to a workspace. Every
 // extension table carries it under the same name as the core tables do,
@@ -32,8 +38,16 @@ const tenantColumn = "workspace_id"
 // renders it. Comparing the rendered form rather than the source text is what
 // makes the check total: any spelling that means something else — USING (true)
 // most obviously, but equally a comparison against a different setting, a
-// different column, or an OR that widens it — renders differently and is
-// refused, without this gate having to enumerate the ways to get it wrong.
+// different column, a missing NULLIF guard, or an OR that widens it — renders
+// differently and is refused, without this gate having to enumerate the ways to
+// get it wrong.
+//
+// IF A UNIT EVER NEEDS A NARROWER SCOPE, do not loosen this. A "the canonical
+// predicate must appear as a conjunct" rule is defeated by
+// `(canonical AND true) OR something`, which is how an exact pin becomes an
+// enumeration again. Admit ONE ADDITIONAL RESTRICTIVE POLICY instead:
+// restrictive policies AND together and can only ever narrow what this one
+// admits, so the widening case stays impossible by construction.
 const tenantPredicate = `(workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::uuid)`
 
 // relation is one row of the ext schema's contents.
@@ -71,7 +85,10 @@ func validateCatalog(ctx context.Context, conn *pgx.Conn, namespace string) erro
 			return err
 		}
 	}
-	return assertNoTriggers(ctx, conn)
+	if err := assertNoTriggers(ctx, conn); err != nil {
+		return err
+	}
+	return assertNoRules(ctx, conn)
 }
 
 // assertRelationAllowed applies the per-relation rules: who owns it, whether
@@ -95,9 +112,11 @@ func assertRelationAllowed(ctx context.Context, conn *pgx.Conn, rel relation, na
 	case 'r', 'p':
 		return assertTenantTable(ctx, conn, rel, namespace)
 	case 'i', 'I':
-		return nil // an index carries no rows of its own; the namespace check above is the whole rule
+		return nil // an index carries no rows of its own, and pg_class.relacl is always null for one
 	case 'S':
-		return nil // likewise a sequence: it has no workspace_id to isolate
+		// A sequence has no workspace_id to isolate, but it does carry an ACL,
+		// and this allowlist advertises completeness.
+		return assertGrants(ctx, conn, rel, namespace, where, sequenceUse)
 	case 'f':
 		return fmt.Errorf("%s is a FOREIGN TABLE — PostgreSQL cannot enforce row-level security on one, so its rows would be reachable across every workspace; extension data lives in ordinary tables in %s", where, extSchema)
 	case 'm':
@@ -124,23 +143,32 @@ func assertTenantTable(ctx context.Context, conn *pgx.Conn, rel relation, namesp
 	if err := assertSinglePolicy(ctx, conn, rel, where); err != nil {
 		return err
 	}
-	if err := assertGrants(ctx, conn, rel, namespace, where); err != nil {
+	if err := assertGrants(ctx, conn, rel, namespace, where, tableDML); err != nil {
 		return err
 	}
 	// Partitioned tables plan as an Append over their partitions, so the
 	// single-relation plan shape the probe reads does not apply to them; the
 	// catalog facts above already bind, and each partition is itself a
 	// relation this loop visits.
+	//
+	// A CONSEQUENCE a unit author will hit face-first: `CREATE TABLE … PARTITION
+	// OF` propagates neither relrowsecurity, relforcerowsecurity nor policies to
+	// the child. Because this loop visits each partition as its own relation and
+	// applies the full tenant-table rule to it, a partitioned unit table is only
+	// accepted if the author enables AND forces RLS and writes an identical
+	// policy on the parent and on every partition. That errs strict rather than
+	// lax — an unprotected partition is an unprotected table — but it is not
+	// obvious from the DDL, so it is written down here.
 	if rel.kind != 'r' {
 		return nil
 	}
-	return assertRLSBindsTheOwner(ctx, conn, where)
+	return assertRLSBindsTheOwner(ctx, conn, rel, where)
 }
 
-// assertTenantColumn requires the column, its type, its NOT NULL and its
-// cascading foreign key onto the core workspace table. The cascade is not
-// cosmetic: without it, deleting a workspace fails on the extension's rows, so
-// tenant erasure stops at the first installed unit.
+// assertTenantColumn requires the column and its type, then hands off to the
+// foreign-key rule. The cascade is not cosmetic: without it, deleting a
+// workspace fails on the extension's rows, so tenant erasure stops at the first
+// installed unit.
 func assertTenantColumn(ctx context.Context, conn *pgx.Conn, rel relation, where string) error {
 	var (
 		typeName string
@@ -161,22 +189,74 @@ func assertTenantColumn(ctx context.Context, conn *pgx.Conn, rel relation, where
 		return fmt.Errorf("%s.%s is %s%s — it must be `uuid NOT NULL`, or a row can carry a null or a value the policy's comparison silently never matches", where, tenantColumn, typeName, nullability(notNull))
 	}
 
-	var cascades bool
-	err = conn.QueryRow(ctx, `
-		SELECT co.confdeltype = 'c'
+	return assertWorkspaceForeignKeys(ctx, conn, rel, where)
+}
+
+// assertWorkspaceForeignKeys enumerates EVERY foreign key the table declares
+// onto the core workspace table and requires there to be exactly one, on
+// workspace_id, cascading.
+//
+// Enumerating all of them rather than looking the tenant one up is the whole
+// point. The role holds REFERENCES on workspace(id), so nothing stops a
+// migration declaring a SECOND key from a different column:
+//
+//	workspace_id uuid NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,  -- correct
+//	pinned_ws    uuid          REFERENCES workspace(id)                     -- NO ACTION
+//
+// A lookup of the tenant key alone passes that, and the second key reinstates
+// exactly the harm the cascade rule exists to prevent: deleting a workspace
+// fails on this unit's rows, so erasing a tenant stops at the first installed
+// extension. The rule is a property of the TABLE, not of one column, so it has
+// to be checked over the whole set.
+//
+// There is deliberately no check that the key points at workspace's `id`
+// specifically. That one is covered by PRIVILEGE rather than by assertion: the
+// role's grant is `REFERENCES (id) ON public.workspace`, column-scoped, so a
+// key onto any other unique column of workspace is refused by PostgreSQL at
+// CREATE time and never reaches this query.
+func assertWorkspaceForeignKeys(ctx context.Context, conn *pgx.Conn, rel relation, where string) error {
+	rows, err := conn.Query(ctx, `
+		SELECT co.conname, co.confdeltype,
+		       (SELECT coalesce(string_agg(att.attname, ', ' ORDER BY k.ord), '')
+		          FROM unnest(co.conkey) WITH ORDINALITY AS k(num, ord)
+		          JOIN pg_attribute att ON att.attrelid = co.conrelid AND att.attnum = k.num)
 		  FROM pg_constraint co
-		  JOIN pg_attribute a ON a.attrelid = co.conrelid AND a.attname = $2
-		 WHERE co.conrelid = $1 AND co.contype = 'f'
-		   AND co.conkey = ARRAY[a.attnum]
-		   AND co.confrelid = $3::regclass`,
-		rel.oid, tenantColumn, coreTenantParent).Scan(&cascades)
-	if err == pgx.ErrNoRows {
-		return fmt.Errorf("%s.%s has no foreign key onto %s(id) — without it the column is an unenforced claim, and a row can name a workspace that does not exist", where, tenantColumn, coreTenantParent)
-	}
+		 WHERE co.conrelid = $1 AND co.contype = 'f' AND co.confrelid = $2::regclass
+		 ORDER BY co.conname`, rel.oid, coreTenantParent)
 	if err != nil {
 		return fmt.Errorf("reading %s's foreign keys: %w", where, err)
 	}
-	if !cascades {
+	defer rows.Close()
+
+	type foreignKey struct{ name, delete, columns string }
+	var keys []foreignKey
+	for rows.Next() {
+		var key foreignKey
+		if err := rows.Scan(&key.name, &key.delete, &key.columns); err != nil {
+			return fmt.Errorf("reading %s's foreign keys: %w", where, err)
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("reading %s's foreign keys: %w", where, err)
+	}
+
+	if len(keys) == 0 {
+		return fmt.Errorf("%s.%s has no foreign key onto %s(id) — without it the column is an unenforced claim, and a row can name a workspace that does not exist", where, tenantColumn, coreTenantParent)
+	}
+	if len(keys) > 1 {
+		named := make([]string, 0, len(keys))
+		for _, key := range keys {
+			named = append(named, fmt.Sprintf("%s on (%s)", key.name, key.columns))
+		}
+		return fmt.Errorf("%s declares %d foreign keys onto %s — exactly one is allowed, on %s: %s. A second reference to a workspace is a second tenancy claim on the row, and it is the one nothing forces to cascade",
+			where, len(keys), coreTenantParent, tenantColumn, strings.Join(named, "; "))
+	}
+	key := keys[0]
+	if key.columns != tenantColumn {
+		return fmt.Errorf("%s references %s from (%s) rather than from %s — the tenant claim must be the column the policy compares, or the row belongs to one workspace and points at another", where, coreTenantParent, key.columns, tenantColumn)
+	}
+	if key.delete != "c" {
 		return fmt.Errorf("%s.%s references %s(id) without ON DELETE CASCADE — deleting a workspace would then fail on this unit's rows, so erasing a tenant stops at the first installed extension", where, tenantColumn, coreTenantParent)
 	}
 	return nil
@@ -236,9 +316,11 @@ func assertSinglePolicy(ctx context.Context, conn *pgx.Conn, rel relation, where
 	return nil
 }
 
-// assertGrants refuses every privilege outside the allowlist, on the table and
-// on its individual columns.
-func assertGrants(ctx context.Context, conn *pgx.Conn, rel relation, namespace, where string) error {
+// assertGrants refuses every privilege outside the allowlist, on the relation
+// and on its individual columns. allowed is the privilege set appRole may hold
+// on this relkind — tableDML for a table, sequenceUse for a sequence, which are
+// different letters and must not be checked against one list.
+func assertGrants(ctx context.Context, conn *pgx.Conn, rel relation, namespace, where, allowed string) error {
 	var acl []string
 	if err := conn.QueryRow(ctx,
 		`SELECT coalesce(c.relacl::text[], '{}') FROM pg_class c WHERE c.oid = $1`, rel.oid,
@@ -258,8 +340,8 @@ func assertGrants(ctx context.Context, conn *pgx.Conn, rel relation, namespace, 
 			return fmt.Errorf("%s grants %q to PUBLIC — every role on the cluster, including ones that predate this unit and ones RLS does not bind", where, privileges)
 		case grantee != appRole:
 			return fmt.Errorf("%s grants %q to %q — only the owner and %s may hold privileges on an extension table", where, privileges, grantee, appRole)
-		case strings.Trim(privileges, appDML) != "":
-			return fmt.Errorf("%s grants %q to %s — only %s (SELECT, INSERT, UPDATE, DELETE) are allowed; TRUNCATE in particular empties every workspace's rows without consulting the policy", where, privileges, appRole, appDML)
+		case strings.Trim(privileges, allowed) != "":
+			return fmt.Errorf("%s grants %q to %s — only %q is allowed on this relation; TRUNCATE in particular empties every workspace's rows without consulting the policy", where, privileges, appRole, allowed)
 		}
 	}
 
@@ -283,8 +365,14 @@ func assertGrants(ctx context.Context, conn *pgx.Conn, rel relation, namespace, 
 // already proved this role holds neither exemption; this proves the effect,
 // which is the claim that actually matters — the planner puts the policy's
 // qualifier into the plan for this role, and would not for an exempt one.
-func assertRLSBindsTheOwner(ctx context.Context, conn *pgx.Conn, where string) error {
-	rows, err := conn.Query(ctx, `EXPLAIN (COSTS OFF) SELECT * FROM `+where)
+func assertRLSBindsTheOwner(ctx context.Context, conn *pgx.Conn, rel relation, where string) error {
+	// Sanitized rather than concatenated: relname comes from pg_class and is
+	// only constrained to START WITH the unit's prefix, so ext."ext_de_x; --"
+	// reaches here. It would execute as the restricted role and grant nothing
+	// the migration did not already have, but a gate that can be made to emit a
+	// confusing error instead of a verdict is not one to leave standing.
+	target := pgx.Identifier{extSchema, rel.name}.Sanitize()
+	rows, err := conn.Query(ctx, `EXPLAIN (COSTS OFF) SELECT * FROM `+target)
 	if err != nil {
 		return fmt.Errorf("planning a read of %s as its owner: %w", where, err)
 	}
@@ -302,7 +390,11 @@ func assertRLSBindsTheOwner(ctx context.Context, conn *pgx.Conn, where string) e
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("planning a read of %s as its owner: %w", where, err)
 	}
-	if !strings.Contains(plan.String(), tenantColumn) {
+	// The whole rendered predicate, not the bare column name: a unit table
+	// called ext_de_workspace_id_map puts "workspace_id" into the plan's
+	// `Seq Scan on …` line, and a probe that looked for that would pass
+	// vacuously on exactly the table it exists to check.
+	if !strings.Contains(plan.String(), "Filter: "+tenantPredicate) {
 		return fmt.Errorf("a read of %s by its own owner plans without the tenant filter:\n%s— row-level security is not binding the owner, so the policy on this table isolates nothing", where, plan.String())
 	}
 	return nil

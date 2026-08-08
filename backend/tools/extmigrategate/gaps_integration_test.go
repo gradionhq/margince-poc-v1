@@ -45,25 +45,55 @@ END $$;
 // backslash-escaped quote in an E'…' string desynchronises maskNonCode's
 // literal tracking, which can blank real statements after it."
 //
-// declaredTables returns [note] with no error for this fixture: the E'it\'s'
-// default desynchronises the literal masker, which then blanks the rest of the
-// file — including the CREATE TABLE after it, which is unnamespaced and would
-// collide with any other unit's table of that name.
-//
-// The scaffolded table is created first and is entirely correct, so the only
-// thing left for the gate to object to is the statement the textual rule went
-// blind to.
+// The doc names TWO shapes and the gate closes both, so both are exercised.
+// Each fixture puts a fully correct scaffolded table in front of the
+// desynchronising statement, so the only thing left for the gate to object to
+// is the statement the textual rule went blind to.
 func TestGateCatchesATableHiddenByAMaskerDesync(t *testing.T) {
-	unit := unitName(t, "desync")
-	ns := namespaceOf(t, unit)
-	up := scaffoldUp(ns) + fmt.Sprintf(`
+	// declaredTables returns [note] with no error: the E'it\'s' default
+	// desynchronises the literal masker, which then blanks the rest of the file
+	// — including the CREATE TABLE after it.
+	t.Run("backslash-escaped quote in an E string", func(t *testing.T) {
+		unit := unitName(t, "desync")
+		ns := namespaceOf(t, unit)
+		up := scaffoldUp(ns) + fmt.Sprintf(`
 ALTER TABLE ext.%[1]s_note ADD COLUMN label text NOT NULL DEFAULT E'it\'s';
 CREATE TABLE ext.stowaway (id uuid NOT NULL PRIMARY KEY);
 `, ns)
-	down := "DROP TABLE IF EXISTS ext.stowaway;\n" + scaffoldDown(ns)
+		down := "DROP TABLE IF EXISTS ext.stowaway;\n" + scaffoldDown(ns)
 
-	err := runGate(t, unit, migrationDir(t, up, down))
-	requireRefusal(t, err, "ext.stowaway", "outside the unit's namespace")
+		requireRefusal(t, runGate(t, unit, migrationDir(t, up, down)),
+			"ext.stowaway", "outside the unit's namespace")
+	})
+
+	// declaredTables returns [note it] with no error — WRONG in both
+	// directions. The quote inside ext."<ns>_it's" opens a literal for the
+	// masker, so createTablePattern captures the truncated `ext."<ns>_it`, which
+	// reads as a legitimate table named `it`; and the literal then runs on until
+	// the policy's first quote, blanking the unnamespaced CREATE TABLE in
+	// between. A table the unit never declared is recorded, and one it did
+	// declare is missed.
+	t.Run("quote inside a double-quoted identifier", func(t *testing.T) {
+		unit := unitName(t, "dquote")
+		ns := namespaceOf(t, unit)
+		quoted := fmt.Sprintf(`ext."%s_it's"`, ns)
+		up := scaffoldUp(ns) + fmt.Sprintf(`
+CREATE TABLE %[2]s (
+    id           uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    workspace_id uuid NOT NULL REFERENCES workspace(id) ON DELETE CASCADE
+);
+CREATE TABLE ext.stowaway2 (id uuid NOT NULL PRIMARY KEY);
+ALTER TABLE %[2]s ENABLE ROW LEVEL SECURITY;
+ALTER TABLE %[2]s FORCE ROW LEVEL SECURITY;
+CREATE POLICY %[1]s_quoted_isolation ON %[2]s
+    USING      %[3]s
+    WITH CHECK %[3]s;
+`, ns, quoted, predicateSQL)
+		down := "DROP TABLE IF EXISTS ext.stowaway2;\nDROP TABLE IF EXISTS " + quoted + ";\n" + scaffoldDown(ns)
+
+		requireRefusal(t, runGate(t, unit, migrationDir(t, up, down)),
+			"ext.stowaway2", "outside the unit's namespace")
+	})
 }
 
 // Gap 3 — "Only tables are collected. CREATE INDEX, SEQUENCE, VIEW and

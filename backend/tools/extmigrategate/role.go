@@ -42,6 +42,7 @@ type extRole struct {
 //     such a connection is vacuous. Asserted again after connecting, because a
 //     cluster where the role already existed with different attributes would
 //     otherwise turn this whole gate into a test of nothing.
+//
 //   - CREATE, USAGE on ext and NOTHING on public. This is what converts "the
 //     unit must not touch core" from something to detect into something
 //     PostgreSQL refuses. It also makes an UNQUALIFIED create fail: the default
@@ -49,11 +50,20 @@ type extRole struct {
 //     the role cannot create in public — which is precisely the claim
 //     gen-composition's textual rule makes when it accepts a bare
 //     `CREATE TABLE ext_<name>_thing`.
+//
 //   - REFERENCES on workspace(id) alone. The tenant-table rule requires
 //     `workspace_id uuid NOT NULL REFERENCES workspace(id) ON DELETE CASCADE`,
 //     and declaring that foreign key needs the REFERENCES privilege on the
-//     parent. Column-scoped and privilege-scoped: the role can point at
-//     workspace, and cannot select, insert or alter a byte of it.
+//     parent, so "no grants on public at all" is not achievable alongside the
+//     rule. Column-scoped and privilege-scoped is the minimum that works: the
+//     role can point at workspace, and cannot select, insert or alter a byte of
+//     it. It also cannot point at any OTHER unique column of workspace, which
+//     is what lets assertWorkspaceForeignKeys skip checking confkey.
+//
+//     Accepted residue: a foreign key is an existence oracle. A role holding it
+//     learns from a constraint violation whether a given workspace UUID exists.
+//     That is inherent to requiring the key at all and is not worth engineering
+//     away — it leaks one bit about an opaque identifier the caller already had.
 func mintRole(ctx context.Context, admin *pgx.Conn, namespace, dsn string) (minted *extRole, err error) {
 	role := &extRole{name: namespace}
 
@@ -152,7 +162,44 @@ func (r *extRole) assertRestricted(ctx context.Context) error {
 	case !createExt || !usageExt:
 		return fmt.Errorf("role %s lacks CREATE/USAGE on schema %s — migration 0198 creates that schema; is this database migrated to head?", r.name, extSchema)
 	}
-	return nil
+	return r.assertNoCorePrivileges(ctx)
+}
+
+// assertNoCorePrivileges proves the role can neither read nor write any core
+// relation.
+//
+// Schema-level CREATE is what the checks above pin, and it is not the same
+// question. The gate's refusal of a unit writing rows into public.person rests
+// entirely on PostgreSQL denying the statement, which in turn rests on the role
+// holding no privilege on that table. A single
+// `GRANT INSERT ON ALL TABLES IN SCHEMA public TO PUBLIC` on the cluster would
+// make that refusal quietly disappear while every test still passed, so the
+// premise is asserted rather than assumed.
+//
+// (The example is described rather than quoted on purpose: backendarch's
+// identity-spine fitness test greps the tree for the literal statement, and a
+// comment carrying it reads to that gate as a new unsanctioned mint site.)
+//
+// REFERENCES is deliberately excluded from the probe: the gate grants exactly
+// `REFERENCES (id) ON public.workspace` itself, because the required tenant
+// foreign key cannot be declared without it.
+func (r *extRole) assertNoCorePrivileges(ctx context.Context) error {
+	var reachable string
+	err := r.conn.QueryRow(ctx, `
+		SELECT n.nspname || '.' || c.relname
+		  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+		   AND (has_table_privilege(c.oid, 'SELECT') OR has_table_privilege(c.oid, 'INSERT')
+		     OR has_table_privilege(c.oid, 'UPDATE') OR has_table_privilege(c.oid, 'DELETE')
+		     OR has_table_privilege(c.oid, 'TRUNCATE'))
+		 ORDER BY 1 LIMIT 1`).Scan(&reachable)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("checking what %s can reach in public: %w", r.name, err)
+	}
+	return fmt.Errorf("role %s can read or write %s — this gate refuses a unit's DML on core relations by letting PostgreSQL deny it, and that denial does not happen on a cluster where the core tables are reachable", r.name, reachable)
 }
 
 // drop removes the role and everything it owns. A failure is returned rather

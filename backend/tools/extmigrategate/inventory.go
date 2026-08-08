@@ -149,6 +149,42 @@ func assertNoTriggers(ctx context.Context, conn *pgx.Conn) error {
 	return rows.Err()
 }
 
+// assertNoRules refuses rewrite rules on the unit's relations.
+//
+// A rule is not an isolation break the way a missing policy is: the rewritten
+// action runs with the invoking role's privileges and RLS still binds the
+// target it rewrites to. It is refused because it is arbitrary behaviour on a
+// tenant table's write path — `ON INSERT DO INSTEAD NOTHING` silently discards
+// every write — which is the same reason assertNoTriggers gives, and because
+// this design is a positive allowlist: the question is not "is this harmful"
+// but "is this on the list".
+//
+// _RETURN is excluded: it is the rule that IS a view, and a view in ext is
+// already refused by name in assertRelationAllowed, with a better message than
+// this one could give.
+func assertNoRules(ctx context.Context, conn *pgx.Conn) error {
+	rows, err := conn.Query(ctx, `
+		SELECT c.relname, r.rulename
+		  FROM pg_rewrite r
+		  JOIN pg_class c ON c.oid = r.ev_class
+		  JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND r.rulename <> '_RETURN'
+		 ORDER BY 1, 2`, extSchema)
+	if err != nil {
+		return fmt.Errorf("reading rewrite rules in schema %s: %w", extSchema, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var table, rule string
+		if err := rows.Scan(&table, &rule); err != nil {
+			return fmt.Errorf("reading rewrite rules in schema %s: %w", extSchema, err)
+		}
+		return fmt.Errorf("rewrite rule %s on %s.%s is outside the allowlist — a rule rewrites statements against a tenant table before they run, and DO INSTEAD NOTHING discards them entirely", rule, extSchema, table)
+	}
+	return rows.Err()
+}
+
 // validateReverted proves the down half is a real reverse and not a partial
 // one. A migration that leaves an object behind leaves an ext_<name>-owned
 // relation on a database that no longer records the migration, and the next

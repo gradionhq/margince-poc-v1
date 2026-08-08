@@ -180,6 +180,27 @@ func policyRefusals() []refusal {
 		down:        dropNote,
 		mustMention: []string{"no foreign key onto public.workspace(id)"},
 	}, {
+		// THE ONE THAT A PER-COLUMN LOOKUP MISSES. The tenant column and its key
+		// are entirely correct; a second, unexamined key from another column
+		// reinstates the harm the cascade rule exists to prevent.
+		tag: "secondfk",
+		up: func(ns string) string {
+			return noteTable(ns, "", tenantColumnSQL+",\n    pinned_ws    uuid            NULL REFERENCES workspace(id)") +
+				noteRLS(ns, true) + notePolicy(ns, policyBody) + noteGrant(ns)
+		},
+		down:        dropNote,
+		mustMention: []string{"declares 2 foreign keys onto public.workspace", "pinned_ws", "exactly one is allowed"},
+	}, {
+		// The single key is present and cascades, but hangs off the wrong column,
+		// so the row's tenancy claim and the column the policy compares disagree.
+		tag: "fkwrongcolumn",
+		up: func(ns string) string {
+			return noteTable(ns, "", "workspace_id uuid NOT NULL,\n    pinned_ws    uuid NOT NULL REFERENCES workspace(id) ON DELETE CASCADE") +
+				noteRLS(ns, true) + notePolicy(ns, policyBody) + noteGrant(ns)
+		},
+		down:        dropNote,
+		mustMention: []string{"references public.workspace from (pinned_ws)", "rather than from workspace_id"},
+	}, {
 		tag: "nocascade",
 		up: func(ns string) string {
 			return noteTable(ns, "", "workspace_id uuid NOT NULL REFERENCES workspace(id)") +
@@ -248,6 +269,26 @@ func relationRefusals() []refusal {
 		},
 		down:        dropNote,
 		mustMention: []string{"_note_squash", "arbitrary code"},
+	}, {
+		// A rule is the write-path hook pg_trigger does not cover, and the role
+		// owns its own tables so it needs no further privilege to install one.
+		tag: "rule",
+		up: func(ns string) string {
+			return valid(ns) + fmt.Sprintf("CREATE RULE %[1]s_note_swallow AS ON INSERT TO ext.%[1]s_note DO INSTEAD NOTHING;\n", ns)
+		},
+		down:        dropNote,
+		mustMention: []string{"_note_swallow", "DO INSTEAD NOTHING discards them entirely"},
+	}, {
+		// A sequence is a relation the namespace check alone used to clear.
+		tag: "seqgrant",
+		up: func(ns string) string {
+			return valid(ns) +
+				fmt.Sprintf("CREATE SEQUENCE ext.%[1]s_note_no;\nGRANT ALL ON SEQUENCE ext.%[1]s_note_no TO PUBLIC;\n", ns)
+		},
+		down: func(ns string) string {
+			return fmt.Sprintf("DROP SEQUENCE IF EXISTS ext.%s_note_no;\n", ns) + scaffoldDown(ns)
+		},
+		mustMention: []string{"_note_no", "to PUBLIC"},
 	}, {
 		// The down half is syntactically fine and reverts nothing.
 		tag:         "partialdown",
@@ -363,6 +404,15 @@ func TestGateRefusesARoleTheClusterHasWidened(t *testing.T) {
 		setup:       `REVOKE USAGE ON SCHEMA public FROM PUBLIC`,
 		restore:     `GRANT USAGE ON SCHEMA public TO PUBLIC`,
 		mustMention: "cannot USE schema public",
+	}, {
+		// The DML-on-core refusal is PostgreSQL denying the statement, and this
+		// is the cluster change that would make that denial stop happening while
+		// every other assertion still passed.
+		tag:         "widentbl",
+		name:        "insert on every core table",
+		setup:       `GRANT INSERT ON ALL TABLES IN SCHEMA public TO PUBLIC`,
+		restore:     `REVOKE INSERT ON ALL TABLES IN SCHEMA public FROM PUBLIC`,
+		mustMention: "can read or write public.",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			if _, err := owner.Exec(ctx, c.setup); err != nil {

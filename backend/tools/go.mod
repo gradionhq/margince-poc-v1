@@ -1,9 +1,16 @@
-// Build tooling only (contract-overlay, gen-stubs, gen-agentpolicy): a
-// separate module so the oapi-codegen tool directive's dependency zoo
-// never lands in the product module's go.mod. The backend require (a
-// directory replace) exists so gen-composition validates unit names
-// through the ONE published extension.Name rule — scan-time acceptance
-// must never drift from boot-time validation.
+// The repo's build and gate tooling: the code generators (contract-overlay,
+// gen-stubs, gen-agentpolicy, gen-composition and the rest of gen-*) and
+// extmigrategate, the extension migration gate. A separate module so the
+// oapi-codegen tool directive's dependency zoo never lands in the product
+// module's go.mod. The backend require (a directory replace) exists so
+// gen-composition validates unit names through the ONE published
+// extension.Name rule — scan-time acceptance must never drift from boot-time
+// validation — and so extmigrategate reuses dbmigrate's namespace mapping and
+// migration loader rather than restating either.
+//
+// NOT all of it is offline any more: extmigrategate opens database
+// connections (pgx), which is why this module now carries a driver. It is
+// still tooling — nothing here ships in a binary a customer runs.
 module github.com/gradionhq/margince/backend/tools
 
 go 1.26.5
