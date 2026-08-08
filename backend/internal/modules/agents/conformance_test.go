@@ -254,7 +254,7 @@ func TestInitializeDoesNotClaimAListChangedItCannotSend(t *testing.T) {
 
 	resp := s.handle(context.Background(), rpcRequest{
 		JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodInitialize,
-	})
+	}, legacyFraming)
 
 	result, ok := resp.Result.(map[string]any)
 	if !ok {
