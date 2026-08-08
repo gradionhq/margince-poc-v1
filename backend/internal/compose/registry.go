@@ -134,6 +134,12 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// stamped, the caller's own row scope is re-applied, and the record is
 	// charged against their read bound.
 	agents.RegisterContextSearchTool(registry, provider, retriever)
+	// Identity resolution. The ladder is workspace-wide by design — a duplicate
+	// is a duplicate whoever is looking — so the provider is not decoration
+	// here: it is the ONLY thing that applies this caller's row scope to a
+	// record the resolver named, and the tool serves nothing it did not read
+	// back through it.
+	agents.RegisterResolveTool(registry, provider, nativeOnlyResolver(sorMode, entityResolver(pool)))
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))

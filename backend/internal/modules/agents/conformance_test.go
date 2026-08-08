@@ -152,6 +152,9 @@ func fullRegistry(t *testing.T) *Registry {
 		return QueryAnswer{Coverage: CoverageCompleteExact}, nil
 	})
 	RegisterContextSearchTool(r, nil, inertRetriever{})
+	RegisterResolveTool(r, nil, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
+		return nil, nil
+	})
 	return r
 }
 

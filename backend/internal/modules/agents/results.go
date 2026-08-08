@@ -144,6 +144,41 @@ type SearchContextHit struct {
 	Excerpts []ContextEvidence `json:"excerpts"`
 }
 
+// ResolveEntitiesResult is what resolve_entities answers: one answer per
+// candidate, in the order they were sent.
+type ResolveEntitiesResult struct {
+	Candidates []ResolvedCandidate `json:"candidates"`
+}
+
+// ResolvedCandidate is one payload's answer.
+type ResolvedCandidate struct {
+	// Ref is the caller's own label for the candidate, echoed back. It is
+	// absent when they sent none — the order is the other way to line a batch
+	// up, and echoing an empty string would read as a label they chose.
+	Ref string `json:"ref,omitempty"`
+	// Decision is `matched`, `ambiguous` or `unresolved`. Not omitempty: an
+	// absent decision would read as the safest one, and only one of the three
+	// is safe to act on.
+	Decision string `json:"decision"`
+	// Matches are the records this candidate could name, best first — one on a
+	// `matched` answer, several on an `ambiguous` one, none on `unresolved`.
+	// Never null, so an agent can iterate without branching.
+	Matches []ResolvedRecord `json:"matches"`
+}
+
+// ResolvedRecord is one record a candidate could name, and why.
+type ResolvedRecord struct {
+	Record wireRecord `json:"record"`
+	// Confidence is 1 for a unique-key hit — a shared address is not a
+	// probability — and the ladder's similarity score for a near match.
+	Confidence float64 `json:"confidence"`
+	// MatchedOn is the axis that produced the match: `email`, `phone`,
+	// `channel_identity` or `domain` for a key, and the name field compared for
+	// a near match. It is what makes an ambiguous answer reviewable — a pair
+	// scored on a registered name must not be read as a trading-name collision.
+	MatchedOn string `json:"matched_on"`
+}
+
 // ArchiveResult is what archive_record answers: the record it retired, named the
 // way every other tool names one.
 type ArchiveResult struct {

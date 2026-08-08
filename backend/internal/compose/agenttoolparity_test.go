@@ -164,6 +164,11 @@ var composedIntents = map[string]bool{
 	// read back through the datasource seam. Read-only, and it reaches nothing
 	// outside the workspace — TestComposedIntentsNeverEgress holds it to that.
 	"search_context": true,
+	// resolve_entities asks the dedupe ladder a question, which is not an
+	// operation at all: `/dedupe/candidates` serves the STORED review queue,
+	// a different question from "who does this payload name". Read-only, and
+	// every record it names is read back through the datasource seam.
+	"resolve_entities": true,
 }
 
 // An intent may write inside the workspace; it may NOT reach outside it.

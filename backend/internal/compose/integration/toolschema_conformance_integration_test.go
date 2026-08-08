@@ -99,6 +99,17 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		{"query_workspace", `{"plan":{"version":"v1","target":"deal","where":[{"field":"status","op":"eq","value":"open"}]}}`},
 		{"query_workspace", `{"plan":{"version":"v1","target":"deal","where":[{"field":"name","op":"eq","value":"nothing here matches this"}]}}`},
 		{"read_record", `{"record_type":"deal","id":"` + deal.String() + `"}`},
+		// A ranked sweep that finds rows and one that finds none. The empty page
+		// is the one worth pinning: it still carries `coverage` and `notes`, and
+		// `notes` is not omitempty precisely so `null` cannot read as "nothing to
+		// report" on a page that was in fact degraded.
+		{"search_context", `{"query":"Conformance","record_types":["person"]}`},
+		{"search_context", `{"query":"nothing here matches this"}`},
+		// A payload that resolves and one that resolves to nothing. The second is
+		// the answer a caller acts on by CREATING a record, so its shape is the
+		// one a mis-read costs the most.
+		{"resolve_entities", `{"candidates":[{"kind":"person","ref":"a","name":"Conformance"}]}`},
+		{"resolve_entities", `{"candidates":[{"kind":"organization","emails":["nobody@nowhere.example"]}]}`},
 		{"catch_me_up_on", `{"record_type":"deal","record_id":"` + deal.String() + `"}`},
 		{"prep_for_meeting", `{"record_type":"deal","record_id":"` + deal.String() + `"}`},
 		{"whats_slipping_this_week", `{}`},
