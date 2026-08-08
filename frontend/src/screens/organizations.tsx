@@ -67,6 +67,7 @@ import {
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
 import { CompanyDocumentsCard } from "./companydocuments";
+import { GrowthFitPanel } from "./companygrowthfit";
 import {
   CompanyActionBadges,
   CompanyPrimaryActions,
@@ -2140,6 +2141,15 @@ function CompanyOverviewStack({
           }
         />
       )}
+      {/* Then what they are WORTH to us. It sits after the brief and before
+          the next steps because that is the order the questions arrive in:
+          what this account looks like, what it is worth, what to do about it.
+          It is the one panel that reads our own offering as well as theirs. */}
+      <GrowthFitPanel
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={openCitation}
+      />
       {view && (
         <NextSteps
           view={view}

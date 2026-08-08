@@ -1325,7 +1325,7 @@ type Suggestion = components["schemas"]["Organization360Suggestion"];
  * written from the same records with the same citations. One component, so a
  * citation can never be clickable in one place and flat in the other.
  */
-function SentenceList({
+export function SentenceList({
   sentences,
   onOpenRecord,
 }: Readonly<{
@@ -1358,7 +1358,7 @@ function SentenceList({
   );
 }
 
-type BriefSentence = NonNullable<
+export type BriefSentence = NonNullable<
   Brief["sections"]
 >[number]["sentences"][number];
 type BriefSectionKind = NonNullable<Brief["sections"]>[number]["kind"];
@@ -1415,7 +1415,7 @@ function BriefSections({
  * reader weighing a sentence needs to know whether a model or the
  * deterministic fallback wrote it, and the two are not interchangeable.
  */
-function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
+export function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
   const t = useT();
   return (
     <Badge tone={by === "model" ? "ai" : undefined}>
