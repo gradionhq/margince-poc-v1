@@ -11,6 +11,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -87,14 +90,42 @@ func TestExtensionNamespacesOrdersByUnitNameNotCompositionOrder(t *testing.T) {
 	}
 }
 
+// TestExtensionNamespacesRefusesADeclaredButEmptyLayer covers the guard in
+// extensionNamespaces, which needs a layer that EXISTS and holds no pair —
+// a README-only directory is the real shape of that. An FS with no
+// migrations/ directory at all does not reach the guard: dbmigrate.Load
+// fails first on fs.ErrNotExist, which is the case below this one.
 func TestExtensionNamespacesRefusesADeclaredButEmptyLayer(t *testing.T) {
 	_, err := extensionNamespaces([]extension.Extension{{
-		Name: "hollow", Version: "1.0.0", Migrations: unitFS(nil),
+		Name: "hollow", Version: "1.0.0",
+		Migrations: unitFS(map[string]string{"README.md": "how this unit's schema works"}),
 	}})
 	if err == nil {
 		t.Fatal("an embedded migrations layer holding no pair was accepted — it reads as a schema that applied")
 	}
 	if !strings.Contains(err.Error(), "hollow") {
+		t.Errorf("error %q does not name the offending unit", err)
+	}
+	// Pinned on the guard's own words, so a future refactor that lets
+	// dbmigrate.Load answer this case instead cannot pass silently: the two
+	// messages tell an author different things to do.
+	if !strings.Contains(err.Error(), "leave Migrations nil") {
+		t.Errorf("error %q is not the declared-but-empty guard — it must say what to do instead", err)
+	}
+}
+
+// TestExtensionNamespacesRefusesAMissingLayer is the botched-embed case: a
+// unit sets Migrations to an FS that carries no migrations/ directory. It
+// must fail loudly rather than read as a unit that owns no tables — leaving
+// the field nil is how a unit says that.
+func TestExtensionNamespacesRefusesAMissingLayer(t *testing.T) {
+	_, err := extensionNamespaces([]extension.Extension{{
+		Name: "misembedded", Version: "1.0.0", Migrations: fstest.MapFS{},
+	}})
+	if err == nil {
+		t.Fatal("a Migrations FS with no migrations/ directory was accepted")
+	}
+	if !strings.Contains(err.Error(), "misembedded") {
 		t.Errorf("error %q does not name the offending unit", err)
 	}
 }
@@ -180,5 +211,38 @@ func TestReportExtensionNamespacesPropagatesAWriteFailure(t *testing.T) {
 				t.Errorf("err = %v, want it to wrap the write failure", err)
 			}
 		})
+	}
+}
+
+// shellMatcherPattern finds migrate_template's comparison in
+// scripts/lib-testdb.sh and captures the literal prefix it tests the summary
+// against.
+var shellMatcherPattern = regexp.MustCompile(`\[\[ "\$summary" != "([^"]*)"\* \]\]`)
+
+// TestUpSummaryMatchesTheShellMatcher closes a silent-drift risk between two
+// files that cannot see each other: cmd/migrate prints the summary and
+// scripts/lib-testdb.sh string-matches it.
+//
+// A mismatch is not loud. migrate_template would print "was behind" on every
+// run — a staleness check that cries wolf permanently is worse than none, and
+// build_template discards its output, so the warning would not even be seen
+// where it is most likely to be produced. Both sides are read here rather
+// than restated, so this test cannot itself go stale.
+func TestUpSummaryMatchesTheShellMatcher(t *testing.T) {
+	const script = "../../../scripts/lib-testdb.sh"
+	source, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("reading %s: %v", script, err)
+	}
+	found := shellMatcherPattern.FindSubmatch(source)
+	if found == nil {
+		t.Fatalf("%s no longer compares $summary against a literal prefix — migrate_template's staleness check was rewritten; re-point this test at whatever replaced it", script)
+	}
+	prefix := string(found[1])
+	// The zero-applied form is the one the shell classifies on: it means
+	// "nothing was missing", which is migrate_template's silent path.
+	summary := fmt.Sprintf(upSummaryFormat, 0, 0)
+	if !strings.HasPrefix(summary, prefix) {
+		t.Errorf("migrate prints %q but %s matches on prefix %q — migrate_template would report every template as behind; change both together", summary, script, prefix)
 	}
 }

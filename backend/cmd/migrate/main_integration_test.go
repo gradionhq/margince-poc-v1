@@ -277,6 +277,14 @@ func TestDBVerbsRequireAName(t *testing.T) {
 // reading composition.Extensions() would pass over an empty slice and prove
 // nothing. up() takes the namespaces as a parameter precisely so this can be
 // exercised without one.
+//
+// The seam that leaves — that run() actually calls composition.Extensions()
+// and hands the result here — is held by TestCompositionWiredOnlyFromCmd in
+// backend/extensions_arch_test.go, which REQUIRES cmd/migrate/main.go to
+// import the composition module, plus Go's unused-import rule, which makes an
+// import that feeds nothing a compile error. Neither is a substitute for the
+// other: this test proves the namespaces are applied, the arch test proves
+// they are the composed set's.
 func TestUpAppliesAnExtensionNamespaceAndTheRiverIndex(t *testing.T) {
 	maint, base, withDB := testDSNs(t)
 	name := base + "_up_ext"

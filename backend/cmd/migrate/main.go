@@ -157,11 +157,25 @@ func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.
 	if _, err := riverPool.Exec(ctx, riverWorkspaceArgIndex); err != nil {
 		return fmt.Errorf("migrate: creating the river workspace-arg index: %w", err)
 	}
-	if _, err := fmt.Fprintf(stdout, "applied %d core+custom+extension + %d river migration(s); schema is at head\n", applied, riverApplied); err != nil {
+	if _, err := fmt.Fprintf(stdout, upSummaryFormat, applied, riverApplied); err != nil {
 		return fmt.Errorf("migrate up: writing the confirmation: %w", err)
 	}
 	return nil
 }
+
+// upSummaryFormat is the LAST line `migrate up` prints, and it is a wire
+// contract rather than cosmetics: scripts/lib-testdb.sh's migrate_template
+// string-matches its zero-applied form to decide whether the integration
+// template was stale, and reports "was behind" when it does not match. Drift
+// on either side makes that check cry wolf on every single run, which is
+// worse than not having it — and build_template discards the output, so
+// nobody would notice. TestUpSummaryMatchesTheShellMatcher reads both sides
+// and fails on drift.
+//
+// The extension count is folded into the same total as core+custom
+// deliberately: that is what makes a template missing an extension's
+// migration read as "behind" instead of passing on the core lane alone.
+const upSummaryFormat = "applied %d core+custom+extension + %d river migration(s); schema is at head\n"
 
 // riverWorkspaceArgIndex indexes River's per-job workspace argument. Jobs
 // fan out per workspace and both job-health statements already scan the

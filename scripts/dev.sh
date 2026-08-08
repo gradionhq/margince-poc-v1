@@ -308,12 +308,22 @@ up)
     # The base `margince` db already exists (db-up + db-init); only a slugged
     # env needs its own database created.
     [[ -n "$slug" ]] && psql_owner postgres -c "CREATE DATABASE \"${db}\"" 2>&1 || true
-    ( cd backend && go run ./cmd/migrate up --dsn "$dev_owner_url" )
-    echo "=== build api (once, before the readiness poll) ==="
     # The composed workspace (ADR-0069): materialize build/composition/
     # and build the role binaries against it, so an enabled extension set
     # under extensions/ reaches the dev stack; vanilla composes empty.
+    #
+    # gen-composition runs BEFORE the migration, not after it as it used to.
+    # cmd/migrate applies each enabled unit's migrations from the composed
+    # set, so it needs the same workspace cmd/api is built against — and it
+    # needs it to be current. Migrating first and composing after would
+    # migrate from a stale composition, or from none at all on a fresh
+    # checkout; migrating under the ROOT workspace (which is what a bare
+    # `go run` does) resolves the vanilla stub and applies zero extension
+    # migrations, leaving a composed api booting over a database with none
+    # of its extensions' tables.
     ( cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition )
+    ( cd backend && GOWORK="$PWD/../build/composition/go.work" go run ./cmd/migrate up --dsn "$dev_owner_url" )
+    echo "=== build api (once, before the readiness poll) ==="
     ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/api ./cmd/api )
     echo "=== servers ==="
   } > >(log_as boot) 2>&1
