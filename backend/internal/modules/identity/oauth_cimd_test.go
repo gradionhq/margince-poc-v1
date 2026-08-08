@@ -107,7 +107,21 @@ func TestARedirectInADocumentIsHeldToTheSameRuleAsARegisteredOne(t *testing.T) {
 // a malformed input: an oversized body spends this server's memory, a redirect
 // walks past the address guard on its next hop, and a non-JSON answer is a page
 // that was never a metadata document.
+//
+// The egress guard is SWAPPED OUT for the duration, and that is what makes these
+// assertions mean anything. netguard refuses a loopback address in the dialer's
+// Control hook, and httptest listens on one — so with the real client every case
+// below fails at connect time, none of them reaches the handler, and all four
+// pass on a guard they are not about. That is exactly the shape of a test that
+// cannot fail. The address guard keeps its own test, immediately below, which is
+// the only one here that uses the real client.
 func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
+	guarded := cimdClient
+	cimdClient = &http.Client{Timeout: cimdFetchTimeout, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	t.Cleanup(func() { cimdClient = guarded })
+
 	oversized := strings.Repeat("x", cimdMaxDocument+1)
 	cases := map[string]http.HandlerFunc{
 		"a body larger than this server reads": func(w http.ResponseWriter, _ *http.Request) {
@@ -131,6 +145,21 @@ func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
 			t.Errorf("%s: was accepted as a metadata document", name)
 		}
 		srv.Close()
+	}
+
+	// The control, and it is load-bearing: a VALID document must be accepted
+	// through the same client. Without it every refusal above could still be a
+	// connect failure wearing a different name, which is the defect this test
+	// had before the swap.
+	valid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		//craft:ignore swallowed-errors a test server's write failure is the client hanging up
+		_, _ = w.Write([]byte(`{"client_id":"http://` + r.Host + `/client.json","client_name":"n",` +
+			`"redirect_uris":["https://a.example/cb"]}`))
+	}))
+	defer valid.Close()
+	if _, _, err := fetchCIMD(t.Context(), valid.URL+"/client.json"); err != nil {
+		t.Fatalf("a valid document was refused through the same client (%v); every refusal above proves nothing", err)
 	}
 }
 
