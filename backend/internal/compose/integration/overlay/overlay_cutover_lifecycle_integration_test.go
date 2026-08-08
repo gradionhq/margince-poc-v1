@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The cutover lifecycle's back half (OVA-AC-6 c/d): a completed flip is
 // retired by disconnect — the mirror and its derivatives purge, native
@@ -36,7 +36,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -46,13 +46,13 @@ import (
 // snapshotIncumbent deep-copies the fake incumbent's whole record state
 // (via its own Backfill read) — the before/after byte-identity check
 // behind "the incumbent is never modified at any step".
-func snapshotIncumbent(t *testing.T, inc *fake.Adapter) map[string][]overlay.Record {
+func snapshotIncumbent(t *testing.T, inc *fake.Adapter) map[string][]overlaymod.Record {
 	t.Helper()
 	classes := append([]string{
-		overlay.IncumbentClassCompanies, overlay.IncumbentClassContacts,
-		overlay.IncumbentClassDeals, overlay.IncumbentClassLeads,
-	}, overlay.IncumbentEngagementClasses()...)
-	snap := map[string][]overlay.Record{}
+		overlaymod.IncumbentClassCompanies, overlaymod.IncumbentClassContacts,
+		overlaymod.IncumbentClassDeals, overlaymod.IncumbentClassLeads,
+	}, overlaymod.IncumbentEngagementClasses()...)
+	snap := map[string][]overlaymod.Record{}
 	for _, class := range classes {
 		page, err := inc.Backfill(context.Background(), class, "")
 		if err != nil {

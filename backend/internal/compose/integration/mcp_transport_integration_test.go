@@ -89,7 +89,7 @@ func listTools(e *apptest.AppEnv, t *testing.T, bearer string) httpResult {
 	if bearer != "" {
 		headers["Authorization"] = "Bearer " + bearer
 	}
-	return raw(e, t, http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, headers)
+	return mcpRaw(e, t, http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, headers)
 }
 
 // getJSON dereferences a discovery document the way a client does and fails
@@ -98,7 +98,7 @@ func listTools(e *apptest.AppEnv, t *testing.T, bearer string) httpResult {
 //craft:ignore naked-any a discovery document is an open JSON object by RFC 8414/9728 — asserting on it means reading it untyped
 func getJSON(e *apptest.AppEnv, t *testing.T, path string) map[string]any {
 	t.Helper()
-	got := raw(e, t, http.MethodGet, path, "", nil)
+	got := mcpRaw(e, t, http.MethodGet, path, "", nil)
 	if got.StatusCode != http.StatusOK {
 		t.Fatalf("GET %s → %d %s", path, got.StatusCode, got.Body)
 	}
@@ -112,7 +112,7 @@ func getJSON(e *apptest.AppEnv, t *testing.T, path string) map[string]any {
 // raw issues one request against the harness origin and returns the whole
 // outcome. It never decodes: the connector suite asserts on status codes and
 // headers as often as on bodies, and a 404 has no JSON to decode.
-func raw(e *apptest.AppEnv, t *testing.T, method, path, payload string, headers map[string]string) httpResult {
+func mcpRaw(e *apptest.AppEnv, t *testing.T, method, path, payload string, headers map[string]string) httpResult {
 	t.Helper()
 	var body io.Reader
 	if payload != "" {
@@ -125,7 +125,7 @@ func raw(e *apptest.AppEnv, t *testing.T, method, path, payload string, headers 
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody on the next line; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, path, err)
 	}
@@ -267,7 +267,7 @@ func TestConnectorGateOffRemovesEveryConnectorRoute(t *testing.T) {
 	}
 	var want, wantFrom string
 	for _, p := range probes {
-		got := raw(e, t, p.method, p.path, p.payload, nil)
+		got := mcpRaw(e, t, p.method, p.path, p.payload, nil)
 		if got.StatusCode != http.StatusNotFound {
 			t.Fatalf("%s %s → %d, want 404: the gate must remove the route, not guard it",
 				p.method, p.path, got.StatusCode)
@@ -330,7 +330,7 @@ func (e *connectorEnv) rpc(t *testing.T, bearer, protocolVersion, payload string
 	if protocolVersion != "" {
 		headers["MCP-Protocol-Version"] = protocolVersion
 	}
-	got := raw(e.AppEnv, t, http.MethodPost, "/mcp", payload, headers)
+	got := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp", payload, headers)
 	if got.StatusCode != http.StatusOK {
 		t.Fatalf("POST /mcp %s → %d %s", payload, got.StatusCode, got.Body)
 	}

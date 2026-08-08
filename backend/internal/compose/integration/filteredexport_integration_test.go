@@ -79,7 +79,7 @@ func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 		t.Fatalf("row count = %d, want 1 (only the visible matching deal)", result.RowCount)
 	}
 
-	gotIDs := csvColumn(t, result.Body, "id")
+	gotIDs := CSVColumn(t, result.Body, "id")
 	set := map[string]bool{}
 	for _, id := range gotIDs {
 		set[id] = true
@@ -109,7 +109,7 @@ func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("csv export: %v", err)
 	}
-	if got := len(csvColumn(t, csvResult.Body, "id")); got != 2 {
+	if got := len(CSVColumn(t, csvResult.Body, "id")); got != 2 {
 		t.Fatalf("csv rows = %d, want 2 (both teams' commit deals)", got)
 	}
 

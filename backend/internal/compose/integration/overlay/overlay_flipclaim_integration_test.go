@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The flip's claim and the liveness signal Disconnect reads off it,
 // against real Postgres advisory locks.

@@ -101,7 +101,7 @@ func (o *oauthEnv) authorizeRaw(t *testing.T, extra url.Values) (int, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody once the body is read, below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func (o *oauthEnv) postConsent(t *testing.T, form url.Values) (status int, locat
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	o.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	defer func() { o.Client.CheckRedirect = nil }()
-	resp, err := o.Client.Do(post) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := o.Client.Do(post) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func (o *oauthEnv) postToken(t *testing.T, form url.Values) (int, map[string]any
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	// GET answers with the consent screen, never a redirect carrying a code.
 	req, _ := http.NewRequest(http.MethodGet, o.TS.URL+"/oauth/authorize?"+q.Encode(), nil)
 	o.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	o.Client.CheckRedirect = nil
 	if err != nil {
 		t.Fatal(err)
@@ -342,7 +342,7 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	post, _ := http.NewRequest(http.MethodPost, o.TS.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	o.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err = o.Client.Do(post) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err = o.Client.Do(post) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	o.Client.CheckRedirect = nil
 	if err != nil {
 		t.Fatal(err)
@@ -359,7 +359,7 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	post2, _ := http.NewRequest(http.MethodPost, o.TS.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	post2.Header.Set("Sec-Fetch-Site", "cross-site")
-	resp, err = o.Client.Do(post2) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err = o.Client.Do(post2) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestOAuthRefusesDowngradesAndPrivilegedClients(t *testing.T) {
 			q[k] = vs
 		}
 		req, _ := http.NewRequest(http.MethodGet, o.TS.URL+"/oauth/authorize?"+q.Encode(), nil)
-		resp, err := o.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+		resp, err := o.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 		if err != nil {
 			t.Fatal(err)
 		}

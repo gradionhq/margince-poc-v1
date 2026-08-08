@@ -282,7 +282,7 @@ func TestSlippingGuardRefusesOnAStaleNativeCache(t *testing.T) {
 // wiring pin must cover exactly those tools.
 //
 // The unit specs above prove what a guard DOES given a mode; only
-// integration/overlay_toolsurface_integration_test.go proves a guard is actually
+// integration/overlay/overlay_toolsurface_integration_test.go proves a guard is actually
 // wired, and its map is written by hand. So the obligation is derived here:
 // declaring a guard enrols its tool.
 //
@@ -349,7 +349,7 @@ func TestEveryNativeOnlyGuardNamesAToolThePinCovers(t *testing.T) {
 		if named == 0 {
 			t.Errorf("%s names no tool the wiring pin covers. Its doc comment must name the tool(s) it "+
 				"guards, and each must appear in nativeOnlyAgentTools "+
-				"(compose/integration/overlay_toolsurface_integration_test.go) — a guard nothing drives "+
+				"(compose/integration/overlay/overlay_toolsurface_integration_test.go) — a guard nothing drives "+
 				"against a real overlay workspace is a guard nobody has tested.\ndoc: %q", guard, doc)
 		}
 	}
@@ -379,7 +379,7 @@ const nativeOnlyPrefix = "nativeOnly"
 // the whole point is that there be one.
 func pinnedNativeOnlyTools(t *testing.T) map[string]bool {
 	t.Helper()
-	const pinFile = "integration/overlay_toolsurface_integration_test.go"
+	pinFile := overlayPin(t)
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, pinFile, nil, 0)
 	if err != nil {

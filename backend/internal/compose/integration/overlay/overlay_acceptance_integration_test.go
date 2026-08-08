@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The AC-OV read+sync acceptance suite (design.md §8 — the
 // acceptance criteria as deterministic CI gates, not manual checks). One
@@ -16,12 +16,12 @@ package integration
 //
 // This suite reuses, rather than rebuilds, two things already proven
 // elsewhere:
-//   - the composed harness (Setup/Env, seedOverlayModeWorkspace,
+//   - the composed harness (integration.Setup/integration.Env, seedOverlayModeWorkspace,
 //     overlayActorCtx, stubOwnerEmails — overlay_dispatch_integration_test.go;
 //     openAppPool, the env HTTP harness — overlay_e2e_test.go).
 //   - the overlay/fake incumbent as the concurrent mutator every AC that
 //     needs a "live incumbent changed something" fixture drives — seeded
-//     and read by INCUMBENT class names (overlay.IncumbentClass*), never
+//     and read by INCUMBENT class names (overlaymod.IncumbentClass*), never
 //     the canonical entity name, per the seam rule fake's own doc and
 //     backfill.go's own doc both state.
 //
@@ -44,8 +44,9 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -64,21 +65,21 @@ import (
 // fixture (the numeric-external-id<->UUID bridge is internal to package
 // overlay) — resolved once via Search, then reused by every read verb the
 // caller exercises.
-func seedMirroredPersonFixture(t *testing.T, e *Env) (context.Context, *overlay.Provider, datasource.EntityRef) {
+func seedMirroredPersonFixture(t *testing.T, e *integration.Env) (context.Context, *overlaymod.Provider, datasource.EntityRef) {
 	t.Helper()
 	overlayWS, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(overlayWS, actorID)
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: "person", ExternalID: "100214862055",
 		Fields: map[string]any{"firstname": "Ada Overlay"}, ModifiedAt: time.Now().UTC(), OwnerExternalID: "owner-1",
 	}); err != nil {
 		t.Fatalf("ingesting the overlay fixture: %v", err)
 	}
-	provider := overlay.NewProvider(mirror, nil)
+	provider := overlaymod.NewProvider(mirror, nil)
 	found, err := provider.Search(ctx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10})
 	if err != nil || len(found.Records) != 1 {
 		t.Fatalf("resolving the overlay fixture's own ref: err=%v records=%d", err, len(found.Records))
@@ -149,7 +150,7 @@ func assertEverySeamVerbIsClassifiedExactlyOnce(t *testing.T) {
 // future verb added to the seam fails this test until classified rather
 // than silently passing unclassified.
 func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	personID := e.SeedPerson(t, "Ada Native", nil)
 	native := compose.NewProvider(e.Pool)
 	personRef := datasource.EntityRef{Type: datasource.EntityPerson, ID: personID}
@@ -282,7 +283,7 @@ func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 // freshness_integration_test.go/reconcile_integration_test.go's own
 // queries document), so no workspace GUC is needed to read it, only to
 // filter by workspace in the query itself.
-func countAcceptanceMirrorConflictEvents(ctx context.Context, e *Env, ws, externalID string) (int, error) {
+func countAcceptanceMirrorConflictEvents(ctx context.Context, e *integration.Env, ws, externalID string) (int, error) {
 	var count int
 	err := e.Pool.QueryRow(
 		ctx,
@@ -304,14 +305,14 @@ func countAcceptanceMirrorConflictEvents(ctx context.Context, e *Env, ws, extern
 // must never win: Ingest's own staleness guard holds the mirror at its
 // current, fresher state, and Reconcile must emit nothing for a write
 // that never actually landed. Driven through the package-level
-// overlay.Reconcile with the fake incumbent as the concurrent mutator,
+// overlaymod.Reconcile with the fake incumbent as the concurrent mutator,
 // the same seam backfill_integration_test.go and
 // reconcile_integration_test.go already exercise a layer down.
 func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -322,13 +323,13 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 	oldBaseline := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
 	mirrorNewerBaseline := oldBaseline.Add(time.Hour)
 
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: objectClass, ExternalID: winsExternalID,
 		Fields: map[string]any{"display_name": "Old"}, ModifiedAt: oldBaseline, OwnerExternalID: "owner-1",
 	}); err != nil {
 		t.Fatalf("seeding the pre-existing (wins-case) mirror row: %v", err)
 	}
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: objectClass, ExternalID: reverseExternalID,
 		Fields: map[string]any{"display_name": "Current"}, ModifiedAt: mirrorNewerBaseline, OwnerExternalID: "owner-1",
 	}); err != nil {
@@ -347,13 +348,13 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 	winsRec.ObjectClass = objectClass
 	winsRec.ModifiedAt = oldBaseline.Add(30 * time.Minute) // strictly newer than the mirror's baseline
 	winsRec.OwnerExternalID = "owner-1"
-	fakeInc.Seed(overlay.IncumbentClassCompanies, winsRec)
+	fakeInc.Seed(overlaymod.IncumbentClassCompanies, winsRec)
 
 	reverseRec := fake.Rec(reverseExternalID, map[string]any{"display_name": "Stale From Incumbent"})
 	reverseRec.ObjectClass = objectClass
 	reverseRec.ModifiedAt = mirrorNewerBaseline.Add(-30 * time.Minute) // OLDER than the mirror's own current baseline
 	reverseRec.OwnerExternalID = "owner-1"
-	fakeInc.Seed(overlay.IncumbentClassCompanies, reverseRec)
+	fakeInc.Seed(overlaymod.IncumbentClassCompanies, reverseRec)
 
 	meter := acceptanceBudgetMeter(t)
 	watermark := oldBaseline.Add(-time.Second)
@@ -361,7 +362,7 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 	// the 15-minute skew grace), so the sweep's internal floor leaves it
 	// unchanged — this test is about the conflict/no-conflict distinction,
 	// not the floor.
-	if _, err := overlay.Reconcile(ctx, fakeInc, mirror, meter, overlay.IncumbentClassCompanies, watermark, oldBaseline); err != nil {
+	if _, err := overlaymod.Reconcile(ctx, fakeInc, mirror, meter, overlaymod.IncumbentClassCompanies, watermark, oldBaseline); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
@@ -405,7 +406,7 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 // workspace seedOverlayModeWorkspace mints.
 func seedUnmappedAppUser(t *testing.T, ws ids.UUID) ids.UUID {
 	t.Helper()
-	owner := OwnerConn(t)
+	owner := integration.OwnerConn(t)
 	userID := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Unmapped')`,
@@ -425,10 +426,10 @@ func seedUnmappedAppUser(t *testing.T, ws ids.UUID) ids.UUID {
 // page and never a 403). The 2x-SLO staleness floor is branch-1b
 // (out of scope for this read-subset suite).
 func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	ws, actorID := seedOverlayModeWorkspace(t)
 	ctx := overlayActorCtx(ws, actorID)
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(e.Pool, stubOwnerEmails{})
 	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the acting user to owner-1: %v", err)
 	}
@@ -438,19 +439,19 @@ func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
 	const nullOwnerExternalID = "100214862099"   // no owner at all
 	const ownedExternalID = "100214862100"       // owned by owner-1 — proves a real, visible row exists so the hidden cases aren't vacuous
 
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: objectClass, ExternalID: hiddenOwnerExternalID,
 		Fields: map[string]any{"firstname": "OwnedByOther"}, ModifiedAt: time.Now().UTC(), OwnerExternalID: "owner-2",
 	}); err != nil {
 		t.Fatalf("ingesting the hidden-owner fixture: %v", err)
 	}
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: objectClass, ExternalID: nullOwnerExternalID,
 		Fields: map[string]any{"firstname": "Unowned"}, ModifiedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("ingesting the null-owner fixture: %v", err)
 	}
-	if err := mirror.Ingest(ctx, overlay.Record{
+	if err := mirror.Ingest(ctx, overlaymod.Record{
 		ObjectClass: objectClass, ExternalID: ownedExternalID,
 		Fields: map[string]any{"firstname": "VisibleToOwner1"}, ModifiedAt: time.Now().UTC(), OwnerExternalID: "owner-1",
 	}); err != nil {
@@ -544,7 +545,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	}
 
 	pool := openAppPool(t)
-	mirror := overlay.NewMirrorStore(pool, stubOwnerEmails{})
+	mirror := overlaymod.NewMirrorStore(pool, stubOwnerEmails{})
 	adminCtx := overlayActorCtx(wsID, adminID)
 	if err := mirror.UpsertUserMap(adminCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
 		t.Fatalf("mapping the admin to the fake incumbent owner: %v", err)
@@ -554,12 +555,12 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	dealRec := fake.Rec("700001", map[string]any{"dealname": "Big Deal"})
 	dealRec.ObjectClass = "deal"
 	dealRec.OwnerExternalID = "owner-1"
-	fakeInc.Seed(overlay.IncumbentClassDeals, dealRec)
-	fakeInc.SeedAssoc(overlay.IncumbentClassDeals, "700001", overlay.IncumbentClassCompanies, overlay.Assoc{
+	fakeInc.Seed(overlaymod.IncumbentClassDeals, dealRec)
+	fakeInc.SeedAssoc(overlaymod.IncumbentClassDeals, "700001", overlaymod.IncumbentClassCompanies, overlaymod.Assoc{
 		FromType: "deal", FromID: "700001", ToType: "organization", ToID: "800001",
 		TypeID: 5, Category: "HUBSPOT_DEFINED", Direction: "forward",
 	})
-	if _, err := overlay.Backfill(adminCtx, fakeInc, mirror, overlay.IncumbentClassDeals, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+	if _, err := overlaymod.Backfill(adminCtx, fakeInc, mirror, overlaymod.IncumbentClassDeals, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("backfilling the fake incumbent's deals (with its company association): %v", err)
 	}
 
@@ -631,10 +632,10 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	// The native deals module also gates Search on real object-RBAC
 	// (unlike the overlay mirror's own visibility join adminCtx above was
 	// built for), so this call rebinds the same admin actor with
-	// AdminPerms, the harness's own full-access fixture.
+	// integration.AdminPerms, the harness's own full-access fixture.
 	adminNativeCtx := principal.WithActor(
 		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), wsID), ids.NewV7()),
-		principal.Principal{Type: principal.PrincipalHuman, ID: "human:" + adminID.String(), UserID: adminID, Permissions: AdminPerms},
+		principal.Principal{Type: principal.PrincipalHuman, ID: "human:" + adminID.String(), UserID: adminID, Permissions: integration.AdminPerms},
 	)
 	postDisconnectDispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, overlaybudget.New(nil, nil), nil), pool)
 	postTeardown, err := postDisconnectDispatcher.Search(adminNativeCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityDeal}, Limit: 10})

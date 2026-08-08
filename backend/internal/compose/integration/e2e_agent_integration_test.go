@@ -8,8 +8,8 @@ package integration
 // End-to-end lane, agent-governance slice: the passport Bearer surface
 // (mint → ride → revoke), the ADR-0055 governed agent writes (🟢 lands
 // with agent provenance, 🟡 stages an approval a human must decide), and
-// the C2 read-seat capability ceiling. Shares setup/env/call with
-// e2e_integration_test.go.
+// the C2 read-seat capability ceiling. Rides apptest.AppEnv, the same booted
+// application the rest of the e2e lane does.
 
 import (
 	"strings"

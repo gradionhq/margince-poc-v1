@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package overlay
 
 // The admin user-map remedy loop, end to end over the composed overlay
 // service and a real migrated Postgres. Overlay visibility is fail-closed:
@@ -27,7 +27,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	overlaymod "github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -95,7 +96,7 @@ func overlayUserMapAdminCtx(ws, user ids.UUID) context.Context {
 func overlayAppUserEmail(t *testing.T, user ids.UUID) string {
 	t.Helper()
 	var email string
-	if err := OwnerConn(t).QueryRow(context.Background(),
+	if err := integration.OwnerConn(t).QueryRow(context.Background(),
 		`SELECT email FROM app_user WHERE id = $1`, user).Scan(&email); err != nil {
 		t.Fatalf("reading %s's stored email: %v", user, err)
 	}
@@ -108,7 +109,7 @@ func overlayAppUserEmail(t *testing.T, user ids.UUID) string {
 // and after the sweep declines to restore it — and each of them means the
 // same thing: existence-hiding ErrNotFound, never an empty-but-successful
 // read and never a 403.
-func requireContactHidden(ctx context.Context, t *testing.T, store *overlay.MirrorStore, why string) {
+func requireContactHidden(ctx context.Context, t *testing.T, store *overlaymod.MirrorStore, why string) {
 	t.Helper()
 	if _, err := store.Get(ctx, "person", mirroredContactID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("mirror read = %v, want apperrors.ErrNotFound — %s", err, why)
@@ -116,7 +117,7 @@ func requireContactHidden(ctx context.Context, t *testing.T, store *overlay.Mirr
 }
 
 // userMapViewFor finds one user's row on an admin mapping page.
-func userMapViewFor(t *testing.T, page overlay.UserMapPage, user ids.UUID) overlay.UserMapView {
+func userMapViewFor(t *testing.T, page overlaymod.UserMapPage, user ids.UUID) overlaymod.UserMapView {
 	t.Helper()
 	for _, v := range page.Entries {
 		if v.AppUserID == ids.From[ids.UserKind](user) {
@@ -124,7 +125,7 @@ func userMapViewFor(t *testing.T, page overlay.UserMapPage, user ids.UUID) overl
 		}
 	}
 	t.Fatalf("user %s does not appear on the mapping page (%d entries) — the surface an admin acts on must list them", user, len(page.Entries))
-	return overlay.UserMapView{}
+	return overlaymod.UserMapView{}
 }
 
 // TestAnUnmappedAdminMapsThemselvesAndTheRecordsAppear walks the remedy an
@@ -132,7 +133,7 @@ func userMapViewFor(t *testing.T, page overlay.UserMapPage, user ids.UUID) overl
 // on the invariant the whole surface hangs on: an unmap is a decision, and
 // the sweep does not get to undo it.
 func TestAnUnmappedAdminMapsThemselvesAndTheRecordsAppear(t *testing.T) {
-	e := Setup(t)
+	e := integration.Setup(t)
 	ws, admin := seedOverlayModeWorkspace(t)
 	adminCtx := overlayUserMapAdminCtx(ws, admin)
 	adminUser := ids.From[ids.UserKind](admin)
@@ -140,14 +141,14 @@ func TestAnUnmappedAdminMapsThemselvesAndTheRecordsAppear(t *testing.T) {
 	fakeInc := fake.New()
 	fakeInc.SeedOwner(recordOwner, unmatchedOwnerEmail)
 
-	store := overlay.NewMirrorStore(e.Pool, fakeInc)
-	svc := overlay.NewService(e.Pool, keyvault.NewMemory(), store).
-		WithIncumbentFactory(func(string, string) overlay.Incumbent { return fakeInc })
+	store := overlaymod.NewMirrorStore(e.Pool, fakeInc)
+	svc := overlaymod.NewService(e.Pool, keyvault.NewMemory(), store).
+		WithIncumbentFactory(func(string, string) overlaymod.Incumbent { return fakeInc })
 
 	// The connection is what makes the owners directory readable, and the
 	// directory is what lets the page tell "no owner carries this email"
 	// apart from "we could not look".
-	if _, err := svc.Connect(adminCtx, overlay.ConnectInput{
+	if _, err := svc.Connect(adminCtx, overlaymod.ConnectInput{
 		Incumbent: "hubspot", Region: "eu1", Token: "pat-served-only-by-the-fake",
 	}); err != nil {
 		t.Fatalf("connecting the fake incumbent: %v", err)
@@ -155,14 +156,14 @@ func TestAnUnmappedAdminMapsThemselvesAndTheRecordsAppear(t *testing.T) {
 
 	// --- the incumbent owns one contact, through an owner who is not the
 	// admin: mirrored through the real backfill seam, not hand-inserted ---
-	fakeInc.Seed(overlay.IncumbentClassContacts, overlay.Record{
+	fakeInc.Seed(overlaymod.IncumbentClassContacts, overlaymod.Record{
 		ObjectClass:     "person",
 		ExternalID:      mirroredContactID,
 		Fields:          map[string]any{"first_name": "Ada", "last_name": "Overlay"},
 		ModifiedAt:      incumbentEpoch,
 		OwnerExternalID: recordOwner,
 	})
-	if _, err := overlay.Backfill(adminCtx, fakeInc, store, overlay.IncumbentClassContacts, incumbentEpoch); err != nil {
+	if _, err := overlaymod.Backfill(adminCtx, fakeInc, store, overlaymod.IncumbentClassContacts, incumbentEpoch); err != nil {
 		t.Fatalf("backfilling the fake incumbent's contacts: %v", err)
 	}
 

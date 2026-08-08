@@ -14,7 +14,7 @@ package compose
 // touching a mirror store. d.native is left nil: the overlay=true seed
 // guarantees it is never dereferenced. The native-mode branch (and the
 // real cache-miss DB query) is proven end to end by
-// compose/integration/overlay_dispatch_integration_test.go, which needs
+// compose/integration/overlay/overlay_dispatch_integration_test.go, which needs
 // a real, migrated Postgres.
 
 import (

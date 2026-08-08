@@ -89,7 +89,7 @@ func TestVoiceCorpusPreviewAndIngestStatsHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatal(err)
 	}
