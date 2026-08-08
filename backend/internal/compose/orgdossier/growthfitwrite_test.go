@@ -186,3 +186,54 @@ func TestAClaimCitingSomethingOutsideTheCompanyIsDropped(t *testing.T) {
 		t.Fatal("a reply whose only claim cited a record outside the company was accepted")
 	}
 }
+
+// Each bucket admits only the natures it can honestly hold. Without this a
+// model can present advice as an established fact about the company, which is
+// the distinction the whole nature vocabulary exists to keep.
+func TestARecommendationCannotPoseAsAFactorAndAFactCannotPoseAsTheAngle(t *testing.T) {
+	in := sevenOfSeven()
+	id := in.ProfileFields[0].Id.String()
+	cite := `"evidence":[{"entity_type":"profile_field","entity_id":"` + id + `"}]`
+	reply := `{"band":"strong",
+		"positive_factors":[
+			{"text":"They sell load-shifting software.","nature":"fact",` + cite + `},
+			{"text":"Call their head of operations this week.","nature":"recommendation",` + cite + `}],
+		"recommended_angle":
+			{"text":"They run SAP.","nature":"fact",` + cite + `}}`
+
+	_, kept, err := ParseGrowthFit(reply, in)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if len(kept.PositiveFactors) != 1 {
+		t.Errorf("positive factors = %d, want 1 — a recommendation is not a factor",
+			len(kept.PositiveFactors))
+	}
+	if kept.RecommendedAngle != nil {
+		t.Error("a fact was accepted as the recommended angle, which is advice and must say so")
+	}
+}
+
+// An unlabelled sentence is read as a fact — the strictest reading, because
+// `fact` is the one nature that promises the reader a record says so. It must
+// therefore be refused where only advice belongs, not promoted to fit.
+func TestAnUnlabelledSentenceIsNotPromotedIntoTheRecommendedAngle(t *testing.T) {
+	in := sevenOfSeven()
+	id := in.ProfileFields[0].Id.String()
+	reply := `{"band":"strong","positive_factors":[
+			{"text":"They sell load-shifting software.","nature":"fact",
+			 "evidence":[{"entity_type":"profile_field","entity_id":"` + id + `"}]}],
+		"recommended_angle":
+			{"text":"Lead with the audit story.",
+			 "evidence":[{"entity_type":"profile_field","entity_id":"` + id + `"}]}}`
+
+	_, kept, err := ParseGrowthFit(reply, in)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if kept.RecommendedAngle != nil {
+		t.Error("an unlabelled sentence became the recommended angle; unlabelled means fact")
+	}
+}

@@ -93,12 +93,25 @@ var (
 	}
 )
 
-// SelfOffering answers whether this workspace has confirmed what IT sells.
+// Offering is what this workspace knows about ITSELF, as the growth fit needs
+// it: whether it is confirmed, and a fingerprint of the content.
 //
-// It answers a boolean and not a profile on purpose. The workspace's own
-// offering must never reach a citation about another company, and a seam that
-// cannot return the offering cannot leak it into one (DOSS-AC-6).
-type SelfOffering func(ctx context.Context) (bool, error)
+// The content never leaves as text. A fit derived from what WE sell is an
+// assessment about THEM and must still cite their records (DOSS-AC-6), so a
+// seam that cannot return our offering cannot leak it into a citation.
+//
+// The fingerprint is here because the boolean alone is not enough to key a
+// cache on. Editing what we sell — a new product, a different ideal customer —
+// changes every company's fit while `confirmed` stays true the whole time, and
+// a key blind to that keeps serving bands measured against an offering we no
+// longer have.
+type Offering struct {
+	Confirmed   bool
+	Fingerprint string
+}
+
+// SelfOffering answers what this workspace knows about itself.
+type SelfOffering func(ctx context.Context) (Offering, error)
 
 // Completeness counts how many required inputs this assembly actually holds,
 // and names the ones it does not (DOSS-FORM-2).
@@ -276,12 +289,9 @@ type Assessment struct {
 type AbstentionReason int
 
 const (
-	// AbstainedOnEvidence — the required inputs were not there. The reader
-	// closes this by recording facts.
-	AbstainedOnEvidence AbstentionReason = iota
 	// AbstainedNoWriter — the facts were all present and no model lane is
 	// configured. An administrator closes this.
-	AbstainedNoWriter
+	AbstainedNoWriter AbstentionReason = iota
 	// AbstainedLaneFailed — a lane IS configured and this call did not get an
 	// answer from it. Nobody needs to configure anything; it may work next time.
 	AbstainedLaneFailed
@@ -348,19 +358,12 @@ func Assess(in Input, proposed crmcontracts.GrowthFitBand, selfConfirmed bool,
 // Telling an administrator to configure a model they already configured sends
 // them to check a binding that is correct, which is worse than saying nothing.
 func abstentionNextStep(why AbstentionReason) string {
-	switch why {
-	case AbstainedLaneFailed:
+	if why == AbstainedLaneFailed {
 		return "the facts needed are all recorded, but the assessment could not be " +
 			"written this time — try again in a few minutes"
-	case AbstainedNoWriter:
-		return "the facts needed are all recorded, but nothing is configured to " +
-			"judge them — ask an administrator to configure the AI model"
-	case AbstainedOnEvidence:
-		// Reached only above the floor, where nothing is missing to name; the
-		// evidence arm returns earlier with the gathering step.
-		return "the facts needed are all recorded, but no assessment was produced"
 	}
-	return "the facts needed are all recorded, but no assessment was produced"
+	return "the facts needed are all recorded, but nothing is configured to " +
+		"judge them — ask an administrator to configure the AI model"
 }
 
 // aboveFloor cross-multiplies rather than dividing, so the comparison is exact

@@ -58,11 +58,11 @@ func TestTheDossierFingerprintMovesWithItsInputsAndItsLane(t *testing.T) {
 // a workspace that has since described itself.
 func TestTheGrowthFitFingerprintMovesWhenOurOwnOfferingIsConfirmed(t *testing.T) {
 	in := fourOfSeven()
-	unconfirmed, err := growthFitFingerprint(in, "routing-1", false)
+	unconfirmed, err := growthFitFingerprint(in, "routing-1", Offering{Fingerprint: "offer-a"})
 	if err != nil {
 		t.Fatalf("fingerprint: %v", err)
 	}
-	confirmed, err := growthFitFingerprint(in, "routing-1", true)
+	confirmed, err := growthFitFingerprint(in, "routing-1", Offering{Confirmed: true, Fingerprint: "offer-a"})
 	if err != nil {
 		t.Fatalf("fingerprint: %v", err)
 	}
@@ -70,6 +70,18 @@ func TestTheGrowthFitFingerprintMovesWhenOurOwnOfferingIsConfirmed(t *testing.T)
 	if unconfirmed == confirmed {
 		t.Error("confirming the workspace's own offering left the key unchanged; every " +
 			"reader would keep seeing a band capped for a reason that no longer holds")
+	}
+
+	// And EDITING what we sell must move it too. `confirmed` stays true across
+	// that edit, so a key carrying only the boolean would keep serving bands
+	// measured against an offering this workspace no longer has.
+	edited, err := growthFitFingerprint(in, "routing-1",
+		Offering{Confirmed: true, Fingerprint: "offer-b"})
+	if err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	if edited == confirmed {
+		t.Error("changing what this workspace sells left the key unchanged")
 	}
 }
 
@@ -82,7 +94,7 @@ func TestTheTwoSurfacesDoNotShareAFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fingerprint: %v", err)
 	}
-	fit, err := growthFitFingerprint(in, "routing-1", true)
+	fit, err := growthFitFingerprint(in, "routing-1", Offering{Confirmed: true, Fingerprint: "offer-a"})
 	if err != nil {
 		t.Fatalf("fingerprint: %v", err)
 	}

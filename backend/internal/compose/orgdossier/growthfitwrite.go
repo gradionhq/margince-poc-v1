@@ -137,7 +137,10 @@ func assessWithModel(ctx context.Context, lane Completer, in Input,
 	// The model proposed; the formula decides. Assess re-counts the inputs
 	// itself and may lower the band to `unknown` or cap it at `moderate` —
 	// it never raises what the model said.
-	out := Assess(in, proposed, selfConfirmed, AbstainedOnEvidence, now())
+	// The reason is unread on this path: the model produced a judgeable band,
+	// so any abstention here comes from the counting and returns the gathering
+	// step before the reason is consulted.
+	out := Assess(in, proposed, selfConfirmed, AbstainedNoWriter, now())
 	if out.Band == crmcontracts.GrowthFitBandUnknown {
 		// The evidence did not support judging at all, so the claims written to
 		// justify a judgment are withheld with it. Serving "not enough evidence"
@@ -147,6 +150,30 @@ func assessWithModel(ctx context.Context, lane Completer, in Input,
 	}
 	out.Claims = kept
 	return out, nil
+}
+
+// The natures each bucket may hold. `observations` are the four factor lists:
+// a fact restates a record, an assessment judges it against what we sell, and
+// both are things the reader can weigh. `suggestions` is the recommended angle
+// alone, which is advice and says so.
+var (
+	observations = map[string]bool{natureFact: true, string(crmcontracts.Assessment): true}
+	suggestions  = map[string]bool{string(crmcontracts.Recommendation): true}
+)
+
+// keepNatures is the grounding filter narrowed to the natures ONE bucket may
+// hold. An unlabelled sentence is read as a fact, which is the strictest
+// reading — it is the one nature that promises the reader a record says so, so
+// a mislabelled judgment is dropped rather than promoted.
+func keepNatures(in []claims.Sentence, known map[claims.Evidence]bool, allowed map[string]bool) []claims.Sentence {
+	grounded := claims.Keep(in, known, knownNature, natureFact)
+	out := make([]claims.Sentence, 0, len(grounded))
+	for _, sentence := range grounded {
+		if allowed[sentence.Nature] {
+			out = append(out, sentence)
+		}
+	}
+	return out
 }
 
 // ParseGrowthFit decodes the reply and keeps only what the reader can check.
@@ -171,14 +198,20 @@ func ParseGrowthFit(reply string, in Input) (crmcontracts.GrowthFitBand, GrowthF
 	}
 
 	known := KnownRecords(in)
+	// Each bucket admits only the natures it can honestly hold. A factor is
+	// something observed or judged, never a thing to go and do; the recommended
+	// angle is a suggestion and must be labelled one. Without this a model can
+	// present a recommendation as an established fact about the company, which
+	// is the distinction the whole nature vocabulary exists to keep.
 	kept := GrowthFitClaims{
-		PositiveFactors: claims.Keep(parsed.PositiveFactors, known, knownNature, natureFact),
-		NegativeFactors: claims.Keep(parsed.NegativeFactors, known, knownNature, natureFact),
-		Whitespace:      claims.Keep(parsed.Whitespace, known, knownNature, natureFact),
-		Objections:      claims.Keep(parsed.Objections, known, knownNature, natureFact),
+		PositiveFactors: keepNatures(parsed.PositiveFactors, known, observations),
+		NegativeFactors: keepNatures(parsed.NegativeFactors, known, observations),
+		Whitespace:      keepNatures(parsed.Whitespace, known, observations),
+		Objections:      keepNatures(parsed.Objections, known, observations),
 	}
 	if parsed.RecommendedAngle != nil {
-		if angle := claims.Keep([]claims.Sentence{*parsed.RecommendedAngle}, known, knownNature, natureFact); len(angle) == 1 {
+		angle := keepNatures([]claims.Sentence{*parsed.RecommendedAngle}, known, suggestions)
+		if len(angle) == 1 {
 			kept.RecommendedAngle = &angle[0]
 		}
 	}

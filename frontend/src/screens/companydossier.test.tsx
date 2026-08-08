@@ -86,15 +86,19 @@ describe("what this company is", () => {
     ).toBeTruthy();
   });
 
-  it("renders no heading for a section with nothing to say", async () => {
+  it("renders a heading for each section it was given, and no others", async () => {
+    // The server omits a section whose sentences all fell out of the grounding
+    // filter, so the panel is handed only populated ones. This pins that the
+    // panel renders exactly those — a heading it invented for a kind with
+    // nothing under it would read as a finding of nothing.
     serving(DESCRIBED);
     show();
 
     await screen.findByText("In short");
-    // A heading over silence reads as a finding of nothing, which is a
-    // different claim from having nothing recorded.
-    expect(screen.queryByText("Who decides")).toBeNull();
-    expect(screen.queryByText("What sets them apart")).toBeNull();
+    const headings = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent);
+    expect(headings).toEqual(["In short", "Where and to whom"]);
   });
 
   it("says a dossier is stale beside the content, never instead of it", async () => {

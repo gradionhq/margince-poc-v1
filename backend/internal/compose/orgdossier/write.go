@@ -64,10 +64,10 @@ func DossierRequest(in Input) model.Request {
 // The floor is a real answer here, unlike the growth fit's: it describes the
 // company from the same fields, just plainly. So a deployment with no lane is
 // not missing the surface, and `generated_by` says which of the two wrote it.
-func WriteDossier(ctx context.Context, lane Completer, in Input) ([]Section, crmcontracts.WrittenBy) {
+func WriteDossier(ctx context.Context, lane Completer, in Input) ([]Section, crmcontracts.WrittenBy, bool) {
 	floor := keepGrounded(Deterministic(in), in)
 	if lane == nil {
-		return floor, crmcontracts.Deterministic
+		return floor, crmcontracts.Deterministic, false
 	}
 	written, err := writeWithModel(ctx, lane, in)
 	if err != nil {
@@ -75,9 +75,15 @@ func WriteDossier(ctx context.Context, lane Completer, in Input) ([]Section, crm
 		// swallowed error. A lane that is unavailable, over budget or answering
 		// unparseable JSON must not take the page down: the reader gets the
 		// floor, labelled as the floor's.
-		return floor, crmcontracts.Deterministic
+		//
+		// The third return says the lane FAILED rather than being absent, so
+		// the caller can decline to write this plainer answer over a model's.
+		// Without it one transient outage replaces a written dossier with the
+		// floor under the CURRENT fingerprint — which then reads as a cache
+		// hit forever, until a fact moves or a human asks for a rewrite.
+		return floor, crmcontracts.Deterministic, true
 	}
-	return written, crmcontracts.Model
+	return written, crmcontracts.Model, false
 }
 
 func writeWithModel(ctx context.Context, lane Completer, in Input) ([]Section, error) {

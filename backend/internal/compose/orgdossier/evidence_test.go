@@ -9,12 +9,15 @@ package orgdossier
 // the reader with nowhere to go.
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -176,7 +179,71 @@ func TestARecordTheReaderCannotSeeIsIndistinguishableFromOneThatDoesNotExist(t *
 	// A well-formed id this caller was never handed.
 	stranger := openapi_types.UUID(ids.NewV7())
 
-	if _, err := profileFieldEvidence(in, stranger); err == nil {
-		t.Error("a receipt was written for a record this caller was never shown")
+	// Specifically NOT-FOUND rather than a permission denial: a 403 would
+	// confirm the record exists to a reader who may not see it.
+	if _, err := profileFieldEvidence(in, stranger); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound — existence is what row scoping protects", err)
 	}
+}
+
+// A fact is the other half of what these surfaces cite, and every case above
+// goes through the profile-field path.
+func TestAFactReceiptCarriesItsOwnProvenance(t *testing.T) {
+	id := rowID()
+	in := Input{OrganizationID: "o-1", Facts: []crmcontracts.OrganizationFact{{
+		Id:              id,
+		Field:           crmcontracts.OrganizationFactFieldTechnology,
+		Value:           "SAP S/4HANA",
+		Source:          crmcontracts.OrganizationFactSourceSiteRead,
+		CapturedBy:      ptr("site_read:crawler"),
+		EvidenceSnippet: ptr("We run SAP S/4HANA across the group."),
+		SourceUrl:       ptr("https://voltaq.example/tech"),
+		Confidence:      ptr(float32(0.8)),
+		UpdatedAt:       assessedAt,
+	}}}
+
+	got, err := factEvidence(in, *id)
+	if err != nil {
+		t.Fatalf("evidence: %v", err)
+	}
+	if got.EntityType != crmcontracts.ClaimEvidenceEntityTypeFact {
+		t.Errorf("entity type = %q, want fact", got.EntityType)
+	}
+	if got.Label == nil || *got.Label == "" {
+		t.Error("the receipt does not say which field this value is")
+	}
+	if got.Identity == nil || (*got.Identity)["source_url"] != "https://voltaq.example/tech" {
+		t.Errorf("identity = %v, want the URL this fact was read from", got.Identity)
+	}
+}
+
+// The dispatch itself: a kind with no receipt to write, and one this contract
+// does not know, both answer alike rather than returning an empty body.
+func TestAKindWithNoReceiptAnswersNotFound(t *testing.T) {
+	facts := stubFacts{in: Input{OrganizationID: "o-1"}}
+	for _, kind := range []string{citeOrganization, "activity", "deal", ""} {
+		t.Run(kind, func(t *testing.T) {
+			_, err := EvidenceFor(context.Background(), facts,
+				ids.From[ids.OrganizationKind](ids.NewV7()), kind, openapi_types.UUID(ids.NewV7()))
+			if !errors.Is(err, apperrors.ErrNotFound) {
+				t.Errorf("err = %v, want ErrNotFound for %q", err, kind)
+			}
+		})
+	}
+}
+
+// stubFacts serves one prepared input, so the dispatch can be proven without a
+// database — the row-scoped reads it wraps are proven in the integration lane.
+type stubFacts struct{ in Input }
+
+func (s stubFacts) ListOrganizationProfileFields(
+	context.Context, ids.OrganizationID,
+) ([]crmcontracts.CompanyProfileField, error) {
+	return s.in.ProfileFields, nil
+}
+
+func (s stubFacts) ListOrganizationFacts(
+	context.Context, ids.OrganizationID,
+) ([]crmcontracts.OrganizationFact, error) {
+	return s.in.Facts, nil
 }

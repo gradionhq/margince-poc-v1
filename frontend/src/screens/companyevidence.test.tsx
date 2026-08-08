@@ -123,6 +123,22 @@ describe("where a cited value came from", () => {
     expect(screen.getByText(/^Confirmed by a person \d/)).toBeTruthy();
   });
 
+  it("will not make a link out of a scheme the browser should not follow", async () => {
+    // `source_url` is a plain text column the site-read pipeline fills from
+    // crawled pages, and React does not sanitize href. A javascript: value
+    // stored there would run on click — a scraped page choosing what our UI
+    // executes.
+    show({
+      ...SITE_READ,
+      identity: { source_url: "javascript:alert(1)" },
+    });
+
+    expect(await screen.findByText("javascript:alert(1)")).toBeTruthy();
+    // Still shown, because the reader opened this to see where the claim came
+    // from and hiding an odd source withholds exactly that. Just not clickable.
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
   it("reports a receipt it cannot read as exactly that", async () => {
     show({ entity_type: "profile_field", entity_id: "p-1" });
 

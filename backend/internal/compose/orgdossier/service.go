@@ -75,6 +75,46 @@ type stored struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	GeneratedBy string    `json:"generated_by"`
 	Sections    []Section `json:"sections"`
+	// NewestSourceAt is when the freshest contributing value was last read.
+	// `needs_refresh` is computed from it at render rather than stored, because
+	// staleness arrives with the clock and a stored verdict would keep
+	// answering with whatever was true on the day the row was written.
+	NewestSourceAt time.Time `json:"newest_source_at"`
+}
+
+// usable reports whether this build may still serve a cached dossier. Unlike
+// the growth fit's, it has no expiry: a dossier restates recorded values, and
+// those do not become untrue with the clock — they become OLD, which the
+// surface says out loud beside them instead (DOSS-PARAM-6).
+func (d stored) usable(fingerprint string) bool {
+	return d.Version == storedVersion && d.Fingerprint == fingerprint
+}
+
+// newestSource is when the freshest value this dossier was written from was
+// last read. A company with nothing dated — every value entered by a person —
+// has no source age at all, and reports the zero time rather than "now", which
+// would claim a read nobody performed.
+func newestSource(in Input) time.Time {
+	var newest time.Time
+	consider := func(source string, retrievedAt *time.Time, updatedAt time.Time) {
+		if source == string(crmcontracts.CompanyProfileFieldSourceHuman) {
+			return
+		}
+		read := updatedAt
+		if retrievedAt != nil {
+			read = *retrievedAt
+		}
+		if read.After(newest) {
+			newest = read
+		}
+	}
+	for _, field := range in.ProfileFields {
+		consider(string(field.Source), field.RetrievedAt, field.UpdatedAt)
+	}
+	for _, fact := range in.Facts {
+		consider(string(fact.Source), fact.RetrievedAt, fact.UpdatedAt)
+	}
+	return newest
 }
 
 // Get serves the dossier, reassembling first when the cache no longer describes
@@ -91,10 +131,8 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 		return zero, err
 	}
 	// The gates that matter run HERE, in the caller's own reads: a dossier can
-	// only be written from what this caller may see, and a company they cannot
-	// read refuses before any cache is consulted. It is also what keeps a
-	// masked field out of a sentence — the narrowing happens before assembly,
-	// so synthesis has nothing to launder (DOSS-AC-N-1).
+	// only be written from records this caller could already fetch themselves,
+	// and a company they cannot read refuses before any cache is consulted.
 	in, err := BuildInput(ctx, s.facts, orgID)
 	if err != nil {
 		return zero, err
@@ -108,22 +146,34 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	if err != nil {
 		return zero, err
 	}
-	if found && !force && cached.Version == storedVersion && cached.Fingerprint == fingerprint {
-		return cached.wire(orgID), nil
+	if found && !force && cached.usable(fingerprint) {
+		return cached.wire(orgID, s.now().UTC()), nil
 	}
 
-	sections, by := WriteDossier(ctx, s.lane, in)
+	sections, by, laneFailed := WriteDossier(ctx, s.lane, in)
+	if laneFailed && found && cached.usable(fingerprint) {
+		// The floor is a real answer, but it is a plainer one than the model
+		// already wrote for these same facts. A transient outage must not
+		// replace what is cached — stored under the current fingerprint, that
+		// downgrade would read as a cache hit indefinitely.
+		//
+		// The same gate the ordinary read applies: a lane being down is a
+		// reason to keep a good answer, never to serve one written from facts
+		// that have since moved or in a shape this build cannot read.
+		return cached.wire(orgID, s.now().UTC()), nil
+	}
 	written := stored{
-		Fingerprint: fingerprint,
-		Version:     storedVersion,
-		GeneratedAt: s.now().UTC(),
-		GeneratedBy: string(by),
-		Sections:    sections,
+		Fingerprint:    fingerprint,
+		Version:        storedVersion,
+		GeneratedAt:    s.now().UTC(),
+		GeneratedBy:    string(by),
+		Sections:       sections,
+		NewestSourceAt: newestSource(in),
 	}
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return zero, err
 	}
-	return written.wire(orgID), nil
+	return written.wire(orgID, s.now().UTC()), nil
 }
 
 // keepGrounded runs every assembled sentence past the SHARED filter, whichever
@@ -171,7 +221,7 @@ func Fingerprint(in Input, routingVersion string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func (d stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationDossier {
+func (d stored) wire(orgID ids.OrganizationID, now time.Time) crmcontracts.OrganizationDossier {
 	sections := make([]crmcontracts.OrganizationDossierSection, 0, len(d.Sections))
 	for _, section := range d.Sections {
 		sections = append(sections, crmcontracts.OrganizationDossierSection{
@@ -179,12 +229,20 @@ func (d stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationDossier 
 			Sentences: wireSentences(section.Sentences),
 		})
 	}
-	return crmcontracts.OrganizationDossier{
+	out := crmcontracts.OrganizationDossier{
 		OrganizationId: openapi_types.UUID(orgID.UUID),
 		GeneratedAt:    d.GeneratedAt,
 		GeneratedBy:    crmcontracts.WrittenBy(d.GeneratedBy),
 		Sections:       sections,
 	}
+	// Said out loud BESIDE the content, never instead of it: a stale dossier is
+	// more useful than none. A company with no dated source is not stale — it
+	// is undated, which is a different claim and gets no badge.
+	if !d.NewestSourceAt.IsZero() && now.Sub(d.NewestSourceAt) > freshness {
+		stale := true
+		out.NeedsRefresh = &stale
+	}
+	return out
 }
 
 func wireSentences(in []claims.Sentence) []crmcontracts.OrganizationBriefSentence {

@@ -8,9 +8,10 @@ package orgdossier
 // DOSS-FORM-2.
 //
 // The two reads are deliberately different in kind. The company's facts are
-// row-scoped and become citable evidence; our own offering is a single boolean
-// that never leaves this file, because a fit derived from what WE sell is an
-// assessment about them and must still cite THEIR records (DOSS-AC-6).
+// row-scoped and become citable evidence; our own offering arrives as a
+// confirmation flag and a digest, never as text, because a fit derived from
+// what WE sell is an assessment about them and must still cite THEIR records
+// (DOSS-AC-6).
 
 import (
 	"context"
@@ -102,8 +103,8 @@ func (s *GrowthFitService) Get(ctx context.Context, orgID ids.OrganizationID, fo
 		return zero, err
 	}
 	// The gates that matter run HERE, in the caller's own reads: a company this
-	// caller cannot read refuses before any cache is consulted, and a field
-	// they cannot see never counts toward the completeness figure.
+	// caller cannot read refuses before any cache is consulted, and the
+	// completeness figure counts only records they could already fetch.
 	in, err := BuildInput(ctx, s.facts, orgID)
 	if err != nil {
 		return zero, err
@@ -116,11 +117,11 @@ func (s *GrowthFitService) Get(ctx context.Context, orgID ids.OrganizationID, fo
 		// every company a stronger band than the evidence supports.
 		return zero, errors.New("the growth fit has no way to read this workspace's own offering")
 	}
-	confirmed, err := s.self(ctx)
+	offering, err := s.self(ctx)
 	if err != nil {
 		return zero, err
 	}
-	fingerprint, err := growthFitFingerprint(in, s.routingVersion, confirmed)
+	fingerprint, err := growthFitFingerprint(in, s.routingVersion, offering)
 	if err != nil {
 		return zero, err
 	}
@@ -134,8 +135,8 @@ func (s *GrowthFitService) Get(ctx context.Context, orgID ids.OrganizationID, fo
 		return cached.wire(orgID), nil
 	}
 
-	assessed, by, laneFailed := WriteGrowthFit(ctx, s.lane, in, confirmed, utc)
-	if laneFailed && found {
+	assessed, by, laneFailed := WriteGrowthFit(ctx, s.lane, in, offering.Confirmed, utc)
+	if laneFailed && cached.mayStandIn(found, fingerprint, utc()) {
 		// A lane that failed must not be able to DESTROY an assessment. The
 		// degraded answer is an abstention, and writing it over a real band
 		// would let one unreachable model call — or one reader looping the
@@ -178,21 +179,36 @@ func (g storedGrowthFit) usable(fingerprint string, now time.Time) bool {
 	return g.StaleAt.IsZero() || now.Before(g.StaleAt)
 }
 
+// mayStandIn reports whether a cached entry may be served in PLACE of an
+// assessment the lane failed to produce.
+//
+// It is the same test the ordinary read applies, and that is the whole point:
+// "a lane failed" is a reason to keep a good answer, never a reason to serve
+// one that is out of date, written from facts that have since changed, or
+// stored in a shape this build cannot read. Without the check, one reader
+// exhausting the workspace's token budget would freeze every cached band in
+// place — including bands written from values since corrected or erased.
+func (g storedGrowthFit) mayStandIn(found bool, fingerprint string, now time.Time) bool {
+	return found && g.usable(fingerprint, now)
+}
+
 // growthFitFingerprint covers everything that could change the assessment: the
 // company's facts, the assembly rules, the model routing version, and whether
 // this workspace has confirmed its own offering.
 //
-// That last one is the difference from the dossier's fingerprint, and it is not
-// optional: confirming our own profile changes every company's band cap without
-// touching a single company record, so a key blind to it would keep serving
-// capped bands to a workspace that has since described itself.
-func growthFitFingerprint(in Input, routingVersion string, selfConfirmed bool) (string, error) {
+// The last one is the difference from the dossier's fingerprint, and neither
+// half of it is optional. Confirming our own profile changes every company's
+// band cap without touching a single company record; EDITING it — a new
+// product, a different ideal customer — changes every company's fit while
+// `confirmed` stays true throughout. A key blind to either keeps serving bands
+// measured against an offering this workspace no longer has.
+func growthFitFingerprint(in Input, routingVersion string, offering Offering) (string, error) {
 	encoded, err := json.Marshal(in)
 	if err != nil {
 		return "", fmt.Errorf("fingerprint the growth-fit input: %w", err)
 	}
-	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%t\x00%s",
-		growthFitPromptVersion, routingVersion, selfConfirmed, encoded))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%t\x00%s\x00%s",
+		growthFitPromptVersion, routingVersion, offering.Confirmed, offering.Fingerprint, encoded))
 	return hex.EncodeToString(sum[:]), nil
 }
 

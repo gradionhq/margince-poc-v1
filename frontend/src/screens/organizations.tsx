@@ -2125,7 +2125,9 @@ function CompanyOverviewStack({
       openCitation(entityType, entityId);
       return;
     }
-    setCited({ entityType, entityId });
+    if (citationHasReceipt(entityType)) {
+      setCited({ entityType, entityId });
+    }
   };
   return (
     <>
@@ -2231,6 +2233,15 @@ function performSuggestion(
 // what the reader wanted when they clicked the chip.
 function citationOpensRecord(entityType: string): boolean {
   return entityType === "deal" || entityType === "person";
+}
+
+// The kinds a receipt can be written for. Narrowing HERE rather than asserting
+// at the fetch is what keeps the modal's contract honest: a kind that grows a
+// receipt upstream fails to compile until this decision learns about it.
+function citationHasReceipt(
+  entityType: string,
+): entityType is CitedRecord["entityType"] {
+  return entityType === "fact" || entityType === "profile_field";
 }
 
 function openCitation(entityType: string, entityId: string) {

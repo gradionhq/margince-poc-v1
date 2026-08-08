@@ -34,7 +34,7 @@ func TestEveryDossierModelFailureFallsBackToADescribedCompany(t *testing.T) {
 		"lane inventing a section": scriptedLane{reply: describing("pipeline", "They are close to buying.", in)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, by := WriteDossier(context.Background(), lane, in)
+			got, by, _ := WriteDossier(context.Background(), lane, in)
 
 			if by != crmcontracts.Deterministic {
 				t.Errorf("generated_by = %q, want deterministic — the model did not produce this", by)
@@ -60,7 +60,7 @@ func TestAGroundedDossierIsServedAsTheModels(t *testing.T) {
 		reply: describing("summary", "They build load-shifting software for industrial sites.", in),
 	}
 
-	got, by := WriteDossier(context.Background(), lane, in)
+	got, by, _ := WriteDossier(context.Background(), lane, in)
 
 	if by != crmcontracts.Model {
 		t.Fatalf("generated_by = %q, want model", by)

@@ -318,18 +318,37 @@ func TestAnAssessmentKnowsWhenItsOwnCountingExpires(t *testing.T) {
 // A company held entirely on human-entered values has nothing that ages, and
 // must not be given an expiry that would re-assess it forever on a clock.
 func TestAnAssessmentOverHumanValuesAloneNeverExpiresOnTheClock(t *testing.T) {
+	// ABOVE the floor, and entirely human-entered. Below it the assessment
+	// returns before any expiry is computed, so a thin company would give a
+	// zero StaleAt whether the human values counted or not — the test would
+	// pass with the human arm deleted.
+	longAgo := assessedAt.Add(-5 * 365 * 24 * time.Hour)
+	human := func(field crmcontracts.CompanyProfileFieldField, value string) crmcontracts.CompanyProfileField {
+		return crmcontracts.CompanyProfileField{
+			Id: rowID(), Field: field, Value: value,
+			Source: crmcontracts.CompanyProfileFieldSourceHuman, UpdatedAt: longAgo,
+		}
+	}
 	in := Input{
 		OrganizationID: ids.NewV7().String(),
-		ProfileFields: []crmcontracts.CompanyProfileField{{
-			Id:        rowID(),
-			Field:     crmcontracts.CompanyProfileFieldFieldOfferSummary,
-			Value:     "Load-shifting software",
-			Source:    crmcontracts.CompanyProfileFieldSourceHuman,
-			UpdatedAt: assessedAt.Add(-5 * 365 * 24 * time.Hour),
-		}},
+		ProfileFields: []crmcontracts.CompanyProfileField{
+			human(crmcontracts.CompanyProfileFieldFieldOfferSummary, "Load-shifting software"),
+			human(crmcontracts.CompanyProfileFieldFieldIcp, "Energy-intensive manufacturers"),
+			human(crmcontracts.CompanyProfileFieldFieldIndustry, "Industrial software"),
+			human(crmcontracts.CompanyProfileFieldFieldBuyingCenter, "Head of Operations"),
+		},
 	}
 
-	if got := Assess(in, crmcontracts.GrowthFitBandWeak, true, AbstainedNoWriter, assessedAt); !got.StaleAt.IsZero() {
+	got := Assess(in, crmcontracts.GrowthFitBandWeak, true, AbstainedNoWriter, assessedAt)
+
+	if got.Completeness.Present != 4 {
+		t.Fatalf("present = %d, want 4 — five-year-old human answers still count",
+			got.Completeness.Present)
+	}
+	if got.Band != crmcontracts.GrowthFitBandWeak {
+		t.Fatalf("band = %q, want weak — four of seven clears the floor", got.Band)
+	}
+	if !got.StaleAt.IsZero() {
 		t.Errorf("stale at %v, want never — a person's own answer does not age", got.StaleAt)
 	}
 }

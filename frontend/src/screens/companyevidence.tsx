@@ -21,8 +21,17 @@ const KIND_LABELS: Record<SourceKind, MessageKey> = {
   rule: "co.evidence.kind.rule",
 };
 
-/** The record a citation chip names. */
-export type CitedRecord = { entityType: string; entityId: string };
+/**
+ * The record a citation chip names.
+ *
+ * `entityType` is the contract's own union rather than a bare string, so the
+ * page that routes a chip here narrows it once — at the routing decision, where
+ * the knowledge lives — instead of asserting the type at the fetch.
+ */
+export type CitedRecord = {
+  entityType: Receipt["entity_type"];
+  entityId: string;
+};
 
 /**
  * EvidenceModal is the receipt behind one cited record: where the value came
@@ -54,10 +63,7 @@ export function EvidenceModal({
           params: {
             path: {
               id: orgId,
-              entityType: cited.entityType as
-                | "organization"
-                | "fact"
-                | "profile_field",
+              entityType: cited.entityType,
               entityId: cited.entityId,
             },
           },
@@ -119,6 +125,28 @@ export function EvidenceModal({
   );
 }
 
+/**
+ * isFollowable reports whether a recorded URL may become a link.
+ *
+ * `source_url` is a plain text column written by the site-read pipeline from
+ * pages we crawled, and nothing on the write path constrains its scheme. React
+ * does not sanitize `href`, so a `javascript:` value stored there would run on
+ * click — a scraped page choosing what our UI executes.
+ *
+ * Anything that is not http or https still RENDERS, as text. The reader is
+ * being shown where a claim came from, and hiding an odd-looking source would
+ * withhold exactly the thing they opened this to see.
+ */
+function isFollowable(url: string): boolean {
+  try {
+    const scheme = new URL(url).protocol;
+    return scheme === "http:" || scheme === "https:";
+  } catch {
+    // Not a URL this browser can parse is not one it should be asked to open.
+    return false;
+  }
+}
+
 /** The identifying fields this provenance kind owes, rendered as given. */
 function EvidenceIdentity({
   identity,
@@ -138,7 +166,7 @@ function EvidenceIdentity({
         <div key={name}>
           <dt>{name.replace(/_/g, " ")}</dt>
           <dd>
-            {name === "source_url" ? (
+            {name === "source_url" && isFollowable(String(value)) ? (
               <a href={String(value)} target="_blank" rel="noreferrer">
                 {String(value)}
               </a>

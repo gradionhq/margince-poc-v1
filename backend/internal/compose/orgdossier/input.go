@@ -22,10 +22,17 @@ import (
 // interface so the writer can be proven without a database, and it is narrow on
 // purpose: the dossier may see the sidecars and nothing else (DOSS-AC-4).
 //
-// Both reads run AS THE CALLER, inside the ordinary gates, so a field the
-// reader may not see never enters an input and therefore cannot enter a
-// sentence. Synthesis does not launder a mask (DOSS-AC-N-1) — the narrowing
-// happens before assembly, not after it.
+// Both reads run AS THE CALLER, through the same store methods
+// GET /organizations/{id}/profile-fields and .../facts serve, inside the same
+// object and row-scope gates. So an assembly can only be written from records
+// this reader could already fetch for themselves, and synthesis discloses
+// nothing new.
+//
+// What that does NOT yet give is DOSS-AC-N-1's field masking. This platform has
+// no per-reader field mask on a company's values — the only masks in the tree
+// are over field HISTORY, and that map is empty — so there is no mask here to
+// launder and none to honour. Row scope is enforced; field scope does not exist
+// yet. See gradionhq/margince#4.
 type Facts interface {
 	ListOrganizationProfileFields(ctx context.Context, id ids.OrganizationID) ([]crmcontracts.CompanyProfileField, error)
 	ListOrganizationFacts(ctx context.Context, id ids.OrganizationID) ([]crmcontracts.OrganizationFact, error)
@@ -75,10 +82,15 @@ func BuildInput(ctx context.Context, facts Facts, id ids.OrganizationID) (Input,
 // A profile field with no row id contributes NOTHING to this set. That is not a
 // gap to paper over: a sentence citing a field the assembler cannot name is a
 // sentence the reader cannot open, and the filter is supposed to drop it.
+//
+// The ORGANIZATION is not in the set either, for the same reason stated once
+// more. It is the one id every assembly holds, so admitting it would ground any
+// sentence at all — a model with nothing to say could cite the company and pass
+// — and the receipt endpoint has nothing to answer with, because the row
+// carries no provenance of its own. A citation that resolves to nothing teaches
+// the reader that citations do not work.
 func KnownRecords(in Input) map[claims.Evidence]bool {
-	known := map[claims.Evidence]bool{
-		{EntityType: citeOrganization, EntityID: in.OrganizationID}: true,
-	}
+	known := map[claims.Evidence]bool{}
 	for _, field := range in.ProfileFields {
 		if field.Id == nil {
 			continue
