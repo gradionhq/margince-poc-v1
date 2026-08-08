@@ -9,8 +9,8 @@
       "scopes": [
         "read"
       ],
-      "tier": "yellow",
-      "digest": "sha256:a08883c717cbd6900cdea044d4fc9ea3d2faf914ce45574a5db0b6cc63f3b3cc"
+      "tier": "confirmation_required",
+      "digest": "sha256:b316aa73494e3715e31c61e0c50f5195d6de7f8e6a9f94e6ea360916515e748d"
     }
   ]
 }

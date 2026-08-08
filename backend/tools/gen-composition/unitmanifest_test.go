@@ -127,8 +127,8 @@ func realVocabulary(t *testing.T) map[string]string {
 func TestPublishedVocabularyDerivesFromTheSeamSource(t *testing.T) {
 	vocab := realVocabulary(t)
 	for ident, want := range map[string]string{
-		"TierAutoExecute":          "green",
-		"TierConfirmationRequired": "yellow",
+		"TierAutoExecute":          "auto_execute",
+		"TierConfirmationRequired": "confirmation_required",
 		"ScopeRead":                "read",
 		"ScopeWrite":               "write",
 		"ScopeSend":                "send",
@@ -156,7 +156,7 @@ func TestCrmHelloManifestMatchesItsDerivation(t *testing.T) {
 	assertCommittedManifest(t, filepath.Join(repoRoot, "fixtures", "extensions", "crm-hello"), "crm-hello",
 		`"id": "tool/hello_ping"`,
 		`"operation": "agent.tool.invoke"`,
-		`"tier": "yellow"`,
+		`"tier": "confirmation_required"`,
 		`"read"`,
 		`"digest": "sha256:`)
 }
@@ -270,7 +270,7 @@ func TestToolDerivesIntoRiskTier(t *testing.T) {
 	for _, want := range []string{
 		`"id": "tool/sync_contacts"`,
 		`"operation": "agent.tool.invoke"`,
-		`"tier": "green"`,
+		`"tier": "auto_execute"`,
 		`"write"`,
 		`"digest": "sha256:`,
 	} {

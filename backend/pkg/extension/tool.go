@@ -36,7 +36,8 @@ type ToolHandler func(ctx context.Context, rt Runtime, in json.RawMessage) (json
 // Tier is the risk tier an extension REQUESTS for a governed tool:
 // auto-execute runs without confirmation, confirmation-
 // required stages every call for human approval. The constant names are
-// semantic; their string values are the core "green"/"yellow" wire tiers,
+// semantic; their string values match the contract's own tier spelling
+// ("auto_execute"/"confirmation_required" — see api_gen.go's AgentToolTier),
 // which the boot registration maps to the internal RiskTier. A dynamic
 // (argument-dependent) tier needs a resolver — behavior a static
 // declaration cannot carry — so it is not requestable through this
@@ -47,10 +48,10 @@ type Tier string
 const (
 	// TierAutoExecute REQUESTS auto-execution without human confirmation
 	// (the 🟢 wire tier). Effective only once an operator resolves it.
-	TierAutoExecute Tier = "green"
+	TierAutoExecute Tier = "auto_execute"
 	// TierConfirmationRequired REQUESTS confirm-first staging — every call
 	// waits for human approval (the 🟡 wire tier).
-	TierConfirmationRequired Tier = "yellow"
+	TierConfirmationRequired Tier = "confirmation_required"
 )
 
 // Validate refuses any tier an extension may not request; the manifest
