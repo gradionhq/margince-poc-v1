@@ -194,6 +194,31 @@ func TestAFailedStagingLeavesTheQuotaRefusalAsTheAnswer(t *testing.T) {
 	}
 }
 
+// A caller with no passport asks NOBODY. A step-up names whose window it is,
+// and one stamped with the zero uuid names nobody: its identity would collide
+// with every other such call, and the release path refuses a row without a
+// passport — so the question could never be answered even if it were asked.
+func TestACallerWithNoPassportIsRefusedWithoutAskingAnyone(t *testing.T) {
+	quota := crossedQuota{counter: agentquota.Reads, observed: 2431, limit: 2000, bucket: 42}
+	staging := &recordingApprovals{}
+	r := NewRegistry(staging, auth.NewGate(fullSeatAuthority{}, auth.WithQuota(quota)))
+	r.Register(&servingTool{spec: readToolSpec("search_records"), records: 1})
+	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:passportless", OnBehalfOf: ids.NewV7(),
+		Scopes: principal.NewScopeSet(principal.ScopeRead),
+	})
+
+	_, err := r.Invoke(ctx, "search_records", json.RawMessage(`{}`))
+
+	if !errors.Is(err, apperrors.ErrBudgetExceeded) {
+		t.Fatalf("a passportless agent past its bound → %v, want the quota refusal", err)
+	}
+	if len(staging.steppedUp) != 0 {
+		t.Errorf("a question was staged for a window nobody owns (%d times)", len(staging.steppedUp))
+	}
+}
+
 // A surface with no approvals engine still refuses, and refuses the same way.
 // The Surface-B runner composes one; a quota refusal there has nowhere to land
 // and must not become an error about the composition.

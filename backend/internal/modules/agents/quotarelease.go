@@ -97,7 +97,17 @@ func (r *Registry) stageStepUp(ctx context.Context, refusal *auth.QuotaExceededE
 	// The passport this call presented, which is the window the question is
 	// about. Read from the principal rather than passed down, because it is the
 	// same value the staging stamps the row with.
-	actor, _ := principal.Actor(ctx)
+	//
+	// No passport, no question. A step-up names WHOSE window it is, and one
+	// stamped with the zero uuid names nobody: the identity would collide with
+	// every other such call, and applyQuotaRelease refuses to release a row
+	// without a passport anyway — so staging it would put a question in an inbox
+	// that approving could never answer. The quota refusal stands instead, which
+	// is the same conservative direction every other branch here takes.
+	actor, present := principal.Actor(ctx)
+	if !present || actor.PassportID == (ids.UUID{}) {
+		return refusal
+	}
 	proposal := agentquota.NewReleaseProposal(refusal.Reading, actor.PassportID, refusal.Tool)
 	id, staged, err := r.approvals.StageQuotaRelease(ctx, QuotaReleaseRequest{
 		Proposal: proposal,
