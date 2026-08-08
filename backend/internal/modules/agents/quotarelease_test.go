@@ -240,6 +240,29 @@ func TestTheTwoRungsGiveTheAgentDifferentInstructions(t *testing.T) {
 	}
 }
 
+// The third shape, which is neither: a RELEASABLE counter whose question nobody
+// is holding — the human declined it, or the surface has no inbox. It must not
+// borrow the hard stop's words, because the refusal it quotes says in the same
+// breath that a release would end this. A reader told both is told nothing.
+func TestADeclinedStepUpDoesNotClaimNoApprovalCouldLiftIt(t *testing.T) {
+	d := NewDispatcher(nil, bindAuthenticated, "test", "1")
+
+	answer := d.explain("search_records", &auth.QuotaExceededError{
+		Tool:    "search_records",
+		Reading: agentquota.Reading{Counter: agentquota.Reads, Observed: 4000, Limit: 4000, Exceeded: true},
+	})
+
+	if strings.Contains(answer, "no approval lifts it") {
+		t.Errorf("a releasable counter was described as one no approval lifts, contradicting the refusal it quotes: %q", answer)
+	}
+	if !strings.Contains(answer, "no request to continue is open") {
+		t.Errorf("the answer does not say what is actually true — that nothing is pending: %q", answer)
+	}
+	if !strings.Contains(answer, "after the window rolls") {
+		t.Errorf("the answer does not tell the agent what ends this: %q", answer)
+	}
+}
+
 // spentShare is a cost reader whose share is already gone.
 type spentShare struct {
 	reading agentquota.Reading

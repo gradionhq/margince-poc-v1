@@ -52,6 +52,17 @@ func (s *Dispatcher) explain(tool string, err error) string {
 		return "This agent has reached a volume limit for this window, and the person who connected it has been " +
 			"asked whether it may continue. Do not send an approval_id: once they approve, repeat this call unchanged. (" +
 			steppedUp.Error() + ")"
+	case errors.As(err, &overQuota) && overQuota.Releasable():
+		// A releasable counter with NO question open: the human already declined
+		// one, or this surface has no inbox to ask through. The branch above
+		// would have matched if one were open, so reaching here means asking is
+		// not the next move — and saying "no approval lifts it" would contradict
+		// the refusal quoted beside it, which correctly says a release WOULD end
+		// this. What is true of both is that nothing is pending.
+		return "This agent has reached a volume limit for this window and no request to continue is open — " +
+			"the person who connected it has already declined one, or cannot be asked from here. Stop calling this " +
+			"tool and tell the user what is blocking it; the same call can succeed after the window rolls. (" +
+			overQuota.Error() + ")"
 	case errors.As(err, &overQuota):
 		// A hard stop. Naming the window as the only thing that ends it is the
 		// whole value of this branch: an agent told to "ask a human" about a
