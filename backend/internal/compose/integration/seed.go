@@ -88,8 +88,11 @@ func SeedStakeholder(t *testing.T, e *Env, owner *pgx.Conn, deal ids.UUID, direc
 func LinkActivity(t *testing.T, owner *pgx.Conn, ws, activity ids.UUID, entityType string, entity ids.UUID) {
 	t.Helper()
 	column := "deal_id"
-	if entityType == "person" {
+	switch entityType {
+	case "person":
 		column = "person_id"
+	case "organization":
+		column = "organization_id"
 	}
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, `+column+`) VALUES ($1, $2, $3, $4)`,

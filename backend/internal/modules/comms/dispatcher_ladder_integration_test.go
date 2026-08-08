@@ -73,7 +73,7 @@ func TestPacingADeliveryPastTheLadderNeverSpendsATransmitAttempt(t *testing.T) {
 	now := e.clockValue
 	sender := &fakeSender{}
 	d := NewDispatcher(e.store,
-		fakeResolver{sender: sender, granted: []string{sendScope}}, liveSeat(), &stubConsent{},
+		fakeResolver{sender: sender, granted: []string{sendScope}}, liveSeat(), nil, &stubConsent{},
 		[]SendPolicy{waitPolicy{d: window}},
 		func() time.Time { return now }, maxAge, ladder)
 
@@ -139,7 +139,7 @@ func TestATransmittingAttemptStillSpendsARung(t *testing.T) {
 
 	sender := &fakeSender{}
 	d := NewDispatcher(e.store,
-		fakeResolver{sender: sender, granted: []string{sendScope}}, liveSeat(), &stubConsent{},
+		fakeResolver{sender: sender, granted: []string{sendScope}}, liveSeat(), nil, &stubConsent{},
 		nil, func() time.Time { return e.clockValue }, time.Hour, 3)
 
 	if outcome, _, err := d.DispatchWithWait(e.ctx, id); err != nil || outcome != OutcomeSent {
@@ -170,7 +170,7 @@ func TestProviderThrottlingPastTheLadderParksNamingTheThrottle(t *testing.T) {
 	// The provider refuses every attempt and states when to come back.
 	sender := &fakeSender{err: &connector.RateLimitedError{RetryAfter: retryAfter}}
 	d := NewDispatcher(e.store,
-		fakeResolver{sender: sender, granted: []string{sendScope}}, liveSeat(), &stubConsent{},
+		fakeResolver{sender: sender, granted: []string{sendScope}}, liveSeat(), nil, &stubConsent{},
 		nil, func() time.Time { return e.clockValue }, time.Hour, ladder)
 
 	// Every throttle before the last rung defers — and keeps its rung, so the

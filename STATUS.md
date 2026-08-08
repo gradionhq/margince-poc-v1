@@ -12,79 +12,74 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
-## Open — the settings mirror is a dual-write on ADR-0091's critical path
+## In flight — company record page V2
 
-ADR-0090/A135 shipped (#520): installation settings are rows in `setting`, with
-the catalog in typed Go. Four settings moved — `capture.auto_enrich` and the
-three `installation.*` values — behind a Settings → Installation surface, with
-the base currency freezing once a deal has converted against it (ADR-0085 §7).
+The approved product direction and the full implementation handoff live in
+`docs/explanation/company-record-page-v2-implementation-plan.md` (untracked on
+purpose — it is a working handoff, not a repo doc, and `.gitignore` carries it
+together with its four state mockups). Read it before picking any of this up.
+Read §15 of it first: it says what Gate 0's real state is, and the rest of the
+document is older than the spec it depends on.
 
-What is NOT finished is the read side. Roll-ups, FX conversion, quota
-attainment and the report builder still read `workspace.base_currency` and
-`workspace.timezone` directly — eight files — so `UpdateInstallation` writes the
-setting AND mirrors it onto the column in one transaction. The mirror exists
-only because those readers have not moved; without it the surface would report
-a base currency nothing computes in.
+**Gate 0 is written, not signed.** Every decision the plan asked for was
+authored upstream in `margince-foundation` PR #1251 on the same day the plan
+was written — `ADR-0083` (finance is an ingested mirror), `ADR-0085` (canonical
+company values and provenance), `ADR-0086` (attachment transport is a declared
+capability), `ADR-0087` (account-started outbound), `ADR-0088` (overlay posture
+for composite surfaces), `ADR-0089` (role mailbox is a stored assertion), plus
+the chapters `finance-ingestion.md`, `documents-and-files.md` and
+`company-dossier.md`. All seven anchors `A128`–`A134` are recorded in
+`DECISIONS.md` as `PROPOSED (2026-08-06)`; the rest of that file is ratified
+and these are not. So build against them and expect them to hold, but a slice
+whose ADR moves on sign-off is a slice that gets reworked.
 
-**This is not a settings leftover, it is ADR-0091 phase 4's first step.** That
-phase drops the `workspace` row, so the readers have to move regardless. Doing
-it as its own change gets the dual-write out before the plumbing collapse
-rather than after, and shrinks what phase 4 has to touch. Tracked as **#521**,
-which also covers dropping `capture_auto_enrich`, `name`, `timezone` and
-`base_currency` once nothing reads them.
+Where the plan and an ADR disagree, the ADR wins — it was written later and
+with more of the system in view. Several are deliberately stricter: `ADR-0083`
+closes the door on manually entered financial figures that plan §4.6 left ajar.
 
-Also open from the same work: **#551** — the base-currency freeze is atomic
-with its own write but not with the deal transaction that stamps
-`fx_rate_to_base`, so a conversion committing concurrently with a re-base can
-interleave. Narrow, silent, and needs a lock shared with every FX-freeze path,
-which is why it is filed rather than patched.
+**Landed so far**, on `feat/company-v2-b1-canonical-fields`, local only:
 
-Not migrated yet: `slug` (no consumer under ADR-0061 — a drop candidate rather
-than a move) and the overlay `x_sor_mode`/`x_incumbent` pair, which needs the
-composite-value shape because its CHECK spans both columns.
+- **Slice B1** (`ADR-0085`): `organization.linkedin_url` as a validated,
+  live-unique column; the readable website stays derived from the primary
+  `organization_domain` row; both evidence sidecars gain `retrieved_at` /
+  `verified_at` / `verified_by`; correct/confirm on profile fields and facts,
+  where a correction moves the canonical column and not just its receipt.
+  Migration 0193.
+- **The base-currency freeze probe** counts sent offers as well as closed deals,
+  and refuses a change while the rate sheet is priced against the old base. The
+  deal-only count was live in merged main, not just here.
+- **PR 1** — page shell: lifecycle and owner edit in place; "Stage" becomes
+  "Account lifecycle"; address and LinkedIn join the form; "Add task" is its own
+  button; `organizations.tsx` split with `companyheader.tsx`.
+- **PR 2** — Today on this account: new 360 section `next_meeting`, and a card
+  that labels facts, assessments and recommendations apart.
+- **PR 3 (part)** — confirm and correct wired to B1's endpoints, on every
+  profile field and fact. The dossier itself is not built; see below.
+- **PR 7** — coverage: each contact names the strongest few colleagues who have
+  actually exchanged messages, plus `+N`, with untried distinguished from cold;
+  and a coverage explorer over up to eight colleagues the reader picks.
 
-## Pick up here — ADR-0091 (A136): retiring the workspace tenant boundary
+**Next, and the one to read before starting it: PR 4 (growth fit) is a module,
+not a slice.** `company-dossier.md` specifies the dossier and growth fit
+together — two tables, six wire operations, an AI lane with a deterministic
+floor, per-reader caching with an input fingerprint, field masking, evidence
+receipts. Its sibling `compose/orgbrief` is 3,235 lines. Growth fit's
+deterministic floor is *abstention*, so building the floor first yields a panel
+that always says "not enough evidence": the model lane is not optional for this
+slice to be worth anything.
 
-Ratified upstream (margince-foundation#1253). Phase 1 — the settings table — is
-done, which is what let the `workspace` row's own values move off it.
+Still unbuilt beyond that: PR 5 (documents), PR 6 (attachments, `ADR-0086`),
+PR 8 (account-started email, `ADR-0087`), PR 9/10 (finance, `ADR-0083`). Each
+needs a backend capability built from scratch.
 
-**A process-wide installation fallback in `platform/database` is the wrong first
-slice — tried and withdrawn (#557).** The idea was for `WithWorkspaceTx` to bind
-a boot-resolved singleton when the context carries none. It has no consumer:
-`identity/middleware.go` binds the singleton into EVERY request context, public
-paths included, before the `isPublicRequest` branch — so in `cmd/api` nothing
-reaches the database unbound. And `cmd/worker` never calls `EnsureInstallation`,
-so there the pointer stays nil. The fallback fires nowhere while removing the
-loud `ErrNoWorkspace` guard from every one of them.
+`make check`, `make craft-static`, `check-fe` and the integration lane (0
+skips) are green. Nothing is pushed: this work stays in the worktree until it
+is tested locally.
 
-Two things it also got wrong, worth knowing before anyone tries again.
-`WithWorkspaceTx` hands `fn` the ORIGINAL context, so a fallback-bound
-transaction has the GUC set to the installation while `storekit.MustWorkspace`
-returns the zero UUID — the domain row and its audit/outbox rows would name
-different tenants, and `LockWriteIdentity` would key its advisory lock on zero.
-Two comments in `storekit` state that invariant verbatim. And the global leaks
-across the `compose/integration` binary: 155 sites bootstrap, nothing unbinds,
-`testdb.Reset` truncates between tests, so the pointer ends up naming a deleted
-workspace in the one lane that owns the isolation proofs.
-
-**What to do instead.** The value in §9 step 3 is the fleet loops, and they need
-no global: they already bind explicitly by ENUMERATING workspaces. Under a
-singleton each should resolve `identity.InstallationWorkspace` once and stop
-enumerating. No fallback, no guard removed, one loop per PR.
-
-The sequencing in ADR-0091 §9 is **binding, not advisory**: the Go plumbing
-collapses while RLS is still armed, because the tenant-isolation suite staying
-green is the only mechanical proof that an edit of that size stayed faithful,
-and the schema phase deletes that suite. Do not reorder it.
-
-Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
-four hundred of them outside tests, across a couple of hundred non-test files.
-Deliberately not a precise count: it moved by eleven while this note was being
-written, so an exact figure here would be wrong by the time anyone read it and
-would invite arguing with the number instead of the shape. Land the work in
-slices small enough to merge the day they are written: a branch open longer than
-that accumulates conflicts with `main` that its own gates cannot see — migration
-numbers, locale key sets, and semantic overlap with whatever else is in flight.
+**Next**, in plan order: PR 2 (Today on this account), PR 3 (dossier, full
+facts, evidence drawer), PR 4 (growth fit), PR 5 (documents), PR 7 (scalable
+coverage), then PR 6/8 (attachments, account-started email) and PR 9/10
+(finance) against their ADRs.
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 
@@ -150,9 +145,12 @@ that has no meaning without Postgres.
 
 Where the cost actually is, and what is worth doing about it:
 
-- **#524** — closed; the per-package budget is 600s, both lanes resolve it
-  through one `resolve_it_timeout`, and the cost report prints each package's
-  share of it. Narrative in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md).
+- **#524** — `internal/compose/integration` is half the lane (960 tests) and
+  runs 258–302s against a 300s per-package timeout, so it flakes on a loaded
+  machine. CI shards 12 ways and never sees it; the unsharded local lane and
+  `make test-it` do. The 300s default is documented against the sharded
+  assumption, and the script already bumps to 900s for the whole-package case
+  but gates that on `COVERDIR` rather than on `SHARD_TOTAL == 1`.
 - **#539** — that package's setup forks about five Postgres backends per test.
   Sharing them measured ~18% (170.9s vs a 209.6s baseline) and is **blocked**:
   the harness drops `cf_*` columns between tests, so a pooled connection
@@ -514,112 +512,6 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
-
-## Session pickup — 2026-08-07 (one dropdown, one login screen, and a Core that holds still, branch `fix/ui-select-orb-login`)
-
-Five reported UI defects. Four are invariants; the fifth is a screen redesign.
-
-- **The product has ONE dropdown, and it is not the browser's.**
-  `design-system/select.tsx` is a button trigger plus a portalled listbox
-  (`role="combobox"` + `role="listbox"`, `aria-activedescendant`, arrow/Home/End
-  movement, typeahead, Escape without committing, focus back to the trigger).
-  Portalled and `position: fixed` because most call sites sit in a toolbar inside
-  `.scroll`, where an absolutely positioned popup is clipped or scrolls away from
-  its trigger; it flips above the trigger when the room below runs out.
-  The API takes DATA — `options` plus `onChange(value)` — because a listbox has
-  no `event.target.value` and threading a synthetic event through would be a lie
-  about where the value came from. All 30 call sites across 19 screens and every
-  test that drove a native control are migrated; `select-testing.ts` gives the
-  suites one `pickOption(user, control, label)` so thirty files do not each encode
-  the popup's markup.
-  - **The gate, not the sweep, is what keeps it true**:
-    `frontend/scripts/check-native-controls.sh` (in `make frontend-check`) refuses
-    `<select>`, `<option>` and `<optgroup>` anywhere under `frontend/src` outside
-    that one named file. `<option>` matters as much as `<select>`: nothing here
-    ever wrote a raw `<select>` — the screens fed option children to the *atom* —
-    so a gate watching only `<select` would have called an entirely un-migrated
-    tree clean.
-  - **Two things only the running app could show, both from the control changing
-    ELEMENT.** `.list-toolbar > select.input` is an element-qualified rule, so it
-    stopped matching the moment the trigger became a button: every list filter
-    grew to the full width of the page, one per line, with no test able to see it.
-    It now names the control's class. And the deals sort control, which opens on
-    no explicit sort, drew an empty box — a native select rendered the same
-    nothing, but a drawn one reads as a control that failed to load, so it carries
-    a placeholder. That placeholder then failed the axe sweep at
-    `--textTertiary`: a placeholder is text on an ACTIVE control, so 1.4.3's
-    inactive-control exemption does not cover it, and it stops at `--textMeta`.
-    The lesson for the next primitive that replaces a native element: grep the
-    stylesheets for rules that name the old tag before you believe the migration
-    is done.
-  - **Where to look before hand-rolling a control** is now written down:
-    `frontend/src/design-system/README.md` catalogues every primitive, its file,
-    its story, and the gates. `frontend/README.md`, `AGENTS.md` and `CLAUDE.md`
-    each point at it in two lines. This is the answer to "how does the next agent
-    find the right element" in general, not only for Select.
-- **The sign-in screen is two halves of a page.** The identity region was an
-  inset card in a pane, which gave the eye two shapes to place before it reached
-  the form; it is now a full-bleed half divided from the task by one hairline.
-  The wordmark sits in the page's top-left corner on the split layout (the task
-  column carries `z-index: 1` for it — the wordmark's own z-index resolves inside
-  `.auth-task-in`, a stacking context because of its filling opacity animation,
-  so from in there nothing can paint over the identity column) and returns to
-  being the form's first line when the layout stacks. Both halves read ONE pair of
-  padding values (`--authPadBlock` / `--authPadInline`, arithmetic on the `--space`
-  scale) at every width above the phone, so the inset does not change when the
-  layout turns from two columns into two rows: the air on this surface comes from a
-  400px column centred in half a screen, not from its gutter, and a viewport clamp
-  only moved the edges while making the desktop and the tablet two different pages.
-  Both columns read down their own centre line, the fields excepted — a label
-  centred over a line of typing points at nothing.
-  - **Phones drop the identity region entirely** (≤560px): the sphere, the limits,
-    and the AI's own sentence with them (founder ruling, 2026-08-07). Everything
-    that introduced the system was competing with the form for the first look, and
-    on a phone the form is the only thing the screen is for.
-  - **That is a partial ADR-0076 Decision 1 below 561px, and it is now total.** The
-    surface discloses nothing about the AI at phone width — the earlier compromise
-    kept the boundary sentence as `.auth-phone-disclosure`; that element is gone.
-    Above the breakpoint the disclosure is intact. The departure is stated in
-    `auth.css` beside the rule that makes it and pinned in both directions by
-    `e2e/ac.spec.ts`, so it cannot drift back by accident — **owed upstream as
-    issue #562: the spec has to reconcile Decision 1 with a phone surface that is
-    the task alone.**
-  - Re-measured at 320 / 390 / 640×400 (200% zoom) / 720 / 1440: zero horizontal
-    overflow, the 48px submit inside the viewport at every width, all four limits
-    rendered wherever the region shows, axe clean.
-- **An entry animation belongs to the page load, not to the mount.** The staggered
-  fades and the typed statement replayed on every React remount of the surface,
-  which reads as the page reloading under the reader. `useDocumentIntro`
-  (`design-system/motion.ts`) marks the DOCUMENT once the choreography has run its
-  course, so a later mount renders the surface already arrived while a real load
-  still gets the introduction. Marked at the END of the sequence rather than at
-  mount, which is what survives React's development double-mount — the second
-  mount lands mid-flight and still plays.
-  - **The trigger was never reproduced locally.** Simulated `visibilitychange`,
-    real tab switches and window swaps all left the surface mounted with its text
-    intact, and the one focus-coupled query on that screen (`useMe`,
-    `refetchOnWindowFocus: "always"`) does not re-branch the tree. The fix is
-    therefore aimed at the invariant: replay is impossible from ANY remount cause.
-    A tab Chrome has discarded and reloaded is a genuine page load and correctly
-    plays again.
-- **The Core holds its position.** The 11-second vertical drift on `.core-tilt` is
-  deleted with its keyframes rather than overridden. The element stays: it is the
-  `place-items: center` stage the glass is centred in. Breath, sheen, halo and
-  feed are untouched — the beat is still what carries state.
-- **The Core goes still while the window does not have focus.** Both halves stop
-  off ONE signal: `design-system/window-focus.ts` owns a single `focus`/`blur`
-  pair for the document, parks the WebGL loop through a subscription and pauses
-  the CSS rhythms through `data-window-blurred` on `<html>`. Paused, not
-  `animation: none`, so returning does not snap the sphere to its unanimated size.
-  - This does not break the loop's standing rule — **only a condition whose END is
-    announced by an event may park it.** `document.hasFocus()` is read once per
-    attach to seed the state and never polled; the resume arrives as `focus`. A
-    poll answers only for the instant it is asked, and a missed resume is a
-    permanently frozen sphere, which is indistinguishable from a broken shader.
-  - jsdom reports no focus, so a Core in a test parks after one frame unless the
-    suite says the window is focused. `margince-core-liquid.test.tsx` pins that in
-    its `beforeEach`; any future test that renders a Core and expects motion needs
-    the same.
 
 ## Session pickup — 2026-08-06 (app chrome: the account menu, the app's scrollbars, and one orb, branch `fix/shell-chrome-and-one-orb`)
 

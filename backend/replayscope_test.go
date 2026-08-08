@@ -68,7 +68,12 @@ var rowScopedResponses = map[string]expectedTarget{
 	// parameter is the only handle on the record whose scope governs them.
 	// A body with no reference of its own is the easiest kind to wave through
 	// and still hands back whatever its parent contains.
-	"PersonConsentState":   {table: "person", pathParam: "id"},
+	"PersonConsentState": {table: "person", pathParam: "id"},
+	// The company's evidence sidecars. Neither carries an id or an owner of
+	// its own — the claim belongs to the organization named in the path and
+	// inherits exactly its visibility, so the probe is the parent's.
+	"CompanyProfileField":  {table: "organization", pathParam: "id"},
+	"OrganizationFact":     {table: "organization", pathParam: "id"},
 	"VoiceBuild":           {table: "voice_profile", pathParam: "id"},
 	"VoiceLearningSummary": {table: "voice_profile", pathParam: "id"},
 	"VoiceProfileVersion":  {table: "voice_profile", pathParam: "id"},

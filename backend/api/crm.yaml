@@ -8843,6 +8843,90 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/documents:
+    get:
+      tags: [Attachments]
+      operationId: listOrganizationDocuments
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Every document that rolls up to this account, pinned first (DOC-WIRE-1).
+      description: |
+        The account's library. A document reachable from a company may hang off a deal, a
+        person, an activity or the company itself, and each of those has its own
+        visibility.
+
+        **Every candidate is scoped through its own primary parent**, so a contract on a
+        deal the viewer cannot see does not appear AND does not contribute to the count.
+        Scoping at the parent rather than filtering afterwards is what keeps the count
+        honest: a total that includes invisible rows tells the viewer something about them.
+
+        Ordered pinned first, then newest.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: category
+          in: query
+          schema: { type: string, enum: [contract, offer, legal, email_attachment, other] }
+        - name: doc_state
+          in: query
+          schema: { type: string, enum: [draft, current, final, superseded] }
+        - name: pinned_only
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The account's documents.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttachmentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /attachments/{id}/metadata:
+    patch:
+      tags: [Attachments]
+      operationId: updateAttachmentMetadata
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
+      description: |
+        The bytes, the filename, the checksum and the scan state are NOT patchable here —
+        they are what arrived, and a surface that let a human edit them would make the
+        record a description of itself rather than of the file.
+
+        NOT version-guarded, and deliberately so: an attachment carries no version column,
+        so there is no value a client could have last seen and nothing a precondition could
+        compare against. Advertising `If-Match` here would name a guarantee this record
+        cannot give. Concurrent edits to a document's meaning are last-write-wins, and each
+        one is recorded in the audit trail.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAttachmentMetadataRequest' }
+      responses:
+        '200':
+          description: The document after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attachment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: >-
+            `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a
+            value outside the closed vocabulary.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /attachments/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -9396,6 +9480,136 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
 
 # =============================================================================
+  /organizations/{id}/profile-fields/{field}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/ProfileFieldKey'
+    patch:
+      tags: [Organizations]
+      operationId: updateOrganizationProfileField
+      summary: Correct a profile field — the canonical value changes, the machine's proposal survives.
+      description: |
+        DOSS-WIRE-4 / PO-AC-N-1. Where the field maps to a column on `organization`, THE COLUMN IS
+        WHAT CHANGES; the sidecar keeps the machine's proposal, excerpt, source URL and confidence in
+        history rather than overwriting them (PO-AC-N-2). A correction that changed only the sidecar
+        would be a lie about having been accepted. Provenance flips to `human` with the acting
+        principal and the timestamp; the whole thing commits as one mutation with its audit entry and
+        its outboxed event.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrganizationProfileFieldRequest' }
+      responses:
+        '200':
+          description: The corrected profile field.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfileField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/profile-fields/{field}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/ProfileFieldKey'
+    post:
+      tags: [Organizations]
+      operationId: confirmOrganizationProfileField
+      summary: Confirm a profile field without changing its value.
+      description: |
+        The same act as a correction, minus the value change (PO-AC-N-3): `verified_at` and
+        `verified_by` are stamped and the field moves from extracted to confirmed. Version-guarded
+        like the correction, so two readers confirming a field one of them has since corrected do not
+        silently overwrite each other.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The confirmed profile field.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfileField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/facts/{factKey}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/FactKey'
+    patch:
+      tags: [Organizations]
+      operationId: updateOrganizationFact
+      summary: Correct an extracted fact.
+      description: |
+        DOSS-WIRE-4. The correction path the fact store never had — without it the page can render a
+        "confirmed" state nothing is able to produce. Same guarantees as the profile-field
+        correction: canonical value first, machine proposal preserved in history, provenance flipped
+        to `human`, one transaction carrying the row, the audit entry and the event.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrganizationFactRequest' }
+      responses:
+        '200':
+          description: The corrected fact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationFact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/facts/{factKey}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/FactKey'
+    post:
+      tags: [Organizations]
+      operationId: confirmOrganizationFact
+      summary: Confirm an extracted fact without changing its value.
+      description: |
+        Stamps `verified_at` + `verified_by` and moves the fact from extracted to confirmed
+        (PO-AC-N-3). Version-guarded.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The confirmed fact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationFact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
 components:
 
   securitySchemes:
@@ -9426,6 +9640,23 @@ components:
 
   # --------------------------- shared parameters ----------------------------
   parameters:
+    ProfileFieldKey:
+      name: field
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history]
+      description: The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries.
+    FactKey:
+      name: factKey
+      in: path
+      required: true
+      schema: { type: string }
+      description: |
+        One fact's identity within its organization, spelled `<field>:<value_key>` (e.g.
+        `named_customer:acme-inc`). A fact is multi-valued, so `field` alone does not name a row and
+        `value_key` alone is only unique within a field.
     CaptureProvider:
       name: provider
       in: path
@@ -9686,6 +9917,25 @@ components:
 
   # ------------------------------- schemas ----------------------------------
   schemas:
+    UpdateOrganizationProfileFieldRequest:
+      type: object
+      description: 'A human correction. The canonical store changes; the machine''s proposal and its evidence survive in history (PO-AC-N-1/N-2).'
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          description: >-
+            The corrected value. Where this field maps to a column on `organization`,
+            the COLUMN is what changes — a correction the header ignores is not a
+            correction (PO-AC-N-1).
+
+    UpdateOrganizationFactRequest:
+      type: object
+      description: The correction path the fact store never had — without it the page can render a confirmed state nothing is able to produce.
+      required: [value]
+      properties:
+        value: { type: string, minLength: 1 }
 
     # ---- rates & costs (admin/ops-only effective-dated price sheets) ----
     RefreshAccepted:
@@ -9707,6 +9957,15 @@ components:
       type: object
       required: [data]
       properties:
+        base_currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          readOnly: true
+          description: >-
+            The workspace's base currency — every rate in `data` converts TO this
+            (AAD-PARAM-N-1, ADR-0085). Served from the workspace itself rather than
+            inferred from the first rate row, so a workspace that has entered no rates
+            can still state its own base.
         data: { type: array, items: { $ref: '#/components/schemas/FxRate' } }
     SetFxRateRequest:
       type: object
@@ -10981,6 +11240,14 @@ components:
       description: A company. Mirrors the `organization` table.
       required: [id, workspace_id, display_name, source, captured_by, created_at, updated_at]
       properties:
+        linkedin_url:
+          type: [string, 'null']
+          description: Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A validated column rather than a governed custom field, because it bears identity semantics — matching, dedupe, enrichment — a custom field cannot express. Unique among live rows.
+          pattern: '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
+        website_url:
+          type: [string, 'null']
+          readOnly: true
+          description: The company's readable website, DERIVED from its primary domain row. There is deliberately no website column — a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write.
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
         display_name: { type: string }
@@ -11098,6 +11365,10 @@ components:
     UpdateOrganizationRequest:
       type: object
       properties:
+        linkedin_url:
+          type: [string, 'null']
+          description: Canonical LinkedIn company URL. Null clears it. website_url is derived and refused here.
+          pattern: '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
         industry: { type: [string, 'null'] }
@@ -11426,6 +11697,57 @@ components:
             Consent state keyed by purpose key — per purpose, never one boolean. A purpose
             the person has no row for reads `unknown`, which is default-deny for outbound,
             not "not applicable".
+        routes:
+          $ref: '#/components/schemas/Organization360ContactRoutes'
+
+    Organization360ContactRoutes:
+      type: object
+      description: |
+        Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
+
+        The company page answers this per CONTACT rather than as a contact x
+        every-colleague matrix: a forty-person sales team makes the matrix unreadable, and
+        the reader's question is never "show me all the pairs" but "who should make this
+        call". So each contact carries the few colleagues worth naming and a count of the
+        rest.
+
+        Only live members are named — recommending an intro from someone who has left is
+        advice nobody can take. Their historical messages still count on the timeline; the
+        person is gone, what happened is not.
+      required: [top, remainder, untried]
+      properties:
+        top:
+          type: array
+          maxItems: 3
+          description: The strongest routes, ordered by the per-colleague relationship projection.
+          items: { $ref: '#/components/schemas/Organization360Route' }
+        remainder:
+          type: integer
+          minimum: 0
+          description: How many further colleagues have a recorded exchange with this contact, beyond `top`.
+        untried:
+          type: boolean
+          description: >-
+            True when nobody on our side has a recorded exchange with this contact. NOT the
+            same claim as a cold relationship: "untried" says we never reached out, "cold"
+            says we did and it went nowhere, and a page that renders them alike tells a rep
+            an account is unreachable when nobody has tried.
+
+    Organization360Route:
+      type: object
+      description: One colleague who has actually exchanged messages with this contact.
+      required: [user_id, display_name, strength_bucket]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        strength_bucket:
+          type: string
+          enum: [strong, developing, cold]
+          description: The band, never the number — the score is a decayed count, and showing it invites a precision it does not have.
+        last_interaction_at:
+          type: [string, 'null']
+          format: date-time
+
 
     Organization360DealRole:
       type: object
@@ -11478,6 +11800,49 @@ components:
         assignee_id: { type: [string, 'null'], format: uuid }
         linked_deal_id: { type: [string, 'null'], format: uuid }
         linked_person_id: { type: [string, 'null'], format: uuid }
+
+    Organization360NextMeeting:
+      type: object
+      description: |
+        The next meeting with this account that has not happened yet, and who is in it.
+
+        It is a FACT, not a suggestion: a meeting is on the calendar or it is not, and the
+        page states which.
+
+        TWO REASONS THIS IS ABSENT, and `sections_omitted` is what tells them apart —
+        read it, never the field alone:
+
+          * absent AND named in `sections_omitted` — the caller has no activity grant.
+            A fact about the READER.
+          * absent and NOT named — the grant is held and nothing is scheduled. A fact
+            about the ACCOUNT, and the one a rep acts on.
+
+        A client that treats a missing field as "no meeting" tells someone with no
+        calendar access to book one that already exists.
+
+        Participants carry only the people this caller can already read. A meeting reachable
+        through a visible contact must not disclose the colleague's other attendees.
+      required: [activity_id, starts_at, subject, participants]
+      properties:
+        activity_id: { type: string, format: uuid }
+        starts_at: { type: string, format: date-time }
+        subject: { type: string }
+        linked_deal_id:
+          type: [string, 'null']
+          format: uuid
+          description: The deal this meeting is filed against, when the caller may read it.
+        participants:
+          type: array
+          description: The attendees on file, row-scoped. Empty is honest — a meeting can be booked before anyone is linked to it.
+          items: { $ref: '#/components/schemas/Organization360MeetingParticipant' }
+
+    Organization360MeetingParticipant:
+      type: object
+      description: One attendee of the next meeting, named only when the caller may read them.
+      required: [person_id, display_name]
+      properties:
+        person_id: { type: string, format: uuid }
+        display_name: { type: string }
 
     Organization360Suggestion:
       type: object
@@ -11600,6 +11965,8 @@ components:
             mailed a fortnight ago with no reply is not the same as one that just wrote to us.
         state_strip:
           $ref: '#/components/schemas/Organization360StateStrip'
+        next_meeting:
+          $ref: '#/components/schemas/Organization360NextMeeting'
         health:
           $ref: '#/components/schemas/Organization360Health'
         sections_omitted:
@@ -11607,7 +11974,7 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health]
+            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health, next_meeting]
         people:
           type: object
           required: [data, page]
@@ -12958,6 +13325,18 @@ components:
         data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
+    UpdateAttachmentMetadataRequest:
+      type: object
+      description: |
+        A sparse patch. An absent field is untouched; `title` and `supersedes_id` accept
+        null to clear, because clearing either is an edit a human makes deliberately.
+      properties:
+        category: { type: string, enum: [contract, offer, legal, email_attachment, other] }
+        title: { type: [string, 'null'] }
+        doc_state: { type: string, enum: [draft, current, final, superseded] }
+        pinned: { type: boolean }
+        supersedes_id: { type: [string, 'null'], format: uuid }
+
     Attachment:
       type: object
       description: |
@@ -12974,6 +13353,36 @@ components:
         content_type: { type: [string, 'null'] }
         byte_size: { type: [integer, 'null'], format: int64 }
         checksum: { type: [string, 'null'], description: 'sha256 of the bytes, for integrity/dedupe.' }
+        category:
+          type: string
+          enum: [contract, offer, legal, email_attachment, other]
+          description: What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+        title:
+          type: [string, 'null']
+          description: A display name distinct from the filename — what a reader looks for, rather than what arrived.
+        doc_state:
+          type: string
+          enum: [draft, current, final, superseded]
+          description: >-
+            ASSERTED, never inferred. A human or the producing source sets it. Nothing
+            derives currency from the newest upload date or a filename containing "final":
+            the most recent upload is very often a draft, and an inference would be a
+            confident wrong answer to the exact question this field exists to answer.
+        pinned:
+          type: boolean
+          description: Held at the top of the account's library. An assertion by a human, like the state.
+        supersedes_id:
+          type: [string, 'null']
+          format: uuid
+          description: The document this one replaces. Refused when it would close a cycle.
+        organization_id:
+          type: [string, 'null']
+          format: uuid
+          readOnly: true
+          description: >-
+            The account this file rolls up to — a READ PATH, not a second parent. Visibility
+            stays the primary parent's, and this is maintained on relink and merge so a file
+            follows the record it belongs to.
         scan_status:
           type: string
           enum: [scanning, clean, blocked]
@@ -14625,6 +15034,18 @@ components:
       type: object
       required: [field, value, source, captured_by, updated_at]
       properties:
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
+        verified_at:
+          type: [string, 'null']
+          format: date-time
+          description: When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
+        verified_by:
+          type: [string, 'null']
+          readOnly: true
+          description: The human who confirmed the claim. Server-stamped, never accepted from a request body.
         field: { type: string, enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history] }
         value: { type: string }
         source: { type: string, enum: [human, site_read, connector, migration] }
@@ -14638,6 +15059,18 @@ components:
       type: object
       required: [id, category, field, value, value_key, source, captured_by, updated_at]
       properties:
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
+        verified_at:
+          type: [string, 'null']
+          format: date-time
+          description: When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
+        verified_by:
+          type: [string, 'null']
+          readOnly: true
+          description: The human who confirmed the claim. Server-stamped, never accepted from a request body.
         id:
           type: string
           format: uuid

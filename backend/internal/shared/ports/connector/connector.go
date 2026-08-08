@@ -300,6 +300,44 @@ type EmailSender interface {
 	SendEmail(ctx context.Context, auth Auth, msg EmailMessage) (SendReceipt, error)
 }
 
+// AttachmentCarrier is how a sending connector declares whether it can transmit
+// files (ADR-0086/A131).
+//
+// THERE IS NO DEFAULT, and that is the whole design. The obvious way to add
+// attachments — put a files field on the message, teach the mail adapter
+// multipart, let the others ignore it — compiles everywhere and silently
+// transmits the covering text without the file. The sender sees a timeline entry
+// with an attachment chip, because the timeline records what was STAGED; the
+// recipient sees a message referring to a file that is not there; nobody is
+// told. That failure is silent, invisible at the call site, and permanent,
+// because the record of what was sent is now wrong.
+//
+// So a sender that does not implement this seam is treated as carrying nothing,
+// and a staged message with files PARKS rather than going out stripped. An
+// adapter that gains the ability declares it here; one that never had it needs
+// no change and cannot be mistaken for capable.
+type AttachmentCarrier interface {
+	// CarriesAttachments reports whether this connector's provider transmits
+	// files alongside the message body.
+	CarriesAttachments() bool
+}
+
+// OutboundFile is one file to transmit, in provider-neutral form. The connector
+// owns the wire encoding, exactly as it does for the body.
+//
+// The identifying fields travel WITH the bytes rather than being looked up at
+// send time, because the outbound record snapshots them: archiving or
+// superseding a document later must not rewrite the history of what was attached
+// to a message that already went out.
+type OutboundFile struct {
+	AttachmentID string
+	Filename     string
+	ContentType  string
+	ByteSize     int64
+	Checksum     string
+	Body         []byte
+}
+
 // EmailMessage is one message to transmit, in provider-NEUTRAL form. The
 // connector owns the wire encoding — Gmail takes base64url RFC822, Graph takes
 // JSON — so no caller ever builds MIME. It is the mirror of Normalize, which
@@ -333,6 +371,17 @@ type EmailMessage struct {
 	// Attempt is 0 on the first transmission and increments on every retry. It is
 	// how a connector knows to run the prior-send lookup the contract requires.
 	Attempt int
+
+	// Files are the attachments this message carries. A connector handed a
+	// non-empty set has already been asked whether it carries attachments — the
+	// dispatcher parks otherwise — so reaching here with files means transmitting
+	// them.
+	//
+	// THE INVARIANT, stated where an implementer reads it: no adapter may
+	// transmit a message whose attachment set differs from the one it was
+	// handed. Not a subset, not converted to links, not silently dropped. If it
+	// cannot send all of them it returns an error and the delivery parks.
+	Files []OutboundFile
 }
 
 // ErrInvalidMessageID marks an outbound message carrying no usable RFC822

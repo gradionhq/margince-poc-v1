@@ -80,6 +80,11 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 		comms.NewStore(e.Pool, time.Now, activities.NewStore(e.Pool)),
 		refusingMailbox{t: t},
 		nil,
+		// The erasure kill-switch refuses before any gate reads a file, so the
+		// attachment authority is deliberately absent: wiring one would prove
+		// nothing here and would hide a regression that let the send get far
+		// enough to ask about attachments at all.
+		nil,
 		consent.NewGate(consent.NewStore(e.Pool)),
 		nil, time.Now, 24*time.Hour, 10,
 	)

@@ -170,3 +170,78 @@ func writeAttachmentErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	writeStoreErr(w, r, err)
 }
+
+// ListOrganizationDocuments serves the account's document library. Every row is
+// scoped through its own primary parent, so a file on a record the caller
+// cannot read contributes neither a row nor a count (DOC-WIRE-1).
+func (h Handlers) ListOrganizationDocuments(w http.ResponseWriter, r *http.Request,
+	id crmcontracts.Id, params crmcontracts.ListOrganizationDocumentsParams,
+) {
+	in := DocumentFilters{
+		PinnedOnly: params.PinnedOnly != nil && *params.PinnedOnly,
+	}
+	if params.Cursor != nil {
+		c := string(*params.Cursor)
+		in.Cursor = &c
+	}
+	if params.Limit != nil {
+		l := int(*params.Limit)
+		in.Limit = &l
+	}
+	if params.Category != nil {
+		c := string(*params.Category)
+		in.Category = &c
+	}
+	if params.DocState != nil {
+		s := string(*params.DocState)
+		in.DocState = &s
+	}
+	docs, page, err := h.store.ListOrganizationDocuments(r.Context(), ids.UUID(id), in)
+	if err != nil {
+		writeAttachmentErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK,
+		crmcontracts.AttachmentListResponse{Data: docs, Page: pageInfo(page)})
+}
+
+// UpdateAttachmentMetadata sets what a document means: its category, its display
+// title, its lifecycle state, its pin and what it replaces (DOC-WIRE-2).
+func (h Handlers) UpdateAttachmentMetadata(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	var req crmcontracts.UpdateAttachmentMetadataRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	var in DocumentMetadata
+	if req.Category != nil {
+		c := string(*req.Category)
+		in.Category = &c
+	}
+	if req.DocState != nil {
+		s := string(*req.DocState)
+		in.DocState = &s
+	}
+	in.Pinned = req.Pinned
+	// A JSON null is an EDIT — "this document replaces nothing after all" — and
+	// an absent field is not. openapi's nullable pointer collapses the two, so
+	// the raw body decides which one arrived.
+	if raw, present := httperr.PresentField(r, "title"); present {
+		in.ClearTitle = raw == nil
+		if raw != nil {
+			in.Title = req.Title
+		}
+	}
+	if raw, present := httperr.PresentField(r, "supersedes_id"); present {
+		in.ClearSupersedes = raw == nil
+		if raw != nil && req.SupersedesId != nil {
+			target := ids.UUID(*req.SupersedesId)
+			in.Supersedes = &target
+		}
+	}
+	out, err := h.store.UpdateAttachmentMetadata(r.Context(), ids.UUID(id), in)
+	if err != nil {
+		writeAttachmentErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, out)
+}

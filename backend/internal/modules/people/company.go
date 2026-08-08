@@ -61,11 +61,12 @@ const (
 )
 
 const (
-	actionUpdate      = "update"
-	auditKeyFields    = "fields"
-	auditKeySource    = "source"
-	auditKeySourceURL = "source_url"
-	eventKeyDelta     = "delta"
+	actionUpdate       = "update"
+	auditKeyFields     = "fields"
+	auditKeySource     = "source"
+	auditKeyCapturedBy = "captured_by"
+	auditKeySourceURL  = "source_url"
+	eventKeyDelta      = "delta"
 )
 
 // companyField is one field of the company form: its name, and — when the

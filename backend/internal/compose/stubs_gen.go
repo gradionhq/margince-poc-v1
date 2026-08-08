@@ -147,6 +147,10 @@ func (stubs) AcceptAttachmentExtraction(w nethttp.ResponseWriter, r *nethttp.Req
 	httperr.NotImplemented(w, r, "AcceptAttachmentExtraction")
 }
 
+func (stubs) UpdateAttachmentMetadata(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "UpdateAttachmentMetadata")
+}
+
 func (stubs) RequestAttachmentAccess(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "RequestAttachmentAccess")
 }
@@ -691,12 +695,24 @@ func (stubs) DeepReadCompany(w nethttp.ResponseWriter, r *nethttp.Request, id cr
 	httperr.NotImplemented(w, r, "DeepReadCompany")
 }
 
+func (stubs) ListOrganizationDocuments(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListOrganizationDocumentsParams) {
+	httperr.NotImplemented(w, r, "ListOrganizationDocuments")
+}
+
 func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ScrapeCompany")
 }
 
 func (stubs) ListOrganizationFacts(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ListOrganizationFacts")
+}
+
+func (stubs) UpdateOrganizationFact(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, factKey crmcontracts.FactKey, params crmcontracts.UpdateOrganizationFactParams) {
+	httperr.NotImplemented(w, r, "UpdateOrganizationFact")
+}
+
+func (stubs) ConfirmOrganizationFact(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, factKey crmcontracts.FactKey, params crmcontracts.ConfirmOrganizationFactParams) {
+	httperr.NotImplemented(w, r, "ConfirmOrganizationFact")
 }
 
 func (stubs) GetOrganizationGraph(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
@@ -725,6 +741,14 @@ func (stubs) UpsertPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 
 func (stubs) ListOrganizationProfileFields(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ListOrganizationProfileFields")
+}
+
+func (stubs) UpdateOrganizationProfileField(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, field crmcontracts.ProfileFieldKey, params crmcontracts.UpdateOrganizationProfileFieldParams) {
+	httperr.NotImplemented(w, r, "UpdateOrganizationProfileField")
+}
+
+func (stubs) ConfirmOrganizationProfileField(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, field crmcontracts.ProfileFieldKey, params crmcontracts.ConfirmOrganizationProfileFieldParams) {
+	httperr.NotImplemented(w, r, "ConfirmOrganizationProfileField")
 }
 
 func (stubs) GetSiteRead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, readId openapi_types.UUID) {

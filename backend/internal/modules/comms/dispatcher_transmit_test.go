@@ -380,7 +380,7 @@ func TestDispatchDefaultsAnUnconfiguredLadderBound(t *testing.T) {
 			store := &fakeStore{delivery: liveDelivery()}
 			store.delivery.Attempts = tc.attempts
 			d := NewDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
-				liveSeat(), &stubConsent{}, nil, func() time.Time { return testNow }, time.Hour, 0)
+				liveSeat(), nil, &stubConsent{}, nil, func() time.Time { return testNow }, time.Hour, 0)
 
 			got, err := dispatch(context.Background(), d, store.delivery.ID)
 			if err != nil {

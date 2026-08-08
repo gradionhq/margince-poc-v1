@@ -310,6 +310,14 @@ func attachOrgDomains(ctx context.Context, tx pgx.Tx, orgs []crmcontracts.Organi
 			o.Domains = &[]crmcontracts.OrganizationDomain{}
 		}
 		*o.Domains = append(*o.Domains, d)
+		// website_url is DERIVED, never stored (ADR-0085): the primary domain
+		// row is the canonical fact and a second column for it would be the
+		// duplication that decision closes. The query already orders primary
+		// first, so the first row for an organization is the one to render.
+		if o.WebsiteUrl == nil && d.IsPrimary {
+			website := "https://" + d.Domain
+			o.WebsiteUrl = &website
+		}
 	}
 	return rows.Err()
 }

@@ -32,6 +32,7 @@ import {
   reachOf,
   roleLabelKey,
 } from "./coverage";
+import { CoverageExplorer } from "./coverageexplorer";
 import { EntityRef } from "./entityref";
 
 // The company view's data layer and its right-rail cards.
@@ -387,7 +388,7 @@ export function SectionCard({
 // one: it capped its contact ring, or it withheld groups the caller may not
 // read. Either way the routes below it are a subset, and both the empty answer
 // and the found-someone answer have to say so.
-function incompleteGraph(graph: {
+export function incompleteGraph(graph: {
   groups_omitted?: unknown[];
   dropped_count?: number;
 }): boolean {
@@ -444,6 +445,14 @@ export function PeopleCard({
         contacts.length,
       )}
       emptyLabel={t("co.people.empty")}
+      // The per-row coverage says who to call. The explorer answers the other
+      // question — where are we thin — for a handful of colleagues the reader
+      // picks, rather than a column per person on a forty-strong team.
+      actions={
+        orgId && contacts.length > 0 ? (
+          <CoverageExplorer orgId={orgId} contacts={contacts} />
+        ) : undefined
+      }
     >
       {/* The per-contact chips read as all-time claims — "Not approached"
           above a timeline showing last year's outbound email is the page
@@ -723,6 +732,10 @@ function ContactRow({
             </Badge>
           );
         })}
+        {/* Who here can actually reach them, inline rather than a click away.
+            A forty-person team makes a contact x colleague matrix unreadable,
+            so the row names the few worth naming and counts the rest. */}
+        <ContactRoutes routes={contact.routes} />
         <ConsentChip consent={contact.consent} />
         {/* The page said "nobody here is your champion" and gave no way to
             say who is: the roles are set on the deal screen, which is a
@@ -731,6 +744,46 @@ function ContactRow({
         {orgId && <RouteInAction orgId={orgId} contact={contact} />}
       </span>
     </li>
+  );
+}
+
+// The strongest few colleagues who have actually exchanged messages with this
+// contact, and how many more there are.
+//
+// UNTRIED IS NOT COLD, and the distinction is the whole reason this renders a
+// sentence rather than an empty space: "nobody has tried" tells a rep to pick up
+// the phone, where a cold band tells them somebody already did and got nowhere.
+// A page that shows the same thing for both gives the opposite instruction half
+// the time.
+function ContactRoutes({ routes }: Readonly<{ routes?: Contact["routes"] }>) {
+  const t = useT();
+  // Absent, not empty: the caller has no roster grant, so naming a colleague is
+  // a read they may not make. Silence is the honest answer — an "untried" badge
+  // here would be a claim about the account rather than about the reader.
+  if (!routes) {
+    return null;
+  }
+  if (routes.untried) {
+    return <Badge>{t("co.routes.untried")}</Badge>;
+  }
+  return (
+    <span className="co-routes">
+      {routes.top.map((route) => (
+        <Badge
+          key={route.user_id}
+          tone={route.strength_bucket === "strong" ? "success" : undefined}
+        >
+          {route.display_name}
+        </Badge>
+      ))}
+      {routes.remainder > 0 && (
+        // The count, not a silent truncation: three names with nothing after
+        // them reads as "these are the only three".
+        <span className="t-caption">
+          {t("co.routes.more", { count: routes.remainder })}
+        </span>
+      )}
+    </span>
   );
 }
 

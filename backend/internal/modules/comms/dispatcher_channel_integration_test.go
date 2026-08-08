@@ -98,7 +98,7 @@ const channelLadder = 5
 func (e *storeEnv) channelDispatcher(channel *fakeChannelSender, mail *fakeSender, consent ConsentGate) *Dispatcher {
 	return NewDispatcher(e.store,
 		fakeResolver{sender: mail, channel: channel, granted: []string{sendScope}},
-		liveSeat(), consent, nil,
+		liveSeat(), nil, consent, nil,
 		func() time.Time { return e.clockValue }, time.Hour, channelLadder)
 }
 

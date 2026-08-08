@@ -182,6 +182,7 @@ func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID, stampAs s
 		comms.NewStore(p.Pool, time.Now, activities.NewStore(p.Pool)),
 		stubMailbox{sender: gmailConnector, auth: auth},
 		compose.NewSendSeatAuthority(p.Pool),
+		compose.NewSendAttachmentAuthority(p.Pool),
 		consent.NewGate(consent.NewStore(p.Pool)),
 		nil, time.Now, 24*time.Hour, 10,
 	)

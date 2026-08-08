@@ -426,9 +426,8 @@ func AgentWithOrgRead(e *Env) context.Context {
 	})
 }
 
-// SchedulerPerms is the booking write's caller: the person grant it reads and
-// the activity grant it writes, and nothing else — not a superset of RepPerms,
-// which also holds deal and pipeline. Row scope stays team.
+// SchedulerPerms is RepPerms plus the activity grant the booking write
+// needs; row scope stays team.
 var SchedulerPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{

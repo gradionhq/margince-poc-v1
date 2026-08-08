@@ -135,3 +135,11 @@ var (
 	ErrOverlayFlipBlocked        = errors.New("overlay flip preflight unsatisfied")
 	ErrIncumbentBudgetExhausted  = errors.New("incumbent API budget exhausted")
 )
+
+// ErrBaseCurrencyLocked is the currency-substrate sentinel (interfaces.md §0,
+// A130/ADR-0085). Every closed
+// deal freezes a conversion rate AGAINST the workspace base currency, so once
+// one exists the base can no longer change without silently reinterpreting what
+// those deals were worth. Distinct from ErrVersionSkew, which means somebody
+// else changed the row, and from ErrPermissionDenied, which means you may never.
+var ErrBaseCurrencyLocked = errors.New("base currency is locked by frozen conversion rates")
