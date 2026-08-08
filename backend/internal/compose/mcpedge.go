@@ -97,8 +97,17 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slo
 		// the custom-field half rides the same fieldcatalog seam every record
 		// store does, so a workspace's own columns are askable without this
 		// edge knowing anything about them.
+		//
+		// The schema reader is what keeps the published vocabulary honest: a
+		// field the contract declares and no table holds is not askable, so
+		// what this document advertises is what a plan can be answered from.
+		// Without it the vocabulary is the contract's, which is WIDER — and a
+		// wider vocabulary published here would refuse at execution what it
+		// advertised at discovery.
 		agents.WithResourceProvider(search.NewQuerySchemaResource(
-			search.NewVocabularyResolver().WithFieldCatalog(customfields.NewService(pool, nil)))))
+			search.NewVocabularyResolver().
+				WithFieldCatalog(customfields.NewService(pool, nil)).
+				WithColumnReader(search.NewColumnCatalog(pool)))))
 }
 
 // mcpAuthenticate binds one request to its agent principal. It runs on EVERY

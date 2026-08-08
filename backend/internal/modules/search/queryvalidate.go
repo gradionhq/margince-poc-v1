@@ -20,6 +20,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -35,6 +36,12 @@ type ValidatedPlan struct {
 	// than re-deriving it from the plan's text.
 	Target TargetVocabulary
 	Hop    *Relation
+	// HopVocabulary is the vocabulary the hop's own predicates were checked
+	// against. It rides along for the same reason Target does: the executor
+	// binds a hop operand under the kind the field was ADMITTED with, rather
+	// than resolving the same name a second time and trusting two passes to
+	// agree.
+	HopVocabulary TargetVocabulary
 	// Limit is the effective page size: the plan's, or the contract default
 	// when it named none.
 	Limit int
@@ -98,6 +105,7 @@ func (v *PlanValidator) Validate(ctx context.Context, plan Plan) (ValidatedPlan,
 
 	validated := ValidatedPlan{Plan: plan, Target: target}
 	var refusals []apperrors.FieldRefusal
+	refusals = append(refusals, checkSimilarity(plan.SimilarTo)...)
 	refusals = append(refusals, checkPredicates(target, "where", plan.Where, &validated)...)
 	refusals = append(refusals, v.checkTraversal(vocab, plan.Traverse, &validated)...)
 	limit, limitRefusal := effectiveLimit(plan.Limit)
@@ -108,6 +116,21 @@ func (v *PlanValidator) Validate(ctx context.Context, plan Plan) (ValidatedPlan,
 		return ValidatedPlan{}, &PlanRefusal{Refusals: refusals}
 	}
 	return validated, nil
+}
+
+// checkSimilarity refuses a similarity clause that says nothing. Whitespace is
+// PRESENT to the grammar and empty to the retriever, and the retriever's own
+// refusal names the search endpoint's `q` — a field this plan does not have,
+// pointing a caller at something they never sent. Absent means "rank nothing",
+// which is a different and perfectly good plan.
+func checkSimilarity(similarTo string) []apperrors.FieldRefusal {
+	if similarTo == "" || strings.TrimSpace(similarTo) != "" {
+		return nil
+	}
+	return []apperrors.FieldRefusal{{
+		Field: "similar_to", Code: CodeValueMissing,
+		Message: "the similarity clause is blank; give it something to rank against, or omit it",
+	}}
 }
 
 // hopTarget names the record type a traversal lands on, so Resolve reads that
@@ -157,6 +180,7 @@ func (v *PlanValidator) checkTraversal(vocab Vocabulary, hop *Traversal, into *V
 		return unknownRelation(into.Target.Target, hop.Relation)
 	}
 	into.Hop = &relation
+	into.HopVocabulary = hopVocab
 	return checkPredicates(hopVocab, "traverse.where", hop.Where, into)
 }
 

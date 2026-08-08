@@ -157,7 +157,7 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identit
 
 		var branches []string
 		for _, branch := range searchBranches {
-			scope, admitted, err := branchScope(ctx, branch, arg)
+			scope, admitted, err := branchScope(ctx, branch, "t", arg)
 			if err != nil {
 				return err
 			}

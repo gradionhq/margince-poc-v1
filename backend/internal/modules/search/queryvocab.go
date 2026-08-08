@@ -173,6 +173,7 @@ func (v Vocabulary) TargetNames() []string {
 // a cached vocabulary would keep answering with the surface as it was.
 type VocabularyResolver struct {
 	catalog fieldcatalog.Reader
+	columns ColumnReader
 }
 
 // NewVocabularyResolver builds a resolver over the core contract fields
@@ -186,6 +187,15 @@ func (r *VocabularyResolver) WithFieldCatalog(catalog fieldcatalog.Reader) *Voca
 	return r
 }
 
+// WithColumnReader wires the storage half: what the record's own table can
+// actually answer (querystorage.go). Without it the vocabulary is the
+// contract's — WIDER, never narrower, so an unwired resolver cannot publish
+// less than it admits.
+func (r *VocabularyResolver) WithColumnReader(columns ColumnReader) *VocabularyResolver {
+	r.columns = columns
+	return r
+}
+
 // Resolve composes the vocabulary for the caller bound to ctx, restricted to
 // the named record types (all of them when none are named, which is what the
 // published document asks for).
@@ -195,6 +205,11 @@ func (r *VocabularyResolver) WithFieldCatalog(catalog fieldcatalog.Reader) *Voca
 // two catalog reads rather than one per searchable entity.
 func (r *VocabularyResolver) Resolve(ctx context.Context, targets ...string) (Vocabulary, error) {
 	vocab := Vocabulary{Version: PlanVersion}
+	// One schema read per table per resolve. An inverse hop is derived from
+	// the REFERRING record's column, so composing one record type's vocabulary
+	// asks about several tables; without the memo the published document would
+	// re-read each of them once per target it lists.
+	schema := newSchemaReads(r.columns)
 	for _, branch := range searchBranches {
 		if len(targets) > 0 && !slices.Contains(targets, branch.entity) {
 			continue
@@ -202,7 +217,7 @@ func (r *VocabularyResolver) Resolve(ctx context.Context, targets ...string) (Vo
 		if auth.Require(ctx, branch.entity, principal.ActionRead) != nil {
 			continue
 		}
-		target, err := r.resolveTarget(ctx, branch.entity)
+		target, err := r.resolveTarget(ctx, schema, branch.entity)
 		if err != nil {
 			return Vocabulary{}, err
 		}
@@ -213,7 +228,7 @@ func (r *VocabularyResolver) Resolve(ctx context.Context, targets ...string) (Vo
 
 // resolveTarget composes one record type's vocabulary from its contract
 // fields, its live custom columns and its derived relations.
-func (r *VocabularyResolver) resolveTarget(ctx context.Context, entity string) (TargetVocabulary, error) {
+func (r *VocabularyResolver) resolveTarget(ctx context.Context, schema *schemaReads, entity string) (TargetVocabulary, error) {
 	record, ok := contractRecords[entity]
 	if !ok {
 		// A searchable entity with no contract binding is a wiring defect,
@@ -227,13 +242,50 @@ func (r *VocabularyResolver) resolveTarget(ctx context.Context, entity string) (
 		return TargetVocabulary{}, err
 	}
 	fields = append(fields, custom...)
+	// The storage filter runs before the relations are derived, so a hop is
+	// only ever derived from a reference the table really holds.
+	stored, err := schema.of(ctx, entity)
+	if err != nil {
+		return TargetVocabulary{}, err
+	}
+	fields = slices.DeleteFunc(fields, func(f Field) bool { return !stored.answers(f) })
 	slices.SortFunc(fields, func(a, b Field) int { return strings.Compare(a.Name, b.Name) })
 
-	relations := append(contractRelations(entity, fields), inverseRelations(entity)...)
+	inverse, err := storedInverseRelations(ctx, schema, entity)
+	if err != nil {
+		return TargetVocabulary{}, err
+	}
+	relations := append(contractRelations(entity, fields), inverse...)
 	relations = r.admittedRelations(ctx, relations)
 	slices.SortFunc(relations, func(a, b Relation) int { return strings.Compare(a.Name, b.Name) })
 
 	return TargetVocabulary{Target: entity, Fields: fields, Relations: relations}, nil
+}
+
+// storedInverseRelations keeps an inverse hop only when the REFERRING table
+// really holds the column the join would run on.
+//
+// The forward direction is already filtered — its reference is one of the
+// target's own fields — but the inverse is derived from another record's
+// contract, and the executor joins on that other table's column. A hop
+// published from a reference no table holds would validate and then fail as a
+// database error, which is the "published but unanswerable" case this whole
+// filter exists to remove, one level up from a field.
+func storedInverseRelations(ctx context.Context, schema *schemaReads, entity string) ([]Relation, error) {
+	var kept []Relation
+	for _, relation := range inverseRelations(entity) {
+		stored, err := schema.of(ctx, relation.Target)
+		if err != nil {
+			return nil, err
+		}
+		// Via is `<referring type>.<column>`; the column is what the join runs
+		// on, and it is an id on the referring record.
+		_, column, _ := strings.Cut(relation.Via, ".")
+		if stored.answers(newField(column, KindID)) {
+			kept = append(kept, relation)
+		}
+	}
+	return kept, nil
 }
 
 // admittedRelations drops the hops that land on a record type this caller may

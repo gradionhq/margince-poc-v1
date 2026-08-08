@@ -78,14 +78,22 @@ type searchBranch struct {
 // branchScope is the ONE admission + row-scope resolution every union
 // branch (lexical and vector alike) runs: object RBAC hides a denied
 // type silently, then the branch carries the caller's scope clause.
-func branchScope(ctx context.Context, branch searchBranch, arg func(any) int) (scope string, admitted bool, err error) {
+//
+// The alias is a PARAMETER because a query plan's traversal reads two
+// record types in one statement — the target as `t`, the hop as `h`. A
+// clause rendered against the wrong alias filters the wrong table, and
+// deciding whether a deal is visible by asking whether the caller may
+// see the deal, when the question was whether they may see the
+// organization behind it, is a visibility rule answering about a
+// different row.
+func branchScope(ctx context.Context, branch searchBranch, alias string, arg func(any) int) (scope string, admitted bool, err error) {
 	if auth.Require(ctx, branch.entity, principal.ActionRead) != nil {
 		return "", false, nil
 	}
 	if branch.activityWalk {
-		scope, err = auth.ActivityScopeClause(ctx, "t", arg)
+		scope, err = auth.ActivityScopeClause(ctx, alias, arg)
 	} else {
-		scope, err = auth.ScopeClauseFor(ctx, branch.entity, "t", arg)
+		scope, err = auth.ScopeClauseFor(ctx, branch.entity, alias, arg)
 	}
 	return scope, true, err
 }
@@ -181,7 +189,7 @@ func admittedBranchSQL(ctx context.Context, types []string, qPos int, arg func(a
 		if !slices.Contains(types, branch.entity) {
 			continue
 		}
-		scope, admitted, err := branchScope(ctx, branch, arg)
+		scope, admitted, err := branchScope(ctx, branch, "t", arg)
 		if err != nil {
 			return nil, err
 		}
