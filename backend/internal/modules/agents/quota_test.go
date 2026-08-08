@@ -407,3 +407,86 @@ func TestAReadOnlyToolIsChargedForItsRecordsAndNotAlsoForTheAct(t *testing.T) {
 		t.Errorf("a read-only answer touched the read counter %d times, want one", charger.times[agentquota.Reads])
 	}
 }
+
+// The SECOND door's charge points, which the REST gate calls because it admits
+// against a tool spec and never invokes this registry. Without them the
+// counters the gate reads on that door are counters nothing pays into, and a
+// credential that never touches /mcp is unbounded.
+func TestTheRestDoorChargesTheSameCountersTheMCPDoorDoes(t *testing.T) {
+	spec := readToolSpec("update_record")
+	spec.RequiredScope = principal.ScopeWrite
+	r, charger, ctx := chargingRegistry(t, &servingTool{spec: spec}, withScope(principal.ScopeWrite))
+
+	if err := r.ChargeAdmittedCall(ctx, spec); err != nil {
+		t.Fatalf("charging an admitted REST call: %v", err)
+	}
+	r.ChargeEffect(ctx, spec)
+
+	if got := charger.charged[agentquota.Calls]; got != 1 {
+		t.Errorf("a REST call spent %d of the call ceiling, want 1", got)
+	}
+	if got := charger.charged[agentquota.Writes]; got != 1 {
+		t.Errorf("a REST mutation spent %d of the write quota, want 1", got)
+	}
+	// And no records: a mutation's own read-back is not this call's to count,
+	// and the REST read path is charged separately and per record.
+	if got := charger.charged[agentquota.Reads]; got != 0 {
+		t.Errorf("a REST mutation spent %d records", got)
+	}
+}
+
+// A REST call the meter cannot COUNT is not run — the same rule the MCP door
+// keeps, at the same moment: after admission, before the handler.
+func TestARestCallThatCannotBeCountedIsRefused(t *testing.T) {
+	spec := readToolSpec("update_record")
+	spec.RequiredScope = principal.ScopeWrite
+	r, _, ctx := chargingRegistry(t, &servingTool{spec: spec}, withScope(principal.ScopeWrite),
+		withChargerErrorOn(agentquota.Calls, errors.New("redis is unreachable")))
+
+	if err := r.ChargeAdmittedCall(ctx, spec); !errors.Is(err, apperrors.ErrBudgetExceeded) {
+		t.Fatalf("an uncountable REST call → %v, want ErrBudgetExceeded", err)
+	}
+}
+
+// A REST EFFECT that cannot be counted is never reported as a failure: by then
+// the handler has answered and the mutation has committed, so an error here
+// would invite the retry of something that already happened.
+func TestARestEffectThatCannotBeCountedIsStillDone(t *testing.T) {
+	spec := readToolSpec("send_email")
+	spec.RequiredScope, spec.Egress = principal.ScopeSend, true
+	r, charger, ctx := chargingRegistry(t, &servingTool{spec: spec}, withScope(principal.ScopeSend),
+		withChargerError(errors.New("redis is unreachable")))
+
+	r.ChargeEffect(ctx, spec) // no error to return, and must not panic
+
+	if got := charger.times[agentquota.Egress]; got != 1 {
+		t.Errorf("the egress charge was attempted %d times", got)
+	}
+}
+
+// A read-only REST call has no ACT to charge beyond the records it served, and
+// those are counted where records leave the surface. Charging one here would
+// meter a GET twice against two different counters.
+func TestARestReadHasNoActToCharge(t *testing.T) {
+	spec := readToolSpec("search_records")
+	r, charger, ctx := chargingRegistry(t, &servingTool{spec: spec})
+
+	r.ChargeEffect(ctx, spec)
+
+	if len(charger.times) != 0 {
+		t.Errorf("a read-only REST call charged %v", charger.times)
+	}
+}
+
+// A registry with no meter charges nothing on that door either, and says so by
+// not failing: the Surface-B runner composes exactly that.
+func TestTheRestChargePointsAreSafeWithNoMeter(t *testing.T) {
+	spec := readToolSpec("update_record")
+	spec.RequiredScope = principal.ScopeWrite
+	r, _, ctx := chargingRegistry(t, &servingTool{spec: spec}, withScope(principal.ScopeWrite), withNoCharger())
+
+	if err := r.ChargeAdmittedCall(ctx, spec); err != nil {
+		t.Fatalf("a registry with no meter refused a REST call: %v", err)
+	}
+	r.ChargeEffect(ctx, spec)
+}

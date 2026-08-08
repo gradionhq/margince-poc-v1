@@ -356,3 +356,31 @@ func TestACounterValueThisMeterDidNotWriteIsAnErrorNotAZero(t *testing.T) {
 		t.Errorf("a written counter read as (%d, %v), want (17, nil)", n, err)
 	}
 }
+
+// The window a caller must pro-rate against. It is exposed because a share of a
+// MONTHLY budget compared against a count over some OTHER span is a comparison
+// of two different things — which is what a caller reaching for the package
+// default instead would produce.
+func TestTheMeterAnswersTheWindowItActuallyCounts(t *testing.T) {
+	if got := New(nil, Limits{}, time.Hour).Window(); got != time.Hour {
+		t.Errorf("Window() = %s, want the configured hour", got)
+	}
+	if got := New(nil, Limits{}, 0).Window(); got != DefaultWindow {
+		t.Errorf("an unusable window answered %s, want the %s default", got, DefaultWindow)
+	}
+}
+
+// The cost ceiling travels with a rebind. compose rebinds the shared pointer
+// from a meter cmd built, and a ceiling that did not come with it would leave
+// the soft counter with no share to judge against — silently, since it refuses
+// nothing.
+func TestRebindingCarriesTheCostCeiling(t *testing.T) {
+	shared := New(nil, Limits{}, DefaultWindow)
+	live := New(nil, Limits{}, DefaultWindow).WithCostCeiling(fixedCeiling(40_000))
+
+	shared.RebindFrom(live)
+
+	if got := shared.Read(agentCtx(t), Cost).Limit; got != 40_000 {
+		t.Errorf("after a rebind the cost share reads %d, want the live 40000", got)
+	}
+}

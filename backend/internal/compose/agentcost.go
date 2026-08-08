@@ -113,12 +113,31 @@ func (c *passportShareCeiling) TokensPerPassport(ctx context.Context) int {
 // divides by one rather than by zero: the answer is then the whole window's
 // share, which is what the next credential to connect would get anyway.
 func (c *passportShareCeiling) compute(ctx context.Context, wsID ids.WorkspaceID) int {
+	if c.budget == nil {
+		// No budget policy composed is no ceiling. Everything about this counter
+		// fails open — it refuses nothing, and its only effect is a sentence —
+		// so the one thing it must never do is take a model call down with it.
+		return 0
+	}
 	monthly, err := c.budget.MonthlyTokenBudget(ctx, wsID)
 	if err != nil || monthly <= 0 {
 		return 0
 	}
-	live := c.livePassports(ctx)
-	perWindow := float64(monthly) * (c.window.Hours() / (24 * budgetShareWindowDays))
+	return shareOf(monthly, c.livePassports(ctx), c.window)
+}
+
+// shareOf is the arithmetic on its own: a MONTHLY budget pro-rated to one
+// window, split between the credentials sharing it.
+//
+// Separated from the reads around it because the two failure modes are
+// different and only one of them is arithmetic — a wrong divisor is a warning
+// that fires at the wrong volume, and no amount of testing the database access
+// says whether the number is right.
+func shareOf(monthly int64, live int, window time.Duration) int {
+	if monthly <= 0 || live <= 0 || window <= 0 {
+		return 0
+	}
+	perWindow := float64(monthly) * (window.Hours() / (24 * budgetShareWindowDays))
 	return int(perWindow / float64(live))
 }
 
@@ -127,6 +146,12 @@ func (c *passportShareCeiling) compute(ctx context.Context, wsID ids.WorkspaceID
 // ceiling fails open: this counter's only effect is a sentence on an answer.
 func (c *passportShareCeiling) livePassports(ctx context.Context) int {
 	live := 1
+	if c.pool == nil {
+		// Same rule as everywhere else here: a divisor this cannot read is one
+		// credential, the generous answer. A ceiling that refuses nothing must
+		// not be the thing that panics a model call.
+		return live
+	}
 	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
 		var n int
 		if err := tx.QueryRow(ctx,
