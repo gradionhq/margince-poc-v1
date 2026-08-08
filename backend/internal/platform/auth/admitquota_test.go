@@ -138,3 +138,52 @@ func TestAGateWithNoReadBoundDoesNotEnforceOne(t *testing.T) {
 		t.Fatalf("a gate with no read bound refused a read: %v", err)
 	}
 }
+
+// The REST door refuses on the SAME bound the MCP door charges. Without this a
+// Passport could spend its window through /mcp and then keep reading the very
+// same records through /v1 — one credential, two doors, one of them unbounded,
+// which is exactly what ADR-0055 says must not be possible.
+func TestTheRestReadPathRefusesOnTheSameBound(t *testing.T) {
+	gate, bound := boundGate(readmeter.Reading{Observed: 2001, Limit: 2000, Exceeded: true})
+
+	err := gate.AdmitRead(agentCtx(principal.ScopeRead))
+
+	if !errors.Is(err, apperrors.ErrBudgetExceeded) {
+		t.Fatalf("a REST agent read past the bound → %v, want ErrBudgetExceeded", err)
+	}
+	if bound.asked != 1 {
+		t.Errorf("the bound was consulted %d times for one REST read", bound.asked)
+	}
+}
+
+// Under the bound the REST read passes through untouched.
+func TestARestReadUnderTheBoundIsAdmitted(t *testing.T) {
+	gate, _ := boundGate(readmeter.Reading{Observed: 10, Limit: 2000})
+
+	if err := gate.AdmitRead(agentCtx(principal.ScopeRead)); err != nil {
+		t.Fatalf("a REST read under the bound → %v, want admitted", err)
+	}
+}
+
+// A human's REST read is never touched by the agent bound — their authority is
+// RBAC at the store, and a busy agent must not lock its operator out of the UI.
+func TestAHumansRestReadIsNeverRefusedByTheBound(t *testing.T) {
+	gate, bound := boundGate(readmeter.Reading{Observed: 9999, Limit: 2000, Exceeded: true})
+	ctx := principal.WithWorkspaceID(context.Background(), testWorkspace)
+	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalHuman, ID: "human:rep"})
+
+	if err := gate.AdmitRead(ctx); err != nil {
+		t.Fatalf("a human's REST read was refused by the agent bound: %v", err)
+	}
+	if bound.asked != 0 {
+		t.Error("the bound was consulted for a human's REST read")
+	}
+}
+
+// A gate with no bound composed admits, rather than failing closed on a
+// dependency the deployment never declared.
+func TestARestReadOnAGateWithNoBoundIsAdmitted(t *testing.T) {
+	if err := fullSeatGate().AdmitRead(agentCtx(principal.ScopeRead)); err != nil {
+		t.Fatalf("a REST read on a gate with no bound → %v", err)
+	}
+}

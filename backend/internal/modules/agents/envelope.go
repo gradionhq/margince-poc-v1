@@ -291,6 +291,12 @@ func provenanceOf(rec datasource.Record) (source, capturedBy string) {
 // can follow says nothing about how far the row behind it can be trusted. A
 // handler whose answer carries record CONTENT calls noteRecord (it holds the
 // row) or noteDerivedContent (it does not).
+// It CHARGES the read bound, for the same reason noteRecord does: naming a
+// record to an agent is handing that record over. The intent tools answer with
+// ids and derived prose rather than rows, so if only noteRecord charged, the
+// tools that surface the most records per call — the slipping sweep, the
+// coverage reads, the catch-up — would be the cheapest reads on the surface.
+// That is precisely the failure A139 named, one tool family over.
 func noteEvidence(ctx context.Context, recordType datasource.EntityType, id ids.UUID) {
 	facts := factsOn(ctx)
 	if facts == nil || id.IsZero() {
@@ -298,6 +304,7 @@ func noteEvidence(ctx context.Context, recordType datasource.EntityType, id ids.
 	}
 	facts.mu.Lock()
 	defer facts.mu.Unlock()
+	facts.served++
 	facts.addRef(EvidenceRef{RecordType: recordType, RecordID: id})
 }
 

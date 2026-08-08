@@ -224,3 +224,37 @@ func TestARegistryWithNoChargerServesNormally(t *testing.T) {
 		t.Fatalf("a registry with no read charger failed to serve: %v", err)
 	}
 }
+
+// namingTool answers the way the intent tools do — with ids and derived prose
+// rather than rows, through noteEvidence.
+type namingTool struct {
+	spec  mcp.ToolSpec
+	names int
+}
+
+func (n *namingTool) Spec() mcp.ToolSpec { return n.spec }
+
+func (n *namingTool) Handle(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+	noteDerivedContent(ctx)
+	for range n.names {
+		noteEvidence(ctx, "deal", ids.NewV7())
+	}
+	return json.RawMessage(`{}`), nil
+}
+
+// A tool that NAMES records without holding their rows still charges for them.
+// The intent family — the slipping sweep, the coverage reads, the catch-up —
+// answers this way, and each surfaces many records per call. If only the tools
+// that hold rows charged, the ones that surface the most records would be the
+// cheapest reads on the surface: A139's failure, one tool family over.
+func TestAToolThatNamesRecordsChargesForThem(t *testing.T) {
+	r, charger, ctx := chargingRegistry(t, &namingTool{spec: readToolSpec("whats_slipping_this_week"), names: 50})
+
+	if _, err := r.Invoke(ctx, "whats_slipping_this_week", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	if charger.charged != 50 {
+		t.Errorf("a 50-record answer built from named records charged %d", charger.charged)
+	}
+}

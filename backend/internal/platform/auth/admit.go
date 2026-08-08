@@ -173,3 +173,30 @@ func deniedIfGone(what, tool string, err error) error {
 	}
 	return fmt.Errorf("gate: %s: resolving %s: %w", tool, what, err)
 }
+
+// AdmitRead applies the READ QUOTA alone, for a call that has no tool spec to
+// admit against — the ADR-0055 REST surface's non-mutating half.
+//
+// It exists because that path has no tier to resolve and no scope to check
+// against a spec (a GET's authority is the granting human's RBAC at the store),
+// but it does spend the same bound. Without it a Passport that tripped the
+// counter through the MCP door could keep reading the very same records through
+// /v1 — one credential, two doors, one of them unbounded. ADR-0055's whole
+// claim is that those two doors are governed alike.
+//
+// Non-agents are admitted untouched, exactly as Admit leaves them.
+func (g *Gate) AdmitRead(ctx context.Context) error {
+	if g == nil || g.reads == nil {
+		return nil
+	}
+	p, ok := principal.Actor(ctx)
+	if !ok || p.Type != principal.PrincipalAgent {
+		return nil
+	}
+	if reading := g.reads.Read(ctx); reading.Exceeded {
+		return fmt.Errorf(
+			"gate: this agent has been handed %d records against a limit of %d for this window; it may read again when the window rolls, or once an operator raises the limit: %w",
+			reading.Observed, reading.Limit, apperrors.ErrBudgetExceeded)
+	}
+	return nil
+}

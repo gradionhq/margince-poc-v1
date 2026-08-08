@@ -60,6 +60,14 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 				return
 			}
 			if !mutatingMethod(r.Method) {
+				// The read bound binds BOTH doors. A Passport that spent its
+				// window through the MCP surface must not be able to keep
+				// reading the same records over /v1 — one credential governed
+				// two ways is the hole ADR-0055 exists to close.
+				if err := gate.AdmitRead(ctx); err != nil {
+					httperr.Write(w, r, err)
+					return
+				}
 				refuseHumanOnlyRead(w, r, next)
 				return
 			}
