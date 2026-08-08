@@ -66,6 +66,25 @@ func (p *Provider) Read(ctx context.Context, ref datasource.EntityRef) (datasour
 	}
 }
 
+// ListFilters answers which filters an enumeration of one record type can be
+// narrowed by, by asking the module that owns the type.
+//
+// It is the STORE half of list_records' vocabulary — the contract's half is
+// derived from crm.yaml — and it is here for the same reason every other
+// cross-module edge is: only this layer sees both modules. An entity type no
+// module lists answers nothing, and the tool then publishes no filters for it
+// rather than a name it would refuse.
+func (p *Provider) ListFilters(t datasource.EntityType) []string {
+	switch t {
+	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
+		return p.people.ListFilters(t)
+	case datasource.EntityDeal, datasource.EntityProject:
+		return p.deals.ListFilters(t)
+	default:
+		return nil
+	}
+}
+
 func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (datasource.SearchResult, error) {
 	types := q.EntityTypes
 	if len(types) == 0 {

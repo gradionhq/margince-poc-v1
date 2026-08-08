@@ -577,7 +577,7 @@ paths:
       summary: List people (live by default; cursor-paginated).
       description: Default view excludes archived rows (`archived_at IS NULL`). Leads never appear here.
       x-mcp-tool:
-        verb: search_records
+        verb: list_records
         record_type: person
         tier: auto_execute
         scope: read
@@ -1005,7 +1005,7 @@ paths:
       tags: [Organizations]
       operationId: listOrganizations
       summary: List organizations (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: organization, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: organization, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1780,7 +1780,7 @@ paths:
       tags: [Deals]
       operationId: listDeals
       summary: List deals (live by default; cursor-paginated). Supports Kanban-by-stage reads.
-      x-mcp-tool: { verb: search_records, record_type: deal, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: deal, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -2009,7 +2009,7 @@ paths:
       tags: [Projects]
       operationId: listProjects
       summary: List projects (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: project, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: project, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -3187,7 +3187,7 @@ paths:
       operationId: listLeads
       summary: List leads (their OWN list, distinct from contacts; cursor-paginated).
       description: Leads are segregated by construction — they never appear in /people.
-      x-mcp-tool: { verb: search_records, record_type: lead, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: lead, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'

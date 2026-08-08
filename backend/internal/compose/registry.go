@@ -71,13 +71,21 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// metered force-fresh path lands for a tool, this becomes a Redis-backed
 	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
 	// windows.
-	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
+	native := NewProvider(pool)
+	provider := NewDispatcher(native, NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
 	// cached mode. See overlayModeChecker for why that distinction is typed.
 	sorMode := overlayModeChecker(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
+	// list_records reads its rows through the Dispatcher like every other
+	// record verb, and its filter VOCABULARY off the native provider: the
+	// vocabulary is a property of the deployment's own stores, resolved once at
+	// boot, while whether a given workspace's rows come from those stores or
+	// from a mirror is a per-call question the Dispatcher answers. An overlay
+	// workspace refuses the filtered call rather than answering it unnarrowed.
+	agents.RegisterListTool(registry, provider, native)
 	// The three lifecycle transitions reach their owning modules directly
 	// rather than through the Dispatcher: each one's behaviour IS that
 	// module's entry point, which is what the REST route calls too.
