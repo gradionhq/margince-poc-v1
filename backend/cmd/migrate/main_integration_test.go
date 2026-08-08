@@ -265,16 +265,19 @@ func TestDBVerbsRequireAName(t *testing.T) {
 	}
 }
 
-// TestUpAppliesAnExtensionNamespace drives the whole `up` path over a fresh
-// database: an extension namespace lands its schema, records it in its OWN
-// tracking table, and a second run of the same input applies nothing.
+// TestUpAppliesAnExtensionNamespaceAndTheRiverIndex drives the whole `up`
+// path over a fresh database, which is the only place three claims can be
+// checked at once: an extension namespace lands its schema and records it in
+// its OWN tracking table, the River workspace-arg index exists after River's
+// migrator has created the table it indexes, and a second run of the same
+// input applies nothing.
 //
 // The extension namespace is synthesized rather than taken from the composed
 // set on purpose: no in-tree unit ships a migrations layer yet, so a test
 // reading composition.Extensions() would pass over an empty slice and prove
 // nothing. up() takes the namespaces as a parameter precisely so this can be
 // exercised without one.
-func TestUpAppliesAnExtensionNamespace(t *testing.T) {
+func TestUpAppliesAnExtensionNamespaceAndTheRiverIndex(t *testing.T) {
 	maint, base, withDB := testDSNs(t)
 	name := base + "_up_ext"
 	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", name) })
@@ -327,6 +330,7 @@ func TestUpAppliesAnExtensionNamespace(t *testing.T) {
 		t.Fatal("the extension namespace's table is absent — up applied core+custom and silently skipped the extension lane")
 	}
 	assertRecorded(t, dsn, "schema_migrations_"+namespace, "0001")
+	assertRiverWorkspaceArgIndex(t, dsn)
 
 	// Idempotent: the second run must apply nothing at all, extension lane
 	// included, and must not fail re-creating the index.
@@ -362,5 +366,33 @@ func assertRecorded(t *testing.T, dsn, table, version string) {
 	}
 	if !found {
 		t.Errorf("%s has no row for version %s — the lane applied without recording, so it would re-apply on every boot", table, version)
+	}
+}
+
+// assertRiverWorkspaceArgIndex pins the post-River statement. It cannot be a
+// core migration (river_job does not exist while the core lane runs, and
+// dbmigrate wraps each migration in a transaction), so nothing but this test
+// would notice it disappearing.
+func assertRiverWorkspaceArgIndex(t *testing.T, dsn string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connecting to probe for the river index: %v", err)
+	}
+	defer func() {
+		if err := conn.Close(ctx); err != nil {
+			t.Errorf("closing after the index probe: %v", err)
+		}
+	}()
+	var exists bool
+	if err := conn.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes
+		    WHERE tablename = 'river_job' AND indexname = 'river_job_workspace_arg')`,
+	).Scan(&exists); err != nil {
+		t.Fatalf("probing for the river index: %v", err)
+	}
+	if !exists {
+		t.Error("river_job_workspace_arg is absent — the per-workspace job fan-out and both job-health statements fall back to a sequential scan")
 	}
 }

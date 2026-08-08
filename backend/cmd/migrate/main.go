@@ -154,11 +154,33 @@ func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.
 	if err != nil {
 		return err
 	}
+	if _, err := riverPool.Exec(ctx, riverWorkspaceArgIndex); err != nil {
+		return fmt.Errorf("migrate: creating the river workspace-arg index: %w", err)
+	}
 	if _, err := fmt.Fprintf(stdout, "applied %d core+custom+extension + %d river migration(s); schema is at head\n", applied, riverApplied); err != nil {
 		return fmt.Errorf("migrate up: writing the confirmation: %w", err)
 	}
 	return nil
 }
+
+// riverWorkspaceArgIndex indexes River's per-job workspace argument. Jobs
+// fan out per workspace and both job-health statements already scan the
+// table, so the fan-out multiplies the rows they read.
+//
+// It lives here rather than in a migration file for two reasons that both
+// come from river_job not being ours: the table does not exist while the
+// core lane runs (River's own migrator creates it, on the pool opened
+// above), and dbmigrate.Up wraps every migration in a transaction.
+//
+// Deliberately NOT CONCURRENTLY. This runs outside dbmigrate's
+// per-migration transaction but alongside boot, and a plain CREATE INDEX
+// on a fresh river_job is trivial. If that table ever grows large enough
+// for the write lock to matter, the answer is an explicit
+// non-transactional lane in the migrator — a separate change, not a flag
+// on this one.
+const riverWorkspaceArgIndex = `
+CREATE INDEX IF NOT EXISTS river_job_workspace_arg
+    ON river_job ((args ->> 'workspace_id'))`
 
 // extensionNamespaces turns the composed extension set into migration
 // namespaces — one per unit that ships a migrations layer, each tracked in
