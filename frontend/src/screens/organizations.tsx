@@ -67,6 +67,7 @@ import {
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
 import { CompanyDocumentsCard } from "./companydocuments";
+import { DossierPanel } from "./companydossier";
 import { GrowthFitPanel } from "./companygrowthfit";
 import {
   CompanyActionBadges,
@@ -2141,6 +2142,14 @@ function CompanyOverviewStack({
           }
         />
       )}
+      {/* Then what the company IS, from its own recorded facts. It sits after
+          the brief because the brief is about US and them; this is about them
+          alone, and it ages in weeks where the brief ages in hours. */}
+      <DossierPanel
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={openCitation}
+      />
       {/* Then what they are WORTH to us. It sits after the brief and before
           the next steps because that is the order the questions arrive in:
           what this account looks like, what it is worth, what to do about it.

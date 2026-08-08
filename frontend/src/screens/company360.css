@@ -361,3 +361,14 @@
   margin-top: var(--space-2);
   color: var(--danger);
 }
+
+/* The dossier: what the company IS, above the fit that judges it. Set like the
+   brief — prose, read top to bottom once — because it answers a question rather
+   than reporting a metric. */
+.co-dossier {
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.co-dossier-section {
+  margin-top: var(--space-3);
+}
