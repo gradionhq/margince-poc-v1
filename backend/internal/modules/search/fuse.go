@@ -20,13 +20,20 @@ const rrfK = 60
 // (B-EP05.18): each lane contributes 1/(k+rank), so an entity both
 // lanes agree on outranks either lane's solo favorite. Both lanes are
 // already RBAC- and row-scope-filtered; fusion adds no visibility.
-func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedder, limit int) ([]Hit, error) {
+//
+// types narrows BOTH lanes to the record types asked for, and narrowing
+// them is not the same as filtering the fused page afterwards: the page
+// is a global top-N, so post-filtering spends it on types the caller
+// never asked about and can answer nothing for a record type that is
+// simply less similar overall than five others. Empty means every type,
+// which is what the retrieval seam asks for.
+func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedder, limit int, types ...string) ([]Hit, error) {
 	limit = clampLimit(limit)
 	// Overfetch both lanes: an entity ranked just past `limit` in each
 	// lane can still fuse into the top set.
 	laneDepth := limit * 3
 
-	lexical, err := s.Search(ctx, Input{Query: query, Limit: laneDepth})
+	lexical, err := s.Search(ctx, Input{Query: query, Types: types, Limit: laneDepth})
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +71,7 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 	if len(queryEmb.Vectors) != 1 {
 		return nil, fmt.Errorf("search: query embedding returned %d vectors", len(queryEmb.Vectors))
 	}
-	vector, err := s.SimilarEntities(ctx, queryEmb.Vectors[0], identity, laneDepth)
+	vector, err := s.SimilarEntities(ctx, queryEmb.Vectors[0], identity, laneDepth, types...)
 	if err != nil {
 		return nil, err
 	}
