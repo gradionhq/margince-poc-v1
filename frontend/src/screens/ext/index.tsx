@@ -25,6 +25,20 @@ import { CrmDemoScreen } from "./crmdemo";
 // A composed unit with no entry here is not an error: App.tsx falls back to the
 // generic published-operations card, which is what every unit without a
 // bespoke screen (de, yogi, crm-hello) renders.
+//
+// THE REVERSE IS AN ERROR, and it is the cost of keeping these screens in core.
+// An entry here for a unit the installation does NOT compose leaves a file that
+// calls routes the merged contract no longer carries, so
+// `make fe-typecheck-composed` fails — which is the gate doing its job, but it
+// means removing a unit is a removal in TWO places until
+// extensions/<name>/frontend/ is a real capability layer:
+//
+//	git rm -r extensions/<name> frontend/src/screens/ext/<name>.tsx …
+//	# and drop its line from this map
+//
+// Found by Task 14's UAT re-run of the removal leg. Documented rather than
+// worked around: a conditional include is not expressible in tsconfig, and
+// hiding the breakage would mean shipping a screen whose routes are gone.
 export const extensionScreens: ExtensionScreenRegistry = {
   "crm-demo": CrmDemoScreen,
 };

@@ -205,6 +205,13 @@ you add to the unit later are silently ignored too. (`git add -f` stages the fil
 directory ignored, so it is not a substitute for the exception.) A purely local, per-installation unit
 is *meant* to stay ignored: its presence in the working tree already enables it for that install.
 
+**Removing a unit is a removal in two places**, for as long as its screen lives in core (see
+`frontend/src/screens/ext/index.tsx`). `git rm -r extensions/<name>` alone leaves that screen calling
+routes the merged contract no longer publishes, and `make fe-typecheck-composed` fails. Remove the
+screen and its entry in the same commit. Use `git rm`, not `mv` or `rm`: `make drift` compares the
+working tree against the INDEX, so an unstaged deletion of the committed
+`manifest.generated.json` fails the gate on a removal that is otherwise correct.
+
 Then commit **the complete unit directory** — every source and test file plus its module metadata
 (`go.mod`, and `go.sum` if it carries third-party dependencies) — together with the `.gitignore`
 exception. Do **not** commit `build/composition/` — it is generated and ignored — and leave the
