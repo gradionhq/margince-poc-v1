@@ -22,7 +22,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
@@ -97,11 +96,15 @@ func SetupAppWithOriginOptions(t *testing.T, opts func(origin string) []compose.
 		t.Fatalf("resetting database: %v", err)
 	}
 
-	pool, err := database.NewPool(ctx, appDSN)
+	// Shared across the package's tests, and deliberately not closed here — see
+	// testdb.Pool for why the connections, not the pool object, are the cost.
+	pool, err := testdb.Pool(ctx, appDSN)
 	if err != nil {
 		t.Fatalf("opening app pool: %v", err)
 	}
-	t.Cleanup(pool.Close)
+	// Registered here, before the test adds any cleanup of its own, so it runs
+	// last and sees a package that has genuinely stopped.
+	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 
 	// The delivery machinery every send transport is composed with in the api
 	// role. Without it a send refuses rather than log an activity claiming a
@@ -283,11 +286,10 @@ func applyRiverSchema(t *testing.T) {
 		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
 	}
 	ctx := context.Background()
-	ownerPool, err := database.NewPool(ctx, ownerDSN)
+	ownerPool, err := testdb.Pool(ctx, ownerDSN)
 	if err != nil {
 		t.Fatalf("opening owner pool: %v", err)
 	}
-	defer ownerPool.Close()
 	if err := testdb.EnsureRiverSchema(ctx, ownerPool, jobs.Migrate); err != nil {
 		t.Fatal(err)
 	}

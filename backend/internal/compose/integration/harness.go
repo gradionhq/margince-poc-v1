@@ -133,11 +133,15 @@ func Setup(t *testing.T) *Env {
 		}
 	}
 
-	pool, err := database.NewPool(ctx, appDSN)
+	// Shared across the package's tests, and deliberately not closed here — see
+	// testdb.Pool for why the connections, not the pool object, are the cost.
+	pool, err := testdb.Pool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pool.Close)
+	// Registered here, before the test adds any cleanup of its own, so it runs
+	// last and sees a package that has genuinely stopped.
+	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
 	e.People = people.NewStore(pool)
 	e.Deals = deals.NewStore(pool)
@@ -464,11 +468,15 @@ func ApplyRiverSchema(t *testing.T) {
 		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
 	}
 	ctx := context.Background()
-	ownerPool, err := database.NewPool(ctx, ownerDSN)
+	// The shared owner pool, not a fresh one: every suite that needs a real
+	// worker calls this, and each call is one existence probe. testdb.Pool
+	// refuses to open before EnsureSchema has run, so a caller that reached
+	// here without a harness Setup is told so rather than served a connection
+	// older than the schema.
+	ownerPool, err := testdb.Pool(ctx, ownerDSN)
 	if err != nil {
 		t.Fatalf("opening owner pool: %v", err)
 	}
-	defer ownerPool.Close()
 	if err := testdb.EnsureRiverSchema(ctx, ownerPool, jobs.Migrate); err != nil {
 		t.Fatal(err)
 	}
