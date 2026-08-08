@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -47,120 +46,6 @@ const mcpCallDeadline = 150 * time.Second
 // a module never imports a sibling: compose composes both and therefore owns
 // the classification (see compose/mcpedge.go).
 var ErrAuthUnavailable = errors.New("agents: the credential could not be verified")
-
-// sessionKey identifies one live MCP session. The session id ALONE is
-// deliberately not enough to act on (DESIGN §10.4): every request
-// re-authenticates via the Bearer passport, which is where authority
-// comes from, so the id itself is unvalidated. Pairing it with the
-// presenting passport means DELETE can only ever close a session that
-// passport itself opened — keying on the id alone would let any
-// authenticated agent close another connector's session by guessing or
-// replaying its value.
-type sessionKey struct {
-	passportID ids.UUID
-	sessionID  string
-}
-
-// The two caps that make the registry a BOUNDED structure. Without them
-// `initialize` (240/min per passport at the edge) grows it forever: nothing but
-// an exact-match DELETE ever removed an entry, a client that crashes or drops
-// its connection never sends one, and every refresh rotation brings a fresh
-// passport with a fresh allowance of its own. The symptom of the unbounded
-// version is an api whose memory climbs until it is restarted, with no metric
-// naming the cause.
-//
-// Per passport, because a client legitimately holds ONE session: the cap is
-// above one only so a client reconnecting before its DELETE lands is not
-// squeezed, and the OLDEST entry gives way rather than the newest being
-// refused — the newest is the session the client is actually using.
-//
-// Across the whole registry, because the passport dimension is otherwise
-// unbounded on its own. The per-passport cap is what keeps one credential from
-// evicting everyone else's sessions to reach the global one.
-const (
-	maxSessionsPerPassport = 8
-	maxSessions            = 4096
-)
-
-// sessionRegistry is in-process bookkeeping for open MCP sessions,
-// scoped to ONE handler instance rather than a package-level global —
-// a global would leak state between two handlers (or two tests) in the
-// same process.
-//
-// The value is the insertion SEQUENCE, which is what "evict the oldest" reads:
-// a counter rather than a timestamp, so eviction order is exact and needs no
-// clock to be deterministic in a test.
-type sessionRegistry struct {
-	mu       sync.Mutex
-	sessions map[sessionKey]uint64
-	inserted uint64
-}
-
-func newSessionRegistry() *sessionRegistry {
-	return &sessionRegistry{sessions: make(map[sessionKey]uint64)}
-}
-
-// register records a new session under the presenting passport, evicting
-// whatever the caps above require. An evicted entry only ever costs its owner a
-// 404 on a DELETE it may never send.
-func (r *sessionRegistry) register(passportID ids.UUID, sessionID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.evictForLocked(passportID)
-	r.inserted++
-	r.sessions[sessionKey{passportID, sessionID}] = r.inserted
-}
-
-// evictForLocked makes room for one more session under passportID: its own
-// oldest goes when that passport is at its cap, and otherwise the registry's
-// oldest goes when the whole map is at its. Both scans walk the map, which is
-// bounded by maxSessions by construction.
-func (r *sessionRegistry) evictForLocked(passportID ids.UUID) {
-	if r.evictOldestLocked(func(key sessionKey) bool { return key.passportID == passportID },
-		maxSessionsPerPassport) {
-		return
-	}
-	r.evictOldestLocked(func(sessionKey) bool { return true }, maxSessions)
-}
-
-// evictOldestLocked drops the lowest-sequence entry matching `counts` if at
-// least `limit` entries match it, and reports whether it evicted anything.
-func (r *sessionRegistry) evictOldestLocked(counts func(sessionKey) bool, limit int) bool {
-	matching := 0
-	var oldest sessionKey
-	oldestAt := uint64(0)
-	for key, at := range r.sessions {
-		if !counts(key) {
-			continue
-		}
-		matching++
-		if oldestAt == 0 || at < oldestAt {
-			oldest, oldestAt = key, at
-		}
-	}
-	if matching < limit {
-		return false
-	}
-	delete(r.sessions, oldest)
-	return true
-}
-
-// close removes the session sessionID owned by passportID. It reports
-// false, leaving the registry untouched, when no session exists under
-// that exact pair — including a sessionID that IS live but under a
-// different passport. Those two cases must read identically: telling
-// them apart would let a DELETE probe confirm another connector's
-// session id is currently open.
-func (r *sessionRegistry) close(passportID ids.UUID, sessionID string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	key := sessionKey{passportID, sessionID}
-	if _, ok := r.sessions[key]; !ok {
-		return false
-	}
-	delete(r.sessions, key)
-	return true
-}
 
 // ResourceMetadataChallenge builds the RFC 9728 WWW-Authenticate challenge a
 // 401 on this transport carries: the "Bearer" scheme name plus a pointer at
@@ -323,6 +208,14 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// this needs saying to the linter as well as to the reader.
 	r = r.WithContext(ctx) //nolint:contextcheck // ctx is derived from r.Context() inside the injected authenticate closure
 	if r.Method == http.MethodDelete {
+		if duplicatedVersionHeader(r.Header) {
+			httperr.Write(w, r, &httperr.DetailedError{
+				Status: http.StatusBadRequest,
+				Code:   "ambiguous_protocol_version",
+				Detail: "This request names more than one protocol version, so there is no version to act on.",
+			})
+			return
+		}
 		if servesAsModern(declaredTransportVersion(r.Header)) {
 			// The modern revision has no protocol-level session, so it has
 			// nothing to tear down. Answering 405 tells a client that named
@@ -372,6 +265,21 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 		writeRPCResponse(w, r,
 			rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: codeParseError, Message: "parse error"}},
 			status)
+		return
+	}
+	// Before either era looks at it: a version header sent twice has two
+	// readings, and no path here acts on one. The answer is a JSON-RPC error
+	// rather than a plain 4xx so a modern client recognizes it as this server
+	// refusing rather than as a legacy server to fall back to.
+	if duplicatedVersionHeader(r.Header) {
+		writeRPCResponse(w, r, rpcResponse{
+			JSONRPC: jsonRPCVersion, ID: req.ID,
+			Error: &rpcError{
+				Code: codeHeaderMismatch,
+				Message: "header mismatch: " + headerProtocolVersion + " was sent more than once, so this " +
+					"server and an intermediary between us could read different versions from it",
+			},
+		}, http.StatusBadRequest)
 		return
 	}
 	fr, refusal := modernPrecheck(req.Params, declaredTransportVersion(r.Header))

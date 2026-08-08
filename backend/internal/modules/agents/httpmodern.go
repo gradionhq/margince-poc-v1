@@ -187,16 +187,26 @@ func headerMismatch(header, member string) *rpcError {
 	}
 }
 
-// declaredTransportVersion is the protocol version the transport names, and
-// the empty string when it names MORE than one.
+// duplicatedVersionHeader reports whether the transport named more than one
+// protocol version.
 //
-// A duplicated version header has two readings — Get answers the first, an
-// intermediary may route on the last — so it declares nothing this server will
-// act on. It is used wherever the header alone decides an era; the mirrored
-// comparison refuses the duplicate outright, so a request whose body already
-// declared itself modern is still caught rather than quietly demoted.
+// Nothing on this surface acts on such a request, in either era. Get answers
+// the first value while an intermediary may route on the last, so a version
+// header sent twice has two readings and no way to say which was meant — and
+// that is as true of a handshake-era request as of a modern one, which is why
+// this is checked before the era is decided rather than inside one framing.
+func duplicatedVersionHeader(header http.Header) bool {
+	return len(header.Values(headerProtocolVersion)) > 1
+}
+
+// declaredTransportVersion is the protocol version the transport names, and
+// the empty string when it names more than one.
+//
+// It is the same rule as above, for the one path that runs BEFORE the refusal:
+// a body that does not decode is answered without ever reaching the era check,
+// and a duplicated header must not select a framing's status there either.
 func declaredTransportVersion(header http.Header) string {
-	if len(header.Values(headerProtocolVersion)) != 1 {
+	if duplicatedVersionHeader(header) {
 		return ""
 	}
 	return header.Get(headerProtocolVersion)

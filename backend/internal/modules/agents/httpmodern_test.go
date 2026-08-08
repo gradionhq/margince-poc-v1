@@ -562,6 +562,48 @@ func TestADuplicatedVersionHeaderDeclaresNoEra(t *testing.T) {
 	}
 }
 
+// And no path acts on one at all. The demotion above keeps a duplicated header
+// from CHOOSING an era; this is the refusal that keeps either era from serving
+// it, including the handshake path, which reads the header with its own Get and
+// would otherwise act on whichever value came first.
+func TestNoVerbActsOnADuplicatedVersionHeader(t *testing.T) {
+	srv := modernServer(t)
+	for _, tc := range []struct{ name, method, body string }{
+		// A legacy-framed POST: no _meta, and a version that IS in the window,
+		// so nothing but the duplication can refuse it.
+		{"a handshake-era POST", http.MethodPost, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`},
+		{"a session teardown", http.MethodDelete, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body io.Reader
+			if tc.body != "" {
+				body = strings.NewReader(tc.body)
+			}
+			req, err := http.NewRequest(tc.method, srv.URL, body)
+			if err != nil {
+				t.Fatalf("NewRequest: %v", err)
+			}
+			req.Header.Add(headerProtocolVersion, legacyProtocolVersions[0])
+			req.Header.Add(headerProtocolVersion, "1999-01-01")
+			req.Header.Set("Mcp-Session-Id", "01234567-89ab-cdef-0123-456789abcdef")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					t.Errorf("closing response body: %v", err)
+				}
+			}()
+
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
 // A method that mirrors no name must present none. A header naming a tool on a
 // call that invokes none tells an intermediary metering or filtering on
 // Mcp-Name about an invocation that never happens.
