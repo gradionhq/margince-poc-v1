@@ -34,7 +34,19 @@
       // -verify requires that tree to hold exactly the files it generated, and
       // openapi-typescript is a Node tool the Go generator cannot run. Writing
       // here spends nothing — see .gitignore and the Makefile target.
-      "@composition/schema": ["../build/composition-frontend/schema"]
+      "@composition/schema": ["../build/composition-frontend/schema"],
+      // The unit screens themselves. This is the lane that can compile them:
+      // each one calls its unit's own /ext/<unit>/… routes through the shared
+      // `api` client, and those paths are in the merged contract above and
+      // nowhere else. So a screen for a unit whose fragment did not merge does
+      // not typecheck HERE — the route half of the ordering constraint,
+      // enforced at compile time (the RBAC-object half is not; see
+      // src/app/capability.ts).
+      "@composition/screens": ["./src/screens/ext/index"]
     }
-  }
+  },
+  // The app lane excludes src/screens/ext/ because it cannot express those
+  // calls. This lane can, and must: an excluded screen would be a screen the
+  // composed build ships and no gate ever typechecked.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

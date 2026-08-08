@@ -1,3 +1,4 @@
+import { extensionScreens } from "@composition/screens";
 import {
   type ReactNode,
   useCallback,
@@ -103,12 +104,23 @@ function ShareRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
 // paint a blank frame. Split out for the same complexity-budget reason as
 // DealsRoute above.
 //
-// The surface it renders is the unit's PUBLISHED operations, not TSX the unit
-// shipped: extensions/<name>/frontend/ is still an unbuilt capability layer
-// (gen-composition's scan refuses it on sight), so what an installation
-// composes into the app is the contract-derived descriptor set. A screen that
-// invented anything beyond it could advertise an operation the server does not
-// serve.
+// A unit still ships no TSX: extensions/<name>/frontend/ is an unbuilt
+// capability layer that gen-composition's scan refuses on sight, and lifting
+// that would mean bundling unit-authored code into the SPA. So a unit surface
+// comes from one of two CORE-owned places, in this order:
+//
+//   1. A bespoke screen committed under src/screens/ext/ and listed in the
+//      composed screen registry ("@composition/screens"). crm-demo, the
+//      reference extension, is the one such screen today; its file explains
+//      why it lives in core and why only the composed lane compiles it.
+//   2. Otherwise the contract-derived descriptor set — the operations the
+//      unit's fragments published, which is all the app can honestly say about
+//      a unit nobody wrote a screen for (de, yogi, crm-hello).
+//
+// The registry is consulted only AFTER the descriptor resolves, so a screen
+// cannot render for a unit this installation did not compose: an entry for a
+// disabled unit is inert rather than a route into a surface with no server
+// behind it.
 function ExtensionRoute({ name }: Readonly<{ name?: string }>) {
   const t = useT();
   const unit = findExtension(name);
@@ -118,6 +130,10 @@ function ExtensionRoute({ name }: Readonly<{ name?: string }>) {
         <EmptyState>{t("ext.notFound", { name: name ?? "" })}</EmptyState>
       </div>
     );
+  }
+  const Screen = extensionScreens[unit.name];
+  if (Screen) {
+    return <Screen />;
   }
   return (
     <div className="wrap narrow">

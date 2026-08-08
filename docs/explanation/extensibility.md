@@ -3,8 +3,10 @@
 How a bounded add-on lands in this product **without editing a single upstream-owned file**. This is
 the *extension tier*: one named, versioned unit under `extensions/<name>/`, its own Go module,
 reaching the core through one narrow published surface and composed in at build time. The vanilla tree
-already ships two — `extensions/de`, the German jurisdiction pack, and `extensions/yogi`, the reference
-unit that serves one governed agent tool.
+already ships three — `extensions/de`, the German jurisdiction pack; `extensions/yogi`, the reference
+unit that serves one governed agent tool; and `extensions/crm-demo`, the reference extension that
+exercises every capability the tier has (its own table under RLS, six governed operations, its own
+RBAC object, a stored signing key it signs with and never emits, and a scheduled heartbeat).
 
 This page is for a contributor who wants the whole idea first, then the detail. Start here; to
 actually *build* a unit, jump to [how-to/add-an-extension.md](../how-to/add-an-extension.md).
@@ -298,7 +300,11 @@ the whole path).
 | The `GOWORK` switch every build lane carries | `backend/Makefile` (`GOWORK_COMPOSED`) |
 | The first-party German pack | `extensions/de/de.go` |
 | The reference served-tool unit | `extensions/yogi/yogi.go` |
+| The reference extension (every capability) | `extensions/crm-demo/crmdemo.go` |
+| Its screen, which lives in CORE and not in the unit | `frontend/src/screens/ext/crmdemo.tsx` |
 | The reference fixture | `fixtures/extensions/crm-hello/crmhello.go` |
+| The negative migration fixtures | `fixtures/extensions/bad-unprefixed-table/`, `bad-overbudget-table/` |
+| The secrets namespace-wall fixture | `fixtures/extensions/crm-nosy/crmnosy.go` |
 | The extension-tier fitness tests | `backend/extensions_arch_test.go` |
 
 ### Related docs

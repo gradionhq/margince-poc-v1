@@ -122,6 +122,27 @@ export const de = {
     "Auf dieser Installation ist keine Erweiterung namens „{name}“ aktiviert.",
   "ext.operations": "Veröffentlichte Operationen",
 
+  "extDemo.title": "Demo-Notizblock",
+  "extDemo.sub": "Die Referenzerweiterung, von Anfang bis Ende.",
+  "extDemo.signing.title": "Signaturschlüssel",
+  "extDemo.signing.sub":
+    "Vom Schlüsseldienst der Installation verwahrt. Er wird nirgends angezeigt.",
+  "extDemo.signing.connected": "Verbunden",
+  "extDemo.signing.notConnected": "Kein Schlüssel hinterlegt",
+  "extDemo.signing.keyLabel": "Signaturschlüssel",
+  "extDemo.signing.store": "Schlüssel hinterlegen",
+  "extDemo.signing.payloadLabel": "Zu signierende Nutzdaten",
+  "extDemo.signing.sign": "Signieren",
+  "extDemo.signing.signFailed":
+    "Es wurde nichts signiert. Hinterlegen Sie zuerst einen Signaturschlüssel.",
+  "extDemo.notes.title": "Notizen",
+  "extDemo.notes.bodyLabel": "Neue Notiz",
+  "extDemo.notes.add": "Hinzufügen",
+  "extDemo.notes.remove": "Entfernen",
+  "extDemo.notes.empty": "Noch keine Notizen.",
+  "extDemo.notes.noGrant":
+    "Sie haben keinen Lesezugriff auf die Notizen dieser Erweiterung.",
+
   "search.title": "Suche",
   "search.placeholder":
     "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",

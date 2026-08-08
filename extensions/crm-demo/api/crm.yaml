@@ -1,0 +1,293 @@
+# SPDX-License-Identifier: BUSL-1.1
+# SPDX-FileCopyrightText: 2026 Gradion
+#
+# crm-demo's contract fragment. The FILENAME names the core contract it extends
+# (crm.yaml); gen-composition merges it into build/composition/api/crm.yaml, and
+# that merged file is what the operator manifest, the client types, the mounted
+# routes and the docs read. So this document — not crmdemo.go — is where every
+# operation's risk tier, Passport scope, RBAC object, prose and I/O schemas are
+# declared. The Go files carry the one thing a YAML file cannot: the functions.
+#
+# Paths are written relative to the document's own `servers` url, which already
+# ends in /v1. Core writes /me; an extension writes /ext/<unit>/…. The server
+# puts the base path back when it mounts the route (extension.Verb.ServedPath),
+# so the served route is /v1/ext/crm-demo/… — spelling it here too would publish
+# https://host/v1/v1/ext/… to every generated client, and the composer refuses
+# it.
+#
+# EVERY operation is a POST, and that is the seam's rule rather than a style
+# choice: a served extension operation IS a governed tool invocation, its
+# arguments are the request body, and extension.Verb's validateMethod admits
+# only post/put/patch because GET and DELETE carry no body. So "list", "add" and
+# "remove" are three POST verbs on three paths rather than three methods on one.
+overlay: 1.0.0
+info:
+  title: crm-demo
+  version: "1.0.0"
+actions:
+  - target: $.paths['/ext/crm-demo/notes/list']
+    update:
+      post:
+        operationId: crmDemoListNotes
+        summary: List this workspace's demo notes.
+        tags: [Extensions]
+        # The unit owns records, so its operations gate on an object a role
+        # document can grant and /me reports. It is registered into the RBAC
+        # vocabulary at boot from this line (compose/extrbac.go).
+        x-rbac-object: ext_crm_demo_note
+        x-mcp-tool:
+          verb: demo_list_notes
+          version: 1.0.0
+          title: List demo notes
+          # 🟢 read: the notepad is read and nothing is changed, so there is
+          # nothing to confirm and nothing to stage.
+          tier: auto_execute
+          scope: read
+          description: >-
+            List the notes kept in this workspace's Demo Notepad, newest first,
+            with the time each was written. It reads only the extension's own
+            notepad table and changes nothing, so no person, company or deal is
+            involved either way. Each note carries an id that the remove
+            operation takes.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+        responses:
+          '200':
+            description: The workspace's notes, newest first.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [notes]
+                  properties:
+                    notes:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required: [id, body, created_at]
+                        properties:
+                          id: { type: string }
+                          body: { type: string }
+                          created_at: { type: string, format: date-time }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/crm-demo/notes/add']
+    update:
+      post:
+        operationId: crmDemoAddNote
+        summary: Add one note to the demo notepad.
+        tags: [Extensions]
+        x-rbac-object: ext_crm_demo_note
+        x-mcp-tool:
+          verb: demo_add_note
+          version: 1.0.0
+          title: Add a demo note
+          # 🟢 write: the row lands in the unit's own table, inside the calling
+          # workspace, and leaves the workspace by no route at all.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Write one note into this workspace's Demo Notepad and return it with
+            the id it was stored under. It touches only the extension's own
+            notepad table, never a person, company or deal, and nothing it
+            writes leaves the workspace.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [body]
+                properties:
+                  body: { type: string, minLength: 1, maxLength: 500 }
+        responses:
+          '200':
+            description: The stored note.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [id, body, created_at]
+                  properties:
+                    id: { type: string }
+                    body: { type: string }
+                    created_at: { type: string, format: date-time }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/crm-demo/notes/remove']
+    update:
+      post:
+        operationId: crmDemoRemoveNote
+        summary: Remove one note from the demo notepad.
+        tags: [Extensions]
+        x-rbac-object: ext_crm_demo_note
+        x-mcp-tool:
+          verb: demo_remove_note
+          version: 1.0.0
+          title: Remove a demo note
+          tier: auto_execute
+          scope: write
+          description: >-
+            Remove one note from this workspace's Demo Notepad by its id and
+            report whether a note was actually removed. An id this workspace
+            does not hold removes nothing and is not an error. It touches only
+            the extension's own notepad table.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [id]
+                properties:
+                  id: { type: string }
+        responses:
+          '200':
+            description: Whether a note was removed.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [removed]
+                  properties:
+                    removed: { type: boolean }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/crm-demo/signing-key']
+    update:
+      post:
+        operationId: crmDemoStoreSigningKey
+        summary: Store this workspace's demo signing key.
+        tags: [Extensions]
+        x-mcp-tool:
+          verb: demo_store_signing_key
+          version: 1.0.0
+          title: Store the demo signing key
+          tier: auto_execute
+          scope: write
+          description: >-
+            Store (or replace) the HMAC signing key this workspace's Demo
+            Notepad signs payloads with. The key is sealed by the installation's
+            custodian and is never returned by this or any other operation, so
+            the only observable effect is that signing starts working. It reads
+            and writes no record of any kind.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [key]
+                properties:
+                  key: { type: string, minLength: 1, maxLength: 4096 }
+        responses:
+          '200':
+            description: The key is stored.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [stored]
+                  properties:
+                    stored: { type: boolean }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/crm-demo/signing-key/status']
+    update:
+      post:
+        operationId: crmDemoSigningKeyStatus
+        summary: Report whether a demo signing key is stored.
+        tags: [Extensions]
+        x-mcp-tool:
+          verb: demo_signing_key_status
+          version: 1.0.0
+          title: Demo signing key status
+          tier: auto_execute
+          scope: read
+          description: >-
+            Report whether this workspace has stored a Demo Notepad signing key.
+            It answers a single boolean and returns no part of the key, masked
+            or otherwise — presence is the only fact about a stored credential
+            this unit ever discloses.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+        responses:
+          '200':
+            description: Whether a key is stored.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [stored]
+                  properties:
+                    stored: { type: boolean }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/crm-demo/signature']
+    update:
+      post:
+        operationId: crmDemoSignPayload
+        summary: HMAC-sign a payload with the stored demo signing key.
+        tags: [Extensions]
+        x-mcp-tool:
+          verb: demo_sign_payload
+          version: 1.0.0
+          title: Sign a demo payload
+          # 🟢 read: the payload is signed and discarded. Nothing is stored,
+          # and nothing leaves the workspace — the signature is returned to the
+          # caller that asked for it.
+          tier: auto_execute
+          scope: read
+          description: >-
+            Return the HMAC-SHA256 signature of a payload, computed with the
+            signing key this workspace stored. It proves the extension can wield
+            a credential it never emits: the key itself is not in the result and
+            no operation returns it. Fails when no key has been stored yet.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [payload]
+                properties:
+                  payload: { type: string, minLength: 1, maxLength: 4096 }
+        responses:
+          '200':
+            description: The signature, hex-encoded.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [algorithm, signature]
+                  properties:
+                    algorithm: { type: string }
+                    signature: { type: string }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }

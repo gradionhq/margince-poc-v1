@@ -11,8 +11,10 @@ coverage.out
 # an unrelated future /build asset is never silently hidden), and
 # extensions/ is the installation-owned enabled set. The vanilla tree
 # ships the placeholder, the approval lock, and the FIRST-PARTY units
-# enabled by default (extensions/de, the German jurisdiction pack —
-# presence under extensions/ IS the enablement).
+# enabled by default (extensions/de, the German jurisdiction pack;
+# extensions/yogi; extensions/crm-demo, the reference extension — presence
+# under extensions/ IS the enablement, so a unit missing from the un-ignore
+# list below is a unit no clone of this repository has).
 /build/composition/
 # The SECOND composition root, and it exists for a reason that is not tidiness:
 # gen-composition's -verify requires build/composition/ to hold EXACTLY the files
@@ -24,6 +26,7 @@ coverage.out
 /extensions/*
 !/extensions/.gitkeep
 !/extensions/approvals.lock
+!/extensions/crm-demo
 !/extensions/de
 !/extensions/yogi
 

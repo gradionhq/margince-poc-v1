@@ -43,6 +43,13 @@ export default defineConfig({
   resolve: {
     alias: {
       "@composition/extensions": join(compositionDir, "extensions.gen.ts"),
+      // The unit SCREENS, selected by the same switch and for the same reason.
+      // They are core files either way — a unit ships no TSX — but they call
+      // routes only a composed installation serves, so the vanilla bundle
+      // resolves an empty registry and never pulls them into the graph.
+      "@composition/screens": composedComposition
+        ? join(frontendRoot, "src", "screens", "ext", "index.tsx")
+        : join(frontendRoot, "src", "composition", "extscreens.ts"),
     },
   },
   server: {

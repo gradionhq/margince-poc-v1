@@ -17,7 +17,10 @@ package compose
 // tenant filtering made over the owner connection proves nothing.
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"errors"
 	"testing"
 
@@ -356,5 +359,57 @@ func TestRuntimeSecretsCannotReachAnotherUnitsNamespace(t *testing.T) {
 	}
 	if got, err := alpha.Secrets().Get(ctx, "signing"); err != nil || string(got) != "alpha's key" {
 		t.Fatalf("alpha's secret did not survive beta's delete: %q, %v", got, err)
+	}
+}
+
+// TestCrmDemoSigningKeyIsUnreachableFromASecondUnit is the same wall as the
+// test above, driven with the REAL unit names the reference extension and its
+// throwaway counterpart ship under.
+//
+// The generic alpha/beta case proves the mechanism. This one proves the CLAIM
+// the demo makes to whoever is watching it: crm-demo stores a signing key and
+// signs with it, and fixtures/extensions/crm-nosy — a unit that declares the
+// same workspace-scoped `signing` key, deliberately, so this is a question
+// about a namespace and not about two units that picked different names — gets
+// ErrSecretNotFound. gen-composition's
+// TestTheNamespaceWallFixtureDeclaresTheSameKeyAsCrmDemo keeps the two
+// declarations agreeing, or this would pass for the wrong reason.
+//
+// The units are named as STRINGS rather than imported: the backend reaches an
+// extension only through the generated composition (extensions_arch_test.go),
+// and a unit's name is what the core scopes a Runtime by anyway.
+func TestCrmDemoSigningKeyIsUnreachableFromASecondUnit(t *testing.T) {
+	e := setupExtRuntime(t)
+	const key = "signing"
+	material := []byte("the demo workspace's HMAC key")
+
+	demo, ctx := e.runtime("crm-demo")
+	if err := demo.Secrets().Put(ctx, key, material); err != nil {
+		t.Fatal(err)
+	}
+
+	nosy, _ := e.runtime("crm-nosy")
+	if _, err := nosy.Secrets().Get(ctx, key); !errors.Is(err, extension.ErrSecretNotFound) {
+		t.Fatalf("crm-nosy read crm-demo's signing key: err=%v", err)
+	}
+	// Storing its OWN key under the same name must not disturb crm-demo's, and
+	// must not be readable as crm-demo's: two namespaces, one key name.
+	if err := nosy.Secrets().Put(ctx, key, []byte("crm-nosy's own key")); err != nil {
+		t.Fatal(err)
+	}
+
+	// The demo can still sign, and signs with ITS key. That is the whole
+	// capability the screen demonstrates, so it is what the wall must leave
+	// intact.
+	stored, err := demo.Secrets().Get(ctx, key)
+	if err != nil || !bytes.Equal(stored, material) {
+		t.Fatalf("crm-demo's own key after crm-nosy wrote one under the same name: %q, %v", stored, err)
+	}
+	mine := hmac.New(sha256.New, stored)
+	mine.Write([]byte("demo payload"))
+	theirs := hmac.New(sha256.New, []byte("crm-nosy's own key"))
+	theirs.Write([]byte("demo payload"))
+	if hmac.Equal(mine.Sum(nil), theirs.Sum(nil)) {
+		t.Fatal("the two units' signatures agree, so the key material did not stay separate")
 	}
 }

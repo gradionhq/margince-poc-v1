@@ -123,6 +123,30 @@ export const en = {
     "No extension named “{name}” is enabled on this installation.",
   "ext.operations": "Published operations",
 
+  // The reference extension's own screen (#/ext/crm-demo). It is a CORE screen
+  // for a first-party unit, so its strings are catalogued like every other
+  // screen's; a unit does not ship copy any more than it ships TSX.
+  "extDemo.title": "Demo Notepad",
+  "extDemo.sub": "The reference extension, end to end.",
+  "extDemo.signing.title": "Signing key",
+  "extDemo.signing.sub":
+    "Stored by the installation's custodian. It is never displayed, here or anywhere.",
+  "extDemo.signing.connected": "Connected",
+  "extDemo.signing.notConnected": "No key stored",
+  "extDemo.signing.keyLabel": "Signing key",
+  "extDemo.signing.store": "Store key",
+  "extDemo.signing.payloadLabel": "Payload to sign",
+  "extDemo.signing.sign": "Sign",
+  "extDemo.signing.signFailed":
+    "Nothing was signed. Store a signing key first.",
+  "extDemo.notes.title": "Notes",
+  "extDemo.notes.bodyLabel": "New note",
+  "extDemo.notes.add": "Add",
+  "extDemo.notes.remove": "Remove",
+  "extDemo.notes.empty": "No notes yet.",
+  "extDemo.notes.noGrant":
+    "You do not hold read access to this extension's notes.",
+
   "search.title": "Search",
   "search.placeholder": "Search people, companies, deals, activities, leads…",
   "search.empty": "No matches for “{q}”.",

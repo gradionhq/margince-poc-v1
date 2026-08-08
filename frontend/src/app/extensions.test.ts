@@ -31,8 +31,14 @@ const CRM_DEMO: ExtensionDescriptor = {
   verbs: [
     {
       operationId: "crmDemoListNotes",
-      route: "/v1/ext/crm-demo/notes",
-      method: "GET",
+      // The CONTRACT's spelling: a path is relative to the document's own
+      // `servers` url, which already ends in /v1, so the descriptor carries
+      // /ext/… and the server puts the base path back at mount time. The
+      // descriptor's route is an opaque string on this side, which is exactly
+      // why a stale /v1-prefixed fixture could sit here contradicting the
+      // convention without failing anything.
+      route: "/ext/crm-demo/notes/list",
+      method: "POST",
       title: "List demo notes",
       version: "1.0.0",
       rbacObject: "ext_crm_demo_note",
@@ -58,7 +64,9 @@ describe("the composed extension registry", () => {
     // The screen renders what the unit publishes, so the verbs have to survive
     // the lookup — a descriptor stripped to its name would resolve and then
     // render an empty page.
-    expect(unit?.verbs.map((v) => v.route)).toEqual(["/v1/ext/crm-demo/notes"]);
+    expect(unit?.verbs.map((v) => v.route)).toEqual([
+      "/ext/crm-demo/notes/list",
+    ]);
   });
 
   it("404s cleanly when the registry is empty", () => {

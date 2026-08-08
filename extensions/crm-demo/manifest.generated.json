@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "crm-demo",
+  "version": "1.0.0",
+  "risk_tiers": [
+    {
+      "id": "job/heartbeat",
+      "unit": "crm-demo",
+      "kind": "extension_job",
+      "contract": "jobs.yaml",
+      "operation": "extension.job.tick",
+      "operation_id": "ext_crm_demo_heartbeat",
+      "route": "",
+      "method": "",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:e6b99536b9c951665b28ae7c49f75af52b3440b70c136817599760d67ec7875e",
+      "digest": "sha256:666d33ea112fbb5901d26eca6e54faefaecc0870d3792302cd61bc138631440e"
+    },
+    {
+      "id": "tool/demo_add_note",
+      "unit": "crm-demo",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "crmDemoAddNote",
+      "route": "/ext/crm-demo/notes/add",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "4f8429d9e371179494962b3224a3351c215a9057582785082036e3cb6b96d627",
+      "digest": "sha256:b19f56369e8015283df275d1f83af581b0d4671dbbe50ab7cb9e827ac5469a85"
+    },
+    {
+      "id": "tool/demo_list_notes",
+      "unit": "crm-demo",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "crmDemoListNotes",
+      "route": "/ext/crm-demo/notes/list",
+      "method": "POST",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "c6935b592b839f245e0993615d9230658dd4a5c0b5f4a5859dab2370ec63c721",
+      "digest": "sha256:425550f5b1e9c7b0ea6467ba158c063a23fdb8d8ac4223148ef70280262a3c2a"
+    },
+    {
+      "id": "tool/demo_remove_note",
+      "unit": "crm-demo",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "crmDemoRemoveNote",
+      "route": "/ext/crm-demo/notes/remove",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "e43c257100cd3b0a409d803f357604849fefb2de70ac03089966fb7ebd121745",
+      "digest": "sha256:0d1dbb8a6fb019775644259cd6f85ed0d3310fda1716a08ba352e8d97a55ada3"
+    },
+    {
+      "id": "tool/demo_sign_payload",
+      "unit": "crm-demo",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "crmDemoSignPayload",
+      "route": "/ext/crm-demo/signature",
+      "method": "POST",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "1507e30ecad377b46aa2a09249dd361bbbce78109248ac5699434b7d89c10bc0",
+      "digest": "sha256:e5f7387bb29c7bc656708edad691da969fd3b0ae319c64f13845ac13fe9271fc"
+    },
+    {
+      "id": "tool/demo_signing_key_status",
+      "unit": "crm-demo",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "crmDemoSigningKeyStatus",
+      "route": "/ext/crm-demo/signing-key/status",
+      "method": "POST",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "891b8ba2b7474b051f97c8c242de3e08bdaa640b5378c7bb462de420a4ec8d7f",
+      "digest": "sha256:26bace7d78cb160c2503d2cd32675cd91887d53fbde79d3f5fdde518ddc1358a"
+    },
+    {
+      "id": "tool/demo_store_signing_key",
+      "unit": "crm-demo",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "crmDemoStoreSigningKey",
+      "route": "/ext/crm-demo/signing-key",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "2b360ccf501114b77c1dfaaf6e2ffefac2c9ea565f1de73228aff16c2a30c159",
+      "digest": "sha256:eabe69fd486c2a97dc92b49961352822b7d0412e1fac12a45c18dff97ff9fff2"
+    }
+  ],
+  "secrets": [
+    {
+      "key": "signing",
+      "scope": "workspace"
+    }
+  ]
+}
