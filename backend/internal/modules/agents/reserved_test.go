@@ -201,3 +201,36 @@ func TestInvalidUTF8ArgumentsAreRefusedBeforeTheyAreNormalized(t *testing.T) {
 			firstKey[idempotencyKeyArg], secondKey[idempotencyKeyArg])
 	}
 }
+
+// An escaped unpaired surrogate is perfectly valid UTF-8 on the wire and still
+// decodes to U+FFFD, so the raw-bytes check above cannot see it. Two distinct
+// calls collapsing into one is the whole defect: one retry key claiming
+// another's row, or two argument sets hashing alike and slipping past the
+// digest-mismatch refusal that exists to catch exactly that.
+func TestEscapedUnpairedSurrogatesAreRefused(t *testing.T) {
+	t.Run("in the retry key", func(t *testing.T) {
+		for _, in := range []string{`{"idempotency_key":"\udcff"}`, `{"idempotency_key":"\udcfe"}`} {
+			if _, err := splitReserved(json.RawMessage(in)); !errors.Is(err, errReplacementCharacter) {
+				t.Fatalf("%s → %v, want the replacement-character refusal", in, err)
+			}
+		}
+	})
+	t.Run("in an argument the digest is taken over", func(t *testing.T) {
+		if _, err := splitReserved(json.RawMessage(`{"note":"\udcff"}`)); !errors.Is(err, errReplacementCharacter) {
+			t.Fatalf("err = %v, want the replacement-character refusal", err)
+		}
+	})
+	// The collapse these refusals prevent, shown rather than asserted about:
+	// decoded, the two distinct wire forms are one value.
+	var a, b map[string]string
+	if err := json.Unmarshal([]byte(`{"k":"\udcff"}`), &a); err != nil {
+		t.Fatalf("decoding a: %v", err)
+	}
+	if err := json.Unmarshal([]byte(`{"k":"\udcfe"}`), &b); err != nil {
+		t.Fatalf("decoding b: %v", err)
+	}
+	if a["k"] != b["k"] {
+		t.Fatalf("the two escapes decode differently (%q vs %q), so this test does not exercise the collision it names",
+			a["k"], b["k"])
+	}
+}

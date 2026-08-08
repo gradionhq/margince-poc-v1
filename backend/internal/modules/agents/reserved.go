@@ -25,6 +25,7 @@ package agents
 // a retry key would otherwise present a call the human never approved.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,6 +53,8 @@ var (
 	errControlInRetryKey    = errors.New("`idempotency_key` contains a control character; use printable text")
 	errArgumentsNotUTF8     = errors.New("the arguments are not valid UTF-8")
 	errArgumentsNotAnObject = errors.New("the arguments must be a JSON object")
+	errReplacementCharacter = errors.New(
+		"the arguments contain the Unicode replacement character, which makes two different calls indistinguishable")
 )
 
 // maxRetryKeyLen bounds the caller-chosen retry key. It is the same NUMBER the
@@ -126,6 +129,17 @@ func splitReserved(in json.RawMessage) (reserved, error) {
 	canonical, hash, err := diffhash.Object(m)
 	if err != nil {
 		return reserved{}, err
+	}
+	// The second half of the same defect, caught where BOTH halves are visible.
+	// utf8.Valid above rejects malformed BYTES; an escaped unpaired surrogate
+	// (`"\udcff"`) is perfectly valid UTF-8 on the wire and still decodes to
+	// U+FFFD, so two distinct calls collapse into one — one retry key claiming
+	// another'"'"'s row, or two different argument sets hashing alike and slipping
+	// past the digest-mismatch refusal that exists to catch exactly that.
+	// Checked on the canonical form, which is the one thing both the key and the
+	// hash are taken from.
+	if bytes.ContainsRune(canonical, utf8.RuneError) || strings.ContainsRune(out.RetryKey, utf8.RuneError) {
+		return reserved{}, &BadArgsError{Cause: errReplacementCharacter}
 	}
 	out.Args, out.DiffHash = canonical, hash
 	return out, nil

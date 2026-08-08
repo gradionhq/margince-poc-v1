@@ -20,11 +20,13 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -113,8 +115,11 @@ func TestAReplayIsRefusedOnceTheCallerCanNoLongerReadWhatItCarries(t *testing.T)
 	e.WsExec(t, `UPDATE person SET archived_at = now() WHERE id = $1`, created.ID)
 
 	replay, err := createPersonWithKey(ctx, t, registry, "Receipt Holder", "receipt-k-1")
-	if err == nil {
-		t.Fatalf("the recorded answer was replayed after its record left the caller's reach: %s", replay)
+	// The SENTINEL, not merely an error: a claim-store failure, an envelope
+	// decode failure and a budget refusal all answer non-nil, and only one of
+	// them is the existence-hiding refusal this test is about.
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v (out %s), want ErrNotFound", err, replay)
 	}
 	// Refused, and refused BEFORE the tool — a late write would look the same
 	// from the error alone.
@@ -159,12 +164,24 @@ func TestAnArchivesReceiptIsRefusedAndItsEffectStillHappensOnce(t *testing.T) {
 	}
 
 	// The receipt is gone: its only evidence is the record it just removed.
-	if out, err := registry.Invoke(ctx, "archive_record", args); err == nil {
-		t.Fatalf("the archived record's receipt was replayed: %s", out)
+	out, err := registry.Invoke(ctx, "archive_record", args)
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("the archived record's receipt answered %v (out %s), want ErrNotFound", err, out)
 	}
-	// And the promise held — the retry did not archive a second time, nor
-	// re-run the tool at all.
-	if n := e.WsCount(t, `SELECT count(*) FROM person WHERE id = $1 AND archived_at IS NOT NULL`, person); n != 1 {
-		t.Fatalf("after the retry %d rows are archived, want the same 1", n)
+	// The effect happened once.
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM audit_log WHERE entity_id = $1 AND action = 'archive'`, person); n != 1 {
+		t.Fatalf("the record carries %d archive audit entries, want the 1 the first call wrote", n)
+	}
+	// And the refusal came from the REPLAY GATE rather than from a re-run that
+	// happened to fail the same way. Neither of the two assertions above can
+	// tell those apart — archiving an archived row answers not-found too, and
+	// writes no second audit entry — but the claim row can: a re-run settles as
+	// a FAILURE and overwrites the recorded success, so a surviving 200 means
+	// the tool was never entered.
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM idempotency_key WHERE key = $1 AND response_status = 200`, "archive-k-1"); n != 1 {
+		t.Fatalf("the claim no longer carries its recorded success, so the retry reached the tool " +
+			"and settled over it")
 	}
 }

@@ -167,11 +167,19 @@ func writeClaimOutcome(w http.ResponseWriter, r *http.Request, pool *pgxpool.Poo
 	case claimFresh:
 		// Unreachable: the caller returns early only for a non-fresh claim.
 	case claimFailed:
-		// Unreachable from this door: only the tool surface records a run that
-		// produced no result (agentidempotency.go), and this middleware releases
-		// the claim on any non-2xx instead. Named rather than defaulted, so a
-		// door that starts recording failures has to answer for what a REST
-		// caller should be told.
+		// The tool surface records a run that produced no result
+		// (agentidempotency.go); this middleware releases the claim instead, so
+		// REST does not write one today. It ANSWERS anyway rather than falling
+		// through: an empty case here returns without writing, and net/http
+		// then sends a bare 200 with no body — a silent success for a call that
+		// failed. The table is shared, so "no door writes this yet" is a fact
+		// about today, not a guarantee.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "idempotency_key_conflict",
+			Detail: "an earlier request with this idempotency key failed after it had already started; " +
+				"check whether it took effect before retrying under a new key",
+		})
 	}
 }
 
