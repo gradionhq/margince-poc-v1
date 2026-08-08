@@ -868,6 +868,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/evidence/{entityType}/{entityId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description The kind of record a claim cited. The pair is the reference, not the id alone. */
+                entityType: "organization" | "fact" | "profile_field";
+                entityId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The receipt behind one cited record — where it came from, and what is missing.
+         * @description DOSS-WIRE-3. A generated sentence carries the records it was written from; this is what a
+         *     reader gets when they open one.
+         *
+         *     **Keyed on the cited RECORD, under the company it belongs to.** The spec addresses this
+         *     as `/claims/{claimId}/evidence`, but nothing in this implementation mints a claim identity
+         *     — a sentence cites `(entity_type, entity_id)`, which is what the citation chip carries and
+         *     what the grounding filter checks. Raised upstream; the payload below is the spec's.
+         *
+         *     The organization in the path is not decoration: it is what the read is row-scoped through,
+         *     and a record that does not belong to it answers `404` exactly as one the reader may not
+         *     see does.
+         *
+         *     **Each `source_kind` owes its own identifying fields** (DOSS-PARAM-9), carried in
+         *     `identity`. A receipt that cannot fill one NAMES it in `gaps` rather than substituting a
+         *     plausible value — an empty string where a canonical URL belongs reads as "no URL", which
+         *     is a different claim from "we did not record one".
+         *
+         *     **`confidence` is absent for the `connector` and `human` kinds** (DOSS-AC-16). A connector
+         *     record and a person's assertion carry no model confidence, and printing one would
+         *     fabricate a number.
+         *
+         *     **A record the reader cannot see discloses neither its content nor its existence**: the
+         *     answer is `404`, never a redacted body (DOSS-AC-11).
+         */
+        get: operations["getClaimEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/growth-fit": {
         parameters: {
             query?: never;
@@ -7556,6 +7604,66 @@ export interface components {
              *     learns the distinction once and it holds everywhere.
              */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        /**
+         * @description The receipt behind one cited record (DOSS-WIRE-3). Each `source_kind` owes its own
+         *     identifying fields (DOSS-PARAM-9), carried in `identity`; a receipt that cannot fill one
+         *     names the gap in `gaps` rather than substituting a plausible value.
+         */
+        ClaimEvidence: {
+            /** @enum {string} */
+            entity_type: "organization" | "fact" | "profile_field";
+            /** Format: uuid */
+            entity_id: string;
+            /**
+             * @description How this record came to exist.
+             *
+             *     `migration` is not in the spec's DOSS-PARAM-9 vocabulary, and is carried here because
+             *     migration 0099 makes it one of the four provenance values a stored value can have.
+             *     Reporting an imported row as a connector record or a person's assertion would be a
+             *     claim about where it came from that nobody made. Raised upstream.
+             * @enum {string}
+             */
+            source_kind: "site_read" | "connector" | "human" | "migration" | "rule";
+            /**
+             * @description The identifying fields this kind owes — site read: the canonical URL it was read from;
+             *     connector: the provider and the external record; human: the actor and when; migration:
+             *     the import that carried it. What the reader needs to go and check the claim themselves.
+             */
+            identity?: {
+                [key: string]: unknown;
+            };
+            /** @description The field this record holds, in the reader's words — what the claim was about. */
+            label?: string;
+            /** @description The stored value the claim rests on. */
+            value?: string;
+            /** @description The verbatim span the value was read from. Null when the kind has no text. */
+            excerpt?: string | null;
+            /**
+             * Format: date-time
+             * @description When the source was read. Null when nothing recorded it.
+             */
+            retrieved_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When a human last confirmed it. Deliberately distinct from `retrieved_at` — read and
+             *     confirmed are different claims, and collapsing them would let a machine re-read pass
+             *     for a person's approval.
+             */
+            last_verified_at?: string | null;
+            /**
+             * @description The model's confidence. ABSENT for the `connector`, `human` and `migration` kinds — none
+             *     of them carries a model confidence, and printing one would fabricate a number
+             *     (DOSS-AC-16).
+             */
+            confidence?: number | null;
+            /** @description What produced the value — an extraction lane, a connector, or a named human. */
+            produced_by: string;
+            /**
+             * @description Fields this kind owes that could not be filled, named rather than silently omitted. An
+             *     absent field and an unrecorded one look identical on the wire otherwise.
+             */
+            gaps?: string[];
         };
         /**
          * @description How well this company fits what we sell (DOSS-PARAM-8).
@@ -14645,6 +14753,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationDossier"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getClaimEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description The kind of record a claim cited. The pair is the reference, not the id alone. */
+                entityType: "organization" | "fact" | "profile_field";
+                entityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The receipt behind the cited record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimEvidence"];
                 };
             };
             401: components["responses"]["Unauthorized"];

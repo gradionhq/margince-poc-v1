@@ -11,7 +11,10 @@ import (
 	"context"
 	"net/http"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -53,6 +56,33 @@ func (h Handlers) GetOrganizationGrowthFit(w http.ResponseWriter, r *http.Reques
 // the caller's own re-assessment, past a fingerprint that still matches.
 func (h Handlers) RefreshOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	h.serveGrowthFit(w, r, id, true)
+}
+
+// GetClaimEvidence implements GET
+// /organizations/{id}/evidence/{entityType}/{entityId} — the receipt behind one
+// record a generated sentence cited.
+//
+// It is the affordance that makes the prose above it worth reading: a claim the
+// reader can open is one they can disagree with.
+func (h Handlers) GetClaimEvidence(w http.ResponseWriter, r *http.Request,
+	id crmcontracts.Id, entityType string, entityID openapi_types.UUID,
+) {
+	if !h.native(w, r) {
+		return
+	}
+	// A growth fit or dossier is for a person; an agent holding a passport has
+	// the records themselves and needs no receipt for them.
+	if err := auth.RequireHuman(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	receipt, err := EvidenceFor(r.Context(), h.svc.facts,
+		ids.From[ids.OrganizationKind](ids.UUID(id)), entityType, entityID)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, receipt)
 }
 
 func (h Handlers) serve(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, force bool) {

@@ -1311,6 +1311,54 @@ func (e ChannelConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for ClaimEvidenceEntityType.
+const (
+	ClaimEvidenceEntityTypeFact         ClaimEvidenceEntityType = "fact"
+	ClaimEvidenceEntityTypeOrganization ClaimEvidenceEntityType = "organization"
+	ClaimEvidenceEntityTypeProfileField ClaimEvidenceEntityType = "profile_field"
+)
+
+// Valid indicates whether the value is a known member of the ClaimEvidenceEntityType enum.
+func (e ClaimEvidenceEntityType) Valid() bool {
+	switch e {
+	case ClaimEvidenceEntityTypeFact:
+		return true
+	case ClaimEvidenceEntityTypeOrganization:
+		return true
+	case ClaimEvidenceEntityTypeProfileField:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ClaimEvidenceSourceKind.
+const (
+	ClaimEvidenceSourceKindConnector ClaimEvidenceSourceKind = "connector"
+	ClaimEvidenceSourceKindHuman     ClaimEvidenceSourceKind = "human"
+	ClaimEvidenceSourceKindMigration ClaimEvidenceSourceKind = "migration"
+	ClaimEvidenceSourceKindRule      ClaimEvidenceSourceKind = "rule"
+	ClaimEvidenceSourceKindSiteRead  ClaimEvidenceSourceKind = "site_read"
+)
+
+// Valid indicates whether the value is a known member of the ClaimEvidenceSourceKind enum.
+func (e ClaimEvidenceSourceKind) Valid() bool {
+	switch e {
+	case ClaimEvidenceSourceKindConnector:
+		return true
+	case ClaimEvidenceSourceKindHuman:
+		return true
+	case ClaimEvidenceSourceKindMigration:
+		return true
+	case ClaimEvidenceSourceKindRule:
+		return true
+	case ClaimEvidenceSourceKindSiteRead:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColdStartFieldField.
 const (
 	ColdStartFieldFieldBuyingCenter      ColdStartFieldField = "buying_center"
@@ -7148,31 +7196,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -7592,16 +7640,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
-	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
+	Active WebhookSubscriptionState = "active"
+	Paused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case WebhookSubscriptionStateActive:
+	case Active:
 		return true
-	case WebhookSubscriptionStatePaused:
+	case Paused:
 		return true
 	default:
 		return false
@@ -9813,6 +9861,66 @@ type ChannelConnectionStatus string
 type ChannelConnectionListResponse struct {
 	Data []ChannelConnection `json:"data"`
 }
+
+// ClaimEvidence The receipt behind one cited record (DOSS-WIRE-3). Each `source_kind` owes its own
+// identifying fields (DOSS-PARAM-9), carried in `identity`; a receipt that cannot fill one
+// names the gap in `gaps` rather than substituting a plausible value.
+type ClaimEvidence struct {
+	// Confidence The model's confidence. ABSENT for the `connector`, `human` and `migration` kinds — none
+	// of them carries a model confidence, and printing one would fabricate a number
+	// (DOSS-AC-16).
+	Confidence *float32                `json:"confidence,omitempty"`
+	EntityId   openapi_types.UUID      `json:"entity_id"`
+	EntityType ClaimEvidenceEntityType `json:"entity_type"`
+
+	// Excerpt The verbatim span the value was read from. Null when the kind has no text.
+	Excerpt *string `json:"excerpt,omitempty"`
+
+	// Gaps Fields this kind owes that could not be filled, named rather than silently omitted. An
+	// absent field and an unrecorded one look identical on the wire otherwise.
+	Gaps *[]string `json:"gaps,omitempty"`
+
+	// Identity The identifying fields this kind owes — site read: the canonical URL it was read from;
+	// connector: the provider and the external record; human: the actor and when; migration:
+	// the import that carried it. What the reader needs to go and check the claim themselves.
+	Identity *map[string]interface{} `json:"identity,omitempty"`
+
+	// Label The field this record holds, in the reader's words — what the claim was about.
+	Label *string `json:"label,omitempty"`
+
+	// LastVerifiedAt When a human last confirmed it. Deliberately distinct from `retrieved_at` — read and
+	// confirmed are different claims, and collapsing them would let a machine re-read pass
+	// for a person's approval.
+	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
+
+	// ProducedBy What produced the value — an extraction lane, a connector, or a named human.
+	ProducedBy string `json:"produced_by"`
+
+	// RetrievedAt When the source was read. Null when nothing recorded it.
+	RetrievedAt *time.Time `json:"retrieved_at,omitempty"`
+
+	// SourceKind How this record came to exist.
+	//
+	// `migration` is not in the spec's DOSS-PARAM-9 vocabulary, and is carried here because
+	// migration 0099 makes it one of the four provenance values a stored value can have.
+	// Reporting an imported row as a connector record or a person's assertion would be a
+	// claim about where it came from that nobody made. Raised upstream.
+	SourceKind ClaimEvidenceSourceKind `json:"source_kind"`
+
+	// Value The stored value the claim rests on.
+	Value *string `json:"value,omitempty"`
+}
+
+// ClaimEvidenceEntityType defines model for ClaimEvidence.EntityType.
+type ClaimEvidenceEntityType string
+
+// ClaimEvidenceSourceKind How this record came to exist.
+//
+// `migration` is not in the spec's DOSS-PARAM-9 vocabulary, and is carried here because
+// migration 0099 makes it one of the four provenance values a stored value can have.
+// Reporting an imported row as a connector record or a person's assertion would be a
+// claim about where it came from that nobody made. Raised upstream.
+type ClaimEvidenceSourceKind string
 
 // ColdStartField One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
 // omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
@@ -25812,6 +25920,9 @@ type ServerInterface interface {
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
+	// The receipt behind one cited record — where it came from, and what is missing.
+	// (GET /organizations/{id}/evidence/{entityType}/{entityId})
+	GetClaimEvidence(w http.ResponseWriter, r *http.Request, id Id, entityType string, entityId openapi_types.UUID)
 	// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 	// (GET /organizations/{id}/facts)
 	ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id)
@@ -27288,6 +27399,12 @@ func (_ Unimplemented) RefreshOrganizationDossier(w http.ResponseWriter, r *http
 // Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 // (POST /organizations/{id}/enrich)
 func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The receipt behind one cited record — where it came from, and what is missing.
+// (GET /organizations/{id}/evidence/{entityType}/{entityId})
+func (_ Unimplemented) GetClaimEvidence(w http.ResponseWriter, r *http.Request, id Id, entityType string, entityId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35753,6 +35870,56 @@ func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetClaimEvidence operation middleware
+func (siw *ServerInterfaceWrapper) GetClaimEvidence(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "entityType" -------------
+	var entityType string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entityType", chi.URLParam(r, "entityType"), &entityType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entityType", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "entityId" -------------
+	var entityId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entityId", chi.URLParam(r, "entityId"), &entityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entityId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetClaimEvidence(w, r, id, entityType, entityId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListOrganizationFacts operation middleware
 func (siw *ServerInterfaceWrapper) ListOrganizationFacts(w http.ResponseWriter, r *http.Request) {
 
@@ -43754,6 +43921,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/evidence/{entityType}/{entityId}", wrapper.GetClaimEvidence)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/facts", wrapper.ListOrganizationFacts)

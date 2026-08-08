@@ -711,6 +711,10 @@ func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "ScrapeCompany")
 }
 
+func (stubs) GetClaimEvidence(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, entityType string, entityId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetClaimEvidence")
+}
+
 func (stubs) ListOrganizationFacts(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ListOrganizationFacts")
 }
