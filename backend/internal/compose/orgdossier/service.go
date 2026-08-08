@@ -243,13 +243,17 @@ func (s *Service) save(ctx context.Context, userID ids.UserID, orgID ids.Organiz
 	})
 }
 
-// actingUser resolves the human this dossier belongs to. That the assembly is
-// per-reader IS the security posture, so a principal with no user id has no
-// dossier rather than a shared one.
+// actingUser resolves the human an assembly belongs to. That these assemblies
+// are per-reader IS the security posture, so a principal with no user id gets
+// none rather than a shared one.
+//
+// Both surfaces on this package call it, so the message names neither: a reader
+// sent to the dossier by an error the growth fit raised looks in the wrong place.
 func actingUser(ctx context.Context) (ids.UserID, error) {
 	p, ok := principal.Actor(ctx)
 	if !ok || p.UserID == (ids.UUID{}) {
-		return ids.UserID{}, fmt.Errorf("the company dossier is per-reader and this call carries no user: %w",
+		return ids.UserID{}, fmt.Errorf(
+			"this company assembly is written per reader and the call carries no user: %w",
 			apperrors.ErrPermissionDenied)
 	}
 	return ids.From[ids.UserKind](p.UserID), nil

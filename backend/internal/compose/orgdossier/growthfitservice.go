@@ -83,6 +83,9 @@ type storedGrowthFit struct {
 	NextStep     string                        `json:"next_step"`
 	Completeness crmcontracts.DataCompleteness `json:"completeness"`
 	Claims       GrowthFitClaims               `json:"claims"`
+	// StaleAt is when the completeness figure above stops being true on the
+	// clock alone. Zero means nothing it counted can age out.
+	StaleAt time.Time `json:"stale_at"`
 }
 
 // Get serves the growth fit, re-assessing when the cache no longer describes
@@ -122,16 +125,28 @@ func (s *GrowthFitService) Get(ctx context.Context, orgID ids.OrganizationID, fo
 		return zero, err
 	}
 
+	utc := func() time.Time { return s.now().UTC() }
 	cached, found, err := s.cached(ctx, userID, orgID)
 	if err != nil {
 		return zero, err
 	}
-	if found && !force && cached.Version == growthFitStoredVersion && cached.Fingerprint == fingerprint {
+	if found && !force && cached.usable(fingerprint, utc()) {
 		return cached.wire(orgID), nil
 	}
 
-	utc := func() time.Time { return s.now().UTC() }
-	assessed, by := WriteGrowthFit(ctx, s.lane, in, confirmed, utc)
+	assessed, by, laneFailed := WriteGrowthFit(ctx, s.lane, in, confirmed, utc)
+	if laneFailed && found {
+		// A lane that failed must not be able to DESTROY an assessment. The
+		// degraded answer is an abstention, and writing it over a real band
+		// would let one unreachable model call — or one reader looping the
+		// refresh until the token budget is gone — flatten every cached
+		// assessment in the workspace to "not enough evidence".
+		//
+		// The contract says as much for this endpoint: a refresh the budget
+		// refuses returns the cached assembly with its age rather than an
+		// error. Its `generated_at` is that age.
+		return cached.wire(orgID), nil
+	}
 	written := storedGrowthFit{
 		Fingerprint:  fingerprint,
 		Version:      growthFitStoredVersion,
@@ -142,11 +157,25 @@ func (s *GrowthFitService) Get(ctx context.Context, orgID ids.OrganizationID, fo
 		NextStep:     assessed.NextStep,
 		Completeness: assessed.Completeness,
 		Claims:       assessed.Claims,
+		StaleAt:      assessed.StaleAt,
 	}
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return zero, err
 	}
 	return written.wire(orgID), nil
+}
+
+// usable reports whether this build may still serve a cached entry.
+//
+// The fingerprint catches every change that arrives as a WRITE — a fact moves,
+// the prompt changes, the lane is re-pointed. Ageing out is the one change that
+// arrives with no write at all, so a fingerprint-only check would serve a band
+// resting on evidence that has since gone stale, indefinitely.
+func (g storedGrowthFit) usable(fingerprint string, now time.Time) bool {
+	if g.Version != growthFitStoredVersion || g.Fingerprint != fingerprint {
+		return false
+	}
+	return g.StaleAt.IsZero() || now.Before(g.StaleAt)
 }
 
 // growthFitFingerprint covers everything that could change the assessment: the

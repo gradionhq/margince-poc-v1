@@ -93,10 +93,10 @@ type growthFitClaims struct {
 // stands behind — and `generated_by` says which of the two they are reading.
 func WriteGrowthFit(ctx context.Context, lane Completer, in Input,
 	selfConfirmed bool, now nowFunc,
-) (Assessment, crmcontracts.WrittenBy) {
-	floor := Assess(in, crmcontracts.GrowthFitBandUnknown, selfConfirmed, now())
+) (Assessment, crmcontracts.WrittenBy, bool) {
 	if lane == nil {
-		return floor, crmcontracts.Deterministic
+		return Assess(in, crmcontracts.GrowthFitBandUnknown, selfConfirmed, AbstainedNoWriter, now()),
+			crmcontracts.Deterministic, false
 	}
 	assessed, err := assessWithModel(ctx, lane, in, selfConfirmed, now)
 	if err != nil {
@@ -104,9 +104,22 @@ func WriteGrowthFit(ctx context.Context, lane Completer, in Input,
 		// swallowed error. A lane that is unavailable, over budget, or
 		// answering unparseable JSON must not take the panel down: the reader
 		// gets the floor's abstention, labelled as the floor's.
-		return floor, crmcontracts.Deterministic
+		//
+		// The third return says the lane FAILED rather than being absent. The
+		// caller needs that to decide whether this answer may replace a good
+		// cached one — a transient outage must not overwrite a real assessment.
+		return Assess(in, crmcontracts.GrowthFitBandUnknown, selfConfirmed, AbstainedLaneFailed, now()),
+			crmcontracts.Deterministic, true
 	}
-	return assessed, crmcontracts.Model
+	// An assessment the counting reduced to an abstention is the FLOOR's
+	// answer, not the model's: its band was discarded and its claims withheld,
+	// so nothing the model produced survives to be attributed to it. Labelling
+	// it `model` would pass the floor's answer off as the model's, which is the
+	// same dishonesty as the reverse (DOSS-AC-7).
+	if assessed.Band == crmcontracts.GrowthFitBandUnknown {
+		return assessed, crmcontracts.Deterministic, false
+	}
+	return assessed, crmcontracts.Model, false
 }
 
 func assessWithModel(ctx context.Context, lane Completer, in Input,
@@ -124,7 +137,7 @@ func assessWithModel(ctx context.Context, lane Completer, in Input,
 	// The model proposed; the formula decides. Assess re-counts the inputs
 	// itself and may lower the band to `unknown` or cap it at `moderate` —
 	// it never raises what the model said.
-	out := Assess(in, proposed, selfConfirmed, now())
+	out := Assess(in, proposed, selfConfirmed, AbstainedOnEvidence, now())
 	if out.Band == crmcontracts.GrowthFitBandUnknown {
 		// The evidence did not support judging at all, so the claims written to
 		// justify a judgment are withheld with it. Serving "not enough evidence"

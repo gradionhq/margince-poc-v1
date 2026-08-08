@@ -10,10 +10,9 @@ package integration
 // inputs moves the completeness figure the abstention rests on.
 //
 // The counting cannot be proven anywhere but here. Completeness is decided from
-// columns the sidecar readers project, and a reader that silently stops
-// projecting one turns every value of that kind stale — a completeness figure
-// that is permanently short, reported with total confidence. Only a real
-// database catches that.
+// columns the sidecar readers project and from rows the real writers shape, and
+// a unit test supplies both itself. Only a real database can show that the
+// reader actually fetches what the counting reads.
 
 import (
 	"context"
@@ -73,11 +72,11 @@ func TestGrowthFitAbstainsAndNamesWhatToGather(t *testing.T) {
 		t.Errorf("generated_by = %q, want deterministic — no model lane is wired", fresh.GeneratedBy)
 	}
 
-	// Record three of the required inputs the way a site read would — two read
-	// recently, one read long ago — then force a re-assembly. Only the two
-	// fresh ones may count, and the figure must MOVE, because a reader that is
-	// not seeing rows the database holds looks exactly like a company with
-	// nothing recorded.
+	// Record three of the required inputs the way a site read would — two
+	// written recently, one written long ago — then force a re-assembly. Only
+	// the two fresh ones may count, and the figure must MOVE, because a reader
+	// that is not seeing rows the database holds looks exactly like a company
+	// with nothing recorded.
 	seedRequiredProfileFields(t, e, orgID)
 
 	var enriched growthFitResponse
@@ -85,7 +84,7 @@ func TestGrowthFitAbstainsAndNamesWhatToGather(t *testing.T) {
 		t.Fatalf("POST growth-fit = %d, want 200", status)
 	}
 	if enriched.DataCompleteness.Present != 2 {
-		t.Errorf("present = %d, want 2 — three fields were recorded and one was read too long ago to count",
+		t.Errorf("present = %d, want 2 — three fields were recorded and one is too old to count",
 			enriched.DataCompleteness.Present)
 	}
 	// The stale one is still OUTSTANDING, so it must still be named as
@@ -161,15 +160,15 @@ func createBareOrganization(t *testing.T, e *apptest.AppEnv) string {
 	return org.ID
 }
 
-// seedRequiredProfileFields writes three of the required inputs the way a site
-// read leaves them — machine-sourced, with the evidence such a row must carry.
+// seedRequiredProfileFields writes three of the required inputs the way the
+// site-read path actually leaves them: machine-sourced, carrying the evidence
+// such a row must have, and with `retrieved_at` UNSET — migration 0194 adds
+// that column and nothing in this tree writes it yet, so a row carrying one is
+// a shape no writer produces.
 //
-// Two were read recently and count. The third was read long ago and must NOT,
-// and it is what pins the reader's `retrieved_at` projection: its row is
-// WRITTEN now, so its updated_at is current, and only the read time says it is
-// stale. A reader that stopped projecting retrieved_at would fall back to
-// updated_at, count the old value as fresh, and quietly inflate every
-// completeness figure in the product.
+// Freshness therefore runs off `updated_at`, which is what production measures
+// today. Two rows are written now and count; the third is backdated past the
+// window and must not, which is the boundary the served figure rests on.
 func seedRequiredProfileFields(t *testing.T, e *apptest.AppEnv, orgID string) {
 	t.Helper()
 	var workspaceID ids.UUID
@@ -177,23 +176,26 @@ func seedRequiredProfileFields(t *testing.T, e *apptest.AppEnv, orgID string) {
 		`SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&workspaceID); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
+	// updated_at is written explicitly because the row's own trigger stamps
+	// now() on every write, so a backdated value cannot be produced by an
+	// UPDATE after the fact.
 	const insert = `
 		INSERT INTO organization_profile_field (
 			id, workspace_id, organization_id, field, value, source,
-			evidence_snippet, source_url, confidence, captured_by, retrieved_at)
+			evidence_snippet, source_url, confidence, captured_by, updated_at)
 		VALUES ($1, $2, $3, $4, $5, 'site_read', $6, 'https://voltaq.example/about', 0.9,
-		        'human:seed', $7)`
+		        'site_read:seed', $7)`
 	now := time.Now().UTC()
 	for field, seed := range map[string]struct {
-		value     string
-		retrieved time.Time
+		value   string
+		written time.Time
 	}{
 		"offer_summary": {"Load-shifting software for industrial sites", now.Add(-24 * time.Hour)},
 		"icp":           {"Energy-intensive manufacturers", now.Add(-24 * time.Hour)},
 		"industry":      {"Industrial software", now.Add(-400 * 24 * time.Hour)},
 	} {
 		if _, err := e.Owner.Exec(context.Background(), insert,
-			ids.NewV7(), workspaceID, orgID, field, seed.value, seed.value, seed.retrieved); err != nil {
+			ids.NewV7(), workspaceID, orgID, field, seed.value, seed.value, seed.written); err != nil {
 			t.Fatalf("seed profile field %s: %v", field, err)
 		}
 	}

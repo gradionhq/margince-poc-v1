@@ -32,15 +32,23 @@ var bandRank = map[crmcontracts.GrowthFitBand]int{
 	crmcontracts.GrowthFitBandStrong:   3,
 }
 
-// abstentionFloor is the share of required inputs an assembly must hold before
-// it may name a band at all. Below it the answer is `unknown` (DOSS-AC-12).
+// The abstention floor: the share of required inputs an assembly must hold
+// before it may name a band at all. Below it the answer is `unknown`
+// (DOSS-AC-12).
 //
 // The spec fixes the floor's BEHAVIOUR and its two worked examples but never
 // gives it a number: four of seven populated must judge normally, two of seven
 // must abstain. One half is the roundest value satisfying both, and it states
 // the rule a reader can hold — we do not grade a company we know less than half
-// of. Any change here belongs upstream in DOSS-PARAM, not in this constant.
-const abstentionFloor = 0.5
+// of. Any change here belongs upstream in DOSS-PARAM, not in these constants.
+//
+// It is a RATIO of two integers rather than 0.5 so the comparison can be exact.
+// A float multiplication deciding whether four of eight clears a half is a
+// boundary a rounding error is entitled to move.
+const (
+	abstentionFloorNum = 1
+	abstentionFloorDen = 2
+)
 
 // freshness is how long a machine-read value counts as describing the company
 // it was read from (DOSS-PARAM-6). Past it the value is still SHOWN — the
@@ -95,82 +103,111 @@ type SelfOffering func(ctx context.Context) (bool, error)
 // Completeness counts how many required inputs this assembly actually holds,
 // and names the ones it does not (DOSS-FORM-2).
 func Completeness(in Input, now time.Time) crmcontracts.DataCompleteness {
+	counted, _ := completenessAt(in, now)
+	return counted
+}
+
+// completenessAt is Completeness plus the moment its answer stops being true:
+// the earliest expiry among the inputs it counted, or the zero time when
+// nothing it counted can age out.
+//
+// The expiry is what keeps a cache honest. Every other reason to re-assemble is
+// a write — a fact changes, the prompt changes, the lane is re-pointed — and a
+// fingerprint catches all of those. Ageing out is the one change that happens
+// with no write at all, so without this a company assessed while its values
+// were fresh would keep serving that band forever.
+func completenessAt(in Input, now time.Time) (crmcontracts.DataCompleteness, time.Time) {
 	present := 0
 	missing := []string{}
-	for _, want := range requiredProfileInputs {
-		if hasFreshProfileField(in, want.field, now) {
-			present++
-			continue
+	var earliest time.Time
+	note := func(counts bool, expires time.Time, label string) {
+		if !counts {
+			missing = append(missing, label)
+			return
 		}
-		missing = append(missing, want.label)
+		present++
+		if expires.IsZero() {
+			return
+		}
+		if earliest.IsZero() || expires.Before(earliest) {
+			earliest = expires
+		}
+	}
+	for _, want := range requiredProfileInputs {
+		counts, expires := freshProfileField(in, want.field, now)
+		note(counts, expires, want.label)
 	}
 	for _, want := range requiredFactInputs {
-		if hasFreshFact(in, want.field, now) {
-			present++
-			continue
-		}
-		missing = append(missing, want.label)
+		counts, expires := freshFact(in, want.field, now)
+		note(counts, expires, want.label)
 	}
 	expected := len(requiredProfileInputs) + len(requiredFactInputs)
 	return crmcontracts.DataCompleteness{
 		Present:  present,
 		Expected: expected,
 		Missing:  &missing,
-	}
+	}, earliest
 }
 
 // A profile field is unique per company, so the first match settles it. A fact
 // is not — a company can carry several `technology` rows — so any one of them
 // being present and fresh satisfies the input.
-func hasFreshProfileField(in Input, field crmcontracts.CompanyProfileFieldField, now time.Time) bool {
+func freshProfileField(in Input, field crmcontracts.CompanyProfileFieldField, now time.Time) (bool, time.Time) {
 	for _, have := range in.ProfileFields {
 		if have.Field != field {
 			continue
 		}
-		return countsAsPresent(have.Value, string(have.Source), have.RetrievedAt, have.UpdatedAt, now)
+		human := have.Source == crmcontracts.CompanyProfileFieldSourceHuman
+		return valueCounts(have.Value, human, have.RetrievedAt, have.UpdatedAt, now)
 	}
-	return false
+	return false, time.Time{}
 }
 
-func hasFreshFact(in Input, field crmcontracts.OrganizationFactField, now time.Time) bool {
+func freshFact(in Input, field crmcontracts.OrganizationFactField, now time.Time) (bool, time.Time) {
 	for _, have := range in.Facts {
 		if have.Field != field {
 			continue
 		}
-		if countsAsPresent(have.Value, string(have.Source), have.RetrievedAt, have.UpdatedAt, now) {
-			return true
+		human := have.Source == crmcontracts.OrganizationFactSourceHuman
+		if counts, expires := valueCounts(have.Value, human, have.RetrievedAt, have.UpdatedAt, now); counts {
+			return true, expires
 		}
 	}
-	return false
+	return false, time.Time{}
 }
 
-// countsAsPresent decides whether one recorded value may hold up a band.
+// valueCounts decides whether one recorded value may hold up a band, and says
+// when it stops counting. The caller needs the second half: a completeness
+// figure that can change on a clock rather than on a write is one a cache would
+// otherwise serve forever.
 //
-// A value a HUMAN gave us never ages out. Staleness here means "the source may
-// have changed since we read it", which is a claim about re-reading a website —
-// a person who typed the answer did not read anything, and expiring their entry
-// would ask them to retype it on a schedule.
+// A value a HUMAN gave us never ages out, and its expiry is the zero time. A
+// person who typed the answer did not read a source, so there is nothing to
+// re-read and nothing to go stale; expiring their entry would ask them to
+// retype the same fact on a schedule.
 //
-// A machine-read value with no recorded read time falls back to when the row
-// was last written. Rows predate the retrieved_at column, and treating an
-// unknown read time as infinitely stale would empty the completeness figure for
-// every company captured before it existed.
-func countsAsPresent(value, source string, retrievedAt *time.Time, updatedAt, now time.Time) bool {
+// For a machine-read value the clock runs from `retrieved_at` when it is set
+// and from `updated_at` otherwise. TODAY IT IS ALWAYS `updated_at`: migration
+// 0194 adds `retrieved_at` and nothing in this tree writes it yet, so what is
+// actually measured is "when we last wrote this value", not "when we last read
+// its source". That is a weaker signal — the updated_at trigger fires on any
+// write — and it is the honest one available. See the issue tracking the
+// gradionhq/margince#2; the `retrieved_at` arm is here so populating it needs no
+// change on this side.
+func valueCounts(value string, human bool, retrievedAt *time.Time, updatedAt, now time.Time) (bool, time.Time) {
 	if strings.TrimSpace(value) == "" {
-		return false
+		return false, time.Time{}
 	}
-	if source == sourceHuman {
-		return true
+	if human {
+		return true, time.Time{}
 	}
 	read := updatedAt
 	if retrievedAt != nil {
 		read = *retrievedAt
 	}
-	return now.Sub(read) < freshness
+	expires := read.Add(freshness)
+	return now.Before(expires), expires
 }
-
-// sourceHuman is the provenance a person's own answer carries (migration 0099).
-const sourceHuman = "human"
 
 // GrowthFitClaims is the reasoning behind a band, in the one claim vocabulary
 // every generated surface here uses. Each claim carries the target-side records
@@ -227,7 +264,28 @@ type Assessment struct {
 	NextStep     string
 	Completeness crmcontracts.DataCompleteness
 	Claims       GrowthFitClaims
+	// StaleAt is when this completeness figure stops being true on the clock
+	// alone, or the zero time when nothing it counted can age out. The cache
+	// treats an entry past it as a miss.
+	StaleAt time.Time
 }
+
+// AbstentionReason says WHY a band came out `unknown`, so the reader is given a
+// next step they can actually act on. The three causes look identical on the
+// wire and are completely different problems.
+type AbstentionReason int
+
+const (
+	// AbstainedOnEvidence — the required inputs were not there. The reader
+	// closes this by recording facts.
+	AbstainedOnEvidence AbstentionReason = iota
+	// AbstainedNoWriter — the facts were all present and no model lane is
+	// configured. An administrator closes this.
+	AbstainedNoWriter
+	// AbstainedLaneFailed — a lane IS configured and this call did not get an
+	// answer from it. Nobody needs to configure anything; it may work next time.
+	AbstainedLaneFailed
+)
 
 // nowFunc is the injected clock. The assessment is stamped and the freshness
 // window is measured against it, so a test names the instant rather than racing
@@ -242,9 +300,18 @@ type nowFunc func() time.Time
 // values and grading is not a restatement. A model lane proposes a real band
 // and meets the same two gates, which is the point of them living here rather
 // than in either writer.
-func Assess(in Input, proposed crmcontracts.GrowthFitBand, selfConfirmed bool, now time.Time) Assessment {
-	completeness := Completeness(in, now)
-	out := Assessment{Completeness: completeness}
+func Assess(in Input, proposed crmcontracts.GrowthFitBand, selfConfirmed bool,
+	why AbstentionReason, now time.Time,
+) Assessment {
+	completeness, staleAt := completenessAt(in, now)
+	out := Assessment{Completeness: completeness, StaleAt: staleAt}
+
+	// A band this contract does not know is not a judgment, whatever produced
+	// it. Treating it as one would let an unrecognized string past the cap,
+	// which compares by rank and ranks the unknown at zero.
+	if !BandIsJudgeable(proposed) {
+		proposed = crmcontracts.GrowthFitBandUnknown
+	}
 
 	if !aboveFloor(completeness) {
 		// The floor overrides whatever the facts suggested. Nothing was
@@ -258,15 +325,11 @@ func Assess(in Input, proposed crmcontracts.GrowthFitBand, selfConfirmed bool, n
 	out.Band = proposed
 	if proposed == crmcontracts.GrowthFitBandUnknown {
 		// An abstention with the facts all present did not come from the
-		// counting — nothing was missing. It came from having no writer: no
-		// model lane is configured, or the one configured failed.
-		//
-		// It still needs a reason. `unknown` means "we could not tell", and a
-		// reader given that with nothing beside it cannot distinguish it from
-		// "a poor fit" — which is the opposite conclusion, and the single
-		// misreading this band exists to prevent (DOSS-AC-12).
-		out.NextStep = "the facts needed are all recorded, but nothing is configured to " +
-			"judge them — ask an administrator to configure the AI model"
+		// counting — nothing was missing. It still needs a reason: `unknown`
+		// means "we could not tell", and a reader given that with nothing
+		// beside it cannot distinguish it from "a poor fit", which is the
+		// opposite conclusion (DOSS-AC-12).
+		out.NextStep = abstentionNextStep(why)
 		return out
 	}
 	if !selfConfirmed && bandRank[proposed] > bandRank[crmcontracts.GrowthFitBandModerate] {
@@ -281,9 +344,28 @@ func Assess(in Input, proposed crmcontracts.GrowthFitBand, selfConfirmed bool, n
 	return out
 }
 
-// aboveFloor compares in integers. The proportion is a ratio of two counts, and
-// evaluating it as one avoids a float comparison deciding a boundary case —
-// four of eight is exactly the floor and passes, three of eight does not.
+// abstentionNextStep names the thing that would actually unblock the answer.
+// Telling an administrator to configure a model they already configured sends
+// them to check a binding that is correct, which is worse than saying nothing.
+func abstentionNextStep(why AbstentionReason) string {
+	switch why {
+	case AbstainedLaneFailed:
+		return "the facts needed are all recorded, but the assessment could not be " +
+			"written this time — try again in a few minutes"
+	case AbstainedNoWriter:
+		return "the facts needed are all recorded, but nothing is configured to " +
+			"judge them — ask an administrator to configure the AI model"
+	case AbstainedOnEvidence:
+		// Reached only above the floor, where nothing is missing to name; the
+		// evidence arm returns earlier with the gathering step.
+		return "the facts needed are all recorded, but no assessment was produced"
+	}
+	return "the facts needed are all recorded, but no assessment was produced"
+}
+
+// aboveFloor cross-multiplies rather than dividing, so the comparison is exact
+// integer arithmetic: four of eight is exactly the floor and passes, three of
+// eight does not, and no rounding is entitled to an opinion about either.
 func aboveFloor(c crmcontracts.DataCompleteness) bool {
 	if c.Expected <= 0 {
 		// An assembly that wants nothing cannot be complete enough to judge on.
@@ -291,7 +373,7 @@ func aboveFloor(c crmcontracts.DataCompleteness) bool {
 		// it abstains rather than dividing by zero if that ever changes.
 		return false
 	}
-	return float64(c.Present) >= abstentionFloor*float64(c.Expected)
+	return c.Present*abstentionFloorDen >= c.Expected*abstentionFloorNum
 }
 
 // gatherNextStep turns the missing inputs into the one sentence DOSS-AC-12 asks

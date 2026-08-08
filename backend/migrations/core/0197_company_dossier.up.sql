@@ -77,14 +77,23 @@ CREATE TABLE org_growth_fit (
 ALTER TABLE org_dossier ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_dossier FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_dossier_ws ON org_dossier
-  USING (workspace_id = current_setting('app.workspace_id', true)::uuid)
-  WITH CHECK (workspace_id = current_setting('app.workspace_id', true)::uuid);
+  USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+  WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
 
 ALTER TABLE org_growth_fit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_growth_fit FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_growth_fit_ws ON org_growth_fit
-  USING (workspace_id = current_setting('app.workspace_id', true)::uuid)
-  WITH CHECK (workspace_id = current_setting('app.workspace_id', true)::uuid);
+  USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+  WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+-- The composite FKs above cascade on organization delete, and Art. 17 erasure
+-- deletes accounts. The primary key leads with user_id, so nothing supports
+-- those FKs: without these the cascade sequentially scans both tables once per
+-- deleted organization, and at one row per reader per company that is the whole
+-- table each time. Migration 0143 adds the same index to org_brief for the same
+-- reason.
+CREATE INDEX org_dossier_organization_ix ON org_dossier (workspace_id, organization_id);
+CREATE INDEX org_growth_fit_organization_ix ON org_growth_fit (workspace_id, organization_id);
 
 COMMENT ON TABLE org_dossier IS
   'Read-model cache (DOSS-DDL-1). Keyed per READER: no assembly crosses readers, whatever their masks.';

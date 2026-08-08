@@ -10,6 +10,7 @@ package orgdossier
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,19 +60,33 @@ func citing(band string, in Input) string {
 
 // Every model-side failure lands the reader on the floor rather than on an
 // error page, and `generated_by` says which writer they are reading.
+//
+// The next step is asserted by CONTENT, not merely by being non-empty. The two
+// causes need different sentences: an administrator told to configure a model
+// they already configured goes and checks a binding that is correct.
 func TestEveryModelFailureDegradesToTheFloorAndSaysSo(t *testing.T) {
 	in := sevenOfSeven()
-	for name, lane := range map[string]Completer{
-		"no lane configured":     nil,
-		"lane over budget":       failingLane{},
-		"lane answering prose":   proseLane{},
-		"lane citing nothing":    scriptedLane{reply: `{"band":"strong","positive_factors":[]}`},
-		"lane naming no band":    scriptedLane{reply: `{"band":"excellent","positive_factors":[]}`},
-		"lane abstaining itself": scriptedLane{reply: citing("unknown", in)},
-		"lane citing a stranger": scriptedLane{reply: citing("strong", fourOfSeven())},
+	for name, tc := range map[string]struct {
+		lane       Completer
+		wantStep   string
+		laneFailed bool
+	}{
+		"no lane configured":   {nil, "ask an administrator", false},
+		"lane over budget":     {failingLane{}, "try again", true},
+		"lane answering prose": {proseLane{}, "try again", true},
+		"lane citing nothing": {
+			scriptedLane{reply: `{"band":"strong","positive_factors":[]}`}, "try again", true,
+		},
+		"lane naming no band": {
+			scriptedLane{reply: `{"band":"excellent","positive_factors":[]}`}, "try again", true,
+		},
+		"lane abstaining itself": {scriptedLane{reply: citing("unknown", in)}, "try again", true},
+		"lane citing a stranger": {
+			scriptedLane{reply: citing("strong", fourOfSeven())}, "try again", true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, by := WriteGrowthFit(context.Background(), lane, in, true, at)
+			got, by, laneFailed := WriteGrowthFit(context.Background(), tc.lane, in, true, at)
 
 			if by != crmcontracts.Deterministic {
 				t.Errorf("generated_by = %q, want deterministic — the model did not produce this", by)
@@ -79,8 +94,12 @@ func TestEveryModelFailureDegradesToTheFloorAndSaysSo(t *testing.T) {
 			if got.Band != crmcontracts.GrowthFitBandUnknown {
 				t.Errorf("band = %q, want unknown — the floor abstains", got.Band)
 			}
-			if got.NextStep == "" {
-				t.Error("the floor produced no next step, leaving the reader nothing to act on")
+			if !strings.Contains(got.NextStep, tc.wantStep) {
+				t.Errorf("next step = %q, want it to say %q", got.NextStep, tc.wantStep)
+			}
+			if laneFailed != tc.laneFailed {
+				t.Errorf("laneFailed = %v, want %v — the caller uses this to decide whether "+
+					"this answer may overwrite a good cached one", laneFailed, tc.laneFailed)
 			}
 		})
 	}
@@ -90,7 +109,7 @@ func TestEveryModelFailureDegradesToTheFloorAndSaysSo(t *testing.T) {
 func TestAGroundedReplyIsServedAsTheModelsWithItsClaims(t *testing.T) {
 	in := sevenOfSeven()
 
-	got, by := WriteGrowthFit(context.Background(), scriptedLane{reply: citing("strong", in)}, in, true, at)
+	got, by, _ := WriteGrowthFit(context.Background(), scriptedLane{reply: citing("strong", in)}, in, true, at)
 
 	if by != crmcontracts.Model {
 		t.Fatalf("generated_by = %q, want model", by)
@@ -115,7 +134,7 @@ func TestTheCompletenessFloorOverrulesAConfidentModelAndWithholdsItsReasons(t *t
 		},
 	}
 
-	got, by := WriteGrowthFit(context.Background(), scriptedLane{reply: citing("strong", thin)}, thin, true, at)
+	got, by, _ := WriteGrowthFit(context.Background(), scriptedLane{reply: citing("strong", thin)}, thin, true, at)
 
 	if got.Band != crmcontracts.GrowthFitBandUnknown {
 		t.Errorf("band = %q, want unknown — one of seven cannot support a judgment", got.Band)
@@ -123,8 +142,11 @@ func TestTheCompletenessFloorOverrulesAConfidentModelAndWithholdsItsReasons(t *t
 	if !got.Claims.empty() {
 		t.Error("the abstention carried the model's reasons, which reads as a band withheld out of shyness")
 	}
-	if by != crmcontracts.Model {
-		t.Errorf("generated_by = %q, want model — the model did answer; the counting overruled its band", by)
+	// Nothing the model produced survives — its band was discarded and its
+	// claims withheld — so attributing what is served to the model would pass
+	// the floor's answer off as the model's.
+	if by != crmcontracts.Deterministic {
+		t.Errorf("generated_by = %q, want deterministic — every word served here came from the counting", by)
 	}
 	if got.NextStep == "" {
 		t.Error("the abstention names nothing to gather")
@@ -136,7 +158,7 @@ func TestTheCompletenessFloorOverrulesAConfidentModelAndWithholdsItsReasons(t *t
 func TestTheCapAppliesToTheModelsBandAsWell(t *testing.T) {
 	in := sevenOfSeven()
 
-	got, _ := WriteGrowthFit(context.Background(), scriptedLane{reply: citing("strong", in)}, in, false, at)
+	got, _, _ := WriteGrowthFit(context.Background(), scriptedLane{reply: citing("strong", in)}, in, false, at)
 
 	if got.Band != crmcontracts.GrowthFitBandModerate {
 		t.Errorf("band = %q, want moderate — our own offering is unconfirmed", got.Band)

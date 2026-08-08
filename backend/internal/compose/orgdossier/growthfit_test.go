@@ -100,7 +100,7 @@ func TestBelowTheFloorTheBandIsUnknownEvenWhenTheFactsLookStrong(t *testing.T) {
 		},
 	}
 
-	got := Assess(twoOfSeven, crmcontracts.GrowthFitBandStrong, true, assessedAt)
+	got := Assess(twoOfSeven, crmcontracts.GrowthFitBandStrong, true, AbstainedNoWriter, assessedAt)
 
 	if got.Band != crmcontracts.GrowthFitBandUnknown {
 		t.Errorf("band = %q, want unknown — two of seven inputs cannot support a judgment", got.Band)
@@ -116,7 +116,7 @@ func TestBelowTheFloorTheBandIsUnknownEvenWhenTheFactsLookStrong(t *testing.T) {
 // A fit computed against a guess about ourselves is a guess about them, so an
 // unconfirmed workspace offering caps the band and says so (DOSS-AC-13).
 func TestAnUnconfirmedWorkspaceOfferingCapsTheBandAtModerate(t *testing.T) {
-	got := Assess(fourOfSeven(), crmcontracts.GrowthFitBandStrong, false, assessedAt)
+	got := Assess(fourOfSeven(), crmcontracts.GrowthFitBandStrong, false, AbstainedNoWriter, assessedAt)
 
 	if got.Band != crmcontracts.GrowthFitBandModerate {
 		t.Errorf("band = %q, want moderate — a strong fit cannot be justified against an unconfirmed offering", got.Band)
@@ -133,7 +133,7 @@ func TestAnUnconfirmedWorkspaceOfferingCapsTheBandAtModerate(t *testing.T) {
 // This is the other half of the worked example and the mutation check on the
 // test above: without it, a cap that fired unconditionally would still pass.
 func TestAConfirmedWorkspaceOfferingLeavesTheBandAlone(t *testing.T) {
-	got := Assess(fourOfSeven(), crmcontracts.GrowthFitBandStrong, true, assessedAt)
+	got := Assess(fourOfSeven(), crmcontracts.GrowthFitBandStrong, true, AbstainedNoWriter, assessedAt)
 
 	if got.Band != crmcontracts.GrowthFitBandStrong {
 		t.Errorf("band = %q, want strong — four of seven inputs clears the floor", got.Band)
@@ -150,7 +150,7 @@ func TestAConfirmedWorkspaceOfferingLeavesTheBandAlone(t *testing.T) {
 // `band_capped_reason` is documented as null when nothing capped it, and a
 // reason attached to an unchanged `weak` would claim a ceiling that never bit.
 func TestABandAlreadyBelowTheCapCarriesNoCappedReason(t *testing.T) {
-	got := Assess(fourOfSeven(), crmcontracts.GrowthFitBandWeak, false, assessedAt)
+	got := Assess(fourOfSeven(), crmcontracts.GrowthFitBandWeak, false, AbstainedNoWriter, assessedAt)
 
 	if got.Band != crmcontracts.GrowthFitBandWeak {
 		t.Errorf("band = %q, want weak — the cap must not raise a band", got.Band)
@@ -243,7 +243,7 @@ func TestAnAbstentionWithNothingMissingStillSaysWhyItAbstained(t *testing.T) {
 		machineField("buying_intents", "Cutting peak demand charges", fresh))
 	complete.Facts = append(complete.Facts, machineFact("technology", "SAP S/4HANA", fresh))
 
-	got := Assess(complete, crmcontracts.GrowthFitBandUnknown, true, assessedAt)
+	got := Assess(complete, crmcontracts.GrowthFitBandUnknown, true, AbstainedNoWriter, assessedAt)
 
 	if got.Completeness.Present != got.Completeness.Expected {
 		t.Fatalf("present/expected = %d/%d, want a complete company for this case",
@@ -262,5 +262,84 @@ func TestAnAbstentionWithNothingMissingStillSaysWhyItAbstained(t *testing.T) {
 func TestAnEmptyRequiredSetAbstainsRatherThanDividingByZero(t *testing.T) {
 	if aboveFloor(crmcontracts.DataCompleteness{Present: 0, Expected: 0}) {
 		t.Error("an assembly wanting no inputs claimed to be complete enough to judge")
+	}
+}
+
+// The live production path: no writer in this tree sets `retrieved_at`, so
+// every machine-read value arrives with it nil and freshness is measured from
+// `updated_at`. Every other fixture here sets RetrievedAt, which means the
+// branch production actually takes had no test at all.
+func TestAValueWithNoRecordedReadTimeAgesOnWhenItWasLastWritten(t *testing.T) {
+	for name, tc := range map[string]struct {
+		writtenAgo  time.Duration
+		wantPresent int
+	}{
+		"written yesterday counts":        {24 * time.Hour, 1},
+		"written forty days ago does not": {40 * 24 * time.Hour, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := Input{
+				OrganizationID: ids.NewV7().String(),
+				ProfileFields: []crmcontracts.CompanyProfileField{{
+					Id:        rowID(),
+					Field:     crmcontracts.CompanyProfileFieldFieldOfferSummary,
+					Value:     "Load-shifting software",
+					Source:    crmcontracts.CompanyProfileFieldSourceSiteRead,
+					UpdatedAt: assessedAt.Add(-tc.writtenAgo),
+					// RetrievedAt deliberately nil — the shape every row in the
+					// database actually has today.
+				}},
+			}
+
+			if got := Completeness(in, assessedAt); got.Present != tc.wantPresent {
+				t.Errorf("present = %d, want %d", got.Present, tc.wantPresent)
+			}
+		})
+	}
+}
+
+// The completeness figure can change with no write at all — a value simply
+// ages out. A cache keyed only on the inputs would serve the band resting on
+// it forever, so the assessment carries the moment it stops being true.
+func TestAnAssessmentKnowsWhenItsOwnCountingExpires(t *testing.T) {
+	got := Assess(fourOfSeven(), crmcontracts.GrowthFitBandStrong, true, AbstainedNoWriter, assessedAt)
+
+	if got.StaleAt.IsZero() {
+		t.Fatal("no expiry: nothing would ever re-count these machine-read values")
+	}
+	// The four counted values were all read a day ago, so the figure holds
+	// until the freshness window closes on them.
+	want := assessedAt.Add(-24 * time.Hour).Add(freshness)
+	if !got.StaleAt.Equal(want) {
+		t.Errorf("stale at %v, want %v — the earliest expiry among the counted inputs", got.StaleAt, want)
+	}
+}
+
+// A company held entirely on human-entered values has nothing that ages, and
+// must not be given an expiry that would re-assess it forever on a clock.
+func TestAnAssessmentOverHumanValuesAloneNeverExpiresOnTheClock(t *testing.T) {
+	in := Input{
+		OrganizationID: ids.NewV7().String(),
+		ProfileFields: []crmcontracts.CompanyProfileField{{
+			Id:        rowID(),
+			Field:     crmcontracts.CompanyProfileFieldFieldOfferSummary,
+			Value:     "Load-shifting software",
+			Source:    crmcontracts.CompanyProfileFieldSourceHuman,
+			UpdatedAt: assessedAt.Add(-5 * 365 * 24 * time.Hour),
+		}},
+	}
+
+	if got := Assess(in, crmcontracts.GrowthFitBandWeak, true, AbstainedNoWriter, assessedAt); !got.StaleAt.IsZero() {
+		t.Errorf("stale at %v, want never — a person's own answer does not age", got.StaleAt)
+	}
+}
+
+// A band this contract does not know is not a judgment. Letting one through
+// would slip past the cap, which compares by rank and ranks an unknown at zero.
+func TestABandThisContractDoesNotKnowIsNotTreatedAsAJudgment(t *testing.T) {
+	got := Assess(fourOfSeven(), crmcontracts.GrowthFitBand("excellent"), false, AbstainedNoWriter, assessedAt)
+
+	if got.Band != crmcontracts.GrowthFitBandUnknown {
+		t.Errorf("band = %q, want unknown — %q is not in the contract's vocabulary", got.Band, "excellent")
 	}
 }
