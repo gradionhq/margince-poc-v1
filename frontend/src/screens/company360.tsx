@@ -1303,10 +1303,15 @@ function Citations({
   );
 }
 
-// The citation kinds that have a screen to open. An activity has no detail
-// route of its own (it lives in a timeline) and the organization citation is
-// the page the reader is already on.
-const ROUTABLE_CITATIONS = new Set(["deal", "person"]);
+// The citation kinds a reader can open something for. `deal` and `person` route
+// to their own screens; `fact` and `profile_field` open their receipt instead —
+// where the value came from, when it was read, and what could not be recorded.
+//
+// An activity has no detail route of its own (it lives in a timeline) and no
+// receipt either, and the organization citation is the page the reader is
+// already on. Both stay flat: a clickable element that does nothing teaches the
+// reader that citations do not work, which costs more than the click it saves.
+const ROUTABLE_CITATIONS = new Set(["deal", "person", "fact", "profile_field"]);
 
 /** OverlayFallback replaces the page when the workspace reads elsewhere. */
 export function OverlayFallback() {

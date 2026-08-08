@@ -68,6 +68,7 @@ import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
 import { CompanyDocumentsCard } from "./companydocuments";
 import { DossierPanel } from "./companydossier";
+import { type CitedRecord, EvidenceModal } from "./companyevidence";
 import { GrowthFitPanel } from "./companygrowthfit";
 import {
   CompanyActionBadges,
@@ -2116,6 +2117,16 @@ function CompanyOverviewStack({
   onCompose: (activityId: string) => void;
   onLogTask: () => void;
 }>) {
+  // The receipt the reader asked to see, if any. Held here rather than in each
+  // panel so two panels cannot open two of them over each other.
+  const [cited, setCited] = useState<CitedRecord | null>(null);
+  const openCited = (entityType: string, entityId: string) => {
+    if (citationOpensRecord(entityType)) {
+      openCitation(entityType, entityId);
+      return;
+    }
+    setCited({ entityType, entityId });
+  };
   return (
     <>
       <TodayOnThisAccount
@@ -2148,7 +2159,7 @@ function CompanyOverviewStack({
       <DossierPanel
         orgId={org.id}
         enabled={!overlay}
-        onOpenRecord={openCitation}
+        onOpenRecord={openCited}
       />
       {/* Then what they are WORTH to us. It sits after the brief and before
           the next steps because that is the order the questions arrive in:
@@ -2157,8 +2168,15 @@ function CompanyOverviewStack({
       <GrowthFitPanel
         orgId={org.id}
         enabled={!overlay}
-        onOpenRecord={openCitation}
+        onOpenRecord={openCited}
       />
+      {cited && (
+        <EvidenceModal
+          orgId={org.id}
+          cited={cited}
+          onClose={() => setCited(null)}
+        />
+      )}
       {view && (
         <NextSteps
           view={view}
@@ -2207,6 +2225,14 @@ function performSuggestion(
 // prepared answers and the suggestions all cite the same records, so they
 // share one route — a second copy would drift and send one card's reader to
 // the wrong screen.
+// A citation goes to one of two places. A deal or a person has a screen of its
+// own; a fact or a profile field has no screen, but it does have a receipt —
+// where the value came from and what could not be recorded about it — which is
+// what the reader wanted when they clicked the chip.
+function citationOpensRecord(entityType: string): boolean {
+  return entityType === "deal" || entityType === "person";
+}
+
 function openCitation(entityType: string, entityId: string) {
   if (entityType === "deal") {
     navigate({ screen: "deals", id: entityId });
