@@ -57,7 +57,7 @@ func (s *Store) ListOrganizationFacts(ctx context.Context, id ids.OrganizationID
 		}
 		rows, err := tx.Query(ctx, `
 			SELECT id, category, field, value, value_key, source, captured_by,
-			       evidence_snippet, source_url, confidence, updated_at
+			       evidence_snippet, source_url, confidence, retrieved_at, updated_at
 			  FROM organization_fact
 			 WHERE workspace_id = $1 AND organization_id = $2
 			 ORDER BY category, field, value_key, value`,
@@ -74,7 +74,7 @@ func (s *Store) ListOrganizationFacts(ctx context.Context, id ids.OrganizationID
 			)
 			if err := rows.Scan(&factID, &category, &field, &fact.Value, &fact.ValueKey,
 				&source, &fact.CapturedBy, &fact.EvidenceSnippet, &fact.SourceUrl,
-				&fact.Confidence, &fact.UpdatedAt); err != nil {
+				&fact.Confidence, &fact.RetrievedAt, &fact.UpdatedAt); err != nil {
 				return fmt.Errorf("scan organization fact: %w", err)
 			}
 			// The row's own id, so a brief sentence written from this fact can
@@ -115,8 +115,8 @@ func (s *Store) ListOrganizationProfileFields(ctx context.Context, id ids.Organi
 			return err
 		}
 		rows, err := tx.Query(ctx, `
-			SELECT field, value, source, captured_by,
-			       evidence_snippet, source_url, confidence, updated_at
+			SELECT id, field, value, source, captured_by,
+			       evidence_snippet, source_url, confidence, retrieved_at, updated_at
 			  FROM organization_profile_field
 			 WHERE workspace_id = $1 AND organization_id = $2
 			 ORDER BY field`,
@@ -128,12 +128,18 @@ func (s *Store) ListOrganizationProfileFields(ctx context.Context, id ids.Organi
 		for rows.Next() {
 			var (
 				pf            crmcontracts.CompanyProfileField
+				rowID         ids.UUID
 				field, source string
 			)
-			if err := rows.Scan(&field, &pf.Value, &source, &pf.CapturedBy,
-				&pf.EvidenceSnippet, &pf.SourceUrl, &pf.Confidence, &pf.UpdatedAt); err != nil {
+			if err := rows.Scan(&rowID, &field, &pf.Value, &source, &pf.CapturedBy,
+				&pf.EvidenceSnippet, &pf.SourceUrl, &pf.Confidence,
+				&pf.RetrievedAt, &pf.UpdatedAt); err != nil {
 				return fmt.Errorf("scan organization profile field: %w", err)
 			}
+			// The row's own identity, so a dossier sentence written from this
+			// field can cite something the reader can open.
+			wireID := openapi_types.UUID(rowID)
+			pf.Id = &wireID
 			pf.Field = crmcontracts.CompanyProfileFieldField(field)
 			pf.Source = crmcontracts.CompanyProfileFieldSource(source)
 			out = append(out, pf)

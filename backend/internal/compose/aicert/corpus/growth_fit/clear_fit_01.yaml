@@ -1,0 +1,59 @@
+name: growth_fit_reads_their_facts_against_our_offering
+task: growth_fit
+site: growth_fit
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+fixture:
+  profile_fields:
+    - label: their_offer
+      field: offer_summary
+      value: Load-shifting and demand-response software for industrial sites
+    - label: their_icp
+      field: icp
+      value: Energy-intensive manufacturers running their own substations
+    - label: their_industry
+      field: industry
+      value: Industrial energy software
+    - label: their_buying_center
+      field: buying_center
+      value: Head of Operations, with sign-off from the CFO above EUR 100k
+  facts:
+    - label: their_size
+      field: employee_range
+      value: "51-200"
+    - label: their_stack
+      field: technology
+      value: SAP S/4HANA
+expect:
+  outcome: accepted
+  answer:
+    # The records a defensible assessment has to rest on — not its wording. An
+    # assessment that never touches what they sell or who they sell to is not
+    # judging fit, it is describing a company. Their stack is here because it
+    # is the fact a whitespace or objection claim would have to be built on.
+    cites: [their_offer, their_icp, their_stack]
+    # A RANGE, not a verdict. Whether this company is a strong or a moderate
+    # fit is a judgment two careful readers can differ on. Calling it weak is
+    # not: it would mean the model read their software-and-substations profile
+    # against our offering and found nothing, which is a failure at the one
+    # thing this surface is for.
+    bands: [strong, moderate]
+  bands:
+    # Growth fit degrades to an abstention, never to a wrong band, so a model
+    # that is unreliable here costs the reader a panel rather than misleading
+    # them. The bar is still higher than the brief's: a band is a verdict a rep
+    # may act on, where a brief sentence is prose beside records they can open.
+    certified_min: 75
+    degraded_min: 55
+    floor: 45
+  rubric: >
+    Score whether every claim rests on something the company summary actually
+    says, and whether claims drawn from OUR offering are labelled assessments
+    rather than facts about them. Our own offering must never be cited as
+    evidence: it is not a record the reader can open, and a citation pointing
+    at it is worse than no citation because it looks checkable. Penalise any
+    band reported as "unknown" — the counting step owns that decision, and a
+    model that abstains here has declined the question it was asked. Penalise
+    an invented fact about their revenue, their incumbent vendor or their
+    buying timeline: none is in the summary, and each is the kind of claim a
+    rep would repeat in a meeting.

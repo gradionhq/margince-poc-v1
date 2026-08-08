@@ -243,7 +243,9 @@ var tableOwners = map[string]string{
 	"suggestion_dismissal": "internal/compose/org360",
 	// The account brief's per-user cache: derived content, regenerable at
 	// any time, readable by nobody but its own user. Same ruling.
-	"org_brief": "internal/compose/orgbrief",
+	"org_brief":      "internal/compose/orgbrief",
+	"org_dossier":    "internal/compose/orgdossier",
+	"org_growth_fit": "internal/compose/orgdossier",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it.
 	// system_log is the non-entity operational ledger written through
