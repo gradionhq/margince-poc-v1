@@ -4,10 +4,16 @@
 package agents
 
 // The MCP method dispatcher: the protocol subset a tools-only server needs —
-// initialize, tools/list, tools/call, ping — with every call routed through
-// the Registry, which means through the admission gate. Tool failures travel
-// IN-BAND as isError results (the agent should read them and adapt); only
-// malformed JSON-RPC is a protocol error.
+// tools/list, tools/call, ping, the resource reads, and each era's own opening
+// call — with every call routed through the Registry, which means through the
+// admission gate. Tool failures travel IN-BAND as isError results (the agent
+// should read them and adapt); only malformed JSON-RPC is a protocol error.
+//
+// It answers TWO framings, and the difference between them stops at parsing
+// and rendering: modern.go decides which era a request is in and what its
+// answer carries, while every arm below reaches records through the one
+// registry. A framing able to alter what a call may do would be a second
+// admission path, which ADR-0055 forbids.
 //
 // It owns no transport. httpmcp.go builds one of these per handler and feeds
 // it decoded requests, so method dispatch, the tool surface and the
@@ -26,29 +32,36 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// supportedProtocolVersions are the MCP revisions this server satisfies,
-// NEWEST FIRST. initialize echoes the client's requested revision when we
-// support it and otherwise answers with the newest — a stale list silently
-// downgrades every modern client, so this is verified against the spec when
+// legacyProtocolVersions are the handshake-era MCP revisions this server
+// satisfies, NEWEST FIRST. initialize echoes the client's requested revision
+// when we support it and otherwise answers with the newest — a stale list
+// silently downgrades every client, so this is verified against the spec when
 // it changes.
 //
-// The list stops at 2025-11-25 on purpose: 2026-07-28 and later are a
-// different era — the spec's own terminology names them "modern" — with no
-// initialize handshake at all (the protocol version travels per-request in
-// the _meta key io.modelcontextprotocol/protocolVersion, server/discover is
-// mandatory, and a version mismatch answers UnsupportedProtocolVersionError
-// -32022). This server is "legacy": it establishes a session via initialize,
-// full stop. Prepending a modern revision here would advertise a handshake
-// this server does not honor; modern-era support is a named follow-up.
-// 2024-11-05 is excluded too — it predates Streamable HTTP (HTTP+SSE only),
-// a transport this server does not serve.
-var supportedProtocolVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26"}
+// The window is written down rather than implied (ADR-0092 §3): 2025-03-26 is
+// dropped, so a client still on it falls back to the newest revision this
+// server offers instead of being served a framing nobody maintains. 2024-11-05
+// was never here — it predates Streamable HTTP (HTTP+SSE only), a transport
+// this server does not serve. The modern era is not in this list because it
+// establishes no session at all; it is modernProtocolVersion, and
+// supportedProtocolVersions is the two of them together.
+var legacyProtocolVersions = []string{"2025-11-25", "2025-06-18"}
 
-// The JSON-RPC and MCP wire tokens both transports repeat. Named once so a
-// typo in one of them cannot make a handler answer a member no client reads.
+// The JSON-RPC and MCP wire tokens both framings repeat. Named once so a typo
+// in one of them cannot make a handler answer a member no client reads — and,
+// for the method names, so the dispatch switch and the caching contract in
+// modern.go cannot name two different sets of methods.
 const (
-	jsonRPCVersion   = "2.0"
-	methodInitialize = "initialize"
+	jsonRPCVersion              = "2.0"
+	methodInitialize            = "initialize"
+	methodPing                  = "ping"
+	methodDiscover              = "server/discover"
+	methodToolsList             = "tools/list"
+	methodToolsCall             = "tools/call"
+	methodResourcesList         = "resources/list"
+	methodResourcesRead         = "resources/read"
+	methodResourceTemplatesList = "resources/templates/list"
+	methodPromptsList           = "prompts/list"
 	// fieldName is the "name" member of both serverInfo and a tools/list
 	// entry — the same identifier in both, so it stays one spelling.
 	fieldName = "name"
@@ -61,15 +74,17 @@ const (
 	fieldTitle = "title"
 )
 
-// negotiateProtocolVersion answers the client's requested MCP revision when
-// this server satisfies it, and otherwise the newest revision this server
-// satisfies — never the client's unsupported one, which would silently
-// promise a handshake we cannot honor.
-func negotiateProtocolVersion(requested string) string {
-	if slices.Contains(supportedProtocolVersions, requested) {
+// negotiateLegacyVersion answers the client's requested MCP revision when this
+// server satisfies it in the handshake era, and otherwise the newest one it
+// does — never the client's unsupported one, which would silently promise a
+// handshake we cannot honor. It never answers the modern revision: initialize
+// is the legacy era's own method, and a client that reached it has already
+// told us which era it speaks.
+func negotiateLegacyVersion(requested string) string {
+	if slices.Contains(legacyProtocolVersions, requested) {
 		return requested
 	}
-	return supportedProtocolVersions[0]
+	return legacyProtocolVersions[0]
 }
 
 // Binder authenticates one tool call: it returns a context carrying the
@@ -132,6 +147,10 @@ type rpcRequest struct {
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	// Data carries the structured half of an error a client is expected to act
+	// on rather than display — the version list an UnsupportedProtocolVersion
+	// refusal must name, today. It is omitted when there is nothing to act on.
+	Data any `json:"data,omitempty"`
 }
 
 type rpcResponse struct {
@@ -141,52 +160,46 @@ type rpcResponse struct {
 	Error   *rpcError       `json:"error,omitempty"`
 }
 
-func (s *Dispatcher) handle(ctx context.Context, req rpcRequest) rpcResponse {
+// handle answers one decoded request in the framing the transport decided for
+// it. The framing chooses which methods exist and how the answer is rendered;
+// every arm below that reaches a record reaches it through the same registry,
+// so it cannot choose what the call may do.
+func (s *Dispatcher) handle(ctx context.Context, req rpcRequest, fr framing) rpcResponse {
+	resp := s.dispatch(ctx, req, fr)
+	if fr.modern {
+		return s.finishModern(resp, req.Method)
+	}
+	return resp
+}
+
+func (s *Dispatcher) dispatch(ctx context.Context, req rpcRequest, fr framing) rpcResponse {
 	resp := rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID}
-	switch req.Method {
-	case methodInitialize:
-		var params struct {
-			//nolint:tagliatelle // protocolVersion is the MCP wire member, camelCase by the protocol
-			ProtocolVersion string `json:"protocolVersion"`
+	switch {
+	// initialize and server/discover are each one era's own method. Answering
+	// either in the other framing would tell a client it had reached a server
+	// of the era it was probing for, which is exactly the question those two
+	// calls exist to settle.
+	case req.Method == methodInitialize && !fr.modern:
+		if result, rpcErr := s.initialize(req.Params); rpcErr != nil {
+			resp.Error = rpcErr
+		} else {
+			resp.Result = result
 		}
-		// Params is optional on the wire; only unmarshal when the client sent
-		// some, so an omitted field (not malformed JSON) falls through to the
-		// negotiator's absent-value default rather than an error.
-		if len(req.Params) > 0 {
-			if err := json.Unmarshal(req.Params, &params); err != nil {
-				resp.Error = &rpcError{Code: -32602, Message: "invalid params: " + err.Error()}
-				return resp
-			}
-		}
-		// listChanged is FALSE on both capabilities because this server has no
-		// way to send the notification: notifications/*/list_changed travels
-		// on the GET SSE stream, and GET /mcp answers 405 here. Both surfaces
-		// really do change — each is filtered per caller — so the claim would
-		// promise a message that can never arrive.
-		capabilities := map[string]any{"tools": map[string]any{"listChanged": false}}
-		if s.resources != nil {
-			// subscribe is FALSE for the same reason, and separately: a
-			// per-caller document has no shared state to subscribe to.
-			capabilities["resources"] = map[string]any{"listChanged": false, "subscribe": false}
-		}
-		resp.Result = map[string]any{
-			"protocolVersion": negotiateProtocolVersion(params.ProtocolVersion),
-			"capabilities":    capabilities,
-			"serverInfo":      map[string]any{fieldName: s.name, "version": s.version},
-		}
-	case "ping":
+	case req.Method == methodDiscover && fr.modern:
+		resp.Result = s.discover()
+	case req.Method == methodPing:
 		resp.Result = map[string]any{}
-	case "tools/list":
+	case req.Method == methodToolsList:
 		resp.Result = map[string]any{"tools": s.toolList(ctx)}
-	case "tools/call":
+	case req.Method == methodToolsCall:
 		resp.Result = s.call(ctx, req.Params)
-	case "resources/list":
+	case req.Method == methodResourcesList:
 		// Answered even with no provider wired: claude.ai calls this right
 		// after initialize regardless, and an unadvertised capability
 		// answering -32601 there reads as a broken server rather than a
 		// legitimate empty catalog.
 		resp.Result = map[string]any{"resources": s.resourceList(ctx)}
-	case "resources/read":
+	case req.Method == methodResourcesRead:
 		// Assigned on separate branches so a failed read never carries a
 		// result alongside its error, which JSON-RPC forbids.
 		if result, rpcErr := s.readResource(ctx, req.Params); rpcErr != nil {
@@ -194,14 +207,61 @@ func (s *Dispatcher) handle(ctx context.Context, req rpcRequest) rpcResponse {
 		} else {
 			resp.Result = result
 		}
-	case "resources/templates/list":
+	case req.Method == methodResourceTemplatesList:
 		resp.Result = map[string]any{"resourceTemplates": []any{}}
-	case "prompts/list":
+	case req.Method == methodPromptsList:
 		resp.Result = map[string]any{"prompts": []any{}}
 	default:
-		resp.Error = &rpcError{Code: -32601, Message: "method not found: " + req.Method}
+		resp.Error = &rpcError{Code: codeMethodNotFound, Message: "method not found: " + req.Method}
 	}
 	return resp
+}
+
+// initialize answers the handshake era's opening call: the revision this
+// server will speak with THIS client, what it can do, and who it is.
+func (s *Dispatcher) initialize(rawParams json.RawMessage) (map[string]any, *rpcError) {
+	var params struct {
+		//nolint:tagliatelle // protocolVersion is the MCP wire member, camelCase by the protocol
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	// Params is optional on the wire; only unmarshal when the client sent
+	// some, so an omitted field (not malformed JSON) falls through to the
+	// negotiator's absent-value default rather than an error.
+	if len(rawParams) > 0 {
+		if err := json.Unmarshal(rawParams, &params); err != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: "invalid params: " + err.Error()}
+		}
+	}
+	return map[string]any{
+		"protocolVersion": negotiateLegacyVersion(params.ProtocolVersion),
+		"capabilities":    s.capabilities(),
+		"serverInfo":      s.identity(),
+	}, nil
+}
+
+// capabilities is what this server claims it can do, answered identically to
+// both eras — initialize reports it to a handshake client and server/discover
+// to a modern one, and two spellings of one claim is how a client ends up
+// told different things by the same server.
+//
+// listChanged is FALSE on both entries because this server has no way to send
+// the notification: notifications/*/list_changed travels on a stream this
+// transport does not open. Both surfaces really do change — each is filtered
+// per caller — so the claim would promise a message that can never arrive.
+func (s *Dispatcher) capabilities() map[string]any {
+	capabilities := map[string]any{"tools": map[string]any{"listChanged": false}}
+	if s.resources != nil {
+		// subscribe is FALSE for the same reason, and separately: a
+		// per-caller document has no shared state to subscribe to.
+		capabilities["resources"] = map[string]any{"listChanged": false, "subscribe": false}
+	}
+	return capabilities
+}
+
+// identity is the serverInfo both framings report — the handshake era in its
+// initialize result, the modern era in every result's _meta.
+func (s *Dispatcher) identity() map[string]any {
+	return map[string]any{fieldName: s.name, "version": s.version}
 }
 
 // invocableByCaller reports whether the calling principal's passport scopes

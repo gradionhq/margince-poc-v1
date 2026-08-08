@@ -258,47 +258,86 @@ Two properties worth relying on:
 `backend/internal/modules/agents/dispatch.go` behind the transport in
 `httpmcp.go`.
 
-**Methods answered:** `initialize`, `ping`, `tools/list`, `tools/call`,
-`resources/list`, `resources/templates/list`, `prompts/list`. Anything else is
-`-32601 method not found`.
+**Two framings, one dispatcher, chosen per request** (ADR-0092/A141). A request
+that declares its own protocol version in
+`params._meta["io.modelcontextprotocol/protocolVersion"]` — or whose
+`MCP-Protocol-Version` header names the modern revision — is served as
+**modern** (`2026-07-28`): no handshake, no session, and everything the call
+needs travels with it. Anything else is served as **handshake-era** exactly as
+before. The framing decides how a call is *parsed and rendered*, never what it
+may do: both reach the same registry and the same admission gate.
 
-**Protocol versions**, newest first: `2025-11-25`, `2025-06-18`, `2025-03-26`.
-`initialize` echoes the client's requested revision when the server satisfies it,
-and otherwise answers with the newest — never the client's unsupported one, which
-would promise a handshake the server cannot honor. A *present* and unsupported
-`MCP-Protocol-Version` header on a non-`initialize` request is refused with a
-plain `400` whose body is prose, deliberately **not** a `-32022`
-`UnsupportedProtocolVersionError`: a dual-era client identifies this server as
-legacy by seeing a 4xx *without* a recognized modern error body and then falls
-back to `initialize`. `2024-11-05` is excluded because it predates Streamable
-HTTP.
+**Methods answered:** `ping`, `tools/list`, `tools/call`, `resources/list`,
+`resources/read`, `resources/templates/list`, `prompts/list`, plus each era's
+own opening call — `initialize` in the handshake framing and `server/discover`
+in the modern one. Each is `-32601` in the *other* framing, because answering it
+would tell a client it had reached the era it was probing for. Anything else is
+`-32601 method not found` — with HTTP `404` in the modern framing, which is what
+lets a dual-era client tell this server from one that does not host the endpoint.
 
-**`resources/list` and `prompts/list` answer empty rather than `-32601`.** This
-server has no resources and no prompts, but claude.ai calls both right after
-`initialize` regardless, and an unadvertised capability answering "method not
-found" reads as a broken server rather than as a legitimate empty catalog.
+**Protocol versions**, newest first: `2026-07-28` (modern, per request),
+`2025-11-25` and `2025-06-18` (handshake era). `2025-03-26` was **dropped** from
+the compatibility window; `2024-11-05` was never served, because it predates
+Streamable HTTP. `initialize` echoes the client's requested revision when the
+server satisfies it in the handshake era, and otherwise answers with the newest
+one it does — never the client's unsupported one, and never the modern
+revision, which needs no handshake. A version this server does not serve is
+refused `400` with `-32022 UnsupportedProtocolVersion` and a `data.supported`
+list naming every revision it does, so a client retries rather than guesses.
+
+**A modern request must carry what it declares.** `_meta` must hold both
+`io.modelcontextprotocol/protocolVersion` and
+`io.modelcontextprotocol/clientCapabilities` (absent → `400` + `-32602`), and
+the `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers must each say
+what the body says (missing or contradicting → `400` + `-32020 HeaderMismatch`).
+The headers exist so an intermediary can route without parsing the body; the
+body is what this server executes, and the comparison is what stops those two
+readings from parting company. `Mcp-Name` may arrive Base64-sentinel encoded
+(`=?base64?…?=`) and is decoded before comparison.
+`-32021 MissingRequiredClientCapability` is never emitted: no tool here needs
+sampling, elicitation or roots.
+
+**Every modern result carries `resultType: "complete"` and
+`_meta["io.modelcontextprotocol/serverInfo"]`**, and every cacheable one carries
+`ttlMs` + `cacheScope`. `server/discover` is `public` — its bytes are the same
+for every caller, and a test holds that claim. Every catalog
+(`tools/list`, `resources/*`, `prompts/list`) is **`private`**: they are
+filtered per passport, and a shared cache entry on a scope-filtered response is
+a disclosure that never reaches the server to be audited. A TTL is a freshness
+hint, never a permission — every call re-authenticates, so a stale catalog
+cannot make a refused call succeed. A `tools/call` result carries no hint at all.
+
+**`resources/list` and `prompts/list` answer empty rather than `-32601`** when
+nothing is wired. claude.ai calls both right after `initialize` regardless, and
+an unadvertised capability answering "method not found" reads as a broken server
+rather than as a legitimate empty catalog. A `resources/read` refusal answers
+`-32002` in the handshake era and `-32602` in the modern one, which retired
+that code.
 
 **`GET /mcp` is `405`.** The transport serves `POST` (one JSON-RPC exchange) and
 `DELETE` (close the session this passport opened); the GET SSE stream is a later
-phase. That is also why `initialize` reports
-`capabilities.tools.listChanged: false` — the notification travels on the GET
-stream, so claiming it would promise a message that can never arrive. The surface
-really does change per caller, but the honest answer is that this server cannot
-announce it.
+phase. That is also why the capabilities report
+`tools.listChanged: false` — the notification travels on a stream this transport
+does not open, so claiming it would promise a message that can never arrive. The
+surface really does change per caller, but the honest answer is that this server
+cannot announce it.
 
 **A tool result carries the answer twice.** Every registered tool declares an
 `outputSchema`, so a successful `tools/call` returns the serialized JSON both in
 a `TextContent` block and as `structuredContent` — the same bytes passed through
 rather than a re-marshalled copy, so a client comparing the two never finds a
-widened integer or a reordered key. What is actually checked is object-ness, not
-the full schema; every `outputSchema` on this surface is the bare
-`{"type":"object"}`, for which the two are the same claim.
+widened integer or a reordered key. What is checked is the **declared schema** —
+each tool advertises the exact shape its handler marshals, and a result that
+misses it is withheld from `structuredContent` and logged as this server's own
+defect rather than served in violation of a promise it just made.
 
-**Sessions.** A successful `initialize` mints one and returns it as
-`Mcp-Session-Id`. `DELETE /mcp` closes only the session the *presenting*
-passport opened; a session id that does not exist under that passport — whether
-it never existed or belongs to someone else — answers `404` identically, so a
-probe cannot tell the two apart.
+**Sessions, in the handshake era only.** A successful `initialize` mints one and
+returns it as `Mcp-Session-Id`. `DELETE /mcp` closes only the session the
+*presenting* passport opened; a session id that does not exist under that
+passport — whether it never existed or belongs to someone else — answers `404`
+identically, so a probe cannot tell the two apart. A **modern** call mints none,
+and an `Mcp-Session-Id` presented on one is ignored rather than echoed: a call
+that carries its own state can land on any replica.
 
 **Every call re-authenticates.** The binder runs per call, not per session, so
 revoking the passport or demoting the granting human takes effect on the very

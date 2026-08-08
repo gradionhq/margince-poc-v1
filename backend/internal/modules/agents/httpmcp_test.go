@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -112,31 +113,52 @@ func authenticatedForTest(*http.Request) (context.Context, error) {
 	return context.Background(), nil
 }
 
-// A present-and-unsupported MCP-Protocol-Version must be refused with a
-// plain 400 whose body is prose, never a modern-era -32022 body — a
-// -32022 body would tell a dual-era client this is a MODERN server, and it
-// would retry with a handshake-free request this legacy server cannot
-// serve, turning a working fallback into a hard failure.
-func TestUnsupportedProtocolVersionHeaderIsRejectedWithPlain400(t *testing.T) {
+// A handshake-era request naming a revision outside the compatibility window
+// is refused with a 400 carrying -32022 and the list of revisions this server
+// does serve. The list is what makes the refusal actionable: a client reads
+// `supported` and retries on one of them instead of guessing, and both eras
+// are in it because this server answers both.
+//
+// The dropped 2025-03-26 is in the table because dropping it is the visible
+// half of the compatibility window (ADR-0092 §3) — a client still on it must
+// be refused here rather than quietly served.
+func TestUnsupportedProtocolVersionHeaderIsRefusedWithTheSupportedList(t *testing.T) {
 	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
 		func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())
 
-	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
-	req.Header.Set("MCP-Protocol-Version", "1999-01-01")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	for _, requested := range []string{"1999-01-01", "2025-03-26"} {
+		t.Run(requested, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/mcp",
+				strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+			req.Header.Set(headerProtocolVersion, requested)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-	body := rec.Body.String()
-	if strings.Contains(body, "-32022") || strings.Contains(body, "UnsupportedProtocolVersionError") {
-		t.Fatalf("body %q must not carry a modern-era -32022 error, or a dual-era client will retry a handshake this server does not serve", body)
-	}
-	for _, rev := range supportedProtocolVersions {
-		if !strings.Contains(body, rev) {
-			t.Errorf("body %q must name the supported revision %q", body, rev)
-		}
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", rec.Code)
+			}
+			var resp struct {
+				Error struct {
+					Code int `json:"code"`
+					Data struct {
+						Supported []string `json:"supported"`
+						Requested string   `json:"requested"`
+					} `json:"data"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decoding %q: %v", rec.Body.String(), err)
+			}
+			if resp.Error.Code != codeUnsupportedProtocolVersion {
+				t.Errorf("error code = %d, want %d", resp.Error.Code, codeUnsupportedProtocolVersion)
+			}
+			if resp.Error.Data.Requested != requested {
+				t.Errorf("data.requested = %q, want %q", resp.Error.Data.Requested, requested)
+			}
+			if !slices.Equal(resp.Error.Data.Supported, supportedProtocolVersions()) {
+				t.Errorf("data.supported = %v, want %v", resp.Error.Data.Supported, supportedProtocolVersions())
+			}
+		})
 	}
 }
 
@@ -404,7 +426,7 @@ func TestResourcesAndPromptsAnswerEmptyRatherThanMethodNotFound(t *testing.T) {
 	for _, method := range []string{"resources/list", "resources/templates/list", "prompts/list"} {
 		resp := s.handle(context.Background(), rpcRequest{
 			JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method,
-		})
+		}, legacyFraming)
 		if resp.Error != nil {
 			t.Errorf("%s → error %d %q, want an empty result", method, resp.Error.Code, resp.Error.Message)
 		}

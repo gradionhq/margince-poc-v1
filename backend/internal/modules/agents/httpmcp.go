@@ -177,12 +177,18 @@ func ResourceMetadataChallenge(r *http.Request) string {
 	return `Bearer resource_metadata="` + httpserver.RequestOrigin(r) + `/.well-known/oauth-protected-resource", scope="read draft"` // NOSONAR: RFC 9728 challenge, not a secret
 }
 
-// writeRPCResponse writes one JSON-RPC response, framed per the client's
-// Accept header (DESIGN §5.3): `text/event-stream` gets a single `data:`
-// frame and then the stream closes — there is no ongoing push on this
+// writeRPCResponse writes one JSON-RPC response under status, framed per the
+// client's Accept header (DESIGN §5.3): `text/event-stream` gets a single
+// `data:` frame and then the stream closes — there is no ongoing push on this
 // path, only the one exchange the request asked for. Anything else,
 // including an absent Accept, gets the plain JSON body.
-func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse) {
+//
+// The status is a parameter because the modern framing pins one for several of
+// its answers — 400 for a malformed or mismatched request, 404 for a method
+// this server does not answer — and it is those statuses, together with a
+// recognized JSON-RPC error body, that let a dual-era client tell a modern
+// server from a legacy one.
+func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse, status int) {
 	body, err := json.Marshal(resp)
 	if err != nil {
 		// Every field of resp is a type this package constructs (rpcResponse,
@@ -198,11 +204,13 @@ func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse) 
 	}
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(status)
 		//craft:ignore swallowed-errors a failed write means the client hung up — there is no channel left to report on
 		_, _ = w.Write([]byte("data: " + string(body) + "\n\n"))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	//craft:ignore swallowed-errors a failed write of the JSON-RPC result means the client hung up
 	_, _ = w.Write(body)
 }
@@ -321,12 +329,15 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.servePost(w, r)
 }
 
-// servePost handles the one JSON-RPC exchange a POST carries: parse,
-// negotiate the protocol version, dispatch through the shared stdio
-// handler, and — on a successful initialize — mint and register the
-// session this connection now owns.
+// servePost handles the one JSON-RPC exchange a POST carries: parse, decide
+// which framing the request is in, hold it to that framing's preconditions,
+// and dispatch.
+//
+// The era is decided HERE and nowhere else, and it travels down as a value.
+// Deciding it twice is how the two framings would start to disagree about a
+// request, and the framing decides how a call is parsed — never what it may
+// do, which is the registry's business either way.
 func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {
 		httperr.Write(w, r, &httperr.DetailedError{
@@ -338,29 +349,25 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 	}
 	var req rpcRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeRPCResponse(w, r, rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: -32700, Message: "parse error"}})
+		writeRPCResponse(w, r,
+			rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: -32700, Message: "parse error"}},
+			http.StatusOK)
 		return
 	}
-	// A present-and-unsupported MCP-Protocol-Version is refused with a
-	// plain 400 whose body is prose, NEVER a modern-era -32022
-	// UnsupportedProtocolVersionError: the spec has a dual-era client
-	// identify a legacy server by seeing a 4xx without a recognized
-	// modern error body, and only then fall back to initialize. A -32022
-	// body would read as a modern server rejecting a mismatched version,
-	// so the client would retry with a modern (handshake-free,
-	// _meta-carrying) request this server can never serve — turning a
-	// working fallback into a hard failure. initialize itself is exempt:
-	// negotiation for that call happens through its own request body,
-	// not this header, and older clients omit the header entirely until
-	// they have a negotiated version to send.
-	if v := r.Header.Get("MCP-Protocol-Version"); req.Method != methodInitialize && v != "" &&
-		!slices.Contains(supportedProtocolVersions, v) {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusBadRequest,
-			Code:   "unsupported_protocol_version",
-			Detail: "Unsupported MCP-Protocol-Version; this server supports: " +
-				strings.Join(supportedProtocolVersions, ", ") + ".",
-		})
+	fr, refusal := modernPrecheck(req.Params, r.Header.Get(headerProtocolVersion))
+	if refusal == nil && fr.modern {
+		refusal = validateModernHeaders(r.Header, req, fr)
+	}
+	if refusal != nil {
+		// Every modern precondition failure is a 400 carrying a recognized
+		// JSON-RPC error, which is the pair a dual-era client reads: the status
+		// alone would send it back to the handshake, and the body alone would
+		// not be seen.
+		writeRPCResponse(w, r, rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID, Error: refusal},
+			http.StatusBadRequest)
+		return
+	}
+	if !fr.modern && !h.legacyVersionServed(w, r, req) {
 		return
 	}
 	if req.ID == nil {
@@ -368,6 +375,35 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
+	h.exchange(w, r, req, fr)
+}
+
+// legacyVersionServed refuses a handshake-era request that names a revision
+// outside the compatibility window, and reports whether the caller may
+// proceed.
+//
+// The refusal is the modern -32022, listing every revision this server serves.
+// It used to be a prose 400 on purpose — a -32022 would have told a dual-era
+// client this was a modern server and sent it to a framing this server could
+// not answer. It can answer that framing now, so naming what is supported is
+// what actually helps: the client reads `supported` and retries rather than
+// guessing. initialize is exempt because it negotiates through its own body,
+// and a client has no version to put in this header until initialize has
+// answered one.
+func (h *httpMCPHandler) legacyVersionServed(w http.ResponseWriter, r *http.Request, req rpcRequest) bool {
+	v := r.Header.Get(headerProtocolVersion)
+	if req.Method == methodInitialize || v == "" || slices.Contains(legacyProtocolVersions, v) {
+		return true
+	}
+	writeRPCResponse(w, r,
+		rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID, Error: unsupportedProtocolVersion(v)},
+		http.StatusBadRequest)
+	return false
+}
+
+// exchange dispatches one request and writes its answer under the status its
+// framing pins.
+func (h *httpMCPHandler) exchange(w http.ResponseWriter, r *http.Request, req rpcRequest, fr framing) {
 	// A dynamic tool call can block on a model call, which modules/ai
 	// budgets at 120s per request; the api's server-wide WriteTimeout is
 	// 30s. Extend the deadline for THIS route only — raising the server's
@@ -382,11 +418,17 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	resp := h.server.handle(ctx, req)
-	if req.Method == methodInitialize && resp.Error == nil {
+	ctx := r.Context()
+	resp := h.server.handle(ctx, req, fr)
+	status := http.StatusOK
+	if fr.modern {
+		// A modern call mints no session: it carries its own state, and an
+		// Mcp-Session-Id it presented anyway is ignored rather than echoed.
+		status = modernStatus(resp)
+	} else if req.Method == methodInitialize && resp.Error == nil {
 		h.mintSession(ctx, w)
 	}
-	writeRPCResponse(w, r, resp)
+	writeRPCResponse(w, r, resp, status)
 }
 
 // mintSession registers a fresh session under the passport that just
