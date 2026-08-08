@@ -55,7 +55,7 @@ func TestAReleaseWidensTheAgentsWindowAndNotTheApproversContext(t *testing.T) {
 	meter := &recordingReleaser{}
 	svc := NewService(nil).WithQuotaReleaser(meter)
 	a := stepUpRow(t, passport, agentquota.ReleaseProposal{
-		Counter: agentquota.Reads, Observed: 2431, Limit: 2000, Bucket: 42, Tool: "search_records",
+		Counter: agentquota.Reads, Observed: 2431, Limit: 2000, Bucket: "42", Tool: "search_records",
 	})
 
 	if err := svc.applyQuotaRelease(releaseCtx(ws), a); err != nil {
@@ -81,7 +81,7 @@ func TestAReleaseThatWidenedNothingIsNotAnError(t *testing.T) {
 	meter := &recordingReleaser{}
 	svc := NewService(nil).WithQuotaReleaser(meter)
 	a := stepUpRow(t, ids.New[ids.PassportKind]().UUID,
-		agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: 1})
+		agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: "1"})
 
 	if err := svc.applyQuotaRelease(releaseCtx(ids.New[ids.WorkspaceKind]().UUID), a); err != nil {
 		t.Errorf("a release into a rolled window reported an error: %v", err)
@@ -98,7 +98,7 @@ func TestAnEditedPayloadCannotTurnAStepUpIntoAHardStopRelease(t *testing.T) {
 
 	for _, counter := range []agentquota.Counter{agentquota.Egress, agentquota.Calls, agentquota.Cost} {
 		a := stepUpRow(t, ids.New[ids.PassportKind]().UUID,
-			agentquota.ReleaseProposal{Counter: counter, Bucket: 1})
+			agentquota.ReleaseProposal{Counter: counter, Bucket: "1"})
 
 		err := svc.applyQuotaRelease(releaseCtx(ids.New[ids.WorkspaceKind]().UUID), a)
 
@@ -111,13 +111,30 @@ func TestAnEditedPayloadCannotTurnAStepUpIntoAHardStopRelease(t *testing.T) {
 	}
 }
 
+// A payload whose window is not a window releases NOTHING. It is the same
+// editable-payload surface the counter check above guards: picking the current
+// window for an unreadable one would widen a window nobody was shown.
+func TestAStagedWindowThatIsNotAWindowReleasesNothing(t *testing.T) {
+	meter := &recordingReleaser{}
+	svc := NewService(nil).WithQuotaReleaser(meter)
+	a := stepUpRow(t, ids.New[ids.PassportKind]().UUID,
+		agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: "not-a-window"})
+
+	if err := svc.applyQuotaRelease(releaseCtx(ids.New[ids.WorkspaceKind]().UUID), a); err == nil {
+		t.Error("an unreadable window was released against whatever window happened to be current")
+	}
+	if meter.calls != 0 {
+		t.Error("the meter was asked to release a window nobody named")
+	}
+}
+
 // A row with no passport names no window. Releasing "the current context's"
 // would widen the approver's own counter — unmetered, so it would silently
 // succeed — which is exactly the failure this refuses loudly.
 func TestAStepUpWithNoPassportIsRefusedRatherThanReleasedAgainstTheApprover(t *testing.T) {
 	meter := &recordingReleaser{}
 	svc := NewService(nil).WithQuotaReleaser(meter)
-	raw, err := json.Marshal(agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: 1})
+	raw, err := json.Marshal(agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +156,7 @@ func TestAStepUpWithNoPassportIsRefusedRatherThanReleasedAgainstTheApprover(t *t
 func TestApprovingAStepUpWithNoMeterComposedFails(t *testing.T) {
 	svc := NewService(nil)
 	a := stepUpRow(t, ids.New[ids.PassportKind]().UUID,
-		agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: 1})
+		agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: "1"})
 
 	if err := svc.applyQuotaRelease(releaseCtx(ids.New[ids.WorkspaceKind]().UUID), a); err == nil {
 		t.Error("a service with no meter reported a release it could not have made")
@@ -153,7 +170,7 @@ func TestAMeterFailureReachesTheDecidingHuman(t *testing.T) {
 	meter := &recordingReleaser{err: errors.New("redis is unreachable")}
 	svc := NewService(nil).WithQuotaReleaser(meter)
 	a := stepUpRow(t, ids.New[ids.PassportKind]().UUID,
-		agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: 1})
+		agentquota.ReleaseProposal{Counter: agentquota.Reads, Bucket: "1"})
 
 	err := svc.applyQuotaRelease(releaseCtx(ids.New[ids.WorkspaceKind]().UUID), a)
 

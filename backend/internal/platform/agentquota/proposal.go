@@ -16,6 +16,7 @@ package agentquota
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
 // ReleaseProposal is the staged proposal's payload: what the agent has spent,
@@ -31,7 +32,12 @@ type ReleaseProposal struct {
 	Counter  Counter `json:"counter"`
 	Observed int     `json:"observed"`
 	Limit    int     `json:"limit"`
-	Bucket   int64   `json:"bucket"`
+	// Bucket is the window, decimal, as a STRING. The approvals engine's
+	// proposal identity is a map of string values and is matched against the
+	// stored payload by jsonb containment, so a numeric window here would be
+	// refused at staging and — worse, if it were ever accepted on one side only
+	// — would stop matching the identity it is supposed to deduplicate on.
+	Bucket string `json:"bucket"`
 	// Tool is the call that was refused, for the screen to name. It is not
 	// authority: releasing the window releases the counter, not one tool.
 	Tool string `json:"tool"`
@@ -41,7 +47,7 @@ type ReleaseProposal struct {
 func NewReleaseProposal(reading Reading, tool string) ReleaseProposal {
 	return ReleaseProposal{
 		Counter: reading.Counter, Observed: reading.Observed,
-		Limit: reading.Limit, Bucket: reading.Bucket, Tool: tool,
+		Limit: reading.Limit, Bucket: strconv.FormatInt(reading.Bucket, 10), Tool: tool,
 	}
 }
 
@@ -66,6 +72,17 @@ func DecodeReleaseProposal(raw json.RawMessage) (ReleaseProposal, error) {
 	return p, nil
 }
 
+// Window is the bucket this proposal was staged for. A payload whose window is
+// unreadable releases NOTHING: it names no window, and picking the current one
+// for it would widen a window nobody was shown.
+func (p ReleaseProposal) Window() (int64, error) {
+	bucket, err := strconv.ParseInt(p.Bucket, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("agentquota: a staged release names window %q, which is not a window: %w", p.Bucket, err)
+	}
+	return bucket, nil
+}
+
 // Identity is the proposal's logical identity for the approvals engine: one
 // pending question per counter per window.
 //
@@ -78,7 +95,7 @@ func DecodeReleaseProposal(raw json.RawMessage) (ReleaseProposal, error) {
 func (p ReleaseProposal) Identity() (json.RawMessage, error) {
 	raw, err := json.Marshal(struct {
 		Counter Counter `json:"counter"`
-		Bucket  int64   `json:"bucket"`
+		Bucket  string  `json:"bucket"`
 	}{p.Counter, p.Bucket})
 	if err != nil {
 		return nil, fmt.Errorf("agentquota: naming a release proposal's identity: %w", err)

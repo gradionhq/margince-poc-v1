@@ -82,7 +82,7 @@ func TestACrossedReadThresholdPutsTheQuestionToTheConnectingHuman(t *testing.T) 
 		t.Fatalf("the human was asked %d times, want once", len(staging.steppedUp))
 	}
 	asked := staging.steppedUp[0].Proposal
-	if asked.Counter != agentquota.Reads || asked.Observed != 2431 || asked.Limit != 2000 || asked.Bucket != 42 {
+	if asked.Counter != agentquota.Reads || asked.Observed != 2431 || asked.Limit != 2000 || asked.Bucket != "42" {
 		t.Errorf("the question carried %+v; it must name what was spent, against what, in which window", asked)
 	}
 	if !strings.Contains(staging.steppedUp[0].Summary, "2431") || !strings.Contains(staging.steppedUp[0].Summary, "2000") {

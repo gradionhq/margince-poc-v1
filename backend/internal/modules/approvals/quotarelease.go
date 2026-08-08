@@ -81,7 +81,11 @@ func (s *Service) applyQuotaRelease(ctx context.Context, a row) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.quota.Release(ctx, wsID, a.PassportID.UUID, proposal.Counter, proposal.Bucket); err != nil {
+	bucket, err := proposal.Window()
+	if err != nil {
+		return err
+	}
+	if _, err := s.quota.Release(ctx, wsID, a.PassportID.UUID, proposal.Counter, bucket); err != nil {
 		return fmt.Errorf("crmapprovals: releasing the %s window: %w", proposal.Counter, err)
 	}
 	return nil
