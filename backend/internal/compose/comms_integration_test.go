@@ -180,7 +180,7 @@ func TestIntentToolsReturnTheAssembledPicture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := assembledJSONForTest(assembled)
+	raw, err := assembledJSONForTest(ctx, assembled)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,6 +211,6 @@ func TestIntentToolsReturnTheAssembledPicture(t *testing.T) {
 
 // assembledJSONForTest reaches the agents module's wire rendering; the
 // alias keeps the test honest to the exact shape the tool returns.
-func assembledJSONForTest(assembled retrieval.Context) (json.RawMessage, error) {
-	return agents.AssembledContextJSON(assembled)
+func assembledJSONForTest(ctx context.Context, assembled retrieval.Context) (json.RawMessage, error) {
+	return agents.AssembledContextJSON(ctx, assembled)
 }

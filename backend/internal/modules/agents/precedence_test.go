@@ -257,7 +257,7 @@ func TestUpdateRecordMixedPatchSplitsAndBindsTheSubPatch(t *testing.T) {
 			Replay     json.RawMessage `json:"replay"`
 		} `json:"staged_approval"`
 	}
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := json.Unmarshal(payloadOf(t, out), &result); err != nil {
 		t.Fatal(err)
 	}
 	if len(result.StagedApproval.Fields) != 1 || result.StagedApproval.Fields[0] != "full_name" {

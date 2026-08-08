@@ -21,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -196,6 +197,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	// knows them" is a true and useful answer to this question — it is the
 	// answer that says the account is cold — and turning it into a failure
 	// would make the model narrate a problem instead of a fact.
+	noteEvidence(ctx, datasource.EntityPerson, args.PersonID)
 	return json.Marshal(WhoKnowsAnswer{PersonID: args.PersonID, Colleagues: colleagues})
 }
 
@@ -241,6 +243,10 @@ func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (js
 	if answer.Risks == nil {
 		answer.Risks = []CoverageRisk{}
 	}
+	noteEvidence(ctx, datasource.EntityDeal, args.DealID)
+	for _, seat := range answer.Stakeholders {
+		noteEvidence(ctx, datasource.EntityPerson, seat.PersonID)
+	}
 	return json.Marshal(answer)
 }
 
@@ -261,6 +267,13 @@ func (t introPathTool) Spec() mcp.ToolSpec {
 	}
 }
 
+// introPathTruncatedMessage says a ranked list is not an exhaustive one. Warmth
+// is computed after the fetch bound, so the genuinely warmest route can sit
+// outside the slice that was read — and a model told nothing reports "nobody
+// warmer exists" from a list that never looked.
+const introPathTruncatedMessage = "More contacts exist at this organization than were examined, " +
+	"so a warmer route may exist outside this list. Do not report these as the only ways in."
+
 func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
 		OrganizationID ids.UUID `json:"organization_id"`
@@ -277,6 +290,13 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		// that says the account is cold, and it is a useful one. A model handed
 		// null reads it as "unknown" and hedges.
 		routes = []IntroRoute{}
+	}
+	noteEvidence(ctx, datasource.EntityOrganization, args.OrganizationID)
+	for _, route := range routes {
+		noteEvidence(ctx, datasource.EntityPerson, route.PersonID)
+	}
+	if truncated {
+		noteWarning(ctx, warningSweepTruncated, introPathTruncatedMessage)
 	}
 	return json.Marshal(IntroPathAnswer{
 		OrganizationID: args.OrganizationID, Routes: routes,
@@ -307,6 +327,11 @@ func (t atRiskTool) Spec() mcp.ToolSpec {
 	}
 }
 
+// atRiskTruncatedMessage is the same claim over the at-risk scan, which stops at
+// its own cap rather than at the end of the pipeline.
+const atRiskTruncatedMessage = "The scan stopped at its cap, so deals beyond it were not examined. " +
+	"Report these as what was found, not as every relationship at risk."
+
 func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct{}
 	if err := decodeArgs(in, &args); err != nil {
@@ -328,6 +353,10 @@ func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 		if report.Deals[i].Risks == nil {
 			report.Deals[i].Risks = []CoverageRisk{}
 		}
+		noteEvidence(ctx, datasource.EntityDeal, report.Deals[i].DealID)
+	}
+	if report.Truncated {
+		noteWarning(ctx, warningSweepTruncated, atRiskTruncatedMessage)
 	}
 	return json.Marshal(report)
 }

@@ -131,6 +131,7 @@ func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 			return nil, fmt.Errorf("crmagents: deal advanced but logging the note failed — the move stands, retry via log_activity: %w", err)
 		}
 		result.NoteActivityID = &ref.ID
+		noteEvidence(ctx, datasource.EntityActivity, ref.ID)
 	}
 	deal, err := readBackRecord(ctx, t.p, datasource.EntityRef{Type: datasource.EntityDeal, ID: args.DealID})
 	if err != nil {

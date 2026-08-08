@@ -46,13 +46,19 @@ const anchorSchema = `{"type":"object","required":["record_type","record_id"],"p
 // AssembledContextJSON renders a retrieval.Context in the
 // evidence-carrying wire shape both intent tools share (exported so the
 // composition tests pin the exact shape the tools return).
-func AssembledContextJSON(assembled retrieval.Context) (json.RawMessage, error) {
-	return json.Marshal(assembledContext(assembled))
+func AssembledContextJSON(ctx context.Context, assembled retrieval.Context) (json.RawMessage, error) {
+	return json.Marshal(assembledContext(ctx, assembled))
 }
 
 // assembledContext is the one place a retrieval.Context becomes tool output, so
 // both intent tools report the same shape and neither can drift into its own.
-func assembledContext(assembled retrieval.Context) AssembledContextResult {
+//
+// It sources the answer as it builds it: an assembled picture SUMMARIZES records
+// rather than serving them, so nothing else on the call's path names them, and a
+// summary whose records are absent from the envelope is exactly the unsourced
+// element the evidence rule refuses.
+func assembledContext(ctx context.Context, assembled retrieval.Context) AssembledContextResult {
+	noteEvidence(ctx, assembled.Anchor.Type, assembled.Anchor.ID)
 	sections := make([]ContextSection, 0, len(assembled.Sections))
 	for _, section := range assembled.Sections {
 		items := make([]ContextItem, 0, len(section.Items))
@@ -61,6 +67,7 @@ func assembledContext(assembled retrieval.Context) AssembledContextResult {
 			for _, ev := range item.Evidence {
 				evidence = append(evidence, ContextEvidence{Source: ev.Source, Snippet: ev.Snippet})
 			}
+			noteEvidence(ctx, item.Ref.Type, item.Ref.ID)
 			items = append(items, ContextItem{
 				RecordType: item.Ref.Type, RecordID: item.Ref.ID,
 				Summary: item.Summary, Evidence: evidence,
@@ -102,7 +109,7 @@ func (t catchMeUpOn) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err != nil {
 		return nil, err
 	}
-	return AssembledContextJSON(assembled)
+	return AssembledContextJSON(ctx, assembled)
 }
 
 // --- prep_for_meeting (🟢 read) ---
@@ -147,6 +154,6 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 		focusItems = append(focusItems, MeetingFocusItem{RecordID: item.Ref.ID, Summary: item.Summary})
 	}
 	return json.Marshal(PrepForMeetingResult{
-		Briefing: assembledContext(assembled), MeetingFocus: focusItems,
+		Briefing: assembledContext(ctx, assembled), MeetingFocus: focusItems,
 	})
 }

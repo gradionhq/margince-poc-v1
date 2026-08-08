@@ -29,6 +29,11 @@ import (
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]mcp.Tool
+	// specs[tool] is what every surface is SERVED for that tool: its own spec
+	// with the declared output shape wrapped in the result envelope. Held here
+	// rather than re-derived per request because tools/list embeds it verbatim
+	// and a client caches it — one derivation, one set of bytes, forever.
+	specs map[string]mcp.ToolSpec
 	// idArgs[tool] is what that tool's schema says about its uuid arguments,
 	// read off the schema once at registration. Invoke enforces it, so the
 	// schema's claims are true of the surface rather than of whichever handlers
@@ -57,6 +62,7 @@ type Registry struct {
 func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 	return &Registry{
 		tools:        map[string]mcp.Tool{},
+		specs:        map[string]mcp.ToolSpec{},
 		idArgs:       map[string]idArgSpec{},
 		numArgs:      map[string][]numBound{},
 		requiredArgs: map[string][]string{},
@@ -127,6 +133,16 @@ func (r *Registry) Register(t mcp.Tool) {
 		panic(fmt.Sprintf("crmagents: %s has a %d-rune Description, past the %d a tool may spend — "+
 			"every run's prompt carries it and never elides it", spec.Name, n, maxDescriptionRunes))
 	}
+	// The version a result declares as its own. It is not documentation: every
+	// result this surface seals carries it as `schema_version`, which is the
+	// only thing that lets a client tell a shape change from a data change. A
+	// tool registered without one would put an empty string in that field on
+	// every call — a claim that the contract has no version, made forever.
+	if strings.TrimSpace(spec.Version) == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: %s declares no Version — every result carries it as schema_version, "+
+			"and an empty one tells a client the shape can never be compared", spec.Name))
+	}
 	if err := assertObjectSchemas(spec); err != nil {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: " + err.Error())
@@ -138,9 +154,33 @@ func (r *Registry) Register(t mcp.Tool) {
 		panic(fmt.Sprintf("crmagents: duplicate tool %s", spec.Name))
 	}
 	r.tools[spec.Name] = t
+	r.specs[spec.Name] = envelopedSpec(spec)
 	r.idArgs[spec.Name] = declaredIDArgs(spec.InputSchema)
 	r.numArgs[spec.Name] = declaredNumBounds(spec.InputSchema)
 	r.requiredArgs[spec.Name] = declaredRequired(spec.InputSchema)
+}
+
+// envelopedSpec is the spec every surface is served: the tool's own, with its
+// declared output shape wrapped in the envelope Invoke seals results into.
+//
+// It is computed HERE, once at registration, rather than where each surface
+// serves it. The advertised schema and the answered document are two halves of
+// one promise, and the only way they cannot drift is for one wrapper to produce
+// both — the tool declares the shape of its payload and knows nothing about the
+// envelope, exactly as its handler does.
+func envelopedSpec(spec mcp.ToolSpec) mcp.ToolSpec {
+	if spec.OutputSchema == nil {
+		// A tool promising no output shape owes tools/call no structured
+		// content; its result is still sealed, but there is nothing to wrap.
+		return spec
+	}
+	sealed, err := envelopedSchema(spec.OutputSchema)
+	if err != nil {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: cannot advertise %s's result inside the envelope: %v", spec.Name, err))
+	}
+	spec.OutputSchema = sealed
+	return spec
 }
 
 // Invoke runs the admission gate, then the tool. There is no other path
@@ -190,7 +230,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			}
 			ctx = marked
 		}
-		return t.Handle(ctx, args)
+		return handle(ctx, t, spec, args)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
 	case !approvalID.IsZero():
@@ -198,10 +238,32 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		if rErr != nil {
 			return nil, rErr
 		}
-		return t.Handle(marked, args)
+		return handle(marked, t, spec, args)
 	default:
 		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, diffHash, err)
 	}
+}
+
+// handle runs an admitted call and seals its answer into the result envelope.
+//
+// Every path out of Invoke that reaches a handler comes through here — the
+// straight auto-execute call and both approval redemptions — so the envelope is
+// a property of the SURFACE rather than of the paths someone remembered. A
+// handler still marshals only its own payload and never sees the envelope,
+// which is what keeps thirty tools from carrying thirty spellings of it.
+//
+// The failure path deliberately seals nothing: a refusal is an error, and an
+// error carries the sentinel and the message the caller acts on, not a document
+// with an empty payload inside it.
+func handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
+	ctx, trace := withTrace(ctx)
+	ctx, facts := withEnvelopeFacts(ctx)
+	noteRowScope(ctx, spec)
+	out, err := t.Handle(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	return sealEnvelope(spec, trace, facts, out)
 }
 
 // tierResolverFor builds the resolver Admit consults for the call's tier. A
@@ -265,20 +327,17 @@ func (r *Registry) stageRefusedCall(ctx context.Context, t mcp.Tool, tool string
 func (r *Registry) Spec(name string) (mcp.ToolSpec, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	t, ok := r.tools[name]
-	if !ok {
-		return mcp.ToolSpec{}, false
-	}
-	return t.Spec(), true
+	spec, ok := r.specs[name]
+	return spec, ok
 }
 
 // Specs lists the registered surface, stably ordered for tools/list.
 func (r *Registry) Specs() []mcp.ToolSpec {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]mcp.ToolSpec, 0, len(r.tools))
-	for _, t := range r.tools {
-		out = append(out, t.Spec())
+	out := make([]mcp.ToolSpec, 0, len(r.specs))
+	for _, spec := range r.specs {
+		out = append(out, spec)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

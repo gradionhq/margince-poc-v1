@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -98,6 +99,7 @@ func (t whatsSlippingThisWeek) Handle(ctx context.Context, in json.RawMessage) (
 	}
 	items := make([]SlippingDealItem, 0, len(ranked))
 	for i, it := range ranked {
+		noteEvidence(ctx, datasource.EntityDeal, it.deal.DealID)
 		items = append(items, it.wire(i+1))
 	}
 	return json.Marshal(WhatsSlippingResult{Deals: items})
@@ -169,6 +171,8 @@ func (t draftFollowUpsFor) Handle(ctx context.Context, in json.RawMessage) (json
 		if err != nil {
 			return nil, err
 		}
+		noteEvidence(ctx, datasource.EntityDeal, it.deal.DealID)
+		noteEvidence(ctx, datasource.EntityActivity, activityID)
 		drafts = append(drafts, FollowUpDraft{
 			DealID:          it.deal.DealID,
 			DraftActivityID: activityID,

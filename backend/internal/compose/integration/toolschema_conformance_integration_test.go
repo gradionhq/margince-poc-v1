@@ -135,6 +135,10 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 				t.Errorf("%s answered %s, which does not keep the schema this server advertises for it: %s",
 					call.tool, out, defect)
 			}
+			// AC-MCP-7: the envelope is asserted against the REAL answer of a
+			// real call, not against its declaration. A declared envelope
+			// nothing checks is the comment this whole change replaces.
+			assertEnvelopePopulated(t, call.tool, out)
 		})
 	}
 }
@@ -154,13 +158,16 @@ func createThroughTheToolSurface(ctx context.Context, t *testing.T, registry *ag
 	if defect := agents.ResultDefect(spec.OutputSchema, out); defect != "" {
 		t.Fatalf("create_record answered %s, which does not keep its own schema: %s", out, defect)
 	}
+	assertEnvelopePopulated(t, "create_record", out)
 	var created struct {
-		ID ids.UUID `json:"id"`
+		Data struct {
+			ID ids.UUID `json:"id"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(out, &created); err != nil {
 		t.Fatalf("unreadable create_record answer %s: %v", out, err)
 	}
-	return created.ID
+	return created.Data.ID
 }
 
 // A conformance suite that could not fail is the thing it exists to prevent, so
@@ -177,8 +184,10 @@ func TestTheConformanceCheckFailsAgainstAMisdeclaredSchema(t *testing.T) {
 		t.Fatalf("list_pipelines: %v", err)
 	}
 	for name, misdeclared := range map[string]string{
-		"a required member no result carries": `{"type":"object","required":["invented"]}`,
-		"a member declared as the wrong type": `{"type":"object","properties":{"pipelines":{"type":"string"}}}`,
+		"a required member no result carries":           `{"type":"object","required":["invented"]}`,
+		"an envelope member declared as the wrong type": `{"type":"object","properties":{"trust":{"type":"integer"}}}`,
+		"a payload member declared as the wrong type": `{"type":"object","properties":{"data":{"type":"object",` +
+			`"properties":{"pipelines":{"type":"string"}}}}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if defect := agents.ResultDefect(json.RawMessage(misdeclared), out); defect == "" {
