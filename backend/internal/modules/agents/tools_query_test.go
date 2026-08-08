@@ -228,6 +228,10 @@ func TestAMirrorBackedRowIsMarkedExternal(t *testing.T) {
 		Coverage: CoverageCompleteExact, Limit: 25,
 	})
 
+	if len(result.Rows) != 1 {
+		t.Fatalf("got %d rows, want the mirror-backed record — a panic here would report the wrong "+
+			"thing about the wrong line", len(result.Rows))
+	}
 	if got := result.Rows[0].Record.TrustTier; got != "external" {
 		t.Errorf("trust_tier = %q, want %q for a record the mirror answered", got, "external")
 	}
