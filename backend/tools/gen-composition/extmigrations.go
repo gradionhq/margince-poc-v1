@@ -17,7 +17,11 @@ import (
 // migrationsLayer is the unit subdirectory holding its SQL migrations —
 // the first capability layer this generator composes beyond Go
 // registrations, and therefore the first to leave unbuiltCapabilityLayers.
-const migrationsLayer = "migrations"
+//
+// Taken from the published surface rather than restated: cmd/migrate
+// applies extension.Extension.Migrations from exactly this directory, and
+// a generator validating a different one would bless files nothing runs.
+const migrationsLayer = extension.MigrationsDir
 
 // pgIdentifierBudget is PostgreSQL's NAMEDATALEN-1. An identifier longer
 // than this is TRUNCATED, silently: no warning, no error, and two long

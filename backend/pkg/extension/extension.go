@@ -24,6 +24,7 @@ package extension
 
 import (
 	"fmt"
+	"io/fs"
 	"regexp"
 	"strings"
 	"unicode"
@@ -159,4 +160,30 @@ type Extension struct {
 	// and a scope, which is exactly what lets the generated manifest tell an
 	// operator which secrets a unit expects before it ever runs.
 	Secrets []SecretsRequest
+
+	// Migrations is the unit's SQL schema layer: a read-only filesystem
+	// holding the MigrationsDir directory of NNNN_name.up.sql/.down.sql
+	// pairs, which a unit supplies with `//go:embed migrations`. A unit
+	// that owns no tables leaves it nil, and that is the common case.
+	//
+	// EMBEDDED, not read back from the source tree, because the process
+	// that applies it is a bare binary: Dockerfile.api ships
+	// /usr/local/bin/margince-migrate and no repository, so a
+	// path-relative read would apply a unit's migrations in dev and CI —
+	// where the checkout is right there — and silently none in
+	// production, which is the one place nobody watches a migration
+	// count. The declaration carrying its own bytes is what makes the
+	// composed binary self-sufficient.
+	//
+	// Still inert data: an fs.FS is bytes to read, not a handle into the
+	// core. Applying them is the migrate role's job (cmd/migrate), after
+	// the composed set is known; declaring them mints nothing.
+	Migrations fs.FS
 }
+
+// MigrationsDir is the one spelling of the subdirectory a unit's
+// Migrations FS is rooted above — `extensions/<name>/migrations/`. The
+// generator that validates the layer and the migrate role that applies it
+// must name the same directory, or a unit could pass the gate on files
+// that are never applied.
+const MigrationsDir = "migrations"

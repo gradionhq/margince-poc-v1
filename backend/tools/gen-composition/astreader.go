@@ -162,6 +162,12 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 		// Recognized and deliberately skipped: a jurisdiction pack is
 		// passive policy the core consults, never a governed operation an
 		// operator resolves, so it contributes no manifest entry.
+	case "Migrations":
+		// Recognized and deliberately skipped for the same reason, and the
+		// layer is not unread: collectUnitTables validates the SQL this field
+		// embeds, and extmigrategate applies it as the restricted ext_<name>
+		// role. What an operator resolves are risk tiers and secret requests;
+		// a schema is neither.
 	case "Secrets":
 		var secrets []secretsRequest
 		secrets, err = r.readSecrets(kv.Value, file)

@@ -194,14 +194,18 @@ ai-probe: composition ## Probe one AI task site against real input (free except 
 	$(LOAD_ENV_LOCAL) $(GOWORK_COMPOSED) $(GO) run ./cmd/worker aitask $(ARGS) \
 	  --corpus $(CURDIR)/internal/compose/aicert/corpus --work-dir $(CURDIR)/../.tmp/aitask
 
-test-db-up: ## (Re)build the migrated margince_test template the parallel lane clones from
-	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
+# Composed for the same reason as migrate: build_template shells out to
+# cmd/migrate, and a template built from the vanilla stub carries no
+# extension tables — every clone taken from it would then fail (or, worse,
+# skip) the extension half of the integration lane.
+test-db-up: composition ## (Re)build the migrated margince_test template the parallel lane clones from
+	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
 
 test-it: composition ## Run ONE integration package (optionally RUN=Regex) on a throwaway clone: make test-it DIR=backend/internal/modules/people [RUN=TestName]
 	@$(GOWORK_COMPOSED) bash ../scripts/test-integration-one.sh "$(DIR)" "$(RUN)"
 
 test-integration-serial: composition ## Escape hatch: the old sequential lane, all packages on the shared margince_test DB (debugging a parallel-isolation issue).
-	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && ensure_template'
+	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && ensure_template'
 	@log=$$(mktemp); st=$$(mktemp); \
 	{ $(GOWORK_COMPOSED) $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
 	code=$$(cat "$$st"); rm -f "$$st"; \
@@ -370,8 +374,14 @@ seed-reset: ## Wipe the demo workspace (scripts/seed-reset.sql); make seed-dev r
 seed-dev-db: ## Apply the dev DB seed for API-less demo data (scripts/seed-dev.sql); run after seed-dev
 	$(COMPOSE) exec -T postgres psql -U margince_owner -d $(DB_NAME) -v ON_ERROR_STOP=1 < ../scripts/seed-dev.sql
 
-migrate: ## Apply core + custom migrations (owner DSN)
-	$(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
+# The COMPOSED workspace is load-bearing here, not tidiness: cmd/migrate
+# applies the enabled units' migrations from the composed extension set, and
+# a bare `go run` resolves the committed vanilla stub instead — which returns
+# no extensions, applies zero extension migrations, exits 0 and prints
+# "schema is at head". Every extension lane would then be green over a
+# database that has none of their tables.
+migrate: composition ## Apply core + custom + composed extension migrations (owner DSN)
+	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
 
 infra-down: ## Stop the dev stack but KEEP the data volumes (clean also drops them)
 	$(COMPOSE) down --remove-orphans
@@ -382,8 +392,8 @@ clean: ## Tear down the dev stack, containers and data volumes
 
 migrate-up: migrate ## Alias for migrate — apply all pending migrations (owner DSN)
 
-migrate-down: ## Roll back the last migration(s): make migrate-down [STEPS=n]
-	$(GO) run ./cmd/migrate down --dsn "$(OWNER_DSN)" --steps $(or $(STEPS),1)
+migrate-down: composition ## Roll back the last migration(s): make migrate-down [STEPS=n]
+	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate down --dsn "$(OWNER_DSN)" --steps $(or $(STEPS),1)
 
 run: composition ## Run the api on :8080 (no db-up/migrate) — go run ./cmd/api
 	$(GOWORK_COMPOSED) $(GO) run ./cmd/api --dsn "$(APP_DSN)"

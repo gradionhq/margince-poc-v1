@@ -239,6 +239,40 @@ func (pack) Retention() jurisdiction.Retention { return nil }
 	}
 }
 
+// TestMigrationsLayerRequestsNoRiskTier: a unit's embedded SQL schema is
+// not a governed operation an operator resolves, so the Migrations field is
+// recognized and skipped like Jurisdictions. It must not be REFUSED either:
+// cmd/migrate reads that field to apply the unit's namespace, so a generator
+// rejecting it would make an extension with tables ungeneratable.
+func TestMigrationsLayerRequestsNoRiskTier(t *testing.T) {
+	const migrationsOnly = `package hello
+
+import (
+	"embed"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
+)
+
+//go:embed migrations
+var sql embed.FS
+
+func New() extension.Extension {
+	return extension.Extension{
+		Name:       "hello",
+		Version:    "0.1.0",
+		Migrations: sql,
+	}
+}
+`
+	derived, err := deriveSynthetic(t, "hello", migrationsOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(derived), `"risk_tiers": []`) {
+		t.Fatalf("a migrations-only unit must request no risk tier:\n%s", derived)
+	}
+}
+
 // toolUnitSource is a unit declaring one governed tool with the given
 // field body.
 func toolUnitSource(toolFields string) string {
