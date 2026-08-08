@@ -3285,6 +3285,30 @@ func (e FilteredExportRequestObject) Valid() bool {
 	}
 }
 
+// Defines values for GrowthFitBand.
+const (
+	GrowthFitBandModerate GrowthFitBand = "moderate"
+	GrowthFitBandStrong   GrowthFitBand = "strong"
+	GrowthFitBandUnknown  GrowthFitBand = "unknown"
+	GrowthFitBandWeak     GrowthFitBand = "weak"
+)
+
+// Valid indicates whether the value is a known member of the GrowthFitBand enum.
+func (e GrowthFitBand) Valid() bool {
+	switch e {
+	case GrowthFitBandModerate:
+		return true
+	case GrowthFitBandStrong:
+		return true
+	case GrowthFitBandUnknown:
+		return true
+	case GrowthFitBandWeak:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IngestVoiceCorpusSourceRequestFormat.
 const (
 	IngestVoiceCorpusSourceRequestFormatText       IngestVoiceCorpusSourceRequestFormat = "text"
@@ -7157,16 +7181,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
-	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
+	Text       VoiceCorpusPreviewRequestFormat = "text"
+	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case VoiceCorpusPreviewRequestFormatText:
+	case Text:
 		return true
-	case VoiceCorpusPreviewRequestFormatTranscript:
+	case Transcript:
 		return true
 	default:
 		return false
@@ -10923,6 +10947,21 @@ type CustomFieldListResponse struct {
 	Page PageInfo      `json:"page"`
 }
 
+// DataCompleteness How much of what the band needs is actually present — with BOTH counts. "4 of 9"
+// and "4 of 40" are different claims and must never render identically (DOSS-AC-12).
+type DataCompleteness struct {
+	// Expected Required inputs the assembly wanted. Never omitted and never implied — a
+	// proportion without its denominator is not a completeness figure.
+	Expected int `json:"expected"`
+
+	// Missing Which required inputs are missing, named in the reader's words. This is what
+	// the "next data-gathering step" is built from, so it is never an opaque code.
+	Missing *[]string `json:"missing,omitempty"`
+
+	// Present Required inputs available and not stale.
+	Present int `json:"present"`
+}
+
 // DataSubjectRequest A GDPR data-subject request (Art. 15/16/17) tracked to completion (B-E11.30; data-model §12.5).
 type DataSubjectRequest struct {
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
@@ -11322,6 +11361,14 @@ type FxRateListResponse struct {
 	BaseCurrency *string  `json:"base_currency,omitempty"`
 	Data         []FxRate `json:"data"`
 }
+
+// GrowthFitBand How well this company fits what we sell (DOSS-PARAM-8).
+//
+// `unknown` is the ABSTENTION, not a low score. It says the assembly did not have
+// enough to judge on, and it always arrives with its completeness counts and a named
+// next step. A reader must never have to guess whether `unknown` means "poor fit" or
+// "we could not tell" — those are opposite conclusions.
+type GrowthFitBand string
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
@@ -13147,6 +13194,64 @@ type OrganizationGraphNodeKind string
 
 // OrganizationGraphNodeStrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
 type OrganizationGraphNodeStrengthBucket string
+
+// OrganizationGrowthFit Cached per reader (DOSS-DDL-2), because it folds seat-dependent workspace context
+// and makes recommendations.
+//
+// Every claim below carries the records it was written from, exactly like a dossier
+// sentence. The evidence is always TARGET-side: a factor drawn from our own offering
+// is labelled an `assessment` and still cites the other company's records, or it is
+// dropped. Our own profile is not a record this reader can open, and citing it would
+// invent a citation (DOSS-AC-6).
+type OrganizationGrowthFit struct {
+	// Band How well this company fits what we sell (DOSS-PARAM-8).
+	//
+	// `unknown` is the ABSTENTION, not a low score. It says the assembly did not have
+	// enough to judge on, and it always arrives with its completeness counts and a named
+	// next step. A reader must never have to guess whether `unknown` means "poor fit" or
+	// "we could not tell" — those are opposite conclusions.
+	Band GrowthFitBand `json:"band"`
+
+	// BandCappedReason Why the band could not go higher — our own offering context being unconfirmed
+	// caps it at `moderate` (DOSS-AC-13). Null when nothing capped it.
+	BandCappedReason *string `json:"band_capped_reason,omitempty"`
+
+	// DataCompleteness How much of what the band needs is actually present — with BOTH counts. "4 of 9"
+	// and "4 of 40" are different claims and must never render identically (DOSS-AC-12).
+	DataCompleteness DataCompleteness `json:"data_completeness"`
+	GeneratedAt      time.Time        `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy `json:"generated_by"`
+
+	// NegativeFactors What argues against it.
+	NegativeFactors *[]OrganizationBriefSentence `json:"negative_factors,omitempty"`
+
+	// NextStep The one named thing to do that would most improve this answer, or null when
+	// nothing is holding it back.
+	//
+	// When the band is `unknown` this is offered INSTEAD of a score and names the
+	// missing inputs to go and find. When the band was capped it names the other
+	// fix — confirming our own offering. Always a concrete action, never a
+	// restatement that data is missing.
+	NextStep *string `json:"next_step,omitempty"`
+
+	// Objections What this company is likely to push back with, each with its evidence.
+	Objections     *[]OrganizationBriefSentence `json:"objections,omitempty"`
+	OrganizationId openapi_types.UUID           `json:"organization_id"`
+
+	// PositiveFactors What argues for this company being a fit.
+	PositiveFactors *[]OrganizationBriefSentence `json:"positive_factors,omitempty"`
+
+	// RecommendedAngle The single suggested approach. A recommendation, and labelled as one.
+	RecommendedAngle *OrganizationBriefSentence `json:"recommended_angle,omitempty"`
+
+	// Whitespace What we sell that this company does not yet buy.
+	Whitespace *[]OrganizationBriefSentence `json:"whitespace,omitempty"`
+}
 
 // OrganizationHierarchyRollup The account-tree roll-up over organization.parent_org_id. A server read only,
 // never client-summed. Money is base-currency converted — never a raw
@@ -25719,6 +25824,12 @@ type ServerInterface interface {
 	// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
 	// (GET /organizations/{id}/graph)
 	GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id)
+	// How well this company fits what we sell — banded, with both completeness counts.
+	// (GET /organizations/{id}/growth-fit)
+	GetOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id Id)
+	// Re-assemble the caller's growth fit now, past a fingerprint that still matches.
+	// (POST /organizations/{id}/growth-fit)
+	RefreshOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id Id)
 	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 	// (GET /organizations/{id}/hierarchy-rollup)
 	GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams)
@@ -27201,6 +27312,18 @@ func (_ Unimplemented) ConfirmOrganizationFact(w http.ResponseWriter, r *http.Re
 // The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
 // (GET /organizations/{id}/graph)
 func (_ Unimplemented) GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// How well this company fits what we sell — banded, with both completeness counts.
+// (GET /organizations/{id}/growth-fit)
+func (_ Unimplemented) GetOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Re-assemble the caller's growth fit now, past a fingerprint that still matches.
+// (POST /organizations/{id}/growth-fit)
+func (_ Unimplemented) RefreshOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35908,6 +36031,70 @@ func (siw *ServerInterfaceWrapper) GetOrganizationGraph(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationGrowthFit operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationGrowthFit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationGrowthFit(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshOrganizationGrowthFit operation middleware
+func (siw *ServerInterfaceWrapper) RefreshOrganizationGrowthFit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshOrganizationGrowthFit(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOrganizationHierarchyRollup operation middleware
 func (siw *ServerInterfaceWrapper) GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request) {
 
@@ -43579,6 +43766,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/graph", wrapper.GetOrganizationGraph)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/growth-fit", wrapper.GetOrganizationGrowthFit)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/growth-fit", wrapper.RefreshOrganizationGrowthFit)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/hierarchy-rollup", wrapper.GetOrganizationHierarchyRollup)

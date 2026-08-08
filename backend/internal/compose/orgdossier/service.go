@@ -16,19 +16,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/compose/claims"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -216,26 +212,14 @@ func wireSentences(in []claims.Sentence) []crmcontracts.OrganizationBriefSentenc
 	return out
 }
 
-// cached reads this READER's assembly. The reader predicate is written into the
-// statement explicitly: row-level security binds the workspace and not the
-// reader, so leaving it out would serve one reader's assembly to another
-// (DOSS-DDL-N-1).
+// cached reads this READER's dossier out of the shared per-reader cache.
 func (s *Service) cached(ctx context.Context, userID ids.UserID, orgID ids.OrganizationID) (stored, bool, error) {
-	var out stored
-	var payload []byte
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT fingerprint, generated_at, generated_by, payload FROM org_dossier
-			WHERE user_id = $1 AND organization_id = $2`,
-			userID, orgID).Scan(&out.Fingerprint, &out.GeneratedAt, &out.GeneratedBy, &payload)
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return stored{}, false, nil
-	}
-	if err != nil {
+	row, found, err := dossierCache.load(ctx, s.pool, userID, orgID)
+	if err != nil || !found {
 		return stored{}, false, err
 	}
-	if err := json.Unmarshal(payload, &out); err != nil {
+	var out stored
+	if err := json.Unmarshal(row.Payload, &out); err != nil {
 		// A payload this build cannot read is a cache MISS, not a failure: the
 		// dossier is derived content, reassembling costs one pass over facts we
 		// already hold, and the new row replaces the unreadable one.
@@ -251,19 +235,11 @@ func (s *Service) save(ctx context.Context, userID ids.UserID, orgID ids.Organiz
 	if err != nil {
 		return fmt.Errorf("encode the dossier payload: %w", err)
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO org_dossier (workspace_id, user_id, organization_id, fingerprint,
-			                         generated_at, generated_by, payload)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (workspace_id, user_id, organization_id) DO UPDATE
-			SET fingerprint = EXCLUDED.fingerprint,
-			    generated_at = EXCLUDED.generated_at,
-			    generated_by = EXCLUDED.generated_by,
-			    payload = EXCLUDED.payload`,
-			storekit.MustWorkspace(ctx), userID, orgID, dossier.Fingerprint,
-			dossier.GeneratedAt, dossier.GeneratedBy, payload)
-		return err
+	return dossierCache.save(ctx, s.pool, userID, orgID, entry{
+		Fingerprint: dossier.Fingerprint,
+		GeneratedAt: dossier.GeneratedAt,
+		GeneratedBy: dossier.GeneratedBy,
+		Payload:     payload,
 	})
 }
 

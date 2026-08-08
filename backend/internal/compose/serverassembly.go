@@ -140,7 +140,9 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// the three cannot drift about what a company's facts are. No model lane is
 	// wired yet: every assembly is the deterministic floor and says so.
 	s.orgDossierHandlers = orgdossier.NewHandlers(
-		orgdossier.NewService(pool, s.peopleStore, "", time.Now), s.sorDispatch.isOverlay)
+		orgdossier.NewService(pool, s.peopleStore, "", time.Now),
+		orgdossier.NewGrowthFitService(pool, s.peopleStore, offeringConfirmed(s.peopleStore), "", time.Now),
+		s.sorDispatch.isOverlay)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,

@@ -48,20 +48,27 @@ var natureFact = string(crmcontracts.Fact)
 // it under. A field with no home here still reaches the summary, because
 // dropping a recorded value because this table has not learned about it yet
 // would hide a fact the product holds.
-var fieldSections = map[string]string{
-	"icp":             sectionMarkets,
-	"industry":        sectionMarkets,
-	"offer_summary":   sectionProductsService,
-	"products":        sectionProductsService,
-	"services":        sectionProductsService,
-	"buying_center":   sectionBuyingCenter,
-	"buying_intents":  sectionBuyingCenter,
-	"differentiation": sectionDifferentiation,
-	"legal_name":      sectionFirmographics,
-	"register_vat":    sectionFirmographics,
-	"founded_year":    sectionFirmographics,
-	"employee_range":  sectionFirmographics,
-	"headquarters":    sectionFirmographics,
+//
+// The keys are the contract's OWN field type, not strings. A hand-typed key
+// that names no real field routes nothing, silently, and the section it points
+// at then looks merely unpopulated rather than unreachable — which is how a
+// heading nobody could ever see survives review.
+var fieldSections = map[crmcontracts.CompanyProfileFieldField]string{
+	crmcontracts.CompanyProfileFieldFieldIcp:               sectionMarkets,
+	crmcontracts.CompanyProfileFieldFieldIndustry:          sectionMarkets,
+	crmcontracts.CompanyProfileFieldFieldCustomerPains:     sectionMarkets,
+	crmcontracts.CompanyProfileFieldFieldDesiredOutcomes:   sectionMarkets,
+	crmcontracts.CompanyProfileFieldFieldOfferSummary:      sectionProductsService,
+	crmcontracts.CompanyProfileFieldFieldBuyingCenter:      sectionBuyingCenter,
+	crmcontracts.CompanyProfileFieldFieldBuyingIntents:     sectionBuyingCenter,
+	crmcontracts.CompanyProfileFieldFieldSalesMotion:       sectionBuyingCenter,
+	crmcontracts.CompanyProfileFieldFieldCommonObjections:  sectionBuyingCenter,
+	crmcontracts.CompanyProfileFieldFieldUsp:               sectionDifferentiation,
+	crmcontracts.CompanyProfileFieldFieldValueProposition:  sectionDifferentiation,
+	crmcontracts.CompanyProfileFieldFieldLegalName:         sectionFirmographics,
+	crmcontracts.CompanyProfileFieldFieldRegisterVat:       sectionFirmographics,
+	crmcontracts.CompanyProfileFieldFieldRegisteredAddress: sectionFirmographics,
+	crmcontracts.CompanyProfileFieldFieldHistory:           sectionFirmographics,
 }
 
 // sectionOrder is the order a reader asks the questions, and therefore the
@@ -83,7 +90,7 @@ func Deterministic(in Input) []Section {
 		if !ok {
 			continue
 		}
-		kind, known := fieldSections[string(field.Field)]
+		kind, known := fieldSections[field.Field]
 		if !known {
 			kind = sectionSummary
 		}
@@ -105,7 +112,7 @@ func fieldSentence(field crmcontracts.CompanyProfileField) (claims.Sentence, boo
 		return claims.Sentence{}, false
 	}
 	return claims.Sentence{
-		Text:   fieldLabel(string(field.Field)) + ": " + value + ".",
+		Text:   fieldLabel(field.Field) + ": " + value + ".",
 		Nature: natureFact,
 		Evidence: []claims.Evidence{{
 			EntityType: citeProfileField,
@@ -117,25 +124,29 @@ func fieldSentence(field crmcontracts.CompanyProfileField) (claims.Sentence, boo
 // fieldLabel turns a column name into something a person reads. An unmapped
 // field falls back to its own name with the underscores opened out, which is
 // plainer than a lookup miss and still true.
-func fieldLabel(field string) string {
+func fieldLabel(field crmcontracts.CompanyProfileFieldField) string {
 	if label, ok := fieldLabels[field]; ok {
 		return label
 	}
-	return strings.ReplaceAll(field, "_", " ")
+	return strings.ReplaceAll(string(field), "_", " ")
 }
 
-var fieldLabels = map[string]string{
-	"icp":             "Ideal customer",
-	"industry":        "Industry",
-	"offer_summary":   "What they offer",
-	"buying_center":   "Buying centre",
-	"buying_intents":  "Buying intents",
-	"differentiation": "What sets them apart",
-	"legal_name":      "Legal name",
-	"register_vat":    "Registration",
-	"founded_year":    "Founded",
-	"employee_range":  "Size",
-	"headquarters":    "Headquarters",
+var fieldLabels = map[crmcontracts.CompanyProfileFieldField]string{
+	crmcontracts.CompanyProfileFieldFieldIcp:               "Ideal customer",
+	crmcontracts.CompanyProfileFieldFieldIndustry:          "Industry",
+	crmcontracts.CompanyProfileFieldFieldCustomerPains:     "Customer pains",
+	crmcontracts.CompanyProfileFieldFieldDesiredOutcomes:   "Desired outcomes",
+	crmcontracts.CompanyProfileFieldFieldOfferSummary:      "What they offer",
+	crmcontracts.CompanyProfileFieldFieldBuyingCenter:      "Buying centre",
+	crmcontracts.CompanyProfileFieldFieldBuyingIntents:     "Buying intents",
+	crmcontracts.CompanyProfileFieldFieldSalesMotion:       "How they sell",
+	crmcontracts.CompanyProfileFieldFieldCommonObjections:  "Common objections",
+	crmcontracts.CompanyProfileFieldFieldUsp:               "What sets them apart",
+	crmcontracts.CompanyProfileFieldFieldValueProposition:  "Value proposition",
+	crmcontracts.CompanyProfileFieldFieldLegalName:         "Legal name",
+	crmcontracts.CompanyProfileFieldFieldRegisterVat:       "Registration",
+	crmcontracts.CompanyProfileFieldFieldRegisteredAddress: "Registered address",
+	crmcontracts.CompanyProfileFieldFieldHistory:           "History",
 }
 
 // orderedSections renders the populated sections in reading order. A section

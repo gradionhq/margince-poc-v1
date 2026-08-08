@@ -20,17 +20,17 @@ import (
 // mirror instead of this system of record.
 type OverlayMode func(ctx context.Context) (bool, error)
 
-// Handlers shadows the generated GetOrganizationDossier /
-// RefreshOrganizationDossier stubs.
+// Handlers shadows the generated dossier and growth-fit stubs.
 type Handlers struct {
-	svc     *Service
-	overlay OverlayMode
+	svc       *Service
+	growthFit *GrowthFitService
+	overlay   OverlayMode
 }
 
-// NewHandlers binds the transport to a ready service; compose constructs it
-// once per process role.
-func NewHandlers(svc *Service, overlay OverlayMode) Handlers {
-	return Handlers{svc: svc, overlay: overlay}
+// NewHandlers binds the transport to ready services; compose constructs it once
+// per process role.
+func NewHandlers(svc *Service, growthFit *GrowthFitService, overlay OverlayMode) Handlers {
+	return Handlers{svc: svc, growthFit: growthFit, overlay: overlay}
 }
 
 // GetOrganizationDossier implements GET /organizations/{id}/dossier.
@@ -44,6 +44,17 @@ func (h Handlers) RefreshOrganizationDossier(w http.ResponseWriter, r *http.Requ
 	h.serve(w, r, id, true)
 }
 
+// GetOrganizationGrowthFit implements GET /organizations/{id}/growth-fit.
+func (h Handlers) GetOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	h.serveGrowthFit(w, r, id, false)
+}
+
+// RefreshOrganizationGrowthFit implements POST /organizations/{id}/growth-fit —
+// the caller's own re-assessment, past a fingerprint that still matches.
+func (h Handlers) RefreshOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	h.serveGrowthFit(w, r, id, true)
+}
+
 func (h Handlers) serve(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, force bool) {
 	if !h.native(w, r) {
 		return
@@ -54,6 +65,21 @@ func (h Handlers) serve(w http.ResponseWriter, r *http.Request, id crmcontracts.
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, dossier)
+}
+
+// serveGrowthFit refuses in overlay mode for the dossier's reason and one of
+// its own: the fit is computed from native facts AND from this workspace's own
+// confirmed offering, and a mirror holds neither.
+func (h Handlers) serveGrowthFit(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, force bool) {
+	if !h.native(w, r) {
+		return
+	}
+	fit, err := h.growthFit.Get(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), force)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, fit)
 }
 
 // native reports whether this workspace reads from this system of record,

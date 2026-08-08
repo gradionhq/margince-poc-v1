@@ -868,6 +868,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/growth-fit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * How well this company fits what we sell — banded, with both completeness counts.
+         * @description The dossier says what this company IS; growth fit says what it is worth to US. The
+         *     two are separate surfaces because they are answerable from different evidence: the
+         *     dossier needs only the company's own facts, while a fit reads those against our own
+         *     offering, which is a second thing that can be missing or wrong.
+         *
+         *     **Cached per reader** (DOSS-DDL-2), for the dossier's reason and one of its own:
+         *     the assembly folds seat-dependent workspace context and makes recommendations.
+         *
+         *     **`data_completeness` reports BOTH counts.** "4 of 7 inputs present" and "4 of 40"
+         *     are different claims and must never render alike (DOSS-AC-12).
+         *
+         *     **Below the abstention floor the band is `unknown`** — with its completeness, the
+         *     missing inputs named, and a next data-gathering step. No numeric score is produced:
+         *     abstention is a valid answer and a better one than a fabricated number (DOSS-AC-12).
+         *
+         *     **With our own offering unconfirmed the band is capped at `moderate`**, and
+         *     `band_capped_reason` says why — a fit computed against a guess about ourselves is a
+         *     guess about them (DOSS-AC-13).
+         */
+        get: operations["getOrganizationGrowthFit"];
+        put?: never;
+        /**
+         * Re-assemble the caller's growth fit now, past a fingerprint that still matches.
+         * @description Rebuilds the CALLER's assembly only — never another reader's. As with the dossier,
+         *     a refresh the AI budget refuses returns the cached assembly with its age rather
+         *     than an error.
+         */
+        post: operations["refreshOrganizationGrowthFit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/brief": {
         parameters: {
             query?: never;
@@ -7510,6 +7556,78 @@ export interface components {
              *     learns the distinction once and it holds everywhere.
              */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        /**
+         * @description How well this company fits what we sell (DOSS-PARAM-8).
+         *
+         *     `unknown` is the ABSTENTION, not a low score. It says the assembly did not have
+         *     enough to judge on, and it always arrives with its completeness counts and a named
+         *     next step. A reader must never have to guess whether `unknown` means "poor fit" or
+         *     "we could not tell" — those are opposite conclusions.
+         * @enum {string}
+         */
+        GrowthFitBand: "strong" | "moderate" | "weak" | "unknown";
+        /**
+         * @description How much of what the band needs is actually present — with BOTH counts. "4 of 9"
+         *     and "4 of 40" are different claims and must never render identically (DOSS-AC-12).
+         */
+        DataCompleteness: {
+            /** @description Required inputs available and not stale. */
+            present: number;
+            /**
+             * @description Required inputs the assembly wanted. Never omitted and never implied — a
+             *     proportion without its denominator is not a completeness figure.
+             */
+            expected: number;
+            /**
+             * @description Which required inputs are missing, named in the reader's words. This is what
+             *     the "next data-gathering step" is built from, so it is never an opaque code.
+             */
+            missing?: string[];
+        };
+        /**
+         * @description Cached per reader (DOSS-DDL-2), because it folds seat-dependent workspace context
+         *     and makes recommendations.
+         *
+         *     Every claim below carries the records it was written from, exactly like a dossier
+         *     sentence. The evidence is always TARGET-side: a factor drawn from our own offering
+         *     is labelled an `assessment` and still cites the other company's records, or it is
+         *     dropped. Our own profile is not a record this reader can open, and citing it would
+         *     invent a citation (DOSS-AC-6).
+         */
+        OrganizationGrowthFit: {
+            /** Format: uuid */
+            organization_id: string;
+            band: components["schemas"]["GrowthFitBand"];
+            /**
+             * @description Why the band could not go higher — our own offering context being unconfirmed
+             *     caps it at `moderate` (DOSS-AC-13). Null when nothing capped it.
+             */
+            band_capped_reason?: string | null;
+            data_completeness: components["schemas"]["DataCompleteness"];
+            /**
+             * @description The one named thing to do that would most improve this answer, or null when
+             *     nothing is holding it back.
+             *
+             *     When the band is `unknown` this is offered INSTEAD of a score and names the
+             *     missing inputs to go and find. When the band was capped it names the other
+             *     fix — confirming our own offering. Always a concrete action, never a
+             *     restatement that data is missing.
+             */
+            next_step?: string | null;
+            /** @description What argues for this company being a fit. */
+            positive_factors?: components["schemas"]["OrganizationBriefSentence"][];
+            /** @description What argues against it. */
+            negative_factors?: components["schemas"]["OrganizationBriefSentence"][];
+            /** @description What we sell that this company does not yet buy. */
+            whitespace?: components["schemas"]["OrganizationBriefSentence"][];
+            /** @description The single suggested approach. A recommendation, and labelled as one. */
+            recommended_angle?: components["schemas"]["OrganizationBriefSentence"];
+            /** @description What this company is likely to push back with, each with its evidence. */
+            objections?: components["schemas"]["OrganizationBriefSentence"][];
+            /** Format: date-time */
+            generated_at: string;
+            generated_by: components["schemas"]["WrittenBy"];
         };
         /**
          * @description A written brief over one account, assembled from what the READER can see.
@@ -14527,6 +14645,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationDossier"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getOrganizationGrowthFit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reader's growth-fit assembly. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationGrowthFit"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    refreshOrganizationGrowthFit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The re-assembled growth fit, or the cached one with its age. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationGrowthFit"];
                 };
             };
             401: components["responses"]["Unauthorized"];
