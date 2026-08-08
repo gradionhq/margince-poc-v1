@@ -453,6 +453,13 @@ func sortedKeysOf[K comparable, V any](series map[K]V, order func(a, b K) int) [
 // table no index covers.
 func jobMetricsSection(read func(context.Context) (jobs.Snapshot, error)) func(context.Context, io.Writer) error {
 	return func(ctx context.Context, w io.Writer) error {
+		// FIRST, and outside the snapshot: the seatless gauge is process state,
+		// not a river_job read, so it is still true when the stats query fails —
+		// and a failed stats query is exactly when an operator most wants to
+		// know whether the extension fleet is dispatching at all.
+		if err := WriteSeatlessWorkspacesGauge(w); err != nil {
+			return err
+		}
 		snap, err := read(ctx)
 		if err != nil {
 			slog.ErrorContext(ctx, "metrics: job stats query failed", "err", err)

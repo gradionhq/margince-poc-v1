@@ -87,10 +87,13 @@ func mountForTest(t *testing.T, verbs []extension.Verb, served map[string]bool) 
 
 // allServed is the "every declared verb has behavior" case, which is what the
 // parity sweeps are about; the contract-only case has its own test.
+//
+// Keyed by (unit, tool) like the real served set, so a test cannot pass on a
+// key shape the composition root does not use.
 func allServed(verbs []extension.Verb) map[string]bool {
 	served := make(map[string]bool, len(verbs))
 	for _, v := range verbs {
-		served[v.Tool] = true
+		served[verbKey(v.Unit, v.Tool)] = true
 	}
 	return served
 }
@@ -209,7 +212,7 @@ func TestEveryExtensionRegistrationHasADeclaration(t *testing.T) {
 func TestTheSweepTellsAContractOnlyVerbFromAMissingOne(t *testing.T) {
 	verbs := composedFixture()
 	// Only the first verb has behavior; the other two are contract-only.
-	served := map[string]bool{verbs[0].Tool: true}
+	served := map[string]bool{verbKey(verbs[0].Unit, verbs[0].Tool): true}
 	mux, routes := mountForTest(t, verbs, served)
 
 	// Every declaration is still registered — a contract-only verb is NOT a
@@ -250,7 +253,7 @@ func TestTheSweepTellsAContractOnlyVerbFromAMissingOne(t *testing.T) {
 // with no served tool must never reach Invoke.
 func TestTheLiveComposedSetHasNoUnhandledInvocation(t *testing.T) {
 	verbs := ComposedVerbs()
-	served := composedToolNames()
+	served := composedServedVerbs()
 	reached := ""
 	mux := http.NewServeMux()
 	routes, err := MountExtensionRoutes(mux, verbs, served, func(_ context.Context, name string, _ json.RawMessage) (json.RawMessage, error) {

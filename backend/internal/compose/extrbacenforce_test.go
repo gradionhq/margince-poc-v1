@@ -169,7 +169,7 @@ func TestTheDeclaredRbacObjectIsEnforcedOnTheRestPath(t *testing.T) {
 			verb := gatedVerb("list_notes", extension.RbacRead)
 			mux := http.NewServeMux()
 			if _, err := MountExtensionRoutes(mux, []extension.Verb{verb},
-				map[string]bool{"list_notes": true}, r.Invoke); err != nil {
+				map[string]bool{verbKey(verb.Unit, "list_notes"): true}, r.Invoke); err != nil {
 				t.Fatal(err)
 			}
 			req := httptest.NewRequest(http.MethodPost, verb.ServedPath(), strings.NewReader(`{}`))

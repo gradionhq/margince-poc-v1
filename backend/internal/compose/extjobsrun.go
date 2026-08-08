@@ -111,24 +111,56 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 	// here rather than hidden because it is the one part of this fan-out whose
 	// cost grows with the installation.
 	//
-	// A read that FAILS aborts the whole dispatch, and that is not in tension
-	// with the totality argument on extensionJobActor below — the two answer
-	// different questions. "No seat" is a FACT about the tenant, and the tenant
-	// still gets a row so the fact surfaces as a failed child rather than as an
-	// absence. A failed read is not a fact about the tenant at all; it is a
-	// database fault, and continuing past it would enqueue that workspace with
-	// a zero principal, which is indistinguishable in the row from a tenant
-	// that genuinely has no seat. Aborting hands the dispatcher's own retry a
-	// clean slate, which is the same argument dispatchWith makes for its atomic
-	// insert.
+	// A read that FAILS aborts the whole dispatch. "No seat" is a FACT about
+	// the tenant and is handled below; a failed read is not a fact about the
+	// tenant at all, it is a database fault, and continuing past it would
+	// enqueue that workspace with a zero principal — indistinguishable in the
+	// row from a tenant that genuinely has no seat. Aborting hands the
+	// dispatcher's own retry a clean slate, which is the same argument
+	// dispatchWith makes for its atomic insert.
+	//
+	// A SEATLESS workspace is SKIPPED, and counted. This is a reversal of the
+	// original posture (enqueue anyway, let the child fail loudly at the
+	// authority derivation) and the reason is the combination, not either half:
+	// nothing in the product creates an agent seat yet (#656), and a unit ships
+	// enabled at whatever cadence it declares — crm-demo's is 60s. Enqueueing
+	// meant every fresh installation ran a job that failed three times a minute
+	// per workspace forever, filling the worker log and river_job with
+	// discarded rows, for a condition that is not a fault: the installation is
+	// legitimately in a state the product has no path out of yet.
+	//
+	// The argument the old comment made against skipping — that silence leaves
+	// the capability just as dead — is right about silence and wrong about
+	// skipping. It is answered by the GAUGE rather than by an error storm: a
+	// known-absent precondition is its own class, reported as a number an
+	// operator can alert on, not as a failure that says the tick broke. Same
+	// posture the mixed-build gauge takes for a condition an installation is
+	// allowed to be in.
+	seated := make([]ids.UUID, 0, len(workspaces))
 	actors := make(map[ids.UUID]ids.UUID, len(workspaces))
+	seatless := 0
 	for _, ws := range workspaces {
 		actor, err := extensionJobActor(ctx, w.pool, ws)
 		if err != nil {
 			return jobs.FaultContext(ctx, err)
 		}
+		if actor.IsZero() {
+			seatless++
+			continue
+		}
+		seated = append(seated, ws)
 		actors[ws] = actor
 	}
+	recordSeatlessWorkspaces(seatless)
+	if seatless > 0 {
+		// DEBUG, not Warn: at a 60s cadence a Warn here is the same log storm
+		// in a quieter costume. The gauge is the durable signal; this line
+		// exists for the operator who has already read the gauge and turned the
+		// level up to find out which dispatch it came from.
+		slog.DebugContext(ctx, "extensions: skipping workspaces with no agent seat",
+			"kind", w.decl.ChildKind(), "seatless", seatless, "seated", len(seated), "issue", 656)
+	}
+	workspaces = seated
 	child := w.decl.ChildKind()
 	// workspaceSweepOpts and not sweepInsertOpts. The difference is the whole
 	// fan-out: sweepInsertOpts' uniqueness window is ByState ONLY, so N children
@@ -145,20 +177,16 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 // initiated by: its agent seat, which is the actor the product already has for
 // work nobody asked for.
 //
-// A workspace with no live agent seat answers the zero id, and its child is
-// enqueued anyway. That combination is deliberate: the fan-out stays total —
-// one row per live workspace, which is what makes a missed tenant visible as a
-// failed row rather than as an absence — and the tick that cannot name an
-// initiator fails at the authority derivation with a message that says so.
+// A workspace with no live agent seat answers the ZERO id, which the caller
+// reads as "skip and count" rather than as an actor to enqueue under. Nothing
+// in the product sets is_agent yet (margince-poc-v1#656, which carries the
+// hand-insert workaround), so on a fresh installation this is the answer for
+// every workspace — see Work for why that is a gauge and not an error storm.
 //
-// It rests on an assumption that is currently FALSE on a fresh installation:
-// nothing in the product ever sets is_agent, so the seat this reads does not
-// exist until somebody inserts one by hand, and every extension tick therefore
-// fails three times per cadence interval forever. Found by Task 14's UAT;
-// tracked as margince-poc-v1#656, which also carries the workaround. The
-// resolution is a decision about seat bootstrapping and belongs there rather
-// than in this function — skipping the seatless workspace here would silence
-// the noise while leaving the capability just as dead.
+// The zero id is returned rather than an error because a seatless tenant is not
+// a fault: the read succeeded and the answer is "none". An error here would put
+// a database fault and a known-absent precondition in the same channel, which
+// is the distinction the dispatcher needs to keep.
 func extensionJobActor(ctx context.Context, pool *pgxpool.Pool, ws ids.UUID) (ids.UUID, error) {
 	var actor ids.UUID
 	err := database.WithWorkspaceTx(principal.WithWorkspaceID(ctx, ws), pool, func(tx pgx.Tx) error {

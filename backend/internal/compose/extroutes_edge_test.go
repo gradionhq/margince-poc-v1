@@ -34,12 +34,16 @@ import (
 
 // withComposedVerbs installs a composed set for one test and removes it after,
 // so the process-global boot state one test needs is never another's.
-func withComposedVerbs(t *testing.T, verbs []extension.Verb, servedVerbs ...string) {
+// servedVerbs are the DECLARATIONS a unit shipped behavior for, not bare tool
+// names: the served set is keyed by (unit, tool), so a helper taking names
+// alone could not express which unit owns a handler — the very distinction the
+// route-ownership fix rests on.
+func withComposedVerbs(t *testing.T, verbs []extension.Verb, servedVerbs ...extension.Verb) {
 	t.Helper()
 	setComposedVerbs(verbs)
 	served := make([]mcp.Tool, 0, len(servedVerbs))
-	for _, name := range servedVerbs {
-		served = append(served, servedTool{name: name})
+	for _, v := range servedVerbs {
+		served = append(served, servedTool{unit: v.Unit, name: v.Tool})
 	}
 	setComposedTools(served)
 	t.Cleanup(func() { setComposedVerbs(nil); setComposedTools(nil) })
@@ -73,11 +77,7 @@ func coreRouter(hit *string) http.Handler { return coreRouterStub{hit: hit} }
 // relative to authH.Middleware.
 func TestExtensionRoutesAreBehindTheSessionMiddleware(t *testing.T) {
 	verbs := composedFixture()
-	names := make([]string, 0, len(verbs))
-	for _, v := range verbs {
-		names = append(names, v.Tool)
-	}
-	withComposedVerbs(t, verbs, names...)
+	withComposedVerbs(t, verbs, verbs...)
 
 	// A zero pool: nothing on the path this test takes dereferences it. The
 	// readiness and metrics closures capture it lazily and are never called, and
@@ -124,7 +124,7 @@ func TestExtensionRoutesAreBehindTheSessionMiddleware(t *testing.T) {
 // it serves nothing of its own.
 func TestExtensionEdgeFallsThroughToTheCoreRouter(t *testing.T) {
 	verb := unitVerb("alpha", "alpha_sync", extension.TierAutoExecute, extension.ScopeRead)
-	withComposedVerbs(t, []extension.Verb{verb}, "alpha_sync")
+	withComposedVerbs(t, []extension.Verb{verb}, verb)
 
 	var coreHit string
 	edged := extensionEdge(edgeServer(t), discardLog())(coreRouter(&coreHit))
@@ -157,11 +157,7 @@ func TestExtensionEdgeFallsThroughToTheCoreRouter(t *testing.T) {
 // a core route.
 func TestExtensionEdgeMountsWhatComposedVerbsDeclares(t *testing.T) {
 	verbs := composedFixture()
-	names := make([]string, 0, len(verbs))
-	for _, v := range verbs {
-		names = append(names, v.Tool)
-	}
-	withComposedVerbs(t, verbs, names...)
+	withComposedVerbs(t, verbs, verbs...)
 
 	var coreHit string
 	core := coreRouter(&coreHit)
@@ -190,13 +186,20 @@ func TestExtensionEdgeMountsWhatComposedVerbsDeclares(t *testing.T) {
 	})
 }
 
-// servedTool is the smallest thing setComposedTools accepts: a name, so
-// composedToolNames reports the verb as served. Nothing here is invoked — these
-// tests are about routing, and invocation through the admission gate is
-// extensiontools_test.go's subject.
-type servedTool struct{ name string }
+// servedTool is the smallest thing setComposedTools accepts: a unit and a
+// name, so composedServedVerbs reports the pair as served. Nothing here is
+// invoked — these tests are about routing, and invocation through the admission
+// gate is extensiontools_test.go's subject.
+type servedTool struct {
+	unit extension.Name
+	name string
+}
 
 func (t servedTool) Spec() mcp.ToolSpec { return mcp.ToolSpec{Name: t.name} }
+
+// owningUnit satisfies unitScopedTool: an adapted tool must be able to name the
+// unit that shipped it, or no route counts it as implemented.
+func (t servedTool) owningUnit() extension.Name { return t.unit }
 
 func (servedTool) Handle(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(`{}`), nil

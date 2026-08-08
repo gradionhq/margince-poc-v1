@@ -113,6 +113,14 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// behind requireMetricsToken rather than left open beside them.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
+	// What is NOT checked here, said at the line where it would go: whether the
+	// composed units' MIGRATIONS were applied. A composed binary against a
+	// not-yet-migrated database becomes ready and publishes routes and jobs that
+	// fail with undefined-table errors — the ordinary rolling-deploy window.
+	// AssertRuntimeRole beside it is the pattern such a check would follow; the
+	// reason it is not here is that the runtime role holds no grant on the
+	// schema_migrations_ext_* tables, so adding the check means widening what
+	// margince_app may read. Tracked as issue #658.
 	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping,
 		func(ctx context.Context) error { return AssertRuntimeRole(ctx, pool) })...))
 	mux.HandleFunc("/metrics", requireMetricsToken(srv.metricsToken, httpserver.Metrics(pool,
@@ -258,11 +266,12 @@ func extensionEdge(srv Server, log *slog.Logger) func(http.Handler) http.Handler
 	return func(next http.Handler) http.Handler {
 		mux := http.NewServeMux()
 		mux.Handle("/", next)
-		// composedToolNames is this boot's SERVED set — the verbs a unit shipped
-		// a Handle for. A declared verb outside it is mounted and answers 501
-		// rather than reaching a registry that never heard of it; see
-		// MountExtensionRoutes.
-		routes, err := MountExtensionRoutes(mux, verbs, composedToolNames(), srv.toolRegistry.Invoke)
+		// composedServedVerbs is this boot's SERVED set, keyed by (unit, tool) —
+		// the verbs a unit shipped a Handle for, attributed to the unit that
+		// shipped them. A declared verb outside it is mounted and answers 501
+		// rather than reaching a registry that never heard of it, or worse
+		// reaching another unit's handler; see MountExtensionRoutes.
+		routes, err := MountExtensionRoutes(mux, verbs, composedServedVerbs(), srv.toolRegistry.Invoke)
 		if err != nil {
 			// A composed set that reached here invalid means RegisterExtensions
 			// accepted something this mounting cannot serve, which is a wiring

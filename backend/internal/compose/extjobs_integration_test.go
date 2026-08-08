@@ -196,6 +196,81 @@ func TestDispatcherEnqueuesOneChildPerWorkspace(t *testing.T) {
 	}
 }
 
+// TestASeatlessWorkspaceIsSkippedAndCounted is the fresh-install case, and it
+// is about what an OPERATOR sees rather than about a row count.
+//
+// Nothing in the product creates an agent seat (#656), so on a fresh
+// installation every workspace is seatless — and a composed unit ships enabled
+// at its declared cadence (crm-demo's is 60s). The dispatcher used to enqueue a
+// child anyway, with a zero principal, so the tick failed at deriveAuthority;
+// with MaxAttempts 3 that is three discarded rows a minute per workspace,
+// forever, for a condition that is not a fault.
+//
+// So the assertion has three parts: the seatless tenant gets NO child, the
+// seated tenants still get theirs (the skip is not a shutdown), and the
+// condition is REPORTED as a gauge — because skipping without reporting would
+// trade a log storm for a silently dead capability, which is the objection the
+// original posture was written to answer.
+func TestASeatlessWorkspaceIsSkippedAndCounted(t *testing.T) {
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
+	seated := seedWorkspaces(t, e, 1)
+
+	// The fresh-install tenant: a live workspace with no agent seat at all.
+	seatless := ids.NewV7()
+	if _, err := integration.OwnerConn(t).Exec(context.Background(),
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'No Seat', 'no-seat', 'EUR')`,
+		seatless); err != nil {
+		t.Fatalf("seeding the seatless workspace: %v", err)
+	}
+
+	decl := testJobDecl()
+	composeJob(t, decl, func(context.Context, extension.Runtime) error { return nil })
+	startRunner(t, e.Pool)
+
+	// The seated tenants still fan out. awaitRows returns as soon as it sees at
+	// least this many, so the "and no more" arm is checked separately below.
+	if got := awaitRows(t, e.Pool, decl.ChildKind(), len(seated)); got != len(seated) {
+		t.Fatalf("child rows: got %d, want exactly one per SEATED workspace (%d)", got, len(seated))
+	}
+
+	// The seatless tenant has no row of any state — not a failed one, not a
+	// discarded one, not a retrying one. This is the assertion the finding is
+	// about: an error stream is made of rows, and there are none.
+	var rows int
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM river_job WHERE kind = $1 AND args ->> 'workspace_id' = $2`,
+		decl.ChildKind(), seatless.String()).Scan(&rows); err != nil {
+		t.Fatalf("counting the seatless workspace's rows: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("the seatless workspace has %d child row(s) — every one of them fails at the authority derivation, three times per cadence interval, forever", rows)
+	}
+	// And nothing anywhere failed: a skip that merely moved the failure to
+	// another kind would satisfy the count above.
+	var failed int
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM river_job WHERE state IN ('discarded', 'retryable') OR errors <> '{}'`).Scan(&failed); err != nil {
+		t.Fatalf("counting failed rows: %v", err)
+	}
+	if failed != 0 {
+		t.Fatalf("the fleet holds %d failed/retrying row(s); a fresh install must dispatch cleanly", failed)
+	}
+
+	// The condition is reported. Without this the skip would be silent, which
+	// is the objection the enqueue-anyway posture was written to answer.
+	if got := SeatlessWorkspaces(); got != 1 {
+		t.Fatalf("the seatless gauge reads %d, want 1 — the skipped tenant is invisible to an operator", got)
+	}
+	var exposition bytes.Buffer
+	if err := WriteSeatlessWorkspacesGauge(&exposition); err != nil {
+		t.Fatalf("rendering the gauge: %v", err)
+	}
+	if !strings.Contains(exposition.String(), "margince_extension_job_seatless_workspaces 1") {
+		t.Fatalf("the gauge is not in the exposition:\n%s", exposition.String())
+	}
+}
+
 // TestChildrenUseByArgsUniqueness pins the trap the fan-out dies on.
 //
 // sweepInsertOpts — the shared periodic-pass policy — is ByState ONLY, so every

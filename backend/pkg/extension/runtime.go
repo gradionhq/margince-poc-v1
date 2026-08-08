@@ -30,11 +30,31 @@ var ErrRuntimeExpired = errors.New("extension: this runtime belongs to a call th
 // is an errors.Is check rather than a sentinel the extension has to guess.
 var ErrNoRows = errors.New("extension: the query matched no rows")
 
-// Runtime is the capability handle a governed tool is invoked with. It is
-// the ONLY way an extension reaches anything in the core at run time: the
+// Runtime is the capability handle a governed tool is invoked with. It is the
+// only way an extension reaches anything the core OFFERS at run time: the
 // Extension value a unit's New() returns is inert declaration and holds no
-// handle (see the package doc), so nothing an extension can do is reachable
-// without a Runtime the core built for that one call.
+// handle (see the package doc), so no capability this surface publishes is
+// reachable without a Runtime the core built for that one call.
+//
+// WHAT THAT IS NOT. A unit is ordinary Go compiled into the same process, so
+// this is a narrow, well-lit door in a building with no walls: a handler can
+// import os and read the environment, open its own database connection, reach
+// the network, or call into any package it lists in its own go.mod. Nothing
+// here prevents that and nothing in this repository does either. The sentence
+// above is a statement about the SHAPE OF THE OFFERED SURFACE — what a unit is
+// given, and when — not a containment claim.
+//
+// THE TIER'S THREAT MODEL, said plainly because the rest of this file reads
+// like a boundary: the units this tier is built for are REVIEWED, FIRST-PARTY
+// OR OTHERWISE TRUSTED code. The composed set IS the trust boundary — the
+// vanilla tree ships only first-party units and an installation adds one
+// deliberately. Every wall documented here is DEFENCE IN DEPTH AGAINST
+// MISTAKES: it makes the accidental cross-tenant query, the forgotten scope,
+// the retained handle into a loud failure instead of a silent one. None of it
+// is a sandbox against a hostile unit, and running an untrusted unit in a
+// composed build is outside what this design supports. Issue #628 (a per-unit
+// database role) is the first change that would move any part of this from
+// convention to enforcement, and even that bounds only the database.
 //
 // The core constructs it and knows which unit it is invoking, which is why
 // nothing here takes a unit name or re-scopes to one — a handler holds
@@ -78,21 +98,45 @@ type Runtime interface {
 // prepared-statement cache).
 //
 // The SQL is the extension's own, and nothing here parses or rewrites it: a
-// wall made of statement inspection is a wall made of guesses. The wall is
-// the DATABASE's, and it is worth being precise about which part of it exists
-// today.
+// wall made of statement inspection is a wall made of guesses. The wall is the
+// DATABASE's, and this is where the tier's threat model (see Runtime) has to be
+// stated concretely, because the honest answer differs by reader.
 //
-// What holds now is the tenant wall: the transaction is pinned to the calling
-// workspace before fn runs, and the row-level-security policies read that pin.
-// No statement a unit writes reaches another tenant's rows.
+// AGAINST MISTAKES, which is what this is for, the tenant pin holds. The
+// transaction is bound to the calling workspace before fn runs — from the
+// INVOCATION, never from a context the handler supplies — and the
+// row-level-security policies key on that binding. A unit's query that forgets
+// a workspace predicate returns its own tenant's rows and nothing else, and a
+// write that names another tenant's id is refused by the policy. That is a real
+// property and it is the one this seam is designed around.
 //
-// What does NOT hold yet is the wall between a unit and the CORE's tables
-// within its own tenant. The intended posture is a per-unit database role
-// whose grants reach only that unit's own ext_<name>_* tables; there is no
-// such role in the tree yet, so this runs on the shared application role and a
-// unit's SQL can address a core table. Issue #628 tracks building it. Until
-// then the boundary is the composed set — the vanilla tree ships only
-// first-party units, and an installation adds one deliberately.
+// AGAINST HOSTILE CODE, it does not hold, and neither does anything else here.
+// The pin is a transaction-scoped GUC (app.workspace_id), and a unit can rebind
+// it by executing `SELECT set_config('app.workspace_id', …, true)` through the
+// very verbs below — after which the policies read the new value. This was
+// verified against the shipped schema, not assumed. It is not fixable at this
+// layer: re-binding before every statement is defeated by ONE statement (a CTE
+// that rebinds and a sibling scan that reads under the new value, in the same
+// query), and a PostgreSQL GUC cannot be made immutable for a session. The real
+// answer is that RLS must key on something a unit cannot set — a per-unit
+// database ROLE, tracked as issue #628 — and until that lands the tenant wall
+// is defence in depth, not a boundary.
+//
+// WHAT IS NOT WALLED AT ALL, today, within one tenant:
+//   - the CORE's tables. This runs on the shared application role, so a unit's
+//     SQL can address any table that role can.
+//   - OTHER UNITS' tables. Every unit's migration grants the same application
+//     role DML on its own ext_<name>_* tables, so unit A can read, rewrite or
+//     delete unit B's rows.
+//   - extension_secret. It is workspace-RLS'd and nothing more, so the secret
+//     namespacing Secrets enforces at the PORT is reachable around it through
+//     these three verbs — and because a unit runs in-process it can also read
+//     the keyvault root key from the environment and decrypt the ciphertext
+//     directly. "Sovereign inside its namespace, powerless outside it" is a
+//     property of polite units, not of this transaction.
+//
+// All four are the same missing thing (#628) and all four are inside the
+// trusted-unit threat model above.
 //
 // args is ...any because SQL arguments are genuinely heterogeneous — a
 // statement's parameters are whatever its placeholders are — and every

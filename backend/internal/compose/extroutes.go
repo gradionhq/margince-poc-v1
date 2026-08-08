@@ -80,11 +80,19 @@ const maxExtensionRequestBody = 1 << 20 // 1 MiB
 // this mounts from is the difference between a seam whose inputs are visible
 // and one that reads a package variable.
 //
-// served names the verbs a composed unit actually registered a handler for
-// (compose's composedToolNames at the call site). A declared verb outside it is
-// still MOUNTED — the contract publishes the route either way, and a 404 would
-// contradict the document a client generated its call from — but it answers a
-// named 501 instead of reaching a registry that has never heard of it.
+// served names the verbs a composed unit actually registered a handler for,
+// keyed by (unit, tool) — compose's composedServedVerbs at the call site, built
+// on the same verbKey the behavior-to-contract join uses. A declared verb
+// outside it is still MOUNTED — the contract publishes the route either way,
+// and a 404 would contradict the document a client generated its call from —
+// but it answers a named 501 instead of reaching a registry that has never
+// heard of it.
+//
+// The PAIR, never the bare verb: an `x-mcp-tool` value is a string a unit
+// writes into its own contract fragment, so a bare-verb key let unit B declare
+// a contract-only operation naming unit A's served verb and inherit A's
+// handler — B's published route executing A's tier, scope, RBAC object and
+// schemas. See composedServedVerbs.
 //
 // Returned routes are the registration side of the parity pair. They are
 // returned rather than recorded in a package variable because a ServeMux cannot
@@ -116,7 +124,7 @@ func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, served map
 			return nil, fmt.Errorf("compose: extensions %q and %q both declare %s", owner, v.Unit, pattern)
 		}
 		seen[pattern] = v.Unit
-		implemented := served[v.Tool]
+		implemented := served[verbKey(v.Unit, v.Tool)]
 		mux.Handle(pattern, extensionRouteHandler(v, implemented, invoke))
 		mounted = append(mounted, MountedRoute{Pattern: pattern, Verb: v, Implemented: implemented})
 	}
@@ -164,6 +172,12 @@ func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoke
 			httperr.Write(w, r, httperr.Validation("body", "malformed_json", "the request body is not valid JSON"))
 			return
 		}
+		// The bare verb is the right key HERE, unlike the served lookup above:
+		// the registry's namespace is global and buildExtensionTools refuses two
+		// units serving one name, so a verb resolves to at most one handler. What
+		// the (unit, tool) check bought is that this line is only reached by the
+		// unit that owns the name — a route belonging to anyone else answered 501
+		// before getting here.
 		out, err := invoke(r.Context(), v.Tool, args)
 		if err != nil {
 			// Straight through httperr: Invoke's refusals are already the

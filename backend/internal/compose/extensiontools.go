@@ -239,6 +239,11 @@ func registerComposedTools(registry *agents.Registry) {
 // composedToolNames names the extension tools this boot registered. The
 // contract-parity sweeps use it to tell the third legitimate kind of registered
 // verb — one a unit manifest declares — from a core verb nothing declares.
+//
+// It answers a question about the GLOBAL registry namespace ("is this
+// registered verb an extension's?"), which is why a bare name is the right key
+// here. It is NOT the right key for deciding whether a unit's own route is
+// implemented — see composedServedVerbs.
 func composedToolNames() map[string]bool {
 	composedTools.mu.RLock()
 	defer composedTools.mu.RUnlock()
@@ -247,6 +252,44 @@ func composedToolNames() map[string]bool {
 		names[t.Spec().Name] = true
 	}
 	return names
+}
+
+// unitScopedTool is the one thing the served set needs from an adapted tool
+// beyond its spec: WHICH UNIT shipped the handler. It is spelled as an
+// interface rather than a concrete assertion on extensionTool so a routing
+// test can install a served set without building a whole adapted tool.
+//
+// A registered tool that cannot name its unit is served by NO unit, so every
+// route over it answers 501. That is the fail-closed direction: an unattributed
+// handler must not become some route's implementation by default.
+type unitScopedTool interface{ owningUnit() extension.Name }
+
+func (t extensionTool) owningUnit() extension.Name { return extension.Name(t.unit) }
+
+// composedServedVerbs is this boot's served set keyed by (unit, tool) — the
+// same verbKey the behavior-to-contract join uses, and for the same reason.
+//
+// Keying it on the tool name alone was a route-ownership defect, not a
+// shortcut. A tool NAME is unique across the whole registry (buildExtensionTools
+// refuses two units serving one name), but an `x-mcp-tool` VERB in a contract
+// fragment is just a string a unit writes: unit B could declare a contract-only
+// operation naming unit A's served verb, be marked implemented on the strength
+// of A's handler, and have its published route dispatch A's handler — running
+// A's tier, scope, RBAC object and schemas under B's operation. Pairing the key
+// with the declaring unit is what makes "implemented" mean "THIS unit shipped
+// it".
+func composedServedVerbs() map[string]bool {
+	composedTools.mu.RLock()
+	defer composedTools.mu.RUnlock()
+	served := make(map[string]bool, len(composedTools.tools))
+	for _, t := range composedTools.tools {
+		owned, ok := t.(unitScopedTool)
+		if !ok {
+			continue
+		}
+		served[verbKey(owned.owningUnit(), t.Spec().Name)] = true
+	}
+	return served
 }
 
 // mcpTier maps a published request tier to the core RiskTier. Only the two

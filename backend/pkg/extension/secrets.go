@@ -131,6 +131,16 @@ func (r SecretsRequest) Validate() error {
 // Every call runs against the workspace the invocation is pinned to. There is
 // no cross-workspace read, and no parameter through which one could be asked
 // for.
+//
+// ALL OF THE ABOVE IS A PROPERTY OF THIS PORT, and the port is not the only
+// road to the rows. Under the tier's threat model (see Runtime) that is the
+// right protection: it makes a unit reaching outside its namespace a thing that
+// does not compile, which is what stops the mistake. It is not containment. A
+// unit that goes around this port — Runtime.Tx reaches extension_secret on the
+// shared application role, and in-process Go can read the keyvault root key
+// from the environment and decrypt the ciphertext — is not stopped by anything
+// here or anywhere else in the tree. Issue #628 is the first change that would
+// narrow the first of those.
 type Secrets interface {
 	// Get returns the workspace-scoped secret stored under key, or
 	// ErrSecretNotFound.

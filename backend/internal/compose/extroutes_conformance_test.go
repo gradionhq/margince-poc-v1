@@ -86,7 +86,7 @@ func mountedRouteResponse(t *testing.T, verb extension.Verb, payload string) *ht
 	}
 	mux := http.NewServeMux()
 	if _, err := MountExtensionRoutes(mux, []extension.Verb{verb},
-		map[string]bool{verb.Tool: true}, registry.Invoke); err != nil {
+		map[string]bool{verbKey(verb.Unit, verb.Tool): true}, registry.Invoke); err != nil {
 		t.Fatal(err)
 	}
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
@@ -197,7 +197,7 @@ func TestAMountedRouteRefusesAnUnsealedResult(t *testing.T) {
 	unsealed := func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage(notepadPayload), nil
 	}
-	if _, err := MountExtensionRoutes(mux, []extension.Verb{verb}, map[string]bool{verb.Tool: true}, unsealed); err != nil {
+	if _, err := MountExtensionRoutes(mux, []extension.Verb{verb}, map[string]bool{verbKey(verb.Unit, verb.Tool): true}, unsealed); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()

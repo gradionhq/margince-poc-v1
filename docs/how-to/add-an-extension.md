@@ -1,6 +1,7 @@
 # Add an extension (a stable-tier unit)
 
-For shipping a bounded add-on — today a **jurisdiction pack** or a **governed agent tool** — as a named, versioned unit under
+For shipping a bounded add-on — a **jurisdiction pack**, a **governed agent tool**, an **HTTP surface**,
+its **own tables**, its **own secrets** or a **scheduled job** — as a named, versioned unit under
 `extensions/<name>/`, without editing any upstream-owned file. For *why* the seam is a compile-time
 declaration and what the surface guarantees, read
 [explanation/extensibility.md](../explanation/extensibility.md) first. For a country pack
@@ -8,8 +9,14 @@ specifically, the live capability is retention floors; the running example below
 
 An extension is its own Go module reaching the core through only the marker-allowlisted
 `backend/pkg/**` surface. **Presence under `extensions/` is the enablement** — there is no flag to
-flip. `extensions/de` (Germany), `extensions/yogi` (one served agent tool) and
-`fixtures/extensions/crm-hello` (the walking-skeleton reference) are the units to copy from.
+flip. `extensions/crm-demo` is the **reference unit** and exercises every capability below — copy it when your
+unit owns data or serves routes. `extensions/de` (a jurisdiction pack), `extensions/yogi` (one served
+agent tool) and `fixtures/extensions/crm-hello` (the walking-skeleton) are the smaller shapes.
+
+The one capability a unit still **cannot** own is a frontend: `gen-composition` refuses an
+`extensions/<name>/frontend/` directory on sight. A unit gets a route and a generic descriptor card
+automatically; a bespoke screen for a unit is written in the **core** tree, which makes removal a
+two-place operation (see [Ship it](#ship-it)).
 
 Extension paths — the units, the `backend/pkg/**` seam, the composition stub and generator — carry
 a [CODEOWNERS](../../.github/CODEOWNERS) entry, so a PR touching them automatically requests the
@@ -99,23 +106,33 @@ Get the statutory content right — it's legal content, not a default. Pin it wi
 A unit may also contribute **agent tools** — named verbs the MCP surface serves alongside the core
 ones. `extensions/yogi` is the first-party worked example; copy its shape:
 
+**Governance lives in the contract, not in Go.** An `extension.Tool` is a **verb and a function** and
+nothing else — the tier, the Passport scope, the RBAC object, the title, the prose, the version and both
+schemas all come from the contract operation that declares the verb (see the next section):
+
 ```go
 Tools: []extension.Tool{{
-	Name:           "yogi_quote",        // lower snake_case, unique across the composed set
-	Title:          "Yogi Berra quote",  // optional; what tools/list DISPLAYS, so write a label
-	Version:        "1.0.0",
-	Tier:           extension.TierAutoExecute,
-	RequestedScope: extension.ScopeRead,
-	InputSchema:    json.RawMessage(`{"type":"object"}`),
-	Handle:         quote,
+	Name:   "yogi_quote", // lower snake_case; must equal an x-mcp-tool verb in THIS unit's api/ fragment
+	Handle: quote,        // omit for a contract-only request: declared, published, answers 501
 }}
 ```
+
+The handler signature carries the capability handle:
+
+```go
+func quote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error)
+```
+
+`rt` is the **only** thing the core hands a unit, it is minted per invocation, and it is invalid the
+moment the handler returns (`extension.ErrRuntimeExpired`). Today it offers `rt.Secrets()` and `rt.Tx()`.
 
 What the surface will and will not serve:
 
 - **`Handle` decides whether the tool runs.** Omit it and the declaration is a manifest request and
-  nothing more — inert. Supply it and the tool is registered at boot into the same registry and
-  admission gate the core tools ride, so its tier and scope are enforced on every call.
+  nothing more — the route is still mounted and still published, and it answers a named **501**. Supply
+  it and the tool is registered at boot into the same registry and admission gate the core tools ride,
+  so its tier and scope are enforced on every call. The verb must be declared by **your own** unit's
+  contract fragment: naming another unit's served verb does not borrow its handler, it gets you a 501.
 - **A served tool is 🟢 only.** `TierConfirmationRequired` is refused for a handler-bearing tool: this
   surface cannot stage an approval, so a confirm-first extension tool would be refused on every call.
 - **A served tool may not DECLARE an outbound cap.** `ScopeSend` and `ScopeEnrich` are refused for a
@@ -125,15 +142,124 @@ What the surface will and will not serve:
   is itself the trust boundary (see
   [explanation/extensibility.md](../explanation/extensibility.md)) and a unit is added deliberately.
 - **`Title` is optional but not free-form-blank.** A whitespace-only or space-framed title is refused
-  at generation; a unit that declares none is listed under its verb.
+  at generation; a unit that declares none is listed under its verb. Declared as `x-mcp-tool.title`.
 - **`RequestedScope` is required.** The vocabulary is the closed passport set (`read`, `draft`,
   `write`, `send`, `enrich`); a **served** tool may request only `read`, `draft` or `write`, since the
   two outbound caps are refused above. It is the cap a caller's passport must hold, so declare the one
   the act actually spends.
 
-Your handler receives a `context.Context` and raw JSON, and nothing else — no pool, no provider, no
-record access. Validate arguments by decoding into a strict typed struct; `InputSchema` is
-client-facing documentation, not a validator.
+Validate arguments by decoding into a strict typed struct (`Decoder.DisallowUnknownFields`); the declared
+input schema is client-facing documentation, not a validator. Note the known gap: a handler cannot yet
+return a *classified* caller-error, so a malformed argument currently surfaces as a 500 on the REST route
+— tracked as **#657**.
+
+## Publish an HTTP surface and its governed tools
+
+An operation is declared in a **contract fragment** under `extensions/<name>/api/`. The **filename names
+the core contract it extends** — `api/crm.yaml` extends `backend/api/crm.yaml`, `api/jobs.yaml` extends
+the job contract. `gen-composition` merges them into `build/composition/api/`, and the merged document is
+what the operator manifest, the generated client types, the mounted routes and the docs all read.
+
+Copy `extensions/crm-demo/api/crm.yaml`. The rules that will otherwise bite:
+
+- **Paths are relative to the document's own `servers` url**, which already ends in `/v1`. Write
+  `/ext/<name>/notes/list`, never `/v1/ext/...` — the server puts the base path back when it mounts the
+  route, and spelling it twice publishes `/v1/v1/ext/...` to every generated client (the composer refuses
+  it).
+- **Every path must sit under `/ext/<your-unit>/`.** Another unit's namespace, a core path, or a path
+  template (`{id}`) are all refused.
+- **POST/PUT/PATCH only.** A served extension operation *is* a governed tool invocation and its arguments
+  are the request body, so GET and DELETE — which carry none — are refused. "list", "add" and "remove"
+  are three POSTs on three paths.
+- **`x-mcp-tool` is where governance lives**: `verb`, `version`, `title`, `tier`, `scope`, `description`.
+  The `verb` must equal the `Name` of one of your unit's `Tools` entries for the operation to be served;
+  `description` is required (it is the text a model selects the tool by) and so is `version`.
+- **`x-rbac-object` / `x-rbac-action`** declare the object grant the caller must hold. The object is
+  registered into the RBAC vocabulary `/me` serves and must be named `ext_<name>_*`. Declare both or
+  neither.
+- **The 200 body is your own schema.** The agent path wraps results in a governed envelope; the REST
+  route unwraps it, so what a client receives is exactly what your `responses.200` declares. Do not
+  declare the envelope.
+
+## Own tables — `migrations/`
+
+Ship `extensions/<name>/migrations/NNNN_name.up.sql` and a matching `.down.sql`, then **embed them**:
+
+```go
+//go:embed migrations
+var migrations embed.FS
+
+func New() extension.Extension {
+	return extension.Extension{
+		Name:       "<name>",
+		Version:    "1.0.0",
+		Migrations: migrations, // ← WITHOUT THIS LINE THE SQL NEVER RUNS
+	}
+}
+```
+
+> ### ⚠️ The single most dangerous mistake available in this guide
+>
+> **A unit that ships `migrations/` but does not set the `Migrations` field passes every gate green.**
+> `make check-ext-migrations` and the identifier-collision check both read the **on-disk directory**, so
+> your SQL is validated, blessed and reported as correct — while `cmd/migrate` applies the SQL out of the
+> **embedded filesystem**, which is empty. `make check` is green, the migrate step says "schema is at
+> head", and your table is never created. The unit then fails at its first query, in production, with an
+> undefined-table error.
+>
+> This has already happened once on this tier. If you add a `migrations/` directory, add the `//go:embed`
+> line and the `Migrations:` field **in the same commit**, and confirm with `make migrate` +
+> `\dt ext.*` that your table actually exists.
+
+What the SQL must do, enforced by `make check-ext-migrations` (which applies your migrations as a minted
+restricted role against a throwaway database and re-reads the catalog):
+
+- Create tables only in the `ext` schema, named `ext_<name>_<table>` — the schema is shared by every
+  installed unit, so the prefix is what keeps two of them apart.
+- Carry `workspace_id uuid NOT NULL REFERENCES workspace(id) ON DELETE CASCADE`.
+- `ENABLE` **and** `FORCE ROW LEVEL SECURITY`, with exactly one permissive policy keyed on
+  `current_setting('app.workspace_id', true)` in both `USING` and `WITH CHECK`. `FORCE` is not optional:
+  the runtime owner is `margince_owner`, and `ENABLE` alone exempts a table's owner from its own policies.
+- `GRANT SELECT, INSERT, UPDATE, DELETE ... TO margince_app` (never `TRUNCATE` — it ignores the policy).
+- Touch nothing in `public`.
+
+**A new migration is a new file.** `dbmigrate` keys on the version, so editing an already-applied
+`0001` never re-runs — the change silently does not happen.
+
+## Own secrets
+
+Declare what you will use, then reach it through the Runtime:
+
+```go
+Secrets: []extension.SecretsRequest{{Key: "signing", Scope: extension.SecretScopeWorkspace}},
+```
+
+```go
+key, err := rt.Secrets().Get(ctx, "signing") // errors.Is(err, extension.ErrSecretNotFound) when absent
+```
+
+Declaring grants and stores nothing — it is a request recorded in the manifest. Keys are your unit's own
+bare names, namespaced for you; there is no method that takes another unit's name.
+
+## Own scheduled jobs
+
+Declare **two kinds** in `api/jobs.yaml`: a cadenced `dispatcher` that fans out over the live fleet, and a
+`workspace` child (`<dispatcher>_ws`) that does one tenant's work. A single kind that both ticks and
+carries a tenant is refused — it has no honest answer for whose data the tick touched. Use
+`queue: default`; `queues` is not a container a fragment may extend.
+
+```go
+Jobs: []extension.Job{{Name: "heartbeat", Handle: heartbeat}},
+```
+
+A job handler takes `(ctx, rt)` and no arguments — a tick has no caller. It cannot be confirm-first and
+it cannot request an outbound scope; both are refused at boot.
+
+> **Know before you ship a cadence:** nothing in the product creates an agent seat yet (**#656**), and a
+> tick needs one to name its initiator. A workspace with no agent seat is **skipped**, and the count is
+> reported as `margince_extension_job_seatless_workspaces` on the worker's `/metrics`. So on a fresh
+> installation your job will not run at all until an operator inserts a seat — pick a cadence that is
+> honest about that, and do not treat a silent job as a broken one without checking the gauge.
 
 ## Write the unit's own test
 
@@ -219,7 +345,9 @@ tracked `composition/` stub unchanged unless you are deliberately changing the v
 off every commit (`git commit -s`), then the usual PR loop ([CONTRIBUTING.md](../../CONTRIBUTING.md));
 merge only when the gates are green.
 
-Two things this how-to does **not** yet cover, because those capabilities haven't landed yet: a unit
-owning its own `ext_<name>_*` tables (the extension-migration namespace) and its own `/v1/ext/<name>/`
-HTTP surface. Today an extension contributes policy the core already knows how to apply — a
-jurisdiction pack. When those capabilities ship, this guide grows the steps for them.
+**Removing a unit is a two-place operation.** `git rm -r extensions/<name>` (never `mv` — a moved
+directory is still a directory under `extensions/`), **and** delete its core screen plus its entry in
+`frontend/src/screens/ext/index.tsx` in the same commit, or `fe-typecheck-composed` fails. Removal
+*disables* cleanly — routes 404, the inventory omits the unit, migrations skip it — but it does **not
+purge**: the unit's tables and rows, its `extension_secret` rows and any grants of its RBAC objects
+inside `role.permissions` all survive. There is no purge primitive yet (#628).
