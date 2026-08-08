@@ -14,11 +14,12 @@
 #   MinIO    — a private bucket (MARGINCE_TEST_BLOBSTORE_BUCKET=<base>-p<idx>),
 #              auto-created by the blobstore store.
 #   Redis    — the one shared instance, but each package gets its own logical
-#              db (MARGINCE_TEST_REDIS_DB, mapped 1..15 by slot), so no two
-#              packages ever share a stream. Db 0 is reserved for `make dev`, so
-#              a running dev stack and this lane never collide either. Only the
-#              events package touches Redis today; the per-slot db keeps it
-#              collision-free if that ever changes.
+#              db (MARGINCE_TEST_REDIS_DB, mapped 1..REDIS_DBS by slot), so no
+#              two packages ever share a stream. Db 0 is reserved for `make dev`,
+#              so a running dev stack and this lane never collide either. More
+#              than one package touches Redis, and at least two FLUSHDB between
+#              tests, so this is an isolation boundary rather than a convenience
+#              — see the NPKGS guard below for what happens when it is short.
 # Within a package nothing changes — still -p 1, the same sequential model that is
 # green today — so no test file needs editing.
 #
@@ -112,6 +113,13 @@ GO_DIRS=(backend)
 
 ncpu() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
 JOBS="${INTEGRATION_JOBS:-$(( $(ncpu) < 8 ? $(ncpu) : 8 ))}"
+
+# Redis logical dbs available to the lane: every db the server serves except 0,
+# which `make dev` owns. Must match --databases in infra/docker-compose.dev.yml.
+# It is one PER PACKAGE, not per concurrent job — a package's keys must survive
+# the whole package, and a slot freed by a finished package cannot be handed on
+# while its successor is still reading.
+REDIS_DBS=63
 
 # Candidate packages: every directory in the module that holds test files. Which
 # of them belong to THIS lane is decided by the build-constraint scan in
@@ -312,6 +320,17 @@ done < "$GROUPED"
 rm -f "$GROUPED"
 
 NPKGS=$(wc -l < "$WORK" | tr -d ' ')
+# One Redis logical db per package, and there must be enough of them. Wrapping
+# the mapping instead is what this guard exists to prevent: two packages on one
+# db do not run slowly, they corrupt each other — platform/events and
+# overlaybudget's budgettest both FLUSHDB between tests, so a collision wipes the
+# other package's keys mid-test and the failure surfaces in whichever suite was
+# reading them, with nothing pointing back here. Redis serves REDIS_DBS+1
+# databases (infra/docker-compose.dev.yml); db 0 is reserved for `make dev`.
+if (( NPKGS > REDIS_DBS )); then
+  echo "FAIL: $NPKGS integration packages but only $REDIS_DBS Redis logical dbs — raise all three together: REDIS_DBS here, testdb.RedisDBs in backend/internal/platform/testdb/redis.go (same value), and --databases in infra/docker-compose.dev.yml (one MORE, it counts the reserved db 0)"
+  exit 1
+fi
 # Say what was left to the unit lane. An unreported exclusion and a broken
 # selector produce the same silence, and this lane's whole contract is that a
 # thinner run must never read as a passing one.
@@ -332,8 +351,10 @@ run_one() {
   local db="margince_it_p${idx}_$$"
   local log="$outdir/$idx.log"
   local bucket; bucket="$(bucket_for "$idx")"
-  # Redis logical db per slot, in 1..15 — db 0 stays reserved for `make dev`.
-  local redis_db=$(( 1 + (idx - 1) % 15 ))
+  # Redis logical db per slot — db 0 stays reserved for `make dev`. The modulo
+  # never wraps in practice: the NPKGS guard above refuses the run rather than
+  # let two packages land on one db.
+  local redis_db=$(( 1 + (idx - 1) % REDIS_DBS ))
   # Coverage args (empty unless COVERDIR is set — shard mode with a manifest
   # dir). -coverpkg=./... attributes cross-package exercise; binary output goes
   # to a per-package pod the CI fan-in merges.
@@ -365,6 +386,10 @@ run_one() {
   } > "$log" 2>&1
 }
 export -f run_one owner_clone_dsn app_clone_dsn make_clone drop_clone db_admin bucket_for
+# The workers run in re-exec'd shells, so a variable run_one reads must be
+# exported and not merely set. REDIS_DBS is the only one: unexported it expands
+# to empty, and `% ` is a division by zero rather than a wrong db.
+export REDIS_DBS
 
 # Fan out with a bounded worker pool. nl numbers the lines → stable per-job db
 # names + logs. The work line rides as a positional arg, not spliced into the

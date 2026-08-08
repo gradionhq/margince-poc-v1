@@ -17,6 +17,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -31,7 +32,7 @@ func purgeTestRedis(t *testing.T) (context.Context, *redis.Client) {
 	}
 	ctx := t.Context()
 
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr, DB: testRedisDB(t)})
+	rdb := redis.NewClient(&redis.Options{Addr: redisAddr, DB: testdb.RedisDB(t)})
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		t.Fatalf("redis at %s unreachable — run `make db-up`: %v", redisAddr, err)
 	}

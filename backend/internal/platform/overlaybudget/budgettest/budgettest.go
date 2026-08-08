@@ -13,33 +13,25 @@ package budgettest
 
 import (
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
 
-// Client returns a flushed Redis client on the isolated integration db
-// (MARGINCE_TEST_REDIS_DB, default 15; the parallel runner assigns each
-// package its own). It fails loudly (never skips) when Redis is not
-// provisioned — the same posture the DB fixtures take.
+// Client returns a flushed Redis client on the isolated integration db the
+// parallel runner assigned this package — see testdb.RedisDB. It fails loudly
+// (never skips) when Redis is not provisioned — the same posture the DB fixtures
+// take.
 func Client(t *testing.T) *redis.Client {
 	t.Helper()
 	addr := os.Getenv("MARGINCE_TEST_REDIS")
 	if addr == "" {
 		t.Fatal("MARGINCE_TEST_REDIS not set — run `make db-up` (integration tests fail loudly, they never skip)")
 	}
-	db := 15
-	if raw := os.Getenv("MARGINCE_TEST_REDIS_DB"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > 15 {
-			t.Fatalf("MARGINCE_TEST_REDIS_DB=%q is not a Redis db index in 1..15", raw)
-		}
-		db = n
-	}
-	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: db})
+	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: testdb.RedisDB(t)})
 	// Register cleanup immediately, before the fatal Ping/FlushDB paths, so
 	// a setup failure still closes the client instead of leaking it.
 	t.Cleanup(func() {
