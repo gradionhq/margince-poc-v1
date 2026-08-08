@@ -58,6 +58,10 @@ func AssembledContextJSON(ctx context.Context, assembled retrieval.Context) (jso
 // summary whose records are absent from the envelope is exactly the unsourced
 // element the evidence rule refuses.
 func assembledContext(ctx context.Context, assembled retrieval.Context) AssembledContextResult {
+	// The summaries and snippets below are record CONTENT, assembled from rows
+	// the retriever read and this call never saw — so the answer is tainted with
+	// them, not merely sourced to them.
+	noteDerivedContent(ctx)
 	noteEvidence(ctx, assembled.Anchor.Type, assembled.Anchor.ID)
 	sections := make([]ContextSection, 0, len(assembled.Sections))
 	for _, section := range assembled.Sections {

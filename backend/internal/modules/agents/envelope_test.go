@@ -97,7 +97,7 @@ type derivedTool struct {
 func (d derivedTool) Spec() mcp.ToolSpec { return d.spec }
 
 func (d derivedTool) Handle(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
-	noteRecordDerived(ctx)
+	noteDerivedContent(ctx)
 	if d.alsoNoteZero {
 		noteEvidence(ctx, datasource.EntityDeal, ids.UUID{})
 		noteEvidence(ctx, datasource.EntityDeal, ids.NewV7())
@@ -111,10 +111,15 @@ func readToolOver(records ...datasource.Record) recordTool {
 	return recordTool{spec: spec, records: records}
 }
 
+// recordAt is a row a person typed, which is the only provenance that earns T1.
 func recordAt(entity datasource.EntityType, syncedAt time.Time, authoritative bool) datasource.Record {
+	return recordWrittenBy(entity, syncedAt, authoritative, "human:"+ids.NewV7().String())
+}
+
+func recordWrittenBy(entity datasource.EntityType, syncedAt time.Time, authoritative bool, capturedBy string) datasource.Record {
 	return datasource.Record{
 		Ref:       datasource.EntityRef{Type: entity, ID: ids.NewV7()},
-		Fields:    json.RawMessage(`{}`),
+		Fields:    json.RawMessage(`{"source":"ui:person-form","captured_by":"` + capturedBy + `"}`),
 		Freshness: datasource.FreshnessInfo{LastSyncedAt: syncedAt, Authoritative: authoritative},
 	}
 }
@@ -198,9 +203,9 @@ func TestOneMirrorBackedRecordTaintsTheAnswer(t *testing.T) {
 	}
 }
 
-// An answer that touched no record is product-generated content. It is the
-// HIGHEST tier, which is why noteRecordDerived exists: a report over live
-// records that landed here would have had its trust raised.
+// An answer that carried no content at all is product-generated. It is the
+// HIGHEST tier, which is why noteDerivedContent exists: a report over live rows
+// that landed here would have had its trust raised.
 func TestAnAnswerOverNoRecordIsSystemTrusted(t *testing.T) {
 	env := sealedEnvelope(t, invokeSealed(readingAgent(), t, unboundedAuthority{}, readToolOver()))
 
@@ -215,23 +220,81 @@ func TestAnAnswerOverNoRecordIsSystemTrusted(t *testing.T) {
 	}
 }
 
-// An answer BUILT from records that names none of them is t1 with an empty
-// evidence list — the pair a report answers with. Landing at t0 instead would
-// raise the trust of every row it summed, which is the one move the envelope may
-// never make.
-func TestAnAggregateOverRecordsIsNotSystemTrusted(t *testing.T) {
+// An answer BUILT from records whose provenance this call never read lands at
+// t2, with an empty evidence list. Landing at t0 instead would raise the trust
+// of every row it summed — much of which is the capture firehose — which is the
+// one move the envelope may never make.
+func TestContentDerivedFromUnreadRecordsIsUntrusted(t *testing.T) {
 	spec := objectSpec("aggregate_probe", principal.ScopeRead)
 	spec.OutputSchema = json.RawMessage(`{"type":"object"}`)
 
 	env := sealedEnvelope(t, invokeSealed(readingAgent(), t, unboundedAuthority{},
 		derivedTool{spec: spec}))
 
-	if env.Trust != trustInternal {
-		t.Errorf("trust = %q, want %q — an aggregate is made of records even when it names none",
-			env.Trust, trustInternal)
+	if env.Trust != trustExternal {
+		t.Errorf("trust = %q, want %q — an aggregate is made of rows whose provenance this call never read",
+			env.Trust, trustExternal)
 	}
 	if len(env.Evidence) != 0 {
 		t.Errorf("evidence = %v, want it empty: there is no record reference to follow to a summed row", env.Evidence)
+	}
+}
+
+// A record stored NATIVELY can still be untrusted: authoritative says where it
+// lives, provenance says who wrote it, and a mailbox sync writing into our own
+// store is the case both halves have to be read to catch.
+func TestACapturedRecordIsUntrustedEvenWhenItIsOurs(t *testing.T) {
+	for name, capturedBy := range map[string]string{
+		"a connector sync":          "connector:gmail",
+		"an agent":                  "agent:overnight",
+		"a system job":              "system:retention",
+		"provenance we cannot read": "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := sealedEnvelope(t, invokeSealed(readingAgent(), t, unboundedAuthority{}, readToolOver(
+				recordWrittenBy(datasource.EntityPerson, time.Now(), true, capturedBy))))
+
+			if env.Trust != trustExternal {
+				t.Errorf("trust = %q for a record written by %s, want %q — reporting it as first-party "+
+					"is the laundering the never-launder rule forbids", env.Trust, name, trustExternal)
+			}
+			if _, warned := warningNamed(env, warningUntrustedContent); !warned {
+				t.Errorf("a t2 answer carries no untrusted-content warning: %v — the tier is a token a "+
+					"client has to know to look for, and the instruction is what the doctrine asks for", env.Warnings)
+			}
+		})
+	}
+}
+
+// A record whose fields this cannot read at all is the same answer as one written
+// by a machine: unvouched-for, and therefore untrusted. It is worth its own case
+// because the failure is silent — an unreadable stamp looks exactly like an
+// absent one, and the tempting reading of both is "probably fine".
+func TestARecordWhoseProvenanceCannotBeReadIsUntrusted(t *testing.T) {
+	unreadable := datasource.Record{
+		Ref:       datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()},
+		Fields:    json.RawMessage(`["not an object"]`),
+		Freshness: datasource.FreshnessInfo{Authoritative: true},
+	}
+
+	env := sealedEnvelope(t, invokeSealed(readingAgent(), t, unboundedAuthority{}, readToolOver(unreadable)))
+
+	if env.Trust != trustExternal {
+		t.Errorf("trust = %q for a record with no readable provenance, want %q", env.Trust, trustExternal)
+	}
+}
+
+// And the provenance rides the evidence, so a caller can check the tier rather
+// than take it.
+func TestEvidenceCarriesTheProvenanceTheRowWasStampedWith(t *testing.T) {
+	env := sealedEnvelope(t, invokeSealed(readingAgent(), t, unboundedAuthority{}, readToolOver(
+		recordWrittenBy(datasource.EntityPerson, time.Now(), true, "connector:gmail"))))
+
+	if len(env.Evidence) != 1 {
+		t.Fatalf("evidence = %v, want the one record that was read", env.Evidence)
+	}
+	if env.Evidence[0].CapturedBy != "connector:gmail" || env.Evidence[0].Source == "" {
+		t.Errorf("evidence = %+v, want the writer and the source the row was stamped with", env.Evidence[0])
 	}
 }
 
@@ -297,16 +360,19 @@ func TestABoundedReadSaysSoWithoutSayingHowMuch(t *testing.T) {
 	}
 }
 
-// The warning is about a READ. A write answers with the record the caller just
-// acted on, where there is no withheld half for a warning to be about.
-func TestAWriteDoesNotClaimItsAnswerWasFiltered(t *testing.T) {
+// Whether an answer was filtered is a question about the QUERY, never about the
+// passport scope the tool asked for. A tool under the write or draft scope reads
+// row-scoped records too — draft_follow_ups_for sweeps deals, draft_email reads a
+// thread — and gating the warning on a read scope left exactly those answers
+// looking complete to a bounded caller.
+func TestABoundedCallerIsWarnedWhateverScopeTheToolAsksFor(t *testing.T) {
 	spec := objectSpec("write_probe", principal.ScopeWrite)
 	spec.OutputSchema = schemaFor[SearchRecordsResult]()
 	env := sealedEnvelope(t, invokeSealed(scopedAgentCtx(principal.ScopeWrite), t, fullSeatAuthority{},
 		recordTool{spec: spec, records: []datasource.Record{recordAt(datasource.EntityPerson, time.Time{}, true)}}))
 
-	if _, present := warningNamed(env, warningRowScopeFiltered); present {
-		t.Error("a write reported its own read-back as scope-filtered")
+	if _, present := warningNamed(env, warningRowScopeFiltered); !present {
+		t.Errorf("a bounded caller's write-scoped answer claims no bound: %v", env.Warnings)
 	}
 }
 

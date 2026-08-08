@@ -97,6 +97,9 @@ func (t whatsSlippingThisWeek) Handle(ctx context.Context, in json.RawMessage) (
 	if args.Limit > 0 && len(ranked) > args.Limit {
 		ranked = ranked[:args.Limit]
 	}
+	// The ranked items carry names, amounts and evidence snippets read off deals
+	// this call does not hand over, so the answer is tainted with their content.
+	noteDerivedContent(ctx)
 	items := make([]SlippingDealItem, 0, len(ranked))
 	for i, it := range ranked {
 		noteEvidence(ctx, datasource.EntityDeal, it.deal.DealID)
@@ -165,6 +168,7 @@ func (t draftFollowUpsFor) Handle(ctx context.Context, in json.RawMessage) (json
 	if ceiling := followUpCap(args.Limit); len(ranked) > ceiling {
 		ranked = ranked[:ceiling]
 	}
+	noteDerivedContent(ctx)
 	drafts := make([]FollowUpDraft, 0, len(ranked))
 	for _, it := range ranked {
 		activityID, summary, err := t.draft(ctx, it.deal)

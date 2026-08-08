@@ -167,7 +167,7 @@ func (t runReport) Handle(ctx context.Context, in json.RawMessage) (json.RawMess
 	if err := decodeReportArgs(in, &args.Report, &args.Rest); err != nil {
 		return nil, err
 	}
-	noteRecordDerived(ctx)
+	noteDerivedContent(ctx)
 	return t.run(ctx, args.Report, args.Rest)
 }
 

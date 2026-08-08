@@ -197,6 +197,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	// knows them" is a true and useful answer to this question — it is the
 	// answer that says the account is cold — and turning it into a failure
 	// would make the model narrate a problem instead of a fact.
+	noteDerivedContent(ctx)
 	noteEvidence(ctx, datasource.EntityPerson, args.PersonID)
 	return json.Marshal(WhoKnowsAnswer{PersonID: args.PersonID, Colleagues: colleagues})
 }
@@ -243,6 +244,7 @@ func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (js
 	if answer.Risks == nil {
 		answer.Risks = []CoverageRisk{}
 	}
+	noteDerivedContent(ctx)
 	noteEvidence(ctx, datasource.EntityDeal, args.DealID)
 	for _, seat := range answer.Stakeholders {
 		noteEvidence(ctx, datasource.EntityPerson, seat.PersonID)
@@ -291,6 +293,7 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		// null reads it as "unknown" and hedges.
 		routes = []IntroRoute{}
 	}
+	noteDerivedContent(ctx)
 	noteEvidence(ctx, datasource.EntityOrganization, args.OrganizationID)
 	for _, route := range routes {
 		noteEvidence(ctx, datasource.EntityPerson, route.PersonID)
@@ -349,6 +352,7 @@ func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	// why, where an empty one would say the deal carries no finding at all. The
 	// declared schema requires it, so a null would also cost the whole answer
 	// its structured half.
+	noteDerivedContent(ctx)
 	for i := range report.Deals {
 		if report.Deals[i].Risks == nil {
 			report.Deals[i].Risks = []CoverageRisk{}

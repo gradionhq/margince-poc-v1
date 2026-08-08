@@ -31,6 +31,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -82,7 +83,7 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		`{"record_type":"project","fields":{"name":"Conformance project","organization_id":"`+
 			org.String()+`"}}`)
 
-	for _, call := range []struct{ tool, args string }{
+	calls := []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
 		{"run_report", `{"report":"deals-by-stage"}`},
 		{"search_records", `{"q":"Conformance"}`},
@@ -121,7 +122,10 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		{"merge_records", `{"record_type":"person","source_id":"` + duplicate.String() +
 			`","target_id":"` + person.String() + `"}`},
 		{"advance_project_phase", `{"project_id":"` + project.String() + `","to_phase":"pursuing"}`},
-	} {
+	}
+	assertEveryRegisteredToolIsAccountedFor(t, registry, calls)
+
+	for _, call := range calls {
 		t.Run(call.tool+" "+call.args, func(t *testing.T) {
 			spec, registered := registry.Spec(call.tool)
 			if !registered {
@@ -141,6 +145,56 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 			assertEnvelopePopulated(t, call.tool, out)
 		})
 	}
+}
+
+// unreachableInThisLane names the tools this sweep CANNOT invoke, and why. Each
+// needs a seam the lane does not stand up — a live calendar, an outbound mail or
+// channel provider, a crawl runner, a drafting brain — so a call would exercise
+// a stub rather than a handler.
+//
+// It is a waiver rather than prose because the census below reads it: a tool
+// listed here and then made reachable fails as loudly as one that was never
+// covered, so the list cannot quietly outlive its reason.
+var unreachableInThisLane = gatekit.Waive(map[string]string{
+	"book_meeting":         "needs a live calendar provider",
+	"send_email":           "needs an outbound mail provider",
+	"send_message":         "needs an outbound channel provider",
+	"draft_email":          "needs a drafting model path",
+	"draft_follow_ups_for": "needs a drafting model path",
+	"enrich":               "needs a crawl runner and a model path",
+})
+
+// assertEveryRegisteredToolIsAccountedFor is what makes AC-MCP-7's "every
+// registered tool" true rather than aspirational.
+//
+// The sweep's own table cannot say it: a tool added tomorrow is simply absent
+// from it, and an absent tool is indistinguishable from a passing one. So the
+// census is derived from the REGISTRY — every spec is either invoked below or
+// named as unreachable with its reason, and nothing may be both.
+func assertEveryRegisteredToolIsAccountedFor(t *testing.T, registry *agents.Registry, calls []struct{ tool, args string }) {
+	t.Helper()
+	// create_record is exercised by the fixture setup rather than by the table:
+	// every record the calls below read was made through it, and
+	// createThroughTheToolSurface holds each of those answers to its schema and
+	// its envelope on the way past.
+	invoked := map[string]bool{"create_record": true}
+	for _, call := range calls {
+		invoked[call.tool] = true
+	}
+	for _, spec := range registry.Specs() {
+		excused := unreachableInThisLane.Waived(t, spec.Name)
+		switch {
+		case invoked[spec.Name] && excused:
+			t.Errorf("%s is both invoked here and excused as unreachable — one of the two is stale", spec.Name)
+		case !invoked[spec.Name] && !excused:
+			t.Errorf("%s is registered but never invoked here, so nothing holds its result to the schema "+
+				"or the envelope. Add a call above, or name the seam it needs in unreachableInThisLane.", spec.Name)
+		}
+	}
+	// And the other direction: an entry no registered tool reached is a reason
+	// describing a tool that is gone, which reads as covered while certifying
+	// nothing.
+	unreachableInThisLane.AssertAllMatched(t)
 }
 
 // createThroughTheToolSurface makes one record and returns its id, holding the

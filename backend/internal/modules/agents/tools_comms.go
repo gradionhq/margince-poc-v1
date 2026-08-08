@@ -128,6 +128,9 @@ func (t draftEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err != nil {
 		return nil, err
 	}
+	// The draft is composed from a captured thread, so its text carries that
+	// thread's content and its tier.
+	noteDerivedContent(ctx)
 	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
 	return json.Marshal(DraftEmailResult{
 		Subject: subject, Body: body, InReplyToActivityID: args.ActivityID,

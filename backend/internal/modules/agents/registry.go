@@ -258,7 +258,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 func handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
 	ctx, trace := withTrace(ctx)
 	ctx, facts := withEnvelopeFacts(ctx)
-	noteRowScope(ctx, spec)
+	noteRowScope(ctx)
 	out, err := t.Handle(ctx, args)
 	if err != nil {
 		return nil, err
