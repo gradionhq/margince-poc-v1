@@ -234,3 +234,28 @@ func TestEscapedUnpairedSurrogatesAreRefused(t *testing.T) {
 			a["k"], b["k"])
 	}
 }
+
+// A decode refusal is restated, never echoed. The raw decoder error describes
+// THIS PROGRAM — the Go type it was filling, a library's own words — which a
+// caller can neither act on nor is entitled to read, and which lands in a run's
+// cumulative transcript.
+func TestADecodeRefusalNamesTheArgumentAndNotTheProgram(t *testing.T) {
+	_, err := splitReserved(json.RawMessage(`7`))
+	if err == nil {
+		t.Fatal("a bare number was accepted as an argument object")
+	}
+	for _, leaked := range []string{"Go value", "map[string]interface", "interface {}"} {
+		if strings.Contains(err.Error(), leaked) {
+			t.Errorf("the refusal quotes the program back at the caller (%q): %v", leaked, err)
+		}
+	}
+	// And a malformed approval id is answered in this surface's own words
+	// rather than the uuid library's.
+	_, err = splitReserved(json.RawMessage(`{"approval_id":"nope"}`))
+	if !errors.Is(err, errInvalidApprovalID) {
+		t.Fatalf("err = %v, want the surface's own approval_id refusal", err)
+	}
+	if strings.Contains(err.Error(), "UUID length") {
+		t.Errorf("the refusal carries the parser's words: %v", err)
+	}
+}

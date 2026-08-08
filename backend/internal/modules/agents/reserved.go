@@ -29,10 +29,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -93,7 +95,15 @@ func splitReserved(in json.RawMessage) (reserved, error) {
 	}
 	var m map[string]any
 	if err := json.Unmarshal(in, &m); err != nil {
-		return reserved{}, &BadArgsError{Cause: err}
+		// Restated, never echoed — the same rule decodeArgs keeps one file over.
+		// A raw decoder error is written about THIS PROGRAM (the Go type it was
+		// filling, a library's own words), which a caller can neither act on nor
+		// is entitled to read, and which lands in a run's cumulative transcript.
+		safe, withheld := httperr.SafeDecodeError(err)
+		if withheld {
+			slog.Warn("unnameable tool-argument decode failure", "err", err)
+		}
+		return reserved{}, &BadArgsError{Cause: safe}
 	}
 	if m == nil {
 		// `null` decodes into a nil map without error, and would reach a handler
@@ -110,7 +120,10 @@ func splitReserved(in json.RawMessage) (reserved, error) {
 		}
 		id, err := ids.ParseAs[ids.ApprovalKind](s)
 		if err != nil {
-			return reserved{}, &BadArgsError{Cause: err}
+			// OUR words, not the uuid library's: `invalid UUID length: 6`
+			// describes the parser rather than the argument, and this surface
+			// already has a sentence for what is wrong.
+			return reserved{}, &BadArgsError{Cause: errInvalidApprovalID}
 		}
 		out.ApprovalID = id
 		delete(m, approvalIDArg)
