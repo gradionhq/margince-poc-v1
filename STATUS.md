@@ -105,10 +105,21 @@ receipt is keyed on that and scoped under its company. And DOSS-PARAM-9's
 source-kind vocabulary has no `migration`, though migration 0099 makes it one of
 four provenance values a stored value can carry.
 
-**Two open issues from the review round**: [#2](../../issues/2) (nothing writes
-`retrieved_at`, so freshness measures the last write) and
+**Three open issues from the review rounds**: [#2](../../issues/2) (nothing
+writes `retrieved_at`, so freshness measures the last write, not the last read),
 [#3](../../issues/3) (a row-scope miss on the anchor company reads as "you have
-not described your own company").
+not described your own company", so a rep who cannot see it is told to confirm a
+profile that already is), and [#4](../../issues/4) (DOSS-AC-N-1 assumes
+per-reader field masking on company values; this platform has row scope only).
+
+**What the review rounds cost, and why it was worth it.** Five rounds across
+three reviewers found nine defects that every gate passed, and four tests that
+passed for the wrong reason. Two findings were holes in fixes made an hour
+earlier, and one was a contradiction introduced BY a fix: dropping the
+organization from the grounding set while both prompts still ordered the model
+to cite it. The pattern worth carrying: after changing what the filter accepts,
+re-read what the prompt asks for — the two are one rule spelled in two places,
+and only one of them is compiled.
 
 **Two things to know before touching it.** Adding a contract operation breaks
 the build until its handler exists — `compose.Server` asserts
