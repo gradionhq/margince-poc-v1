@@ -23,12 +23,16 @@ type extensionUnit struct {
 	Name       string
 	Dir        string
 	ModulePath string
+	// Tables are the bare table names the unit's migrations declare, each
+	// already stripped of its ext_<namespace>_ prefix — the suffixes whose
+	// join with the namespace checkDerivedIdentifiers validates.
+	Tables []string
 }
 
 // scanExtensions reads the enabled set. Every capability layer the
-// skeleton cannot compose yet (api/, frontend/, migrations/) is a hard
-// error, not a silent drop — an extension shipping one of those must not
-// build until its composition slice exists.
+// skeleton cannot compose yet (api/, frontend/) is a hard error, not a
+// silent drop — an extension shipping one of those must not build until
+// its composition slice exists.
 func scanExtensions(root string) ([]extensionUnit, error) {
 	entries, err := os.ReadDir(filepath.Join(root, "extensions"))
 	if err != nil {
@@ -62,17 +66,39 @@ func scanExtensions(root string) ([]extensionUnit, error) {
 		units = append(units, unit)
 	}
 	sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
+	// The cross-unit check runs HERE, over the sorted whole set, because
+	// this is the only place in the build that sees every unit at once: a
+	// derived-identifier collision belongs to no single unit's tree, and no
+	// unit can see the other's tables to find it.
+	tables := make([]unitTables, 0, len(units))
+	for _, u := range units {
+		tables = append(tables, unitTables{name: u.Name, tables: u.Tables})
+	}
+	if err := checkDerivedIdentifiers(tables); err != nil {
+		return nil, err
+	}
 	return units, nil
 }
 
 // unbuiltCapabilityLayers are the top-level subdirectory names a unit may
-// hold that this walking skeleton does not compose yet. scanUnit refuses
-// their mere presence outright (below); refuseNonRootGoPackages exempts the
-// same names from its own walk, so lifting one off this list (Task 6 lifts
-// migrations/) only ever means editing this one slice — neither check is
-// hardcoded around today's specific three, and each lifted layer's own
-// composition decides what its subtree may hold, not this generator.
-var unbuiltCapabilityLayers = []string{"api", "frontend", "migrations"}
+// hold that this skeleton does not compose yet. scanUnit refuses their mere
+// presence outright (below).
+//
+// refuseNonRootGoPackages exempts the same names from its walk, and that is
+// not a second, independent policy that happens to agree: the exemption
+// exists ONLY so an already-refused layer reports its own refusal instead of
+// a confusing "holds a Go package outside the unit root". A name on this list
+// never reaches the walk at all. The two uses are therefore one role — "not
+// composed yet, refused on sight" — and stay a single list.
+//
+// A layer that HAS a composition is governed by that composition's own rule
+// and leaves this list entirely. migrations/ is the first: collectUnitTables
+// says what its subtree may hold, and it deliberately does NOT re-grant the
+// walk exemption, so a Go package under migrations/ is refused exactly like
+// one anywhere else in the unit — an init() there would run just as
+// unchecked. Lifting the next layer means the same two edits: drop the string
+// here, add the layer's own rule.
+var unbuiltCapabilityLayers = []string{"api", "frontend"}
 
 func scanUnit(name, dir string) (extensionUnit, error) {
 	for _, sub := range unbuiltCapabilityLayers {
@@ -107,7 +133,11 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 	if mod.Module == nil || mod.Module.Mod.Path == "" {
 		return extensionUnit{}, fmt.Errorf("extensions/%s: go.mod declares no module path", name)
 	}
-	return extensionUnit{Name: name, Dir: dir, ModulePath: mod.Module.Mod.Path}, nil
+	tables, err := collectUnitTables(name, dir)
+	if err != nil {
+		return extensionUnit{}, err
+	}
+	return extensionUnit{Name: name, Dir: dir, ModulePath: mod.Module.Mod.Path, Tables: tables}, nil
 }
 
 // refuseNonRootGoPackages refuses any Go package inside a unit's tree other
@@ -131,11 +161,12 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 // about, Go packages inside the unit's own directory tree; it is not a
 // guarantee about what a unit's import graph can reach.
 //
-// unbuiltCapabilityLayers is exempted at the top level: those subdirectory
-// names are the not-yet-composed capability layers scanUnit already refuses
-// outright above, so by the time this runs none of them exist under dir —
-// and when one is lifted off that list, its own composition decides what
-// its subtree may hold, not this function.
+// unbuiltCapabilityLayers is exempted at the top level, and the exemption
+// buys message quality, not permission: scanUnit already refused those names
+// outright above, so by the time this runs none of them exist under dir. A
+// layer with a composition (migrations/) is NOT exempt — it is ordinary unit
+// tree as far as Go packages are concerned, and an init() under it would run
+// exactly as unchecked as one anywhere else.
 func refuseNonRootGoPackages(name, dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

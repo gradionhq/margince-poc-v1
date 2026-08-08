@@ -236,13 +236,17 @@ func New() extension.Extension {
 	}
 }
 
-// TestApiFrontendMigrationsStayExemptFromTheSubpackageWalk pins the other
-// half of the same rule: the three not-yet-composed capability layers must
-// keep failing on their OWN refusal (scanUnit's unbuiltCapabilityLayers
-// loop, checked first) rather than on "holds a Go package outside the unit
-// root" — Task 13's crm-demo unit ships exactly this shape (migrations/,
-// api/, frontend/ subdirectories) and the two refusals must not collide.
-func TestApiFrontendMigrationsStayExemptFromTheSubpackageWalk(t *testing.T) {
+// TestUnbuiltCapabilityLayersStayExemptFromTheSubpackageWalk pins the other
+// half of the same rule: a not-yet-composed capability layer must keep
+// failing on its OWN refusal (scanUnit's unbuiltCapabilityLayers loop,
+// checked first) rather than on "holds a Go package outside the unit root" —
+// Task 13's crm-demo unit ships api/ and frontend/ subdirectories and the two
+// refusals must not collide.
+//
+// migrations/ used to be on this list and is deliberately no longer:
+// TestMigrationsLayerIsGovernedByItsOwnRule below pins what replaced the
+// blanket refusal.
+func TestUnbuiltCapabilityLayersStayExemptFromTheSubpackageWalk(t *testing.T) {
 	for _, layer := range unbuiltCapabilityLayers {
 		t.Run(layer, func(t *testing.T) {
 			root := t.TempDir()

@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package main
+
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestDerivedIdentifierCollisionAcrossUnits(t *testing.T) {
+	// The collision is at the JOIN, not the name: unit "a-b" table "c" and
+	// unit "a" table "b_c" both derive ext_a_b_c. Only gen-composition sees
+	// every unit, so only it can catch this.
+	units := []unitTables{
+		{name: "a-b", tables: []string{"c"}},
+		{name: "a", tables: []string{"b_c"}},
+	}
+	err := checkDerivedIdentifiers(units)
+	if err == nil {
+		t.Fatal("accepted two units deriving the same table identifier ext_a_b_c")
+	}
+	// An author reading this error has no other way to find the offending
+	// pair: neither unit can see the other's tables.
+	for _, want := range []string{"ext_a_b_c", `"a-b"`, `"c"`, `"a"`, `"b_c"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("collision error does not name %s: %v", want, err)
+		}
+	}
+}
+
+func TestDerivedIdentifierExceedsBudget(t *testing.T) {
+	// 32-char name + a 30-char suffix exceeds 63 bytes; Postgres truncates
+	// silently, so generation must refuse with the offending position.
+	name := strings.Repeat("a", 32)
+	table := strings.Repeat("b", 30)
+	err := checkDerivedIdentifiers([]unitTables{{name: name, tables: []string{table}}})
+	if err == nil {
+		t.Fatalf("accepted a %d-byte derived identifier over the 63-byte limit", len("ext_")+len(name)+len("_")+len(table))
+	}
+	for _, want := range []string{name, table, "63"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("budget error does not name %s: %v", want, err)
+		}
+	}
+}
+
+func TestDerivedIdentifierAcceptsTheBudgetBoundary(t *testing.T) {
+	// ext_ + 32 + _ = 37, leaving exactly 26 for the suffix. The boundary
+	// itself must be accepted, or the documented budget would be a lie.
+	name := strings.Repeat("a", 32)
+	if err := checkDerivedIdentifiers([]unitTables{{name: name, tables: []string{strings.Repeat("b", 26)}}}); err != nil {
+		t.Fatalf("refused a 63-byte derived identifier: %v", err)
+	}
+}
+
+func TestDerivedIdentifierAcceptsDistinctUnits(t *testing.T) {
+	units := []unitTables{
+		{name: "crm-demo", tables: []string{"note", "note_tag"}},
+		{name: "yogi", tables: []string{"pose"}},
+	}
+	if err := checkDerivedIdentifiers(units); err != nil {
+		t.Fatalf("refused a non-colliding set: %v", err)
+	}
+}
+
+// unitWithMigrations writes a minimal well-formed unit whose migrations/
+// layer holds the given files, and scans it.
+func unitWithMigrations(t *testing.T, unit string, migrations map[string]string) (extensionUnit, error) {
+	t.Helper()
+	files := map[string]string{
+		"go.mod": "module example.test/ext/x\n\ngo 1.26.5\n",
+		"x.go":   "package x\n",
+	}
+	for rel, content := range migrations {
+		files["migrations/"+rel] = content
+	}
+	root := t.TempDir()
+	writeUnit(t, root, unit, files)
+	return scanUnit(unit, filepath.Join(root, "extensions", unit))
+}
+
+// TestMigrationsLayerIsGovernedByItsOwnRule pins what replaced migrations/'s
+// blanket "not built yet" refusal. The layer left unbuiltCapabilityLayers, so
+// it also left that list's subpackage-walk exemption — deliberately: a Go
+// package under migrations/ would run its init() as unchecked as one
+// anywhere else in the unit, and the layer's own rule (SQL files only) says
+// it has no business being there either way.
+func TestMigrationsLayerIsGovernedByItsOwnRule(t *testing.T) {
+	if slices.Contains(unbuiltCapabilityLayers, migrationsLayer) {
+		t.Fatal("migrations/ is still refused on sight — the layer has a composition now")
+	}
+
+	t.Run("a well-formed layer yields the declared suffixes", func(t *testing.T) {
+		unit, err := unitWithMigrations(t, "crm-demo", map[string]string{
+			"0001_note.up.sql":   "CREATE TABLE ext.ext_crm_demo_note (id uuid PRIMARY KEY);\n",
+			"0001_note.down.sql": "DROP TABLE ext.ext_crm_demo_note;\n",
+			"0002_tag.up.sql":    "CREATE TABLE IF NOT EXISTS ext_crm_demo_note_tag (id uuid);\n",
+			"0002_tag.down.sql":  "DROP TABLE ext.ext_crm_demo_note_tag;\n",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"note", "note_tag"}; !slices.Equal(unit.Tables, want) {
+			t.Fatalf("tables = %v, want %v", unit.Tables, want)
+		}
+	})
+
+	t.Run("a unit without migrations declares no tables", func(t *testing.T) {
+		unit, err := unitWithMigrations(t, "plain", nil)
+		if err != nil || unit.Tables != nil {
+			t.Fatalf("tables, err = %v, %v — want the empty set", unit.Tables, err)
+		}
+	})
+
+	refusals := []struct {
+		name       string
+		migrations map[string]string
+		wantErr    string
+	}{
+		{
+			name:       "a Go package under the layer",
+			migrations: map[string]string{"placeholder.go": "package placeholder\n"},
+			wantErr:    "holds a Go package outside the unit root",
+		},
+		{
+			name:       "a non-SQL file",
+			migrations: map[string]string{"README.md": "notes\n"},
+			wantErr:    "is not a .sql file",
+		},
+		{
+			name:       "a nested directory",
+			migrations: map[string]string{"v2/0001_note.up.sql": "CREATE TABLE ext.ext_x_note (id uuid);\n"},
+			wantErr:    "is a directory",
+		},
+		{
+			name:       "a table outside the unit namespace",
+			migrations: map[string]string{"0001_x.up.sql": "CREATE TABLE ext.person (id uuid);\n"},
+			wantErr:    "outside the unit's namespace",
+		},
+		{
+			name:       "a table in another schema",
+			migrations: map[string]string{"0001_x.up.sql": "CREATE TABLE public.ext_x_note (id uuid);\n"},
+			wantErr:    `targets schema "public"`,
+		},
+		{
+			name:       "an over-budget table",
+			migrations: map[string]string{"0001_x.up.sql": "CREATE TABLE ext.ext_x_" + strings.Repeat("n", 60) + " (id uuid);\n"},
+			wantErr:    "PostgreSQL truncates silently",
+		},
+	}
+	for _, tc := range refusals {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := unitWithMigrations(t, "x", tc.migrations)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+
+	t.Run("a refusal carries the file and line", func(t *testing.T) {
+		_, err := unitWithMigrations(t, "x", map[string]string{
+			"0001_x.up.sql": "-- a comment\n\nCREATE TABLE ext.person (id uuid);\n",
+		})
+		if err == nil || !strings.Contains(err.Error(), "migrations/0001_x.up.sql:3") {
+			t.Fatalf("err = %v, want the position of the offending statement", err)
+		}
+	})
+}
+
+func TestMigrationScanIgnoresCommentsAndLiterals(t *testing.T) {
+	// A table name inside a comment, a string, or a dollar-quoted function
+	// body is prose, not a declaration — mistaking one for a declaration
+	// would refuse a legitimate migration for a table it never creates.
+	sql := `-- CREATE TABLE person (id uuid);
+/* nested /* CREATE TABLE public.other (id uuid); */ still a comment */
+CREATE TABLE ext.ext_x_note (id uuid);
+INSERT INTO ext.ext_x_note (id) VALUES ('CREATE TABLE public.injected (x int)');
+CREATE FUNCTION ext.ext_x_f() RETURNS void AS $body$
+  CREATE TABLE public.inside_body (id uuid);
+$body$ LANGUAGE sql;
+`
+	unit, err := unitWithMigrations(t, "x", map[string]string{"0001_x.up.sql": sql})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"note"}; !slices.Equal(unit.Tables, want) {
+		t.Fatalf("tables = %v, want %v", unit.Tables, want)
+	}
+}
+
+func TestScanExtensionsCatchesACrossUnitCollision(t *testing.T) {
+	// The end-to-end shape of the rule the whole check exists for: each unit
+	// is individually well-formed, and only the composed set is wrong.
+	root := t.TempDir()
+	writeUnit(t, root, "a-b", map[string]string{
+		"go.mod":                     "module example.test/ext/ab\n\ngo 1.26.5\n",
+		"ab.go":                      "package ab\n",
+		"migrations/0001_x.up.sql":   "CREATE TABLE ext.ext_a_b_c (id uuid);\n",
+		"migrations/0001_x.down.sql": "DROP TABLE ext.ext_a_b_c;\n",
+	})
+	writeUnit(t, root, "a", map[string]string{
+		"go.mod":                     "module example.test/ext/a\n\ngo 1.26.5\n",
+		"a.go":                       "package a\n",
+		"migrations/0001_x.up.sql":   "CREATE TABLE ext.ext_a_b_c (id uuid);\n",
+		"migrations/0001_x.down.sql": "DROP TABLE ext.ext_a_b_c;\n",
+	})
+	_, err := scanExtensions(root)
+	if err == nil || !strings.Contains(err.Error(), "ext_a_b_c") {
+		t.Fatalf("err = %v, want the cross-unit collision refusal", err)
+	}
+}
+
+func TestDerivedIdentifierRefusesAnInvalidUnitName(t *testing.T) {
+	// checkDerivedIdentifiers derives a SQL identifier from the name, so it
+	// re-validates rather than trusting its caller to have scanned first.
+	if err := checkDerivedIdentifiers([]unitTables{{name: "Bad-Name", tables: []string{"t"}}}); err == nil {
+		t.Fatal("accepted a unit name the published grammar refuses")
+	}
+}
+
+func TestMaskNonCodePreservesOffsetsAndClosesUnterminatedSpans(t *testing.T) {
+	// Offsets must survive masking or a refusal would quote the wrong line;
+	// an unterminated span must mask to the end of the file rather than
+	// leaving its tail readable as code, which is the fail-closed reading.
+	cases := []struct{ name, in, want string }{
+		{name: "line comment", in: "a -- x\nb", want: "a     \nb"},
+		{name: "block comment", in: "a/* x\ny */b", want: "a    \n    b"},
+		{name: "string literal", in: "a 'x''y' b", want: "a        b"},
+		{name: "dollar quote", in: "a $t$x\ny$t$ b", want: "a     \n     b"},
+		{name: "bare dollar quote", in: "a $$x$$ b", want: "a       b"},
+		{name: "a lone dollar is a parameter, not a quote", in: "v = $1 AND w = $2", want: "v = $1 AND w = $2"},
+		{name: "unterminated block comment", in: "a /* x\ny", want: "a     \n "},
+		{name: "unterminated string", in: "a 'x\ny", want: "a   \n "},
+		{name: "unterminated dollar quote", in: "a $t$x\ny", want: "a     \n "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := maskNonCode(tc.in)
+			if got != tc.want {
+				t.Fatalf("maskNonCode(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+			if len(got) != len(tc.in) {
+				t.Fatalf("masking changed the length %d -> %d, so positions would drift", len(tc.in), len(got))
+			}
+		})
+	}
+}

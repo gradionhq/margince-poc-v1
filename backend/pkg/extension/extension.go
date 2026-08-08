@@ -69,6 +69,37 @@ func (n Name) Validate() error {
 	return nil
 }
 
+// NamespacePrefix is the one spelling of the extension namespace token. It
+// opens every identifier a unit owns — `ext_<name>_<table>` tables, the
+// `ext_<name>` database role, the `ext_<name>` migration namespace — so a
+// core object can never be mistaken for an extension's and no unit can
+// address another's. Changing it is a breaking rename of the whole tier.
+const NamespacePrefix = "ext_"
+
+// Namespace maps a unit name onto the SQL-identifier namespace it owns:
+// `foo-1` → `ext_foo_1`. The name grammar admits hyphens because a name is
+// also a URL path segment; a SQL identifier cannot hold one unquoted, so the
+// hyphen becomes an underscore here and nowhere else.
+//
+// It validates first rather than trusting its caller: the result is
+// interpolated into SQL identifiers (a migration tracking table, a role
+// name), and Validate is the ONE rule saying which byte sequences may get
+// there. The grammar already excludes every other shape an identifier could
+// not hold — upper case, dots, quotes, leading digits are all rejected by
+// nameGrammar, and the 32-byte cap keeps `schema_migrations_ext_<name>` (18 +
+// 4 + 32 = 54) inside PostgreSQL's 63-byte limit — so this function adds no
+// refusals of its own.
+//
+// The derived namespace is NOT by itself a promise that a complete
+// `ext_<name>_<table>` identifier fits: the table suffix's own share of the
+// budget is checked where tables are declared (see maxNameLength).
+func (n Name) Namespace() (string, error) {
+	if err := n.Validate(); err != nil {
+		return "", err
+	}
+	return NamespacePrefix + strings.ReplaceAll(string(n), "-", "_"), nil
+}
+
 // Version is the extension's own version string, expected stable for an
 // unchanged unit: the boot inventory records it and logs a change. It
 // carries no authority (operator decisions bind to digests,
