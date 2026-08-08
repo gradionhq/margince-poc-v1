@@ -66,6 +66,30 @@ func validateExtensionSet(exts []extension.Extension) error {
 		if err := preflightTools(e); err != nil {
 			return err
 		}
+		if err := preflightSecrets(e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// preflightSecrets validates one unit's declared secret keys through the
+// same published SecretsRequest.Validate the manifest generator runs, and
+// rejects the same (key, scope) declared twice — two entries for one secret
+// would show an operator a duplicate to resolve that resolves to one thing.
+// The same key in BOTH scopes is legitimate: they are independent namespaces
+// (extension.Secrets), so a unit may hold an installation credential and a
+// per-member one under one name.
+func preflightSecrets(e extension.Extension) error {
+	seen := make(map[extension.SecretsRequest]bool, len(e.Secrets))
+	for _, req := range e.Secrets {
+		if err := req.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
+		}
+		if seen[req] {
+			return fmt.Errorf("compose: extension %q declares secret %q at %s scope twice", e.Name, req.Key, req.Scope)
+		}
+		seen[req] = true
 	}
 	return nil
 }

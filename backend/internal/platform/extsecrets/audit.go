@@ -36,8 +36,32 @@ const (
 	scopeUser      = "user"
 )
 
-// audit appends the operation to system_log inside the caller's transaction,
-// so a recorded secret change is one that actually committed.
+// What a read found. Only reads carry an outcome, and the reason is the
+// asymmetry between the two failure modes:
+//
+// A read that found NOTHING is the interesting one. Probing key names a unit
+// does not own is reconnaissance, it is read-shaped, and it is exactly what
+// the rationale above says this ledger is for — a ledger that recorded only
+// the reads that succeeded would answer "what did it get at?" with the one
+// thing that did not happen. So a miss is committed, and the refusal is
+// raised afterwards.
+//
+// A write that failed is not recorded, deliberately. A refused Put or Delete
+// rolls its transaction back, and appending a row for it would mean the
+// ledger asserts a secret changed hands when none did. A failed write is a
+// caller bug or a lost race, not reconnaissance; it belongs in the error the
+// caller already gets.
+const (
+	outcomeResolved = "resolved"
+	outcomeMissing  = "missing"
+	// outcomeTorn is the mapping row naming material the custodian does not
+	// hold. It is recorded as well as alarmed on, so the ledger shows which
+	// key was unreadable and when.
+	outcomeTorn = "torn"
+)
+
+// audit appends a state-changing operation to system_log inside the caller's
+// transaction, so a recorded secret change is one that actually committed.
 //
 // The detail names WHAT changed hands and never the material itself: the
 // unit, the key, the scope, and — at user scope — whose. storekit.LogSystem
@@ -45,6 +69,20 @@ const (
 // caller's obligation, and it refuses rather than guessing if either is
 // missing.
 func (s *store) audit(ctx context.Context, tx pgx.Tx, action string, user *ids.UserID, key string) error {
+	_, err := storekit.LogSystem(ctx, tx, action, s.detail(user, key))
+	return err
+}
+
+// auditRead appends a read, found or not, with what it found.
+func (s *store) auditRead(ctx context.Context, tx pgx.Tx, user *ids.UserID, key, outcome string) error {
+	detail := s.detail(user, key)
+	detail["outcome"] = outcome
+	_, err := storekit.LogSystem(ctx, tx, actionRead, detail)
+	return err
+}
+
+// detail is the shared shape both ledger entries carry.
+func (s *store) detail(user *ids.UserID, key string) map[string]any {
 	detail := map[string]any{
 		"extension": s.unit,
 		"key":       key,
@@ -54,6 +92,5 @@ func (s *store) audit(ctx context.Context, tx pgx.Tx, action string, user *ids.U
 		detail["scope"] = scopeUser
 		detail["user_id"] = user.String()
 	}
-	_, err := storekit.LogSystem(ctx, tx, action, detail)
-	return err
+	return detail
 }

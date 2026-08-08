@@ -10,6 +10,9 @@ package extension
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"unicode"
 )
 
 // ErrSecretNotFound reports that the unit's namespace holds no secret
@@ -34,6 +37,79 @@ var ErrSecretNotFound = errors.New("extension: no secret is stored under that ke
 // implementation, not by this type — validation belongs where the workspace
 // membership is checked anyway.
 type UserID string
+
+// SecretScope is which of the two independent namespaces a secret lives in.
+// The values are the ledger's vocabulary too — a system_log detail spells the
+// scope with these exact strings.
+type SecretScope string
+
+const (
+	// SecretScopeWorkspace is the installation's own credential: one value
+	// for the whole workspace, typically the API key the unit calls a
+	// provider with.
+	SecretScopeWorkspace SecretScope = "workspace"
+
+	// SecretScopeUser is one member's own credential at that provider: a
+	// separate value per user, reached through the *User methods.
+	SecretScopeUser SecretScope = "user"
+)
+
+// maxSecretKeyLength bounds a declared key name, and is the same bound the
+// store applies to a key at run time — a declaration the store would refuse
+// is worse than no declaration, because it reads as a promise.
+const maxSecretKeyLength = 128
+
+// SecretsRequest is one secret a unit DECLARES it will use: which key, in
+// which scope.
+//
+// It is a REQUEST recorded in the manifest for operator resolution, exactly
+// as a Tool's tier is (see Tool) — declaring a key grants nothing, mints
+// nothing and reads nothing. Whether the installation actually holds that
+// secret, and who put it there, is an operator's business.
+//
+// This is inert DATA and not a handle, so it does not contradict the package
+// doc's "a declaration holds no handle into the core": the live port is
+// Secrets, and a unit only ever gets one from the Runtime the core builds
+// for a single invocation. What is declared here is a NAME and a SCOPE,
+// which is what lets the generated manifest tell an operator "this unit
+// expects a workspace-scoped `signing` key" before the unit ever runs.
+type SecretsRequest struct {
+	// Key is the unit's own bare key name, the same one it will pass to
+	// Secrets.Get/Put — the declaration and the call must agree, or the
+	// manifest describes a secret nothing reads.
+	Key string
+
+	// Scope is which namespace the key lives in. The zero value is invalid
+	// rather than defaulting to workspace: "I did not think about it" and "I
+	// want the installation-wide one" must not look the same to an operator
+	// reading the manifest.
+	Scope SecretScope
+}
+
+// Validate enforces what a declaration must state to be readable: a usable
+// key name, and one of the two scopes. It is the published check both the
+// manifest generator and the boot preflight run, so a declaration that
+// reached the composed set outside the generator path is judged the same way.
+func (r SecretsRequest) Validate() error {
+	switch {
+	case strings.TrimSpace(r.Key) == "":
+		return errors.New("a declared secret has an empty key name")
+	case len(r.Key) > maxSecretKeyLength:
+		return fmt.Errorf("declared secret key %q is %d characters — the store bounds a key name at %d", r.Key, len(r.Key), maxSecretKeyLength)
+	}
+	for _, c := range r.Key {
+		// The key is echoed into the operator-facing manifest and the audit
+		// ledger; a name with an embedded newline has no honest rendering in
+		// either.
+		if unicode.IsControl(c) {
+			return fmt.Errorf("declared secret key %q carries a control character", r.Key)
+		}
+	}
+	if r.Scope != SecretScopeWorkspace && r.Scope != SecretScopeUser {
+		return fmt.Errorf("declared secret %q requests scope %q — the scopes are %q and %q", r.Key, string(r.Scope), string(SecretScopeWorkspace), string(SecretScopeUser))
+	}
+	return nil
+}
 
 // Secrets is the extension's own secret namespace, handed to a unit through
 // its Runtime. Keys are the unit's own bare names: the implementation closes

@@ -135,26 +135,52 @@ func (e *env) currentRef(t *testing.T, ws ids.UUID, unit, key string) keyvault.R
 	return keyvault.Ref(ref)
 }
 
-// systemLogActions returns the actions logged in ws, oldest first.
+// rowsVisibleFrom counts the mapping rows a SELECT pinned to ws can see for
+// this unit and key — regardless of which workspace actually owns them. It
+// deliberately does NOT filter on workspace_id: the whole question is what
+// the database hands back to a session bound to ws, which is the tenant
+// policy's answer and nobody else's.
+//
+// It rides the APP pool, not the owner connection. The integration cluster's
+// owner role bypasses row level security (BYPASSRLS/superuser), which FORCE
+// does not override — so the same probe on e.owner returns the other
+// tenant's row and would report a policy failure that is not one. margince_app
+// is the role the policy actually binds, and the role every runtime path uses.
+func (e *env) rowsVisibleFrom(t *testing.T, ws ids.UUID, unit, key string) int {
+	t.Helper()
+	var n int
+	if err := database.WithWorkspaceTx(e.ctxFor(ws), e.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM extension_secret WHERE extension_name = $1 AND key = $2`,
+			unit, key).Scan(&n)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// systemLogActions returns the ledger entries for ws, oldest first, each as
+// "<action>" or "<action>/<outcome>" where an outcome was recorded.
 func (e *env) systemLogActions(t *testing.T, ws ids.UUID) []string {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := e.owner.Exec(ctx, `SELECT set_config('app.workspace_id', $1, false)`, ws.String()); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := e.owner.Query(ctx,
-		`SELECT action FROM system_log WHERE workspace_id = $1 ORDER BY occurred_at, id`, ws)
+	rows, err := e.owner.Query(ctx, `
+		SELECT action, coalesce('/' || (detail->>'outcome'), '')
+		  FROM system_log WHERE workspace_id = $1 ORDER BY occurred_at, id`, ws)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
 	var actions []string
 	for rows.Next() {
-		var a string
-		if err := rows.Scan(&a); err != nil {
+		var action, outcome string
+		if err := rows.Scan(&action, &outcome); err != nil {
 			t.Fatal(err)
 		}
-		actions = append(actions, a)
+		actions = append(actions, action+outcome)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
@@ -178,9 +204,16 @@ func TestSecretsNamespaceIsolation(t *testing.T) {
 	if _, err := b.Get(ctx, "signing"); !errors.Is(err, extension.ErrSecretNotFound) {
 		t.Fatalf("unit b read unit a's secret under the same key name: err=%v", err)
 	}
+	// The delete path is the wall's most destructive side, and it is walled
+	// separately: b deleting under a's key name must find nothing, and must
+	// leave both a's mapping row AND a's ciphertext standing. Dropping
+	// extension_name from the DELETE passes every read-path assertion above.
+	if err := b.Delete(ctx, "signing"); !errors.Is(err, extension.ErrSecretNotFound) {
+		t.Fatalf("unit b deleted under unit a's key name: err=%v", err)
+	}
 	got, err := a.Get(ctx, "signing")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("unit b's delete destroyed unit a's secret: %v", err)
 	}
 	if string(got) != "s3cret" {
 		t.Fatalf("unit a read back %q, want %q", got, "s3cret")
@@ -309,14 +342,26 @@ func TestSecretsDeleteDestroysTheMaterial(t *testing.T) {
 }
 
 // TestSecretsAreWorkspaceScoped: the same unit, in another tenant, is
-// another namespace — RLS on the mapping row and the workspace binding in
-// the ref both say so.
+// another namespace.
+//
+// The port-level assertion alone would be worthless here: keyvault refuses a
+// ref presented under the wrong workspace all by itself (Ref.scopedTo), so
+// Get would answer ErrSecretNotFound even with the tenant predicate AND the
+// RLS policy both removed — it would be testing keyvault, not this store and
+// not the database. So the database layer is pinned first and directly: the
+// mapping row must be invisible to a session bound to the other tenant.
 func TestSecretsAreWorkspaceScoped(t *testing.T) {
 	e := setup(t)
 	s := extsecrets.For("crm-demo", e.pool, e.vault)
 
 	if err := s.Put(e.ctxFor(e.ws), "signing", []byte("tenant-a")); err != nil {
 		t.Fatal(err)
+	}
+	if n := e.rowsVisibleFrom(t, e.ws, "crm-demo", "signing"); n != 1 {
+		t.Fatalf("the owning workspace sees %d mapping rows, want 1 — the fixture is not proving anything", n)
+	}
+	if n := e.rowsVisibleFrom(t, e.otherWS, "crm-demo", "signing"); n != 0 {
+		t.Fatalf("a session bound to another workspace sees %d of this one's mapping rows, want 0", n)
 	}
 	if _, err := s.Get(e.ctxFor(e.otherWS), "signing"); !errors.Is(err, extension.ErrSecretNotFound) {
 		t.Fatalf("another workspace read this one's secret: err=%v", err)
@@ -349,11 +394,19 @@ func TestSecretsRefuseUnusableInput(t *testing.T) {
 // TestSecretsLeaveAnAuditTrail: a secret changing hands is an operator-
 // visible event even though no domain row moved, so each operation appends
 // to the non-entity ledger.
+//
+// The read that finds NOTHING is the load-bearing entry. A unit probing key
+// names it does not own is the thing an operator asks the ledger about after
+// a unit misbehaves, and a miss that left no trace would answer that question
+// with silence — so it commits its row and the refusal is raised afterwards.
 func TestSecretsLeaveAnAuditTrail(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
 	s := extsecrets.For("crm-demo", e.pool, e.vault)
 
+	if _, err := s.Get(ctx, "never-stored"); !errors.Is(err, extension.ErrSecretNotFound) {
+		t.Fatalf("probing an absent key: err=%v, want ErrSecretNotFound", err)
+	}
 	if err := s.Put(ctx, "signing", []byte("sekrit-alpha")); err != nil {
 		t.Fatal(err)
 	}
@@ -366,11 +419,18 @@ func TestSecretsLeaveAnAuditTrail(t *testing.T) {
 	if err := s.Delete(ctx, "signing"); err != nil {
 		t.Fatal(err)
 	}
+	// A refused write is deliberately NOT recorded: its transaction rolled
+	// back, and a row for it would assert a secret changed hands when none
+	// did. Nothing is appended between the delete above and the assertion.
+	if err := s.Delete(ctx, "signing"); !errors.Is(err, extension.ErrSecretNotFound) {
+		t.Fatalf("second delete: err=%v, want ErrSecretNotFound", err)
+	}
 
 	want := []string{
+		"extension.secret_read/missing",
 		"extension.secret_stored",
 		"extension.secret_rotated",
-		"extension.secret_read",
+		"extension.secret_read/resolved",
 		"extension.secret_deleted",
 	}
 	got := e.systemLogActions(t, e.ws)

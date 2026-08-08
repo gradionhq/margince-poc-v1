@@ -135,44 +135,78 @@ func (s *store) DeleteUser(ctx context.Context, userID extension.UserID, key str
 	return s.remove(ctx, &user, key)
 }
 
-// read resolves the mapping row, then asks the custodian for the material. A
-// nil user is the workspace scope.
+// read resolves the mapping row and fetches the material it names. A nil
+// user is the workspace scope.
 //
-// The audit row is written in the same transaction as the lookup, so a read
-// that resolved a secret is recorded even if the custodian then fails — the
-// fact an operator is looking for is that this unit ASKED for this key.
+// BOTH halves happen inside the one transaction, under the FOR SHARE the
+// lookup takes. That placement is what makes the torn-state alarm below
+// mean anything: a concurrent rotation's FOR UPDATE blocks until this
+// transaction ends, so it cannot commit — and therefore cannot destroy the
+// ref this read is holding — in the window between the lookup and the
+// custodian call. With the fetch outside the transaction the lock would be
+// released before it, and an ordinary rotation would raise an alarm that is
+// supposed to mean corruption.
+//
+// The cost is that a custodian round trip happens with a transaction open,
+// on a second pooled connection. That is the same shape any store that reads
+// through a seam inside its transaction has, and it buys a read that either
+// returns the secret or is genuinely wrong.
+//
+// The audit row is written in the same transaction, before the outcome is
+// known to the caller — including when nothing resolved. See audit.go.
 func (s *store) read(ctx context.Context, user *ids.UserID, key string) ([]byte, error) {
 	ws, err := s.prepare(ctx, key)
 	if err != nil {
 		return nil, err
 	}
-	var ref keyvault.Ref
+	var (
+		secret  []byte
+		ref     keyvault.Ref
+		outcome string
+	)
 	if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if err := requireMember(ctx, tx, user); err != nil {
 			return err
 		}
 		found, err := s.refFor(ctx, tx, user, key, forShare)
-		if err != nil {
+		switch {
+		case err == nil:
+			ref = found
+		case errors.Is(err, extension.ErrSecretNotFound):
+			// A miss is an OUTCOME, not a failure of this transaction:
+			// returning the error here would roll back the ledger row that
+			// records the probe. The refusal is raised after the commit.
+			outcome = outcomeMissing
+			return s.auditRead(ctx, tx, user, key, outcome)
+		default:
 			return err
 		}
-		ref = found
-		return s.audit(ctx, tx, actionRead, user, key)
+
+		secret, err = s.vault.Get(ctx, ws, ref)
+		switch {
+		case err == nil:
+			outcome = outcomeResolved
+		case errors.Is(err, keyvault.ErrNotFound):
+			outcome = outcomeTorn
+		default:
+			return err
+		}
+		return s.auditRead(ctx, tx, user, key, outcome)
 	}); err != nil {
 		return nil, err
 	}
 
-	secret, err := s.vault.Get(ctx, ws, ref)
-	if errors.Is(err, keyvault.ErrNotFound) {
-		// The mapping row names material the custodian no longer holds — a
-		// torn state rather than an ordinary absence, so it is logged. The
+	if outcome == outcomeTorn {
+		// The mapping row names material the custodian does not hold, and no
+		// concurrent rotation could have caused it (see above) — so this is
+		// corruption, and the only honest report of it is an alarm. The
 		// caller is still told what an absent key gets, because there is
 		// nothing different it could do.
 		s.log.ErrorContext(ctx, "extsecrets: a mapping row names a secret the custodian does not hold",
 			"extension", s.unit, "key", key, "workspace", ws.String(), "vault_ref", string(ref))
-		return nil, fmt.Errorf("extsecrets: %s/%s: %w", s.unit, key, extension.ErrSecretNotFound)
 	}
-	if err != nil {
-		return nil, err
+	if outcome != outcomeResolved {
+		return nil, fmt.Errorf("extsecrets: %s/%s: %w", s.unit, key, extension.ErrSecretNotFound)
 	}
 	return secret, nil
 }
@@ -199,6 +233,9 @@ func (s *store) write(ctx context.Context, user *ids.UserID, key string, secret 
 	committing := false
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if err := requireMember(ctx, tx, user); err != nil {
+			return err
+		}
+		if err := s.lockKey(ctx, tx, user, key); err != nil {
 			return err
 		}
 		existing, err := s.refFor(ctx, tx, user, key, forUpdate)
@@ -288,90 +325,6 @@ func (s *store) prepare(ctx context.Context, key string) (ids.WorkspaceID, error
 		return ids.WorkspaceID{}, database.ErrNoWorkspace
 	}
 	return ids.From[ids.WorkspaceKind](ws), nil
-}
-
-// whereScope is the prefix every row-addressing statement shares: this unit,
-// this tenant. The workspace predicate duplicates what RLS already enforces —
-// deliberately, because it is also what lets the planner reach the partial
-// unique indexes, which are keyed (extension_name, workspace_id, …).
-const whereScope = `
-	WHERE extension_name = $1
-	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-	  AND key = $2
-	  `
-
-// scoped is one operation's row scope: the predicate that completes
-// whereScope, and the arguments it is issued with.
-type scoped struct {
-	predicate string
-	args      []any
-}
-
-// scopeOf spells the two scopes as two predicates rather than one
-// `IS NOT DISTINCT FROM` covering both: the partial unique indexes are
-// defined WHERE user_id IS NULL and WHERE user_id IS NOT NULL, and only a
-// predicate of the same shape lets Postgres prove a row is in one of them.
-func (s *store) scopeOf(user *ids.UserID, key string) scoped {
-	if user == nil {
-		return scoped{predicate: `AND user_id IS NULL`, args: []any{s.unit, key}}
-	}
-	return scoped{predicate: `AND user_id = $3`, args: []any{s.unit, key, *user}}
-}
-
-// lockMode is how refFor holds the row it reads.
-type lockMode string
-
-const (
-	// forShare is enough for a read: it keeps a concurrent rotation from
-	// destroying the material between the lookup and the custodian call.
-	forShare lockMode = " FOR SHARE"
-	// forUpdate serializes two rotations of the same key, so the loser
-	// supersedes the winner's ref rather than both superseding the original
-	// and one blob leaking.
-	forUpdate lockMode = " FOR UPDATE"
-)
-
-// refFor resolves the mapping row for this unit, in the calling workspace, at
-// the given scope. The lock clause is a constant of this package, never
-// caller input.
-func (s *store) refFor(ctx context.Context, tx pgx.Tx, user *ids.UserID, key string, lock lockMode) (keyvault.Ref, error) {
-	scope := s.scopeOf(user, key)
-	var ref string
-	switch err := tx.QueryRow(ctx,
-		`SELECT vault_ref FROM extension_secret `+whereScope+scope.predicate+string(lock),
-		scope.args...).Scan(&ref); {
-	case errors.Is(err, pgx.ErrNoRows):
-		return "", fmt.Errorf("extsecrets: %s/%s: %w", s.unit, key, extension.ErrSecretNotFound)
-	case err != nil:
-		return "", err
-	}
-	return keyvault.Ref(ref), nil
-}
-
-// upsert re-points (or creates) the mapping row. ON CONFLICT rather than the
-// UPDATE the preceding read would suggest: that read cannot lock a row which
-// does not exist yet, so two concurrent first-stores would both insert. The
-// conflict target repeats the partial index's predicate, which is how
-// Postgres infers a partial unique index.
-func (s *store) upsert(ctx context.Context, tx pgx.Tx, user *ids.UserID, key string, ref keyvault.Ref) error {
-	const workspaceScoped = `
-		INSERT INTO extension_secret (extension_name, workspace_id, user_id, key, vault_ref)
-		VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, NULL, $2, $3)
-		ON CONFLICT (extension_name, workspace_id, key) WHERE user_id IS NULL
-		DO UPDATE SET vault_ref = EXCLUDED.vault_ref, updated_at = now()`
-	const userScoped = `
-		INSERT INTO extension_secret (extension_name, workspace_id, user_id, key, vault_ref)
-		VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4)
-		ON CONFLICT (extension_name, workspace_id, user_id, key) WHERE user_id IS NOT NULL
-		DO UPDATE SET vault_ref = EXCLUDED.vault_ref, updated_at = now()`
-
-	var err error
-	if user == nil {
-		_, err = tx.Exec(ctx, workspaceScoped, s.unit, key, string(ref))
-	} else {
-		_, err = tx.Exec(ctx, userScoped, s.unit, *user, key, string(ref))
-	}
-	return err
 }
 
 // requireMember asks whether the named user belongs to the calling workspace;

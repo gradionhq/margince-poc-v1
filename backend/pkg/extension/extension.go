@@ -110,4 +110,15 @@ type Extension struct {
 	// resolution — see Tool. Unlike a jurisdiction pack (passive policy),
 	// a tool is a governed capability and appears in manifest.generated.json.
 	Tools []Tool
+
+	// Secrets are the secret keys the unit declares it will use, by name and
+	// scope. Like a Tool's tier these are REQUESTS an operator resolves, not
+	// facts: declaring a key mints nothing and reads nothing, and the live
+	// port arrives only through the Runtime the core builds per invocation.
+	//
+	// This does not contradict "a declaration is inert data […] holds no
+	// handle into the core" above — a SecretsRequest IS inert data, a name
+	// and a scope, which is exactly what lets the generated manifest tell an
+	// operator which secrets a unit expects before it ever runs.
+	Secrets []SecretsRequest
 }
