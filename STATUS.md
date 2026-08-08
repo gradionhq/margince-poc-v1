@@ -510,6 +510,51 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-09 (C2: the session's implicit bound becomes four explicit counters, PR #647, merged `25016800`)
+
+ADR-0092 §4 and §6 in one change, in the order the ADR makes normative: the
+per-Passport counters go live BEFORE the MCP session registry is removed,
+because removing a bound and adding its replacement the other way round leaves
+the surface briefly unbounded. `platform/readmeter` became
+`platform/agentquota` (reads/writes/egress/calls/cost), CIMD joined DCR at the
+authorization server, and `agents/session.go` is gone — from **both** eras, since
+the id was never authority and keeping it for one would keep the replica pinning
+for the era with the most clients.
+
+**Nothing here is left open.** The follow-ups it declined to fold in are filed:
+[#645](https://github.com/gradionhq/margince-poc-v1/issues/645) (an approval's
+`workspace_id` answers as the zero uuid — pre-existing),
+[#646](https://github.com/gradionhq/margince-poc-v1/issues/646) (the REST *read*
+door consults the bound and charges nothing; the charge is per record and no
+single point on that door knows how many a handler served), and
+[#652](https://github.com/gradionhq/margince-poc-v1/issues/652) (a frontend
+flake in a file this PR does not touch).
+
+**What it cost, and why the next large PR should budget for it.** Three review
+passes, two bot passes and two live UATs found twenty-four defects, six of them
+serious, and the bot passes found their share AFTER the human-style reviews had
+run. Three lessons are recorded in
+[.tmp/mcp-roadmap/PROGRESS.md](.tmp/mcp-roadmap/PROGRESS.md) rather than here,
+because they generalize past this track:
+
+- **A quota counts what an agent DID.** Three separate charge points were wrong
+  in the same direction and every one read as correct: a `defer` charged a
+  REJECTED mutation, the call ceiling was charged before redemption so an invalid
+  token could exhaust a Passport's own ceiling, and a field-split path returned
+  past the charge. Ask "did the thing this counter names actually happen", not
+  "did this call arrive".
+- **Where a charge sits decides what it may refuse.** Before anything commits, an
+  uncountable call is not run; after a redemption, refusing burns a human's
+  approval on a call that never happened.
+- **NULL is not the zero uuid.** A target-less staging wrote NULL while every
+  dedup and decline probe compared `=` against `ids.UUID{}`, so two controls did
+  nothing, silently. Two reviewers found it independently and a live UAT
+  reproduced it.
+
+**Track C is complete; F2 is unblocked.** The next track to touch
+`modules/agents` should merge `main` early — this PR split `registry.go` into
+`registration.go`, deleted `session.go`, and rewrote both compose gates.
+
 ## Session pickup — 2026-08-06 (app chrome: the account menu, the app's scrollbars, and one orb, branch `fix/shell-chrome-and-one-orb`)
 
 Seven reported chrome defects, fixed as five invariants rather than five patches.
