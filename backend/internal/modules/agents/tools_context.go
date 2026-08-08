@@ -31,6 +31,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -62,6 +63,38 @@ const contextSearchMaxLimit = 25
 // relevant things, and a caller that wants the ceiling can ask for it.
 const contextSearchDefaultLimit = 10
 
+// contextSearchMaxQueryRunes bounds the description.
+//
+// It is a bound on EGRESS, not on parsing. The query is embedded, which sends it
+// verbatim to the configured provider, so an unbounded field is an unbounded
+// paid call any read-scoped passport can make — and the only ceiling underneath
+// is the chassis's request-body limit, which is megabytes. A thousand runes is
+// several times the longest description that is still a description; past that
+// the caller is pasting a document, which is what query_workspace and the
+// import path are for.
+const contextSearchMaxQueryRunes = 1000
+
+// contextSearchTypes is the closed set of record types this tool sweeps, and it
+// is enforced HERE rather than left to the schema.
+//
+// The registry validates required-presence, id shape and numeric bounds; it does
+// not enforce a JSON-Schema enum, so an undeclared type would pass straight
+// through to the retrieval index. That index carries a branch this tool does not
+// publish — `activity`, whose snippet is the first 200 characters of a message
+// body — and search_records' own description promises in as many words that
+// message bodies and call notes are not searched. A surface that advertises five
+// types and serves six has granted a capability nobody declared, whatever its
+// row scope.
+// Keyed by the seam's own type so the set and the value handed to the retriever
+// are the same thing, rather than two spellings kept in step.
+var contextSearchTypes = map[datasource.EntityType]bool{
+	datasource.EntityPerson:       true,
+	datasource.EntityOrganization: true,
+	datasource.EntityDeal:         true,
+	datasource.EntityLead:         true,
+	datasource.EntityProject:      true,
+}
+
 // RegisterContextSearchTool joins search_context to the surface once a retriever
 // exists — the same conditional registration the other injected-engine tools
 // take. An installation with no retriever serves no search tool rather than one
@@ -91,7 +124,7 @@ func (t searchContext) Spec() mcp.ToolSpec {
 		// relationship hop has query_workspace, and this tool's own
 		// description says so rather than declaring a filter it would ignore.
 		InputSchema: schema(`{"type":"object","required":["query"],"properties":{
-			"query":{"type":"string","description":"What to look for, in your own words. The wording is matched by meaning as well as by the words themselves, so a phrase that appears nowhere on a record can still rank it."},
+			"query":{"type":"string","maxLength":1000,"description":"What to look for, in your own words. The wording is matched by meaning as well as by the words themselves, so a phrase that appears nowhere on a record can still rank it."},
 			"record_types":{"type":"array","items":{"type":"string","enum":["person","organization","deal","lead","project"]},"description":"Restrict the sweep to these types; omit to sweep all of them."},
 			"limit":{"type":"integer","minimum":1,"maximum":25}},
 			"additionalProperties":false}`),
@@ -123,9 +156,20 @@ func (t searchContext) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		return nil, &BadArgsError{Cause: errors.New("`query` is required and takes the words to look for; " +
 			"an empty query has no ranking to produce")}
 	}
+	if n := len([]rune(args.Query)); n > contextSearchMaxQueryRunes {
+		return nil, &BadArgsError{Cause: fmt.Errorf(
+			"`query` takes at most %d characters and this one carries %d; describe what you are looking for "+
+				"rather than pasting the material", contextSearchMaxQueryRunes, n)}
+	}
 	q := retrieval.Query{Text: args.Query, Limit: contextSearchLimit(args.Limit)}
 	for _, recordType := range args.RecordTypes {
-		q.EntityTypes = append(q.EntityTypes, datasource.EntityType(recordType))
+		entity := datasource.EntityType(recordType)
+		if !contextSearchTypes[entity] {
+			return nil, &BadArgsError{Cause: fmt.Errorf(
+				"`record_types` does not take %q; this tool sweeps person, organization, deal, lead and project",
+				recordType)}
+		}
+		q.EntityTypes = append(q.EntityTypes, entity)
 	}
 	found, err := t.retriever.Search(ctx, q)
 	if err != nil {
@@ -191,8 +235,10 @@ func (t searchContext) hydrate(ctx context.Context, found retrieval.Result) (Sea
 		result.Coverage = CoveragePartialDegraded
 		result.Notes = append(result.Notes, QueryNote{
 			Code: CodeSemanticRankingDegraded,
-			Detail: "no embedding lane answered for this search, so these results are ranked by word " +
-				"overlap alone; a phrase sharing no words with a record cannot rank it",
+			Detail: "the meaning lane contributed nothing to this ranking — it is not configured, it " +
+				"could not be reached, or nothing is indexed under the current model — so these " +
+				"results are ranked by word overlap alone, and a phrase sharing no words with a " +
+				"record cannot rank it",
 		})
 	}
 	if dropped {

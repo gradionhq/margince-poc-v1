@@ -177,6 +177,11 @@ type ResolvedRecord struct {
 	// a near match. It is what makes an ambiguous answer reviewable — a pair
 	// scored on a registered name must not be read as a trading-name collision.
 	MatchedOn string `json:"matched_on"`
+	// exact is UNEXPORTED and never on the wire: it is what decisionFor reads to
+	// tell a key hit from a name similarity, and `decision` is the answer a
+	// caller acts on. Publishing it too would be a second, quieter spelling of
+	// the same fact for a client to disagree with.
+	exact bool
 }
 
 // ArchiveResult is what archive_record answers: the record it retired, named the

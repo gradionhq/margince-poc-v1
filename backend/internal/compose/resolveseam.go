@@ -41,22 +41,30 @@ func entityResolver(pool *pgxpool.Pool) agents.EntityResolver {
 		if err != nil {
 			return nil, err
 		}
-		out := make([]agents.ResolveOutcome, 0, len(resolved))
-		for _, outcome := range resolved {
-			answer := agents.ResolveOutcome{
-				Verdict: string(outcome.Verdict),
-				Refs:    make([]agents.ResolveRef, 0, len(outcome.Refs)),
-			}
-			for _, ref := range outcome.Refs {
-				answer.Refs = append(answer.Refs, agents.ResolveRef{
-					Kind:       string(ref.Kind),
-					ID:         ref.ID,
-					Confidence: ref.Confidence,
-					MatchedOn:  ref.MatchedOn,
-				})
-			}
-			out = append(out, answer)
-		}
-		return out, nil
+		return resolveOutcomesFor(resolved), nil
 	}
+}
+
+// resolveOutcomesFor carries the ladder's answers across the seam.
+//
+// The ladder's VERDICT is deliberately not among them. It is computed over the
+// whole workspace, so a decision derived from it is a decision a record the
+// caller cannot read helped make — see agents.decisionFor. What crosses is the
+// refs, each carrying whether a KEY or a similarity named it.
+func resolveOutcomesFor(resolved []people.ResolveOutcome) []agents.ResolveOutcome {
+	out := make([]agents.ResolveOutcome, 0, len(resolved))
+	for _, outcome := range resolved {
+		answer := agents.ResolveOutcome{Refs: make([]agents.ResolveRef, 0, len(outcome.Refs))}
+		for _, ref := range outcome.Refs {
+			answer.Refs = append(answer.Refs, agents.ResolveRef{
+				Kind:       string(ref.Kind),
+				ID:         ref.ID,
+				Exact:      ref.Exact,
+				Confidence: ref.Confidence,
+				MatchedOn:  ref.MatchedOn,
+			})
+		}
+		out = append(out, answer)
+	}
+	return out
 }

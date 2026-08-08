@@ -115,35 +115,53 @@ func TestAnAddressOutsideTheCallersScopeResolvesToNothingItCanTellApart(t *testi
 	}
 }
 
-// The narrowing IS reported — once, for the call, with no count. Silence would
-// leave a caller believing `unresolved` proves nothing exists, and creating the
-// duplicate this tool exists to prevent.
+// The visibility caveat rides EVERY answer, with no count. Silence would leave a
+// caller believing `unresolved` proves nothing exists, and creating the
+// duplicate this tool exists to prevent — while raising it only when something
+// WAS withheld would make its presence the disclosure.
 func TestTheNarrowedAnswerSaysSoWithoutSizingTheHiddenSet(t *testing.T) {
 	e := setupQuery(t)
 	seedResolveFixture(t, e)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 
-	sealed := invokeResolve(e.teamRep(e.Rep1, e.Team1), t, registry,
+	rep1 := e.teamRep(e.Rep1, e.Team1)
+	withheld := invokeResolve(rep1, t, registry,
 		`{"candidates":[{"kind":"person","emails":["bernd@logistik.example"]}]}`)
+	absent := invokeResolve(rep1, t, registry,
+		`{"candidates":[{"kind":"person","emails":["nobody@nowhere.example"]}]}`)
 
-	warned := false
-	for _, w := range sealed.Warnings {
-		if w.Code != agents.CodeResolutionRowScoped {
-			continue
+	for _, sealed := range []sealedResult{withheld, absent} {
+		warned := false
+		for _, w := range sealed.Warnings {
+			if w.Code != agents.CodeResolutionBoundedByVisibility {
+				continue
+			}
+			warned = true
+			if strings.ContainsAny(w.Message, "0123456789") {
+				t.Errorf("the caveat sizes what it is about: %q", w.Message)
+			}
 		}
-		warned = true
-		if strings.ContainsAny(w.Message, "0123456789") {
-			t.Errorf("the warning sizes the hidden set: %q", w.Message)
+		if !warned {
+			t.Errorf("nothing told the caller their answer is bounded by what they may read: %+v", sealed.Warnings)
 		}
 	}
-	if !warned {
-		t.Errorf("nothing told the caller their view narrowed this answer: %+v", sealed.Warnings)
+	// And the two calls carry the SAME warnings, which is the property: a caveat
+	// that appeared only on the withheld one would be the per-address oracle
+	// answering `unresolved` exists to close.
+	if len(withheld.Warnings) != len(absent.Warnings) {
+		t.Errorf("a withheld match carries %d warnings and a genuine miss %d — the difference is the leak",
+			len(withheld.Warnings), len(absent.Warnings))
 	}
 }
 
-// A resolved batch is charged PER RECORD served, not per call — a resolver that
-// answered fifty records for one call would otherwise be the cheapest bulk read
-// on the surface (A139).
+// Every record served is SOURCED — it appears in the envelope's evidence, which
+// is what the seam read reported.
+//
+// This proves the read path, NOT the charge: compose.NewRegistry wires no
+// ReadCharger (only the api role's Server does), so nothing here would notice a
+// metering change. The charging properties are unit-tested against a counting
+// charger, and saying so is the point — a comment claiming this test holds them
+// would be a gate nobody has.
 func TestResolveEntitiesSourcesEveryRecordItServes(t *testing.T) {
 	e := setupQuery(t)
 	f := seedResolveFixture(t, e)

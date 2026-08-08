@@ -203,8 +203,8 @@ func TestTheOperatorConsoleServesTheTextAnMCPClientIsServed(t *testing.T) {
 // This is a ceiling on growth and it is closer than it looks: at 35 tools the
 // listing is ~12,700 of 15,000. The listing is O(catalog) and the next few tools
 // will reach this bound too. The real answer is a listing that does not print
-// every tool's full copy into every run — filed as an issue rather than guessed
-// at here, because it is a change to what a run is given, not to a test.
+// every tool's full copy into every run — filed as #634 rather than guessed at
+// here, because it is a change to what a run is given, not to a test.
 const (
 	listingBudgetNumerator   = 5
 	listingBudgetDenominator = 8

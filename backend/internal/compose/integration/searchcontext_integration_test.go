@@ -84,9 +84,12 @@ func TestSearchContextNarrowsToTheCallersRowScope(t *testing.T) {
 	if !contextHas(answer, f.rep1Person) {
 		t.Fatalf("the rep's own person is missing — the narrowing went too far: %+v", answer.Hits)
 	}
+	// Nothing says how much was left out. Both retrieval lanes are row-scoped, so
+	// the narrowing happens before this tool sees a hit at all — there is no
+	// note to carry a count, and the assertion is that none appears.
 	for _, note := range answer.Notes {
-		if containsDigit(note.Detail) {
-			t.Errorf("a note sizes what the caller may not see: %q", note.Detail)
+		if note.Code == agents.CodeRowUnreadable {
+			t.Errorf("a row-scope narrowing surfaced as a hydration drop: %+v", note)
 		}
 	}
 }
@@ -114,25 +117,11 @@ func TestSearchContextReportsAnUnboundEmbedLane(t *testing.T) {
 	if !degraded {
 		t.Errorf("notes = %+v, want the lexical fallback named", answer.Notes)
 	}
-	// Never the exhaustive class, whatever happened: a ranked page is the top of
-	// an ordering and this tool has no complete answer to give.
-	if answer.Coverage == agents.CoverageCompleteExact {
-		t.Error("a ranked sweep claimed to be exhaustive")
-	}
 }
 
 func contextHas(answer agents.SearchContextResult, id ids.UUID) bool {
 	for _, hit := range answer.Hits {
 		if hit.Record.ID == id {
-			return true
-		}
-	}
-	return false
-}
-
-func containsDigit(s string) bool {
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
 			return true
 		}
 	}

@@ -48,11 +48,20 @@ const (
 	ResolveDecisionUnresolved = "unresolved"
 )
 
-// CodeResolutionRowScoped is the call-level warning that row scope narrowed an
-// answer. It carries no count and names no candidate, for the reason the whole
-// design turns on: how many records a caller may not see is the size of the
-// hidden set.
-const CodeResolutionRowScoped = "resolution_narrowed_by_row_scope"
+// CodeResolutionBoundedByVisibility is the standing caveat every resolve answer
+// carries: this answer is bounded by what you may read, so `unresolved` does not
+// prove that no such record exists.
+//
+// IT IS UNCONDITIONAL, and that is the whole design rather than laziness.
+// Raising it only when a record WAS withheld looks tighter and is the leak: a
+// caller sends a batch of one address, and the warning's presence answers "a
+// record you cannot see holds this" — restoring, one field over, exactly the
+// oracle that answering `unresolved` for a withheld match exists to close. A
+// signal that fires only when there is something to hide is a disclosure.
+//
+// Saying it always costs nothing a caller needs. What they have to act on is
+// that a miss is not proof, and that is true of every call.
+const CodeResolutionBoundedByVisibility = "resolution_bounded_by_visibility"
 
 // resolveMaxCandidates bounds one call. Each candidate runs the ladder — up to
 // four indexed lookups and a trigram scan — and every record it names is read
@@ -60,6 +69,14 @@ const CodeResolutionRowScoped = "resolution_narrowed_by_row_scope"
 // Twenty is well past what a business card, a signature block or a meeting note
 // carries, and far short of a sweep.
 const resolveMaxCandidates = 20
+
+// resolveKinds is the closed set of record types a candidate may ask about,
+// spelled with the seam's own constants so the check and the value that crosses
+// the seam cannot drift apart.
+var resolveKinds = map[string]bool{
+	string(datasource.EntityPerson):       true,
+	string(datasource.EntityOrganization): true,
+}
 
 // EntityResolver answers which records a batch of payloads already names.
 //
@@ -82,32 +99,30 @@ type ResolveCandidate struct {
 	Domains   []string
 }
 
-// ResolveOutcome is the resolver's answer for one candidate.
+// ResolveOutcome is the resolver's answer for one candidate: the records the
+// ladder named, best first.
+//
+// It carries NO verdict. The ladder has one — it knows whether two exact lanes
+// disagreed — but that word is computed over records this caller may not be able
+// to read, and a decision derived from it is a decision a hidden record helped
+// make. What crosses the seam is the refs; the word is this tool's, and it is
+// built from the refs that survive.
 type ResolveOutcome struct {
-	// Verdict is the LADDER's word — "exact", "ambiguous" or "none" — before
-	// this caller's visibility has been applied to it.
-	Verdict string
-	Refs    []ResolveRef
+	Refs []ResolveRef
 }
 
 // ResolveRef is one record the resolver named, and what named it.
 type ResolveRef struct {
-	Kind       string
-	ID         ids.UUID
+	Kind string
+	ID   ids.UUID
+	// Exact says a unique KEY named this record rather than a name similarity.
+	// It is the only thing that can make a single match actionable, and it is
+	// carried per ref because the decision is computed from the refs that
+	// SURVIVED this caller's visibility — see decisionFor.
+	Exact      bool
 	Confidence float64
 	MatchedOn  string
 }
-
-// The ladder verdicts, as the seam spells them. They are restated here rather
-// than imported because the module that defines them is a sibling, and a
-// mismatch would not fail anything at runtime — it would silently read every
-// exact hit as ambiguous. TestTheSurfaceAndTheResolverAgreeOnVerdicts in the
-// composition layer, the one place that can see both, fails on a divergence.
-const (
-	ResolveVerdictExact     = "exact"
-	ResolveVerdictAmbiguous = "ambiguous"
-	ResolveVerdictNone      = "none"
-)
 
 // RegisterResolveTool joins resolve_entities to the surface once a resolver
 // exists — the same conditional registration the other injected-engine tools
@@ -171,6 +186,17 @@ func (t resolveEntities) Handle(ctx context.Context, in json.RawMessage) (json.R
 	seam := make([]ResolveCandidate, 0, len(args.Candidates))
 	labels := make([]string, 0, len(args.Candidates))
 	for _, c := range args.Candidates {
+		// The kind is validated HERE because nothing else does. The registry
+		// checks required-presence on TOP-LEVEL members, id shape and numeric
+		// bounds; a nested `required` and a JSON-Schema `enum` are advertised and
+		// never enforced. Unchecked, an unknown kind reaches the resolver's own
+		// switch and comes back as an internal fault naming the module that
+		// raised it — a server error, and a module name, for what is a typo in
+		// the call.
+		if !resolveKinds[c.Kind] {
+			return nil, &BadArgsError{Cause: fmt.Errorf(
+				"`kind` takes person or organization, not %q; leads are not resolved", c.Kind)}
+		}
 		seam = append(seam, ResolveCandidate{
 			Kind: c.Kind, Name: c.Name, LegalName: c.LegalName,
 			Emails: c.Emails, Phones: c.Phones, Domains: c.Domains,
@@ -202,74 +228,92 @@ func (t resolveEntities) hydrate(ctx context.Context, labels []string, outcomes 
 	// caller twice for a record they were shown once, against a bound that
 	// measures what was handed over.
 	served := newServedRecords()
-	narrowed := false
+	// Raised BEFORE anything is read, so it cannot depend on what was found.
+	// See CodeResolutionBoundedByVisibility: a caveat that appears only when
+	// something was withheld is a disclosure that something was withheld, and a
+	// batch of one candidate turns that into the address oracle this tool's
+	// `unresolved` answer exists to close.
+	noteWarning(ctx, CodeResolutionBoundedByVisibility,
+		"this answer is bounded by the records you may read, so `unresolved` does not prove that no "+
+			"such record exists; a person with wider visibility may see one")
+	unanswered := 0
 	for i, outcome := range outcomes {
-		matches, dropped, err := t.readable(ctx, outcome.Refs, served)
+		matches, err := t.readable(ctx, outcome.Refs, served)
 		if err != nil {
 			return ResolveEntitiesResult{}, err
 		}
-		narrowed = narrowed || dropped
+		if len(matches) == 0 {
+			unanswered++
+		}
 		result.Candidates = append(result.Candidates, ResolvedCandidate{
-			Ref: labels[i], Decision: decisionFor(outcome.Verdict, matches), Matches: matches,
+			Ref: labels[i], Decision: decisionFor(matches), Matches: matches,
 		})
 	}
-	if narrowed {
-		// ONE warning for the whole call, with no count and no candidate named.
-		// Per-candidate it would be a probe: send one address at a time and the
-		// warning answers "a record you cannot see holds this address" — the
-		// disclosure the drop exists to prevent, restored one call later.
-		noteWarning(ctx, CodeResolutionRowScoped,
-			"at least one record this payload could have named is outside your visibility and was "+
-				"left out; an answer of `unresolved` here does not prove no such record exists")
-	}
+	// A candidate that came back with nothing still COST the caller a question,
+	// and it is the one shape the per-record charge cannot see: no record was
+	// served, so nothing was stamped. Left free, `unresolved` would be an
+	// unlimited lookup — ask about every address in turn and the bound never
+	// moves. Charging it is also what makes the batch cap mean something.
+	noteProbe(ctx, unanswered)
 	return result, nil
 }
 
-// readable reads every ref and keeps the ones this caller may see, reporting
-// whether any were dropped.
+// readable reads every ref and keeps the ones this caller may see.
+//
+// It reports nothing about what it dropped, and it has nowhere to report it to:
+// the caveat above is unconditional, so a drop leaves no trace in the answer at
+// all. That is the property — a withheld match and a record that never existed
+// produce byte-identical results.
 //
 // A DENIAL AND A FAULT ARE NOT THE SAME ANSWER. Not-found and permission-denied
 // are the seam saying no, which is the verdict this function exists to collect.
 // Anything else is the absence of a verdict, and turning it into `unresolved`
 // would tell a caller that no record names this address when what happened is
 // that nothing could be read — and they would go on to create the duplicate.
-func (t resolveEntities) readable(ctx context.Context, refs []ResolveRef, served *servedRecords) ([]ResolvedRecord, bool, error) {
+func (t resolveEntities) readable(ctx context.Context, refs []ResolveRef, served *servedRecords) ([]ResolvedRecord, error) {
 	out := make([]ResolvedRecord, 0, len(refs))
-	dropped := false
 	for _, ref := range refs {
 		record, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(ref.Kind), ID: ref.ID})
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
-				dropped = true
 				continue
 			}
-			return nil, false, err
+			return nil, err
 		}
 		out = append(out, ResolvedRecord{
-			Record: served.stamp(ctx, record), Confidence: ref.Confidence, MatchedOn: ref.MatchedOn,
+			Record: served.stamp(ctx, record), Confidence: ref.Confidence,
+			MatchedOn: ref.MatchedOn, exact: ref.Exact,
 		})
 	}
-	return out, dropped, nil
+	return out, nil
 }
 
-// decisionFor reads the ladder's verdict through what survived hydration.
+// decisionFor is computed from the records that SURVIVED this caller's
+// visibility, and from nothing else. That is the whole rule, and it is worth
+// stating as a rule because the natural implementation breaks it.
 //
-// TWO RULES, AND THEY PULL IN OPPOSITE DIRECTIONS ON PURPOSE.
+// Carrying the ladder's own verdict through was tried and is an oracle. The
+// ladder sees the whole workspace, so a candidate mixing one address you can
+// read with one phone number you are guessing comes back `ambiguous` when the
+// phone belongs to a record you may not see, and `exact` when it belongs to
+// nobody — with an identical single visible match either way. The DECISION WORD
+// then answers a question about a hidden record, one probe at a time.
 //
-// An answer with nothing left is `unresolved` — the SAME word a genuine miss
-// gets. A distinct "resolved to something you cannot see" would be a probe: a
-// caller could learn that an address belongs to a record they are not allowed
-// to know exists, one candidate at a time.
+// Reading only the survivors closes it: both cases are one exact match, and both
+// answer `matched`. What the caller loses is a warning that something out of
+// their reach disagrees — which they could not act on, could not see, and were
+// never entitled to. CodeResolutionBoundedByVisibility says the general form of
+// it on every call, which is the honest version of the same caution.
 //
-// An ambiguous verdict STAYS ambiguous even when only one record survived.
-// Collapsing it to `matched` would resolve a disagreement using the fact that
-// the rival is hidden — telling the caller "this is definitely them" precisely
-// because the record that contradicts it is out of their reach.
-func decisionFor(verdict string, matches []ResolvedRecord) string {
+// A single FUZZY match is still `ambiguous`, and that is not a visibility rule:
+// the fuzzy tier is a comparison a person makes, DEDUPE_FUZZY_AUTOMERGE is
+// pinned *never*, and a caller told "matched" would write against a record
+// nobody confirmed.
+func decisionFor(matches []ResolvedRecord) string {
 	if len(matches) == 0 {
 		return ResolveDecisionUnresolved
 	}
-	if verdict == ResolveVerdictExact && len(matches) == 1 {
+	if len(matches) == 1 && matches[0].exact {
 		return ResolveDecisionMatched
 	}
 	return ResolveDecisionAmbiguous

@@ -90,6 +90,13 @@ type ResolveOutcome struct {
 type ResolveRef struct {
 	Kind ResolveKind
 	ID   ids.UUID
+	// Exact says a unique KEY named this record — an address, a phone number,
+	// an established channel binding, a company domain — rather than a name
+	// similarity. It is carried rather than inferred from Confidence, because a
+	// caller deciding whether a match may be acted on must not be reading a
+	// float comparison: the fuzzy tier can score 1.0 on two identical names,
+	// and that is still a comparison a person makes.
+	Exact bool
 	// Confidence is 1 for an exact key — a shared address is not a probability
 	// — and the ladder's own score for a fuzzy one.
 	Confidence float64
@@ -219,13 +226,14 @@ func personOutcome(match PersonResolution) ResolveOutcome {
 	switch match.Decision {
 	case DecisionExactCollision:
 		routed := ResolveRef{
-			Kind: ResolvePerson, ID: match.PersonID.UUID, Confidence: 1, MatchedOn: match.MatchedLane,
+			Kind: ResolvePerson, ID: match.PersonID.UUID, Exact: true,
+			Confidence: 1, MatchedOn: match.MatchedLane,
 		}
 		if match.Conflict == nil {
 			return ResolveOutcome{Verdict: VerdictExact, Refs: []ResolveRef{routed}}
 		}
 		return ResolveOutcome{Verdict: VerdictAmbiguous, Refs: []ResolveRef{routed, {
-			Kind: ResolvePerson, ID: match.Conflict.Rival.UUID,
+			Kind: ResolvePerson, ID: match.Conflict.Rival.UUID, Exact: true,
 			Confidence: 1, MatchedOn: match.Conflict.RivalLane,
 		}}}
 	case DecisionFuzzyReview:
@@ -269,7 +277,8 @@ func organizationOutcome(match OrganizationMatch) ResolveOutcome {
 	switch match.Decision {
 	case DecisionExactCollision:
 		return ResolveOutcome{Verdict: VerdictExact, Refs: []ResolveRef{{
-			Kind: ResolveOrganization, ID: match.OrganizationID.UUID, Confidence: 1, MatchedOn: axisDomain,
+			Kind: ResolveOrganization, ID: match.OrganizationID.UUID, Exact: true,
+			Confidence: 1, MatchedOn: axisDomain,
 		}}}
 	case DecisionFuzzyReview:
 		refs := make([]ResolveRef, 0, len(match.Ranked))

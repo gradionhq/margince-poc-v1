@@ -23,8 +23,8 @@ func TestAnExactKeyHitAnswersMatched(t *testing.T) {
 		person: recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
 	}}
 	result := handleResolve(t, provider, `{"candidates":[{"kind":"person","ref":"card-1","emails":["anna@acme.example"]}]}`,
-		[]ResolveOutcome{{Verdict: ResolveVerdictExact, Refs: []ResolveRef{
-			{Kind: "person", ID: person, Confidence: 1, MatchedOn: "email"},
+		[]ResolveOutcome{{Refs: []ResolveRef{
+			{Kind: "person", ID: person, Exact: true, Confidence: 1, MatchedOn: "email"},
 		}}})
 
 	answer := result.Candidates[0]
@@ -51,7 +51,7 @@ func TestANearMatchIsNeverPresentedAsAMatch(t *testing.T) {
 		person: recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
 	}}
 	result := handleResolve(t, provider, `{"candidates":[{"kind":"person","name":"Anna Weber"}]}`,
-		[]ResolveOutcome{{Verdict: ResolveVerdictAmbiguous, Refs: []ResolveRef{
+		[]ResolveOutcome{{Refs: []ResolveRef{
 			{Kind: "person", ID: person, Confidence: 0.99, MatchedOn: "full_name"},
 		}}})
 
@@ -64,7 +64,7 @@ func TestANearMatchIsNeverPresentedAsAMatch(t *testing.T) {
 // string a caller might read as a label they chose.
 func TestACandidateWithNoLabelCarriesNone(t *testing.T) {
 	result := handleResolve(t, &queryProbeProvider{}, `{"candidates":[{"kind":"person","name":"Nobody"}]}`,
-		[]ResolveOutcome{{Verdict: ResolveVerdictNone}})
+		[]ResolveOutcome{{}})
 
 	if result.Candidates[0].Ref != "" {
 		t.Errorf("ref = %q, want none", result.Candidates[0].Ref)
@@ -77,76 +77,131 @@ func TestACandidateWithNoLabelCarriesNone(t *testing.T) {
 	}
 }
 
-// The sharpest rule here: a candidate whose ONLY match is outside the caller's
-// visibility answers `unresolved` — the same word a genuine miss gets.
+// THE SHARPEST RULE HERE, and it is asserted on the WHOLE ANSWER rather than on
+// the decision word.
 //
-// A distinct decision would be a probe. Send one address at a time and a
-// "resolved, but not for you" answer tells the caller that a record they are not
-// allowed to know exists holds that address.
-func TestAMatchTheCallerCannotSeeIsIndistinguishableFromNoMatch(t *testing.T) {
+// A candidate whose only match is outside the caller's visibility must be
+// indistinguishable from one that names nothing at all — and "indistinguishable"
+// is a claim about everything the caller can observe, not about one field.
+// Comparing only `decision` is how the conditional row-scope warning survived a
+// review: both answers said `unresolved`, and the envelope beside them said
+// which was which.
+//
+// So this compares the two sealed results byte for byte, with the trace id
+// blanked because it is unique per call by construction and carries nothing
+// about the answer.
+func TestAWithheldMatchAndAGenuineMissAreByteIdentical(t *testing.T) {
 	hidden := ids.NewV7()
-	provider := &queryProbeProvider{fail: map[ids.UUID]error{hidden: apperrors.ErrPermissionDenied}}
-	withheld := handleResolve(t, provider, `{"candidates":[{"kind":"person","emails":["anna@acme.example"]}]}`,
-		[]ResolveOutcome{{Verdict: ResolveVerdictExact, Refs: []ResolveRef{
-			{Kind: "person", ID: hidden, Confidence: 1, MatchedOn: "email"},
-		}}})
-	genuine := handleResolve(t, &queryProbeProvider{}, `{"candidates":[{"kind":"person","emails":["nobody@acme.example"]}]}`,
-		[]ResolveOutcome{{Verdict: ResolveVerdictNone}})
+	args := `{"candidates":[{"kind":"person","ref":"probe","emails":["anna@acme.example"]}]}`
 
-	if withheld.Candidates[0].Decision != ResolveDecisionUnresolved {
-		t.Errorf("a withheld match answered %q, which distinguishes it from a real miss",
-			withheld.Candidates[0].Decision)
-	}
-	if len(withheld.Candidates[0].Matches) != 0 {
-		t.Errorf("a record the caller may not read was served anyway: %+v", withheld.Candidates[0].Matches)
-	}
-	if withheld.Candidates[0].Decision != genuine.Candidates[0].Decision {
-		t.Errorf("withheld answers %q and a genuine miss answers %q — the pair is a probe",
-			withheld.Candidates[0].Decision, genuine.Candidates[0].Decision)
+	withheld := sealedResolve(t, resolveEntities{
+		p:       &queryProbeProvider{fail: map[ids.UUID]error{hidden: apperrors.ErrPermissionDenied}},
+		resolve: fixedResolver([]ResolveOutcome{{Refs: []ResolveRef{{Kind: "person", ID: hidden, Exact: true, Confidence: 1, MatchedOn: "email"}}}}),
+	}, args)
+	genuine := sealedResolve(t, resolveEntities{
+		p:       &queryProbeProvider{},
+		resolve: fixedResolver([]ResolveOutcome{{}}),
+	}, args)
+
+	if withheld != genuine {
+		t.Errorf("a withheld match and a genuine miss are told apart by the answer itself:\n withheld = %s\n  genuine = %s",
+			withheld, genuine)
 	}
 }
 
-// Ambiguity is NOT collapsed by row scope. Answering `matched` because the rival
-// happens to be hidden would settle a disagreement using the caller's own
-// blindness — telling them "this is definitely them" precisely because the
-// record that contradicts it is out of reach.
-func TestRowScopeDoesNotCollapseAnAmbiguousAnswer(t *testing.T) {
+// THE DECISION WORD IS COMPUTED FROM THE VISIBLE SET ALONE, and this is the
+// test that pins it against the oracle it closes.
+//
+// A candidate can mix a key the caller can read with a key they are guessing. If
+// the ladder's own verdict reached the decision, the guessed key would answer
+// `ambiguous` when it belongs to a hidden record and `matched` when it belongs
+// to nobody — with an identical single visible match either way, so the WORD
+// answers a question about a record they may not read, one probe at a time.
+func TestAHiddenRivalCannotChangeTheDecisionWord(t *testing.T) {
 	visible, hidden := ids.NewV7(), ids.NewV7()
-	provider := &queryProbeProvider{
-		records: map[ids.UUID]datasource.Record{
-			visible: recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
-		},
-		fail: map[ids.UUID]error{hidden: apperrors.ErrNotFound},
+	records := map[ids.UUID]datasource.Record{
+		visible: recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
 	}
+	args := `{"candidates":[{"kind":"person","emails":["anna@acme.example"],"phones":["+4915112345678"]}]}`
+	visibleRef := ResolveRef{Kind: "person", ID: visible, Exact: true, Confidence: 1, MatchedOn: "email"}
+
+	// The guessed phone belongs to a record outside the caller's reach: the
+	// ladder names both, and the rival is dropped at hydration.
+	withRival := handleResolve(t,
+		&queryProbeProvider{records: records, fail: map[ids.UUID]error{hidden: apperrors.ErrPermissionDenied}},
+		args, []ResolveOutcome{{Refs: []ResolveRef{
+			visibleRef,
+			{Kind: "person", ID: hidden, Exact: true, Confidence: 1, MatchedOn: "phone"},
+		}}})
+	// The guessed phone belongs to nobody.
+	withoutRival := handleResolve(t, &queryProbeProvider{records: records}, args,
+		[]ResolveOutcome{{Refs: []ResolveRef{visibleRef}}})
+
+	if withRival.Candidates[0].Decision != withoutRival.Candidates[0].Decision {
+		t.Fatalf("a hidden rival answered %q where no rival answers %q — the decision word is an oracle",
+			withRival.Candidates[0].Decision, withoutRival.Candidates[0].Decision)
+	}
+	if withRival.Candidates[0].Decision != ResolveDecisionMatched {
+		t.Errorf("decision = %q, want matched: one exact key, one visible record", withRival.Candidates[0].Decision)
+	}
+	if len(withRival.Candidates[0].Matches) != 1 {
+		t.Errorf("matches = %+v, want only the record the caller may read", withRival.Candidates[0].Matches)
+	}
+}
+
+// Two rivals the caller CAN see are ambiguous, so the collapse above is a
+// visibility rule and not a blanket "one match wins".
+func TestTwoVisibleRivalsStayAmbiguous(t *testing.T) {
+	first, second := ids.NewV7(), ids.NewV7()
+	provider := &queryProbeProvider{records: map[ids.UUID]datasource.Record{
+		first:  recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
+		second: recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
+	}}
 	result := handleResolve(t, provider, `{"candidates":[{"kind":"person","emails":["anna@acme.example"]}]}`,
-		[]ResolveOutcome{{Verdict: ResolveVerdictAmbiguous, Refs: []ResolveRef{
-			{Kind: "person", ID: visible, Confidence: 1, MatchedOn: "email"},
-			{Kind: "person", ID: hidden, Confidence: 1, MatchedOn: "phone"},
+		[]ResolveOutcome{{Refs: []ResolveRef{
+			{Kind: "person", ID: first, Exact: true, Confidence: 1, MatchedOn: "email"},
+			{Kind: "person", ID: second, Exact: true, Confidence: 1, MatchedOn: "phone"},
 		}}})
 
 	if got := result.Candidates[0].Decision; got != ResolveDecisionAmbiguous {
-		t.Errorf("decision = %q, want ambiguous — one survivor of a disagreement is not a resolution", got)
-	}
-	if len(result.Candidates[0].Matches) != 1 {
-		t.Errorf("matches = %+v, want only the record the caller may read", result.Candidates[0].Matches)
+		t.Errorf("decision = %q, want ambiguous — two keys named two people the caller can see", got)
 	}
 }
 
-// The narrowing is reported ONCE for the call, with no count and no candidate
-// named. Per candidate it would restore the probe the drop exists to prevent.
-func TestTheRowScopeWarningNamesNoCandidateAndNoCount(t *testing.T) {
-	first, second := ids.NewV7(), ids.NewV7()
-	provider := &queryProbeProvider{fail: map[ids.UUID]error{
-		first: apperrors.ErrPermissionDenied, second: apperrors.ErrPermissionDenied,
-	}}
-	tool := resolveEntities{p: provider, resolve: fixedResolver([]ResolveOutcome{
-		{Verdict: ResolveVerdictExact, Refs: []ResolveRef{{Kind: "person", ID: first, MatchedOn: "email"}}},
-		{Verdict: ResolveVerdictExact, Refs: []ResolveRef{{Kind: "person", ID: second, MatchedOn: "phone"}}},
-	})}
+// THE CAVEAT IS UNCONDITIONAL, and this test is the reason it has to be.
+//
+// A caveat raised only when something was withheld is a signal that something
+// was withheld — and a batch of ONE candidate turns that call-level signal into
+// a per-address one. So the envelope must be indistinguishable between a probe
+// that hit a hidden record and one that hit nothing at all.
+func TestTheVisibilityCaveatIsRaisedWhetherOrNotAnythingWasWithheld(t *testing.T) {
+	hidden := ids.NewV7()
+	args := `{"candidates":[{"kind":"person","ref":"a"}]}`
+
+	withheld := warningCodes(t, resolveEntities{
+		p:       &queryProbeProvider{fail: map[ids.UUID]error{hidden: apperrors.ErrPermissionDenied}},
+		resolve: fixedResolver([]ResolveOutcome{{Refs: []ResolveRef{{Kind: "person", ID: hidden, Exact: true}}}}),
+	}, args)
+	absent := warningCodes(t, resolveEntities{
+		p:       &queryProbeProvider{},
+		resolve: fixedResolver([]ResolveOutcome{{}}),
+	}, args)
+
+	if !withheld[CodeResolutionBoundedByVisibility] || !absent[CodeResolutionBoundedByVisibility] {
+		t.Fatalf("the caveat is conditional: withheld=%v absent=%v", withheld, absent)
+	}
+	if len(withheld) != len(absent) {
+		t.Errorf("a withheld match carries %d warnings and a genuine miss %d — the difference is the oracle",
+			len(withheld), len(absent))
+	}
+}
+
+// The caveat never sizes what it is about, and never names a candidate.
+func TestTheVisibilityCaveatSizesNothing(t *testing.T) {
+	tool := resolveEntities{p: &queryProbeProvider{}, resolve: fixedResolver([]ResolveOutcome{{}})}
 	registry, _, ctx := chargingRegistry(t, tool)
 
-	raw, err := registry.Invoke(ctx, "resolve_entities", json.RawMessage(
-		`{"candidates":[{"kind":"person","ref":"a"},{"kind":"person","ref":"b"}]}`))
+	raw, err := registry.Invoke(ctx, "resolve_entities", json.RawMessage(`{"candidates":[{"kind":"person","ref":"anna"}]}`))
 	if err != nil {
 		t.Fatalf("invoking resolve_entities: %v", err)
 	}
@@ -156,22 +211,53 @@ func TestTheRowScopeWarningNamesNoCandidateAndNoCount(t *testing.T) {
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		t.Fatalf("reading the envelope: %v", err)
 	}
-
-	seen := 0
 	for _, w := range envelope.Warnings {
-		if w.Code != CodeResolutionRowScoped {
+		if w.Code != CodeResolutionBoundedByVisibility {
 			continue
 		}
-		seen++
 		if strings.ContainsAny(w.Message, "0123456789") {
-			t.Errorf("the warning carries a number, which sizes the hidden set: %q", w.Message)
+			t.Errorf("the caveat carries a number: %q", w.Message)
 		}
-		if strings.Contains(w.Message, `"a"`) || strings.Contains(w.Message, `"b"`) {
-			t.Errorf("the warning names a candidate, which turns a batch into a probe: %q", w.Message)
+		if strings.Contains(w.Message, "anna") {
+			t.Errorf("the caveat names a candidate: %q", w.Message)
 		}
 	}
-	if seen != 1 {
-		t.Errorf("the narrowing was reported %d times, want once for the whole call", seen)
+}
+
+// A candidate answered with no record still costs a read. Left free,
+// `unresolved` is an unlimited lookup: ask about every address in turn and the
+// bound never moves, so the meter that is meant to bound probing sees exactly
+// the calls that are pure probing as costing nothing.
+func TestAnUnansweredCandidateIsStillCharged(t *testing.T) {
+	tool := resolveEntities{p: &queryProbeProvider{}, resolve: fixedResolver([]ResolveOutcome{{}, {}})}
+	registry, charger, ctx := chargingRegistry(t, tool)
+
+	if _, err := registry.Invoke(ctx, "resolve_entities", json.RawMessage(
+		`{"candidates":[{"kind":"person"},{"kind":"person"}]}`,
+	)); err != nil {
+		t.Fatalf("invoking resolve_entities: %v", err)
+	}
+
+	if charger.charged != 2 {
+		t.Errorf("charged %d for two unanswered candidates, want 2", charger.charged)
+	}
+}
+
+// A kind outside the pair this tool answers is the CALLER's mistake and reads as
+// one. Unchecked it reaches the resolver's own switch and comes back as an
+// internal fault carrying the owning module's name.
+func TestAnUnknownKindIsRefusedAsAnArgument(t *testing.T) {
+	tool := resolveEntities{p: &queryProbeProvider{}, resolve: unreachedResolver(t)}
+
+	for _, args := range []string{
+		`{"candidates":[{"kind":"lead","name":"Anna"}]}`,
+		`{"candidates":[{"name":"Anna"}]}`,
+	} {
+		var bad *BadArgsError
+		_, err := tool.Handle(t.Context(), json.RawMessage(args))
+		if !errors.As(err, &bad) {
+			t.Errorf("%s answered %v, want an argument refusal", args, err)
+		}
 	}
 }
 
@@ -183,15 +269,16 @@ func TestResolutionIsChargedPerRecordServed(t *testing.T) {
 	for range 4 {
 		id := ids.NewV7()
 		provider.records[id] = recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true)
-		outcomes = append(outcomes, ResolveOutcome{Verdict: ResolveVerdictExact, Refs: []ResolveRef{
-			{Kind: "person", ID: id, Confidence: 1, MatchedOn: "email"},
+		outcomes = append(outcomes, ResolveOutcome{Refs: []ResolveRef{
+			{Kind: "person", ID: id, Exact: true, Confidence: 1, MatchedOn: "email"},
 		}})
 	}
 	tool := resolveEntities{p: provider, resolve: fixedResolver(outcomes)}
 	registry, charger, ctx := chargingRegistry(t, tool)
 
 	if _, err := registry.Invoke(ctx, "resolve_entities", json.RawMessage(
-		`{"candidates":[{"kind":"person"},{"kind":"person"},{"kind":"person"},{"kind":"person"}]}`)); err != nil {
+		`{"candidates":[{"kind":"person"},{"kind":"person"},{"kind":"person"},{"kind":"person"}]}`,
+	)); err != nil {
 		t.Fatalf("invoking resolve_entities: %v", err)
 	}
 
@@ -208,14 +295,15 @@ func TestARecordNamedByTwoCandidatesIsChargedOnce(t *testing.T) {
 	provider := &queryProbeProvider{records: map[ids.UUID]datasource.Record{
 		person: recordAt(datasource.EntityPerson, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
 	}}
-	shared := ResolveOutcome{Verdict: ResolveVerdictExact, Refs: []ResolveRef{
-		{Kind: "person", ID: person, Confidence: 1, MatchedOn: "email"},
+	shared := ResolveOutcome{Refs: []ResolveRef{
+		{Kind: "person", ID: person, Exact: true, Confidence: 1, MatchedOn: "email"},
 	}}
 	tool := resolveEntities{p: provider, resolve: fixedResolver([]ResolveOutcome{shared, shared})}
 	registry, charger, ctx := chargingRegistry(t, tool)
 
 	raw, err := registry.Invoke(ctx, "resolve_entities", json.RawMessage(
-		`{"candidates":[{"kind":"person","ref":"a"},{"kind":"person","ref":"b"}]}`))
+		`{"candidates":[{"kind":"person","ref":"a"},{"kind":"person","ref":"b"}]}`,
+	))
 	if err != nil {
 		t.Fatalf("invoking resolve_entities: %v", err)
 	}
@@ -263,10 +351,11 @@ func TestTheCandidateBatchIsBounded(t *testing.T) {
 // would misalign every label after the gap — a caller acting on the wrong
 // candidate's answer, silently. It is a defect in the seam, and it fails.
 func TestAMisalignedResolverAnswerFailsRatherThanShifting(t *testing.T) {
-	tool := resolveEntities{p: &queryProbeProvider{}, resolve: fixedResolver([]ResolveOutcome{{Verdict: ResolveVerdictNone}})}
+	tool := resolveEntities{p: &queryProbeProvider{}, resolve: fixedResolver([]ResolveOutcome{{}})}
 
 	_, err := tool.Handle(t.Context(), json.RawMessage(
-		`{"candidates":[{"kind":"person","ref":"a"},{"kind":"person","ref":"b"}]}`))
+		`{"candidates":[{"kind":"person","ref":"a"},{"kind":"person","ref":"b"}]}`,
+	))
 	if err == nil {
 		t.Fatal("an answer covering one of two candidates was accepted, so every later label shifted")
 	}
@@ -279,7 +368,7 @@ func TestAnUnreachableStoreDoesNotReadAsNoMatch(t *testing.T) {
 	id := ids.NewV7()
 	provider := &queryProbeProvider{fail: map[ids.UUID]error{id: errors.New("the pool is exhausted")}}
 	tool := resolveEntities{p: provider, resolve: fixedResolver([]ResolveOutcome{
-		{Verdict: ResolveVerdictExact, Refs: []ResolveRef{{Kind: "person", ID: id, MatchedOn: "email"}}},
+		{Refs: []ResolveRef{{Kind: "person", ID: id, Exact: true, MatchedOn: "email"}}},
 	})}
 
 	if _, err := tool.Handle(t.Context(), json.RawMessage(`{"candidates":[{"kind":"person"}]}`)); err == nil {
@@ -332,4 +421,47 @@ func unreachedResolver(t *testing.T) EntityResolver {
 		t.Error("the resolver was reached by a call that should have been refused")
 		return nil, nil
 	}
+}
+
+// warningCodes invokes a tool and returns the set of warning codes its envelope
+// carried, which is what a caller can actually observe about a call.
+func warningCodes(t *testing.T, tool resolveEntities, args string) map[string]bool {
+	t.Helper()
+	registry, _, ctx := chargingRegistry(t, tool)
+	raw, err := registry.Invoke(ctx, "resolve_entities", json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("invoking resolve_entities: %v", err)
+	}
+	var envelope struct {
+		Warnings []Warning `json:"warnings"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("reading the envelope: %v", err)
+	}
+	codes := map[string]bool{}
+	for _, w := range envelope.Warnings {
+		codes[w.Code] = true
+	}
+	return codes
+}
+
+// sealedResolve invokes the tool and returns its whole sealed result with the
+// per-call trace id blanked, so two calls can be compared as answers.
+func sealedResolve(t *testing.T, tool resolveEntities, args string) string {
+	t.Helper()
+	registry, _, ctx := chargingRegistry(t, tool)
+	raw, err := registry.Invoke(ctx, "resolve_entities", json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("invoking resolve_entities: %v", err)
+	}
+	var sealed map[string]any
+	if err := json.Unmarshal(raw, &sealed); err != nil {
+		t.Fatalf("the result is not an envelope: %v (%s)", err, raw)
+	}
+	delete(sealed, "trace_id")
+	normalized, err := json.Marshal(sealed)
+	if err != nil {
+		t.Fatalf("re-encoding the result: %v", err)
+	}
+	return string(normalized)
 }

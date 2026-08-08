@@ -71,6 +71,14 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 	// through the log.
 	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}, Dimensions: dims})
 	if err != nil {
+		// A CANCELLED REQUEST IS NOT A DEGRADED ONE. The caller is gone or their
+		// deadline has passed, so a lexical page has nobody to reach — and
+		// reporting a cancellation as this workspace's embed lane being down
+		// would describe the caller's own timeout as a property of the
+		// installation.
+		if ctx.Err() != nil {
+			return nil, false, err
+		}
 		slog.WarnContext(ctx, "embedding the query failed; ranking this search lexically",
 			"identity", identity, "err", err)
 		return degradeToLexical(lexical.Hits, limit), false, nil
@@ -86,7 +94,13 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 	if err != nil {
 		return nil, false, err
 	}
-	return fuseRankedResults(lexical.Hits, vector, limit), true, nil
+	// SEMANTIC MEANS THE VECTOR LANE CONTRIBUTED, not that it ran. An empty
+	// vector page is the ordinary shape after a binding change and before the
+	// reindex catches up: the query embeds fine, and SimilarEntities filters to
+	// rows stored under this exact identity, of which there are none yet. What
+	// comes back is then the lexical page, and calling it semantic would put the
+	// most misleading label on an answer at exactly the moment it is least true.
+	return fuseRankedResults(lexical.Hits, vector, limit), len(vector) > 0, nil
 }
 
 // degradeToLexical is the answer when the vector lane cannot contribute: the
