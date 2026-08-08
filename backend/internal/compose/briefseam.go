@@ -47,7 +47,12 @@ func briefRunToTool(run briefs.BriefRun) agents.ReadBriefResult {
 	for _, item := range run.Items {
 		items = append(items, agents.BriefItem{
 			ItemID: item.ID, DealID: item.DealID, Rank: item.Rank,
-			Composite: item.Composite, State: item.State,
+			Composite: item.Composite, Factors: agents.BriefFactors{
+				Winnability: item.Features.Winnability, Revenue: item.Features.Revenue,
+				Timing: item.Features.Timing, Momentum: item.Features.Momentum,
+				Warmth: item.Features.Warmth,
+			},
+			State: item.State, StateAt: item.StateAt,
 			// Never null on the wire: an empty evidence list and an unread one
 			// are different facts, and only one of them can be true here —
 			// the brief's own evidence-or-omit rule means an item without

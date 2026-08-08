@@ -166,12 +166,18 @@ func (t listRecords) sourceOfStageIDs() []string {
 
 // describe renders one filter as a caller must spell it: the closed vocabulary
 // where the contract declares one, since a plausible-looking word outside it is
-// the operand a caller gets wrong.
+// the operand a caller gets wrong, and otherwise the operand's own type where it
+// is not a string — every operand travels as a string on this wire, so `true`
+// and `3` are the two a caller would otherwise have to guess the spelling of.
 func (f listFilter) describe() string {
-	if len(f.Enum) > 0 {
+	switch {
+	case len(f.Enum) > 0:
 		return f.Name + " (" + strings.Join(f.Enum, "|") + ")"
+	case f.Type != "" && f.Type != schemaString:
+		return f.Name + " (" + f.Type + ")"
+	default:
+		return f.Name
 	}
-	return f.Name
 }
 
 func (t listRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

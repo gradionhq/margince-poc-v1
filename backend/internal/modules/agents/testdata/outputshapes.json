@@ -2910,6 +2910,33 @@
                     "format": "uuid"
                   }
                 },
+                "factors": {
+                  "type": "object",
+                  "properties": {
+                    "momentum": {
+                      "type": "number"
+                    },
+                    "revenue": {
+                      "type": "number"
+                    },
+                    "timing": {
+                      "type": "number"
+                    },
+                    "warmth": {
+                      "type": "number"
+                    },
+                    "winnability": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "momentum",
+                    "revenue",
+                    "timing",
+                    "warmth",
+                    "winnability"
+                  ]
+                },
                 "item_id": {
                   "type": "string",
                   "format": "uuid"
@@ -2922,12 +2949,16 @@
                 },
                 "state": {
                   "type": "string"
+                },
+                "state_at": {
+                  "type": "string"
                 }
               },
               "required": [
                 "composite",
                 "deal_id",
                 "evidence_ids",
+                "factors",
                 "item_id",
                 "rank",
                 "state"

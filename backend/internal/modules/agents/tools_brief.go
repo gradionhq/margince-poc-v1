@@ -41,6 +41,14 @@ import (
 // It never ranks. The contract is explicit that the read re-reads the
 // read-model and the home route never blocks on assembly (B-E05.3b), and an
 // agent asking what the queue says must not be the thing that changes it.
+//
+// ONE thing behind this read does write, and it is worth stating rather than
+// discovering: the engine resolves snoozes as it reads, so an item whose snooze
+// has expired flips back to actionable in the read's own transaction (A77). It
+// is the same entry point the human's own home route calls, the flip is decided
+// by the clock rather than by the caller, and reading twice changes nothing the
+// first read did not — but it does mean an agent's read can be what materializes
+// a state the person then sees.
 type BriefReader func(ctx context.Context) (ReadBriefResult, error)
 
 // RegisterBriefTool joins read_brief to the surface once a reader exists — the
@@ -64,6 +72,12 @@ type ReadBriefResult struct {
 	AsOf        time.Time `json:"as_of"`
 	// CandidateCount is how many deals cleared the honest-short bar, which may
 	// exceed the queue: the difference is what the ranking left out.
+	//
+	// The run's revenue normalization base is deliberately NOT here. It is the
+	// workspace-wide value the revenue FACTOR was divided by, and the factor is
+	// already served normalized — so the base explains nothing an agent can act
+	// on, and it is the one number on the run that describes the workspace
+	// rather than this rep's queue.
 	CandidateCount int `json:"candidate_count"`
 	// Items is never null on the wire. An agent reading `null` has to decide
 	// whether it means "nothing is queued" or "the queue was not read".
@@ -78,17 +92,37 @@ type BriefItem struct {
 	// Rank is the position in the queue, 1 first.
 	Rank      int     `json:"rank"`
 	Composite float64 `json:"composite"`
+	// Factors is the decomposition the composite reconciles to, each normalized
+	// 0..1. It travels WITH the score because the score without it is the
+	// mystery number the brief's own contract exists to forbid: an agent that
+	// can only say "this ranked first" restates the queue, while one that can
+	// say "it ranked first on momentum and warmth" has told the person
+	// something. It is the persisted vector, not a re-derivation.
+	Factors BriefFactors `json:"factors"`
 	// State is the acting human's own queue state — new, acted, dismissed or
-	// snoozed. An agent reads it to avoid re-raising what a person has already
-	// dealt with; only that person may change it.
-	State string `json:"state"`
+	// snoozed — and StateAt when they left it there. An agent reads both to
+	// avoid re-raising what a person has already dealt with, and how long ago
+	// is part of that judgement; only that person may change either.
+	State   string     `json:"state"`
+	StateAt *time.Time `json:"state_at,omitempty"`
 	// EvidenceIDs are the rows the ranking rests on, so an answer cites rather
-	// than restates. They are references, not content: reading one is its own
-	// call through read_record, and charges its own record then.
+	// than restates: the deal itself, and the activity rows behind momentum and
+	// warmth. Each is CHARGED — naming a record to an agent is handing that
+	// record over, which is the same rule the intent tools' own id-shaped
+	// answers are metered under.
 	EvidenceIDs []ids.UUID `json:"evidence_ids"`
 	// SnoozedUntil is when a snoozed item re-surfaces, and is absent unless the
 	// item is snoozed.
 	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
+}
+
+// BriefFactors is the §10.1 factor decomposition, each normalized 0..1.
+type BriefFactors struct {
+	Winnability float64 `json:"winnability"`
+	Revenue     float64 `json:"revenue"`
+	Timing      float64 `json:"timing"`
+	Momentum    float64 `json:"momentum"`
+	Warmth      float64 `json:"warmth"`
 }
 
 type readBrief struct {
@@ -118,12 +152,34 @@ func (t readBrief) Handle(ctx context.Context, in json.RawMessage) (json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	// One charge per item, at the point the items are handed over. noteEvidence
-	// is the same accounting the intent tools use for a record they NAME rather
-	// than carry: naming a deal to an agent is handing that deal over, and a
-	// queue of them is a bulk read however few bytes it costs to serve.
-	for _, item := range result.Items {
-		noteEvidence(ctx, datasource.EntityDeal, item.DealID)
-	}
+	chargeBriefItems(ctx, result.Items)
 	return json.Marshal(result)
+}
+
+// chargeBriefItems charges every record the queue NAMES, at the point it is
+// handed over.
+//
+// noteEvidence is the accounting the intent tools already use for a record an
+// answer names rather than carries — "naming a record to an agent is handing
+// that record over" — and it is why draft_follow_ups_for charges both the deal
+// it drafted against and the draft it made. A brief names more than one record
+// per item: the deal, and the activity rows its momentum and warmth rest on. A
+// queue of ten items citing fifteen rows each is a bulk read whatever it costs
+// to serve, and metering only the deals would leave the rest of it free.
+//
+// The deal appears in its own evidence list — the ranking cites it as the
+// source of winnability, revenue and timing — so it is skipped there rather
+// than charged twice. The remaining rows are the activity rows the ranker
+// gathers; TestBriefEvidenceIsTheDealThenItsActivityRows in the brief engine
+// holds that construction, so this is a fact about the ranking rather than an
+// assumption made here.
+func chargeBriefItems(ctx context.Context, items []BriefItem) {
+	for _, item := range items {
+		noteEvidence(ctx, datasource.EntityDeal, item.DealID)
+		for _, evidence := range item.EvidenceIDs {
+			if evidence != item.DealID {
+				noteEvidence(ctx, datasource.EntityActivity, evidence)
+			}
+		}
+	}
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// The brief is charged PER ITEM.
+// The brief is charged per RECORD it names, not per item and not per call.
 //
 // Its items are contract types rather than datasource.Records, so they ride no
 // chokepoint and nothing charges for them by default — which is exactly how a
@@ -28,9 +28,12 @@ func TestTheBriefIsChargedPerItem(t *testing.T) {
 		t.Fatalf("invoking read_brief: %v", err)
 	}
 
-	if charger.charged != 3 {
-		t.Errorf("charged %d for a queue of 3 items, want 3 — metered per call, the brief is the "+
-			"cheapest bulk read on the surface", charger.charged)
+	// Three deals and the two activity rows each item's ranking cites: a brief
+	// names more than one record per item, and metering only the deals would
+	// hand the rest of the queue over free.
+	if charger.charged != 9 {
+		t.Errorf("charged %d for 3 items naming 3 deals and 6 activity rows, want 9 — metered per "+
+			"item, the brief is the cheapest bulk read on the surface", charger.charged)
 	}
 }
 
@@ -73,7 +76,7 @@ func TestTheServedBriefCarriesTheRunTheEngineAnswered(t *testing.T) {
 	if result.Items[0].Rank != 1 || result.Items[0].State != "new" {
 		t.Errorf("item 0 = %+v, want the first-ranked item with its own queue state", result.Items[0])
 	}
-	if len(result.Items[0].EvidenceIDs) != 1 {
+	if len(result.Items[0].EvidenceIDs) != 3 {
 		t.Errorf("item 0 lost the evidence its ranking rests on: %+v", result.Items[0])
 	}
 }
@@ -132,8 +135,8 @@ func TestNoBriefEngineMeansNoBriefTool(t *testing.T) {
 	}
 }
 
-// briefOf answers a run of n ranked items, each naming its own deal and one
-// evidence row.
+// briefOf answers a run of n ranked items, each naming its own deal plus the
+// two activity rows its ranking cites — the shape the ranker actually builds.
 func briefOf(n int) BriefReader {
 	return func(context.Context) (ReadBriefResult, error) {
 		run := ReadBriefResult{
@@ -144,9 +147,14 @@ func briefOf(n int) BriefReader {
 			Items:          make([]BriefItem, 0, n),
 		}
 		for i := range n {
+			// The deal appears in its own evidence, exactly as the ranker
+			// builds it, so a test cannot pass a shape production never
+			// produces — and the deal must not be charged twice for it.
+			deal := ids.NewV7()
 			run.Items = append(run.Items, BriefItem{
-				ItemID: ids.NewV7(), DealID: ids.NewV7(), Rank: i + 1,
-				Composite: 0.9, State: "new", EvidenceIDs: []ids.UUID{ids.NewV7()},
+				ItemID: ids.NewV7(), DealID: deal, Rank: i + 1,
+				Composite: 0.9, State: "new",
+				EvidenceIDs: []ids.UUID{deal, ids.NewV7(), ids.NewV7()},
 			})
 		}
 		return run, nil

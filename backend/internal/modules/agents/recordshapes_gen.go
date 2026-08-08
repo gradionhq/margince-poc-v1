@@ -33,10 +33,14 @@ const activityKindEnum = `["email","call","meeting","note","task","whatsapp","te
 
 const activityLinkEntityTypeEnum = `["person","organization","deal","lead"]`
 
-// listRecordFilters is what list_records may be asked to filter by, per
-// record_type, read off each list operation's OWN declared query parameters
-// (A139). A filter here that the record's store cannot answer fails
-// TestEveryAdvertisedListFilterReachesTheStore.
+// listRecordFilters is the CONTRACT half of what list_records may be asked to
+// filter by, per record_type: each list operation's OWN declared query
+// parameters, read off crm.yaml rather than authored (A139).
+//
+// It is not the published vocabulary. A name here that no store can bind is
+// dropped at registration by bindableFilters — publishing it would run a list
+// unnarrowed while looking narrowed — and
+// TestOnlyAFilterBothTheContractAndAStoreCarryIsPublished holds that.
 var listRecordFilters = map[string][]listFilter{
 	"person": {
 		{Name: "owner_id", Type: "string"},

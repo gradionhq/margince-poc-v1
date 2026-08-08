@@ -18,7 +18,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ---- list_records' filter vocabulary, derived from the list operations ----// listOperations binds each enumerable record_type to the crm.yaml operation
+// ---- list_records' filter vocabulary, derived from the list operations ----
+
+// listOperations binds each enumerable record_type to the crm.yaml operation
 // that lists it. A139 pins the rule this implements: `list_records` accepts
 // "exactly those the REST list operation already declares — owner,
 // stage/status, updated_since, cursor — read off the contract rather than
@@ -133,10 +135,14 @@ func renderListFilters(b *strings.Builder, paths map[string]map[string]yaml.Node
 	if err != nil {
 		return err
 	}
-	b.WriteString("\n// listRecordFilters is what list_records may be asked to filter by, per\n")
-	b.WriteString("// record_type, read off each list operation's OWN declared query parameters\n")
-	b.WriteString("// (A139). A filter here that the record's store cannot answer fails\n")
-	b.WriteString("// TestEveryAdvertisedListFilterReachesTheStore.\n")
+	b.WriteString("\n// listRecordFilters is the CONTRACT half of what list_records may be asked to\n")
+	b.WriteString("// filter by, per record_type: each list operation's OWN declared query\n")
+	b.WriteString("// parameters, read off crm.yaml rather than authored (A139).\n")
+	b.WriteString("//\n")
+	b.WriteString("// It is not the published vocabulary. A name here that no store can bind is\n")
+	b.WriteString("// dropped at registration by bindableFilters — publishing it would run a list\n")
+	b.WriteString("// unnarrowed while looking narrowed — and\n")
+	b.WriteString("// TestOnlyAFilterBothTheContractAndAStoreCarryIsPublished holds that.\n")
 	b.WriteString("var listRecordFilters = map[string][]listFilter{\n")
 	for _, entry := range listOperations {
 		op, ok := byID[entry.operationID]
