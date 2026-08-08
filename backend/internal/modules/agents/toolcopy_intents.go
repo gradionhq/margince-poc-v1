@@ -105,3 +105,17 @@ var runReportCopy = toolCopy{
 	Retain: "Call a report with no plan arguments first to see what it answers by default, then " +
 		"narrow using the names its own catalog entry lists.",
 }
+
+var readBriefCopy = toolCopy{
+	Purpose: "Read the ranked queue the person you act for sees when they open their morning " +
+		"brief — the deals the workspace decided are worth their attention today, in order, " +
+		"with the rows behind each ranking.",
+	Limits: "It re-reads the last assembled run rather than building a new one, so its as_of " +
+		"says how current it is, and it is that person's own queue: it cannot be asked for " +
+		"anyone else's. Acting on, dismissing or snoozing an item is theirs alone.",
+	Instead: "Use whats_slipping_this_week when the question is which deals are losing momentum " +
+		"regardless of what today's brief chose, and read_record for what one of these deals " +
+		"currently says.",
+	Retain: "Each item names a deal_id and its evidence_ids; read those to cite what the ranking " +
+		"rested on rather than restating the item's own summary.",
+}

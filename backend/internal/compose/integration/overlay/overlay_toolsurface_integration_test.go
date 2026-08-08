@@ -73,6 +73,10 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		// table. The plan only has to be well-formed — the refusal lands
 		// before the vocabulary is resolved, let alone the statement run.
 		"query_workspace": `{"plan":{"version":"v1","target":"deal"}}`,
+		// The morning brief, ranked out of the rep's own open deals in the
+		// native tables. It takes no arguments: the queue a caller may read is
+		// the one belonging to the human they act for.
+		"read_brief": `{}`,
 		// A WRITE, and the one whose tool calls its module store directly — so
 		// it needs a decorator (nativeOnlyDisqualifier) where the other
 		// unservable writes inherit the provider's own refusal.

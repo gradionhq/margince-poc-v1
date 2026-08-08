@@ -115,6 +115,11 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// the same reason the intent tools' is: the executor queries native tables
 	// an overlay workspace has no rows in.
 	agents.RegisterQueryTool(registry, provider, nativeOnlyQueryRunner(sorMode, queryRunner(pool)))
+	// The morning brief. It ranks the rep's own open deals out of the native
+	// tables, which an overlay workspace has no rows in, so it takes the same
+	// outermost guard the other native-only engines do: "not available here"
+	// rather than an empty queue that reads as a quiet morning.
+	agents.RegisterBriefTool(registry, nativeOnlyBriefReader(sorMode, briefReader(pool)))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
 	// The overlay guard stays OUTERMOST so a mirror-backed workspace is
