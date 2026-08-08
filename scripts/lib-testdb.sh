@@ -18,10 +18,12 @@
 #     template's migrations grant the cluster-level margince_app role USAGE + table
 #     privileges (migration 0015), which the clone inherits, so the app role can
 #     connect and query without any per-clone GRANT.
-#   - Redis is a single shared instance passed through unchanged: only the events
-#     package touches Redis (its own logical db 15, flushed per test), so no two
-#     parallel packages contend for it. If a second Redis-using package is ever
-#     added, give each slot a private index here (and teach that test to read it).
+#   - Redis is a single shared instance, isolated by logical db rather than by
+#     instance: the parallel runner assigns each package its own index through
+#     MARGINCE_TEST_REDIS_DB and every Redis-using fixture reads it through
+#     testdb.RedisDB. More than one package touches Redis now, and the ones that
+#     do FLUSHDB between tests — so a shared index is a corruption, not
+#     contention. See REDIS_DBS in scripts/test-integration-parallel.sh.
 
 # parse_test_dsn: split MARGINCE_TEST_DSN (owner) and MARGINCE_TEST_APP_DSN (app)
 # into the reusable prefix/suffix each clone DSN is built from. Both DSNs point
