@@ -372,6 +372,18 @@ type answerShape struct {
 // by construction — that is what ranked_semantic says — so counting its bound
 // as a degradation would leave the verdict unreachable and tell a caller
 // nothing they did not ask for.
+// CoverageClasses is the CLOSED set coverageOf can answer with.
+//
+// It is exported so the surface that publishes these words can be held to
+// publishing all of them: the tool restates them on its own side (it may not
+// import this package) and refuses a class it does not know, so a fourth class
+// added here without the wire learning about it would become a refused call at
+// runtime rather than a build failure. The composition layer sees both and
+// compares the two sets.
+func CoverageClasses() []string {
+	return []string{CoverageCompleteExact, CoverageRankedSemantic, CoveragePartialDegraded}
+}
+
 func coverageOf(plan ValidatedPlan, shape answerShape) string {
 	switch {
 	case shape.degraded || shape.truncated:

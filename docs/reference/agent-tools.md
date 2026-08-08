@@ -44,9 +44,9 @@ the credential: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## The catalog
 
-The **30 core tools**, listed in the order `Registry.Specs()` sorts them — which
+The **31 core tools**, listed in the order `Registry.Specs()` sorts them — which
 is the order `tools/list` returns. An enabled extension unit adds its own verbs
-to the same listing, so a vanilla install answers 31: these plus `yogi_quote`
+to the same listing, so a vanilla install answers 32: these plus `yogi_quote`
 (🟢, `read`), which is not tabled here because the catalog tracks the core
 surface.
 
@@ -93,6 +93,7 @@ Columns:
 | `promote_lead` | 🟡 | `write` | — | `unsupported_by_sor` (no atomic incumbent projection) |
 | `qualify_lead` | 🟢 | `write` | — | Seam-routed: read + patch through the provider |
 | `read_record` | 🟢 | `read` | — | Mirror-backed; result carries `trust_tier: external` |
+| `query_workspace` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `relink_activity` | 🟢 | `write` | — | Runs: a link row is not an SoR record write, so it is available in either mode |
 | `run_report` | 🟢 | `read` | — | `unsupported_by_sor` (no incumbent analogue) |
 | `search_records` | 🟢 | `read` | — | Mirror-backed; results carry `trust_tier: external` |

@@ -97,6 +97,16 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// needs the overlay guard the record verbs get from the Dispatcher for free.
 	agents.RegisterPipelineTool(registry, nativeOnlyPipelines(sorMode, pipelineLister(pool)))
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))), reportToolCatalog())
+	// The governed workspace query. It takes the provider as well as the runner
+	// because the two halves of an answer come from different places: the plan
+	// selects records through the search module, and each selected record is
+	// READ back through the datasource seam — the one path that stamps the
+	// trust tier, collects the envelope's freshness, applies this caller's
+	// object RBAC and row scope to the record itself, and charges the record
+	// against their read bound. The guard is outermost for
+	// the same reason the intent tools' is: the executor queries native tables
+	// an overlay workspace has no rows in.
+	agents.RegisterQueryTool(registry, provider, nativeOnlyQueryRunner(sorMode, queryRunner(pool)))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
 	// The overlay guard stays OUTERMOST so a mirror-backed workspace is

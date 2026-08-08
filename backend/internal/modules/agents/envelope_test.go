@@ -150,18 +150,50 @@ func TestEveryToolAdvertisesTheWholeEnvelope(t *testing.T) {
 	}
 }
 
-// AC-MCP-9, asserted NEGATIVELY so the deferral cannot erode by accident: the
-// evaluative vocabulary has no producer yet, and the moment one of these words
-// reaches a client its meaning is frozen for every surface that follows.
+// AC-MCP-9, asserted NEGATIVELY so the deferral cannot erode by accident: an
+// evaluative word freezes its meaning for every surface that follows the moment
+// a client branches on it.
+//
+// `omitted_sections` still has no producer and is banned outright. `coverage`
+// has one — the query executor — so the ban became a condition rather than a
+// prohibition: a tool may publish it only by ENUMERATING the classes it can
+// answer with. That keeps the exception on the tool that earns it instead of on
+// a list in this test, where a second tool could join by editing the test.
 func TestNoResultSchemaCarriesADeferredEnvelopeField(t *testing.T) {
-	for _, spec := range fullRegistry(t).Specs() {
-		for _, deferred := range []string{"coverage", "omitted_sections"} {
-			if strings.Contains(string(spec.OutputSchema), `"`+deferred+`"`) {
-				t.Errorf("%s advertises %q, which BYO-RES-3 defers until something produces it — "+
-					"a client that branches on it freezes a word this build cannot yet mean", spec.Name, deferred)
-			}
+	registry := fullRegistry(t)
+	for _, spec := range registry.Specs() {
+		if strings.Contains(string(spec.OutputSchema), `"omitted_sections"`) {
+			t.Errorf("%s advertises %q, which BYO-RES-3 defers until something produces it — "+
+				"a client that branches on it freezes a word this build cannot yet mean",
+				spec.Name, "omitted_sections")
+		}
+		if !strings.Contains(string(spec.OutputSchema), `"coverage"`) {
+			continue
+		}
+		registry.mu.RLock()
+		tool := registry.tools[spec.Name]
+		registry.mu.RUnlock()
+		producer, ok := tool.(coverageProducer)
+		if !ok {
+			t.Errorf("%s advertises \"coverage\" without declaring the classes it can answer with — "+
+				"an evaluative word with no enumerated meaning is the deferral BYO-RES-3 made", spec.Name)
+			continue
+		}
+		if len(producer.CoverageClasses()) == 0 {
+			t.Errorf("%s declares an EMPTY coverage vocabulary, so the word it publishes means nothing", spec.Name)
 		}
 	}
+}
+
+// coverageProducer is the declaration that earns a tool the right to publish
+// `coverage`: the closed set of classes its result can carry.
+//
+// What this gate enforces is the DECLARATION — that a tool publishing the word
+// says which values it can mean. Holding the handler to it is each producer's
+// own obligation, owed as a refusal test beside the tool
+// (TestQueryWorkspaceRefusesACoverageClassItDoesNotPublish is the first).
+type coverageProducer interface {
+	CoverageClasses() []string
 }
 
 // The envelope reports the WORST freshness behind an answer, not the best: a

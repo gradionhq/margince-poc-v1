@@ -1,0 +1,28 @@
+name: a_name_alone_is_still_a_search
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: Pull up the Kärcher account — I think that is roughly what it is called.
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e05
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0a
+      trust_tier: T1
+      content: owner_id=user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: search_records
+  rubric: >
+    A remembered name and no conditions is the case search_records exists for,
+    and the caller says outright that the name is approximate. Score high only
+    if the turn calls search_records. query_workspace is the wrong reach here:
+    its vocabulary is exact predicates, so a name the caller is unsure of has to
+    match a stored value exactly or return nothing — a confident empty answer
+    where a text match would have found the account. read_record needs an id
+    nothing in this window supplies.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

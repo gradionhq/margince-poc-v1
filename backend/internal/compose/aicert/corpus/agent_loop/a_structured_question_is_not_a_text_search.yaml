@@ -1,0 +1,31 @@
+name: a_structured_question_is_not_a_text_search
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: >-
+    Which of our open deals worth at least 100,000 are with companies based in
+    Stuttgart?
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e04
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0a
+      trust_tier: T1
+      content: owner_id=user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: query_workspace
+  rubric: >
+    The goal states three conditions — a status, an amount floor, and a city
+    that belongs to the ORGANIZATION rather than to the deal — so it is a
+    question about which records satisfy a structure, not about which records
+    are called something. Score high only if the turn calls query_workspace.
+    search_records matches text stored on a record and can express none of the
+    three, so it would answer a wider question in a shape indistinguishable from
+    the right one; run_report answers counts and totals, not the deals
+    themselves.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

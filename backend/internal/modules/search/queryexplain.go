@@ -27,7 +27,7 @@ func explainPlan(plan ValidatedPlan) string {
 	}
 	sentence += explainHop(plan)
 	if plan.Plan.SimilarTo != "" {
-		sentence += ", ranked by similarity to " + quote(plan.Plan.SimilarTo)
+		sentence += ", ranked by similarity to " + quote(elideEcho(plan.Plan.SimilarTo))
 	}
 	sentence += "; at most " + strconv.Itoa(plan.Limit)
 	if plan.Plan.SimilarTo == "" {
@@ -128,7 +128,30 @@ func explainOperand(clause Predicate) string {
 		// operand that cannot be compacted is still shown, uncompacted, rather
 		// than dropped: a sentence missing the value it filtered on is worse
 		// than an untidy one.
-		return string(raw)
+		return elideEcho(string(raw))
 	}
-	return compact.String()
+	return elideEcho(compact.String())
+}
+
+// maxNarrativeEcho bounds one caller-written fragment's contribution to the
+// sentence.
+//
+// The narrative is CALLER TEXT traveling back to the caller, and on the agent
+// surface that means it lands in the same run's later prompts — so an unbounded
+// operand is an unbounded write into every prompt that follows. That is the
+// hazard `maxBadArgsDetail` and `maxToolNameEcho` already bound on the two
+// other echoes this surface has; the narrative was the third and had no bound
+// at all. Generous next to any real filter value, and far short of what a plan
+// can carry.
+const maxNarrativeEcho = 200
+
+// elideEcho keeps the sentence answering the question it exists for — "is this
+// the query I asked for?" — without letting it become a channel. A caller who
+// wrote a value this long is holding the whole of it already; what they need
+// back is which clause ran, and how much of it there was.
+func elideEcho(fragment string) string {
+	if len(fragment) <= maxNarrativeEcho {
+		return fragment
+	}
+	return fragment[:maxNarrativeEcho] + "…(" + strconv.Itoa(len(fragment)) + " bytes)"
 }

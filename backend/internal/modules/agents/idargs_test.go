@@ -181,6 +181,9 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	RegisterLifecycleTools(r, seamProbeProvider{},
 		seamProbeLifecycle{}, seamProbeLifecycle{}, seamProbeLifecycle{})
 	RegisterEnrichTool(r, seamProbeProvider{}, seamProbeLifecycle{})
+	RegisterQueryTool(r, seamProbeProvider{}, func(context.Context, json.RawMessage) (QueryAnswer, error) {
+		return QueryAnswer{}, errSeamReached
+	})
 	return NewDispatcher(r, bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }

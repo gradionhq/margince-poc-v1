@@ -1,0 +1,28 @@
+name: a_total_is_still_a_report
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: How much open pipeline do we have in each stage right now?
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e06
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0a
+      trust_tier: T1
+      content: owner_id=user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: run_report
+  rubric: >
+    The answer wanted is a total per stage — an aggregate — and run_report is
+    the only tool on this surface that computes one. Score high only if the turn
+    calls run_report. query_workspace returns the records that match a plan and
+    has no grouping, counting or totalling in its vocabulary at all, so reaching
+    for it here would hand back a page of deals and leave the arithmetic to be
+    done on whatever fraction of them fitted in the page — a wrong total that
+    looks like a right one.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

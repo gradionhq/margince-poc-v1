@@ -65,6 +65,12 @@ const (
 	CodeValueNotApplicable = "value_not_applicable"
 	// CodeLimitOutOfRange: outside the contract's CAP-PAGE window.
 	CodeLimitOutOfRange = "limit_out_of_range"
+	// CodePlanTooComplex: the plan is well-formed and every name in it is in
+	// vocabulary, but it asks for more work than one statement may carry — too
+	// many conditions in a list, or too many values in an `in`. It is its own
+	// code because the caller's fix is different from every other refusal
+	// here: nothing they wrote is wrong, there is simply too much of it.
+	CodePlanTooComplex = "plan_too_complex"
 	// CodeTraversalDepthExceeded: a second hop. Depth is capped in the
 	// grammar, so this is a refusal and never a truncation.
 	CodeTraversalDepthExceeded = "traversal_depth_exceeded"

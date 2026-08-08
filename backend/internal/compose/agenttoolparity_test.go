@@ -152,6 +152,12 @@ var composedIntents = map[string]bool{
 	"qualify_lead":             true,
 	"progress_deal":            true,
 	"run_report":               true,
+	// query_workspace composes over the same list operations search_records
+	// does, but no single one of them can declare it: a plan chooses its target
+	// at call time, and the records it selects are read back through the
+	// datasource seam. It is read-only and reaches nothing outside the
+	// workspace, which is what TestComposedIntentsNeverEgress holds it to.
+	"query_workspace": true,
 }
 
 // An intent may write inside the workspace; it may NOT reach outside it.

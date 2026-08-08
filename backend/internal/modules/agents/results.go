@@ -56,6 +56,67 @@ type SearchRecordsResult struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 }
 
+// QueryWorkspaceResult is what query_workspace answers: the records a plan
+// admitted, what kind of answer they are, and the plan that produced them.
+type QueryWorkspaceResult struct {
+	Rows []QueryWorkspaceRow `json:"rows"`
+	// Coverage is how exhaustively the plan was answered, from the closed set
+	// queryWorkspace.CoverageClasses publishes. It is the field a caller must
+	// read before treating the rows as the whole answer, which is why it is not
+	// omitempty: an absent coverage would read as a complete one.
+	Coverage string `json:"coverage"`
+	// Notes are the machine-readable reasons the coverage is what it is, never
+	// null on the wire — an agent reading `null` cannot tell "no reasons" from
+	// "not computed", and only one of those is true.
+	Notes []QueryNote `json:"notes"`
+	// ExecutedPlan is the plan that ran, in plain language. It is on the wire
+	// because rows read beside a sentence describing a DIFFERENT query is how a
+	// wrong answer becomes a trusted one. It is NOT the plan the caller sent:
+	// the two are different documents, and naming them alike is how a reader
+	// stops noticing which one they are holding.
+	ExecutedPlan string `json:"executed_plan"`
+	// Limit is the page size the plan ran under, so a truncation note can be
+	// read against the number that caused it.
+	Limit int `json:"limit"`
+}
+
+// QueryWorkspaceRow is one admitted record and why it was admitted.
+type QueryWorkspaceRow struct {
+	Record wireRecord `json:"record"`
+	// Score is the similarity rank score, absent on a plan that asked for no
+	// ranking — an exact answer has no order to justify.
+	Score float64 `json:"score,omitempty"`
+	// Evidence is the related record that admitted this row, when the plan took
+	// a traversal. It is what makes a hop legible as a reason rather than as an
+	// invisible filter, and it is never null for the same reason Notes is not.
+	Evidence []QueryEvidence `json:"evidence"`
+}
+
+// QueryEvidence is one related record that admitted a row, and the relationship
+// it was reached by.
+type QueryEvidence struct {
+	Relation   string   `json:"relation"`
+	RecordType string   `json:"record_type"`
+	ID         ids.UUID `json:"id"`
+	Title      string   `json:"title"`
+	// TrustTier is "external" when the hop record did not come from the native
+	// store, exactly as it is on a row's own record. A hop's content is
+	// content: an agent reading a title here is reading it as a reason to act,
+	// so it carries the same label the record it names would carry. Omitted for
+	// authoritative native reads.
+	TrustTier string `json:"trust_tier,omitempty"`
+}
+
+// QueryNote is one machine-readable reason a coverage class is what it is, so a
+// caller branches on the reason rather than on prose.
+type QueryNote struct {
+	Code string `json:"code"`
+	// Path is the plan-document path the note is about, and absent when the
+	// note is about the answer as a whole.
+	Path   string `json:"path,omitempty"`
+	Detail string `json:"detail"`
+}
+
 // ArchiveResult is what archive_record answers: the record it retired, named the
 // way every other tool names one.
 type ArchiveResult struct {
