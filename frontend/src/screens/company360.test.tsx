@@ -9,7 +9,8 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { PeopleCard } from "./company360";
 import { CompanyScreen } from "./organizations";
@@ -139,6 +140,15 @@ function stub(three60: unknown, status = 200, account: unknown = org) {
           dropped_count: 0,
         });
       }
+      // The viewer's grants. Without this useCan denies — it fails closed on a
+      // missing snapshot — and every in-place editor on the page renders as
+      // read-only text, so a test could not tell "correctly withheld" from
+      // "never built".
+      if (pathname.endsWith("/v1/me")) {
+        return jsonResponse(
+          meFixture({ allow: { organization: ["read", "update"] } }),
+        );
+      }
       if (pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(account);
       }
@@ -173,9 +183,18 @@ function stub(three60: unknown, status = 200, account: unknown = org) {
   return fetched;
 }
 
+// useMe only asks /v1/me once a workspace slug is resolved, and useCan denies
+// until it answers — so without the slug every in-place editor on this page
+// renders read-only and a test cannot tell a withheld control from a missing
+// one.
+beforeEach(() => {
+  globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  globalThis.localStorage.clear();
   briefBody = EMPTY_BRIEF;
 });
 
@@ -1154,7 +1173,7 @@ describe("company view — the visit baseline", () => {
 });
 
 describe("company view — where the account stands, and what it is to us", () => {
-  it("shows the lifecycle and every relationship type as separate badges", async () => {
+  it("shows where the account stands and every relationship type, as separate things", async () => {
     // Not "partner": that type also raises the Partner tab, and the badge and
     // the tab would then share a label, which tells the test nothing.
     stub(view(), 200, {
@@ -1167,20 +1186,32 @@ describe("company view — where the account stands, and what it is to us", () =
 
     // The retired classification held ONE value, which is how an account whose
     // contract had ended still read as "Prospect" while it was also a partner.
+    // Lifecycle is now the editable control; the types stay read-only badges.
+    // findBy, not getBy: the control appears only once /me answers with the
+    // viewer's grants, which resolves independently of the 360 awaited above.
+    expect(
+      await screen.findByRole("button", { name: "Change Account lifecycle" }),
+    ).toBeTruthy();
     expect(screen.getByText("Former customer")).toBeTruthy();
     expect(screen.getByText("Customer")).toBeTruthy();
     expect(screen.getByText("Supplier")).toBeTruthy();
   });
 
-  it("draws no badge for an account nobody has assessed", async () => {
+  it("offers the lifecycle control on an account nobody has assessed yet", async () => {
     stub(view(), 200, { ...org, lifecycle: "unknown", relationship_types: [] });
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
-    // 'unknown' is the honest default, and a badge announcing it on every new
-    // record is noise — the old column defaulted to 'prospect' and rendered
-    // that default as though someone had judged it.
-    expect(screen.queryByText("Not assessed")).toBeNull();
+    // 'unknown' used to draw nothing, on the reasoning that a badge announcing
+    // "nobody has assessed this" is noise. That holds for a badge and breaks
+    // for a control: hiding it at 'unknown' takes the field away from exactly
+    // the account that needs it set, and there is no other way in from here.
+    // What it must NOT do is read as a verdict, which is why it carries the
+    // field name and 'Not assessed' never stands on its own.
+    const control = await screen.findByRole("button", {
+      name: "Change Account lifecycle",
+    });
+    expect(control.textContent).toContain("Not assessed");
   });
 });
 
@@ -1419,5 +1450,34 @@ describe("company view — the way in to one contact", () => {
     await screen.findByText("Mira");
     expect(screen.getByText("in regular contact")).toBeTruthy();
     expect(fetched.filter((path) => path.endsWith("/graph"))).toHaveLength(1);
+  });
+});
+
+describe("company view — the account's primary actions", () => {
+  it("offers logging what happened and setting what happens next, as separate verbs", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // One button reading "Log activity", with the task hidden behind a type
+    // picker inside it, is why accounts collect notes and no follow-ups. The
+    // two verbs answer different questions and are asked separately.
+    expect(
+      await screen.findByRole("button", { name: "Log activity" }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Add task" }),
+    ).toBeTruthy();
+  });
+
+  it("offers neither on an archived company", async () => {
+    stub(view(), 200, { ...org, archived_at: "2026-07-01T09:00:00Z" });
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // The server refuses a write against a retired record, so the button would
+    // only open a form that fails on save.
+    expect(screen.queryByRole("button", { name: "Log activity" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add task" })).toBeNull();
   });
 });

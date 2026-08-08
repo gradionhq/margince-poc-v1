@@ -165,6 +165,7 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 		ParentOrgID:  idArg[ids.OrganizationKind](req.ParentOrgId),
 		IfVersion:    ifVersion,
 		CustomFields: req.AdditionalProperties,
+		LinkedInURL:  req.LinkedinUrl,
 	}
 	in.Address = req.Address
 	if req.SizeBand != nil {

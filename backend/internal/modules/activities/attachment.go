@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/jackc/pgx/v5"
@@ -48,7 +49,8 @@ type AttachmentInput struct {
 }
 
 const attachmentColumns = `at.id, at.workspace_id, at.entity_type, at.entity_id, at.filename,
-	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at, at.scan_status`
+	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at, at.scan_status,
+	at.category, at.title, at.doc_state, at.pinned, at.supersedes_id, at.organization_id`
 
 // attachmentSource marks how the row was captured; a direct upload is "upload".
 const attachmentSource = "upload"
@@ -122,12 +124,22 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 
 	var out crmcontracts.Attachment
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		rollUp, hasAccount, err := accountRollUp(ctx, tx, in.EntityType, in.EntityID)
+		if err != nil {
+			return err
+		}
+		var account *ids.UUID
+		if hasAccount {
+			account = &rollUp
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename,
-				content_type, byte_size, storage_key, checksum, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				content_type, byte_size, storage_key, checksum, source, captured_by,
+				organization_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 			id, workspaceID(ctx), in.EntityType, in.EntityID, in.Filename,
-			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by); err != nil {
+			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by,
+			account); err != nil {
 			return err
 		}
 		if _, err := storekit.Audit(ctx, tx, "create", "attachment", id, nil, map[string]any{
@@ -346,9 +358,14 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 		checksum    *string
 		capturedBy  string
 		scanStatus  string
+		category    string
+		docState    string
+		supersedes  *ids.UUID
+		orgID       *ids.UUID
 	)
 	if err := row.Scan(&aid, &wsID, &entityType, &entityID, &att.Filename,
-		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt, &scanStatus); err != nil {
+		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt, &scanStatus,
+		&category, &att.Title, &docState, &att.Pinned, &supersedes, &orgID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return crmcontracts.Attachment{}, apperrors.ErrNotFound
 		}
@@ -364,7 +381,23 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 	att.CapturedBy = &capturedBy
 	status := crmcontracts.AttachmentScanStatus(scanStatus)
 	att.ScanStatus = &status
+	cat := crmcontracts.AttachmentCategory(category)
+	att.Category = &cat
+	state := crmcontracts.AttachmentDocState(docState)
+	att.DocState = &state
+	att.SupersedesId = uuidOrNil(supersedes)
+	att.OrganizationId = uuidOrNil(orgID)
 	return att, nil
+}
+
+// uuidOrNil maps an absent tenant-local pointer onto the wire's optional uuid
+// without inventing a zero id for it.
+func uuidOrNil(id *ids.UUID) *openapi_types.UUID {
+	if id == nil {
+		return nil
+	}
+	out := openapi_types.UUID(*id)
+	return &out
 }
 
 // nullIfEmpty maps an absent content-type to a SQL NULL rather than an empty
@@ -374,4 +407,35 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// accountRollUp resolves the account a newly filed attachment belongs to, which
+// is what makes it reachable from the company's document library.
+//
+// It is a READ PATH, not a second parent: visibility stays the primary parent's
+// (see documents.go). Filing it at write time is what the library's index scan
+// depends on — a file uploaded without it is invisible to the account view
+// forever, and nothing about the upload looks wrong when that happens.
+//
+// A PERSON rolls up to nothing on purpose. person→organization runs through
+// `relationship` with kind 'employment', which is many-valued: a contact who
+// works at two companies has no single account, and picking one would file the
+// document under a company the uploader never named. A null here means the file
+// is reachable from the person, not that it was lost.
+func accountRollUp(ctx context.Context, tx pgx.Tx, entityType string, entityID ids.UUID) (ids.UUID, bool, error) {
+	switch entityType {
+	case linkEntityOrganization:
+		return entityID, true, nil
+	case linkEntityDeal:
+		var org *ids.UUID
+		if err := tx.QueryRow(ctx,
+			`SELECT organization_id FROM deal WHERE id = $1`, entityID).Scan(&org); err != nil {
+			return ids.UUID{}, false, fmt.Errorf("resolving the deal's account for a filed document: %w", err)
+		}
+		if org == nil {
+			return ids.UUID{}, false, nil
+		}
+		return *org, true, nil
+	}
+	return ids.UUID{}, false, nil
 }

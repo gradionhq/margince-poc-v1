@@ -11,7 +11,7 @@ go 1.26.5
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 
 require (
-	github.com/getkin/kin-openapi v0.144.0
+	github.com/getkin/kin-openapi v0.145.0
 	github.com/gradionhq/margince/backend v0.0.0
 	github.com/oapi-codegen/oapi-codegen/v2 v2.8.0
 	golang.org/x/mod v0.38.0

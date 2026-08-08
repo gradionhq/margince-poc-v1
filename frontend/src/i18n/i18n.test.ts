@@ -17,6 +17,9 @@ import { vi as viCatalog } from "./vi";
 // name" from "missed translation" at a glance — an addition to any group
 // must be defensible on the same grounds as its neighbours.
 const KEPT_IN_ENGLISH = new Set<string>([
+  // Pure punctuation layouts: every word in them is a placeholder, so there is
+  // nothing to translate and a "translation" could only reorder the slots.
+  "today.meeting.headline",
   // Brand and provider names: proper nouns, not translated in any locale.
   "connectors.provGmail",
   "connectors.provGcal",

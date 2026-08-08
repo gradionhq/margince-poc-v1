@@ -186,6 +186,9 @@ type UpdateOrganizationInput struct {
 	ParentOrgID *ids.OrganizationID
 	Address     *crmcontracts.Address
 	IfVersion   *int64
+	// LinkedInURL, when non-nil, sets or (when empty) clears the canonical
+	// LinkedIn company URL (PO-DDL-N-2). nil leaves it untouched.
+	LinkedInURL *string
 	// Domains, when non-nil, is the desired live domain set (replace-set:
 	// add missing, archive removed, flip is_primary). nil leaves domains
 	// untouched; an empty slice clears them.
@@ -404,6 +407,13 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 		}
 		p.Set("parent_org_id", current.ParentOrgId, *in.ParentOrgID)
 	}
+	if in.LinkedInURL != nil {
+		normalized, err := orgLinkedInPatchValue(*in.LinkedInURL)
+		if err != nil {
+			return nil, err
+		}
+		p.Set("linkedin_url", current.LinkedinUrl, normalized)
+	}
 	if in.Address != nil {
 		cur := addressColumns(current.Address)
 		p.Set("address_line1", cur.Line1, in.Address.Line1)
@@ -449,12 +459,13 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	var relevance *int16
 	var addr crmcontracts.Address
 	var logoObjectKey *string
+	var linkedinURL *string
 	var version int64
 
 	dests := []any{
 		&id, &wsID, &o.DisplayName, &o.LegalName, &o.Industry, &o.SizeBand, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
-		&classification, &lifecycle, &relevance, &parentID, &mergedInto, &logoObjectKey, &o.Source, &o.CapturedBy,
+		&classification, &lifecycle, &relevance, &parentID, &mergedInto, &logoObjectKey, &linkedinURL, &o.Source, &o.CapturedBy,
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt, &o.IsAnchor,
 	}
 	cf := storekit.ScanDests(active)
@@ -475,6 +486,7 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	lc := crmcontracts.OrganizationLifecycle(lifecycle)
 	o.Lifecycle = &lc
 	o.LogoUrl = LogoURL(id, logoObjectKey)
+	o.LinkedinUrl = linkedinURL
 	if a := addressOrNil(addr); a != nil {
 		o.Address = a
 	}

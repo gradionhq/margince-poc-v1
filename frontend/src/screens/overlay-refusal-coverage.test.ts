@@ -99,8 +99,10 @@ describe("overlay refusal copy — translator coverage", () => {
   });
 
   it("merge-org (POST /organizations/{id}/merge)", () => {
+    // The merge lives with the rest of the account header's overflow actions,
+    // which moved out of organizations.tsx when that file passed 2,700 lines.
     assertTranslatedRefusal(
-      "organizations.tsx",
+      "companyheader.tsx",
       '"/organizations/{id}/merge"',
       "merge-org",
     );

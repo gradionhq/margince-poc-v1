@@ -114,6 +114,31 @@ type SeatAuthority interface {
 	ActiveSeat(ctx context.Context, userID ids.UserID) (active bool, reason string, err error)
 }
 
+// AttachmentAuthority answers, at transmit time, whether the files a delivery
+// carries may still leave the building.
+//
+// A DELIVERY IS NOT SENT WHEN IT IS STAGED. Between the human pressing send and
+// the provider call, the scanner can finish and quarantine a file that was still
+// scanning, a document can be archived, and the sender can lose the row scope
+// that let them attach it. The staging check answered all three questions about
+// a moment that has passed, so it cannot answer them about this one — a message
+// that mails a now-blocked file is exactly the outcome the scan gate exists to
+// prevent, and it would carry the sender's own address.
+//
+// It reports an ANSWER as (false, reason) and a FAULT as an error, the same
+// split SeatAuthority makes: a quarantine or a lost grant is a decision the
+// dispatcher honours by parking with the reason named, while a database timeout
+// is a failure to LEARN the decision and must not destroy a legitimate send.
+type AttachmentAuthority interface {
+	// EnsureTransmittable reports whether every attachment is still clean and
+	// still visible to userID in the workspace bound on ctx. reason is empty
+	// exactly when ok is true; when ok is false it is the sentence the delivery
+	// parks with, and it names WHICH file and WHY, because a park record
+	// reading "an attachment cannot be sent" leaves the sender guessing which
+	// of several to fix.
+	EnsureTransmittable(ctx context.Context, userID ids.UserID, attachmentIDs []ids.UUID) (ok bool, reason string, err error)
+}
+
 // ErrNoMailbox marks a user with no connection to the provider a delivery is
 // staged against. There is nothing to retry against, so it parks.
 var ErrNoMailbox = errors.New("comms: no mailbox is connected for this provider")

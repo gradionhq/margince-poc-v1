@@ -36,6 +36,13 @@ type sendSeam struct {
 	// SendsWithoutScope means, so there is nothing to intersect.
 	granted []string
 
+	// carriesAttachments reports whether the resolved connector transmits files.
+	// FALSE for a connector that does not implement connector.AttachmentCarrier,
+	// which is the whole point of the seam having no default: an adapter that
+	// never declared carriage cannot be mistaken for capable, and a staged
+	// message with files parks instead of going out stripped (ADR-0086/A131).
+	carriesAttachments bool
+
 	// transmit hands the delivery to the provider, already bound to the resolved
 	// credential and to the row it was built from. One call for either
 	// transport is what lets the receipt handling, the metering and the failure
@@ -65,7 +72,7 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		if err != nil {
 			return sendSeam{}, err
 		}
-		return sendSeam{transmit: func(ctx context.Context) (connector.SendReceipt, error) {
+		return sendSeam{carriesAttachments: carriesAttachments(sender), transmit: func(ctx context.Context) (connector.SendReceipt, error) {
 			return sender.SendMessage(ctx, auth, connector.ChannelMessage{
 				// The provider plus the account id ARE the recipient key. The
 				// username is deliberately absent: a handle can be released and
@@ -91,8 +98,9 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		return sendSeam{}, err
 	}
 	return sendSeam{
-		granted:          granted,
-		detectsPriorSend: true,
+		granted:            granted,
+		detectsPriorSend:   true,
+		carriesAttachments: carriesAttachments(sender),
 		transmit: func(ctx context.Context) (connector.SendReceipt, error) {
 			// Every staged field travels: a retry must rebuild an identical
 			// message, and a field dropped here is a header silently missing
@@ -106,6 +114,11 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 				ListUnsubscribe:     del.ListUnsubscribe,
 				ListUnsubscribePost: rfc8058Post(del.ListUnsubscribe),
 				Attempt:             transmissionsBefore(del),
+				// The set the carriage gate already cleared. Reaching here with
+				// files means the connector declared it carries them, so the
+				// adapter's obligation is to transmit ALL of them or fail —
+				// never a subset, never as links (ADR-0086/A131).
+				Files: outboundFiles(del.Attachments),
 			})
 		},
 	}, nil
@@ -163,4 +176,41 @@ func (d *Dispatcher) guardAtMostOnce(ctx context.Context, del Delivery, seam sen
 		return d.retry(ctx, del.ID, fmt.Errorf("comms: marking the transmission in flight: %w", err))
 	}
 	return outcomeUndecided, 0, nil
+}
+
+// carriesAttachments asks a resolved sender whether it transmits files.
+//
+// A sender that does not implement connector.AttachmentCarrier answers NO. That
+// is the seam's no-default rule in one line: an adapter written before
+// attachments existed, or one whose provider cannot carry them, is never
+// mistaken for capable — so a staged message with files parks rather than going
+// out as text that lies about its contents (ADR-0086/A131).
+//
+//craft:ignore naked-any the type assertion seam: a sender is whichever connector the resolver bound
+func carriesAttachments(sender any) bool {
+	carrier, ok := sender.(connector.AttachmentCarrier)
+	return ok && carrier.CarriesAttachments()
+}
+
+// outboundFiles renders the staged snapshot into the provider-neutral shape.
+//
+// The BYTES are absent here and fetched by the transmit path, because the
+// snapshot is the record of what was attached and not a copy of the files
+// themselves: keeping megabytes on a delivery row would make every retry
+// re-read them and every audit carry them.
+func outboundFiles(files []OutboundFile) []connector.OutboundFile {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]connector.OutboundFile, 0, len(files))
+	for _, file := range files {
+		out = append(out, connector.OutboundFile{
+			AttachmentID: file.AttachmentID.String(),
+			Filename:     file.Filename,
+			ContentType:  file.ContentType,
+			ByteSize:     file.ByteSize,
+			Checksum:     file.Checksum,
+		})
+	}
+	return out
 }

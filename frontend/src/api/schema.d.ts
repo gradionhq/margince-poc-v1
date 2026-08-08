@@ -5372,6 +5372,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every document that rolls up to this account, pinned first (DOC-WIRE-1).
+         * @description The account's library. A document reachable from a company may hang off a deal, a
+         *     person, an activity or the company itself, and each of those has its own
+         *     visibility.
+         *
+         *     **Every candidate is scoped through its own primary parent**, so a contract on a
+         *     deal the viewer cannot see does not appear AND does not contribute to the count.
+         *     Scoping at the parent rather than filtering afterwards is what keeps the count
+         *     honest: a total that includes invisible rows tells the viewer something about them.
+         *
+         *     Ordered pinned first, then newest.
+         */
+        get: operations["listOrganizationDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/{id}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
+         * @description The bytes, the filename, the checksum and the scan state are NOT patchable here —
+         *     they are what arrived, and a surface that let a human edit them would make the
+         *     record a description of itself rather than of the file.
+         *
+         *     NOT version-guarded, and deliberately so: an attachment carries no version column,
+         *     so there is no value a client could have last seen and nothing a precondition could
+         *     compare against. Advertising `If-Match` here would name a guarantee this record
+         *     cannot give. Concurrent edits to a document's meaning are last-write-wins, and each
+         *     one is recorded in the audit trail.
+         */
+        patch: operations["updateAttachmentMetadata"];
+        trace?: never;
+    };
     "/attachments/{id}": {
         parameters: {
             query?: never;
@@ -5792,10 +5849,139 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/profile-fields/{field}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries. */
+                field: components["parameters"]["ProfileFieldKey"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Correct a profile field — the canonical value changes, the machine's proposal survives.
+         * @description DOSS-WIRE-4 / PO-AC-N-1. Where the field maps to a column on `organization`, THE COLUMN IS
+         *     WHAT CHANGES; the sidecar keeps the machine's proposal, excerpt, source URL and confidence in
+         *     history rather than overwriting them (PO-AC-N-2). A correction that changed only the sidecar
+         *     would be a lie about having been accepted. Provenance flips to `human` with the acting
+         *     principal and the timestamp; the whole thing commits as one mutation with its audit entry and
+         *     its outboxed event.
+         */
+        patch: operations["updateOrganizationProfileField"];
+        trace?: never;
+    };
+    "/organizations/{id}/profile-fields/{field}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries. */
+                field: components["parameters"]["ProfileFieldKey"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a profile field without changing its value.
+         * @description The same act as a correction, minus the value change (PO-AC-N-3): `verified_at` and
+         *     `verified_by` are stamped and the field moves from extracted to confirmed. Version-guarded
+         *     like the correction, so two readers confirming a field one of them has since corrected do not
+         *     silently overwrite each other.
+         */
+        post: operations["confirmOrganizationProfileField"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/facts/{factKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /**
+                 * @description One fact's identity within its organization, spelled `<field>:<value_key>` (e.g.
+                 *     `named_customer:acme-inc`). A fact is multi-valued, so `field` alone does not name a row and
+                 *     `value_key` alone is only unique within a field.
+                 */
+                factKey: components["parameters"]["FactKey"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Correct an extracted fact.
+         * @description DOSS-WIRE-4. The correction path the fact store never had — without it the page can render a
+         *     "confirmed" state nothing is able to produce. Same guarantees as the profile-field
+         *     correction: canonical value first, machine proposal preserved in history, provenance flipped
+         *     to `human`, one transaction carrying the row, the audit entry and the event.
+         */
+        patch: operations["updateOrganizationFact"];
+        trace?: never;
+    };
+    "/organizations/{id}/facts/{factKey}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /**
+                 * @description One fact's identity within its organization, spelled `<field>:<value_key>` (e.g.
+                 *     `named_customer:acme-inc`). A fact is multi-valued, so `field` alone does not name a row and
+                 *     `value_key` alone is only unique within a field.
+                 */
+                factKey: components["parameters"]["FactKey"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm an extracted fact without changing its value.
+         * @description Stamps `verified_at` + `verified_by` and moves the fact from extracted to confirmed
+         *     (PO-AC-N-3). Version-guarded.
+         */
+        post: operations["confirmOrganizationFact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A human correction. The canonical store changes; the machine's proposal and its evidence survive in history (PO-AC-N-1/N-2). */
+        UpdateOrganizationProfileFieldRequest: {
+            /** @description The corrected value. Where this field maps to a column on `organization`, the COLUMN is what changes — a correction the header ignores is not a correction (PO-AC-N-1). */
+            value: string;
+        };
+        /** @description The correction path the fact store never had — without it the page can render a confirmed state nothing is able to produce. */
+        UpdateOrganizationFactRequest: {
+            value: string;
+        };
         /** @description An async refresh was enqueued; proposals will appear in the approvals inbox. */
         RefreshAccepted: {
             /** @enum {string} */
@@ -5812,6 +5998,8 @@ export interface components {
             effective_date: string;
         };
         FxRateListResponse: {
+            /** @description The workspace's base currency — every rate in `data` converts TO this (AAD-PARAM-N-1, ADR-0085). Served from the workspace itself rather than inferred from the first rate row, so a workspace that has entered no rates can still state its own base. */
+            readonly base_currency?: string;
             data: components["schemas"]["FxRate"][];
         };
         SetFxRateRequest: {
@@ -7054,6 +7242,10 @@ export interface components {
         };
         /** @description A company. Mirrors the `organization` table. */
         Organization: {
+            /** @description Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A validated column rather than a governed custom field, because it bears identity semantics — matching, dedupe, enrichment — a custom field cannot express. Unique among live rows. */
+            linkedin_url?: string | null;
+            /** @description The company's readable website, DERIVED from its primary domain row. There is deliberately no website column — a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write. */
+            readonly website_url?: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -7152,6 +7344,8 @@ export interface components {
             [key: string]: unknown;
         };
         UpdateOrganizationRequest: {
+            /** @description Canonical LinkedIn company URL. Null clears it. website_url is derived and refused here. */
+            linkedin_url?: string | null;
             display_name?: string;
             legal_name?: string | null;
             industry?: string | null;
@@ -7410,6 +7604,41 @@ export interface components {
             consent: {
                 [key: string]: "unknown" | "granted" | "withdrawn";
             };
+            routes?: components["schemas"]["Organization360ContactRoutes"];
+        };
+        /**
+         * @description Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
+         *
+         *     The company page answers this per CONTACT rather than as a contact x
+         *     every-colleague matrix: a forty-person sales team makes the matrix unreadable, and
+         *     the reader's question is never "show me all the pairs" but "who should make this
+         *     call". So each contact carries the few colleagues worth naming and a count of the
+         *     rest.
+         *
+         *     Only live members are named — recommending an intro from someone who has left is
+         *     advice nobody can take. Their historical messages still count on the timeline; the
+         *     person is gone, what happened is not.
+         */
+        Organization360ContactRoutes: {
+            /** @description The strongest routes, ordered by the per-colleague relationship projection. */
+            top: components["schemas"]["Organization360Route"][];
+            /** @description How many further colleagues have a recorded exchange with this contact, beyond `top`. */
+            remainder: number;
+            /** @description True when nobody on our side has a recorded exchange with this contact. NOT the same claim as a cold relationship: "untried" says we never reached out, "cold" says we did and it went nowhere, and a page that renders them alike tells a rep an account is unreachable when nobody has tried. */
+            untried: boolean;
+        };
+        /** @description One colleague who has actually exchanged messages with this contact. */
+        Organization360Route: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            /**
+             * @description The band, never the number — the score is a decayed count, and showing it invites a precision it does not have.
+             * @enum {string}
+             */
+            strength_bucket: "strong" | "developing" | "cold";
+            /** Format: date-time */
+            last_interaction_at?: string | null;
         };
         /** @description One contact's stakeholder role on one of the account's deals. */
         Organization360DealRole: {
@@ -7460,6 +7689,46 @@ export interface components {
             linked_deal_id?: string | null;
             /** Format: uuid */
             linked_person_id?: string | null;
+        };
+        /**
+         * @description The next meeting with this account that has not happened yet, and who is in it.
+         *
+         *     It is a FACT, not a suggestion: a meeting is on the calendar or it is not, and the
+         *     page states which.
+         *
+         *     TWO REASONS THIS IS ABSENT, and `sections_omitted` is what tells them apart —
+         *     read it, never the field alone:
+         *
+         *       * absent AND named in `sections_omitted` — the caller has no activity grant.
+         *         A fact about the READER.
+         *       * absent and NOT named — the grant is held and nothing is scheduled. A fact
+         *         about the ACCOUNT, and the one a rep acts on.
+         *
+         *     A client that treats a missing field as "no meeting" tells someone with no
+         *     calendar access to book one that already exists.
+         *
+         *     Participants carry only the people this caller can already read. A meeting reachable
+         *     through a visible contact must not disclose the colleague's other attendees.
+         */
+        Organization360NextMeeting: {
+            /** Format: uuid */
+            activity_id: string;
+            /** Format: date-time */
+            starts_at: string;
+            subject: string;
+            /**
+             * Format: uuid
+             * @description The deal this meeting is filed against, when the caller may read it.
+             */
+            linked_deal_id?: string | null;
+            /** @description The attendees on file, row-scoped. Empty is honest — a meeting can be booked before anyone is linked to it. */
+            participants: components["schemas"]["Organization360MeetingParticipant"][];
+        };
+        /** @description One attendee of the next meeting, named only when the caller may read them. */
+        Organization360MeetingParticipant: {
+            /** Format: uuid */
+            person_id: string;
+            display_name: string;
         };
         /**
          * @description One deterministic next-step suggestion. It is derived, not decided: the rule
@@ -7570,9 +7839,10 @@ export interface components {
              */
             last_outbound_at?: string | null;
             state_strip?: components["schemas"]["Organization360StateStrip"];
+            next_meeting?: components["schemas"]["Organization360NextMeeting"];
             health?: components["schemas"]["Organization360Health"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health")[];
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health" | "next_meeting")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];
@@ -8905,6 +9175,20 @@ export interface components {
             page: components["schemas"]["PageInfo"];
         };
         /**
+         * @description A sparse patch. An absent field is untouched; `title` and `supersedes_id` accept
+         *     null to clear, because clearing either is an edit a human makes deliberately.
+         */
+        UpdateAttachmentMetadataRequest: {
+            /** @enum {string} */
+            category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+            title?: string | null;
+            /** @enum {string} */
+            doc_state?: "draft" | "current" | "final" | "superseded";
+            pinned?: boolean;
+            /** Format: uuid */
+            supersedes_id?: string | null;
+        };
+        /**
          * @description A file hung off an entity. Mirrors the `attachment` table: the row is the
          *     system of record and the tenant anchor; the bytes live in object storage,
          *     addressed by an internal object key that is never exposed on the wire.
@@ -8924,6 +9208,30 @@ export interface components {
             byte_size?: number | null;
             /** @description sha256 of the bytes, for integrity/dedupe. */
             checksum?: string | null;
+            /**
+             * @description What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+             * @enum {string}
+             */
+            category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+            /** @description A display name distinct from the filename — what a reader looks for, rather than what arrived. */
+            title?: string | null;
+            /**
+             * @description ASSERTED, never inferred. A human or the producing source sets it. Nothing derives currency from the newest upload date or a filename containing "final": the most recent upload is very often a draft, and an inference would be a confident wrong answer to the exact question this field exists to answer.
+             * @enum {string}
+             */
+            doc_state?: "draft" | "current" | "final" | "superseded";
+            /** @description Held at the top of the account's library. An assertion by a human, like the state. */
+            pinned?: boolean;
+            /**
+             * Format: uuid
+             * @description The document this one replaces. Refused when it would close a cycle.
+             */
+            supersedes_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The account this file rolls up to — a READ PATH, not a second parent. Visibility stays the primary parent's, and this is maintained on relink and merge so a file follows the record it belongs to.
+             */
+            readonly organization_id?: string | null;
             /**
              * @description Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
              *     byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
@@ -10455,6 +10763,18 @@ export interface components {
             history?: string | null;
         };
         CompanyProfileField: {
+            /**
+             * Format: date-time
+             * @description When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
+             */
+            retrieved_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
+             */
+            verified_at?: string | null;
+            /** @description The human who confirmed the claim. Server-stamped, never accepted from a request body. */
+            readonly verified_by?: string | null;
             /** @enum {string} */
             field: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
             value: string;
@@ -10469,6 +10789,18 @@ export interface components {
             updated_at: string;
         };
         OrganizationFact: {
+            /**
+             * Format: date-time
+             * @description When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
+             */
+            retrieved_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
+             */
+            verified_at?: string | null;
+            /** @description The human who confirmed the claim. Server-stamped, never accepted from a request body. */
+            readonly verified_by?: string | null;
             /**
              * Format: uuid
              * @description The stored row, so a brief sentence written from this fact can cite something the reader can open. Without it a fact-derived claim had to cite the organization, which told the reader where to look but not at what.
@@ -12537,6 +12869,14 @@ export interface components {
         };
     };
     parameters: {
+        /** @description The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries. */
+        ProfileFieldKey: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
+        /**
+         * @description One fact's identity within its organization, spelled `<field>:<value_key>` (e.g.
+         *     `named_customer:acme-inc`). A fact is multi-valued, so `field` alone does not name a row and
+         *     `value_key` alone is only unique within a field.
+         */
+        FactKey: string;
         /**
          * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
          *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
@@ -23500,6 +23840,90 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listOrganizationDocuments: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+                doc_state?: "draft" | "current" | "final" | "superseded";
+                pinned_only?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account's documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateAttachmentMetadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAttachmentMetadataRequest"];
+            };
+        };
+        responses: {
+            /** @description The document after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a value outside the closed vocabulary. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     downloadAttachment: {
         parameters: {
             query?: never;
@@ -24084,6 +24508,286 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    updateOrganizationProfileField: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries. */
+                field: components["parameters"]["ProfileFieldKey"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationProfileFieldRequest"];
+            };
+        };
+        responses: {
+            /** @description The corrected profile field. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyProfileField"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VersionConflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    confirmOrganizationProfileField: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries. */
+                field: components["parameters"]["ProfileFieldKey"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The confirmed profile field. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyProfileField"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VersionConflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateOrganizationFact: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /**
+                 * @description One fact's identity within its organization, spelled `<field>:<value_key>` (e.g.
+                 *     `named_customer:acme-inc`). A fact is multi-valued, so `field` alone does not name a row and
+                 *     `value_key` alone is only unique within a field.
+                 */
+                factKey: components["parameters"]["FactKey"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationFactRequest"];
+            };
+        };
+        responses: {
+            /** @description The corrected fact. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationFact"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VersionConflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    confirmOrganizationFact: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /**
+                 * @description One fact's identity within its organization, spelled `<field>:<value_key>` (e.g.
+                 *     `named_customer:acme-inc`). A fact is multi-valued, so `field` alone does not name a row and
+                 *     `value_key` alone is only unique within a field.
+                 */
+                factKey: components["parameters"]["FactKey"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The confirmed fact. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationFact"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VersionConflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }
