@@ -44,9 +44,9 @@ the credential: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## The catalog
 
-The **30 core tools**, listed in the order `Registry.Specs()` sorts them — which
+The **35 core tools**, listed in the order `Registry.Specs()` sorts them — which
 is the order `tools/list` returns. An enabled extension unit adds its own verbs
-to the same listing, so a vanilla install answers 31: these plus `yogi_quote`
+to the same listing, so a vanilla install answers 36: these plus `yogi_quote`
 (🟢, `read`), which is not tabled here because the catalog tracks the core
 surface.
 
@@ -86,15 +86,20 @@ Columns:
 | `enrich` | 🟡 | `enrich` | yes | Reads the company's own website, not a record store; the write-back is seam-routed |
 | `intro_path_to` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `list_pipelines` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
+| `list_records` | 🟢 | `read` | — | Mirror-backed unfiltered; a FILTERED call is `unsupported_by_sor` (see below) |
 | `log_activity` | 🟢 | `write` | — | Seam-routed: write-back through the incumbent |
 | `merge_records` | 🟡 | `write` | — | `unsupported_by_sor` (no atomic incumbent projection) |
 | `prep_for_meeting` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `progress_deal` | dynamic | `write` | — | `unsupported_by_sor` (shares `advance_deal`'s seam) |
 | `promote_lead` | 🟡 | `write` | — | `unsupported_by_sor` (no atomic incumbent projection) |
 | `qualify_lead` | 🟢 | `write` | — | Seam-routed: read + patch through the provider |
+| `read_brief` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `read_record` | 🟢 | `read` | — | Mirror-backed; result carries `trust_tier: external` |
+| `query_workspace` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `relink_activity` | 🟢 | `write` | — | Runs: a link row is not an SoR record write, so it is available in either mode |
+| `resolve_entities` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `run_report` | 🟢 | `read` | — | `unsupported_by_sor` (no incumbent analogue) |
+| `search_context` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `search_records` | 🟢 | `read` | — | Mirror-backed; results carry `trust_tier: external` |
 | `send_email` | 🟡 | `send` | yes | Staging refuses a mirror-held anchor |
 | `send_message` | 🟡 | `send` | yes | Staging refuses a mirror-held anchor |
@@ -102,7 +107,7 @@ Columns:
 | `whats_slipping_this_week` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `who_knows` | 🟢 | `read` | — | Native relationship read; carries no mode guard |
 
-Three rows deserve their footnote:
+Five rows deserve their footnote:
 
 - **`update_record` is 🟢 with a 🟡 residue.** The patch splits per field: the
   fields no human last wrote apply immediately, and the fields a human *did*
@@ -122,6 +127,29 @@ Three rows deserve their footnote:
   deals are slipping" is a worse failure than "this is not available here",
   because only one of them is visibly wrong. The wrappers live in
   `internal/compose/nativeonlytools.go`.
+- **`list_records` splits on whether it was asked to narrow.** Unfiltered, it is
+  an enumeration the mirror can serve like any other read. Filtered, it cannot
+  be: the mirror holds the incumbent's rows as opaque fields, so `owner_id` or
+  `stage_id` has nothing to bind to — and answering the unnarrowed page would
+  return a superset of what was asked for wearing the shape of the right answer.
+  So the overlay provider refuses the filtered call outright (AC-OV-2). Which
+  filters exist at all is not written here or in the tool: they are the
+  intersection of each list operation's own `crm.yaml` parameters and what the
+  record's store can bind, resolved at boot and published in the tool's schema.
+- **`resolve_entities` and `search_context` answer records the CALLER may see,
+  from engines that look wider.** The dedupe ladder behind `resolve_entities` is
+  workspace-wide on purpose — a duplicate is a duplicate whoever is looking, and
+  a match set that narrowed per caller would let one payload create a second
+  record for one rep and not another — so every id it names is read back through
+  the datasource seam before it is served. That read is what applies object RBAC
+  and row scope, stamps the trust tier, and charges the record against
+  MCP-SESS-READS. Two consequences are deliberate: a match the caller may not
+  read answers `unresolved`, the same word a genuine miss gets, because a
+  distinct answer would let a caller probe one address at a time for records they
+  may not know exist; and an `ambiguous` answer stays ambiguous when only one
+  rival survives, because collapsing it would settle a disagreement using the
+  caller's own blindness. The narrowing is reported once per call, without a
+  count.
 
 ## What each scope buys
 
@@ -131,11 +159,11 @@ passport's scopes and the granting human's live RBAC and seat — never the unio
 and never the passport alone.
 
 Counts are of the core catalog above; an enabled unit's verbs add to them
-(vanilla: `yogi_quote` makes `read` 13).
+(vanilla: `yogi_quote` makes `read` 18).
 
 | Scope | Tools it unlocks | What it means |
 |---|---|---|
-| `read` | 12 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
+| `read` | 17 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
 | `draft` | 2 | Proposes text. Not read-only: `draft_email` returns a proposal and writes nothing, while `draft_follow_ups_for` persists a draft activity on the deal's timeline. |
 | `write` | 12 | Creates, patches, archives, advances, merges, promotes, disqualifies, re-links — every change that stays inside the workspace. |
 | `send` | 3 | The three egress verbs. All three are 🟡, so the scope buys the right to *ask*, never the right to send unattended. |
@@ -246,47 +274,100 @@ Two properties worth relying on:
 `backend/internal/modules/agents/dispatch.go` behind the transport in
 `httpmcp.go`.
 
-**Methods answered:** `initialize`, `ping`, `tools/list`, `tools/call`,
-`resources/list`, `resources/templates/list`, `prompts/list`. Anything else is
-`-32601 method not found`.
+**Two framings, one dispatcher, chosen per request** (ADR-0092/A141). A request
+that declares its own protocol version in
+`params._meta["io.modelcontextprotocol/protocolVersion"]` — or whose
+`MCP-Protocol-Version` header names the modern revision — is served as
+**modern** (`2026-07-28`): no handshake, no session, and everything the call
+needs travels with it. Anything else is served as **handshake-era** exactly as
+before. The framing decides how a call is *parsed and rendered*, never what it
+may do: both reach the same registry and the same admission gate.
 
-**Protocol versions**, newest first: `2025-11-25`, `2025-06-18`, `2025-03-26`.
-`initialize` echoes the client's requested revision when the server satisfies it,
-and otherwise answers with the newest — never the client's unsupported one, which
-would promise a handshake the server cannot honor. A *present* and unsupported
-`MCP-Protocol-Version` header on a non-`initialize` request is refused with a
-plain `400` whose body is prose, deliberately **not** a `-32022`
-`UnsupportedProtocolVersionError`: a dual-era client identifies this server as
-legacy by seeing a 4xx *without* a recognized modern error body and then falls
-back to `initialize`. `2024-11-05` is excluded because it predates Streamable
-HTTP.
+**Methods answered in both framings:** `tools/list`, `tools/call`,
+`resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`.
 
-**`resources/list` and `prompts/list` answer empty rather than `-32601`.** This
-server has no resources and no prompts, but claude.ai calls both right after
-`initialize` regardless, and an unadvertised capability answering "method not
-found" reads as a broken server rather than as a legitimate empty catalog.
+**Methods each era owns:** `initialize` and `ping` in the handshake framing,
+`server/discover` in the modern one. Each is `-32601` in the *other* framing.
+For the two opening calls, answering one would tell a client it had reached the
+era it was probing for; `ping` is simply gone — the `2026-07-28` revision
+removed it along with the handshake it kept alive. Anything else is
+`-32601 method not found` — with HTTP `404` in the modern framing, which is what
+lets a dual-era client tell this server from one that does not host the endpoint.
+
+**Protocol versions**, newest first: `2026-07-28` (modern, per request),
+`2025-11-25` and `2025-06-18` (handshake era). `2025-03-26` was **dropped** from
+the compatibility window; `2024-11-05` was never served, because it predates
+Streamable HTTP. `initialize` echoes the client's requested revision when the
+server satisfies it in the handshake era, and otherwise answers with the newest
+one it does — never the client's unsupported one, and never the modern
+revision, which needs no handshake. A version this server does not serve is
+refused `400` with `-32022 UnsupportedProtocolVersion` and a `data.supported`
+list naming every revision it does, so a client retries rather than guesses.
+
+**A modern request must carry what it declares.** `_meta` must hold both
+`io.modelcontextprotocol/protocolVersion` and
+`io.modelcontextprotocol/clientCapabilities` (absent → `400` + `-32602`), and
+the `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers must each say
+what the body says (missing or contradicting → `400` + `-32020 HeaderMismatch`).
+The headers exist so an intermediary can route without parsing the body; the
+body is what this server executes, and the comparison is what stops those two
+readings from parting company — and the comparison is against the value the
+handler will actually act on, decoded exactly as the handler decodes it, because
+`encoding/json` matches members case-insensitively and takes the last of a
+duplicate pair while a map lookup does neither.
+`-32021 MissingRequiredClientCapability` is never emitted: no tool here needs
+sampling, elicitation or roots.
+
+**One caveat for anyone putting a gateway in front of `/mcp`.** `Mcp-Name` may
+arrive Base64-sentinel encoded (`=?base64?…?=`), and the protocol lets a client
+encode *any* value that way, including plain ASCII. This server decodes before
+comparing; an intermediary that filters on the raw header without implementing
+the sentinel is bypassed by encoding the value. Route on these headers only if
+you decode them the same way.
+
+**Every modern result carries `resultType: "complete"` and
+`_meta["io.modelcontextprotocol/serverInfo"]`**, and every cacheable one carries
+`ttlMs` + `cacheScope`. `server/discover` is `public` — its bytes are the same
+for every caller, and a test holds that claim. Every catalog
+(`tools/list`, `resources/*`, `prompts/list`) is **`private`**: they are
+filtered per passport, and a shared cache entry on a scope-filtered response is
+a disclosure that never reaches the server to be audited. A TTL is a freshness
+hint, never a permission — every call re-authenticates, so a stale catalog
+cannot make a refused call succeed. A `tools/call` result carries no hint at all.
+
+**`resources/list` and `prompts/list` answer empty rather than `-32601`** when
+nothing is wired. claude.ai calls both right after `initialize` regardless, and
+an unadvertised capability answering "method not found" reads as a broken server
+rather than as a legitimate empty catalog. A `resources/read` **not-found**
+refusal answers `-32002` in the handshake era and `-32602` in the modern one,
+which retired that code; the rest of that method's refusal surface is
+era-independent — a missing or empty `uri` is `-32602` in both, and a read that
+fails internally is `-32603` in both.
 
 **`GET /mcp` is `405`.** The transport serves `POST` (one JSON-RPC exchange) and
 `DELETE` (close the session this passport opened); the GET SSE stream is a later
-phase. That is also why `initialize` reports
-`capabilities.tools.listChanged: false` — the notification travels on the GET
-stream, so claiming it would promise a message that can never arrive. The surface
-really does change per caller, but the honest answer is that this server cannot
-announce it.
+phase. That is also why the capabilities report
+`tools.listChanged: false` — the notification travels on a stream this transport
+does not open, so claiming it would promise a message that can never arrive. The
+surface really does change per caller, but the honest answer is that this server
+cannot announce it.
 
 **A tool result carries the answer twice.** Every registered tool declares an
 `outputSchema`, so a successful `tools/call` returns the serialized JSON both in
 a `TextContent` block and as `structuredContent` — the same bytes passed through
 rather than a re-marshalled copy, so a client comparing the two never finds a
-widened integer or a reordered key. What is actually checked is object-ness, not
-the full schema; every `outputSchema` on this surface is the bare
-`{"type":"object"}`, for which the two are the same claim.
+widened integer or a reordered key. What is checked is the **declared schema** —
+each tool advertises the exact shape its handler marshals, and a result that
+misses it is withheld from `structuredContent` and logged as this server's own
+defect rather than served in violation of a promise it just made.
 
-**Sessions.** A successful `initialize` mints one and returns it as
-`Mcp-Session-Id`. `DELETE /mcp` closes only the session the *presenting*
-passport opened; a session id that does not exist under that passport — whether
-it never existed or belongs to someone else — answers `404` identically, so a
-probe cannot tell the two apart.
+**Sessions, in the handshake era only.** A successful `initialize` mints one and
+returns it as `Mcp-Session-Id`. `DELETE /mcp` closes only the session the
+*presenting* passport opened; a session id that does not exist under that
+passport — whether it never existed or belongs to someone else — answers `404`
+identically, so a probe cannot tell the two apart. A **modern** call mints none,
+and an `Mcp-Session-Id` presented on one is ignored rather than echoed: a call
+that carries its own state can land on any replica.
 
 **Every call re-authenticates.** The binder runs per call, not per session, so
 revoking the passport or demoting the granting human takes effect on the very

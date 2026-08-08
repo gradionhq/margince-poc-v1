@@ -11,7 +11,7 @@ package integration
 // drives — that suite calls privacy.ListFieldHistory directly, so the
 // query-validation branches and the JSON shape only exist at the
 // transport. This suite rides the same real-handler-stack e2e harness as
-// e2e_integration_test.go (TLS httptest server, session cookie, workspace
+// integration/apptest (TLS httptest server, session cookie, workspace
 // header) and reuses fieldhistory_integration_test.go's seedAuditDiffRow
 // to write the audit rows the handler reads back.
 

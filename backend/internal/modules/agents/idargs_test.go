@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
 // errSeamReached stands for "the tool accepted these arguments and called me".
@@ -133,6 +134,19 @@ func (seamProbeProvider) Freshness(context.Context, datasource.EntityRef) (datas
 
 var _ datasource.SystemOfRecordProvider = seamProbeProvider{}
 
+// seamProbeRetriever is the retrieval seam's half of the same probe: both
+// methods answer errSeamReached, so a tool that let malformed arguments through
+// is distinguishable from one that refused them.
+type seamProbeRetriever struct{}
+
+func (seamProbeRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
+	return retrieval.Result{}, errSeamReached
+}
+
+func (seamProbeRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
+	return retrieval.Context{}, errSeamReached
+}
+
 // seamProbeLifecycle answers errSeamReached from every lifecycle and enrich
 // seam, so the walk can tell "the arguments got through" from "the tool refused
 // them" — the whole point of the probe.
@@ -171,7 +185,7 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 		func(context.Context) ([]SlippingDeal, error) { return nil, errSeamReached },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", errSeamReached })
 	RegisterNetworkTools(r,
-		func(context.Context, ids.UUID) ([]KnownColleague, error) { return nil, errSeamReached },
+		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, errSeamReached },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) {
 			return DealCoverageAnswer{}, errSeamReached
 		},
@@ -181,6 +195,17 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	RegisterLifecycleTools(r, seamProbeProvider{},
 		seamProbeLifecycle{}, seamProbeLifecycle{}, seamProbeLifecycle{})
 	RegisterEnrichTool(r, seamProbeProvider{}, seamProbeLifecycle{})
+	RegisterQueryTool(r, seamProbeProvider{}, func(context.Context, json.RawMessage) (QueryAnswer, error) {
+		return QueryAnswer{}, errSeamReached
+	})
+	RegisterContextSearchTool(r, seamProbeProvider{}, seamProbeRetriever{})
+	RegisterResolveTool(r, seamProbeProvider{}, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
+		return nil, errSeamReached
+	})
+	RegisterListTool(r, seamProbeProvider{}, probeVocabulary{})
+	RegisterBriefTool(r, func(context.Context) (ReadBriefResult, error) {
+		return ReadBriefResult{}, errSeamReached
+	})
 	return NewDispatcher(r, bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }

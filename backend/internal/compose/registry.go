@@ -31,7 +31,7 @@ import (
 // seam, which identity implements — injected here so platform/auth never
 // imports a module (ADR-0054 §5).
 func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil, send, companyEnricher{})
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil, send, companyEnricher{}, nil)
 }
 
 // NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent
@@ -39,17 +39,31 @@ func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
 // through — the wiring a role with a vault (the api server) installs so the MCP
 // tool surface can actually write back, not just answer errNoWriteIncumbent.
 func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{})
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
 }
 
 func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
 	if brain == nil {
-		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{})
+		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
 	}
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{})
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil)
 }
 
-func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher) *agents.Registry {
+// registryWithGate composes the tool surface. The read-bound charger arrives as
+// an option rather than a parameter because only the API server — the one role
+// that serves agent principals through the MCP and REST doors — has a meter to
+// charge. The Surface-B runner and the workflow paths run as the human or the
+// system that started them, and readmeter governs agents only, so a registry
+// built without one is not an unmetered agent surface; it is a surface no agent
+// reaches.
+//
+// embedder is the RETRIEVAL embed lane, and it is a parameter rather than a
+// construction detail because it is the composition root's to choose: a role
+// with no model path has none. A nil lane is still legal — a role with no
+// model path has none, and the offline fake binds no embeddings model — and
+// every path that can lose the vector lane says so on the wire rather than
+// serving a lexically-ranked page under a semantic label.
+func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, embedder search.Embedder, opts ...agents.RegistryOption) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -64,13 +78,21 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// metered force-fresh path lands for a tool, this becomes a Redis-backed
 	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
 	// windows.
-	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
+	native := NewProvider(pool)
+	provider := NewDispatcher(native, NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
 	// cached mode. See overlayModeChecker for why that distinction is typed.
 	sorMode := overlayModeChecker(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
+	// list_records reads its rows through the Dispatcher like every other
+	// record verb, and its filter VOCABULARY off the native provider: the
+	// vocabulary is a property of the deployment's own stores, resolved once at
+	// boot, while whether a given workspace's rows come from those stores or
+	// from a mirror is a per-call question the Dispatcher answers. An overlay
+	// workspace refuses the filtered call rather than answering it unnarrowed.
+	agents.RegisterListTool(registry, provider, native)
 	// The three lifecycle transitions reach their owning modules directly
 	// rather than through the Dispatcher: each one's behaviour IS that
 	// module's entry point, which is what the REST route calls too.
@@ -90,19 +112,48 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// needs the overlay guard the record verbs get from the Dispatcher for free.
 	agents.RegisterPipelineTool(registry, nativeOnlyPipelines(sorMode, pipelineLister(pool)))
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))), reportToolCatalog())
-	// The intent tools ground on the graph walk (no embed lane needed);
-	// the comms tools ride the same store paths as the HTTP transport.
+	// The governed workspace query. It takes the provider as well as the runner
+	// because the two halves of an answer come from different places: the plan
+	// selects records through the search module, and each selected record is
+	// READ back through the datasource seam — the one path that stamps the
+	// trust tier, collects the envelope's freshness, applies this caller's
+	// object RBAC and row scope to the record itself, and charges the record
+	// against their read bound. The guard is outermost for
+	// the same reason the intent tools' is: the executor queries native tables
+	// an overlay workspace has no rows in.
+	agents.RegisterQueryTool(registry, provider, nativeOnlyQueryRunner(sorMode, queryRunner(pool, embedder)))
+	// The morning brief. It ranks the rep's own open deals out of the native
+	// tables, which an overlay workspace has no rows in, so it takes the same
+	// outermost guard the other native-only engines do: "not available here"
+	// rather than an empty queue that reads as a quiet morning.
+	agents.RegisterBriefTool(registry, nativeOnlyBriefReader(sorMode, briefReader(pool)))
+	// The intent tools ground on the graph walk; search_context rides the same
+	// retriever's ranked half, which is what the embed lane is for.
+	// The comms tools ride the same store paths as the HTTP transport.
 	// The overlay guard stays OUTERMOST so a mirror-backed workspace is
 	// refused before either read runs; the risk decorator sits inside it and
 	// adds the coverage findings a deal anchor would otherwise assemble
 	// without.
-	agents.RegisterIntentTools(registry, nativeOnlyRetriever{
+	retriever := nativeOnlyRetriever{
 		mode: sorMode,
 		inner: riskAwareRetriever{
 			pool:  pool,
-			inner: search.NewRetriever(search.NewStore(pool), nil),
+			inner: search.NewRetriever(search.NewStore(pool), embedder),
 		},
-	})
+	}
+	agents.RegisterIntentTools(registry, retriever)
+	// search_context takes the provider as well, for the reason query_workspace
+	// does: the retriever answers refs and excerpts, and every record behind
+	// them is READ BACK through the datasource seam — where the trust tier is
+	// stamped, the caller's own row scope is re-applied, and the record is
+	// charged against their read bound.
+	agents.RegisterContextSearchTool(registry, provider, retriever)
+	// Identity resolution. The ladder is workspace-wide by design — a duplicate
+	// is a duplicate whoever is looking — so the provider is not decoration
+	// here: it is the ONLY thing that applies this caller's row scope to a
+	// record the resolver named, and the tool serves nothing it did not read
+	// back through it.
+	agents.RegisterResolveTool(registry, provider, nativeOnlyResolver(sorMode, entityResolver(pool)))
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))

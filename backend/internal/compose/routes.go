@@ -37,7 +37,10 @@ import (
 // admission layer, idempotency, and the overlay-mode write guard wrapped
 // around it (outermost last — see the wrap-order note inline).
 func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
-	gate := auth.NewGate(identitySvc)
+	// The SAME meter the tool registry charges: this door refuses on the bound
+	// the other door pays into, so a Passport cannot spend its window on one
+	// and keep reading on the other.
+	gate := auth.NewGate(identitySvc, auth.WithReadBound(srv.readMeter))
 	// This registry admits REST calls; it never INVOKES a tool — a REST enrich
 	// runs scrapeHandlers, not the tool — so the enricher here supplies only the
 	// spec's cap and tier, and the ZERO value supplies those. Deliberately not
@@ -46,7 +49,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// about, and it would read as if something ran through it. The MCP
 	// transport invokes tools through srv.toolRegistry, which holds the live
 	// server.
-	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send, companyEnricher{})
+	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send, companyEnricher{}, srv.retrievalEmbedder)
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode
@@ -156,7 +159,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// gate signal: with the connector off none of these routes is
 	// registered, so the mux's own 404 answers all of them identically and
 	// nothing tells a prober which gate is closed.
-	if mcp := srv.mcpHandler(identitySvc, log); mcp != nil {
+	if mcp := srv.mcpHandler(pool, identitySvc, log); mcp != nil {
 		// ONE set of limiters for the whole group: the transport and the
 		// authorization server are two halves of one internet-facing surface,
 		// and a second construction would give each its own private ceilings.

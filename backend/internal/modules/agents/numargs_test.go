@@ -282,7 +282,7 @@ func TestOneRefusalNamesEveryArgumentOutsideItsRange(t *testing.T) {
 	// declares two bounds today, so the collection is proved on a registered tool
 	// that does — the same door every tool comes through.
 	tool := &fakeTool{spec: mcp.ToolSpec{
-		Name: "two_bounds", Title: "Two bounds", Description: describedForRegistration, RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
+		Name: "two_bounds", Title: "Two bounds", Version: testToolVersion, Description: describedForRegistration, RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{
 			"count":{"type":"integer","minimum":1,"maximum":9},
 			"weight":{"type":"number","minimum":0.5}},"additionalProperties":false}`),
@@ -357,7 +357,7 @@ func TestRegisterRefusesASchemaWhoseBoundIsNotANumber(t *testing.T) {
 	r := NewRegistry(nil, nil)
 	mustPanic(t, "a bound that is not a number leaves the argument unenforceable", func() {
 		r.Register(&fakeTool{spec: mcp.ToolSpec{
-			Name: "unreadable_bound", Title: "Unreadable bound", Description: describedForRegistration, Tier: mcp.TierAutoExecute,
+			Name: "unreadable_bound", Title: "Unreadable bound", Version: testToolVersion, Description: describedForRegistration, Tier: mcp.TierAutoExecute,
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","minimum":"one"}}}`),
 		}})
 	})

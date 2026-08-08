@@ -39,8 +39,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
@@ -70,7 +73,7 @@ var errMissingBearer = errors.New("missing bearer token")
 // its time windows against an injectable clock — so a second instance would
 // hold a second cache and, worse, its own time.Now, silently escaping a clock
 // a test injected on the process's real service.
-func (s *Server) mcpHandler(auth *identity.Service, log *slog.Logger) http.Handler {
+func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slog.Logger) http.Handler {
 	if !s.mcpConnectorEnabled {
 		return nil
 	}
@@ -86,7 +89,26 @@ func (s *Server) mcpHandler(auth *identity.Service, log *slog.Logger) http.Handl
 	// operator can compare it against what their front end actually routes.
 	log.Info("mcp: consent screen redirect target", "location", identity.ConsentScreenPath)
 	return agents.NewHTTPHandler(s.toolRegistry, mcpAuthenticate(auth),
-		agents.ResourceMetadataChallenge, mcpServerName, mcpServerVersion, log)
+		agents.ResourceMetadataChallenge, mcpServerName, mcpServerVersion, log,
+		// The cross-module edge: composing the query vocabulary is the search
+		// module's job and publishing it is the transport's, and neither
+		// reaches for the other (ADR-0054 §3). It is wired here, once — and
+		// the custom-field half rides the same fieldcatalog seam every record
+		// store does, so a workspace's own columns are askable without this
+		// edge knowing anything about them.
+		//
+		// The schema reader is what keeps the published vocabulary honest: a
+		// field the contract declares and no table holds is not askable, so
+		// what this document advertises is what a plan can be answered from.
+		// Without it the vocabulary is the contract's, which is WIDER — and a
+		// wider vocabulary published here would refuse at execution what it
+		// advertised at discovery.
+		//
+		// queryVocabulary is the SAME construction query_workspace's executor
+		// validates against (queryseam.go), which is what makes "what this
+		// document advertises" and "what a plan can be answered from" the same
+		// sentence rather than two that have to be kept in step.
+		agents.WithResourceProvider(search.NewQuerySchemaResource(queryVocabulary(pool))))
 }
 
 // mcpAuthenticate binds one request to its agent principal. It runs on EVERY

@@ -238,7 +238,7 @@ func TestToolListAdvertisesOnlyWhatTheCallersScopesAdmit(t *testing.T) {
 		"send_tool":  principal.ScopeSend,
 	} {
 		registry.Register(&fakeTool{spec: mcp.ToolSpec{
-			Name: name, Title: name, Description: name + " is offered to whoever holds its scope.",
+			Name: name, Title: name, Version: testToolVersion, Description: name + " is offered to whoever holds its scope.",
 			RequiredScope: scope, Tier: mcp.TierAutoExecute,
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		}})
@@ -247,8 +247,8 @@ func TestToolListAdvertisesOnlyWhatTheCallersScopesAdmit(t *testing.T) {
 
 	listed := func(ctx context.Context) []string {
 		resp := s.handle(ctx, rpcRequest{
-			JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/list",
-		})
+			JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: methodToolsList,
+		}, legacyFraming)
 		result, ok := resp.Result.(map[string]any)
 		if !ok {
 			t.Fatalf("result = %#v", resp.Result)
@@ -303,11 +303,19 @@ func TestInitializeNegotiatesTheClientsProtocolRevision(t *testing.T) {
 	s := NewDispatcher(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test")
 	for _, tc := range []struct{ name, requested, want string }{
 		{
-			"echoes a supported revision", supportedProtocolVersions[len(supportedProtocolVersions)-1],
-			supportedProtocolVersions[len(supportedProtocolVersions)-1],
+			"echoes a supported revision", legacyProtocolVersions[len(legacyProtocolVersions)-1],
+			legacyProtocolVersions[len(legacyProtocolVersions)-1],
 		},
-		{"newest when unsupported", "1999-01-01", supportedProtocolVersions[0]},
-		{"newest when absent", "", supportedProtocolVersions[0]},
+		{"newest when unsupported", "1999-01-01", legacyProtocolVersions[0]},
+		{"newest when absent", "", legacyProtocolVersions[0]},
+		// A revision the window dropped is not served back to the client that
+		// asked for it: it gets the newest one this server does speak, which
+		// is the only answer a handshake can honour.
+		{"the dropped 2025-03-26 falls back", "2025-03-26", legacyProtocolVersions[0]},
+		// initialize is the handshake era's own call, so it never negotiates
+		// the modern revision — that one is declared per request and needs no
+		// handshake at all.
+		{"never the modern revision", modernProtocolVersion, legacyProtocolVersions[0]},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			params := `{}`
@@ -315,9 +323,9 @@ func TestInitializeNegotiatesTheClientsProtocolRevision(t *testing.T) {
 				params = fmt.Sprintf(`{"protocolVersion":%q}`, tc.requested)
 			}
 			resp := s.handle(context.Background(), rpcRequest{
-				JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "initialize",
+				JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: methodInitialize,
 				Params: json.RawMessage(params),
-			})
+			}, legacyFraming)
 			result, ok := resp.Result.(map[string]any)
 			if !ok {
 				t.Fatalf("result = %#v", resp.Result)

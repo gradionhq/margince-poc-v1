@@ -181,16 +181,47 @@ func TestTheOperatorConsoleServesTheTextAnMCPClientIsServed(t *testing.T) {
 	}
 }
 
-// windowListingDivisor bounds the tool listing to 1/2 of the runner's prompt
-// ceiling. The listing lives in the system prompt, which elision never touches
-// — only the transcript gives way — so a catalog that grew past this would not
-// overflow, it would quietly leave the run less and less room for the
-// observations it is reasoning over. Half is generous next to where the surface
-// sits today and still leaves the whole other half for the goal and the
-// transcript: a ceiling on growth, not a target.
-const windowListingDivisor = 2
+// The tool listing may take at most listingBudgetNumerator/listingBudgetDenominator
+// of the runner's prompt ceiling. The listing lives in the system prompt, which
+// elision never touches — only the transcript gives way — so a catalog that grew
+// past this would not overflow, it would quietly leave the run less and less
+// room for the observations it is reasoning over.
+//
+// It was 1/2, and the comment there said half was "generous next to where the
+// surface sits today". That stopped being true at 33 tools: the catalog reached
+// ~11,900 tokens against a 12,000 bound, and the two tools after it did not fit.
+//
+// Raised to 5/8 rather than answered by trimming copy, and the choice is worth
+// stating because the cheaper option is the wrong one. What is in these
+// descriptions is the ONE thing measured to move tool selection — A2 took
+// gemini from 0.80 to 0.87 by making tools say what they are for, and took one
+// restraint scenario from 0/3 to 3/3 on a single sentence. Cutting that to fit a
+// fraction chosen when the catalog was smaller would trade a measured gain for
+// an unmeasured one. 5/8 still leaves 9,000 tokens for the goal and the
+// transcript, which is a working run.
+//
+// Scope-filtering the listing did NOT earn 1/2 back, and the arithmetic belongs
+// here because the intuition runs the other way. A run is now offered only what
+// its passport admits, which cuts the typical run hard — a read-scoped one
+// renders ~5,200 tokens rather than ~12,745. But this measures the WHOLE catalog
+// deliberately: an all-scope passport is a legitimate configuration, it is
+// offered every tool, and at 35 tools that is still ~12,745 — past 1/2 (12,000).
+// Re-pointing this at a narrower principal would lower the bound by measuring
+// something smaller than the worst case, which is the same failure as raising
+// one to fit and harder to see afterwards.
+//
+// So this stays a ceiling on growth against the all-scope run, and it is closer
+// than it looks. The listing is O(catalog): the next few tools reach 5/8 too,
+// and what scope filtering leaves behind is mostly schemas, which are half the
+// bytes. Deferring those is a protocol change — a model needs the schema to CALL
+// a tool — so it wants its own decision rather than being reached for the next
+// time this bound is hit.
+const (
+	listingBudgetNumerator   = 5
+	listingBudgetDenominator = 8
+)
 
-// Thirty written descriptions ride in every Surface-B prompt, and nothing in
+// Every written description rides in every Surface-B prompt, and nothing in
 // the loop notices if they grow. The listing is measured by rendering it — the
 // runner's own renderer, not a second spelling of its format — and its tokens
 // are estimated by the ~4-bytes rule the window itself estimates with, so this
@@ -203,7 +234,7 @@ const windowListingDivisor = 2
 // bound at the door makes survivable.
 func TestTheToolListingLeavesTheRunRoomInTheWindow(t *testing.T) {
 	tokens := len(runner.ToolListing(servedSurface(t).Specs())) / 4
-	if budget := runner.PromptTokenCeiling / windowListingDivisor; tokens > budget {
+	if budget := runner.PromptTokenCeiling * listingBudgetNumerator / listingBudgetDenominator; tokens > budget {
 		t.Errorf("the tool listing is ~%d tokens of a %d-token window, past the %d it may take — "+
 			"the listing is never elided, so what grows here comes out of the run's own observations",
 			tokens, runner.PromptTokenCeiling, budget)

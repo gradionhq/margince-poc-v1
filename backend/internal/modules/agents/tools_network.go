@@ -21,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -40,7 +41,10 @@ type KnownColleague struct {
 // WhoKnowsLister answers "which colleagues know this contact", warmest first.
 // Compose implements it over the interaction projection through the same
 // row-scoped read the HTTP surface uses.
-type WhoKnowsLister func(ctx context.Context, personID ids.UUID) ([]KnownColleague, error)
+// The bool is truncation, spelled the way IntroPathLister spells it: the walk is
+// capped, and a capped list a model is handed with nothing marking it is one it
+// will report as the whole network.
+type WhoKnowsLister func(ctx context.Context, personID ids.UUID) (colleagues []KnownColleague, truncated bool, err error)
 
 // CoverageReader answers "how is this deal covered, and what is wrong with
 // it". Compose implements it over compose/network.
@@ -176,6 +180,19 @@ func (t whoKnowsTool) Spec() mcp.ToolSpec {
 	}
 }
 
+// whoKnowsTruncatedMessage is the third spelling of one rule: a ranked list that
+// stopped at its cap is not the whole network, and a model told nothing reports
+// it as one.
+//
+// It has to be true of BOTH bounds the seam reports through one flag, and they
+// differ in what they cost: the result cap trims a full ranking, so the ten
+// returned really are the warmest, while the scan bound stops the reading before
+// the ranking, so past it they are the warmest of a sample. A message asserting
+// either would be false half the time — so it states what holds in both cases,
+// which is that colleagues exist beyond this list and it is not the network.
+const whoKnowsTruncatedMessage = "More colleagues know this contact than are listed here. " +
+	"Report these as the ones found, not as everyone who knows them."
+
 func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
 		PersonID ids.UUID `json:"person_id"`
@@ -183,7 +200,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	colleagues, err := t.list(ctx, args.PersonID)
+	colleagues, truncated, err := t.list(ctx, args.PersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +213,11 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	// knows them" is a true and useful answer to this question — it is the
 	// answer that says the account is cold — and turning it into a failure
 	// would make the model narrate a problem instead of a fact.
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityPerson, args.PersonID)
+	if truncated {
+		noteWarning(ctx, warningSweepTruncated, whoKnowsTruncatedMessage)
+	}
 	return json.Marshal(WhoKnowsAnswer{PersonID: args.PersonID, Colleagues: colleagues})
 }
 
@@ -241,6 +263,11 @@ func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (js
 	if answer.Risks == nil {
 		answer.Risks = []CoverageRisk{}
 	}
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityDeal, args.DealID)
+	for _, seat := range answer.Stakeholders {
+		noteEvidence(ctx, datasource.EntityPerson, seat.PersonID)
+	}
 	return json.Marshal(answer)
 }
 
@@ -261,6 +288,13 @@ func (t introPathTool) Spec() mcp.ToolSpec {
 	}
 }
 
+// introPathTruncatedMessage says a ranked list is not an exhaustive one. Warmth
+// is computed after the fetch bound, so the genuinely warmest route can sit
+// outside the slice that was read — and a model told nothing reports "nobody
+// warmer exists" from a list that never looked.
+const introPathTruncatedMessage = "More contacts exist at this organization than were examined, " +
+	"so a warmer route may exist outside this list. Do not report these as the only ways in."
+
 func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
 		OrganizationID ids.UUID `json:"organization_id"`
@@ -277,6 +311,14 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		// that says the account is cold, and it is a useful one. A model handed
 		// null reads it as "unknown" and hedges.
 		routes = []IntroRoute{}
+	}
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityOrganization, args.OrganizationID)
+	for _, route := range routes {
+		noteEvidence(ctx, datasource.EntityPerson, route.PersonID)
+	}
+	if truncated {
+		noteWarning(ctx, warningSweepTruncated, introPathTruncatedMessage)
 	}
 	return json.Marshal(IntroPathAnswer{
 		OrganizationID: args.OrganizationID, Routes: routes,
@@ -307,6 +349,11 @@ func (t atRiskTool) Spec() mcp.ToolSpec {
 	}
 }
 
+// atRiskTruncatedMessage is the same claim over the at-risk scan, which stops at
+// its own cap rather than at the end of the pipeline.
+const atRiskTruncatedMessage = "The scan stopped at its cap, so deals beyond it were not examined. " +
+	"Report these as what was found, not as every relationship at risk."
+
 func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct{}
 	if err := decodeArgs(in, &args); err != nil {
@@ -324,10 +371,23 @@ func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	// why, where an empty one would say the deal carries no finding at all. The
 	// declared schema requires it, so a null would also cost the whole answer
 	// its structured half.
+	noteDerivedContent(ctx)
 	for i := range report.Deals {
 		if report.Deals[i].Risks == nil {
 			report.Deals[i].Risks = []CoverageRisk{}
 		}
+		noteEvidence(ctx, datasource.EntityDeal, report.Deals[i].DealID)
+		// The people a finding names, not only the deal it hangs on: a risk
+		// reading "the only contact has gone quiet" is checkable only against
+		// the contact, and evidence a caller cannot follow grounds nothing.
+		for _, risk := range report.Deals[i].Risks {
+			for _, person := range risk.PersonIDs {
+				noteEvidence(ctx, datasource.EntityPerson, person)
+			}
+		}
+	}
+	if report.Truncated {
+		noteWarning(ctx, warningSweepTruncated, atRiskTruncatedMessage)
 	}
 	return json.Marshal(report)
 }

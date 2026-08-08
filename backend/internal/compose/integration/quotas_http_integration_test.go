@@ -12,13 +12,13 @@ package integration
 // mapping (owner_xor_team_required, the two attainment 422s, the
 // currency CHECK's constraint_violated) and the JSON shape only exist at
 // this layer. Rides the same real-handler-stack e2e harness as
-// e2e_integration_test.go (TLS httptest server, session cookie, workspace
+// integration/apptest (TLS httptest server, session cookie, workspace
 // header).
 //
 // There is no /v1/teams or role-management endpoint yet (both are
 // fast-follow per crm.yaml's own NET-NEW comment) — the team fixture and
 // the rep-role demotion for the 403 scenario use the owner connection
-// directly, the same technique e2e_integration_test.go's
+// directly, the same technique apptest's
 // SetWorkspaceSeat already uses for seat_type.
 
 import (

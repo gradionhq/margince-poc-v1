@@ -215,6 +215,20 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 	if err := auth.Require(ctx, string(et), principal.ActionRead); err != nil {
 		return datasource.SearchResult{}, err
 	}
+	// A structured filter the mirror cannot evaluate is REFUSED, never dropped.
+	// The mirror holds the incumbent's rows as opaque fields, so a narrowing by
+	// owner or stage has nothing to bind to — and answering the unnarrowed page
+	// instead would return a superset of what was asked for, in the shape of the
+	// right answer. That is the silent break AC-OV-2 forbids: a tool either
+	// behaves identically across modes or declares it cannot serve this one.
+	//
+	// It lands AFTER the object gate on purpose. A caller with no read grant
+	// must hear the same thing whether or not they attached a filter; refusing
+	// first would let an unauthorized caller learn this workspace's
+	// system-of-record mode by adding one.
+	if len(q.Filters) > 0 {
+		return datasource.SearchResult{}, apperrors.ErrUnsupportedBySoR
+	}
 	rows, next, err := p.ms.List(ctx, string(et), q.Cursor, q.Limit)
 	if err != nil {
 		return datasource.SearchResult{}, err

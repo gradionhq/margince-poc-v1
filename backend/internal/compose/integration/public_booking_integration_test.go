@@ -46,7 +46,7 @@ func publicCall(t *testing.T, e *apptest.AppEnv, method, path string, body any, 
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := e.TS.Client().Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := e.TS.Client().Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, path, err)
 	}

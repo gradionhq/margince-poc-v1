@@ -43,8 +43,8 @@ func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) (i
 // intent and comms registrations; the test only reads Specs().
 type stubRetriever struct{}
 
-func (stubRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
-	return nil, nil
+func (stubRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
+	return retrieval.Result{}, nil
 }
 
 func (stubRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
@@ -159,5 +159,42 @@ func TestCollidingEffectKindsAreCoveredByProvenance(t *testing.T) {
 	for tool, route := range colliding {
 		t.Logf("agent route %s stages kind %q, which also has a server-side effect executor — "+
 			"only the no-passport check keeps a human's approve click from running it", route, tool)
+	}
+}
+
+// Every confirm-first row the CONTRACT declares has a decision mapping too —
+// including a verb no tool implements.
+//
+// The registry sweep above walks what is registered, which is why it could not
+// see #484: `connect_incumbent` was declared confirmation_required by an
+// operation with no registered tool at all, so an agent's call cleared the
+// admission gate, reached stageRefusal, found no mapping and answered 403. It
+// was fail-closed and it was also unreachable capability the contract kept
+// advertising — a shape only the generated policy table shows, since that table
+// is the contract's own reading of itself.
+//
+// There is deliberately NO waiver. A verb that cannot honestly be staged has
+// the wrong annotation, and the fix is `x-agent-access: human-only` in
+// api/crm.yaml — a statement about authority, made where a reviewer sees it,
+// rather than an exemption from one. That is exactly how #484's own operations
+// were resolved.
+func TestEveryConfirmationRequiredPolicyHasAnApprovalKind(t *testing.T) {
+	checked := 0
+	for route, pol := range agentPolicies {
+		if pol.Access != accessTool || pol.Tier == tierAutoExecute {
+			continue
+		}
+		checked++
+		if approvals.KindHasDecisionGrants(pol.Tool) {
+			continue
+		}
+		t.Errorf("%s declares %s at %v, and approvals has no decision-grant mapping for that kind. "+
+			"Every call to it clears admission and is then refused at staging, so the contract "+
+			"advertises a governed verb no agent can ever reach. Map the kind in "+
+			"approvals.decisionGrants, or annotate the operation x-agent-access: human-only.",
+			route, pol.Tool, pol.Tier)
+	}
+	if checked == 0 {
+		t.Fatal("no confirm-first tool routes in the generated policy — the gate covers nothing")
 	}
 }

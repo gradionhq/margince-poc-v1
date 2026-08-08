@@ -128,6 +128,10 @@ func (t draftEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err != nil {
 		return nil, err
 	}
+	// The draft is composed from a captured thread, so its text carries that
+	// thread's content and its tier.
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
 	return json.Marshal(DraftEmailResult{
 		Subject: subject, Body: body, InReplyToActivityID: args.ActivityID,
 	})
@@ -231,6 +235,7 @@ func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
 	return marshalResult(t.comms.SendEmail(ctx, args.ActivityID, args.SendEmailArgs))
 }
 
@@ -324,5 +329,6 @@ func (t sendMessageTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
 	return marshalResult(t.comms.SendMessage(ctx, args.ActivityID, args.SendMessageArgs))
 }

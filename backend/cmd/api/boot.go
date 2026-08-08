@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
@@ -146,7 +147,12 @@ func overlayOptions(cfg apiConfig, deployCfg deployconfig.Config, rdb *redis.Cli
 	// here, not in compose); WithOverlayMeter Rebinds the Server's shared
 	// instance to it.
 	overlayMeter := overlaybudget.New(rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()))
-	opts := []compose.Option{compose.WithOverlayMeter(overlayMeter)}
+	// The MCP-SESS-READS bound rides the SAME Redis. It is wired here, beside
+	// the other meter, because this is the role that serves agent principals:
+	// left fail-closed, an api with Redis configured would refuse every agent
+	// read it was perfectly able to count.
+	readMeter := readmeter.New(rdb, readmeter.DefaultLimit, readmeter.DefaultWindow)
+	opts := []compose.Option{compose.WithOverlayMeter(overlayMeter), compose.WithReadMeter(readMeter)}
 
 	// The HubSpot webhook-as-signal receiver (OVA-WIRE-10) mounts only when the
 	// app client secret is configured — it verifies the inbound v3 signature
@@ -207,6 +213,11 @@ func modelSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgx
 	opts = append(opts, compose.WithAssistantProfile(aiState, assistantProfile))
 	if modelPath != nil {
 		opts = append(opts, compose.WithAIMetrics(modelPath.WriteMetrics))
+		// The retrieval embed lane, on the REQUEST path — the same lane the
+		// reindex job and the drift sweep take. Without it the hybrid arm's
+		// vector half is unreachable from a request and every caller is served a
+		// lexically ranked page.
+		opts = append(opts, compose.WithRetrievalEmbedder(modelPath.Embedder))
 		// The backfill preview's cost pre-flight (ADR-0068) prices observed
 		// history at this role's live tier bindings; self-gates to a no-op when
 		// the backfill surface isn't wired. Appended after baseComposeOptions'

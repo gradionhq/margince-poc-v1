@@ -305,13 +305,17 @@ func (s *RunnerService) seedGrounding(ctx context.Context, goal string) []runner
 	if s.retriever == nil {
 		return nil
 	}
-	hits, err := s.retriever.Search(ctx, retrieval.Query{Text: goal, Limit: 5})
+	found, err := s.retriever.Search(ctx, retrieval.Query{Text: goal, Limit: 5})
 	if err != nil {
 		s.log.Warn("runner: seed retrieval failed — running ungrounded", "err", err)
 		return nil
 	}
-	grounding := make([]runner.Grounding, 0, len(hits))
-	for _, hit := range hits {
+	// The ranking's kind is deliberately not threaded into the grounding: a
+	// seed enters the run at T2 whichever lane surfaced it, and the run's own
+	// answer carries that tier. A lexically-ranked seed is a less RELEVANT
+	// seed, not a less trustworthy one.
+	grounding := make([]runner.Grounding, 0, len(found.Hits))
+	for _, hit := range found.Hits {
 		for _, ev := range hit.Evidence {
 			grounding = append(grounding, runner.Grounding{
 				SourceID:  ev.Source,

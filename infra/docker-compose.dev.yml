@@ -42,6 +42,13 @@ services:
 
   redis:
     image: redis:7@sha256:595cc6f2bb3af6e03347b90deb6123c6aa2c81dea05ce08128de8a174b6ac67b
+    # 64 logical dbs, not the default 16. The integration lane gives each package
+    # its own db so two packages can never share one — several of them FLUSHDB
+    # between tests, which makes a shared db a silent corruption rather than a
+    # slowdown. The lane has more packages than 16 and keeps growing; keep this
+    # in step with REDIS_DBS in scripts/test-integration-parallel.sh, which
+    # refuses to run rather than wrap the mapping.
+    command: ["redis-server", "--databases", "64"]
     ports:
       - "56379:6379"
     healthcheck:

@@ -388,7 +388,7 @@ func postRawBody(t *testing.T, e *apptest.AppEnv, path, body string, headers map
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("POST %s: %v", path, err)
 	}

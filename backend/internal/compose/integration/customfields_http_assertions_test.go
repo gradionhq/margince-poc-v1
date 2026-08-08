@@ -415,7 +415,7 @@ func containsID(fields []customFieldWire, id string) bool {
 }
 
 // assertUnwired501 boots a SEPARATE server with no schema pool (the plain
-// setup(t) default) and proves both runtime-DDL operations answer 501
+// apptest.SetupApp default) and proves both runtime-DDL operations answer 501
 // rather than nil-derefing — renameCustomField/retireCustomField/
 // listCustomFields need no schema pool and are covered by the other
 // subtests above, all of which ride the schema-wired server.

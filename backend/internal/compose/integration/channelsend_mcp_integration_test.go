@@ -117,7 +117,7 @@ func TestSendMessageMCPLoopStagesApprovesAndRedeemsAgainstRealPostgres(t *testin
 		ActivityID string `json:"activity_id"`
 		Status     string `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(out), &sent); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, json.RawMessage(out)), &sent); err != nil {
 		t.Fatalf("send_message result does not decode: %v (%s)", err, out)
 	}
 	if sent.Status != "accepted" {

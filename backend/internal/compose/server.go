@@ -43,6 +43,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -225,6 +226,22 @@ type Server struct {
 	// at all. WithOverlayMeter Rebinds this shared pointer to the live
 	// Redis-backed meter at boot.
 	overlayMeter *overlaybudget.Meter
+	// readMeter is the MCP-SESS-READS bound this role enforces on agent
+	// reads, shared by the two things that must agree about it: the admission
+	// gate that REFUSES on it and the tool registry that CHARGES it.
+	//
+	// Always non-nil (newServer constructs it unconditionally, fail-closed
+	// with no Redis), and WithReadMeter Rebinds this ONE pointer to the live
+	// Redis-backed meter at boot — so no option order can leave the gate
+	// enforcing a different counter from the one the registry pays into.
+	readMeter *readmeter.Meter
+	// retrievalEmbedder is this role's embed lane for REQUEST-TIME ranking —
+	// the same ModelPath.Embedder the background reindex and drift sweep use,
+	// bound here so the hybrid arm's vector half is available to a caller and
+	// not only to a job (#629). Nil in a role that resolved no model path, and
+	// nil is honest rather than broken: every surface that ranks says which
+	// lane ranked it.
+	retrievalEmbedder search.Embedder
 	// overlayBackfillLimit bounds the overlay initial mirror backfill per
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
@@ -361,6 +378,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// doc). Fail-closed until WithOverlayMeter Rebinds it with the live
 		// Redis client + config.
 		overlayMeter: failClosedOverlayMeter(),
+		// Fail-closed until WithReadMeter Rebinds it: a role serving the agent
+		// surface with no Redis cannot tell whether an agent has passed its
+		// read bound, and answers that it has.
+		readMeter: readmeter.New(nil, readmeter.DefaultLimit, readmeter.DefaultWindow),
 	}
 	srv.wireCaptureSettingsSurface(pool)
 	srv.wireExportSurface(pool, log)
@@ -391,8 +412,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// The closure captures s and reads s.vault LAZILY at request time, so
 	// rebuilding before WithKeyvault installs the vault is fine.
-	s.toolRegistry = registryWithGate(pool, auth.NewGate(identity.NewService(pool)),
-		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s})
+	// The gate and the registry take the SAME meter pointer: one refuses on the
+	// bound, the other pays into it, and a surface where those were two
+	// counters would step an agent up against a number nothing was charging.
+	s.toolRegistry = registryWithGate(pool,
+		auth.NewGate(identity.NewService(pool), auth.WithReadBound(s.readMeter)),
+		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
+		s.retrievalEmbedder,
+		agents.WithReadCharger(s.readMeter))
 }
 
 // signalStrength bridges people's §4 relationship-strength computation to

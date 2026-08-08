@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -135,7 +136,7 @@ type VectorHit struct {
 // vector, restricted to rows stamped with the caller's own embed
 // identity. Object RBAC and row scope gate every branch, exactly like
 // the lexical union — a vector hit is a read too.
-func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identity string, limit int) ([]VectorHit, error) {
+func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identity string, limit int, types ...string) ([]VectorHit, error) {
 	// A zero query vector makes every cosine distance 0/0 = NaN, and a
 	// naive ORDER BY sim DESC sorts NaN FIRST — the same trap the write
 	// path guards. There is nothing to rank against it, so return no vector
@@ -155,28 +156,9 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identit
 		// excludes those rows before the projection computes <=>. NEVER remove it. (see design §5.6)
 		identityPos := arg(identity)
 
-		var branches []string
-		for _, branch := range searchBranches {
-			scope, admitted, err := branchScope(ctx, branch, arg)
-			if err != nil {
-				return err
-			}
-			if !admitted {
-				continue
-			}
-			sql := fmt.Sprintf(
-				`SELECT '%s'::text AS rtype, e.entity_id AS id, %s AS title,
-				        (1 - (e.embedding <=> $%d::vector))::float8 AS sim
-				 FROM embedding e JOIN %s t ON t.id = e.entity_id
-				 WHERE e.entity_type = '%s' AND t.archived_at IS NULL AND e.model = $%d`,
-				branch.entity, branch.title, vecPos, branch.table, branch.entity, identityPos)
-			if branch.extraWhere != "" {
-				sql += " AND " + branch.extraWhere
-			}
-			if scope != "" {
-				sql += " AND " + scope
-			}
-			branches = append(branches, sql)
+		branches, err := similarBranchSQL(ctx, types, vecPos, identityPos, arg)
+		if err != nil {
+			return err
 		}
 		if len(branches) == 0 {
 			return nil
@@ -205,6 +187,43 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identit
 		return nil, err
 	}
 	return hits, nil
+}
+
+// similarBranchSQL builds one ranked SELECT per requested-and-admitted record
+// type — the vector arm's counterpart to admittedBranchSQL, and subject to the
+// same two gates: object RBAC hides a denied type silently, then the branch
+// carries the caller's scope clause. A vector hit is a read too.
+//
+// An empty types narrows nothing, which is what the retrieval seam asks for.
+func similarBranchSQL(ctx context.Context, types []string, vecPos, identityPos int, arg func(any) int) ([]string, error) {
+	var branches []string
+	for _, branch := range searchBranches {
+		if len(types) > 0 && !slices.Contains(types, branch.entity) {
+			continue
+		}
+		scope, admitted, err := branchScope(ctx, branch, "t", arg)
+		if err != nil {
+			return nil, err
+		}
+		if !admitted {
+			continue
+		}
+		sql := fmt.Sprintf(
+			`SELECT '%s'::text AS rtype, e.entity_id AS id, %s AS title,
+			        (1 - (e.embedding <=> $%d::vector))::float8 AS sim
+			 FROM embedding e JOIN %s t ON t.id = e.entity_id
+			 WHERE e.entity_type = '%s' AND t.archived_at IS NULL AND e.model = $%d`,
+			branch.entity, branch.title, vecPos, branch.table, branch.entity, identityPos,
+		)
+		if narrowing := branch.narrowing("t"); narrowing != "" {
+			sql += " AND " + narrowing
+		}
+		if scope != "" {
+			sql += " AND " + scope
+		}
+		branches = append(branches, sql)
+	}
+	return branches, nil
 }
 
 // vectorLiteral renders pgvector's input syntax; parameterized as text

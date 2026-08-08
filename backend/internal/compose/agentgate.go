@@ -60,7 +60,7 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 				return
 			}
 			if !mutatingMethod(r.Method) {
-				refuseHumanOnlyRead(w, r, next)
+				refuseAgentRead(w, r, next, gate)
 				return
 			}
 			spec, resolve, pol, body, ok := prepareAgentGate(w, r, reg, deps)
@@ -76,7 +76,31 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 	}
 }
 
-// refuseHumanOnlyRead applies x-agent-access to a NON-mutating agent call.
+// refuseAgentRead answers a NON-mutating agent call: its governance class
+// first, then its volume.
+//
+// The order is deliberate. `x-agent-access: human-only` says this route is not
+// an agent's to read AT ALL, and that answer must not depend on how much the
+// agent happens to have read today — a caller told "you are over your read
+// budget" would reasonably retry tomorrow against a route that will never be
+// theirs.
+//
+// The bound itself binds BOTH doors: a Passport that spent its window through
+// the MCP surface must not keep reading the same records over /v1. One
+// credential governed two ways is the hole ADR-0055 exists to close.
+func refuseAgentRead(w http.ResponseWriter, r *http.Request, next http.Handler, gate *auth.Gate) {
+	if refusedAsHumanOnly(w, r) {
+		return
+	}
+	if err := gate.AdmitRead(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	next.ServeHTTP(w, r)
+}
+
+// refusedAsHumanOnly applies x-agent-access to a NON-mutating agent call, and
+// reports whether it answered the request itself.
 //
 // A read has no tier to admit and no change to stage, but it does have a
 // governance class, and `x-agent-access: human-only` binds a `get:` exactly
@@ -92,14 +116,15 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 // admitted. The table now carries every ANNOTATED read, and an unannotated
 // read is ordinary agent-readable data whose authority is the granting
 // human's RBAC and row scope at the store, unchanged.
-func refuseHumanOnlyRead(w http.ResponseWriter, r *http.Request, next http.Handler) {
+func refusedAsHumanOnly(w http.ResponseWriter, r *http.Request) bool {
 	pattern := chi.RouteContext(r.Context()).RoutePattern()
-	if pol, known := agentPolicies[r.Method+" "+pattern]; known && pol.Access != accessTool {
-		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
-		return
+	pol, known := agentPolicies[r.Method+" "+pattern]
+	if !known || pol.Access == accessTool {
+		return false
 	}
-	next.ServeHTTP(w, r)
+	httperr.Write(w, r, fmt.Errorf(
+		"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
+	return true
 }
 
 // prepareAgentGate resolves the admission inputs for a mutating agent call:

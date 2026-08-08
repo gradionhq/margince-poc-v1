@@ -7,9 +7,10 @@ package compose
 // mode.
 //
 // Most of the agent surface rides the datasource seam, so the Dispatcher
-// already routes it per workspace. Three dependencies cannot: the compiled
-// report engine, the retrieval seam behind the context intents, and the
-// pipeline-risk lister all query the native domain tables directly.
+// already routes it per workspace. Four dependencies cannot: the compiled
+// report engine, the retrieval seam behind the context intents, the
+// pipeline-risk lister and the query-plan executor all query the native domain
+// tables directly.
 //
 // Reports have a seam verb, but not this one: RunReport carries an ad-hoc
 // ReportPlan, while the tool names a prebuilt report key and answers with
@@ -106,21 +107,21 @@ func (s Server) ExplainReport(w http.ResponseWriter, r *http.Request, report str
 	s.reportHandlers.ExplainReport(w, r, report, params)
 }
 
-// nativeOnlyRetriever guards catch_me_up_on and prep_for_meeting, whose
-// grounding is the full-text index and context graph — neither of which
-// holds mirrored content.
+// nativeOnlyRetriever guards catch_me_up_on, prep_for_meeting and
+// search_context, whose grounding is the full-text index, the vector index and
+// the context graph — none of which holds mirrored content.
 type nativeOnlyRetriever struct {
 	mode  overlayModeChecker
 	inner retrieval.Retriever
 }
 
-func (r nativeOnlyRetriever) Search(ctx context.Context, q retrieval.Query) ([]retrieval.Hit, error) {
+func (r nativeOnlyRetriever) Search(ctx context.Context, q retrieval.Query) (retrieval.Result, error) {
 	overlay, err := r.mode.isOverlayUncached(ctx)
 	if err != nil {
-		return nil, err
+		return retrieval.Result{}, err
 	}
 	if overlay {
-		return nil, apperrors.ErrUnsupportedBySoR
+		return retrieval.Result{}, apperrors.ErrUnsupportedBySoR
 	}
 	return r.inner.Search(ctx, q)
 }
@@ -240,4 +241,60 @@ func (g disqualifierGuard) DisqualifyLead(ctx context.Context, id ids.UUID) (jso
 		return nil, apperrors.ErrUnsupportedBySoR
 	}
 	return g.inner.DisqualifyLead(ctx, id)
+}
+
+// nativeOnlyResolver guards resolve_entities. The match ladder reads the native
+// person and organization tables, and an overlay workspace's records are not in
+// them — so unguarded it would answer `unresolved` for every candidate. That is
+// the most damaging well-formed empty answer on this surface: `unresolved` is
+// the one decision that tells a caller creating a record is safe, so the tool
+// built to prevent duplicates would be the thing producing them.
+func nativeOnlyResolver(mode overlayModeChecker, resolve agents.EntityResolver) agents.EntityResolver {
+	return func(ctx context.Context, in []agents.ResolveCandidate) ([]agents.ResolveOutcome, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if overlay {
+			return nil, apperrors.ErrUnsupportedBySoR
+		}
+		return resolve(ctx, in)
+	}
+}
+
+// nativeOnlyQueryRunner guards query_workspace, for the reason every other
+// guard in nativeonlytools.go exists: the executor reads the native domain
+// tables directly, and an overlay workspace's records are not in them. An
+// answer assembled from tables holding none of this workspace's data is a
+// well-formed empty result — visibly right and actually wrong.
+func nativeOnlyQueryRunner(mode overlayModeChecker, run agents.QueryRunner) agents.QueryRunner {
+	return func(ctx context.Context, plan json.RawMessage) (agents.QueryAnswer, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.QueryAnswer{}, err
+		}
+		if overlay {
+			return agents.QueryAnswer{}, apperrors.ErrUnsupportedBySoR
+		}
+		return run(ctx, plan)
+	}
+}
+
+// nativeOnlyBriefReader guards read_brief. The brief ranks the rep's own open
+// deals out of the native tables, and an overlay workspace keeps its deals in
+// the incumbent — so the run would be assembled from rows this workspace does
+// not have. An empty queue is the one failure shape a caller cannot see through:
+// "nothing needs your attention today" and "this cannot be answered here" read
+// identically, and only one of them is true.
+func nativeOnlyBriefReader(mode overlayModeChecker, read agents.BriefReader) agents.BriefReader {
+	return func(ctx context.Context) (agents.ReadBriefResult, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.ReadBriefResult{}, err
+		}
+		if overlay {
+			return agents.ReadBriefResult{}, apperrors.ErrUnsupportedBySoR
+		}
+		return read(ctx)
+	}
 }

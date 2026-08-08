@@ -22,12 +22,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
@@ -211,6 +213,42 @@ func WithOverlayBackfillLimit(limit int) Option {
 // no Redis.
 func WithOverlayMeter(meter *overlaybudget.Meter) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.overlayMeter.RebindFrom(meter) }
+}
+
+// WithReadMeter Rebinds the Server's shared MCP-SESS-READS meter to the live,
+// Redis-backed one cmd built. newServer constructs it fail-closed (nil Redis)
+// and hands that ONE pointer to both halves of the bound — the admission gate
+// that refuses on it and the tool registry that charges it — so this
+// RebindFrom reaches both together and they can never end up counting against
+// different windows.
+//
+// Taking the already-built *readmeter.Meter (not a *redis.Client) keeps the
+// raw-Redis dependency in cmd, never in compose. Without this option the meter
+// stays fail-closed: a role serving the agent surface with no Redis cannot
+// tell whether an agent has passed its read bound, and answers that it has.
+func WithReadMeter(meter *readmeter.Meter) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.readMeter.RebindFrom(meter) }
+}
+
+// WithRetrievalEmbedder binds this role's embed lane to the REQUEST path, so
+// hybrid retrieval can use its vector half for a caller and not only for a
+// background job.
+//
+// It rebuilds the tool registry, because the registry is where the lane is
+// consumed: the intent retriever, search_context and the query executor are all
+// constructed inside it. An option that set the field without rebuilding would
+// leave a Server whose embedder is bound and whose tools still rank lexically —
+// a divergence nothing would report, because a lexically ranked page looks
+// exactly like a semantic one that found little.
+//
+// Without this option the lane stays unbound, which is a real deployment (a role
+// with no model path, or a routing config that binds no embeddings model) rather
+// than a broken one: every ranked answer says which lane ranked it.
+func WithRetrievalEmbedder(embedder search.Embedder) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.retrievalEmbedder = embedder
+		s.rebuildToolRegistry(pool)
+	}
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.

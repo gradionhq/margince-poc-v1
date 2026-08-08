@@ -85,7 +85,10 @@ func (t searchRecords) Spec() mcp.ToolSpec {
 		Name: "search_records", Title: "Search records", Version: toolVersionV1,
 		Description:   searchRecordsCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
+		// The cross-object search operation, not the per-type list ones: those
+		// declare list_records now, and naming them here would leave the two
+		// tools claiming one operation family between them.
+		OpenAPIOp: "search",
 		InputSchema: schema(`{"type":"object","properties":{
 			"q":{"type":"string","description":"What to match against the text stored on the record. It does not reach a timeline: message bodies, call notes and meeting content are not searched."},
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep all five"},
@@ -114,7 +117,7 @@ func (t searchRecords) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(searchResult(res))
+	return json.Marshal(searchResult(ctx, res))
 }
 
 type wireRecord struct {
@@ -136,7 +139,14 @@ type wireRecord struct {
 // output — every read/search/read-back rides it, so the external trust
 // taint is stamped uniformly and can never be silently dropped by one
 // call site again.
-func newWireRecord(rec datasource.Record) wireRecord {
+//
+// It takes the context for the same reason it stamps that taint. The result
+// envelope has to say what the answer rests on and how fresh it is, and this is
+// the one point where the record, its ref and its freshness are all in hand — so
+// a tool cannot serve a record without sourcing it, and a tool written next year
+// inherits both properties by calling the function it was going to call anyway.
+func newWireRecord(ctx context.Context, rec datasource.Record) wireRecord {
+	noteRecord(ctx, rec)
 	w := wireRecord{
 		RecordType: string(rec.Ref.Type), ID: rec.Ref.ID, Fields: rec.Fields, Version: rec.Version,
 	}
@@ -146,10 +156,10 @@ func newWireRecord(rec datasource.Record) wireRecord {
 	return w
 }
 
-func searchResult(res datasource.SearchResult) SearchRecordsResult {
+func searchResult(ctx context.Context, res datasource.SearchResult) SearchRecordsResult {
 	records := make([]wireRecord, 0, len(res.Records))
 	for _, r := range res.Records {
-		records = append(records, newWireRecord(r))
+		records = append(records, newWireRecord(ctx, r))
 	}
 	return SearchRecordsResult{Records: records, NextCursor: res.NextCursor}
 }
@@ -186,7 +196,7 @@ func (t readRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(newWireRecord(rec))
+	return json.Marshal(newWireRecord(ctx, rec))
 }
 
 // --- create_record (🟢 write, reversible) ---
@@ -382,5 +392,5 @@ func readBackRecord(ctx context.Context, p datasource.SystemOfRecordProvider, re
 	if err != nil {
 		return wireRecord{}, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
 	}
-	return newWireRecord(rec), nil
+	return newWireRecord(ctx, rec), nil
 }

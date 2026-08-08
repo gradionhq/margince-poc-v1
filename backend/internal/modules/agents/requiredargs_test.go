@@ -88,8 +88,8 @@ func TestACompleteCallReachesTheHandlerWithoutItsOptionalArguments(t *testing.T)
 	if err != nil {
 		t.Fatalf("a complete call was refused: %v", err)
 	}
-	if string(out) != `{"ok":true}` {
-		t.Errorf("out = %s, want the handler's own answer", out)
+	if got := string(payloadOf(t, out)); got != `{"ok":true}` {
+		t.Errorf("payload = %s, want the handler's own answer", got)
 	}
 }
 

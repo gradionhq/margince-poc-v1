@@ -28,9 +28,15 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/briefs"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -82,8 +88,19 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		`{"record_type":"project","fields":{"name":"Conformance project","organization_id":"`+
 			org.String()+`"}}`)
 
-	for _, call := range []struct{ tool, args string }{
+	// The brief is a persisted read-model, so the lane assembles one for this
+	// rep before reading it: read_brief never ranks, and an unassembled brief
+	// answers not-found rather than an empty queue.
+	snapshotBriefRun(ctx, t, e.Pool)
+
+	calls := []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
+		{"read_brief", `{}`},
+		// An enumeration, narrowed and unnarrowed. The narrowed one is the
+		// answer worth holding to the shape: a filter that reached no SQL still
+		// returns a well-formed page, of the wrong rows.
+		{"list_records", `{"record_type":"deal","filters":{"pipeline_id":"` + pipeline.String() + `"}}`},
+		{"list_records", `{"record_type":"person","limit":5}`},
 		{"run_report", `{"report":"deals-by-stage"}`},
 		{"search_records", `{"q":"Conformance"}`},
 		{"search_records", `{"q":"Conformance","record_type":"person","limit":5}`},
@@ -91,7 +108,24 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		// too, and it is the one a caller is most likely to mis-read.
 		{"search_records", `{"q":"nothing here matches this"}`},
 		{"read_record", `{"record_type":"person","id":"` + person.String() + `"}`},
+		// A plan that matches rows and one that matches none. The empty answer
+		// is the one worth holding to the shape: `coverage` is the field a
+		// caller reads before believing a short result, and it is not omitempty
+		// precisely so an absent one cannot read as a complete one.
+		{"query_workspace", `{"plan":{"version":"v1","target":"deal","where":[{"field":"status","op":"eq","value":"open"}]}}`},
+		{"query_workspace", `{"plan":{"version":"v1","target":"deal","where":[{"field":"name","op":"eq","value":"nothing here matches this"}]}}`},
 		{"read_record", `{"record_type":"deal","id":"` + deal.String() + `"}`},
+		// A ranked sweep that finds rows and one that finds none. The empty page
+		// is the one worth pinning: it still carries `coverage` and `notes`, and
+		// `notes` is not omitempty precisely so `null` cannot read as "nothing to
+		// report" on a page that was in fact degraded.
+		{"search_context", `{"query":"Conformance","record_types":["person"]}`},
+		{"search_context", `{"query":"nothing here matches this"}`},
+		// A payload that resolves and one that resolves to nothing. The second is
+		// the answer a caller acts on by CREATING a record, so its shape is the
+		// one a mis-read costs the most.
+		{"resolve_entities", `{"candidates":[{"kind":"person","ref":"a","name":"Conformance"}]}`},
+		{"resolve_entities", `{"candidates":[{"kind":"organization","emails":["nobody@nowhere.example"]}]}`},
 		{"catch_me_up_on", `{"record_type":"deal","record_id":"` + deal.String() + `"}`},
 		{"prep_for_meeting", `{"record_type":"deal","record_id":"` + deal.String() + `"}`},
 		{"whats_slipping_this_week", `{}`},
@@ -121,7 +155,10 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		{"merge_records", `{"record_type":"person","source_id":"` + duplicate.String() +
 			`","target_id":"` + person.String() + `"}`},
 		{"advance_project_phase", `{"project_id":"` + project.String() + `","to_phase":"pursuing"}`},
-	} {
+	}
+	assertEveryRegisteredToolIsAccountedFor(t, registry, calls)
+
+	for _, call := range calls {
 		t.Run(call.tool+" "+call.args, func(t *testing.T) {
 			spec, registered := registry.Spec(call.tool)
 			if !registered {
@@ -135,8 +172,62 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 				t.Errorf("%s answered %s, which does not keep the schema this server advertises for it: %s",
 					call.tool, out, defect)
 			}
+			// AC-MCP-7: the envelope is asserted against the REAL answer of a
+			// real call, not against its declaration. A declared envelope
+			// nothing checks is the comment this whole change replaces.
+			assertEnvelopePopulated(t, call.tool, out)
 		})
 	}
+}
+
+// unreachableInThisLane names the tools this sweep CANNOT invoke, and why. Each
+// needs a seam the lane does not stand up — a live calendar, an outbound mail or
+// channel provider, a crawl runner, a drafting brain — so a call would exercise
+// a stub rather than a handler.
+//
+// It is a waiver rather than prose because the census below reads it: a tool
+// listed here and then made reachable fails as loudly as one that was never
+// covered, so the list cannot quietly outlive its reason.
+var unreachableInThisLane = gatekit.Waive(map[string]string{
+	"book_meeting":         "needs a live calendar provider",
+	"send_email":           "needs an outbound mail provider",
+	"send_message":         "needs an outbound channel provider",
+	"draft_email":          "needs a drafting model path",
+	"draft_follow_ups_for": "needs a drafting model path",
+	"enrich":               "needs a crawl runner and a model path",
+})
+
+// assertEveryRegisteredToolIsAccountedFor is what makes AC-MCP-7's "every
+// registered tool" true rather than aspirational.
+//
+// The sweep's own table cannot say it: a tool added tomorrow is simply absent
+// from it, and an absent tool is indistinguishable from a passing one. So the
+// census is derived from the REGISTRY — every spec is either invoked below or
+// named as unreachable with its reason, and nothing may be both.
+func assertEveryRegisteredToolIsAccountedFor(t *testing.T, registry *agents.Registry, calls []struct{ tool, args string }) {
+	t.Helper()
+	// create_record is exercised by the fixture setup rather than by the table:
+	// every record the calls below read was made through it, and
+	// createThroughTheToolSurface holds each of those answers to its schema and
+	// its envelope on the way past.
+	invoked := map[string]bool{"create_record": true}
+	for _, call := range calls {
+		invoked[call.tool] = true
+	}
+	for _, spec := range registry.Specs() {
+		excused := unreachableInThisLane.Waived(t, spec.Name)
+		switch {
+		case invoked[spec.Name] && excused:
+			t.Errorf("%s is both invoked here and excused as unreachable — one of the two is stale", spec.Name)
+		case !invoked[spec.Name] && !excused:
+			t.Errorf("%s is registered but never invoked here, so nothing holds its result to the schema "+
+				"or the envelope. Add a call above, or name the seam it needs in unreachableInThisLane.", spec.Name)
+		}
+	}
+	// And the other direction: an entry no registered tool reached is a reason
+	// describing a tool that is gone, which reads as covered while certifying
+	// nothing.
+	unreachableInThisLane.AssertAllMatched(t)
 }
 
 // createThroughTheToolSurface makes one record and returns its id, holding the
@@ -154,13 +245,16 @@ func createThroughTheToolSurface(ctx context.Context, t *testing.T, registry *ag
 	if defect := agents.ResultDefect(spec.OutputSchema, out); defect != "" {
 		t.Fatalf("create_record answered %s, which does not keep its own schema: %s", out, defect)
 	}
+	assertEnvelopePopulated(t, "create_record", out)
 	var created struct {
-		ID ids.UUID `json:"id"`
+		Data struct {
+			ID ids.UUID `json:"id"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(out, &created); err != nil {
 		t.Fatalf("unreadable create_record answer %s: %v", out, err)
 	}
-	return created.ID
+	return created.Data.ID
 }
 
 // A conformance suite that could not fail is the thing it exists to prevent, so
@@ -177,8 +271,10 @@ func TestTheConformanceCheckFailsAgainstAMisdeclaredSchema(t *testing.T) {
 		t.Fatalf("list_pipelines: %v", err)
 	}
 	for name, misdeclared := range map[string]string{
-		"a required member no result carries": `{"type":"object","required":["invented"]}`,
-		"a member declared as the wrong type": `{"type":"object","properties":{"pipelines":{"type":"string"}}}`,
+		"a required member no result carries":           `{"type":"object","required":["invented"]}`,
+		"an envelope member declared as the wrong type": `{"type":"object","properties":{"trust":{"type":"integer"}}}`,
+		"a payload member declared as the wrong type": `{"type":"object","properties":{"data":{"type":"object",` +
+			`"properties":{"pipelines":{"type":"string"}}}}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if defect := agents.ResultDefect(json.RawMessage(misdeclared), out); defect == "" {
@@ -186,5 +282,22 @@ func TestTheConformanceCheckFailsAgainstAMisdeclaredSchema(t *testing.T) {
 					"the defect it exists to catch")
 			}
 		})
+	}
+}
+
+// snapshotBriefRun assembles one morning brief for the acting rep, the way the
+// human home surface does.
+//
+// read_brief re-reads a persisted run and never ranks — that is the contract's
+// own rule, not a limitation of this lane — so without a run the sweep would be
+// certifying a not-found instead of an answer.
+func snapshotBriefRun(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	engine := briefs.NewBriefEngine(pool, people.NewStore(pool))
+	// A fixed instant. The run only has to EXIST for read_brief to have
+	// something to re-read, and ranking against the wall clock would make what
+	// this lane certifies depend on the day it ran.
+	if _, err := engine.SnapshotRun(ctx, time.Date(2026, 8, 8, 6, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("assembling a brief run for the acting rep: %v", err)
 	}
 }

@@ -1,0 +1,306 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+// Package readmeter is the MCP-SESS-READS consumption meter
+// (api-rate-limits-and-abuse §2.2): how many RECORDS an agent has been handed
+// inside one window, and whether that has passed the threshold beyond which it
+// is handed no more.
+//
+// WHAT THIS IS AND IS NOT. It is the BOUND — the counter and the threshold that
+// A139 calls "the load-bearing half". It is not yet the §2.4 LADDER: crossing
+// the threshold refuses the next read (ErrBudgetExceeded, the sentinel
+// interfaces.md §0 reserves for MCP-SESS-*), and the only release is the window
+// rolling or an operator raising the limit. Confirm-and-continue — a human
+// releasing the window from the approval surface — belongs with the rest of the
+// per-Passport counters and the step-up ladder in ADR-0092/C-6, and is
+// deliberately absent here rather than half-built.
+//
+// PER RECORD, NOT PER CALL. That is the whole control. The spec's own wording
+// is that the bound exists "so a single search_records returning 5,000 rows
+// trips it — closing the obvious evasion", and A139 repeats it for the brief:
+// metered per call, a densely-joined read is the cheapest bulk read on the
+// surface and the step-up threshold never sees it.
+//
+// PER PASSPORT, NOT PER SESSION, which departs from the name. ADR-0055 made a
+// Passport a REST credential governed exactly like MCP, and a REST call has no
+// session to count against — so a per-session counter would meter one half of
+// one surface. ADR-0092/A141 ratifies per-Passport read/write/egress/cost
+// counters as the forward shape and the session registry is removed with it,
+// so keying on the Passport is the key that survives that change rather than
+// the one it would have to undo. The window is a fixed one with expiry, in the
+// same mechanism (and the same spelling) as platform/overlaybudget.
+//
+// FAIL-CLOSED. With no Redis, or a Redis that errors, the meter cannot know
+// whether the threshold has been passed — and a control that cannot answer
+// must not answer "no". It reports the threshold as passed, and the read is
+// refused. The consequence is deliberate and worth stating plainly: while the
+// counter is unreachable, agent reads stop. Human sessions never enter this
+// path; their authority is RBAC at the store.
+//
+// It lives in the platform tier and owns no domain: both doors onto the
+// governed surface charge it — the MCP tool dispatcher and the ADR-0055 REST
+// agent gate — and neither may import the other.
+package readmeter
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+// DefaultLimit is MCP-SESS-READS: the records a Passport may be handed inside
+// one window before its next read is refused (api-rate-limits-and-abuse §2.2).
+// It is a default and mode-tunable — the operator's lever until the step-up
+// ladder lands — and §4.2 makes lowering it below a floor an ADR matter, since
+// it is a security control rather than a performance knob.
+const DefaultLimit = 2000
+
+// DefaultWindow is the span one counter covers. The spec names the bound after
+// a session; ADR-0055 and ADR-0092 leave the Passport as the only thing both
+// doors share, so the Passport's rolling day is what "session" resolves to
+// here. It is stated in the tool copy an agent reads, so the surface and the
+// operator use the same words.
+const DefaultWindow = 24 * time.Hour
+
+// keyPrefix is the namespace every read counter shares. Named because a writer
+// that spelled it differently would leave counters nothing else can find.
+const keyPrefix = "msr:"
+
+// Meter counts records served to one Passport inside a window. The zero value
+// is not usable; construct with New or NewWithClock.
+type Meter struct {
+	rdb    *redis.Client
+	limit  int
+	window time.Duration
+	now    func() time.Time
+	// unbounded marks the meter Unmetered built: it admits every read and
+	// records none, because this composition declared no bound rather than
+	// failed to reach one.
+	unbounded bool
+}
+
+// New constructs a Meter over rdb using the real wall clock. A nil rdb is
+// allowed and makes the meter fail-closed — every read reports the threshold
+// passed, because a counter that cannot be read cannot show headroom.
+func New(rdb *redis.Client, limit int, window time.Duration) *Meter {
+	return NewWithClock(rdb, limit, window, time.Now)
+}
+
+// Unmetered is a meter that counts nothing and bounds nothing — for a
+// composition that DECLARES it serves no bounded agent surface.
+//
+// It is not the same thing as a meter that cannot reach its counter, and the
+// difference is the whole of why it is a named constructor rather than a nil.
+// A meter with no Redis fails CLOSED, because it was asked to bound an agent
+// and could not answer. This one was never asked: the test harness and any
+// role that serves no agent principals compose it on purpose, and a reader who
+// finds it knows a decision was taken rather than a dependency forgotten.
+//
+// Nothing in a production api path may use it. cmd/api wires the Redis-backed
+// meter, and a deployment that misconfigures Redis gets the loud refusal rather
+// than this.
+func Unmetered() *Meter {
+	return &Meter{limit: DefaultLimit, window: DefaultWindow, now: time.Now, unbounded: true}
+}
+
+// NewWithClock takes the clock as a dependency so the fixed window a charge
+// lands in is asserted by advancing time rather than by sleeping against the
+// real one (T11): the clock's reading picks both the Redis key and the expiry,
+// deterministically.
+func NewWithClock(rdb *redis.Client, limit int, window time.Duration, now func() time.Time) *Meter {
+	if limit <= 0 {
+		limit = DefaultLimit
+	}
+	if window <= 0 {
+		window = DefaultWindow
+	}
+	return &Meter{rdb: rdb, limit: limit, window: window, now: now}
+}
+
+// RebindFrom copies src's client and configuration onto this meter — the
+// boot-time injection point compose uses WITHOUT itself naming a Redis client
+// (that dependency stays in the cmd/platform tiers). newServer constructs a
+// fail-closed meter and shares that ONE pointer with every charge point; a
+// WithReadMeter option rebinds it from the live meter once the Redis client
+// and the deployment config are known, so every holder sees the live meter
+// without re-plumbing. Called at server assembly, before any request is
+// served, so it never races a charge — the same discipline
+// overlaybudget.Meter.RebindFrom follows.
+func (m *Meter) RebindFrom(src *Meter) {
+	m.rdb, m.limit, m.window, m.now, m.unbounded = src.rdb, src.limit, src.window, src.now, src.unbounded
+}
+
+// Limit is the configured threshold, for the refusal envelope to report.
+func (m *Meter) Limit() int { return m.limit }
+
+// Reading is what the meter knows about one Passport's window.
+type Reading struct {
+	// Observed is the records served in this window so far.
+	Observed int
+	// Limit is the threshold Observed is judged against.
+	Limit int
+	// Exceeded reports that the next read must be refused. It is a field
+	// rather than a comparison the caller makes, so the fail-closed answer
+	// cannot be reconstructed wrongly by a second caller.
+	Exceeded bool
+}
+
+// countKey is one agent's counter for one window bucket. The bucket comes
+// from the injected clock, never Redis TIME, so rollover is deterministic
+// under test.
+func (m *Meter) countKey(ws ids.UUID, agent string, bucket int64) string {
+	return fmt.Sprintf(keyPrefix+"%s:%s:reads:%d", ws.String(), agent, bucket)
+}
+
+// addScript adds n to the window counter and returns the new total, setting the
+// fixed-window expiry on FIRST write only — so the window is fixed rather than
+// sliding, and a busy agent's counter does not renew itself into never
+// resetting. ARGV=[n, ttlSeconds].
+var addScript = redis.NewScript(`
+local n = tonumber(ARGV[1])
+local total = redis.call('INCRBY', KEYS[1], n)
+if total == n then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2])) end
+return total`)
+
+// governed reports whether this caller is inside the control at all.
+//
+// ONLY an agent is. A human's authority is RBAC at the store and they answered
+// for the action themselves; this bound exists to make an AGENT's bulk reading
+// visible to the human who granted it. That is the same line auth.Gate.Admit
+// draws, drawn again here so the meter is safe to call from anywhere rather
+// than only from behind the gate.
+func governed(ctx context.Context) bool {
+	actor, present := principal.Actor(ctx)
+	return present && actor.Type == principal.PrincipalAgent
+}
+
+// counterFor names the counter a governed call belongs to, and reports whether
+// one could be named at all.
+//
+// The two "no" answers this package gives are DIFFERENT and must not be folded
+// together. `governed` says the caller is outside the control — admit. This
+// says the caller is inside it and the meter cannot identify them — refuse. An
+// agent with no workspace bound to its context is the second: it is a caller
+// this bound governs whose counter cannot be built, and admitting it would be a
+// free pass handed out by a wiring fault.
+//
+// The key is the Passport, falling back to the principal's own id. Every agent
+// principal this product mints carries a Passport
+// (identity.AgentIdentity.Principal), so the fallback is not a live path — but
+// keying on something ALWAYS present is what stops a future agent principal
+// without one from being silently exempt.
+func counterFor(ctx context.Context) (ws ids.UUID, agent string, named bool) {
+	actor, present := principal.Actor(ctx)
+	if !present {
+		return ws, "", false
+	}
+	if actor.PassportID != (ids.UUID{}) {
+		agent = actor.PassportID.String()
+	} else {
+		agent = actor.ID
+	}
+	ws, bound := principal.WorkspaceID(ctx)
+	return ws, agent, bound && agent != ""
+}
+
+// usable reports that the meter can actually reach this call's counter.
+func (m *Meter) usable(ctx context.Context) (ws ids.UUID, agent string, ok bool) {
+	if !governed(ctx) || m.rdb == nil {
+		return ws, "", false
+	}
+	ws, agent, named := counterFor(ctx)
+	return ws, agent, named
+}
+
+// bucket is the fixed window a moment falls in.
+// It divides in NANOSECONDS rather than whole seconds: a sub-second window
+// truncates to zero seconds and the division panics, and a window is a
+// caller-supplied duration with nothing stopping it being 500ms.
+func (m *Meter) bucket() int64 {
+	return m.now().UTC().UnixNano() / int64(m.window)
+}
+
+// Consume records n records served to ctx's Passport.
+//
+// It records UNCONDITIONALLY and never refuses: the spec's mechanism is that
+// crossing the threshold refuses the NEXT read call, not that it truncates the
+// answer in flight (§2.4). Records already selected have already been read;
+// pretending otherwise by dropping them would under-count the exposure the
+// meter exists to measure.
+//
+// A non-positive n is a no-op — an empty page served nothing. A call with no
+// Passport (a human, or the system) is not metered and records nothing.
+func (m *Meter) Consume(ctx context.Context, n int) error {
+	if n <= 0 {
+		return nil
+	}
+	ws, agent, ok := m.usable(ctx)
+	if !ok {
+		return nil
+	}
+	if err := m.add(ctx, m.countKey(ws, agent, m.bucket()), n); err != nil {
+		return fmt.Errorf("readmeter: recording %d served records: %w", n, err)
+	}
+	return nil
+}
+
+// add applies the counter's increment and its first-write expiry.
+func (m *Meter) add(ctx context.Context, key string, n int) error {
+	return addScript.Run(ctx, m.rdb, []string{key}, n, m.ttlSeconds()).Err()
+}
+
+// Read answers what the meter knows about ctx's agent before a read tool
+// serves anything.
+//
+// The two "no" answers are different and must not be folded together:
+//
+//   - NOT METERED — a human, the system, a call with no actor. These are
+//     outside the control by design, and reading as not-exceeded is correct.
+//     Refusing them would deny the product to its own users on a bound written
+//     for agents.
+//   - METERED BUT UNANSWERABLE — an agent whose counter cannot be read. This is
+//     the fail-closed branch: the meter does not know whether the threshold has
+//     been passed, and a control that cannot answer must not answer "no".
+func (m *Meter) Read(ctx context.Context) Reading {
+	if m.unbounded || !governed(ctx) {
+		return Reading{Limit: m.limit}
+	}
+	ws, agent, named := counterFor(ctx)
+	if !named || m.rdb == nil {
+		// Governed, and unidentifiable or uncountable. Both are the
+		// fail-closed branch: this caller is inside the control and the meter
+		// cannot answer for them.
+		return Reading{Limit: m.limit, Exceeded: true}
+	}
+	observed, err := m.counter(ctx, m.countKey(ws, agent, m.bucket()))
+	if err != nil {
+		return Reading{Limit: m.limit, Exceeded: true}
+	}
+	return Reading{Observed: observed, Limit: m.limit, Exceeded: observed >= m.limit}
+}
+
+// counter reads one window key, treating a missing key (redis.Nil) as zero —
+// nothing charged this window yet — and surfacing every other error so the
+// caller fails closed.
+func (m *Meter) counter(ctx context.Context, key string) (int, error) {
+	v, err := m.rdb.Get(ctx, key).Int()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return 0, err
+	}
+	return v, nil
+}
+
+// ttlSeconds covers the window plus an hour of clock-skew slack, so a counter
+// never outlives its window (over-counting a later one) nor expires inside it
+// (under-counting this one). Redis expiry has one-second granularity, so a
+// sub-second window still gets a whole second at minimum — the slack already
+// guarantees that, and it is named here so the floor is not a surprise.
+func (m *Meter) ttlSeconds() int {
+	return max(1, int((m.window + time.Hour).Seconds()))
+}

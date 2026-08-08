@@ -13,12 +13,9 @@ package integration
 // would be a data breach, so that exclusion is a pinned test.
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/csv"
 	"encoding/json"
-	"io"
 	"strings"
 	"testing"
 
@@ -123,59 +120,6 @@ func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 	return f
 }
 
-// bundleEntries reads the produced ZIP into name→bytes.
-func bundleEntries(t *testing.T, raw []byte) map[string][]byte {
-	t.Helper()
-	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
-	if err != nil {
-		t.Fatalf("opening bundle zip: %v", err)
-	}
-	entries := map[string][]byte{}
-	for _, f := range zr.File {
-		rc, err := f.Open()
-		if err != nil {
-			t.Fatalf("opening %s: %v", f.Name, err)
-		}
-		data, err := io.ReadAll(rc)
-		if err != nil {
-			t.Fatalf("reading %s: %v", f.Name, err)
-		}
-		if err := rc.Close(); err != nil {
-			t.Fatalf("closing %s: %v", f.Name, err)
-		}
-		entries[f.Name] = data
-	}
-	return entries
-}
-
-// csvColumn parses a CSV entry and returns the values under one column —
-// the format-validity check (csv.Reader fails loudly on a malformed file)
-// doubling as the content probe.
-func csvColumn(t *testing.T, raw []byte, column string) []string {
-	t.Helper()
-	records, err := csv.NewReader(bytes.NewReader(raw)).ReadAll()
-	if err != nil {
-		t.Fatalf("parsing csv: %v", err)
-	}
-	if len(records) == 0 {
-		t.Fatal("csv has no header row")
-	}
-	idx := -1
-	for i, h := range records[0] {
-		if h == column {
-			idx = i
-		}
-	}
-	if idx == -1 {
-		t.Fatalf("csv has no %q column; header=%v", column, records[0])
-	}
-	var out []string
-	for _, row := range records[1:] {
-		out = append(out, row[idx])
-	}
-	return out
-}
-
 func TestExportBundleCompleteAndValidOpenFormat(t *testing.T) {
 	e := SetupSearch(t)
 	f := e.seedExportFixture(t)
@@ -185,7 +129,7 @@ func TestExportBundleCompleteAndValidOpenFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries := bundleEntries(t, buf.Bytes())
+	entries := BundleEntries(t, buf.Bytes())
 
 	// Every member CSV, the relational dump, the files manifest, and the
 	// bundle manifest are present.
@@ -200,7 +144,7 @@ func TestExportBundleCompleteAndValidOpenFormat(t *testing.T) {
 	}
 
 	// The admin (row_scope=all) sees both reps' rows — completeness.
-	if got := len(csvColumn(t, entries["person.csv"], "id")); got != 2 {
+	if got := len(CSVColumn(t, entries["person.csv"], "id")); got != 2 {
 		t.Fatalf("person.csv has %d rows, want 2 (both reps)", got)
 	}
 	if summary.RowCounts["deal"] != 2 || summary.RowCounts["relationship"] != 2 {
@@ -254,10 +198,10 @@ func TestExportRowScopeExcludesInvisibleRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries := bundleEntries(t, buf.Bytes())
+	entries := BundleEntries(t, buf.Bytes())
 
 	assertOnlyID := func(file string, want, hidden ids.UUID) {
-		rowIDs := csvColumn(t, entries[file], "id")
+		rowIDs := CSVColumn(t, entries[file], "id")
 		set := map[string]bool{}
 		for _, id := range rowIDs {
 			set[id] = true
@@ -280,12 +224,12 @@ func TestExportRowScopeExcludesInvisibleRecords(t *testing.T) {
 		t.Fatalf("row-scope leak: relationship count = %d, want 1", got)
 	}
 	// The attachment (files manifest) hides the other rep's file.
-	entIDs := csvColumn(t, entries["attachment.csv"], "entity_id")
+	entIDs := CSVColumn(t, entries["attachment.csv"], "entity_id")
 	if len(entIDs) != 1 || entIDs[0] != f.rep1Person.String() {
 		t.Fatalf("row-scope leak in files manifest: attachment entity_ids = %v", entIDs)
 	}
 	// The audit_log excludes the row about the invisible person.
-	auditEntities := csvColumn(t, entries["audit_log.csv"], "entity_id")
+	auditEntities := CSVColumn(t, entries["audit_log.csv"], "entity_id")
 	for _, id := range auditEntities {
 		if id == f.rep3Person.String() {
 			t.Fatalf("row-scope leak: audit_log exposed an invisible person's row %s", id)
@@ -317,7 +261,7 @@ func TestExportOmitsObjectsWithoutReadGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries := bundleEntries(t, buf.Bytes())
+	entries := BundleEntries(t, buf.Bytes())
 
 	if _, ok := entries["person.csv"]; !ok {
 		t.Fatal("granted object person was omitted")

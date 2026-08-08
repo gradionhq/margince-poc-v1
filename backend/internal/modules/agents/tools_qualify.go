@@ -55,6 +55,7 @@ func (t qualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err != nil {
 		return nil, err
 	}
+	noteRecord(ctx, rec)
 	var lead struct {
 		Email       *string `json:"email"`
 		FullName    *string `json:"full_name"`

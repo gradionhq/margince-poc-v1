@@ -12,7 +12,7 @@ package integration
 // the query-default/validation branches and the JSON shape (Money
 // envelopes, the restricted_excluded null-vs-empty distinction) only
 // exist at the transport. This suite rides the same real-handler-stack
-// e2e harness as e2e_integration_test.go (TLS httptest server, session
+// e2e harness apptest.AppEnv (TLS httptest server, session
 // cookie, workspace header) and reuses fieldhistory_http_integration_test.go's
 // fieldHistoryProblem/assertFieldHistoryValidation422 for the shared
 // httperr.Validation 422 shape, since the scope-enum rejection rides the
