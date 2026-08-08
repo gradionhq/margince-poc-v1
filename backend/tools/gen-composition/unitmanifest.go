@@ -42,6 +42,22 @@ type unitManifest struct {
 	Name      string            `json:"name"`
 	Version   string            `json:"version"`
 	RiskTiers []riskTierRequest `json:"risk_tiers"`
+
+	// Secrets are the secret keys the unit declares (see
+	// extension.SecretsRequest) — inert data an operator resolves, never a
+	// live capability. omitempty rather than mirroring RiskTiers' bare "[]":
+	// nothing declares Secrets yet, and every manifest already committed to
+	// the tree predates this field, so an unconditional key would rewrite
+	// every one of them for a field they do not use.
+	Secrets []secretsRequest `json:"secrets,omitempty"`
+}
+
+// secretsRequest is one declared secret key and scope (see
+// extension.SecretsRequest), sorted by key then scope so the encoding does
+// not depend on declaration order.
+type secretsRequest struct {
+	Key   string `json:"key"`
+	Scope string `json:"scope"`
 }
 
 // riskTierRequest is one governed operation and the risk tier it

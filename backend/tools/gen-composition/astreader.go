@@ -128,6 +128,12 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 		return unitManifest{}, r.errPos(lit, "%v", err)
 	}
 	sort.Slice(m.RiskTiers, func(i, j int) bool { return m.RiskTiers[i].ID < m.RiskTiers[j].ID })
+	sort.Slice(m.Secrets, func(i, j int) bool {
+		if m.Secrets[i].Key != m.Secrets[j].Key {
+			return m.Secrets[i].Key < m.Secrets[j].Key
+		}
+		return m.Secrets[i].Scope < m.Secrets[j].Scope
+	})
 	return m, nil
 }
 
@@ -156,6 +162,12 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 		// Recognized and deliberately skipped: a jurisdiction pack is
 		// passive policy the core consults, never a governed operation an
 		// operator resolves, so it contributes no manifest entry.
+	case "Secrets":
+		var secrets []secretsRequest
+		secrets, err = r.readSecrets(kv.Value, file)
+		if err == nil {
+			m.Secrets = append(m.Secrets, secrets...)
+		}
 	default:
 		// Fail closed: a field this generator does not recognize could be a
 		// future governed capability, and a manifest that silently omitted
