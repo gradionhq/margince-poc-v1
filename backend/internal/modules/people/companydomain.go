@@ -87,6 +87,15 @@ func setCompanyDomain(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 // as "https://www.acme.com/about". The transport rejects an unparseable
 // website before it gets here; this guard keeps a malformed one out of the
 // domain index rather than storing it.
+//
+// It is the ONE reducer, and that is what the trailing dot is doing here. The
+// FQDN root form — `acme.example.`, and `https://acme.example./about`, where the
+// dot is inside the URL and trimming the string never reaches it — is the same
+// name to DNS and a different string to an index. Left in on the write side, one
+// company reachable by two spellings becomes two organizations, which is the
+// duplicate this module exists to prevent; left in on one side only, a read and
+// a write disagree about what they are looking at. The root dot is not part of
+// the key.
 func companyHost(website string) (string, error) {
 	if !strings.Contains(website, "://") {
 		website = "https://" + website
@@ -95,7 +104,12 @@ func companyHost(website string) (string, error) {
 	if err != nil || parsed.Hostname() == "" {
 		return "", fmt.Errorf("people: company website %q has no host", website)
 	}
-	return strings.TrimPrefix(strings.ToLower(parsed.Hostname()), "www."), nil
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	host = strings.TrimPrefix(host, "www.")
+	if host == "" {
+		return "", fmt.Errorf("people: company website %q has no host", website)
+	}
+	return host, nil
 }
 
 // companyDomainWouldChange reports whether host differs from the anchor's
