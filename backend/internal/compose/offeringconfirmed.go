@@ -8,13 +8,10 @@ package compose
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
-	"sort"
 
 	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
@@ -41,30 +38,36 @@ func offeringConfirmed(store *people.Store) orgdossier.SelfOffering {
 		if err != nil {
 			return orgdossier.Offering{}, err
 		}
-		return orgdossier.Offering{
-			Confirmed:   company.MinimumComplete,
-			Fingerprint: offeringFingerprint(company),
-		}, nil
+		fingerprint, err := offeringFingerprint(ctx, store)
+		if err != nil {
+			return orgdossier.Offering{}, err
+		}
+		return orgdossier.Offering{Confirmed: company.MinimumComplete, Fingerprint: fingerprint}, nil
 	}
 }
 
 // offeringFingerprint digests what this workspace says it sells, so a cached
 // growth fit is invalidated when that changes.
 //
-// It hashes rather than carries the text: the value rides a cache key that
-// nothing renders, and an offering in a fingerprint cannot be mistaken for one
-// the assessment may quote. Field names are sorted so the same profile digests
-// the same way across processes, which a map iteration would not.
-func offeringFingerprint(company people.Company) string {
-	names := make([]string, 0, len(company.Fields))
-	for name := range company.Fields {
-		names = append(names, name)
+// It is the fingerprint of the COMPANY CONTEXT the growth-fit task actually
+// sends, resolved from that task's own declared scopes — not a second digest
+// rolled here. The two would drift, and the way they would drift is silent:
+// this surface's own profile fields are only part of what the context carries.
+// It also folds in the anchor's offering and signal FACTS, and a digest that
+// covered the fields alone would let a new proof point change what the model is
+// told we sell while every cached band stayed exactly where it was.
+//
+// The content never leaves as text — a fit derived from what WE sell is an
+// assessment about THEM and must still cite their records (DOSS-AC-6). Only the
+// digest travels, onto a cache key nothing renders.
+func offeringFingerprint(ctx context.Context, store *people.Store) (string, error) {
+	scopes, err := companyContextScopesFor(ai.TaskGrowthFit)
+	if err != nil {
+		return "", err
 	}
-	sort.Strings(names)
-	digested := fmt.Appendf(nil, "%s\x00", company.DisplayName)
-	for _, name := range names {
-		digested = fmt.Appendf(digested, "%s\x00%s\x00", name, company.Fields[name])
+	assembled, err := store.GetCompanyContext(ctx, scopes)
+	if err != nil {
+		return "", err
 	}
-	sum := sha256.Sum256(digested)
-	return hex.EncodeToString(sum[:])
+	return assembled.Fingerprint, nil
 }

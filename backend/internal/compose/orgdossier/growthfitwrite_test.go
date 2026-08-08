@@ -210,8 +210,35 @@ func TestARecommendationCannotPoseAsAFactorAndAFactCannotPoseAsTheAngle(t *testi
 		t.Errorf("positive factors = %d, want 1 — a recommendation is not a factor",
 			len(kept.PositiveFactors))
 	}
+	if kept.PositiveFactors[0].Nature != natureFact {
+		t.Errorf("kept nature = %q, want the fact", kept.PositiveFactors[0].Nature)
+	}
 	if kept.RecommendedAngle != nil {
 		t.Error("a fact was accepted as the recommended angle, which is advice and must say so")
+	}
+}
+
+// An ASSESSMENT is the nature the prompt asks for on every judgment drawn from
+// reading their facts against our offering, so a factor list that refused it
+// would empty most of a growth fit and degrade the whole call to the floor.
+func TestAnAssessmentSurvivesAsAFactor(t *testing.T) {
+	in := sevenOfSeven()
+	id := in.ProfileFields[0].Id.String()
+	reply := `{"band":"strong","positive_factors":[
+			{"text":"Their stack matches who we sell to.","nature":"assessment",
+			 "evidence":[{"entity_type":"profile_field","entity_id":"` + id + `"}]}]}`
+
+	_, kept, err := ParseGrowthFit(reply, in)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if len(kept.PositiveFactors) != 1 {
+		t.Fatalf("positive factors = %d, want the labelled assessment kept",
+			len(kept.PositiveFactors))
+	}
+	if kept.PositiveFactors[0].Nature != string(crmcontracts.Assessment) {
+		t.Errorf("nature = %q, want assessment", kept.PositiveFactors[0].Nature)
 	}
 }
 

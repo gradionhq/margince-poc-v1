@@ -170,6 +170,12 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 		Sections:       sections,
 		NewestSourceAt: newestSource(in),
 	}
+	// Not cached when the lane failed, for the growth fit's reason: stored under
+	// the current fingerprint, this plainer answer would be served as a hit on
+	// every later read, so one transient outage would outlive itself.
+	if laneFailed {
+		return written.wire(orgID, s.now().UTC()), nil
+	}
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return zero, err
 	}

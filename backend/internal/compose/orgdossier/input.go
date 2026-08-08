@@ -39,8 +39,13 @@ type Facts interface {
 }
 
 // Input is the assembled factual picture of one company.
+//
+// OrganizationID is withheld from the JSON the model sees. It is the one id
+// every assembly holds, so it cannot ground anything — and a writer handed an
+// id it is forbidden to cite would spend sentences on it that the filter then
+// drops whole, taking their other, valid citations with them.
 type Input struct {
-	OrganizationID string
+	OrganizationID string `json:"-"`
 	ProfileFields  []crmcontracts.CompanyProfileField
 	Facts          []crmcontracts.OrganizationFact
 }

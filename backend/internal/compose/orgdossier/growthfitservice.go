@@ -160,6 +160,15 @@ func (s *GrowthFitService) Get(ctx context.Context, orgID ids.OrganizationID, fo
 		Claims:       assessed.Claims,
 		StaleAt:      assessed.StaleAt,
 	}
+	// A degraded answer is NOT cached. With no usable entry to fall back on the
+	// abstention is the honest response to this request, but storing it under
+	// the current fingerprint would make every later read a cache hit — so the
+	// reader is told "try again in a few minutes" by a row that guarantees the
+	// retry never happens. For a company held on human-entered values there is
+	// no expiry either, so that would be permanent.
+	if laneFailed {
+		return written.wire(orgID), nil
+	}
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return zero, err
 	}

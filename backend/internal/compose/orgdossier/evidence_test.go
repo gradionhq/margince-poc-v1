@@ -251,6 +251,45 @@ func (s stubFacts) ListOrganizationFacts(
 // A receipt must not both NAME a field as missing and render it blank. The
 // reader believes whichever they see first, and the two say opposite things.
 func TestAnAbsentCapturerIsNamedAsAGapAndNotAlsoRenderedBlank(t *testing.T) {
+	// Every kind that names the capturer under some key, because the fix was
+	// applied at four call sites and a test for one of them lets the other
+	// three regress silently.
+	for source, key := range map[crmcontracts.CompanyProfileFieldSource]string{
+		crmcontracts.CompanyProfileFieldSourceHuman:     "actor",
+		crmcontracts.CompanyProfileFieldSourceConnector: "connector",
+		crmcontracts.CompanyProfileFieldSourceMigration: "import",
+	} {
+		t.Run(string(source), func(t *testing.T) {
+			field := siteReadField()
+			field.Source = source
+			field.CapturedBy = nil
+
+			got := receiptFor(t, field)
+
+			if got.Identity != nil {
+				if _, present := (*got.Identity)[key]; present {
+					t.Errorf("an unrecorded capturer was rendered as an empty %q", key)
+				}
+			}
+			if got.Gaps == nil || !namesGap(*got.Gaps, "produced_by") {
+				t.Errorf("gaps = %v, want produced_by named", got.Gaps)
+			}
+		})
+	}
+}
+
+func namesGap(gaps []string, want string) bool {
+	for _, gap := range gaps {
+		if gap == want {
+			return true
+		}
+	}
+	return false
+}
+
+// The human arm in full: the capturer is absent, so the receipt says so once
+// and does not also render it.
+func TestAnAbsentHumanCapturerIsNeitherAttributedNorSilent(t *testing.T) {
 	field := siteReadField()
 	field.Source = crmcontracts.CompanyProfileFieldSourceHuman
 	field.CapturedBy = nil

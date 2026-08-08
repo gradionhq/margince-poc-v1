@@ -34,7 +34,7 @@ Return ONLY a JSON object: {"sections":[{"kind":"summary|products_services|marke
 The sections answer, in order: what this company is; what they sell; where and to whom; who decides; what they claim sets them apart; their size, age and registration. Omit a section you have nothing real to say in.
 Describe THEM. This is not about our relationship with them, our pipeline, or whether they are a good fit — a different surface answers that, and a sentence here about either belongs there instead.
 Every sentence is a FACT: it restates something the summary says and cites the record it came from. You are rewriting recorded values as prose a person would read, not drawing conclusions from them. If the summary does not say it, do not write it.
-Cite the ids the summary gave you. A sentence about the company itself cites the organization.
+Cite the ids the summary gave you. Every sentence must cite at least one — a sentence you cannot attach a record to is one to leave out.
 Put ids ONLY in evidence. An id must never appear in a sentence's text — the reader sees the text, and an id there is unreadable.
 Write plainly, one claim per sentence, and never open two sentences with the company name.`
 

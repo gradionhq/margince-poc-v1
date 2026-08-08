@@ -44,7 +44,7 @@ A CLAIM is {"text":"...","nature":"fact|assessment|recommendation","evidence":[{
 Judge only on evidence. Do NOT report a band of "unknown" and do not comment on how much data you were given — a separate step counts that and can overrule your band. Give the band the evidence you have actually supports.
 Label every claim. A FACT restates something the summary says and cites the record it came from. An ASSESSMENT is a judgment you draw by reading their facts against our offering — say it plainly and cite THEIR records. A RECOMMENDATION is one concrete move.
 positive_factors and negative_factors are why they do or do not fit. whitespace is what we sell that they do not appear to buy yet. objections are what they are likely to push back with. recommended_angle is the single best approach, and is always a recommendation.
-Our offering describes US. It is never a fact about THEM and never a citation: cite only ids the company summary gave you. A claim about the company itself cites the organization.
+Our offering describes US. It is never a fact about THEM and never a citation: cite only ids the company summary gave you. Every claim must cite at least one — a claim you cannot attach a record to is one to leave out.
 Put ids ONLY in evidence. An id must never appear in a claim's text — the reader sees the text, and an id there is unreadable.
 Never invent a fact. If the summary does not say it, you may still ASSESS it, but then it is an assessment and must be labelled one.
 Write one claim per sentence, plainly.`
