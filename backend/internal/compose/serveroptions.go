@@ -23,13 +23,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
@@ -215,19 +215,26 @@ func WithOverlayMeter(meter *overlaybudget.Meter) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.overlayMeter.RebindFrom(meter) }
 }
 
-// WithReadMeter Rebinds the Server's shared MCP-SESS-READS meter to the live,
+// WithAgentQuota Rebinds the Server's shared MCP-SESS-* meter to the live,
 // Redis-backed one cmd built. newServer constructs it fail-closed (nil Redis)
 // and hands that ONE pointer to both halves of the bound — the admission gate
 // that refuses on it and the tool registry that charges it — so this
 // RebindFrom reaches both together and they can never end up counting against
 // different windows.
 //
-// Taking the already-built *readmeter.Meter (not a *redis.Client) keeps the
+// Taking the already-built *agentquota.Meter (not a *redis.Client) keeps the
 // raw-Redis dependency in cmd, never in compose. Without this option the meter
 // stays fail-closed: a role serving the agent surface with no Redis cannot
-// tell whether an agent has passed its read bound, and answers that it has.
-func WithReadMeter(meter *readmeter.Meter) Option {
-	return func(s *Server, _ *pgxpool.Pool) { s.readMeter.RebindFrom(meter) }
+// tell whether an agent has passed any of its bounds, and answers that it has.
+//
+// The COST ceiling is installed here rather than in cmd because both halves of
+// that division live behind the pool this option is handed: the workspace's AI
+// budget and the credentials sharing it. cmd owns the Redis client; compose
+// owns what the workspace's own numbers mean.
+func WithAgentQuota(meter *agentquota.Meter) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.quotaMeter.RebindFrom(meter.WithCostCeiling(newPassportShareCeiling(pool, meter.Window())))
+	}
 }
 
 // WithRetrievalEmbedder binds this role's embed lane to the REQUEST path, so

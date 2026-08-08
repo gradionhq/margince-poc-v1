@@ -59,7 +59,7 @@ var actionShapedUpdateOps = map[string]bool{
 // exactly the staged sub-patch, whose hash the staging was bound to.
 func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
 	ctx := r.Context()
-	if redeemIfPresented(w, r, next, staging, pol, body) {
+	if handled, _ := redeemIfPresented(w, r, next, staging, pol, body); handled {
 		return
 	}
 	raw := chi.URLParam(r, "id")

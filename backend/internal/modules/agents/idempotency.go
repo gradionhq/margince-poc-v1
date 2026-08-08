@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -352,7 +353,12 @@ func (r *Registry) ensureReplayVisible(ctx context.Context, evidence []EvidenceR
 	return nil
 }
 
-// chargeReplay bills a served replay against the caller's read bound.
+// chargeReplay bills a served replay against the caller's READ counter.
+//
+// Only that counter. A replay hands the same records over again, so it is a
+// read; it does NOT perform the action again, so charging the write/send/egress
+// counter chargeAnswer adds would bill a caller for an effect that did not
+// happen twice — and would spend a Passport's send ceiling on a document.
 //
 // The count is what the ORIGINAL call was charged, recorded with the result —
 // not the length of the evidence list. The two differ whenever an answer hands
@@ -362,16 +368,16 @@ func (r *Registry) ensureReplayVisible(ctx context.Context, evidence []EvidenceR
 // arithmetic: a replay costs what the call cost.
 //
 // A charge that cannot be recorded WITHHOLDS the replay, with no exception for
-// the write the recording came from. The asymmetry chargeReads draws — a write
-// is served uncounted because its effect already happened — does not reach
-// here: on a replay nothing happens, so withholding costs the caller a document
-// it can ask for again, and serving it would leak an uncountable read once per
-// retry for the life of the window.
+// the write the recording came from — which is why this does not go through
+// r.charge. That helper serves an uncountable write anyway because its effect
+// already happened; on a replay nothing happens, so withholding costs the
+// caller a document it can ask for again, while serving it would leak an
+// uncountable read once per retry for the life of the window.
 func (r *Registry) chargeReplay(ctx context.Context, spec mcp.ToolSpec, records int) error {
-	if r.reads == nil || records <= 0 {
+	if r.quota == nil || records <= 0 {
 		return nil
 	}
-	if err := r.reads.Consume(ctx, records); err != nil {
+	if err := r.quota.Consume(ctx, agentquota.Reads, records); err != nil {
 		slog.ErrorContext(ctx, "recording a replayed result against the read bound failed",
 			"tool", spec.Name, "records", records, "err", err)
 		return fmt.Errorf(

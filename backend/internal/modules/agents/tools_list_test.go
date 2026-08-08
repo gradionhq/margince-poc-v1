@@ -142,8 +142,8 @@ func TestAnEnumerationIsChargedPerRecord(t *testing.T) {
 		t.Fatalf("invoking list_records: %v", err)
 	}
 
-	if charger.charged != 3 {
-		t.Errorf("charged %d for a page of 3 records, want 3", charger.charged)
+	if charger.reads() != 3 {
+		t.Errorf("charged %d for a page of 3 records, want 3", charger.reads())
 	}
 }
 

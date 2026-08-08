@@ -142,10 +142,10 @@ func newRetryFixture(t *testing.T) *retryFixture {
 		tool:    &writingTool{spec: writeToolSpec("send_email")},
 		claims:  &recordingClaims{},
 		reader:  &answeringReader{},
-		charger: &countingCharger{},
+		charger: newCountingCharger(),
 	}
 	f.registry = NewRegistry(nil, auth.NewGate(fullSeatAuthority{}),
-		WithIdempotency(f.claims), WithReplayReader(f.reader), WithReadCharger(f.charger))
+		WithIdempotency(f.claims), WithReplayReader(f.reader), WithQuotaCharger(f.charger))
 	f.registry.Register(f.tool)
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
 	f.ctx = principal.WithActor(ctx, principal.Principal{
@@ -232,8 +232,8 @@ func TestAReplayAnswersTheFirstResultWithoutRunningTheToolAgain(t *testing.T) {
 	if f.reader.reads != 1 {
 		t.Fatalf("the replay probed %d records, want 1", f.reader.reads)
 	}
-	if f.charger.charged != 1 {
-		t.Fatalf("the replay charged %d records against the read bound, want 1", f.charger.charged)
+	if f.charger.reads() != 1 {
+		t.Fatalf("the replay charged %d records against the read bound, want 1", f.charger.reads())
 	}
 }
 
@@ -264,8 +264,8 @@ func TestAReplayIsRefusedWhenTheCallerCanNoLongerSeeWhatItCarries(t *testing.T) 
 			if out != nil {
 				t.Fatalf("part of the recorded document was served anyway: %s", out)
 			}
-			if f.charger.charged != 0 {
-				t.Fatalf("a refused replay charged %d records", f.charger.charged)
+			if f.charger.reads() != 0 {
+				t.Fatalf("a refused replay charged %d records", f.charger.reads())
 			}
 		})
 	}
@@ -310,7 +310,7 @@ func TestAReplayThatNamesNoRecordIsRefused(t *testing.T) {
 func TestAReplayIsRefusedWhenNoReaderIsWired(t *testing.T) {
 	f := newRetryFixture(t)
 	f.registry = NewRegistry(nil, auth.NewGate(fullSeatAuthority{}),
-		WithIdempotency(f.claims), WithReadCharger(f.charger))
+		WithIdempotency(f.claims), WithQuotaCharger(f.charger))
 	f.registry.Register(f.tool)
 	f.claims.verdict = Claim{State: ClaimReplay, Result: json.RawMessage(fmt.Sprintf(
 		`{"schema_version":"1.0.0","evidence":[{"record_type":"deal","record_id":"%s"}]}`, ids.NewV7()))}
@@ -516,7 +516,7 @@ func TestBookkeepingFailuresNeverChangeWhatTheCallerIsTold(t *testing.T) {
 // irreversible act.
 func TestAKeyIsRefusedOnASurfaceThatCannotClaimIt(t *testing.T) {
 	f := newRetryFixture(t)
-	f.registry = NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithReadCharger(f.charger))
+	f.registry = NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithQuotaCharger(f.charger))
 	f.registry.Register(f.tool)
 
 	_, err := f.invoke(t, `{"idempotency_key":"k-1"}`)
@@ -566,6 +566,14 @@ func (a *consumingApprovals) Stage(context.Context, StageRequest) (ids.ApprovalI
 	return a.staged, a.stageErr
 }
 
+// StageQuotaRelease is the §2.4 step-up, which none of these scenarios reaches:
+// they are about the approval a 🟡 call already carries, not about a quota
+// ceiling. It answers "nothing staged" so a test that DID reach it would fail
+// on the missing step-up rather than pass on a fabricated one.
+func (a *consumingApprovals) StageQuotaRelease(context.Context, QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
+
 func (a *consumingApprovals) Redeem(_ context.Context, id ids.ApprovalID, _, _ string) (int64, bool, error) {
 	a.redeems++
 	if a.redeemErr != nil {
@@ -590,7 +598,7 @@ func approvedRetryFixture(t *testing.T) (*retryFixture, *consumingApprovals) {
 		tool:    &writingTool{spec: writeToolSpec("send_email")},
 		claims:  &recordingClaims{},
 		reader:  &answeringReader{},
-		charger: &countingCharger{},
+		charger: newCountingCharger(),
 	}
 	f.tool.spec.Tier = mcp.TierConfirmationRequired
 	// It answers with the record it changed, as every mutating tool on this
@@ -598,7 +606,7 @@ func approvedRetryFixture(t *testing.T) (*retryFixture, *consumingApprovals) {
 	f.tool.records = []ids.UUID{ids.NewV7()}
 	approvals := &consumingApprovals{staged: ids.From[ids.ApprovalKind](ids.NewV7())}
 	f.registry = NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}),
-		WithIdempotency(f.claims), WithReplayReader(f.reader), WithReadCharger(f.charger))
+		WithIdempotency(f.claims), WithReplayReader(f.reader), WithQuotaCharger(f.charger))
 	f.registry.Register(f.tool)
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
 	f.ctx = principal.WithActor(ctx, principal.Principal{
@@ -765,8 +773,8 @@ func TestAReplayCostsWhatTheCallCostAndNotWhatItCanName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
-	if f.charger.charged != 3 {
-		t.Fatalf("the call charged %d, want 3 records served", f.charger.charged)
+	if f.charger.reads() != 3 {
+		t.Fatalf("the call charged %d, want 3 records served", f.charger.reads())
 	}
 	if f.claims.storedRecords != 3 {
 		t.Fatalf("recorded cost %d, want the 3 the call was charged", f.claims.storedRecords)
@@ -777,8 +785,8 @@ func TestAReplayCostsWhatTheCallCostAndNotWhatItCanName(t *testing.T) {
 	if _, err := replayed.invoke(t, `{"idempotency_key":"k-1"}`); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	if replayed.charger.charged != 3 {
+	if replayed.charger.reads() != 3 {
 		t.Fatalf("the replay charged %d, want the 3 the call cost — its evidence list names only 2",
-			replayed.charger.charged)
+			replayed.charger.reads())
 	}
 }

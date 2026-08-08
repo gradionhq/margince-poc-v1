@@ -30,6 +30,9 @@ export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
   book_meeting: "approval.kind.book_meeting",
   send_offer: "approval.kind.send_offer",
   coldstart: "approval.kind.coldstart",
+  // Not a change to a record — a question about a credential's volume, which is
+  // why its label says what a yes DOES rather than naming an object.
+  quota_release: "approval.kind.quota_release",
   enrich: "approval.kind.enrich",
   deepread: "approval.kind.deepread",
   linkedin_match: "approval.kind.linkedin_match",

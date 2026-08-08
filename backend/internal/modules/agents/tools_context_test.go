@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -151,8 +152,8 @@ func TestAWithheldHitIsNotChargedAgainstTheReadBound(t *testing.T) {
 		t.Fatalf("invoking search_context: %v", err)
 	}
 
-	if charger.charged != 1 {
-		t.Errorf("charged %d records for a page of 2 with 1 withheld, want 1", charger.charged)
+	if charger.reads() != 1 {
+		t.Errorf("charged %d records for a page of 2 with 1 withheld, want 1", charger.reads())
 	}
 }
 
@@ -173,11 +174,11 @@ func TestASearchIsChargedPerRecord(t *testing.T) {
 		t.Fatalf("invoking search_context: %v", err)
 	}
 
-	if charger.charged != 4 {
-		t.Errorf("charged %d for a 4-record page, want 4 — a page must not cost one", charger.charged)
+	if charger.reads() != 4 {
+		t.Errorf("charged %d for a 4-record page, want 4 — a page must not cost one", charger.reads())
 	}
-	if charger.calls != 1 {
-		t.Errorf("the bound was consulted %d times, want one charge for the whole answer", charger.calls)
+	if charger.times[agentquota.Reads] != 1 {
+		t.Errorf("the bound was consulted %d times, want one charge for the whole answer", charger.times[agentquota.Reads])
 	}
 }
 
