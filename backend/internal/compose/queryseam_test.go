@@ -41,6 +41,20 @@ func TestTheSurfaceAndTheExecutorAgreeOnCoverage(t *testing.T) {
 	}
 }
 
+// The two surfaces that report a lexical fallback report it with the SAME word.
+//
+// query_workspace's note comes from the executor; search_context's is written in
+// the agents module, which may not import the executor to borrow it. A client
+// branches on this string, so two spellings would make one condition read as two
+// depending on which tool was asked. This is the one place that can see both.
+func TestTheSurfaceAndTheExecutorAgreeOnDegradation(t *testing.T) {
+	if search.CodeSemanticRankingDegraded != agents.CodeSemanticRankingDegraded {
+		t.Errorf("the executor says %q and search_context says %q; a caller branching on the code "+
+			"would read one condition as two",
+			search.CodeSemanticRankingDegraded, agents.CodeSemanticRankingDegraded)
+	}
+}
+
 // The mode guard is the reason this tool is composed here rather than
 // registered next to its executor: the plan runs against the NATIVE tables, and
 // an overlay workspace has no rows in them. A well-formed empty answer is the

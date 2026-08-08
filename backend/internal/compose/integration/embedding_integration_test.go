@@ -14,6 +14,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -176,9 +177,12 @@ func TestHybridRRFAgreementWins(t *testing.T) {
 		}
 	}
 
-	hits, err := e.Store.HybridSearch(e.Admin(), "solar grid", embedder, 10)
+	hits, semantic, err := e.Store.HybridSearch(e.Admin(), "solar grid", embedder, 10)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !semantic {
+		t.Fatal("a bound embed lane that answered must report its ranking as semantic")
 	}
 	if len(hits) < 3 {
 		t.Fatalf("expected all three lanes' rows fused, got %+v", hits)
@@ -477,9 +481,13 @@ func TestHybridSearchDegradesToLexicalOnUnboundLane(t *testing.T) {
 	e := SetupSearch(t)
 	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Lexical Only Grid', 'manual', 'human:x')`)
 
-	hits, err := e.Store.HybridSearch(e.Admin(), "Lexical Only Grid", embedIdentityNeverCalled{}, 10)
+	hits, semantic, err := e.Store.HybridSearch(e.Admin(), "Lexical Only Grid", embedIdentityNeverCalled{}, 10)
 	if err != nil {
 		t.Fatalf("unbound lane must not error, got %v", err)
+	}
+	if semantic {
+		t.Fatal("an unbound embed lane must report its ranking as NOT semantic; a caller that " +
+			"publishes it as semantic would describe a word-overlap page as a meaning-ranked one")
 	}
 	found := false
 	for _, h := range hits {
@@ -489,5 +497,51 @@ func TestHybridSearchDegradesToLexicalOnUnboundLane(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("lexical lane must still find the seeded row on an unbound embed lane, got %+v", hits)
+	}
+}
+
+// embedCallFails is a BOUND embed lane — a real identity and width — whose
+// every call fails, which is what an unreachable or rate-limited provider
+// looks like from the query side. It is a different shape from
+// embedIdentityNeverCalled on purpose: that one is a lane that was never
+// configured, this one is a lane that exists and is down, and only the second
+// can happen to a deployment that was working a minute ago.
+type embedCallFails struct{}
+
+func (embedCallFails) Embed(context.Context, model.EmbedRequest) (model.Embeddings, error) {
+	return model.Embeddings{}, errors.New("embed provider unreachable")
+}
+
+func (embedCallFails) EmbedIdentity() (string, int) { return "fake/embed@8", 8 }
+
+// TestHybridSearchDegradesToLexicalWhenTheEmbedCallFails pins the posture the
+// request-path embed binding needs: a provider fault must not turn a ranked
+// question into a failed one.
+//
+// Before the embed lane was bound to a request path this could only happen to
+// a background job, where an error is the right answer — the job retries. On a
+// request it is not: the same deployment answered this question lexically
+// yesterday, and a 5xx is strictly worse than a lexical page that says it is
+// lexical. So the hits still come back and `semantic` is false, exactly as for
+// a lane that was never bound, because both are one fact to the caller.
+func TestHybridSearchDegradesToLexicalWhenTheEmbedCallFails(t *testing.T) {
+	e := SetupSearch(t)
+	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Provider Down Grid', 'manual', 'human:x')`)
+
+	hits, semantic, err := e.Store.HybridSearch(e.Admin(), "Provider Down Grid", embedCallFails{}, 10)
+	if err != nil {
+		t.Fatalf("a failed embed call must degrade rather than fail the search, got %v", err)
+	}
+	if semantic {
+		t.Fatal("a failed embed call must report its ranking as NOT semantic")
+	}
+	found := false
+	for _, h := range hits {
+		if h.ID == personID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the lexical lane must still answer when the embed call failed, got %+v", hits)
 	}
 }

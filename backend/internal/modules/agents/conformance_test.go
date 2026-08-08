@@ -112,8 +112,8 @@ func textBlock(t *testing.T, res map[string]any) string {
 // silently shrink the very set these walks claim to cover.
 type inertRetriever struct{}
 
-func (inertRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
-	return nil, nil
+func (inertRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
+	return retrieval.Result{}, nil
 }
 
 func (inertRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
@@ -150,6 +150,10 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterEnrichTool(r, nil, inertLifecycle{})
 	RegisterQueryTool(r, nil, func(context.Context, json.RawMessage) (QueryAnswer, error) {
 		return QueryAnswer{Coverage: CoverageCompleteExact}, nil
+	})
+	RegisterContextSearchTool(r, nil, inertRetriever{})
+	RegisterResolveTool(r, nil, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
+		return nil, nil
 	})
 	RegisterListTool(r, nil, probeVocabulary{})
 	RegisterBriefTool(r, briefOf(0))

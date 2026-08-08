@@ -41,9 +41,12 @@ const (
 // The notes that justify a verdict. One code per reason, so a caller branches
 // on the reason rather than on prose.
 const (
-	// CodeSemanticRankingDegraded: no embedding lane is bound, so a similarity
-	// clause ranked lexically. Told rather than hidden: a degradation nobody
-	// is told about is indistinguishable from a working feature.
+	// CodeSemanticRankingDegraded: the vector lane contributed nothing, so a
+	// similarity clause ranked lexically. It names no CAUSE — the lane can be
+	// unbound, unreachable, or bound with nothing yet stored under its identity,
+	// and a caller can do the same thing about all three. Told rather than
+	// hidden: a degradation nobody is told about is indistinguishable from a
+	// working feature.
 	CodeSemanticRankingDegraded = "semantic_ranking_degraded_to_lexical"
 	// CodeResultTruncated: more rows match than the page carries. v1 has no
 	// cursor member, so the rest cannot be asked for — which makes truncation
@@ -140,7 +143,7 @@ func (e *QueryExecutor) Execute(ctx context.Context, plan ValidatedPlan) (QueryR
 	if degraded {
 		result.Notes = append(result.Notes, QueryNote{
 			Code:   CodeSemanticRankingDegraded,
-			Detail: "no embedding lane is bound, so the ranking is lexical; similarity recall is narrower than it would otherwise be",
+			Detail: "the meaning lane contributed nothing to this ranking, so it is lexical; similarity recall is narrower than it would otherwise be",
 		})
 	}
 	binding.candidates = rankedIDs(ranked)
@@ -256,9 +259,12 @@ func scanPlanRows(queried pgx.Rows, plan ValidatedPlan, binding planBinding) ([]
 }
 
 // rankCandidates runs the similarity clause through the module's hybrid arm, narrowed to
-// the plan's target type. degraded reports that the arm had no embedding lane
-// to rank with and fell back to the lexical one — the arm degrades silently, so
-// the same question is asked here to be able to say so.
+// the plan's target type. degraded reports that the arm fell back to the
+// lexical lane. The ARM answers that now rather than being asked the same
+// question twice here: there are two ways to lose the vector lane — no bound
+// embed model, and an embed CALL that failed — and only the arm can see the
+// second. Re-deriving it from the embedder alone said "semantic" about a page
+// that was ranked by word overlap.
 func (e *QueryExecutor) rankCandidates(ctx context.Context, plan ValidatedPlan) (ranked []Hit, degraded bool, err error) {
 	if plan.Plan.SimilarTo == "" {
 		return nil, false, nil
@@ -272,29 +278,17 @@ func (e *QueryExecutor) rankCandidates(ctx context.Context, plan ValidatedPlan) 
 	// Overfetching is what is left honest afterwards: the exact predicates
 	// still run over the ranked candidates, so a page of them can narrow
 	// further. That bound IS what ranked_semantic means.
-	ranked, err = e.store.HybridSearch(ctx, plan.Plan.SimilarTo, e.embedder,
+	ranked, semantic, err := e.store.HybridSearch(ctx, plan.Plan.SimilarTo, e.embedder,
 		clampLimit(plan.Limit*candidateDepth), plan.Target.Target)
 	if err != nil {
 		return nil, false, err
 	}
-	return ranked, !embeddingLaneBound(e.embedder), nil
+	return ranked, !semantic, nil
 }
 
 // candidateDepth overfetches the ranking lane relative to the page, so the
 // exact predicates have more than a page of ranked candidates to narrow.
 const candidateDepth = 3
-
-// embeddingLaneBound asks the embedder the same question the hybrid arm asks
-// before it degrades: a nil embedder and one whose identity is empty (the
-// offline fake, or a routing config that never bound an embeddings model) are
-// the same shape from the query side.
-func embeddingLaneBound(embedder Embedder) bool {
-	if embedder == nil {
-		return false
-	}
-	identity, _ := embedder.EmbedIdentity()
-	return identity != ""
-}
 
 func rankedIDs(ranked []Hit) []ids.UUID {
 	out := make([]ids.UUID, len(ranked))
