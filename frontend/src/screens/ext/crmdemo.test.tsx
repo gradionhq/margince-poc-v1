@@ -139,6 +139,20 @@ describe("the Demo Notepad screen", () => {
     // DOM either.
     const sent = calls.find((c) => c.path === "/ext/crm-demo/signing-key");
     expect(sent?.body).toEqual({ key: "s3cr3t" });
+    // The INPUT's value, not document.body.textContent. An <input> never
+    // contributes its value to textContent, so the textContent form of this
+    // assertion passes whether or not the field was cleared — it was asserting
+    // nothing about the one place the key is actually still sitting.
+    const field = screen.getByLabelText("Signing key");
+    // `instanceof`, not a cast: the runtime check and the narrowing are the
+    // same expression, so a control that stopped being an <input> fails here
+    // rather than reading `.value` off something that has none.
+    if (!(field instanceof HTMLInputElement)) {
+      throw new Error("the signing key control is not an <input>");
+    }
+    expect(field.value).toBe("");
+    // And nowhere else on the page either — that is what textContent is good
+    // for, so it stays alongside rather than instead.
     expect(document.body.textContent).not.toContain("s3cr3t");
   });
 

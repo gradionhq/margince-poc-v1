@@ -242,6 +242,12 @@ fe-typecheck-composed: composition
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:composed-types
 	@[ -f build/composition-frontend/schema.d.ts ] || { echo "fe-typecheck-composed: pnpm gen:composed-types produced no schema.d.ts — the composed lane would silently typecheck against the committed contract" >&2; exit 1; }
 	cd frontend && pnpm exec tsc -p tsconfig.composed.json
+	# And the composed lane's TESTS, which no other project compiles: the app
+	# and node projects exclude src/screens/ext/ (it cannot typecheck there),
+	# and tsconfig.composed.json excludes *.test.*. Without this line a unit
+	# screen's test fixtures are checked by nothing, since vitest transpiles
+	# without typechecking.
+	cd frontend && pnpm exec tsc -p tsconfig.composed-tests.json
 
 ## frontend-e2e — the screen-acceptance harness (AC-<screen>-N + axe WCAG AA
 ## + perceived perf budgets) against the built app over the seed mock.

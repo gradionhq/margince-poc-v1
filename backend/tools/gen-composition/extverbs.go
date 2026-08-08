@@ -190,6 +190,7 @@ type operationDoc struct {
 	OperationID string    `yaml:"operationId"`
 	Tool        yaml.Node `yaml:"x-mcp-tool"`
 	RbacObject  string    `yaml:"x-rbac-object"` // key spelled once in rbacObjectExtension
+	RbacAction  string    `yaml:"x-rbac-action"` // key spelled once in rbacActionExtension
 	RequestBody yaml.Node `yaml:"requestBody"`
 	Responses   yaml.Node `yaml:"responses"`
 }
@@ -254,6 +255,7 @@ func readOperation(base, unit, route, method string, node *yaml.Node) (declaredV
 		InputSchema:    input,
 		OutputSchema:   output,
 		RbacObject:     op.RbacObject,
+		RbacAction:     extension.RbacAction(op.RbacAction),
 	}
 	// The SAME Validate the boot runs, so a fragment this generator accepts
 	// can never be one the composed process then refuses to serve.
@@ -269,10 +271,17 @@ func readOperation(base, unit, route, method string, node *yaml.Node) (declaredV
 
 // readExtensionKeys are the x- annotations an extension operation may carry.
 // The set is closed and short on purpose; see checkExtensionKeys.
-var readExtensionKeys = []string{mcpToolExtension, rbacObjectExtension}
+var readExtensionKeys = []string{mcpToolExtension, rbacObjectExtension, rbacActionExtension}
 
 // rbacObjectExtension names the RBAC object an extension operation gates on.
 const rbacObjectExtension = "x-rbac-object"
+
+// rbacActionExtension names the verb the grant on that object must carry. It
+// is a second key rather than a compound value because the two are checked
+// against two different vocabularies — a unit-namespaced object name, and the
+// closed four-verb action set — and one string holding both would have to be
+// split before either could be validated.
+const rbacActionExtension = "x-rbac-action"
 
 // checkExtensionKeys refuses an x- key this reader does not act on.
 //

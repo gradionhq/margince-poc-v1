@@ -58,6 +58,11 @@ type fakeTx struct {
 	row      []any   // what QueryRow scans into dest
 	affected int64
 	err      error
+	// failFrom is the 1-based statement the error starts at; 0 fails every
+	// statement. A handler issuing two statements has two distinct failure
+	// modes, and a fake that could only fail the first would let a test named
+	// for the second pass without ever reaching it.
+	failFrom int
 
 	// lastRows is the cursor Query handed the handler, kept so a test can ask
 	// whether the handler closed it.
@@ -71,13 +76,21 @@ func (t *fakeTx) record(sql string, args []any) {
 
 func (t *fakeTx) Exec(_ context.Context, sql string, args ...any) (int64, error) {
 	t.record(sql, args)
-	return t.affected, t.err
+	return t.affected, t.failure()
+}
+
+// failure reports the scripted error for the statement just recorded.
+func (t *fakeTx) failure() error {
+	if t.err == nil || len(t.statements) < t.failFrom {
+		return nil
+	}
+	return t.err
 }
 
 func (t *fakeTx) Query(_ context.Context, sql string, args ...any) (extension.Rows, error) {
 	t.record(sql, args)
-	if t.err != nil {
-		return nil, t.err
+	if err := t.failure(); err != nil {
+		return nil, err
 	}
 	t.lastRows = &fakeRows{rows: t.rows}
 	return t.lastRows, nil
@@ -85,7 +98,7 @@ func (t *fakeTx) Query(_ context.Context, sql string, args ...any) (extension.Ro
 
 func (t *fakeTx) QueryRow(_ context.Context, sql string, args ...any) extension.Row {
 	t.record(sql, args)
-	return fakeRow{values: t.row, err: t.err}
+	return fakeRow{values: t.row, err: t.failure()}
 }
 
 // only returns the single statement the handler issued, failing when it issued

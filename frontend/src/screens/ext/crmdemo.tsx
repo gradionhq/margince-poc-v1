@@ -207,9 +207,21 @@ function useNotes() {
  *
  * `Add` and the row's remove control are gated on the unit's OWN RBAC object,
  * registered into the vocabulary at boot from the fragment's `x-rbac-object`
- * and reported in /me. This is UX honesty, never enforcement — the server's
- * gate is the authority — but it is also the observable half of the demo's
- * read-only-seat step: the list renders, the controls do not.
+ * and reported in /me. This is UX honesty, never enforcement — and unlike the
+ * core screens this phrasing is inherited from, that sentence is now backed by
+ * a server that actually refuses: `extensionTool.Handle` requires the declared
+ * object and action of the calling principal before the handler runs, on BOTH
+ * the mounted REST route and the agent's tools/call, because the two converge
+ * on `Registry.Invoke`.
+ *
+ * It was not, until this round. The object registered into the vocabulary,
+ * reached /me, and gated nothing — so this screen hid its controls from a
+ * principal who could still list and write the same notes through the agent.
+ * The gating actions below (`create` on Add, `delete` on Remove) are the same
+ * ones the fragment declares in `x-rbac-action`, and they have to stay that
+ * way: a screen gating on a verb the route does not require is a control that
+ * disappears for someone the server would have served, and the reverse is a
+ * control that leads to a 403.
  */
 function NotesCard() {
   const t = useT();

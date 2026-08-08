@@ -416,6 +416,7 @@ func writeVerbLiterals(b *strings.Builder, verbs []declaredVerb) {
 		writeSchemaLiteral(b, "InputSchema", v.InputSchema)
 		writeSchemaLiteral(b, "OutputSchema", v.OutputSchema)
 		fmt.Fprintf(b, "\t\t\tRbacObject:     %q,\n", v.RbacObject)
+		fmt.Fprintf(b, "\t\t\tRbacAction:     %q,\n", string(v.RbacAction))
 		b.WriteString("\t\t},\n")
 	}
 	b.WriteString("\t}\n}\n")

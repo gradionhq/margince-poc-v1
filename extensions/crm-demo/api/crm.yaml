@@ -33,8 +33,13 @@ actions:
         tags: [Extensions]
         # The unit owns records, so its operations gate on an object a role
         # document can grant and /me reports. It is registered into the RBAC
-        # vocabulary at boot from this line (compose/extrbac.go).
+        # vocabulary at boot from this line (compose/extrbac.go), and the
+        # ACTION beside it is what the composed tool adapter requires of the
+        # calling principal before the handler runs — declared rather than
+        # derived, because `scope: read` is a Passport verb class and says
+        # nothing about which of the four object verbs this route needs.
         x-rbac-object: ext_crm_demo_note
+        x-rbac-action: read
         x-mcp-tool:
           verb: demo_list_notes
           version: 1.0.0
@@ -86,6 +91,7 @@ actions:
         summary: Add one note to the demo notepad.
         tags: [Extensions]
         x-rbac-object: ext_crm_demo_note
+        x-rbac-action: create
         x-mcp-tool:
           verb: demo_add_note
           version: 1.0.0
@@ -132,6 +138,7 @@ actions:
         summary: Remove one note from the demo notepad.
         tags: [Extensions]
         x-rbac-object: ext_crm_demo_note
+        x-rbac-action: delete
         x-mcp-tool:
           verb: demo_remove_note
           version: 1.0.0

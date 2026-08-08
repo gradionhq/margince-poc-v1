@@ -49,6 +49,7 @@ func composedFixture() ([]extensionUnit, []declaredVerb) {
 			Unit: "alpha", OperationID: "alphaSync", Route: "/ext/alpha/sync",
 			Method: "POST", Title: "Sync contacts", Version: "1.2.0",
 			RbacObject: "ext_alpha_contact",
+			RbacAction: extension.RbacRead,
 		}},
 		{verb: extension.Verb{
 			Unit: "beta", OperationID: "betaPing", Route: "/ext/beta/ping",

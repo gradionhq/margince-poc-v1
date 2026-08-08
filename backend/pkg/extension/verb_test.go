@@ -47,6 +47,7 @@ func TestVerbValidateAcceptsAWellFormedDeclaration(t *testing.T) {
 	// And the RBAC object, which is optional but namespaced when present.
 	gated := wellFormed()
 	gated.RbacObject = "ext_crm_demo_widget"
+	gated.RbacAction = RbacRead
 	if err := gated.Validate(); err != nil {
 		t.Fatalf("a namespaced RBAC object must validate: %v", err)
 	}
@@ -93,6 +94,19 @@ func TestVerbValidateRefusals(t *testing.T) {
 		"a malformed output schema":             func(v *Verb) { v.OutputSchema = json.RawMessage(`{bad`) },
 		"an unnamespaced RBAC object":           func(v *Verb) { v.RbacObject = "widget" },
 		"another unit's RBAC object":            func(v *Verb) { v.RbacObject = "ext_other_widget" },
+		// The pair. An object with no action would have to be enforced with a
+		// guessed verb; an action with no object names no grant at all. Both
+		// halves are refusals rather than defaults, because either default
+		// would be governance nobody wrote.
+		"an object with no action": func(v *Verb) {
+			v.RbacObject, v.RbacAction = "ext_crm_demo_widget", ""
+		},
+		"an object with an action outside the four": func(v *Verb) {
+			v.RbacObject, v.RbacAction = "ext_crm_demo_widget", "list"
+		},
+		"an action with no object": func(v *Verb) {
+			v.RbacObject, v.RbacAction = "", RbacRead
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			v := wellFormed()
@@ -110,6 +124,7 @@ func TestVerbValidateRefusals(t *testing.T) {
 // The two must not be confused in either direction.
 func TestTheUnitNamespaceIsCheckedWithTheSqlSpelling(t *testing.T) {
 	v := wellFormed()
+	v.RbacAction = RbacRead
 	v.RbacObject = "ext_crm-demo_widget" // the ROUTE spelling, in a SQL identifier
 	if err := v.Validate(); err == nil {
 		t.Fatal("a hyphenated RBAC object validated; no unquoted SQL identifier holds a hyphen")

@@ -209,13 +209,19 @@ func TestExtensionVerbRefusals(t *testing.T) {
 // TestARbacObjectInTheUnitsNamespaceIsRead: the refusal above only means
 // something if the accepting path works.
 func TestARbacObjectInTheUnitsNamespaceIsRead(t *testing.T) {
-	pathItem := strings.Replace(yogiOperation, "      operationId: uQuote", "      operationId: uQuote\n      x-rbac-object: ext_u_widget", 1)
+	pathItem := strings.Replace(yogiOperation, "      operationId: uQuote", "      operationId: uQuote\n      x-rbac-object: ext_u_widget\n      x-rbac-action: read", 1)
 	got, err := verbsInContract("crm.yaml", oneUnit(), contractWith(pathItem))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got[0].verb.RbacObject != "ext_u_widget" {
 		t.Fatalf("RbacObject = %q", got[0].verb.RbacObject)
+	}
+	// The pair, not just the object: the action is what the composed tool
+	// adapter requires of a caller, so an object read without one would
+	// register a grant nothing enforces.
+	if got[0].verb.RbacAction != extension.RbacRead {
+		t.Fatalf("RbacAction = %q", got[0].verb.RbacAction)
 	}
 }
 

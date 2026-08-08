@@ -18,10 +18,12 @@ import (
 func TestExtensionRbacObjectsComeFromTheDeclaredOperations(t *testing.T) {
 	gated := unitVerb("crm-demo", "demo_sync", extension.TierAutoExecute, extension.ScopeRead)
 	gated.RbacObject = "ext_crm_demo_widget"
+	gated.RbacAction = extension.RbacRead
 	// A second operation on the SAME object: one unit's screens share it, so the
 	// registration must be de-duplicated or the boot refuses itself.
 	alsoGated := unitVerb("crm-demo", "demo_read", extension.TierAutoExecute, extension.ScopeRead)
 	alsoGated.RbacObject = "ext_crm_demo_widget"
+	alsoGated.RbacAction = extension.RbacRead
 	ungated := unitVerb("yogi", "yogi_quote", extension.TierAutoExecute, extension.ScopeRead)
 
 	got, err := extensionRbacObjects([]extension.Verb{gated, alsoGated, ungated})
@@ -50,8 +52,10 @@ func TestExtensionRbacObjectsComeFromTheDeclaredOperations(t *testing.T) {
 func TestTwoUnitsDerivingOneRbacObjectAreRefusedByName(t *testing.T) {
 	crm := unitVerb("crm", "crm_sync", extension.TierAutoExecute, extension.ScopeRead)
 	crm.RbacObject = "ext_crm_demo_widget"
+	crm.RbacAction = extension.RbacRead
 	crmDemo := unitVerb("crm-demo", "demo_sync", extension.TierAutoExecute, extension.ScopeRead)
 	crmDemo.RbacObject = "ext_crm_demo_widget"
+	crmDemo.RbacAction = extension.RbacRead
 	// Both are individually valid; that is the whole difficulty.
 	for _, v := range []extension.Verb{crm, crmDemo} {
 		if err := v.Validate(); err != nil {
@@ -121,6 +125,7 @@ func TestRegisterExtensionsRegistersTheDeclaredObjects(t *testing.T) {
 	t.Cleanup(func() { setComposedTools(nil); setComposedVerbs(nil) })
 	gated := unitVerb("crm-demo", "demo_sync", extension.TierAutoExecute, extension.ScopeRead)
 	gated.RbacObject = "ext_crm_demo_widget"
+	gated.RbacAction = extension.RbacRead
 	if err := RegisterExtensions([]extension.Extension{{Name: "crm-demo", Version: "0.1.0"}}, []extension.Verb{gated}, nil); err != nil {
 		t.Fatal(err)
 	}

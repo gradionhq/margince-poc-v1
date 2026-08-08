@@ -82,8 +82,51 @@ type Verb struct {
 	// tool that reads nothing workspace-specific gates on its scope alone).
 	// Declaring one registers it into the vocabulary at boot, which is what
 	// lets a role document grant it and /me report the holder's grant — see
-	// compose/extrbac.go.
+	// compose/extrbac.go — and it is REQUIRED for the grant on this
+	// invocation before the handler runs.
 	RbacObject string
+
+	// RbacAction is the verb the grant must carry, and it is declared rather
+	// than derived because nothing available here could derive it. The
+	// requested Scope is a Passport verb CLASS (read/draft/write/send/enrich)
+	// and the RBAC action is one of four object verbs; `write` alone cannot
+	// say whether an operation creates, updates or deletes, and a check that
+	// accepted any of the three would admit a principal granted delete to a
+	// route that creates.
+	//
+	// It is required exactly when RbacObject is present and refused when it is
+	// absent: an action with no object names no grant, and an object with no
+	// action would have to be enforced with a guessed verb.
+	RbacAction RbacAction
+}
+
+// RbacAction is one of the four object-level verbs a grant carries. The values
+// mirror the core vocabulary (`principal.Action`, and the contract's own
+// RbacAction enum) that the serving side maps them to, on the same footing as
+// Tier and Scope: a published surface cannot import the kernel, so what it
+// publishes is the same closed set under its own name.
+type RbacAction string
+
+const (
+	// RbacCreate is the grant a route that brings a record into existence needs.
+	RbacCreate RbacAction = "create"
+	// RbacRead is the grant a route that only reads needs.
+	RbacRead RbacAction = "read"
+	// RbacUpdate is the grant a route that mutates an existing record needs.
+	RbacUpdate RbacAction = "update"
+	// RbacDelete is the grant a route that removes a record needs.
+	RbacDelete RbacAction = "delete"
+)
+
+// Validate refuses an action outside the four. An unrecognised verb would
+// satisfy no grant any role document can hold, so the operation would deny
+// every principal forever while looking configured.
+func (a RbacAction) Validate() error {
+	switch a {
+	case RbacCreate, RbacRead, RbacUpdate, RbacDelete:
+		return nil
+	}
+	return fmt.Errorf("RBAC action %q is not one of the four object verbs (create, read, update, delete)", string(a))
 }
 
 // APIBasePath is the prefix the contract's `servers` url already carries
@@ -188,6 +231,16 @@ func (v Verb) validateGovernance() error {
 		if want := NamespacePrefix + strings.ReplaceAll(string(v.Unit), "-", "_") + "_"; !strings.HasPrefix(v.RbacObject, want) {
 			return fmt.Errorf("operation %s declares RBAC object %q, which is outside extension %q's %s namespace", v.OperationID, v.RbacObject, v.Unit, want)
 		}
+		if err := v.RbacAction.Validate(); err != nil {
+			return fmt.Errorf("operation %s gates on %q: %w", v.OperationID, v.RbacObject, err)
+		}
+		return nil
+	}
+	// The other half of the pair. An action with no object names no grant, so
+	// nothing could enforce it and the declaration would read as governance
+	// that is not there.
+	if v.RbacAction != "" {
+		return fmt.Errorf("operation %s declares RBAC action %q but no object — an action names a verb ON something, and there is nothing here for a role document to grant", v.OperationID, string(v.RbacAction))
 	}
 	return nil
 }

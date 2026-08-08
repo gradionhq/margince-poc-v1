@@ -81,11 +81,18 @@ func RegisterRbacObjects(objects []identity.RbacObject) error {
 // extensionRbacObjects collects the distinct RBAC objects the composed verb set
 // declares, in the verbs' own (already deterministic) order.
 //
-// Today it returns the empty set for the in-tree units: neither yogi nor
-// crm-hello owns records, so neither declares an object. That is the honest
-// state — the seam exists because a unit with records cannot be written without
-// it, and the alternative (ship the unit first, then discover its screen renders
-// nothing) is the failure this file's header describes.
+// crm-demo, the reference extension, declares ext_crm_demo_note on its three
+// record operations; de, yogi and crm-hello own no records and declare none, so
+// a composed set without crm-demo returns the empty set and this seam does
+// nothing — which is the state every other installation is in.
+//
+// Registration is only half of what an object is for. It is what lets a role
+// document grant the object and /me report the holder's grant; the ENFORCEMENT
+// is extensionTool.Handle's, which requires the declared object and action of
+// the calling principal before the handler runs. Both halves are needed, and
+// registration without enforcement was a live defect: the object reached /me,
+// a screen hid its controls accordingly, and the same principal could still
+// reach the operation through the agent.
 func extensionRbacObjects(verbs []extension.Verb) ([]identity.RbacObject, error) {
 	var objects []identity.RbacObject
 	owner := map[string]extension.Name{}

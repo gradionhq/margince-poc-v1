@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -169,7 +170,15 @@ func adaptExtensionTool(unit extension.Name, tool extension.Tool, verb extension
 		// that takes no arguments still needs one.
 		input = json.RawMessage(`{"type":"object"}`)
 	}
+	// The object and the action are carried onto the adapted tool for the same
+	// reason unit is: the composed declaration is the only place they exist,
+	// and mcp.ToolSpec has no field for either — the core gate's model is
+	// scope ∧ seat ∧ tier ∧ quota, and object-level RBAC is enforced by the
+	// handler at every core store rather than by the gate. So this adapter is
+	// where an extension's declared grant becomes a live check; see Handle.
 	return extensionTool{
+		rbacObject: verb.RbacObject,
+		rbacAction: verb.RbacAction,
 		spec: mcp.ToolSpec{
 			Name: tool.Name,
 			// A unit that declares a title gets it; one that does not is
@@ -277,8 +286,12 @@ type extensionTool struct {
 	spec mcp.ToolSpec
 	// unit is the declaring extension's name, the scope of every Runtime
 	// this tool's handler is invoked with.
-	unit   string
-	handle extension.ToolHandler
+	unit string
+	// rbacObject and rbacAction are the grant the contract declares this
+	// operation needs, or both empty for a tool that owns no records.
+	rbacObject string
+	rbacAction extension.RbacAction
+	handle     extension.ToolHandler
 }
 
 func (t extensionTool) Spec() mcp.ToolSpec { return t.spec }
@@ -292,6 +305,27 @@ func (t extensionTool) Spec() mcp.ToolSpec { return t.spec }
 // (extension.ErrRuntimeExpired) rather than a live capability that outlived
 // the call it was granted for.
 func (t extensionTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	// Object-level RBAC, and this is the ONE place it can be: the core gate
+	// decides scope ∧ seat ∧ tier ∧ quota and knows nothing about objects, so
+	// without this line a declared x-rbac-object would register into the
+	// vocabulary, reach /me, and gate nothing — a screen would hide a control
+	// the same principal could still reach through the agent.
+	//
+	// HERE rather than in the mounted route (extroutes.go), because this is
+	// where the two surfaces converge. The REST route and an MCP tools/call
+	// both arrive through Registry.Invoke, so a check in the route would leave
+	// the agent path open; and Invoke has already re-derived the granting
+	// human's live RBAC onto the context by the time it calls this, so the
+	// grant read below is the current one rather than whatever the transport
+	// stamped at session start.
+	//
+	// It runs BEFORE the Runtime is minted: a principal who may not touch the
+	// records must not reach a live capability handle, even briefly.
+	if t.rbacObject != "" {
+		if err := auth.Require(ctx, t.rbacObject, principal.Action(t.rbacAction)); err != nil {
+			return nil, err
+		}
+	}
 	pool, vault := boundExtensionRuntime()
 	// ctx here is the INVOCATION's — the one the admission gate ran against —
 	// and the Runtime keeps it, so every capability re-derives the tenant from
