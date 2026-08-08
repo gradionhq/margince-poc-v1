@@ -85,7 +85,10 @@ func (t searchRecords) Spec() mcp.ToolSpec {
 		Name: "search_records", Title: "Search records", Version: toolVersionV1,
 		Description:   searchRecordsCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
+		// The cross-object search operation, not the per-type list ones: those
+		// declare list_records now, and naming them here would leave the two
+		// tools claiming one operation family between them.
+		OpenAPIOp: "search",
 		InputSchema: schema(`{"type":"object","properties":{
 			"q":{"type":"string","description":"What to match against the text stored on the record. It does not reach a timeline: message bodies, call notes and meeting content are not searched."},
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep all five"},

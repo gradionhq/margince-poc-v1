@@ -577,7 +577,7 @@ paths:
       summary: List people (live by default; cursor-paginated).
       description: Default view excludes archived rows (`archived_at IS NULL`). Leads never appear here.
       x-mcp-tool:
-        verb: search_records
+        verb: list_records
         record_type: person
         tier: auto_execute
         scope: read
@@ -1005,7 +1005,7 @@ paths:
       tags: [Organizations]
       operationId: listOrganizations
       summary: List organizations (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: organization, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: organization, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1780,7 +1780,7 @@ paths:
       tags: [Deals]
       operationId: listDeals
       summary: List deals (live by default; cursor-paginated). Supports Kanban-by-stage reads.
-      x-mcp-tool: { verb: search_records, record_type: deal, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: deal, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -2009,7 +2009,7 @@ paths:
       tags: [Projects]
       operationId: listProjects
       summary: List projects (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: project, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: project, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -3187,7 +3187,7 @@ paths:
       operationId: listLeads
       summary: List leads (their OWN list, distinct from contacts; cursor-paginated).
       description: Leads are segregated by construction — they never appear in /people.
-      x-mcp-tool: { verb: search_records, record_type: lead, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: lead, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -8088,9 +8088,20 @@ paths:
       tags: [Brief]
       operationId: getMorningBrief
       summary: The acting rep's latest Morning-Brief run (the on-open read-model re-read; never re-ranks).
-      # Read-only, REST-reachable under the same deal-read grant the brief rides
-      # on and scoped to the acting rep's own runs. The brief is a human home
-      # surface, not a datasource-seam entity — not offered as an agent tool.
+      # Agent-readable (A139): every input to the brief — the deals, their
+      # activities, the relationships behind them — is already agent-readable,
+      # so withholding the assembled answer while granting all of its parts is a
+      # distinction the surface cannot honestly explain. It stays scoped to the
+      # acting principal's own runs, and a passport carries the granting human's
+      # user id, so an agent reads the brief of the person it acts for. The
+      # queue's MARKS stay human-only below: they are how that person notices
+      # what the agent did.
+      #
+      # The tool charges one read per item against MCP-SESS-READS. Brief items
+      # are contract types rather than datasource records, so nothing charges
+      # for them by default, and a densely-joined brief metered per call would
+      # be the cheapest bulk read on the surface (A139).
+      x-mcp-tool: { verb: read_brief, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The latest brief run with its ranked queue.

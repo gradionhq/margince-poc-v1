@@ -83,59 +83,68 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 }
 
 // SearchEntity lists one of this module's entity types under the shared
-// search contract (text query, CAP-PAGE limit, per-entity keyset cursor).
-func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, text *string, limit int, cursor *string) ([]datasource.Record, string, bool, error) {
-	var (
-		records []datasource.Record
-		next    string
-		more    bool
-	)
-	appendRec := func(r datasource.EntityRef, fields any, version *int64) error {
-		rec, err := datasource.NewRecord(r, fields, version)
-		if err != nil {
-			return err
-		}
-		records = append(records, rec)
-		return nil
-	}
+// search contract (text query, structured filters, CAP-PAGE limit, per-entity
+// keyset cursor).
+//
+// A filter this type has no binding for is an ERROR rather than a dropped
+// clause — see listfilters.go. It is unreachable while the composition root
+// publishes only what ListFilters names, which is what makes it a safe
+// assertion instead of a silent widening.
+func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, text *string, limit int, cursor *string,
+	filters map[string]string,
+) ([]datasource.Record, string, bool, error) {
 	switch t {
 	case datasource.EntityPerson:
-		rows, page, err := p.store.ListPeople(ctx, ListPeopleInput{Query: text, Limit: &limit, Cursor: cursor})
-		if err != nil {
+		in := ListPeopleInput{Query: text, Limit: &limit, Cursor: cursor}
+		if err := personListFilters.Apply(&in, filters); err != nil {
 			return nil, "", false, err
 		}
-		for _, v := range rows {
-			if err := appendRec(ref(datasource.EntityPerson, v.Id), v, v.Version); err != nil {
-				return nil, "", false, err
-			}
-		}
-		next, more = page.NextCursor, page.HasMore
+		rows, page, err := p.store.ListPeople(ctx, in)
+		return pageOf(datasource.EntityPerson, rows, page, err, func(v crmcontracts.Person) (openapi_types.UUID, *int64) {
+			return v.Id, v.Version
+		})
 	case datasource.EntityOrganization:
-		rows, page, err := p.store.ListOrganizations(ctx, ListOrganizationsInput{Query: text, Limit: &limit, Cursor: cursor})
-		if err != nil {
+		in := ListOrganizationsInput{Query: text, Limit: &limit, Cursor: cursor}
+		if err := organizationListFilters.Apply(&in, filters); err != nil {
 			return nil, "", false, err
 		}
-		for _, v := range rows {
-			if err := appendRec(ref(datasource.EntityOrganization, v.Id), v, v.Version); err != nil {
-				return nil, "", false, err
-			}
-		}
-		next, more = page.NextCursor, page.HasMore
+		rows, page, err := p.store.ListOrganizations(ctx, in)
+		return pageOf(datasource.EntityOrganization, rows, page, err,
+			func(v crmcontracts.Organization) (openapi_types.UUID, *int64) { return v.Id, v.Version })
 	case datasource.EntityLead:
-		rows, page, err := p.store.ListLeads(ctx, ListLeadsInput{Query: text, Limit: &limit, Cursor: cursor})
-		if err != nil {
+		in := ListLeadsInput{Query: text, Limit: &limit, Cursor: cursor}
+		if err := leadListFilters.Apply(&in, filters); err != nil {
 			return nil, "", false, err
 		}
-		for _, v := range rows {
-			if err := appendRec(ref(datasource.EntityLead, v.Id), v, v.Version); err != nil {
-				return nil, "", false, err
-			}
-		}
-		next, more = page.NextCursor, page.HasMore
+		rows, page, err := p.store.ListLeads(ctx, in)
+		return pageOf(datasource.EntityLead, rows, page, err, func(v crmcontracts.Lead) (openapi_types.UUID, *int64) {
+			return v.Id, v.Version
+		})
 	default:
 		return nil, "", false, &datasource.UnsupportedEntityError{Type: string(t)}
 	}
-	return records, next, more, nil
+}
+
+// pageOf turns one store page into seam records. The three list calls differ
+// only in the row type and where its id and version sit, so the shared half is
+// written once: a per-type copy is how one of them comes to page differently
+// from its siblings without anyone noticing.
+func pageOf[R any](t datasource.EntityType, rows []R, page storekit.Page, err error,
+	identify func(R) (openapi_types.UUID, *int64),
+) ([]datasource.Record, string, bool, error) {
+	if err != nil {
+		return nil, "", false, err
+	}
+	records := make([]datasource.Record, 0, len(rows))
+	for _, row := range rows {
+		id, version := identify(row)
+		rec, err := datasource.NewRecord(ref(t, id), row, version)
+		if err != nil {
+			return nil, "", false, err
+		}
+		records = append(records, rec)
+	}
+	return records, page.NextCursor, page.HasMore, nil
 }
 
 func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {

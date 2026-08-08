@@ -233,19 +233,15 @@ func stagedRowDecidable(pol agentPolicy, hasTargetID bool) (bool, string) {
 // the target id out of the route's {id} parameter, so a route without one stages
 // its type with a NULL id — a different decidability question from the same
 // type's, and one a type-only walk answers green over.
+//
+// Every row reaching here has a decision-grant mapping already:
+// TestEveryConfirmationRequiredPolicyHasAnApprovalKind holds that absolutely,
+// over this same table. So a policy whose kind is unmapped fails there, on the
+// root cause, rather than being quietly stepped over here.
 func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 	checked := 0
 	for route, pol := range agentPolicies {
 		if pol.Access != accessTool || pol.Tier == tierAutoExecute || pol.RecordType == "" {
-			continue
-		}
-		if !approvals.KindHasDecisionGrants(pol.Tool) {
-			// No row is ever minted: stageRefusal refuses the call at exactly this
-			// mapping check, which is an honest 403 rather than an authority
-			// object nobody can decide. Every 🟡 tool the REGISTRY admits is held
-			// to the mapping by TestEveryConfirmationRequiredToolHasADecisionGrantMapping,
-			// so this names only the contract-only verbs whose kind was never
-			// mapped, and it cannot become a way to skip the check below.
 			continue
 		}
 		checked++

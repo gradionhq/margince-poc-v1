@@ -1794,6 +1794,126 @@
       "warnings"
     ]
   },
+  "list_records": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "object",
+        "properties": {
+          "next_cursor": {
+            "type": "string"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fields": {
+                  "type": "object"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "record_type": {
+                  "type": "string"
+                },
+                "trust_tier": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fields",
+                "id",
+                "record_type"
+              ]
+            }
+          }
+        },
+        "required": [
+          "records"
+        ]
+      },
+      "evidence": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "captured_by": {
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "record_type": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "record_id",
+            "record_type"
+          ]
+        }
+      },
+      "freshness": {
+        "type": "object",
+        "properties": {
+          "authoritative": {
+            "type": "boolean"
+          },
+          "last_synced_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authoritative"
+        ]
+      },
+      "schema_version": {
+        "type": "string"
+      },
+      "trace_id": {
+        "type": "string"
+      },
+      "trust": {
+        "type": "string"
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ]
+        }
+      }
+    },
+    "required": [
+      "data",
+      "evidence",
+      "freshness",
+      "schema_version",
+      "trace_id",
+      "trust",
+      "warnings"
+    ]
+  },
   "log_activity": {
     "type": "object",
     "properties": {
@@ -2673,6 +2793,185 @@
           "limit",
           "notes",
           "rows"
+        ]
+      },
+      "evidence": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "captured_by": {
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "record_type": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "record_id",
+            "record_type"
+          ]
+        }
+      },
+      "freshness": {
+        "type": "object",
+        "properties": {
+          "authoritative": {
+            "type": "boolean"
+          },
+          "last_synced_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authoritative"
+        ]
+      },
+      "schema_version": {
+        "type": "string"
+      },
+      "trace_id": {
+        "type": "string"
+      },
+      "trust": {
+        "type": "string"
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ]
+        }
+      }
+    },
+    "required": [
+      "data",
+      "evidence",
+      "freshness",
+      "schema_version",
+      "trace_id",
+      "trust",
+      "warnings"
+    ]
+  },
+  "read_brief": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "object",
+        "properties": {
+          "as_of": {
+            "type": "string"
+          },
+          "brief_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "candidate_count": {
+            "type": "integer"
+          },
+          "generated_at": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "composite": {
+                  "type": "number"
+                },
+                "deal_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "evidence_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "factors": {
+                  "type": "object",
+                  "properties": {
+                    "momentum": {
+                      "type": "number"
+                    },
+                    "revenue": {
+                      "type": "number"
+                    },
+                    "timing": {
+                      "type": "number"
+                    },
+                    "warmth": {
+                      "type": "number"
+                    },
+                    "winnability": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "momentum",
+                    "revenue",
+                    "timing",
+                    "warmth",
+                    "winnability"
+                  ]
+                },
+                "item_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "rank": {
+                  "type": "integer"
+                },
+                "snoozed_until": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "state_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "composite",
+                "deal_id",
+                "evidence_ids",
+                "factors",
+                "item_id",
+                "rank",
+                "state"
+              ]
+            }
+          }
+        },
+        "required": [
+          "as_of",
+          "brief_id",
+          "candidate_count",
+          "generated_at",
+          "items"
         ]
       },
       "evidence": {

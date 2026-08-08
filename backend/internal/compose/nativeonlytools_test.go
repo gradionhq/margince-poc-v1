@@ -412,3 +412,52 @@ func pinnedNativeOnlyTools(t *testing.T) map[string]bool {
 	}
 	return out
 }
+
+// --- read_brief ---
+
+func TestBriefReaderRefusesInOverlayMode(t *testing.T) {
+	called := false
+	inner := func(context.Context) (agents.ReadBriefResult, error) {
+		called = true
+		return agents.ReadBriefResult{}, nil
+	}
+
+	_, err := nativeOnlyBriefReader(overlayMode(), inner)(context.Background())
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("err = %v, want ErrUnsupportedBySoR", err)
+	}
+	if called {
+		t.Error("the brief was read for an overlay workspace, whose deals are in the incumbent — " +
+			"the queue would be empty, and 'nothing needs your attention today' is the one " +
+			"failure a caller cannot see through")
+	}
+}
+
+func TestBriefReaderServesNativeMode(t *testing.T) {
+	called := false
+	inner := func(context.Context) (agents.ReadBriefResult, error) {
+		called = true
+		return agents.ReadBriefResult{}, nil
+	}
+
+	if _, err := nativeOnlyBriefReader(nativeMode(), inner)(context.Background()); err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if !called {
+		t.Error("native mode did not reach the brief read")
+	}
+}
+
+func TestBriefReaderRefusesWhenModeCannotBeResolved(t *testing.T) {
+	// An unresolved mode refuses rather than defaulting to native: guessing
+	// wrong in that direction is the silent break the guard exists to stop.
+	inner := func(context.Context) (agents.ReadBriefResult, error) {
+		t.Error("the brief was read without a resolved system-of-record mode")
+		return agents.ReadBriefResult{}, nil
+	}
+
+	if _, err := nativeOnlyBriefReader(unresolvableMode(), inner)(context.Background()); err == nil {
+		t.Fatal("err = nil, want the mode-resolution failure")
+	}
+}

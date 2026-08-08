@@ -151,6 +151,8 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterQueryTool(r, nil, func(context.Context, json.RawMessage) (QueryAnswer, error) {
 		return QueryAnswer{Coverage: CoverageCompleteExact}, nil
 	})
+	RegisterListTool(r, nil, probeVocabulary{})
+	RegisterBriefTool(r, briefOf(0))
 	return r
 }
 
