@@ -111,22 +111,25 @@ func TestSpliceRetryKeyRefusesSchemasItCannotRead(t *testing.T) {
 // The advertised property is what the surface enforces. A schema promising a
 // bound the pop does not hold to — or holding to one it does not promise —
 // is the mismatch A4 exists to close, one axis over.
-// Read as members rather than into a struct: these are JSON Schema's own
-// keywords, camelCase by that spec and not this codebase's to rename.
 func TestTheAdvertisedKeyBoundIsTheOneTheSurfaceEnforces(t *testing.T) {
-	var declared map[string]any
+	var declared struct {
+		Type string `json:"type"`
+		// A POINTER, so "declared 0" and "declared nothing" stay different
+		// answers — the second is the one that would leave the surface
+		// enforcing a bound it never published.
+		MaxLength *int `json:"maxLength"` //nolint:tagliatelle // JSON Schema's keyword, not ours to case
+	}
 	if err := json.Unmarshal([]byte(retryKeyProperty), &declared); err != nil {
 		t.Fatalf("the advertised property is not readable JSON: %v", err)
 	}
-	if declared["type"] != "string" {
-		t.Errorf("advertised type = %v, want string", declared["type"])
+	if declared.Type != "string" {
+		t.Errorf("advertised type = %q, want string", declared.Type)
 	}
-	bound, isNumber := declared["maxLength"].(float64)
-	if !isNumber {
-		t.Fatalf("the advertised property declares no maxLength: %v", declared)
+	if declared.MaxLength == nil {
+		t.Fatal("the advertised property declares no maxLength, so the bound the surface enforces is unpublished")
 	}
-	if int(bound) != maxRetryKeyLen {
-		t.Errorf("advertised maxLength = %d, but the surface refuses past %d", int(bound), maxRetryKeyLen)
+	if *declared.MaxLength != maxRetryKeyLen {
+		t.Errorf("advertised maxLength = %d, but the surface refuses past %d", *declared.MaxLength, maxRetryKeyLen)
 	}
 }
 
