@@ -39,6 +39,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -48,8 +49,8 @@ const approvalTokenHeader = "X-Approval-Token"
 // mutation; anything larger is not a plausible contract payload.
 const maxGatedBody = 1 << 20
 
-func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, ownership agents.FieldOwnership, gate *auth.Gate) func(http.Handler) http.Handler {
-	deps := tierDeps{stages: stages, ownership: ownership}
+func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, records datasource.SystemOfRecordProvider, ownership agents.FieldOwnership, gate *auth.Gate) func(http.Handler) http.Handler {
+	deps := tierDeps{stages: stages, records: records, ownership: ownership}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -346,7 +347,11 @@ func operationSpec(pol agentPolicy, reg *agents.Registry) (spec mcp.ToolSpec, re
 // tierDeps carries the read-side dependencies the dynamic REST tier
 // resolvers consult.
 type tierDeps struct {
-	stages    agents.StageResolver
+	stages agents.StageResolver
+	// records reads the deal a move is about, so the tier gate can see the stage
+	// it is moving FROM. Without it this door could only judge the destination,
+	// which is how a reopen came to be auto-execute.
+	records   datasource.SystemOfRecordProvider
 	ownership agents.FieldOwnership
 }
 
@@ -359,9 +364,10 @@ var dynamicTierInputs = map[string]func(ctx context.Context, deps tierDeps, pol 
 	"advance_deal": advanceDealTierInput,
 }
 
-// advanceDealTierInput: 🟢/🟡 turns on whether the destination stage is a
-// closing stage, so the resolver needs the concrete stage's semantic.
-func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *http.Request, body []byte) (mcp.TierResolverInput, error) {
+// advanceDealTierInput: 🟢/🟡 turns on whether EITHER endpoint of the move is a
+// closing stage, so the resolver needs both the destination's semantic and the
+// one the deal is currently in.
+func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error) {
 	var args struct {
 		ToStageID ids.UUID `json:"to_stage_id"`
 	}
@@ -394,11 +400,17 @@ func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *
 	if err := httperr.RequireBodyID("to_stage_id", args.ToStageID); err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	semantic, pipelineID, err := deps.stages.StageSemantic(ctx, args.ToStageID)
+	// The deal is named by the ROUTE, not the body — /deals/{id}/advance — so it
+	// is read from there before the shared builder can resolve both endpoints.
+	dealID, err := ids.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		return mcp.TierResolverInput{}, err
+		return mcp.TierResolverInput{}, httperr.Validation("id", "invalid",
+			"the deal id in the path must be a canonical UUID string")
 	}
-	return mcp.TierResolverInput{Args: body, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
+	// The SAME builder the MCP registry calls. Two spellings of "what the tier
+	// gate is shown" is how one door came to judge a deal move by its
+	// destination alone while the other judged both ends.
+	return agents.DealMoveTierInput(ctx, deps.records, deps.stages, dealID, args.ToStageID, body)
 }
 
 // tierInput supplies the lazy TierResolverInput for the admitted spec:

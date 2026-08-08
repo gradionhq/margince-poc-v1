@@ -114,8 +114,16 @@ type TierResolver func(in TierResolverInput) RiskTier
 // TierResolverInput is what the admission gate hands a resolver.
 type TierResolverInput struct {
 	Args json.RawMessage
-	// TargetStageSemantic is the resolved semantic of the stage the call
-	// moves to: "open" | "won" | "lost".
+	// SourceStageSemantic is the resolved semantic of the stage the record is
+	// currently IN, and TargetStageSemantic the one it moves to: "open" |
+	// "won" | "lost".
+	//
+	// Both endpoints, because the risk is not a property of the destination.
+	// Moving a won deal back to an open stage is a reopen — it clears the close
+	// date, the lost reason and the FX rate frozen at close, and takes revenue
+	// out of a reported quarter — and a resolver shown only the target sees an
+	// ordinary open-stage move.
+	SourceStageSemantic string
 	TargetStageSemantic string
 	PipelineID          string
 }

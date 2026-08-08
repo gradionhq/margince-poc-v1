@@ -313,18 +313,6 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 	}
 }
 
-// advanceDealTier is the invocation-time exception (A34/ADR-0026): open→
-// open moves are 🟢, moves onto a won/lost stage are 🟡 — money and
-// irreversibility. The resolver may only ever RAISE: anything that is not
-// provably an open-semantic target resolves 🟡, so an unknown or
-// malformed semantic fails toward the approval gate, never away from it.
-func advanceDealTier(in mcp.TierResolverInput) mcp.RiskTier {
-	if in.TargetStageSemantic == "open" {
-		return mcp.TierAutoExecute
-	}
-	return mcp.TierConfirmationRequired
-}
-
 // ResolverInput reads the target stage's semantic from pipeline config —
 // a renamed "Won" column still resolves 🟡, because the semantic, not the
 // label or the request, is what the gate trusts.
@@ -333,11 +321,7 @@ func (t advanceDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mcp
 	if err := decodeArgs(in, &args); err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	semantic, pipelineID, err := t.stages.StageSemantic(ctx, args.ToStageID)
-	if err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	return mcp.TierResolverInput{Args: in, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
+	return DealMoveTierInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
 }
 
 // StageInfo pins the staged move to the deal's CURRENT version, so an
@@ -361,7 +345,7 @@ func (t advanceDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageIn
 	}
 	return StageInfo{
 		TargetType: "deal", TargetID: args.DealID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Close deal %s as %s", recordLabel(rec), semantic),
+		Summary: dealMoveSummary(ctx, t.stages, rec, semantic),
 	}, nil
 }
 
