@@ -201,3 +201,92 @@ func TestAnUnboundTenantWriteSucceedsAndChangesNothingForTheMigrationRole(t *tes
 			"migration in the tree relies on to reach tenant rows", name)
 	}
 }
+
+// assertNotTheDatabaseOwner is the second half of what "the deployed migration
+// role" means, and the half nothing checked until 0198 needed it.
+//
+// A database's owner holds every database-level privilege implicitly, so a
+// stand-in that happened to own this database would satisfy CREATE SCHEMA
+// without anyone having granted it — and the whole point of the role is that it
+// must be given, explicitly, whatever the migrations need. Left unasserted, a
+// future clone whose owner is this role would turn the fitness test below into a
+// test of nothing.
+func assertNotTheDatabaseOwner(ctx context.Context, t *testing.T, conn *pgx.Conn) {
+	t.Helper()
+	var owns bool
+	if err := conn.QueryRow(ctx, `
+		SELECT pg_get_userbyid(datdba) = current_user
+		FROM pg_database WHERE datname = current_database()`).Scan(&owns); err != nil {
+		t.Fatalf("reading the database owner: %v", err)
+	}
+	if owns {
+		t.Fatalf("the migration role owns this database, so it holds every database-level privilege implicitly — "+
+			"a migration needing one would pass here and fail on an installation where %s is a plain grantee", migratorRole)
+	}
+}
+
+// TestTheCoreLaneAppliesUnderTheDeployedMigrationRole is a FITNESS test for a
+// whole class of defect `make check-q` cannot see, and it exists because that
+// class already shipped once.
+//
+// 0198 added `CREATE SCHEMA ext`. CREATE SCHEMA is a DATABASE-level privilege,
+// not a schema-level one, and the restricted stand-in held only CREATE on
+// public — so four tests in this package broke with `permission denied for
+// database`. Nothing went red for the author: the merge gate does not run the
+// integration lane, so every gate a task runs locally passed. The four that did
+// break were about RLS, backfills and rollbacks; each named its own subject in
+// its failure, and none of them said "your migration needs a privilege the
+// deployed role was never granted".
+//
+// This says exactly that, and it is deliberately CHEAP — one reset, one
+// migration pass, no assertions about content — rather than the alternative of
+// putting the whole integration lane on the merge gate, which would change that
+// gate's cost for every task in the repository forever. The bargain is that the
+// signal arrives in the integration lane rather than at `make check-q`, but it
+// arrives NAMED.
+//
+// A migration adding any other database-scoped statement (CREATE EXTENSION of an
+// untrusted extension, CREATE DATABASE, an event trigger) fails here for the same
+// reason, and the fix is the same shape: grant the stand-in what a deployed
+// installation's migration role already holds — or, if a deployed one would not
+// hold it either, move the statement to the operator's out-of-band step
+// (extensionsTheOperatorInstalls).
+func TestTheCoreLaneAppliesUnderTheDeployedMigrationRole(t *testing.T) {
+	ctx := context.Background()
+	admin := connect(t, mustOwnerDSN(t))
+	resetSchema(t, admin)
+	migrator := asMigrator(t, admin)
+	assertNotTheDatabaseOwner(ctx, t, migrator)
+
+	// migrateAll and not a hand-rolled dbmigrate.Up: the lane under test is the
+	// one cmd/migrate runs, embedded core plus custom, and a test applying some
+	// other subset would go green over a tree it never touched.
+	migrateAll(t, migrator)
+
+	// The role really did build the schema — without this the test would pass on
+	// a database somebody else had already migrated, which is the vacuous form of
+	// every assertion above.
+	var built int
+	if err := migrator.QueryRow(ctx, `
+		SELECT count(*) FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname IN ('public', 'ext')
+		  AND c.relkind = 'r'
+		  AND pg_get_userbyid(c.relowner) = current_user`).Scan(&built); err != nil {
+		t.Fatalf("counting the tables the migration role owns: %v", err)
+	}
+	if built == 0 {
+		t.Fatal("the migration role owns no table it created — the lane did not run as this role and this test proves nothing")
+	}
+
+	// The ext schema by name, because it is the statement that broke: a
+	// table count alone would stay green if 0198 were reduced to a no-op.
+	var extExists bool
+	if err := migrator.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'ext')`).Scan(&extExists); err != nil {
+		t.Fatalf("looking for the ext schema: %v", err)
+	}
+	if !extExists {
+		t.Error("the ext schema does not exist after the core lane — 0198's CREATE SCHEMA is what needs a database-level privilege")
+	}
+}

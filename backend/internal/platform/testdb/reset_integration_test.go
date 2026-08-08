@@ -43,7 +43,7 @@ func ownerConn(t *testing.T) *pgx.Conn {
 }
 
 // nonEmptyTables names every relation that could hold a test's rows and still
-// does. It deliberately does NOT reuse publicTables — deriving the check from the
+// does. It deliberately does NOT reuse resetTables — deriving the check from the
 // same fragment the reset emits from would only confirm that the reset emptied
 // what it chose to look at — but note what this can and cannot see: it only
 // disagrees with the reset about a table that HOLDS ROWS, and a test can only
@@ -78,7 +78,7 @@ func nonEmptyTables(ctx context.Context, t *testing.T, owner *pgx.Conn) []string
 
 // Every other test here proves the reset does the right thing to the tables it
 // looks at. This one proves it looks at all of them, which no row-seeding test
-// can: narrowing publicTables — one stray predicate, or the relkind filter
+// can: narrowing resetTables — one stray predicate, or the relkind filter
 // missing a class the schema later gains — makes the reset silently stop
 // emptying whole table families, and a test only notices for a table it happens
 // to have seeded. Comparing the reset's own scope against the catalog closes
@@ -88,23 +88,23 @@ func TestResetScopeCoversEveryDataRelation(t *testing.T) {
 	owner := ownerConn(t)
 
 	inScope, err := queryIdents(ctx, owner,
-		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) `+publicTables+` ORDER BY c.relname`)
+		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) `+resetTables+` ORDER BY c.relname`)
 	if err != nil {
 		t.Fatalf("listing the reset's scope: %v", err)
 	}
-	// Derived independently and deliberately wider: any relation in public that
-	// stores rows, whatever its relkind, minus the ledger the reset preserves on
-	// purpose. Partitioned parents ('p') count — their leaves are emptied, but a
-	// parent outside the reset's scope also hides from reclaimBloat and
-	// restartSequences.
+	// Derived independently and deliberately wider: any relation in a schema the
+	// migration lane owns that stores rows, whatever its relkind, minus the ledger
+	// the reset preserves on purpose. Partitioned parents ('p') count — their
+	// leaves are emptied, but a parent outside the reset's scope also hides from
+	// reclaimBloat and restartSequences.
 	expected, err := queryIdents(ctx, owner, `
 		SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname)
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public'
+		WHERE n.nspname IN ('public', 'ext')
 		  AND c.relkind IN ('r', 'p')
 		  AND c.relname NOT LIKE 'schema_migrations_%'
-		ORDER BY c.relname`)
+		ORDER BY n.nspname, c.relname`)
 	if err != nil {
 		t.Fatalf("listing every data relation: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestResetOnAnEmptySchemaRewritesNoStorage(t *testing.T) {
 // swaps it; DELETE leaves it alone.
 func relfilenodes(ctx context.Context, owner *pgx.Conn) (map[string]uint32, error) {
 	rows, err := owner.Query(ctx,
-		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname), c.relfilenode `+publicTables)
+		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname), c.relfilenode `+resetTables)
 	if err != nil {
 		return nil, err
 	}
@@ -413,5 +413,60 @@ func TestEnsureSchemaRecordsASaneBaseline(t *testing.T) {
 				"baseline would now be TRUNCATEd on every reset; raise reclaimSlack",
 				name, size, reclaimSlack)
 		}
+	}
+}
+
+// TestResetEmptiesAnExtensionTable is the ext half of the reset's scope, and it
+// has to seed its own table because the tree ships no extension with migrations
+// yet: 0198 creates the ext SCHEMA, and a unit's tables arrive with the unit.
+//
+// That absence is exactly the hazard. While ext is empty every assertion above
+// passes whether or not the reset looks there, so the omission would be found by
+// the first suite whose extension rows survived into a later test — as a flake
+// somewhere else. The table is created here, emptied by the reset under test,
+// and dropped again, so the claim is checked today against the shape a unit will
+// actually ship (ext.ext_<unit>_<table>) rather than deferred to the unit.
+func TestResetEmptiesAnExtensionTable(t *testing.T) {
+	ctx := context.Background()
+	owner := ownerConn(t)
+	if err := Reset(ctx, owner); err != nil {
+		t.Fatalf("reset to a known-clean start: %v", err)
+	}
+	// Dropped rather than left behind: this process's later tests measure the
+	// catalog, and a table only one test knows about would read as a relation the
+	// reset must account for.
+	if _, err := owner.Exec(ctx, `
+		CREATE TABLE ext.ext_resetprobe_note (id uuid PRIMARY KEY, body text NOT NULL)`); err != nil {
+		t.Fatalf("creating the probe table in ext: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(), `DROP TABLE IF EXISTS ext.ext_resetprobe_note`); err != nil {
+			t.Errorf("dropping the probe table: %v", err)
+		}
+	})
+	if _, err := owner.Exec(ctx, `
+		INSERT INTO ext.ext_resetprobe_note (id, body)
+		VALUES ('00000000-0000-7000-8000-0000000000bb', 'a row an extension wrote')`); err != nil {
+		t.Fatalf("seeding the probe table: %v", err)
+	}
+
+	var seeded int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM ext.ext_resetprobe_note`).Scan(&seeded); err != nil {
+		t.Fatalf("counting the seeded rows: %v", err)
+	}
+	if seeded != 1 {
+		t.Fatalf("the probe table holds %d rows before the reset — this test would pass vacuously", seeded)
+	}
+
+	if err := Reset(ctx, owner); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+
+	var remaining int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM ext.ext_resetprobe_note`).Scan(&remaining); err != nil {
+		t.Fatalf("counting the surviving rows: %v", err)
+	}
+	if remaining != 0 {
+		t.Errorf("Reset left %d row(s) in ext.ext_resetprobe_note — an extension's rows would bleed into every later test in this process", remaining)
 	}
 }

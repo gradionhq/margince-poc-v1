@@ -305,6 +305,21 @@ func verifyManifestBytes(root string, current manifest) error {
 // verifyNoExtraFiles walks build/composition/ and rejects anything the
 // generator did not write: expected outputs + composition.json, all
 // regular files.
+//
+// The expected set is DERIVED from the regenerated outputs, never listed here.
+// Every artifact composedFiles gains — the three contracts beyond crm.yaml, the
+// frontend registry — therefore joins this gate by construction, and the
+// alternative (a literal list beside emit.go's map) would be a second copy whose
+// only failure mode is being forgotten.
+//
+// The walk root is build/composition/ and ONLY that. build/composition-frontend/
+// is a SECOND composition root, deliberately outside this tree: openapi-typescript
+// produces it, and this function's claim is that the verified tree holds exactly
+// what the GO generator wrote — a claim that a Node tool writing into the same
+// directory would falsify on every run. The two roots are one boundary, not an
+// oversight; a Node-produced artifact that needs verifying needs a gate that can
+// reproduce it, which is the frontend lane's (`make fe-typecheck-composed`), not
+// this one's.
 func verifyNoExtraFiles(root string, outputs map[string]string) error {
 	outRoot := filepath.Join(root, "build", "composition")
 	expected := map[string]bool{manifestFile: true}

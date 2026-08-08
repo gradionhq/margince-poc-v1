@@ -212,3 +212,56 @@ func TestDigestTreeIsOrderIndependentAndContentBound(t *testing.T) {
 		t.Fatal("digest unchanged after a content edit")
 	}
 }
+
+// TestVerifyNoExtraFilesGuardsOnlyTheGeneratedRoot pins both halves of this
+// gate's boundary in one place, because they are the same decision seen from
+// each side.
+//
+// Inside build/composition/ nothing rides along: a stale artifact from a
+// previous enabled set, or one somebody dropped in, would be compiled into the
+// composed binary while composition.json said the tree was current.
+//
+// Outside it, build/composition-frontend/ is a second composition root that
+// openapi-typescript writes, and it must NOT be folded in — this gate's claim is
+// that the verified tree holds exactly what the Go generator produced, and a
+// Node tool writing into it would break that claim on every run. Asserting the
+// exclusion is what stops a later reader "tidying up" the two roots into one.
+func TestVerifyNoExtraFilesGuardsOnlyTheGeneratedRoot(t *testing.T) {
+	root := t.TempDir()
+	outRoot := filepath.Join(root, "build", "composition")
+	if err := os.MkdirAll(filepath.Join(outRoot, "api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outputs := map[string]string{"api/crm.yaml": "sha256:whatever"}
+	for _, rel := range []string{"api/crm.yaml", manifestFile} {
+		if err := os.WriteFile(filepath.Join(outRoot, filepath.FromSlash(rel)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := verifyNoExtraFiles(root, outputs); err != nil {
+		t.Fatalf("a tree holding exactly the outputs plus the manifest was refused: %v", err)
+	}
+
+	// The Node lane's root, beside the verified one.
+	sibling := filepath.Join(root, "build", "composition-frontend")
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sibling, "schema.d.ts"), []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyNoExtraFiles(root, outputs); err != nil {
+		t.Fatalf("build/composition-frontend/ was pulled into the verified tree: %v — it is a Node-produced root this gate cannot reproduce", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(outRoot, "api", "stale.yaml"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := verifyNoExtraFiles(root, outputs)
+	if err == nil {
+		t.Fatal("a file the generation did not write was accepted inside build/composition/")
+	}
+	if !strings.Contains(err.Error(), "api/stale.yaml") {
+		t.Errorf("the refusal does not name the offending file: %v", err)
+	}
+}

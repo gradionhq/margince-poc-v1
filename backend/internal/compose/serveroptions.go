@@ -293,6 +293,15 @@ func (s *Server) readinessChecks(pgPing, runtimeRole func(context.Context) error
 // (ErrSchemaChangesUnavailable) rather than nil-derefing a pool that was
 // never mounted — a role that runs no runtime DDL declares that by
 // omission, the same posture as WithBlobstore/WithKeyvault.
+//
+// WHICH posture this option should have under the role-separation invariant is
+// still open: issue #651 records the decision. The two candidates are keeping
+// the 501 above as the honest answer for a role that legitimately holds no owner
+// DSN, or relocating the two DDL operations behind a process that does. It is a
+// product call about a CORE module — the extension tier depends on neither
+// outcome — so it is filed rather than settled here, and the pointer sits at the
+// function a reader arrives at with the question rather than in an issue tracker
+// they would first have to think to search.
 func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.customfieldsHandlers = customfields.NewHandlers(pool, schemaPool)

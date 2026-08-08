@@ -60,17 +60,25 @@ var (
 	emptySizes atomic.Pointer[map[string]int64]
 )
 
-// publicTables is the ONE spelling of which relations a reset acts on: ordinary
-// tables in public, minus the schema_migrations_* ledger. That ledger is
-// preserved so EnsureSchema's once-per-process contract holds — re-running
+// resetTables is the ONE spelling of which relations a reset acts on: ordinary
+// tables in the schemas below, minus the schema_migrations_* ledger. That ledger
+// is preserved so EnsureSchema's once-per-process contract holds — re-running
 // dbmigrate.Up in a later process (parallel runner, fresh clone) must still see
 // an unmigrated database, while a reset leaves the applied-version rows intact
 // for the current one. Every caller selects a qualified identifier from it, so
 // the emitted statements never depend on search_path resolution.
-const publicTables = `
+//
+// ext is in scope for exactly the reason public is. Since 0198 every extension
+// unit's tables live there (ADR-0069), applied by the same lane, and an ext_
+// table left out of this fragment is one no reset ever empties: the rows an
+// integration test writes through a unit survive into every later test in the
+// process, and the failure surfaces somewhere else entirely as a flake. The
+// omission is invisible while extensions/ is empty, which is precisely why it is
+// closed BEFORE the first unit ships tables rather than after.
+const resetTables = `
 	FROM pg_class c
 	JOIN pg_namespace n ON n.oid = c.relnamespace
-	WHERE n.nspname = 'public'
+	WHERE n.nspname IN ('public', 'ext')
 	  AND c.relkind = 'r'
 	  AND c.relname NOT LIKE 'schema_migrations_%'`
 
@@ -193,7 +201,7 @@ func resetWithin(ctx context.Context, tx execQuerier) error {
 	}
 
 	tables, err := queryIdents(ctx, tx,
-		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) `+publicTables+` ORDER BY c.relname`)
+		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) `+resetTables+` ORDER BY n.nspname, c.relname`)
 	if err != nil {
 		return fmt.Errorf("listing data tables: %w", err)
 	}
@@ -201,7 +209,7 @@ func resetWithin(ctx context.Context, tx execQuerier) error {
 	// gone, not that there is nothing to do. Reporting a clean reset for that is
 	// the same silent-success shape the settings above exist to eliminate.
 	if len(tables) == 0 {
-		return fmt.Errorf("no data tables in public — call EnsureSchema before Reset; the schema is missing or was dropped")
+		return fmt.Errorf("no data tables in public or ext — call EnsureSchema before Reset; the schema is missing or was dropped")
 	}
 	unbaselined, err := reclaimBloat(ctx, tx)
 	if err != nil {
@@ -318,7 +326,7 @@ func reclaimBloat(ctx context.Context, tx execQuerier) ([]string, error) {
 // information_schema row it sees.
 func tableSizes(ctx context.Context, q execQuerier) (map[string]int64, error) {
 	rows, err := q.Query(ctx,
-		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname), pg_total_relation_size(c.oid) `+publicTables)
+		`SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname), pg_total_relation_size(c.oid) `+resetTables)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +362,7 @@ func restartSequences(ctx context.Context, tx execQuerier) error {
 		JOIN pg_depend d ON d.objid = s.oid AND d.classid = 'pg_class'::regclass
 		                AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
 		WHERE s.relkind = 'S'
-		  AND d.refobjid IN (SELECT c.oid `+publicTables+`)`)
+		  AND d.refobjid IN (SELECT c.oid `+resetTables+`)`)
 	if err != nil {
 		return fmt.Errorf("listing sequences: %w", err)
 	}
@@ -379,12 +387,18 @@ func dropCustomFieldColumns(ctx context.Context, tx execQuerier) error {
 	// lists view columns, and a view over a record table exposes its cf_ columns.
 	// ALTER TABLE cannot drop a view's column, and since the reset is one
 	// transaction that failure would roll back the whole reset, not just itself.
+	//
+	// The join is on (schema, name), not on the bare name. Once the fragment spans
+	// two schemas a name-only join means a public table is matched because an ext
+	// table shares its name — and, worse, the converse: a relation the fragment
+	// deliberately excludes would be readmitted through a same-named sibling in
+	// the other schema. Row-wise membership keeps "the tables the reset owns"
+	// meaning exactly what resetTables says.
 	rows, err := tx.Query(ctx, `
 		SELECT quote_ident(table_schema) || '.' || quote_ident(table_name), quote_ident(column_name)
 		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND column_name LIKE 'cf\_%'
-		  AND table_name IN (SELECT c.relname `+publicTables+`)`)
+		WHERE column_name LIKE 'cf\_%'
+		  AND (table_schema, table_name) IN (SELECT n.nspname, c.relname `+resetTables+`)`)
 	if err != nil {
 		return fmt.Errorf("listing leaked custom-field columns: %w", err)
 	}

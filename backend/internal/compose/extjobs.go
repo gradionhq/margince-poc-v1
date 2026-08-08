@@ -167,13 +167,26 @@ func composedJobSpecs(set []composedJob) []jobs.Spec {
 				// registration passed, so the two cannot disagree.
 				GoType:     "extJobDispatcherArgs",
 				Role:       jobs.Dispatcher,
-				Queue:      j.decl.Queue,
 				Timeout:    jobs.TimeoutPolicy{Fixed: j.decl.DispatcherTimeout},
 				FanOutUnit: jobs.FanOutWorkspace,
 				FanOutTo:   j.decl.ChildKind(),
-				OptsOwner:  jobs.OptsArgs,
-				Cadence:    jobs.Cadence{Fixed: j.decl.Cadence},
-				Args:       []jobs.ArgField{{Name: "JobKind", Scalar: true, Reason: "the composed kind this row dispatches; one args type serves every extension job, so the kind is data rather than a Go type"}},
+				// The TICK owns this row's insert options, exactly as it does for
+				// every core dispatcher: periodicForComposed hands River
+				// sweepInsertOpts(), which names no queue and so lands the row on
+				// River's default. The unit's declared queue is the CHILD's — that
+				// is the row that does the tenant's work and the pool an operator
+				// sizes — and it is bound there through OptsFanOut below.
+				//
+				// Declaring opts_owner: args instead would be two untruths at once:
+				// extJobDispatcherArgs has no InsertOpts() to own anything (the job
+				// census says so, which is how this was found), and publishing the
+				// unit's queue here would put a label on the dispatcher's gauges
+				// naming a pool its rows never reach whenever a unit declares
+				// anything but `default`.
+				Queue:     river.QueueDefault,
+				OptsOwner: jobs.OptsCaller,
+				Cadence:   jobs.Cadence{Fixed: j.decl.Cadence},
+				Args:      []jobs.ArgField{{Name: "JobKind", Scalar: true, Reason: "the composed kind this row dispatches; one args type serves every extension job, so the kind is data rather than a Go type"}},
 			},
 			jobs.Spec{
 				Kind:        j.decl.ChildKind(),

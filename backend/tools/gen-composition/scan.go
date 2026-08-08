@@ -259,27 +259,34 @@ func computeInputs(root string) (manifestInputs, error) {
 	return manifestInputs{Core: core, ApprovalsLock: lock, Extensions: rows}, nil
 }
 
-// coreDigest covers the committed inputs the composed outputs derive from,
-// with ONE known gap: it hashes backend/api/crm.yaml but not the three base
-// contracts that became composition inputs alongside it (jobs.yaml,
-// ai-tasks.yaml, public-events.yaml — see composedContractBases). Editing one
-// of those therefore escapes the fast staleness probe (-verify-inputs); the
-// full -verify still catches it, by regenerating and finding the output hash
-// no longer reproduces the recorded one. Task 12b owns closing this, and it is
-// three strings in the list below. Do not read the list as complete until it
-// does.
+// coreDigest covers the committed inputs the composed outputs derive from.
 //
-// What it does cover: the workspace definition plus EVERY member's go.mod and
-// go.sum (any member's dependency change can change the composed
+// EVERY base contract is hashed, not just crm.yaml, and the list is
+// composedContractBases itself rather than a second copy of it. That is the
+// whole point: each base is read by composedContracts and emitted as
+// build/composition/api/<base>, so a base the digest missed would be an input
+// of an output that the fast staleness probe (-verify-inputs) cannot see
+// changing. The full -verify would still catch it — it regenerates and finds
+// the output hash no longer reproduces the recorded one — but nothing goes RED
+// in the meantime, which is the worst failure mode this generator has. Adding a
+// fifth base to composedContractBases therefore extends the digest by
+// construction; there is no second list to forget.
+//
+// What it covers besides: the workspace definition plus EVERY member's go.mod
+// and go.sum (any member's dependency change can change the composed
 // go.work.sum `go list -m all` resolves — tracking only backend's would
 // let a tools/ or cli/ bump slip past `-verify`), the composition module
-// contract (stub), the base API contract, and the published surface the
-// extensions compile against.
+// contract (stub), and the published surface the extensions compile against.
+//
+// What it deliberately does NOT cover is the generator's own source — the merge
+// rules in contractmerge.go among it. A digest of the tool that computes the
+// digest could only ever chase itself, and the recorded toolchain plus -verify's
+// full regeneration are what hold that end: a merge-rule change that alters any
+// output makes the regenerated hash stop reproducing the recorded one.
 func coreDigest(root string) (string, error) {
 	h := newTreeHasher(root)
-	for _, rel := range []string{
+	files := []string{
 		goWorkFile,
-		"backend/api/crm.yaml",
 		"composition/go.mod",
 		"composition/extensions_gen.go",
 		// The SPA's committed vanilla registry, for the same reason as the Go
@@ -287,7 +294,11 @@ func coreDigest(root string) (string, error) {
 		// output against it, so a hand edit changes what the composition means
 		// and must restale the fast probe rather than wait for a full -verify.
 		frontendVanillaStub,
-	} {
+	}
+	for _, base := range composedContractBases {
+		files = append(files, "backend/"+apiLayer+"/"+base)
+	}
+	for _, rel := range files {
 		if err := h.addFile(rel); err != nil {
 			return "", err
 		}

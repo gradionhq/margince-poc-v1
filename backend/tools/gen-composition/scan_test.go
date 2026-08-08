@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -274,6 +275,114 @@ func TestMaskNonCodePreservesOffsetsAndClosesUnterminatedSpans(t *testing.T) {
 			}
 			if len(got) != len(tc.in) {
 				t.Fatalf("masking changed the length %d -> %d, so positions would drift", len(tc.in), len(got))
+			}
+		})
+	}
+}
+
+// digestRoot lays out the smallest tree coreDigest can read: the workspace and
+// its one member, the two committed stubs stubMatchesVanilla holds, every base
+// contract, and a backend/pkg subtree for addTree to walk.
+func digestRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		goWorkFile:                         "go 1.26.5\n\nuse (\n\t./backend\n)\n",
+		"backend/go.mod":                   "module example.test/backend\n\ngo 1.26.5\n",
+		"backend/pkg/extension/surface.go": "package extension\n",
+		"composition/go.mod":               "module example.test/composition\n\ngo 1.26.5\n",
+		"composition/extensions_gen.go":    "package composition\n",
+		frontendVanillaStub:                "export const extensions = [];\n",
+	}
+	for _, base := range composedContractBases {
+		files["backend/"+apiLayer+"/"+base] = "# " + base + "\n"
+	}
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// TestCoreDigestCoversEveryComposedContractBase is the fast staleness probe's
+// own falsification.
+//
+// Each base is read by composedContracts and emitted as an output, so a base the
+// digest does not cover is an input whose change -verify-inputs reports as
+// clean. Nothing goes red in that state — the full -verify still fails, but only
+// once somebody runs it — which is why this is asserted over the WHOLE list
+// rather than over the one contract that was covered first.
+func TestCoreDigestCoversEveryComposedContractBase(t *testing.T) {
+	root := digestRoot(t)
+	before, err := coreDigest(root)
+	if err != nil {
+		t.Fatalf("coreDigest: %v", err)
+	}
+	for _, base := range composedContractBases {
+		t.Run(base, func(t *testing.T) {
+			path := filepath.Join(root, "backend", apiLayer, base)
+			original, err := os.ReadFile(path) // #nosec G304 -- a path this test just wrote
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.WriteFile(path, original, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if err := os.WriteFile(path, append(original, "# edited\n"...), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			after, err := coreDigest(root)
+			if err != nil {
+				t.Fatalf("coreDigest: %v", err)
+			}
+			if after == before {
+				t.Errorf("editing backend/%s/%s left the core digest at %s — this contract composes into build/composition/api/%s, so -verify-inputs would call a stale composition current",
+					apiLayer, base, before, base)
+			}
+		})
+	}
+}
+
+// TestCoreDigestCoversTheCommittedStubsAndTheWorkspace keeps the arms above from
+// being read as the whole list: the same silent-staleness argument applies to
+// every other input, and a refactor that dropped one would leave the contract
+// arms green.
+func TestCoreDigestCoversTheCommittedStubsAndTheWorkspace(t *testing.T) {
+	for _, rel := range []string{
+		goWorkFile,
+		"backend/go.mod",
+		"backend/pkg/extension/surface.go",
+		"composition/go.mod",
+		"composition/extensions_gen.go",
+		frontendVanillaStub,
+	} {
+		t.Run(rel, func(t *testing.T) {
+			root := digestRoot(t)
+			before, err := coreDigest(root)
+			if err != nil {
+				t.Fatalf("coreDigest: %v", err)
+			}
+			path := filepath.Join(root, filepath.FromSlash(rel))
+			original, err := os.ReadFile(path) // #nosec G304 -- a path this test just wrote
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, append(original, "\n// edited\n"...), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			after, err := coreDigest(root)
+			if err != nil {
+				t.Fatalf("coreDigest: %v", err)
+			}
+			if after == before {
+				t.Errorf("editing %s left the core digest unchanged — a composed output derives from it, so -verify-inputs would call a stale composition current", rel)
 			}
 		})
 	}
