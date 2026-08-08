@@ -214,13 +214,24 @@ func WithOverlayMeter(meter *overlaybudget.Meter) Option {
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.
-// Postgres is always probed; the bus, the object store, the secret vault,
-// and the schema pool are probed only when this role wired them, so a
-// split deployment answers ready on exactly what it depends on. A wedged
-// dependency must fail readiness — a probe is never dropped to keep the
-// pod in rotation.
-func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserver.ReadyCheck {
-	checks := []httpserver.ReadyCheck{{Name: "postgres", Check: pgPing}}
+// Postgres and the runtime role it connects as are always probed; the bus,
+// the object store, the secret vault, and the schema pool are probed only
+// when this role wired them, so a split deployment answers ready on exactly
+// what it depends on. A wedged dependency must fail readiness — a probe is
+// never dropped to keep the pod in rotation.
+//
+// runtimeRole takes the same shape as pgPing rather than a pool, because the
+// two unit-testable states here are the answers, not the connections: both
+// arrive as the caller's readings of the one pool routes.go serves from.
+func (s *Server) readinessChecks(pgPing, runtimeRole func(context.Context) error) []httpserver.ReadyCheck {
+	checks := []httpserver.ReadyCheck{
+		{Name: "postgres", Check: pgPing},
+		// Boot already refused a pool holding an exemption; this reports the
+		// same fact for the rest of the process's life, because the role's
+		// attributes are cluster state a grant can change under a running
+		// replica without restarting it.
+		{Name: "runtime-role", Check: runtimeRole},
+	}
 	if s.busReady != nil {
 		checks = append(checks, httpserver.ReadyCheck{Name: "redis", Check: s.busReady})
 	}

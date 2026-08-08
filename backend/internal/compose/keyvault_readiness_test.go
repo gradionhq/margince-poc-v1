@@ -12,7 +12,7 @@ import (
 func TestReadinessChecksIncludeKeyvaultWhenConfigured(t *testing.T) {
 	srv := &Server{vault: keyvault.NewMemory()}
 
-	checks := srv.readinessChecks(okPing)
+	checks := srv.readinessChecks(okPing, okPing)
 
 	if !hasCheck(checks, "keyvault") {
 		t.Fatal("readiness checks omit keyvault when a vault is configured")
@@ -22,7 +22,7 @@ func TestReadinessChecksIncludeKeyvaultWhenConfigured(t *testing.T) {
 func TestReadinessChecksOmitKeyvaultWhenAbsent(t *testing.T) {
 	srv := &Server{}
 
-	checks := srv.readinessChecks(okPing)
+	checks := srv.readinessChecks(okPing, okPing)
 
 	if hasCheck(checks, "keyvault") {
 		t.Fatal("readiness checks include keyvault when no vault is configured")

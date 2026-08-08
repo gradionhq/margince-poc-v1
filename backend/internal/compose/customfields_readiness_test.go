@@ -8,7 +8,7 @@ import "testing"
 func TestReadinessChecksIncludeSchemaPoolWhenConfigured(t *testing.T) {
 	srv := &Server{schemaPoolReady: okPing}
 
-	checks := srv.readinessChecks(okPing)
+	checks := srv.readinessChecks(okPing, okPing)
 
 	if !hasCheck(checks, "customfields-schema-pool") {
 		t.Fatal("readiness checks omit the schema pool when one is configured")
@@ -18,7 +18,7 @@ func TestReadinessChecksIncludeSchemaPoolWhenConfigured(t *testing.T) {
 func TestReadinessChecksOmitSchemaPoolWhenAbsent(t *testing.T) {
 	srv := &Server{}
 
-	checks := srv.readinessChecks(okPing)
+	checks := srv.readinessChecks(okPing, okPing)
 
 	if hasCheck(checks, "customfields-schema-pool") {
 		t.Fatal("readiness checks include the schema pool when none is configured")

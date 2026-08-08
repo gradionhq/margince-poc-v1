@@ -79,6 +79,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer pool.Close()
+	// Before anything reads or writes through it: a pool connecting as a role
+	// row-level security does not bind serves every tenant's rows to every
+	// request, and nothing later in this boot would say so.
+	if err := compose.AssertRuntimeRole(ctx, pool); err != nil {
+		return err
+	}
 
 	deployCfg, err := bindInstallation(ctx, cfg, pool, logger)
 	if err != nil {

@@ -69,6 +69,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	// Registered before the lanes' join below, so LIFO closes the pool after it.
 	defer pool.Close()
+	// Before any lane runs: a pool connecting as a role row-level security
+	// does not bind serves every tenant's rows to every job, and nothing later
+	// in this boot would say so.
+	if err := compose.AssertRuntimeRole(ctx, pool); err != nil {
+		return err
+	}
 
 	// Record the composed extension set when it changed since the last boot
 	// (ADR-0069 §5); pre-bootstrap it skips — the api records the first

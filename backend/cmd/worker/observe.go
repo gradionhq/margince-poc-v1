@@ -34,6 +34,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 )
@@ -165,9 +166,9 @@ func startObserveListener(ctx context.Context, cfg workerConfig, pool *pgxpool.P
 
 // workerReadyChecks are what this replica needs before it can do any work: its
 // own boot having finished, the database every job is read and written
-// through, and the bus its subscribers consume from. All three are probed,
-// because a worker missing any one of them is not doing the work while
-// answering a check of the others perfectly.
+// through under a role RLS binds, and the bus its subscribers consume from.
+// All of them are probed, because a worker missing any one is not doing the
+// work while answering a check of the others perfectly.
 //
 // Deliberately NOT a check on the River client itself: it exposes no liveness
 // accessor, so any answer here would be this file's guess about a dependency's
@@ -177,6 +178,11 @@ func workerReadyChecks(pool *pgxpool.Pool, rdb *redis.Client, boot *bootGate) []
 	return []httpserver.ReadyCheck{
 		{Name: "boot", Check: boot.check},
 		{Name: "postgres", Check: pool.Ping},
+		// Boot already refused a pool holding an exemption; this reports the
+		// same fact for the rest of the process's life, because the role's
+		// attributes are cluster state a grant can change under a running
+		// replica without restarting it.
+		{Name: "runtime-role", Check: func(ctx context.Context) error { return compose.AssertRuntimeRole(ctx, pool) }},
 		{Name: "redis", Check: func(ctx context.Context) error { return rdb.Ping(ctx).Err() }},
 	}
 }
