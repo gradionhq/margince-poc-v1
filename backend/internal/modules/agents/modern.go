@@ -292,7 +292,7 @@ func unsupportedProtocolVersion(requested string) *rpcError {
 		Message: fmt.Sprintf("unsupported protocol version %q: this server serves %s per request, "+
 			"and %s through the initialize handshake",
 			echoed, modernProtocolVersion, strings.Join(legacyProtocolVersions, ", ")),
-		Data: map[string]any{"supported": supportedProtocolVersions(), "requested": echoed},
+		Data: &rpcErrorData{Supported: supportedProtocolVersions(), Requested: echoed},
 	}
 }
 

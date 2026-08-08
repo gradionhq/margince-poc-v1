@@ -220,12 +220,11 @@ func TestAnUnservedModernVersionIsRefusedWithEveryVersionThisServerServes(t *tes
 			if data == nil {
 				t.Fatal("the refusal carries no data, so a client has nothing to retry on")
 			}
-			supported, ok := data["supported"].([]string)
-			if !ok || !slices.Equal(supported, supportedProtocolVersions()) {
-				t.Errorf("data.supported = %#v, want %v", data["supported"], supportedProtocolVersions())
+			if !slices.Equal(data.Supported, supportedProtocolVersions()) {
+				t.Errorf("data.supported = %v, want %v", data.Supported, supportedProtocolVersions())
 			}
-			if data["requested"] != requested {
-				t.Errorf("data.requested = %v, want %q", data["requested"], requested)
+			if data.Requested != requested {
+				t.Errorf("data.requested = %q, want %q", data.Requested, requested)
 			}
 		})
 	}

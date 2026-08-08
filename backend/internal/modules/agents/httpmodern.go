@@ -145,7 +145,11 @@ func validateModernHeaders(header http.Header, req rpcRequest, fr framing) *rpcE
 // the one param each of these methods cannot be called without.
 func validateMirroredName(presented string, params json.RawMessage, readName mirroredName) *rpcError {
 	decoded, ok := decodeHeaderValue(presented)
-	if presented == "" || !ok || decoded != readName(params) {
+	// The DECODED value carries the emptiness test, not the presented one:
+	// `=?base64??=` is a non-empty header that decodes to nothing, and it would
+	// otherwise agree with a body that names nothing — leaving an intermediary
+	// metering an empty name the mirror was supposed to have refused.
+	if !ok || decoded == "" || decoded != readName(params) {
 		return headerMismatch(headerName, "the name its own body invokes")
 	}
 	return nil
@@ -181,6 +185,21 @@ func headerMismatch(header, member string) *rpcError {
 		Message: "header mismatch: " + header + " is missing or disagrees with " + member +
 			", and the body is what this server executes",
 	}
+}
+
+// declaredTransportVersion is the protocol version the transport names, and
+// the empty string when it names MORE than one.
+//
+// A duplicated version header has two readings — Get answers the first, an
+// intermediary may route on the last — so it declares nothing this server will
+// act on. It is used wherever the header alone decides an era; the mirrored
+// comparison refuses the duplicate outright, so a request whose body already
+// declared itself modern is still caught rather than quietly demoted.
+func declaredTransportVersion(header http.Header) string {
+	if len(header.Values(headerProtocolVersion)) != 1 {
+		return ""
+	}
+	return header.Get(headerProtocolVersion)
 }
 
 // modernStatus is the HTTP status one dispatched modern response carries. An

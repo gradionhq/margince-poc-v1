@@ -323,7 +323,7 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// this needs saying to the linter as well as to the reader.
 	r = r.WithContext(ctx) //nolint:contextcheck // ctx is derived from r.Context() inside the injected authenticate closure
 	if r.Method == http.MethodDelete {
-		if servesAsModern(r.Header.Get(headerProtocolVersion)) {
+		if servesAsModern(declaredTransportVersion(r.Header)) {
 			// The modern revision has no protocol-level session, so it has
 			// nothing to tear down. Answering 405 tells a client that named
 			// that revision what is true of it, rather than letting it close a
@@ -366,7 +366,7 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 		// that named the modern revision gets the status that framing pins for
 		// a malformed request; anything else keeps the answer it always had.
 		status := http.StatusOK
-		if servesAsModern(r.Header.Get(headerProtocolVersion)) {
+		if servesAsModern(declaredTransportVersion(r.Header)) {
 			status = http.StatusBadRequest
 		}
 		writeRPCResponse(w, r,
@@ -374,7 +374,7 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 			status)
 		return
 	}
-	fr, refusal := modernPrecheck(req.Params, r.Header.Get(headerProtocolVersion))
+	fr, refusal := modernPrecheck(req.Params, declaredTransportVersion(r.Header))
 	if refusal == nil && fr.modern {
 		refusal = validateModernHeaders(r.Header, req, fr)
 	}

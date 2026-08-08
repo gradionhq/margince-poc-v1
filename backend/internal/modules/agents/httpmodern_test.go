@@ -225,6 +225,10 @@ func TestAMirroredNameMayArriveBase64Encoded(t *testing.T) {
 		{"decoded and naming another document", base64SentinelPrefix +
 			base64.StdEncoding.EncodeToString([]byte("margince://schema/other")) + base64SentinelSuffix, codeHeaderMismatch},
 		{"wrapped in the sentinel but not decodable", base64SentinelPrefix + "!!!not-base64!!!" + base64SentinelSuffix, codeHeaderMismatch},
+		// A non-empty header that decodes to NOTHING. It would agree with a
+		// body that names nothing, which is the one agreement this check must
+		// never admit — so the emptiness test is on the decoded value.
+		{"the sentinel wrapped around nothing", base64SentinelPrefix + base64SentinelSuffix, codeHeaderMismatch},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, answered := modernPOST(t, srv, body, map[string]string{
@@ -392,7 +396,9 @@ func TestABodyThatNamesNothingMatchesNoHeaderAtAll(t *testing.T) {
 				if got := readName(params); got != "" {
 					t.Fatalf("read %q out of a body that names nothing", got)
 				}
-				for _, presented := range []string{"read_record", ""} {
+				// The empty spelling and its Base64 disguise are the same value,
+				// and neither may agree with a body that names nothing.
+				for _, presented := range []string{"read_record", "", base64SentinelPrefix + base64SentinelSuffix} {
 					if refusal := validateMirroredName(presented, params, readName); refusal == nil {
 						t.Errorf("Mcp-Name %q was accepted against a body that carries no name", presented)
 					}
@@ -514,6 +520,45 @@ func TestAMalformedBodyAnswers400WhenTheHeaderNamesTheModernRevision(t *testing.
 				t.Errorf("code = %d, want %d", got, codeParseError)
 			}
 		})
+	}
+}
+
+// The no-two-readings rule reaches every place the header alone decides an era,
+// not only the mirrored comparison: a version header sent twice declares
+// nothing this server acts on, so it cannot select the modern framing's status
+// for a body that never decoded.
+func TestADuplicatedVersionHeaderDeclaresNoEra(t *testing.T) {
+	if got := declaredTransportVersion(http.Header{
+		http.CanonicalHeaderKey(headerProtocolVersion): []string{modernProtocolVersion, modernProtocolVersion},
+	}); got != "" {
+		t.Errorf("declared %q from a header sent twice, want nothing", got)
+	}
+	if got := declaredTransportVersion(http.Header{
+		http.CanonicalHeaderKey(headerProtocolVersion): []string{modernProtocolVersion},
+	}); got != modernProtocolVersion {
+		t.Errorf("declared %q, want %q", got, modernProtocolVersion)
+	}
+
+	srv := modernServer(t)
+	req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(`{"jsonrpc":"2.0","id":1,`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Add(headerProtocolVersion, modernProtocolVersion)
+	req.Header.Add(headerProtocolVersion, modernProtocolVersion)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("closing response body: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200 — a duplicated header must not select the modern status", resp.StatusCode)
 	}
 }
 

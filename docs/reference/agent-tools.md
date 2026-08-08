@@ -267,11 +267,14 @@ needs travels with it. Anything else is served as **handshake-era** exactly as
 before. The framing decides how a call is *parsed and rendered*, never what it
 may do: both reach the same registry and the same admission gate.
 
-**Methods answered:** `ping`, `tools/list`, `tools/call`, `resources/list`,
-`resources/read`, `resources/templates/list`, `prompts/list`, plus each era's
-own opening call — `initialize` in the handshake framing and `server/discover`
-in the modern one. Each is `-32601` in the *other* framing, because answering it
-would tell a client it had reached the era it was probing for. Anything else is
+**Methods answered in both framings:** `tools/list`, `tools/call`,
+`resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`.
+
+**Methods each era owns:** `initialize` and `ping` in the handshake framing,
+`server/discover` in the modern one. Each is `-32601` in the *other* framing.
+For the two opening calls, answering one would tell a client it had reached the
+era it was probing for; `ping` is simply gone — the `2026-07-28` revision
+removed it along with the handshake it kept alive. Anything else is
 `-32601 method not found` — with HTTP `404` in the modern framing, which is what
 lets a dual-era client tell this server from one that does not host the endpoint.
 
@@ -319,9 +322,11 @@ cannot make a refused call succeed. A `tools/call` result carries no hint at all
 **`resources/list` and `prompts/list` answer empty rather than `-32601`** when
 nothing is wired. claude.ai calls both right after `initialize` regardless, and
 an unadvertised capability answering "method not found" reads as a broken server
-rather than as a legitimate empty catalog. A `resources/read` refusal answers
-`-32002` in the handshake era and `-32602` in the modern one, which retired
-that code.
+rather than as a legitimate empty catalog. A `resources/read` **not-found**
+refusal answers `-32002` in the handshake era and `-32602` in the modern one,
+which retired that code; the rest of that method's refusal surface is
+era-independent — a missing or empty `uri` is `-32602` in both, and a read that
+fails internally is `-32603` in both.
 
 **`GET /mcp` is `405`.** The transport serves `POST` (one JSON-RPC exchange) and
 `DELETE` (close the session this passport opened); the GET SSE stream is a later
