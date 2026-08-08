@@ -182,14 +182,9 @@ func TestFleetEnumerationOnlyAtRatifiedSites(t *testing.T) {
 		// This gate judges PRODUCTION passes: the anti-pattern is one job row
 		// looping every tenant. An integration-tagged file is test harness — it
 		// never ships, and it has no job to take a workspace from — so it is out
-		// of scope by rule.
-		//
-		// goFilesUnder skips _test.go, which used to exclude the harness for free.
-		// It stopped doing so when a shared fixture was promoted into a non-test
-		// file to become importable, and the tempting fix — widening
-		// singleRowPredicates so the fixture's lookup stops matching — would have
-		// loosened a production gate tree-wide to accommodate a test. Scope is the
-		// thing that was wrong, so scope is what is fixed.
+		// of scope by rule. goFilesUnder's _test.go skip does not cover it: a
+		// shared fixture promoted into a non-test file to become importable is
+		// still harness.
 		//
 		// The migrate-once gate scopes the other way and INCLUDES these files, for
 		// the same reason read backwards: its obligation is about the integration
