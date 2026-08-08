@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -135,6 +136,11 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(pool), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
+	// The dossier reads the SAME people store the 360 and the brief read, so
+	// the three cannot drift about what a company's facts are. No model lane is
+	// wired yet: every assembly is the deterministic floor and says so.
+	s.orgDossierHandlers = orgdossier.NewHandlers(
+		orgdossier.NewService(pool, s.peopleStore, "", time.Now), s.sorDispatch.isOverlay)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,

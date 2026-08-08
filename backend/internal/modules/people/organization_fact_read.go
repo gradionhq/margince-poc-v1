@@ -115,7 +115,7 @@ func (s *Store) ListOrganizationProfileFields(ctx context.Context, id ids.Organi
 			return err
 		}
 		rows, err := tx.Query(ctx, `
-			SELECT field, value, source, captured_by,
+			SELECT id, field, value, source, captured_by,
 			       evidence_snippet, source_url, confidence, updated_at
 			  FROM organization_profile_field
 			 WHERE workspace_id = $1 AND organization_id = $2
@@ -128,12 +128,17 @@ func (s *Store) ListOrganizationProfileFields(ctx context.Context, id ids.Organi
 		for rows.Next() {
 			var (
 				pf            crmcontracts.CompanyProfileField
+				rowID         ids.UUID
 				field, source string
 			)
-			if err := rows.Scan(&field, &pf.Value, &source, &pf.CapturedBy,
+			if err := rows.Scan(&rowID, &field, &pf.Value, &source, &pf.CapturedBy,
 				&pf.EvidenceSnippet, &pf.SourceUrl, &pf.Confidence, &pf.UpdatedAt); err != nil {
 				return fmt.Errorf("scan organization profile field: %w", err)
 			}
+			// The row's own identity, so a dossier sentence written from this
+			// field can cite something the reader can open.
+			wireID := openapi_types.UUID(rowID)
+			pf.Id = &wireID
 			pf.Field = crmcontracts.CompanyProfileFieldField(field)
 			pf.Source = crmcontracts.CompanyProfileFieldSource(source)
 			out = append(out, pf)

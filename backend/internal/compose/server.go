@@ -96,6 +96,7 @@ type Server struct {
 	org360Handlers
 	person360Handlers
 	orgBriefHandlers
+	orgDossierHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
 	// webhook.go), injected by WithGmailPush only when a subscription token

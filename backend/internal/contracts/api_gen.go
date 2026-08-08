@@ -4321,6 +4321,7 @@ const (
 	OrganizationBriefEvidenceEntityTypeFact         OrganizationBriefEvidenceEntityType = "fact"
 	OrganizationBriefEvidenceEntityTypeOrganization OrganizationBriefEvidenceEntityType = "organization"
 	OrganizationBriefEvidenceEntityTypePerson       OrganizationBriefEvidenceEntityType = "person"
+	OrganizationBriefEvidenceEntityTypeProfileField OrganizationBriefEvidenceEntityType = "profile_field"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationBriefEvidenceEntityType enum.
@@ -4335,6 +4336,8 @@ func (e OrganizationBriefEvidenceEntityType) Valid() bool {
 	case OrganizationBriefEvidenceEntityTypeOrganization:
 		return true
 	case OrganizationBriefEvidenceEntityTypePerson:
+		return true
+	case OrganizationBriefEvidenceEntityTypeProfileField:
 		return true
 	default:
 		return false
@@ -4383,6 +4386,36 @@ func (e OrganizationBriefSentenceNature) Valid() bool {
 	case Fact:
 		return true
 	case Recommendation:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationDossierSectionKind.
+const (
+	OrganizationDossierSectionKindBuyingCenter     OrganizationDossierSectionKind = "buying_center"
+	OrganizationDossierSectionKindDifferentiation  OrganizationDossierSectionKind = "differentiation"
+	OrganizationDossierSectionKindFirmographics    OrganizationDossierSectionKind = "firmographics"
+	OrganizationDossierSectionKindMarkets          OrganizationDossierSectionKind = "markets"
+	OrganizationDossierSectionKindProductsServices OrganizationDossierSectionKind = "products_services"
+	OrganizationDossierSectionKindSummary          OrganizationDossierSectionKind = "summary"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationDossierSectionKind enum.
+func (e OrganizationDossierSectionKind) Valid() bool {
+	switch e {
+	case OrganizationDossierSectionKindBuyingCenter:
+		return true
+	case OrganizationDossierSectionKindDifferentiation:
+		return true
+	case OrganizationDossierSectionKindFirmographics:
+		return true
+	case OrganizationDossierSectionKindMarkets:
+		return true
+	case OrganizationDossierSectionKindProductsServices:
+		return true
+	case OrganizationDossierSectionKindSummary:
 		return true
 	default:
 		return false
@@ -7637,58 +7670,58 @@ func (e CapturedByKind) Valid() bool {
 
 // Defines values for ProfileFieldKey.
 const (
-	ProfileFieldKeyBuyingCenter      ProfileFieldKey = "buying_center"
-	ProfileFieldKeyBuyingIntents     ProfileFieldKey = "buying_intents"
-	ProfileFieldKeyCommonObjections  ProfileFieldKey = "common_objections"
-	ProfileFieldKeyCustomerPains     ProfileFieldKey = "customer_pains"
-	ProfileFieldKeyDesiredOutcomes   ProfileFieldKey = "desired_outcomes"
-	ProfileFieldKeyDisplayName       ProfileFieldKey = "display_name"
-	ProfileFieldKeyHistory           ProfileFieldKey = "history"
-	ProfileFieldKeyIcp               ProfileFieldKey = "icp"
-	ProfileFieldKeyIndustry          ProfileFieldKey = "industry"
-	ProfileFieldKeyLegalName         ProfileFieldKey = "legal_name"
-	ProfileFieldKeyOfferSummary      ProfileFieldKey = "offer_summary"
-	ProfileFieldKeyRegisterVat       ProfileFieldKey = "register_vat"
-	ProfileFieldKeyRegisteredAddress ProfileFieldKey = "registered_address"
-	ProfileFieldKeySalesMotion       ProfileFieldKey = "sales_motion"
-	ProfileFieldKeyUsp               ProfileFieldKey = "usp"
-	ProfileFieldKeyValueProposition  ProfileFieldKey = "value_proposition"
+	BuyingCenter      ProfileFieldKey = "buying_center"
+	BuyingIntents     ProfileFieldKey = "buying_intents"
+	CommonObjections  ProfileFieldKey = "common_objections"
+	CustomerPains     ProfileFieldKey = "customer_pains"
+	DesiredOutcomes   ProfileFieldKey = "desired_outcomes"
+	DisplayName       ProfileFieldKey = "display_name"
+	History           ProfileFieldKey = "history"
+	Icp               ProfileFieldKey = "icp"
+	Industry          ProfileFieldKey = "industry"
+	LegalName         ProfileFieldKey = "legal_name"
+	OfferSummary      ProfileFieldKey = "offer_summary"
+	RegisterVat       ProfileFieldKey = "register_vat"
+	RegisteredAddress ProfileFieldKey = "registered_address"
+	SalesMotion       ProfileFieldKey = "sales_motion"
+	Usp               ProfileFieldKey = "usp"
+	ValueProposition  ProfileFieldKey = "value_proposition"
 )
 
 // Valid indicates whether the value is a known member of the ProfileFieldKey enum.
 func (e ProfileFieldKey) Valid() bool {
 	switch e {
-	case ProfileFieldKeyBuyingCenter:
+	case BuyingCenter:
 		return true
-	case ProfileFieldKeyBuyingIntents:
+	case BuyingIntents:
 		return true
-	case ProfileFieldKeyCommonObjections:
+	case CommonObjections:
 		return true
-	case ProfileFieldKeyCustomerPains:
+	case CustomerPains:
 		return true
-	case ProfileFieldKeyDesiredOutcomes:
+	case DesiredOutcomes:
 		return true
-	case ProfileFieldKeyDisplayName:
+	case DisplayName:
 		return true
-	case ProfileFieldKeyHistory:
+	case History:
 		return true
-	case ProfileFieldKeyIcp:
+	case Icp:
 		return true
-	case ProfileFieldKeyIndustry:
+	case Industry:
 		return true
-	case ProfileFieldKeyLegalName:
+	case LegalName:
 		return true
-	case ProfileFieldKeyOfferSummary:
+	case OfferSummary:
 		return true
-	case ProfileFieldKeyRegisterVat:
+	case RegisterVat:
 		return true
-	case ProfileFieldKeyRegisteredAddress:
+	case RegisteredAddress:
 		return true
-	case ProfileFieldKeySalesMotion:
+	case SalesMotion:
 		return true
-	case ProfileFieldKeyUsp:
+	case Usp:
 		return true
-	case ProfileFieldKeyValueProposition:
+	case ValueProposition:
 		return true
 	default:
 		return false
@@ -9943,6 +9976,9 @@ type CompanyProfileField struct {
 	Confidence      *float32                 `json:"confidence,omitempty"`
 	EvidenceSnippet *string                  `json:"evidence_snippet,omitempty"`
 	Field           CompanyProfileFieldField `json:"field"`
+
+	// Id The stored row, so a dossier sentence written from this field can cite something the reader can open. Without it a field-derived claim could only cite the organization, which tells the reader where to look but not at what — and the grounding filter drops a sentence whose citation it cannot resolve.
+	Id *openapi_types.UUID `json:"id,omitempty"`
 
 	// RetrievedAt When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
 	RetrievedAt *time.Time                `json:"retrieved_at,omitempty"`
@@ -12808,6 +12844,54 @@ type OrganizationDomainInput struct {
 	Domain    string `json:"domain"`
 	IsPrimary *bool  `json:"is_primary,omitempty"`
 }
+
+// OrganizationDossier A factual description of one company, assembled from what the READER can see.
+// Every sentence carries the records it was written from, so the reader can open the
+// evidence rather than take the sentence on trust.
+type OrganizationDossier struct {
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy `json:"generated_by"`
+
+	// NeedsRefresh The newest contributing source was retrieved more than thirty days ago
+	// (DOSS-PARAM-6). The content is still shown — a stale dossier is more useful
+	// than none — with the staleness said out loud beside it.
+	NeedsRefresh   *bool              `json:"needs_refresh,omitempty"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// Sections A section with nothing to say is ABSENT rather than empty: a heading over
+	// silence reads as a finding of nothing, which is a different claim. The compact
+	// card renders `summary` only.
+	Sections []OrganizationDossierSection `json:"sections"`
+}
+
+// OrganizationDossierSection defines model for OrganizationDossierSection.
+type OrganizationDossierSection struct {
+	// Kind `summary` — what this company is, in a sentence or three.
+	// `products_services` — what they sell.
+	// `markets` — where and to whom.
+	// `buying_center` — who decides.
+	// `differentiation` — what they claim sets them apart.
+	// `firmographics` — size, age, registration and the like.
+	Kind OrganizationDossierSectionKind `json:"kind"`
+
+	// Sentences The same claim shape the account brief uses, deliberately: one claim
+	// vocabulary and one grounding rule across every generated surface, so a reader
+	// learns the distinction once and it holds everywhere.
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
+// OrganizationDossierSectionKind `summary` — what this company is, in a sentence or three.
+// `products_services` — what they sell.
+// `markets` — where and to whom.
+// `buying_center` — who decides.
+// `differentiation` — what they claim sets them apart.
+// `firmographics` — size, age, registration and the like.
+type OrganizationDossierSectionKind string
 
 // OrganizationFact defines model for OrganizationFact.
 type OrganizationFact struct {
@@ -25614,6 +25698,12 @@ type ServerInterface interface {
 	// Every document that rolls up to this account, pinned first (DOC-WIRE-1).
 	// (GET /organizations/{id}/documents)
 	ListOrganizationDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationDocumentsParams)
+	// What this company IS — assembled from its own facts, every sentence citing one.
+	// (GET /organizations/{id}/dossier)
+	GetOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id)
+	// Reassemble the dossier now, past a fingerprint that still matches.
+	// (POST /organizations/{id}/dossier)
+	RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id)
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
@@ -27069,6 +27159,18 @@ func (_ Unimplemented) DeepReadCompany(w http.ResponseWriter, r *http.Request, i
 // Every document that rolls up to this account, pinned first (DOC-WIRE-1).
 // (GET /organizations/{id}/documents)
 func (_ Unimplemented) ListOrganizationDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationDocumentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What this company IS — assembled from its own facts, every sentence citing one.
+// (GET /organizations/{id}/dossier)
+func (_ Unimplemented) GetOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reassemble the dossier now, past a fingerprint that still matches.
+// (POST /organizations/{id}/dossier)
+func (_ Unimplemented) RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35430,6 +35532,70 @@ func (siw *ServerInterfaceWrapper) ListOrganizationDocuments(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationDossier operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationDossier(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationDossier(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshOrganizationDossier operation middleware
+func (siw *ServerInterfaceWrapper) RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshOrganizationDossier(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ScrapeCompany operation middleware
 func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.Request) {
 
@@ -43392,6 +43558,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/documents", wrapper.ListOrganizationDocuments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/dossier", wrapper.GetOrganizationDossier)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/dossier", wrapper.RefreshOrganizationDossier)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)

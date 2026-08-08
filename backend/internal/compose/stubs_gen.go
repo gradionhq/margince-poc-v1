@@ -699,6 +699,14 @@ func (stubs) ListOrganizationDocuments(w nethttp.ResponseWriter, r *nethttp.Requ
 	httperr.NotImplemented(w, r, "ListOrganizationDocuments")
 }
 
+func (stubs) GetOrganizationDossier(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationDossier")
+}
+
+func (stubs) RefreshOrganizationDossier(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RefreshOrganizationDossier")
+}
+
 func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ScrapeCompany")
 }
