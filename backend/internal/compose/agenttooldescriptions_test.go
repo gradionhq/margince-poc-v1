@@ -200,11 +200,22 @@ func TestTheOperatorConsoleServesTheTextAnMCPClientIsServed(t *testing.T) {
 // an unmeasured one. 5/8 still leaves 9,000 tokens for the goal and the
 // transcript, which is a working run.
 //
-// This is a ceiling on growth and it is closer than it looks: at 35 tools the
-// listing is ~12,700 of 15,000. The listing is O(catalog) and the next few tools
-// will reach this bound too. The real answer is a listing that does not print
-// every tool's full copy into every run — filed as #634 rather than guessed at
-// here, because it is a change to what a run is given, not to a test.
+// Scope-filtering the listing did NOT earn 1/2 back, and the arithmetic belongs
+// here because the intuition runs the other way. A run is now offered only what
+// its passport admits, which cuts the typical run hard — a read-scoped one
+// renders ~5,200 tokens rather than ~12,745. But this measures the WHOLE catalog
+// deliberately: an all-scope passport is a legitimate configuration, it is
+// offered every tool, and at 35 tools that is still ~12,745 — past 1/2 (12,000).
+// Re-pointing this at a narrower principal would lower the bound by measuring
+// something smaller than the worst case, which is the same failure as raising
+// one to fit and harder to see afterwards.
+//
+// So this stays a ceiling on growth against the all-scope run, and it is closer
+// than it looks. The listing is O(catalog): the next few tools reach 5/8 too,
+// and what scope filtering leaves behind is mostly schemas, which are half the
+// bytes. Deferring those is a protocol change — a model needs the schema to CALL
+// a tool — so it wants its own decision rather than being reached for the next
+// time this bound is hit.
 const (
 	listingBudgetNumerator   = 5
 	listingBudgetDenominator = 8
