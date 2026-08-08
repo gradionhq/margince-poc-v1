@@ -683,3 +683,64 @@ func TestARefusalMessageSurvivesAHostileToken(t *testing.T) {
 		t.Errorf("the token was not escaped into the message: %q", fault.Message)
 	}
 }
+
+// CAP-PAGE bounds the ROWS an answer carries; nothing bounded the WORK of
+// finding them. Every clause becomes one AND term and at least one bind
+// parameter in a single statement, so an unbounded where-list let a read-scoped
+// caller choose how large a statement the database is asked to plan — on a
+// connection shared with every other request on the installation.
+//
+// It is refused rather than truncated: a silently shortened plan answers a
+// wider question than the one asked, in a shape indistinguishable from the
+// right one.
+func TestAPlanWithMoreConditionsThanOneStatementMayCarryIsRefused(t *testing.T) {
+	clauses := make([]Predicate, maxPredicates+1)
+	for i := range clauses {
+		clauses[i] = Predicate{Field: "status", Op: OpEq, Value: json.RawMessage(`"open"`)}
+	}
+
+	_, err := NewPlanValidator(NewVocabularyResolver()).Validate(readerFor("deal"), Plan{
+		Version: PlanVersion, Target: "deal", Where: clauses,
+	})
+
+	if got := refusalCodes(t, err); !slices.Contains(got, CodePlanTooComplex) {
+		t.Errorf("codes = %v, want %q — the plan is in vocabulary, there is simply too much of it",
+			got, CodePlanTooComplex)
+	}
+}
+
+// A plan AT the ceiling still runs. A bound that refused the boundary would
+// make the published limit a lie by one.
+func TestAPlanAtTheConditionCeilingIsAccepted(t *testing.T) {
+	clauses := make([]Predicate, maxPredicates)
+	for i := range clauses {
+		clauses[i] = Predicate{Field: "status", Op: OpEq, Value: json.RawMessage(`"open"`)}
+	}
+
+	if _, err := NewPlanValidator(NewVocabularyResolver()).Validate(readerFor("deal"), Plan{
+		Version: PlanVersion, Target: "deal", Where: clauses,
+	}); err != nil {
+		t.Errorf("a plan of exactly %d conditions was refused: %v", maxPredicates, err)
+	}
+}
+
+// The same bound on an `in` list, which is where one clause becomes many bind
+// parameters.
+func TestAnInListLongerThanOneStatementMayCarryIsRefused(t *testing.T) {
+	values := make([]string, maxOperandList+1)
+	for i := range values {
+		values[i] = `"open"`
+	}
+
+	_, err := NewPlanValidator(NewVocabularyResolver()).Validate(readerFor("deal"), Plan{
+		Version: PlanVersion, Target: "deal",
+		Where: []Predicate{{
+			Field: "status", Op: OpIn,
+			Values: json.RawMessage("[" + strings.Join(values, ",") + "]"),
+		}},
+	})
+
+	if got := refusalCodes(t, err); !slices.Contains(got, CodePlanTooComplex) {
+		t.Errorf("codes = %v, want %q", got, CodePlanTooComplex)
+	}
+}

@@ -17,17 +17,23 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // explainPlan renders one validated plan as a sentence.
 func explainPlan(plan ValidatedPlan) string {
+	// ONE budget for the whole sentence, spent as the caller's own fragments are
+	// rendered. A per-fragment cap alone is not a bound: the grammar admits many
+	// conditions, and dozens of individually-short operands add up to the same
+	// unbounded write into the run's later prompts that the cap exists to stop.
+	budget := echoBudget{left: maxNarrativeBudget}
 	sentence := plan.Target.Target + " records"
-	if clause := explainPredicates(plan.Plan.Where); clause != "" {
+	if clause := explainPredicates(plan.Plan.Where, &budget); clause != "" {
 		sentence += " where " + clause
 	}
-	sentence += explainHop(plan)
+	sentence += explainHop(plan, &budget)
 	if plan.Plan.SimilarTo != "" {
-		sentence += ", ranked by similarity to " + quote(plan.Plan.SimilarTo)
+		sentence += ", ranked by similarity to " + quote(budget.spend(plan.Plan.SimilarTo))
 	}
 	sentence += "; at most " + strconv.Itoa(plan.Limit)
 	if plan.Plan.SimilarTo == "" {
@@ -43,12 +49,12 @@ func explainPlan(plan ValidatedPlan) string {
 // explainHop renders the traversal, naming the record type the hop lands on
 // rather than the relation's own name, since a caller reads "at an
 // organization" more readily than "over the organization relation".
-func explainHop(plan ValidatedPlan) string {
+func explainHop(plan ValidatedPlan, budget *echoBudget) string {
 	if plan.Hop == nil || plan.Plan.Traverse == nil {
 		return ""
 	}
 	sentence := ", linked to " + article(plan.Hop.Target) + " " + plan.Hop.Target + " record"
-	if clause := explainPredicates(plan.Plan.Traverse.Where); clause != "" {
+	if clause := explainPredicates(plan.Plan.Traverse.Where, budget); clause != "" {
 		sentence += " where " + clause
 	}
 	return sentence
@@ -78,10 +84,10 @@ func article(word string) string {
 	return "an"
 }
 
-func explainPredicates(clauses []Predicate) string {
+func explainPredicates(clauses []Predicate, budget *echoBudget) string {
 	parts := make([]string, 0, len(clauses))
 	for _, clause := range clauses {
-		parts = append(parts, clause.Field+" "+comparatorPhrase(clause.Op)+" "+explainOperand(clause))
+		parts = append(parts, clause.Field+" "+comparatorPhrase(clause.Op)+" "+explainOperand(clause, budget))
 	}
 	return strings.Join(parts, " and ")
 }
@@ -117,7 +123,7 @@ func comparatorPhrase(op string) string {
 // explainOperand renders the operand the way the caller wrote it. It is their
 // own text and already JSON, so it is compacted rather than re-encoded — a
 // re-encoding would quietly normalise the value the sentence claims ran.
-func explainOperand(clause Predicate) string {
+func explainOperand(clause Predicate, budget *echoBudget) string {
 	raw := clause.Value
 	if clause.Op == OpIn {
 		raw = clause.Values
@@ -128,7 +134,60 @@ func explainOperand(clause Predicate) string {
 		// operand that cannot be compacted is still shown, uncompacted, rather
 		// than dropped: a sentence missing the value it filtered on is worse
 		// than an untidy one.
-		return string(raw)
+		return budget.spend(string(raw))
 	}
-	return compact.String()
+	return budget.spend(compact.String())
+}
+
+// The two bounds on how much CALLER TEXT the sentence may carry back.
+//
+// The narrative travels to the caller, and on the agent surface that means it
+// lands in the same run's later prompts — so caller text echoed here is a write
+// into every prompt that follows. That is the hazard `maxBadArgsDetail` and
+// `maxToolNameEcho` already bound on the two other echoes this surface has; the
+// narrative was the third and had none.
+//
+// Both are needed. The per-fragment cap keeps one clause legible; the total is
+// what makes it a BOUND, since the grammar admits many conditions and dozens of
+// individually-short operands reach the same place a single long one would.
+const (
+	maxNarrativeEcho   = 200
+	maxNarrativeBudget = 2000
+)
+
+// echoBudget is one sentence's remaining allowance of caller text.
+type echoBudget struct{ left int }
+
+// spend renders one caller-written fragment against the budget, eliding it when
+// it is too long on its own or when the sentence has already spent its
+// allowance. The sentence keeps answering the question it exists for — "is this
+// the query I asked for?" — without becoming a channel: a caller who wrote a
+// value this long is holding the whole of it already, and what they need back
+// is which clause ran and how much of it there was.
+func (b *echoBudget) spend(fragment string) string {
+	allowed := min(maxNarrativeEcho, b.left)
+	if len(fragment) <= allowed {
+		b.left -= len(fragment)
+		return fragment
+	}
+	b.left -= allowed
+	return truncateRunes(fragment, allowed) + "…(" + strconv.Itoa(len(fragment)) + " bytes)"
+}
+
+// truncateRunes cuts at a rune boundary. Cutting by bytes can split a multibyte
+// character, and the invalid trailing byte that leaves is replaced with U+FFFD
+// on the way out — so the sentence would end in a character the caller never
+// wrote, in a field whose whole job is to report their query faithfully.
+func truncateRunes(fragment string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(fragment) <= limit {
+		return fragment
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(fragment[cut]) {
+		cut--
+	}
+	return fragment[:cut]
 }

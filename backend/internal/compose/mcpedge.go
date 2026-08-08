@@ -42,7 +42,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
-	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -104,10 +103,12 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slo
 		// Without it the vocabulary is the contract's, which is WIDER — and a
 		// wider vocabulary published here would refuse at execution what it
 		// advertised at discovery.
-		agents.WithResourceProvider(search.NewQuerySchemaResource(
-			search.NewVocabularyResolver().
-				WithFieldCatalog(customfields.NewService(pool, nil)).
-				WithColumnReader(search.NewColumnCatalog(pool)))))
+		//
+		// queryVocabulary is the SAME construction query_workspace's executor
+		// validates against (queryseam.go), which is what makes "what this
+		// document advertises" and "what a plan can be answered from" the same
+		// sentence rather than two that have to be kept in step.
+		agents.WithResourceProvider(search.NewQuerySchemaResource(queryVocabulary(pool))))
 }
 
 // mcpAuthenticate binds one request to its agent principal. It runs on EVERY

@@ -43,7 +43,8 @@ import (
 // nativeOnlyAgentTools are the tools whose only implementation reads the
 // native domain tables: the compiled report engine, the two retrieval-grounded
 // context intents, the pipeline-risk scan and its draft sibling, the two
-// relationship-graph reads, the pipeline configuration read — and one WRITE,
+// relationship-graph reads, the pipeline configuration read, the query-plan
+// executor — and one WRITE,
 // disqualify_lead, whose tool calls the people store directly and so misses the
 // REST-only write guard that refuses the same verb for a mirrored type. None
 // has a mirror projection to serve, so each owes an honest refusal in overlay
@@ -68,6 +69,10 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		"intro_path_to":            fmt.Sprintf(`{"organization_id":%q}`, anchor),
 		"at_risk_relationships":    `{}`,
 		"list_pipelines":           `{}`,
+		// The query-plan executor: one SELECT over the target's own native
+		// table. The plan only has to be well-formed — the refusal lands
+		// before the vocabulary is resolved, let alone the statement run.
+		"query_workspace": `{"plan":{"version":"v1","target":"deal"}}`,
 		// A WRITE, and the one whose tool calls its module store directly — so
 		// it needs a decorator (nativeOnlyDisqualifier) where the other
 		// unservable writes inherit the provider's own refusal.

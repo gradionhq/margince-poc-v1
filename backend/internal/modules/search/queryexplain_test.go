@@ -4,6 +4,7 @@
 package search
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -88,5 +89,50 @@ func TestTheOperandIsShownAsTheCallerWroteIt(t *testing.T) {
 		"where": [{"field": "amount_minor", "op": "gt", "value":    100000   }]}`)
 	if got := explainPlan(plan); !strings.Contains(got, "amount_minor is more than 100000") {
 		t.Errorf("narrative is %q", got)
+	}
+}
+
+// The narrative is caller text traveling back to the caller, and on the agent
+// surface it lands in the same run's later prompts — so an unbounded operand is
+// an unbounded write into every prompt that follows. It is the third echo on
+// that surface and the only one that had no bound.
+func TestTheNarrativeElidesAnOperandTooLargeToEcho(t *testing.T) {
+	huge := strings.Repeat("a", 5000)
+	plan := ValidatedPlan{
+		Plan: Plan{Version: PlanVersion, Target: "deal", Where: []Predicate{{
+			Field: "name", Op: OpEq, Value: json.RawMessage(`"` + huge + `"`),
+		}}},
+		Target: TargetVocabulary{Target: "deal"},
+		Limit:  25,
+	}
+
+	sentence := explainPlan(plan)
+
+	if len(sentence) > 4*maxNarrativeEcho {
+		t.Errorf("the sentence is %d bytes for a %d-byte operand — the echo is not bounded",
+			len(sentence), len(huge))
+	}
+	if !strings.Contains(sentence, "bytes)") {
+		t.Errorf("the elision does not say how much was withheld, so the caller cannot tell "+
+			"a truncated echo from the value they sent: %q", sentence)
+	}
+	if !strings.Contains(sentence, "name") {
+		t.Errorf("the elision took the clause with it; the sentence must still say WHICH condition ran: %q", sentence)
+	}
+}
+
+// An operand that fits is untouched. A bound that rewrote ordinary values would
+// make the sentence stop describing the query it claims to describe.
+func TestAnOrdinaryOperandIsEchoedWhole(t *testing.T) {
+	plan := ValidatedPlan{
+		Plan: Plan{Version: PlanVersion, Target: "deal", Where: []Predicate{{
+			Field: "status", Op: OpEq, Value: json.RawMessage(`"open"`),
+		}}},
+		Target: TargetVocabulary{Target: "deal"},
+		Limit:  25,
+	}
+
+	if sentence := explainPlan(plan); !strings.Contains(sentence, `"open"`) {
+		t.Errorf("an ordinary operand did not survive the bound: %q", sentence)
 	}
 }
