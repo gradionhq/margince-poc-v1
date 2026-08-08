@@ -12,30 +12,13 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { LocaleProvider } from "../i18n";
+import { memoryStorage } from "../testing/appharness";
 import {
   clearPendingAuthorize,
   readPendingAuthorize,
   stashPendingAuthorize,
 } from "./pendingauthorize";
 import { Shell, TopBar, WorkspaceRail } from "./shell";
-
-function memoryStorage(): Storage {
-  const map = new Map<string, string>();
-  return {
-    getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
-    setItem: (key, value) => {
-      map.set(key, String(value));
-    },
-    removeItem: (key) => {
-      map.delete(key);
-    },
-    clear: () => map.clear(),
-    key: (index) => Array.from(map.keys())[index] ?? null,
-    get length() {
-      return map.size;
-    },
-  };
-}
 
 // B-EP09.4 acceptance: the canonical 10-item nav in order (AC-shell-1b — A72
 // promoted Automations to primary nav), at most one active item tracking the

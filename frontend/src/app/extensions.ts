@@ -30,6 +30,15 @@ export type { ExtensionDescriptor, ExtensionVerbDescriptor };
  * dispatches on resolves nothing, however correct its lookup is. `ext_` is the
  * namespace token everywhere else in the tier (tables, roles, job kinds,
  * `/v1/ext/<name>` routes); this is its hash-route spelling.
+ *
+ * NOT YET REACHABLE FROM THE NAV. `nav.ts`'s `NAV_GROUPS` is the canonical
+ * 10-item list and `shell.test.tsx` pins its order, so a composed unit is
+ * reachable only by typing the hash today. That is correct for this slice —
+ * there is no unit with a surface worth a rail slot, and inventing one would
+ * mean deciding where a variable number of installation-defined entries sit in
+ * a list whose order is normative. Task 13/14 owns that decision (a "Units"
+ * group under the labelled groups is the obvious shape) and will need
+ * `RAIL_LESS_SCREENS` reviewed at the same time.
  */
 export const EXTENSION_SCREEN = "ext";
 

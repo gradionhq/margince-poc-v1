@@ -24,7 +24,17 @@
     "paths": {
       "@composition/extensions": [
         "../build/composition/frontend/extensions.gen"
-      ]
+      ],
+      // The MERGED contract's types, so the typed client (src/api/client.ts) is
+      // parameterised by the document THIS installation actually serves — a
+      // unit screen can call its own /v1/ext/<unit>/… route with the same
+      // `api.GET` every core screen uses, no wrapper and no cast.
+      //
+      // A SECOND root, not build/composition/frontend/: gen-composition's
+      // -verify requires that tree to hold exactly the files it generated, and
+      // openapi-typescript is a Node tool the Go generator cannot run. Writing
+      // here spends nothing — see .gitignore and the Makefile target.
+      "@composition/schema": ["../build/composition-frontend/schema"]
     }
   }
 }

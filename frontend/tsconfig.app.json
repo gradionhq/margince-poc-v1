@@ -24,12 +24,20 @@
     // build/composition/frontend/. vite.config.ts carries the runtime half of
     // the same selection, keyed off MARGINCE_COMPOSITION_FRONTEND.
     //
-    // One exact specifier, not a "@composition/*" wildcard: there is exactly
-    // one composed frontend artifact today, and a wildcard would also have to
-    // agree with Vite's own alias about how a bare name maps onto a
-    // ".gen.ts" file — two spellings of one rule is how they drift.
+    // Exact specifiers, not a "@composition/*" wildcard: a wildcard would also
+    // have to agree with Vite's own alias about how a bare name maps onto a
+    // ".gen.ts" file, and two spellings of one rule is how they drift.
+    //
+    // TWO artifacts, because a unit surface needs both halves. "extensions" is
+    // the registry (a runtime value). "schema" is the CONTRACT types the typed
+    // client is parameterised by: in this lane it is the committed
+    // src/api/schema.d.ts, so `api.GET("/ext/…")` is correctly a type error —
+    // the vanilla installation does not serve that route. The composed lane
+    // points it at the types generated from the MERGED contract, where it is
+    // not.
     "paths": {
-      "@composition/extensions": ["./src/composition/extensions.gen"]
+      "@composition/extensions": ["./src/composition/extensions.gen"],
+      "@composition/schema": ["./src/api/schema"]
     }
   },
   "include": ["src"],

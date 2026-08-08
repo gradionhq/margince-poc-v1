@@ -1,7 +1,12 @@
 # Thin delegator: the real Makefile lives in backend/ (the Go module root).
 # `make check` is the merge gate; `make dev` boots everything.
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
-# which not every backend machine has; CI runs both.
+# which not every backend machine has; CI runs both. Since ADR-0069's composed
+# SPA lane the dependency runs BOTH ways: `make check-fe` also needs a Go
+# toolchain, because the composed registry the frontend typechecks against is
+# produced by gen-composition and nothing else can produce it. A machine that
+# runs the full gate needs both toolchains; `make frontend-check` alone is still
+# the node-only lane.
 
 # Overridable exactly as in backend/Makefile, so a pinned toolchain reaches the
 # one target here that invokes the compiler directly instead of delegating.
@@ -42,7 +47,7 @@ ai-routing-local:
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
 ## tests, contract drift). No frontend toolchain needed — this is what the CI
 ## deterministic-gates job runs.
-check-backend: check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze check-ext-migrations
+check-backend: check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend
@@ -232,8 +237,10 @@ fe-typecheck:
 ## "gate that quietly checks nothing" the CI workflow's own comments warn
 ## about. Part of `make check-fe`, so the merge gate covers both lanes.
 fe-typecheck-composed: composition
-	@[ -d frontend/node_modules ] || { echo "fe-typecheck-composed: frontend/node_modules missing — run 'make install' (or 'make fe-install') first" >&2; exit 1; }
 	@[ -f build/composition/frontend/extensions.gen.ts ] || { echo "fe-typecheck-composed: build/composition/frontend/extensions.gen.ts is missing after 'make composition' — the composed frontend lane has nothing to typecheck against" >&2; exit 1; }
+	@[ -f build/composition/api/crm.yaml ] || { echo "fe-typecheck-composed: build/composition/api/crm.yaml is missing after 'make composition' — the composed lane has no merged contract to type the client against" >&2; exit 1; }
+	cd frontend && pnpm install --frozen-lockfile && pnpm gen:composed-types
+	@[ -f build/composition-frontend/schema.d.ts ] || { echo "fe-typecheck-composed: pnpm gen:composed-types produced no schema.d.ts — the composed lane would silently typecheck against the committed contract" >&2; exit 1; }
 	cd frontend && pnpm exec tsc -p tsconfig.composed.json
 
 ## frontend-e2e — the screen-acceptance harness (AC-<screen>-N + axe WCAG AA
@@ -345,7 +352,15 @@ no-jurisdiction:
 ## throwaway clone and assert the resulting catalog against the allowlist. The
 ## one gate in the tier that is the DATABASE refusing rather than a scanner
 ## reading. No-ops (and touches no database) while no unit ships a
-## migrations/ layer, which is what keeps check-backend hermetic today.
+## migrations/ layer.
+##
+## NOT part of check-backend, deliberately. It needs a Postgres cluster from the
+## first unit that ships a migrations/ layer, and check-backend is the fastest
+## merge gate and container-free: arming it there would put a compose-stack
+## start on every backend PR forever, to buy locality once. It runs on the
+## INTEGRATION lane instead (.github/workflows/ci.yml, the `integration` job),
+## which is already the slow, cluster-bearing path. Run it by name locally —
+## `make check-ext-migrations` — after `make db-up`.
 check-ext-migrations:
 	@./scripts/check-ext-migrations.sh
 

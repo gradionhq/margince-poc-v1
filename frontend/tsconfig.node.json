@@ -22,7 +22,8 @@
     // and fails here. Vanilla mapping only: the composed lane is
     // tsconfig.composed.json, which does not build tests.
     "paths": {
-      "@composition/extensions": ["./src/composition/extensions.gen"]
+      "@composition/extensions": ["./src/composition/extensions.gen"],
+      "@composition/schema": ["./src/api/schema"]
     }
   },
   "include": ["vite.config.ts", "src"]

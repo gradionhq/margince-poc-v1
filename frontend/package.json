@@ -14,7 +14,7 @@
     "check": "pnpm lint && pnpm test && pnpm build",
     "gen:api": "openapi-typescript ../backend/api/crm.yaml -o src/api/schema.d.ts && pnpm gen:events",
     "gen:events": "openapi-typescript ../backend/api/public-events.yaml --enum-values -o src/api/public-events.ts",
-    "gen:api:composed": "openapi-typescript ../build/composition/api/crm.yaml -o src/api/schema.d.ts && pnpm gen:events:composed",
+    "gen:composed-types": "openapi-typescript ../build/composition/api/crm.yaml -o ../build/composition-frontend/schema.d.ts",
     "gen:events:composed": "openapi-typescript ../build/composition/api/public-events.yaml --enum-values -o src/api/public-events.ts",
     "build:composed": "tsc -p tsconfig.composed.json && vite build",
     "e2e": "vite build && playwright test",

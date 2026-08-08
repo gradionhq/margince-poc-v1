@@ -66,10 +66,17 @@ COPY frontend/ ./frontend/
 
 # Regenerate the contract types from the MERGED crm.yaml, then build the composed
 # lane. This keeps the image's types pinned to the contract it was built against
-# rather than trusting the committed schema.d.ts — and note the committed file is
-# NOT what is regenerated in the repository: schema.d.ts is overwritten inside
-# this container only, so the empty-tree byte-identity the composition gates
-# prove is untouched by building an image.
+# rather than trusting the committed schema.d.ts.
+#
+# gen:composed-types writes to build/composition-frontend/ — a SECOND composition
+# root, because gen-composition's -verify requires build/composition/ to hold
+# exactly the files it generated. tsconfig.composed.json resolves
+# "@composition/schema" there, so src/api/client.ts is parameterised by the
+# merged contract and an extension route is a typed call rather than a hole.
+# The committed src/api/schema.d.ts is never rewritten by this build, so the
+# empty-tree byte-identity the composition gates prove is untouched. (The one
+# in-container overwrite that remains is public-events.ts, which has no alias
+# because nothing composes it yet.)
 #
 # MARGINCE_COMPOSITION_FRONTEND is the runtime half of the alias (vite.config.ts)
 # and tsconfig.composed.json is the compile-time half. Both FAIL LOUDLY when the
@@ -87,7 +94,7 @@ WORKDIR /app/frontend
 # and the type gate over the freshly generated schema.d.ts is unchanged.
 RUN --mount=type=cache,id=margince-tsbuildinfo,target=/app/frontend/node_modules/.tmp \
     --mount=type=cache,id=margince-corepack,target=/root/.cache/node/corepack \
-    pnpm gen:api:composed && pnpm build:composed
+    pnpm gen:composed-types && pnpm gen:events:composed && pnpm build:composed
 
 # ── Stage 3: serve ───────────────────────────────────────────────────────────
 # nginx-unprivileged runs as a non-root user (uid 101) and listens on 8080.

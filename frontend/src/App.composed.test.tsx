@@ -1,9 +1,11 @@
 /** @vitest-environment jsdom */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "./App";
-import { LocaleProvider } from "./i18n";
+import {
+  memoryStorage,
+  renderApp,
+  sessionOnlyFetch,
+} from "./testing/appharness";
 
 // The COMPOSED half of the extension-route pair. Its twin,
 // App.test.tsx's "extension routes (vanilla registry)", renders the same URL
@@ -34,24 +36,6 @@ vi.mock("@composition/extensions", () => ({
   ],
 }));
 
-function memoryStorage(): Storage {
-  const map = new Map<string, string>();
-  return {
-    getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
-    setItem: (key, value) => {
-      map.set(key, String(value));
-    },
-    removeItem: (key) => {
-      map.delete(key);
-    },
-    clear: () => map.clear(),
-    key: (index) => Array.from(map.keys())[index] ?? null,
-    get length() {
-      return map.size;
-    },
-  };
-}
-
 beforeEach(() => {
   vi.stubGlobal("localStorage", memoryStorage());
   globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
@@ -59,28 +43,11 @@ beforeEach(() => {
     value: ["fr-FR"],
     configurable: true,
   });
-  // Only the session probe answers; the unit screen renders from the composed
+  // Only the session probe answers. The unit screen renders from the composed
   // registry alone and must not need a call of its own — the descriptors are
-  // compiled in, exactly as the Go boot's verb literals are.
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: Request | string | URL) => {
-      const url = String(input instanceof Request ? input.url : input);
-      if (url.endsWith("/v1/me")) {
-        return new Response(
-          JSON.stringify({ user: {}, roles: [], teams: [] }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      return new Response(JSON.stringify({ code: "unavailable" }), {
-        status: 503,
-        headers: { "Content-Type": "application/problem+json" },
-      });
-    }),
-  );
+  // compiled in, exactly as the Go boot's verb literals are, so a screen that
+  // silently fetched would fail here rather than in a deployed image.
+  vi.stubGlobal("fetch", vi.fn(sessionOnlyFetch()));
 });
 
 afterEach(() => {
@@ -89,23 +56,10 @@ afterEach(() => {
   window.location.hash = "";
 });
 
-function mount() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  render(
-    <QueryClientProvider client={client}>
-      <LocaleProvider>
-        <App />
-      </LocaleProvider>
-    </QueryClientProvider>,
-  );
-}
-
 describe("extension routes (composed registry)", () => {
   it("renders the unit's screen at #/ext/crm-demo", async () => {
     window.location.hash = "#/ext/crm-demo";
-    mount();
+    renderApp();
     expect(
       await screen.findByRole("heading", { name: "crm-demo" }),
     ).toBeTruthy();
@@ -123,7 +77,7 @@ describe("extension routes (composed registry)", () => {
     // not-found path has to survive the composed lane, or a typo'd bookmark
     // would render whichever unit happened to be first.
     window.location.hash = "#/ext/crm-hello";
-    mount();
+    renderApp();
     expect(
       await screen.findByText(
         "No extension named “crm-hello” is enabled on this installation.",

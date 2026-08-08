@@ -79,6 +79,18 @@ jobs:
             frontend:
               - 'frontend/**'
               - 'backend/api/**'
+              # The frontend job runs BOTH SPA lanes (ADR-0069), and the
+              # composed one is derived from inputs that live nowhere near
+              # frontend/. A unit's api/ fragment is the ONLY thing that changes
+              # the composed registry and the merged contract the typed client
+              # is parameterised by — without these four entries a PR that adds
+              # or edits a fragment skips this job entirely, which is a lane
+              # skipping generation and passing silently: exactly the failure
+              # mode the composed lane exists to catch.
+              - 'extensions/**'
+              - 'fixtures/**'
+              - 'composition/**'
+              - 'backend/tools/gen-composition/**'
             e2e:
               - 'backend/**'
               - 'frontend/**'
@@ -194,40 +206,6 @@ jobs:
       # vet, lint, arch-lint, unit + fitness tests, contract drift). The frontend
       # half (`make check-fe`) is the separate `frontend` job — no toolchain
       # duplication. `make check` = check-backend + check-fe locally.
-      # The extension migration gate (ADR-0069) is the ONE gate in the tier that
-      # is not textual: it applies each unit's migrations as that unit's
-      # restricted ext_<name> role against a throwaway database and checks the
-      # resulting catalog. scripts/check-ext-migrations.sh exits 0 without
-      # touching Postgres while no unit ships a migrations/ layer, which is what
-      # keeps check-backend hermetic today — so this step ARMS ITSELF off the
-      # same condition the script tests, rather than waiting for someone to
-      # remember. The first unit that lands a migrations/ layer (Stage E's
-      # crm-demo) gets the cluster automatically; until then the job pays
-      # nothing and says so.
-      #
-      # `make db-up` is the same compose stack the integration lanes use
-      # (infra/docker-compose.dev.yml + scripts/db-init.sql for the
-      # cluster-level margince_app role migration 0015 GRANTs to), not a
-      # hand-mirrored service container: one stack definition, and the gate's
-      # database admin goes through cmd/migrate's db verbs on the test DSN, so
-      # no host psql is assumed. No margince_test template is built — the gate
-      # deliberately migrates a FRESH database under the root workspace rather
-      # than cloning the shared template (see the script's own comment: a
-      # template migrated under the COMPOSED workspace already holds the very
-      # ext.ext_<name>_* objects it is about to apply).
-      #
-      # If the glob matches and the cluster is missing, the script FAILS with a
-      # named error instead of skipping. A gate that quietly checks nothing
-      # looks exactly like a passing one.
-      - name: Postgres for the extension migration gate (armed by the tree)
-        working-directory: .
-        run: |
-          if ls -d extensions/*/migrations >/dev/null 2>&1; then
-            echo "an enabled unit declares migrations/ — starting the test cluster"
-            make db-up
-          else
-            echo "no enabled unit declares a migrations/ layer — check-ext-migrations stays hermetic"
-          fi
       - name: Backend merge gate (make check-backend)
         working-directory: .
         env:
@@ -534,6 +512,42 @@ jobs:
           path: backend/coverage.out
           if-no-files-found: ignore
           retention-days: 1
+      # The extension migration gate (ADR-0069) — the ONE gate in the tier that
+      # is not textual: it applies each unit's migrations as that unit's own
+      # restricted ext_<name> role against a throwaway database and checks the
+      # resulting catalog against the allowlist.
+      #
+      # It lives HERE, on the integration lane, and not in check-backend where
+      # it started. From the first unit that ships a migrations/ layer the gate
+      # needs a cluster, and deterministic-gates is the fastest merge gate and
+      # container-free: arming it there would put a compose-stack start on every
+      # backend PR forever, to buy locality once. This lane is already the slow,
+      # cluster-bearing path.
+      #
+      # It ARMS ITSELF off the same condition the script tests, so the first
+      # migrations/ layer to land gets the cluster with no workflow edit and
+      # nobody having to remember. `make db-up` is the same compose stack the
+      # shards use (infra/docker-compose.dev.yml + scripts/db-init.sql for the
+      # cluster-level margince_app role migration 0015 GRANTs to), not a
+      # hand-mirrored service container. No margince_test template is built:
+      # the gate deliberately migrates a FRESH database under the root
+      # workspace rather than cloning the shared template, because a template
+      # migrated under the COMPOSED workspace already holds the very
+      # ext.ext_<name>_* objects the gate is about to apply.
+      #
+      # If the glob matches and the cluster is missing, the script FAILS with a
+      # named error rather than skipping — a gate that quietly checks nothing
+      # looks exactly like a passing one.
+      - name: Extension migration gate (armed by the tree)
+        working-directory: .
+        run: |
+          if ls -d extensions/*/migrations >/dev/null 2>&1; then
+            echo "an enabled unit declares migrations/ — starting the test cluster"
+            make db-up
+          else
+            echo "no enabled unit declares a migrations/ layer — the gate stays hermetic"
+          fi
+          make check-ext-migrations
 
   # The root Dockerfiles (api, web, worker) are consumed only by downstream
   # deploy tooling — no other job builds them, so without this gate a FROM
