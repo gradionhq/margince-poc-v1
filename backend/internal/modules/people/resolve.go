@@ -36,6 +36,7 @@ import (
 // a second matching implementation — the thing this file exists not to be.
 type ResolveKind string
 
+// The two kinds this read answers.
 const (
 	ResolvePerson       ResolveKind = "person"
 	ResolveOrganization ResolveKind = "organization"

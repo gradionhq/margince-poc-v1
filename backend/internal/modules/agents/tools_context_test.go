@@ -60,8 +60,10 @@ func TestEverySearchHitIsReadBackThroughTheSeam(t *testing.T) {
 		second: recordAt(datasource.EntityDeal, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), false),
 	}}
 	found := retrieval.Result{SemanticRanking: true, Hits: []retrieval.Hit{
-		{Ref: datasource.EntityRef{Type: datasource.EntityPerson, ID: first}, Score: 0.91,
-			Evidence: []retrieval.Evidence{{Source: "person:" + first.String(), Snippet: "pilot stalled after Q2"}}},
+		{
+			Ref: datasource.EntityRef{Type: datasource.EntityPerson, ID: first}, Score: 0.91,
+			Evidence: []retrieval.Evidence{{Source: "person:" + first.String(), Snippet: "pilot stalled after Q2"}},
+		},
 		{Ref: datasource.EntityRef{Type: datasource.EntityDeal, ID: second}, Score: 0.4},
 	}}
 
@@ -214,7 +216,8 @@ func TestTheRequestedRecordTypesReachTheRetriever(t *testing.T) {
 	tool := searchContext{p: &queryProbeProvider{}, retriever: probe}
 
 	if _, err := tool.Handle(t.Context(), json.RawMessage(
-		`{"query":"renewal risk","record_types":["deal","organization"],"limit":3}`)); err != nil {
+		`{"query":"renewal risk","record_types":["deal","organization"],"limit":3}`,
+	)); err != nil {
 		t.Fatalf("handling the search: %v", err)
 	}
 
