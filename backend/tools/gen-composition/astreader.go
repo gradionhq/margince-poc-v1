@@ -42,6 +42,9 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error
 	if len(pkgs) != 1 {
 		return nil, fmt.Errorf("extensions/%s: the unit root must hold exactly one package, found %d", u.Name, len(pkgs))
 	}
+	if err := rejectLiveInitializers(pkgs, fset); err != nil {
+		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
+	}
 	r := &unitReader{fset: fset, vocab: vocab}
 	newFn, newFile, count := findNew(pkgs)
 	if count == 0 {
@@ -230,8 +233,9 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			// how the seam spells "declare it, serve nothing", and the runtime
 			// adapter skips exactly that — so the field's presence is not the
 			// question; its value being non-nil is. See isStaticallyNil for the
-			// spellings that count as nil.
-			served = !isStaticallyNil(kv.Value)
+			// spellings that count as nil, and readHandle for why a non-nil
+			// value must be a bare identifier.
+			served, err = r.readHandle(kv.Value)
 		case "InputSchema", "OutputSchema":
 			// Client-facing I/O docs — recognized and skipped. The manifest
 			// records the governance descriptor, not the advertised schemas.
@@ -253,6 +257,30 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 	return r.toolRequest(lit, declaredTool{
 		name: name, title: title, description: description, version: version, tier: tier, scope: scope,
 	})
+}
+
+// readHandle reports whether a Tools entry serves a handler, refusing any
+// non-nil spelling that is not a bare identifier.
+//
+// A declared handler must name a package-level function the runtime adapter
+// can call directly. The AST cannot tell an inert `pkg.Fn` (a value from
+// some other package, still just a name) apart from `recv.Method` — a
+// method value that closes over a receiver and can reopen liveness the
+// declaration is supposed to foreclose — without type information the
+// generator does not have. Nor can it evaluate `mkHandler()` without
+// running code, which is the one thing a static reader must never do.
+// Identifier-only is therefore the sole rule that keeps "a declaration is
+// inert data" checkable: it accepts the one spelling the reader can judge
+// by shape alone, and refuses every other one on the same conservative
+// footing as isStaticallyNil below.
+func (r *unitReader) readHandle(expr ast.Expr) (served bool, err error) {
+	if isStaticallyNil(expr) {
+		return false, nil
+	}
+	if _, ok := expr.(*ast.Ident); ok {
+		return true, nil
+	}
+	return false, r.errAt(expr, "Tool.Handle must be a plain identifier naming the handler function, or one of the documented inert nil spellings (nil, extension.ToolHandler(nil), (nil))")
 }
 
 // isStaticallyNil reports whether an expression is nil at the declaration —

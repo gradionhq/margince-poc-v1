@@ -333,7 +333,7 @@ func TestAConcatenatedLiteralDerivesLikeASingleOne(t *testing.T) {
 // author a boot failure in whatever process composes their unit. An INERT tool
 // is untouched: it is a manifest request nothing serves to a client.
 func TestAServedToolWithNoDescriptionIsRefusedAtTheDeclaration(t *testing.T) {
-	handler := "\nfunc handle(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil }\n"
+	handler := "\nfunc handle(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil }\n"
 	imports := "package x\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\n\t\"github.com/gradionhq/margince/backend/pkg/extension\"\n)\n"
 	unit := func(fields string) string {
 		return imports + "\nfunc New() extension.Extension {\n\treturn extension.Extension{\n\t\tName:    \"x\",\n\t\tVersion: \"0.1.0\",\n\t\tTools: []extension.Tool{{\n" + fields + "\n\t\t}},\n\t}\n}\n" + handler
@@ -387,8 +387,11 @@ var nonLiteralCases = []struct {
 	wantErr string
 }{
 	{
-		name:    "no New constructor",
-		source:  nonLiteralHeader + "var _ = jurisdiction.Code(\"zz\")\n",
+		name: "no New constructor",
+		// A plain literal, not a conversion: this case is about the missing
+		// New(), and a call-bearing initializer (even a type conversion)
+		// now trips the separate package-level-init gate first.
+		source:  nonLiteralHeader + "var _ jurisdiction.Code = \"zz\"\n",
 		wantErr: "no New()",
 	},
 	{
