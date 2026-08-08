@@ -546,11 +546,14 @@ The `workspace` row survives too — it carries the organization — but only it
 currency and timezone bootstrap took from `margince.yaml`, and `created_at`.
 (`updated_at` moves, as it does for any write — the reset did write the row.)
 Every other column on it is a workspace-level **setting**, and each
-one goes back to the default its migration declared (`capture_auto_enrich`, the
-overlay mode columns, and whatever is added next). Nothing here is a kept list:
+one goes back to the default its migration declared (the overlay mode columns
+today, and whatever is added next). Nothing here is a kept list:
 the columns are derived from the catalog, so a setting added later is restored
 the day its column exists, and a column that genuinely belongs to the
-installation's identity has to be declared preserved to be spared.
+installation's identity has to be declared preserved to be spared. Settings
+that live in the `setting` table rather than on this row are restored on the
+same path, by the same split — configuration returns to its registered
+default, the installation's identity does not.
 
 The sweep runs as the app role — no superuser, no disabled triggers — so it
 discovers a safe delete order at runtime (a savepoint per table per pass,
