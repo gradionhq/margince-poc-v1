@@ -21,6 +21,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"gopkg.in/yaml.v3"
 
+	"github.com/gradionhq/margince/backend/internal/compose/claims"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -325,7 +326,7 @@ func TestOpenTasksAnswerIsOneSentencePerTask(t *testing.T) {
 			t.Errorf("sentence %q carries %d citations, want the one record it is about",
 				sentence.Text, len(sentence.Evidence))
 		}
-		if idInProse.MatchString(sentence.Text) {
+		if claims.SpellsRecordID(sentence.Text) {
 			t.Errorf("sentence %q spells a record id at the reader", sentence.Text)
 		}
 	}
@@ -410,7 +411,7 @@ func TestAnAnswerSpellingIDsFallsBackToTheFloor(t *testing.T) {
 		t.Fatal("no sentences: dropping the model's prose must not drop the answer")
 	}
 	for _, sentence := range answered {
-		if idInProse.MatchString(sentence.Text) {
+		if claims.SpellsRecordID(sentence.Text) {
 			t.Errorf("the floor spells an id too: %q", sentence.Text)
 		}
 	}
@@ -421,7 +422,7 @@ func TestAnAnswerSpellingIDsFallsBackToTheFloor(t *testing.T) {
 func TestNoDeterministicAnswerSpellsAnIDAtTheReader(t *testing.T) {
 	for _, question := range declaredQuestions(t) {
 		for _, sentence := range deterministicAnswer(question, askOrgID, askInput()) {
-			if idInProse.MatchString(sentence.Text) {
+			if claims.SpellsRecordID(sentence.Text) {
 				t.Errorf("%s answered with an id in the text: %q", question, sentence.Text)
 			}
 		}

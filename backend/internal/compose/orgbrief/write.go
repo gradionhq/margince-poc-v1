@@ -17,9 +17,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/compose/claims"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
@@ -31,14 +30,14 @@ type Completer interface {
 	Complete(ctx context.Context, req model.Request) (model.Response, error)
 }
 
-// Sentence is one claim plus the records it was written from.
-type Sentence struct {
-	Text string `json:"text"`
-	// What KIND of claim this is. Empty means fact — the shape every sentence
-	// had before the brief was allowed to assess anything.
-	Nature   string     `json:"nature,omitempty"`
-	Evidence []Evidence `json:"evidence"`
-}
+// Sentence is one claim plus the records it was written from — the SHARED shape
+// (internal/compose/claims), because the brief, the dossier and growth fit all
+// render claims and one grounding rule over one shape is the point.
+type Sentence = claims.Sentence
+
+// Evidence points at a record the READER can already open, and is shared for
+// the same reason as Sentence.
+type Evidence = claims.Evidence
 
 // The citable record kinds, DERIVED from the contract's own enum rather than
 // re-spelled. Both the writer and the grounding filter key on them, and a
@@ -50,14 +49,6 @@ var (
 	citeActivity     = string(crmcontracts.OrganizationBriefEvidenceEntityTypeActivity)
 	citePerson       = string(crmcontracts.OrganizationBriefEvidenceEntityTypePerson)
 )
-
-// Evidence points at a record the READER can already open — the brief is
-// assembled under their own row scope, so a citation can never name a row
-// they would be refused.
-type Evidence struct {
-	EntityType string `json:"entity_type"`
-	EntityID   string `json:"entity_id"`
-}
 
 // One sentence, one record — the shape rule both writers follow.
 //
@@ -296,7 +287,7 @@ func ParseBriefSections(reply, orgID string, in Input) ([]Section, error) {
 			// would let one malformed claim spend the quota and suppress the
 			// valid advice behind it — the reader loses the advice and is told
 			// nothing about why.
-			if !groundedSentence(sentence, known) {
+			if !claims.Grounded(sentence, known) {
 				continue
 			}
 			if nature == natureRecommendation {
@@ -328,71 +319,8 @@ func ParseBriefSections(reply, orgID string, in Input) ([]Section, error) {
 // hide. The one organization a brief may cite is the one it is about.
 // groundedSentence is the ONE test both parsers apply, so the flat answer and
 // the sectioned brief can never disagree about what counts as checkable.
-func groundedSentence(sentence Sentence, known map[Evidence]bool) bool {
-	if strings.TrimSpace(sentence.Text) == "" || len(sentence.Evidence) == 0 {
-		return false
-	}
-	if idInProse.MatchString(sentence.Text) {
-		// A sentence that spells an id at the reader is developer output,
-		// whatever else it says. It is DROPPED rather than stripped: the id
-		// sits mid-clause, and cutting it leaves broken grammar the reader has
-		// to decode. Every id the sentence needed is already in its evidence.
-		return false
-	}
-	// The WHOLE sentence goes, not just the bad citation. A sentence citing one
-	// real record and one invented one is a sentence whose claim may rest on the
-	// invented half — keeping it with the good citation attached would present
-	// it as checked when it is not.
-	return allGrounded(sentence.Evidence, known)
-}
-
 func keepGroundedSentences(sentences []Sentence, orgID string, in Input) []Sentence {
-	known := knownRecords(orgID, in)
-	kept := make([]Sentence, 0, len(sentences))
-	for _, sentence := range sentences {
-		if !groundedSentence(sentence, known) {
-			continue
-		}
-		// The flat lane has no section to check the label against, so an
-		// unknown or absent nature reduces to fact — the strictest reading,
-		// and the same one ParseBriefSections gives an unlabelled claim.
-		// Forwarding the model's own string would let an Ask answer render a
-		// label the contract does not define.
-		if !knownNature[sentence.Nature] {
-			sentence.Nature = natureFact
-		}
-		kept = append(kept, sentence)
-	}
-	return dedupedSentences(kept)
-}
-
-// idInProse matches a record id written into a sentence, spelled ONCE for
-// both the filter and the tests that gate it. It is the UUID shape every
-// citable record here carries, so a reply that pastes one anywhere in its
-// prose is caught wherever in the clause it landed.
-var idInProse = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
-
-// dedupedSentences collapses repeated citations within each sentence, keeping
-// first-seen order.
-//
-// The same record cited twice renders as two identical chips the reader cannot
-// tell apart, and clicking either goes to the same place. Both writers exit
-// through this, so the wire shape does not depend on which one wrote the
-// answer.
-func dedupedSentences(sentences []Sentence) []Sentence {
-	for i, sentence := range sentences {
-		seen := make(map[Evidence]bool, len(sentence.Evidence))
-		unique := make([]Evidence, 0, len(sentence.Evidence))
-		for _, cited := range sentence.Evidence {
-			if seen[cited] {
-				continue
-			}
-			seen[cited] = true
-			unique = append(unique, cited)
-		}
-		sentences[i].Evidence = unique
-	}
-	return sentences
+	return claims.Keep(sentences, knownRecords(orgID, in), knownNature, natureFact)
 }
 
 // knownRecords is what this brief was written from, keyed by TYPE AND ID.
@@ -416,15 +344,6 @@ func knownRecords(orgID string, in Input) map[Evidence]bool {
 		known[Evidence{EntityType: citeActivity, EntityID: task.ID}] = true
 	}
 	return known
-}
-
-func allGrounded(evidence []Evidence, known map[Evidence]bool) bool {
-	for _, cited := range evidence {
-		if !known[cited] {
-			return false
-		}
-	}
-	return true
 }
 
 // The section kinds, DERIVED from the contract's enum rather than re-spelled,
