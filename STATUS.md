@@ -89,11 +89,14 @@ closes the door on manually entered financial figures that plan §4.6 left ajar.
   from, the span it rests on, when a person last confirmed it, and what could
   not be recorded. `screens/companyevidence.tsx` is the modal the chips open.
 
-**PR 4 is complete.** What remains on the company page is the DOSSIER's model
-lane (`orgdossier.Service` threads a `routingVersion` but takes no `Completer`).
-That one is cosmetic rather than load-bearing: its floor already describes a
-company from its own fields, where growth fit's floor could only abstain, which
-is why growth fit's lane was built first.
+- **PR 4 (dossier model lane)** — `org_dossier` is a third site on the existing
+  `summarize` task, bound by `compose.WithCompanyDossier`. Its request
+  deliberately does not ask for our own company context, though the task's
+  policy allows it: a writer handed what we sell starts comparing, and that is
+  the growth fit's job.
+
+**PR 4 is complete.** Both generated company surfaces have a model lane, a
+deterministic floor, a panel, and receipts behind every citation.
 
 **Two spec deviations on the evidence surface, both raised upstream.** The
 chapter addresses the receipt as `/claims/{claimId}/evidence`, but nothing here
@@ -130,8 +133,7 @@ skips) are green. Nothing is pushed: this work stays in the worktree until it
 is tested locally.
 
 **Next**, in plan order: PR 5 (documents), then PR 6/8 (attachments,
-account-started email) and PR 9/10 (finance) against their ADRs. The dossier's
-own model lane is a small follow-up whenever it is wanted.
+account-started email) and PR 9/10 (finance) against their ADRs.
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 
