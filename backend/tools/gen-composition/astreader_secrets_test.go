@@ -4,6 +4,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -131,5 +132,53 @@ func TestSecretsEntryUnrecognizedFieldFailsClosed(t *testing.T) {
 	_, err := deriveSynthetic(t, "x", src)
 	if err == nil || !strings.Contains(err.Error(), "is not derivable by this generator") {
 		t.Fatalf("err = %v, want the unrecognized-field refusal", err)
+	}
+}
+
+// TestSecretWithOverlongKeyIsRejected pins the same published Validate path
+// for a key past the store's own bound (extension.maxSecretKeyLength) — a
+// declaration the store would refuse at runtime is worse than no
+// declaration, because it reads as a promise the store cannot keep.
+func TestSecretWithOverlongKeyIsRejected(t *testing.T) {
+	overlong := strings.Repeat("k", 129)
+	src := secretsUnitSource("\t\t\t{Key: " + strconv.Quote(overlong) + ", Scope: extension.SecretScopeWorkspace},\n")
+	_, err := deriveSynthetic(t, "x", src)
+	if err == nil || !strings.Contains(err.Error(), "characters") {
+		t.Fatalf("err = %v, want the overlong-key refusal", err)
+	}
+}
+
+// TestSecretWithControlCharacterKeyIsRejected pins Validate's control-
+// character arm: the key is echoed into the operator-facing manifest and
+// the audit ledger, and a name with an embedded newline has no honest
+// rendering in either.
+func TestSecretWithControlCharacterKeyIsRejected(t *testing.T) {
+	src := secretsUnitSource("\t\t\t{Key: \"sign\\ning\", Scope: extension.SecretScopeWorkspace},\n")
+	_, err := deriveSynthetic(t, "x", src)
+	if err == nil || !strings.Contains(err.Error(), "control character") {
+		t.Fatalf("err = %v, want the control-character refusal", err)
+	}
+}
+
+// TestSecretsEntryMustBeKeyed mirrors Tool's own "fields must be keyed"
+// refusal: a positional SecretsRequest literal parses, but this reader
+// only ever reads fields it can name, the same discipline every other
+// declaration in this generator follows.
+func TestSecretsEntryMustBeKeyed(t *testing.T) {
+	src := secretsUnitSource("\t\t\t{\"signing\", extension.SecretScopeWorkspace},\n")
+	_, err := deriveSynthetic(t, "x", src)
+	if err == nil || !strings.Contains(err.Error(), "must be keyed") {
+		t.Fatalf("err = %v, want the must-be-keyed refusal", err)
+	}
+}
+
+// TestSecretsEntryMustBeASecretsRequestLiteral: a Secrets slice element of
+// the wrong composite type cannot be derived as a SecretsRequest at all —
+// the same shape check readTool applies to a Tools entry.
+func TestSecretsEntryMustBeASecretsRequestLiteral(t *testing.T) {
+	src := secretsUnitSource("\t\t\textension.Tool{Name: \"t\"},\n")
+	_, err := deriveSynthetic(t, "x", src)
+	if err == nil || !strings.Contains(err.Error(), "must be an extension.SecretsRequest literal") {
+		t.Fatalf("err = %v, want the wrong-literal-type refusal", err)
 	}
 }

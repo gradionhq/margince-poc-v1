@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -64,11 +65,23 @@ func scanExtensions(root string) ([]extensionUnit, error) {
 	return units, nil
 }
 
+// unbuiltCapabilityLayers are the top-level subdirectory names a unit may
+// hold that this walking skeleton does not compose yet. scanUnit refuses
+// their mere presence outright (below); refuseNonRootGoPackages exempts the
+// same names from its own walk, so lifting one off this list (Task 6 lifts
+// migrations/) only ever means editing this one slice — neither check is
+// hardcoded around today's specific three, and each lifted layer's own
+// composition decides what its subtree may hold, not this generator.
+var unbuiltCapabilityLayers = []string{"api", "frontend", "migrations"}
+
 func scanUnit(name, dir string) (extensionUnit, error) {
-	for _, sub := range []string{"api", "frontend", "migrations"} {
+	for _, sub := range unbuiltCapabilityLayers {
 		if _, err := os.Stat(filepath.Join(dir, sub)); err == nil {
 			return extensionUnit{}, fmt.Errorf("extensions/%s: %s/ composition is not built yet — the walking skeleton composes Go registrations only", name, sub)
 		}
+	}
+	if err := refuseNonRootGoPackages(name, dir); err != nil {
+		return extensionUnit{}, err
 	}
 	hasGo, err := hasRootGoFiles(dir)
 	if err != nil {
@@ -95,6 +108,66 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 		return extensionUnit{}, fmt.Errorf("extensions/%s: go.mod declares no module path", name)
 	}
 	return extensionUnit{Name: name, Dir: dir, ModulePath: mod.Module.Mod.Path}, nil
+}
+
+// refuseNonRootGoPackages refuses any Go package inside a unit's tree other
+// than the root package itself.
+//
+// This closes a gap the AST liveness walk cannot reach: parser.ParseDir in
+// deriveUnitManifest only ever reads the unit's ROOT directory, never
+// descending, so a package sitting in a subdirectory — reached only through
+// a blank import from the root package's own source, e.g.
+// `import _ ".../internal/live"` next to a `func init() { go dialOut() }` in
+// internal/live/live.go — is parsed by nothing here. rejectLiveInitializers
+// would never see that file to refuse its init(), and digestTree only
+// hashes its bytes for staleness, which does not stop it running at import.
+//
+// Refusing the subpackage outright, rather than walking into it and
+// re-running the same liveness checks there, is the only rule that holds:
+// even a recursive walk would still leave the GENERAL form of this hole
+// open, because a blank import of code OUTSIDE the unit tree — some other
+// module entirely — cannot be gated by a generator that only ever reads
+// this one unit's own files. This function says something about, and only
+// about, Go packages inside the unit's own directory tree; it is not a
+// guarantee about what a unit's import graph can reach.
+//
+// unbuiltCapabilityLayers is exempted at the top level: those subdirectory
+// names are the not-yet-composed capability layers scanUnit already refuses
+// outright above, so by the time this runs none of them exist under dir —
+// and when one is lifted off that list, its own composition decides what
+// its subtree may hold, not this function.
+func refuseNonRootGoPackages(name, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !e.IsDir() || slices.Contains(unbuiltCapabilityLayers, e.Name()) {
+			continue
+		}
+		sub := filepath.Join(dir, e.Name())
+		err := filepath.WalkDir(sub, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || !d.IsDir() {
+				return err
+			}
+			hasGo, err := hasRootGoFiles(path)
+			if err != nil {
+				return err
+			}
+			if hasGo {
+				rel, relErr := filepath.Rel(dir, path)
+				if relErr != nil {
+					rel = path
+				}
+				return fmt.Errorf("extensions/%s: %s/ holds a Go package outside the unit root — the declaration reader only parses the root package, so a subpackage's init() or an import-time call would run unchecked", name, filepath.ToSlash(rel))
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func hasRootGoFiles(dir string) (bool, error) {

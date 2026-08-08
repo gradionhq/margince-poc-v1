@@ -247,7 +247,7 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			// question; its value being non-nil is. See isStaticallyNil for the
 			// spellings that count as nil, and readHandle for why a non-nil
 			// value must be a bare identifier.
-			served, err = r.readHandle(kv.Value)
+			served, err = r.readHandle(kv.Value, ext)
 		case "InputSchema", "OutputSchema":
 			// Client-facing I/O docs — recognized and skipped. The manifest
 			// records the governance descriptor, not the advertised schemas.
@@ -285,8 +285,8 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 // inert data" checkable: it accepts the one spelling the reader can judge
 // by shape alone, and refuses every other one on the same conservative
 // footing as isStaticallyNil below.
-func (r *unitReader) readHandle(expr ast.Expr) (served bool, err error) {
-	if isStaticallyNil(expr) {
+func (r *unitReader) readHandle(expr ast.Expr, ext string) (served bool, err error) {
+	if isStaticallyNil(expr, ext) {
 		return false, nil
 	}
 	if _, ok := expr.(*ast.Ident); ok {
@@ -300,22 +300,35 @@ func (r *unitReader) readHandle(expr ast.Expr) (served bool, err error) {
 // runtime adapter skips on.
 //
 // Two spellings, because both reach the adapter as the same nil function value:
-// the bare `nil`, and a conversion of it (`extension.ToolHandler(nil)`), which a
-// unit author writes when the surrounding literal needs the type to be obvious.
-// Anything else — a function name, a literal, a call — is a handler this reader
-// must treat as served, since it cannot evaluate it to find out otherwise.
-func isStaticallyNil(expr ast.Expr) bool {
+// the bare `nil`, and a conversion of it through the PUBLISHED extension.
+// ToolHandler type (`extension.ToolHandler(nil)`), which a unit author writes
+// when the surrounding literal needs the type to be obvious.
+//
+// The CallExpr arm checks the callee, not just the argument count, and that
+// check is load-bearing, not decorative: a syntactic conversion and an
+// ordinary one-argument call are indistinguishable by shape alone (`T(x)` and
+// `f(x)` parse identically), so accepting any one-argument call whose sole
+// argument is nil — without checking what is being called — would read
+// `mustDial(nil)` as inert too. That is not the safe failure mode: it does
+// not merely admit one more spelling of "serve nothing", it exempts a call
+// that already ran, at declaration time, from BOTH gates the tool has —
+// readHandle's identifier-only rule for anything else, and readTool's
+// served-tool-needs-a-Description refusal, which never even asks the
+// question for something this function has already called inert. Requiring
+// the callee to be exactly the published extension.ToolHandler conversion
+// keeps this arm what its name promises: a real, code-free type conversion
+// of the constant nil, not a call to arbitrary unit-authored code. Anything
+// else — a function name, a literal, any other call — is refused outright by
+// the Ident check in readHandle above; this reader never falls back to
+// treating an unrecognized shape as inert.
+func isStaticallyNil(expr ast.Expr, ext string) bool {
 	switch e := expr.(type) {
 	case *ast.Ident:
 		return e.Name == "nil"
 	case *ast.CallExpr:
-		// A conversion has exactly one argument; a call with one argument that
-		// is nil is indistinguishable from one syntactically, and reading it as
-		// inert is the conservative half — it asks for a description less
-		// often, and the composition still refuses a served tool without one.
-		return len(e.Args) == 1 && isStaticallyNil(e.Args[0])
+		return len(e.Args) == 1 && isSelector(e.Fun, ext, "ToolHandler") && isStaticallyNil(e.Args[0], ext)
 	case *ast.ParenExpr:
-		return isStaticallyNil(e.X)
+		return isStaticallyNil(e.X, ext)
 	}
 	return false
 }

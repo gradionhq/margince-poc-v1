@@ -21,13 +21,20 @@ import (
 // merely by being imported, which defeats "a declaration is inert data"
 // before New() is even called.
 //
-// A var initializer that merely holds a composite or basic literal (like
-// yogi's var quotes = []string{...}) is unaffected — those run no code
-// either, and the New() literal-only reader already welcomes exactly that
-// shape. A call-bearing initializer is refused even when it is syntactically
-// a type conversion: the AST cannot tell a conversion from a call that
-// dials out, so — the same reasoning as the Handle rule in astreader.go —
-// the conservative rule is the only one that keeps the claim checkable.
+// This walk targets CALLS specifically, not "runs no code" in general: a
+// var initializer that merely holds a composite or basic literal (like
+// yogi's var quotes = []string{...}) is unaffected because it contains no
+// call, and the New() literal-only reader already welcomes exactly that
+// shape. containsCall does not claim to enumerate every way an initializer
+// could do work at import — a channel receive (var v = <-ch) is a
+// *ast.UnaryExpr, not a call, and would slip past this walk the same way a
+// composite literal correctly does. That is accepted as out of scope: it
+// needs a channel without make to reach, which nothing in this generator's
+// literal-only declaration idiom can construct, so no case exercises it. A
+// call-bearing initializer is refused even when it is syntactically a type
+// conversion: the AST cannot tell a conversion from a call that dials out,
+// so — the same reasoning as the Handle rule in astreader.go — the
+// conservative rule is the only one that keeps the claim checkable.
 func rejectLiveInitializers(pkgs map[string]*ast.Package, fset *token.FileSet) error {
 	for _, pkg := range pkgs {
 		for _, f := range pkg.Files {

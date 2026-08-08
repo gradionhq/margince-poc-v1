@@ -4,6 +4,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -12,8 +13,9 @@ import (
 // exactly handleExpr. describe controls whether a Description is present,
 // so a case that is genuinely served does not trip the separate
 // "served tool needs a Description" refusal instead of the rule under
-// test. quote, recv.Method and mkHandler are declared but never called —
-// the derivation only parses this source, it never compiles or runs it.
+// test. quote, recv.Method, mkHandler and mustDial are declared but never
+// called — the derivation only parses this source, it never compiles or
+// runs it.
 func handleUnitSource(handleExpr string, describe bool) string {
 	desc := ""
 	if describe {
@@ -30,6 +32,12 @@ type recv struct{}
 func (recv) Method() {}
 
 func mkHandler() extension.ToolHandler { return nil }
+
+// mustDial has the SAME shape as extension.ToolHandler's conversion —
+// one argument, a nil literal — which is exactly what isStaticallyNil must
+// tell apart from extension.ToolHandler(nil) by checking the callee, not
+// just the argument count.
+func mustDial(extension.ToolHandler) extension.ToolHandler { return nil }
 
 func New() extension.Extension {
 	return extension.Extension{
@@ -67,6 +75,13 @@ func TestHandleMustBePlainIdentifier(t *testing.T) {
 		{"call expression", "mkHandler()", true},
 		{"selector", "pkg.Fn", true},
 		{"method value", "recv.Method", true},
+		// Same shape as the accepted "converted nil" case — one argument,
+		// nil — but the callee is unit-authored, not the published
+		// extension.ToolHandler conversion. Pins the callee check in
+		// isStaticallyNil: without it, this reads as inert and slips past
+		// both readHandle's identifier rule AND the served-tool
+		// Description refusal.
+		{"one-argument nil call to unit code", "mustDial(nil)", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// "quote" is the one case that is actually served; every other
@@ -183,5 +198,70 @@ func New() extension.Extension {
 `
 	if _, err := deriveSynthetic(t, "x", src); err != nil {
 		t.Fatalf("a local var initializer must not be rejected: %v", err)
+	}
+}
+
+// TestSubpackageGoFilesAreRejected pins the gap rejectLiveInitializers
+// cannot reach on its own: parser.ParseDir in deriveUnitManifest only ever
+// reads the unit's ROOT directory. A subpackage's init() — reached only
+// through a blank import from the root package — would never be parsed by
+// anything in this generator, so it must be refused at the scan stage
+// (scanUnit's refuseNonRootGoPackages) before deriveUnitManifest ever runs.
+// deriveSynthetic cannot express this (it writes one root-only file), so
+// this test drives scanUnit directly, the way TestScanExtensions does.
+func TestSubpackageGoFilesAreRejected(t *testing.T) {
+	root := t.TempDir()
+	writeUnit(t, root, "x", map[string]string{
+		"go.mod": "module example.test/ext/x\n\ngo 1.26.5\n",
+		"x.go": `package x
+
+import (
+	_ "example.test/ext/x/internal/live"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
+)
+
+func New() extension.Extension {
+	return extension.Extension{Name: "x", Version: "0.1.0"}
+}
+`,
+		// The blank import above is what would actually run this at
+		// compose time; the subpackage itself is what refuseNonRootGoPackages
+		// must catch regardless, since it never resolves imports at all.
+		"internal/live/live.go": "package live\n\nfunc init() {}\n",
+	})
+	_, err := scanUnit("x", filepath.Join(root, "extensions", "x"))
+	if err == nil || !strings.Contains(err.Error(), "holds a Go package outside the unit root") {
+		t.Fatalf("err = %v, want the subpackage refusal", err)
+	}
+}
+
+// TestApiFrontendMigrationsStayExemptFromTheSubpackageWalk pins the other
+// half of the same rule: the three not-yet-composed capability layers must
+// keep failing on their OWN refusal (scanUnit's unbuiltCapabilityLayers
+// loop, checked first) rather than on "holds a Go package outside the unit
+// root" — Task 13's crm-demo unit ships exactly this shape (migrations/,
+// api/, frontend/ subdirectories) and the two refusals must not collide.
+func TestApiFrontendMigrationsStayExemptFromTheSubpackageWalk(t *testing.T) {
+	for _, layer := range unbuiltCapabilityLayers {
+		t.Run(layer, func(t *testing.T) {
+			root := t.TempDir()
+			writeUnit(t, root, "x", map[string]string{
+				"go.mod": "module example.test/ext/x\n\ngo 1.26.5\n",
+				"x.go": `package x
+
+import "github.com/gradionhq/margince/backend/pkg/extension"
+
+func New() extension.Extension {
+	return extension.Extension{Name: "x", Version: "0.1.0"}
+}
+`,
+				layer + "/placeholder.go": "package placeholder\n",
+			})
+			_, err := scanUnit("x", filepath.Join(root, "extensions", "x"))
+			if err == nil || !strings.Contains(err.Error(), "composition is not built yet") {
+				t.Fatalf("layer %s: err = %v, want the not-built-yet refusal, not the subpackage one", layer, err)
+			}
+		})
 	}
 }
