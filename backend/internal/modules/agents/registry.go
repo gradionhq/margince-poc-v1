@@ -226,34 +226,57 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	}
 	ctx = admitted
 	switch {
-	case err == nil:
-		// An auto-execute call may still carry approval_id: the retry of a
-		// per-field precedence staging (interfaces.md §2.1) admits at the
-		// auto-execute tier, so its asserted authority is consumed HERE — validated against
-		// the identical-call hash, never ignored. The redeemed mark tells
-		// the handler the overwrite it is about to make was human-released.
-		if !res.ApprovalID.IsZero() {
-			if r.approvals == nil {
-				return nil, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
-			}
-			marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, res.ApprovalID, spec.Name, res.DiffHash)
-			if rErr != nil {
-				return nil, rErr
-			}
-			ctx = marked
-		}
-		return r.runOnce(ctx, t, spec, res)
+	// An auto-execute call may still carry approval_id: the retry of a per-field
+	// precedence staging (interfaces.md §2.1) admits at the auto-execute tier, so its
+	// asserted authority is consumed by redeemPresented — validated against the
+	// identical-call hash, never ignored.
+	case err == nil, !res.ApprovalID.IsZero() && errors.Is(err, apperrors.ErrRequiresApproval) && r.approvals != nil:
+		return r.runClaimed(ctx, t, spec, res)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
-	case !res.ApprovalID.IsZero():
-		marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, res.ApprovalID, spec.Name, res.DiffHash)
-		if rErr != nil {
-			return nil, rErr
-		}
-		return r.runOnce(marked, t, spec, res)
 	default:
+		// Staged, and deliberately BEFORE any claim: a call that did not run
+		// must not leave a key held, and the retry that redeems the approval is
+		// the same call under the same key.
 		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, res.DiffHash, err)
 	}
+}
+
+// runClaimed is the one path from admission to a handler: claim the retry key,
+// redeem any asserted approval, run, and record what the run produced.
+//
+// The ORDER is the whole point. The claim comes first, so the retry of an
+// approved call reaches its recorded result instead of dying on the
+// single-use approval it already spent. Redemption comes second, so a refused
+// redemption gives the key straight back — nothing ran.
+func (r *Registry) runClaimed(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, error) {
+	fresh, answered, err := r.claimFor(ctx, spec, res)
+	if !fresh {
+		return answered, err
+	}
+	redeemed, err := r.redeemPresented(ctx, spec, res)
+	if err != nil {
+		r.releaseUnrunKey(ctx, spec, res)
+		return nil, err
+	}
+	return r.handle(redeemed, t, spec, res)
+}
+
+// redeemPresented consumes the approval a retry asserts, and answers the
+// context marked as released. A call presenting none passes through: whether
+// one was REQUIRED is the gate's question, already answered above.
+func (r *Registry) redeemPresented(ctx context.Context, spec mcp.ToolSpec, res reserved) (context.Context, error) {
+	if res.ApprovalID.IsZero() {
+		return ctx, nil
+	}
+	if r.approvals == nil {
+		return ctx, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
+	}
+	marked, _, _, err := RedeemAndMark(ctx, r.approvals, res.ApprovalID, spec.Name, res.DiffHash)
+	if err != nil {
+		return ctx, err
+	}
+	return marked, nil
 }
 
 // handle runs an admitted call and seals its answer into the result envelope.
@@ -264,30 +287,45 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 // handler still marshals only its own payload and never sees the envelope,
 // which is what keeps thirty tools from carrying thirty spellings of it.
 //
+// It is also where a claimed retry key is settled, and for the same reason: this
+// is the one place that knows both that the tool RAN and what it produced. A
+// run recorded anywhere else would be a run some later path could forget to
+// record, and an unrecorded run is a key whose retry executes again.
+//
 // The failure path deliberately seals nothing: a refusal is an error, and an
 // error carries the sentinel and the message the caller acts on, not a document
 // with an empty payload inside it.
-func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
+func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, error) {
+	sealed, records, err := r.runAndSeal(ctx, t, spec, res.Args)
+	r.settleRun(ctx, spec, res, sealed, records, err)
+	return sealed, err
+}
+
+// runAndSeal is the call itself: run, seal, charge. It answers the record count
+// as well as the document, because what an answer COST is what its replay costs,
+// and only this frame can see it.
+func (r *Registry) runAndSeal(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, int, error) {
 	ctx, trace := withTrace(ctx)
 	ctx, facts := withEnvelopeFacts(ctx)
 	noteRowScope(ctx)
 	out, err := t.Handle(ctx, args)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	sealed, err := sealEnvelope(spec, trace, facts, out)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	// Charged AFTER sealing and BEFORE returning: at this point the answer
 	// exists but has not reached the caller, so a charge that cannot be
 	// recorded can still refuse it. An answer sealed and then charged in the
 	// other order would spend the window on a result a marshalling failure was
 	// about to discard.
-	if err := r.chargeReads(ctx, spec, facts.servedCount()); err != nil {
-		return nil, err
+	served := facts.servedCount()
+	if err := r.chargeReads(ctx, spec, served); err != nil {
+		return nil, 0, err
 	}
-	return sealed, nil
+	return sealed, served, nil
 }
 
 // tierResolverFor builds the resolver Admit consults for the call's tier. A

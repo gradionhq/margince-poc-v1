@@ -25,12 +25,21 @@ type recordingClaims struct {
 	verdict    Claim
 	claimErr   error
 	settleErr  error
+	failErr    error
 	releaseErr error
 
 	claimed  []string // "tool/key/digest" per Claim
 	settled  []string // "tool/key" per Settle
+	failed   []string // "tool/key: reason" per Fail
 	released []string // "tool/key" per Release
 	stored   json.RawMessage
+	// storedRecords is what Settle was told the answer cost, which is what a
+	// replay of it must charge.
+	storedRecords int
+	// live is closed-over state proving the bookkeeping call outlived the
+	// caller's cancellation.
+	settleCtxLive bool
+	failCtxLive   bool
 }
 
 func (c *recordingClaims) Claim(_ context.Context, tool, key, digest string) (Claim, error) {
@@ -41,10 +50,17 @@ func (c *recordingClaims) Claim(_ context.Context, tool, key, digest string) (Cl
 	return c.verdict, nil
 }
 
-func (c *recordingClaims) Settle(_ context.Context, tool, key string, result json.RawMessage) error {
+func (c *recordingClaims) Settle(ctx context.Context, tool, key string, result json.RawMessage, records int) error {
 	c.settled = append(c.settled, tool+"/"+key)
-	c.stored = result
+	c.stored, c.storedRecords = result, records
+	c.settleCtxLive = ctx.Err() == nil
 	return c.settleErr
+}
+
+func (c *recordingClaims) Fail(ctx context.Context, tool, key, reason string) error {
+	c.failed = append(c.failed, tool+"/"+key+": "+reason)
+	c.failCtxLive = ctx.Err() == nil
+	return c.failErr
 }
 
 func (c *recordingClaims) Release(_ context.Context, tool, key string) error {
@@ -80,12 +96,18 @@ type writingTool struct {
 	runs    int
 	records []ids.UUID
 	fail    error
+	// onHandle runs inside the handler, for the tests that need something to
+	// happen while the call is in flight (the caller hanging up).
+	onHandle func()
 }
 
 func (w *writingTool) Spec() mcp.ToolSpec { return w.spec }
 
 func (w *writingTool) Handle(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
 	w.runs++
+	if w.onHandle != nil {
+		w.onHandle()
+	}
 	for _, id := range w.records {
 		newWireRecord(ctx, datasource.Record{Ref: datasource.EntityRef{Type: datasource.EntityDeal, ID: id}})
 	}
@@ -195,7 +217,7 @@ func TestAReplayAnswersTheFirstResultWithoutRunningTheToolAgain(t *testing.T) {
 	recorded := ids.NewV7()
 	stored := json.RawMessage(fmt.Sprintf(
 		`{"schema_version":"1.0.0","evidence":[{"record_type":"deal","record_id":"%s"}],"data":{"ok":true}}`, recorded))
-	f.claims.verdict = Claim{State: ClaimReplay, Result: stored}
+	f.claims.verdict = Claim{State: ClaimReplay, Result: stored, Records: 1}
 
 	out, err := f.invoke(t, `{"idempotency_key":"k-1","note":"hi"}`)
 	if err != nil {
@@ -264,20 +286,21 @@ func TestAReplayForwardsAReadFailureThatIsNotAVisibilityAnswer(t *testing.T) {
 	}
 }
 
-func TestAReplayRestingOnNoRecordNeedsNoProbe(t *testing.T) {
+// Admission checked scope, tier and seat; object RBAC and row scope live inside
+// the handler, which a replay never enters. So the only authority a replay can
+// re-check is the one attached to a record it can NAME — and a document citing
+// none is unprovable rather than harmless.
+func TestAReplayThatNamesNoRecordIsRefused(t *testing.T) {
 	f := newRetryFixture(t)
-	stored := json.RawMessage(`{"schema_version":"1.0.0","evidence":[],"data":{"pipelines":[]}}`)
-	f.claims.verdict = Claim{State: ClaimReplay, Result: stored}
+	stored := json.RawMessage(`{"schema_version":"1.0.0","evidence":[],"data":{"rows":["derived"]}}`)
+	f.claims.verdict = Claim{State: ClaimReplay, Result: stored, Records: 0}
 
 	out, err := f.invoke(t, `{"idempotency_key":"k-1"}`)
-	if err != nil {
-		t.Fatalf("replay: %v", err)
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
-	if string(out) != string(stored) {
-		t.Fatalf("out = %s", out)
-	}
-	if f.reader.reads != 0 || f.charger.calls != 0 {
-		t.Fatalf("a record-free replay probed %d and charged %d times", f.reader.reads, f.charger.calls)
+	if out != nil {
+		t.Fatalf("an unprovable document was served: %s", out)
 	}
 }
 
@@ -322,7 +345,7 @@ func TestAReplayIsRefusedWhenTheRecordedBytesAreNotAnEnvelope(t *testing.T) {
 func TestAReplayThatCannotBeChargedIsWithheld(t *testing.T) {
 	f := newRetryFixture(t)
 	f.charger.err = errors.New("the meter is unreachable")
-	f.claims.verdict = Claim{State: ClaimReplay, Result: json.RawMessage(fmt.Sprintf(
+	f.claims.verdict = Claim{State: ClaimReplay, Records: 1, Result: json.RawMessage(fmt.Sprintf(
 		`{"schema_version":"1.0.0","evidence":[{"record_type":"deal","record_id":"%s"}]}`, ids.NewV7()))}
 
 	out, err := f.invoke(t, `{"idempotency_key":"k-1"}`)
@@ -376,38 +399,76 @@ func TestAnUnknownClaimStateIsRefusedRatherThanRun(t *testing.T) {
 	}
 }
 
-// Idempotency is a retry-safety LAYER. Refusing the call because the layer
-// hiccupped would leave the caller retrying something now less protected than a
-// call sent with no key at all — the REST middleware's posture, and the same
-// one here.
-func TestAClaimStoreFailureRunsTheCallRatherThanRefusingIt(t *testing.T) {
+// At-most-once is the whole promise, so a surface that cannot keep it says so.
+// Running anyway — the REST middleware's posture, which is right for a header a
+// client may not have meant — would make a promise the retry then discovers was
+// never kept, and the act it was asked about is irreversible.
+func TestAClaimStoreFailureRefusesTheCallRatherThanRunningItUnprotected(t *testing.T) {
 	f := newRetryFixture(t)
 	f.claims.claimErr = errors.New("the claim transaction failed")
 
-	if _, err := f.invoke(t, `{"idempotency_key":"k-1"}`); err != nil {
-		t.Fatalf("invoke: %v", err)
+	_, err := f.invoke(t, `{"idempotency_key":"k-1"}`)
+	if !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
 	}
-	if f.tool.runs != 1 {
-		t.Fatalf("the tool ran %d times, want 1", f.tool.runs)
+	if f.tool.runs != 0 {
+		t.Fatal("the tool ran under a key the surface could not claim")
 	}
-	if len(f.claims.settled) != 0 {
-		t.Fatalf("a claim that was never taken was settled: %v", f.claims.settled)
+	// The caller is told to retry, because nothing happened.
+	if !strings.Contains(err.Error(), "was not run") {
+		t.Errorf("the refusal does not say the call did not happen: %v", err)
+	}
+	// And an UNKEYED call is untouched by a broken claim store.
+	if _, err := f.invoke(t, `{}`); err != nil {
+		t.Fatalf("an unkeyed call was refused: %v", err)
 	}
 }
 
-func TestAFailedCallGivesItsKeyBack(t *testing.T) {
+// A handler can fail AFTER its write committed — create_record commits the row
+// and then reads it back — so "the call returned an error" is not "nothing
+// happened", and giving the key back there is how one key creates two records.
+func TestAFailedRunKeepsItsKeyRatherThanInvitingASecondAttempt(t *testing.T) {
 	f := newRetryFixture(t)
 	f.claims.verdict = Claim{State: ClaimFresh}
-	f.tool.fail = errors.New("the provider refused the write")
+	f.tool.fail = fmt.Errorf("the provider refused the write: %w", apperrors.ErrConflict)
 
 	if _, err := f.invoke(t, `{"idempotency_key":"k-1"}`); err == nil {
 		t.Fatal("the handler's failure was swallowed")
 	}
-	if len(f.claims.released) != 1 || f.claims.released[0] != "send_email/k-1" {
-		t.Fatalf("released = %v, want the key back", f.claims.released)
+	if len(f.claims.released) != 0 {
+		t.Fatalf("a run that may have taken effect gave its key back: %v", f.claims.released)
 	}
 	if len(f.claims.settled) != 0 {
-		t.Fatalf("a failure was recorded for replay: %v", f.claims.settled)
+		t.Fatalf("a failure was recorded as a replayable result: %v", f.claims.settled)
+	}
+	if len(f.claims.failed) != 1 {
+		t.Fatalf("failed = %v, want the run recorded", f.claims.failed)
+	}
+	// The recorded reason is the SENTINEL's words, not the refusal's own prose:
+	// it is stored for the window and handed to whoever presents the key next.
+	if got := f.claims.failed[0]; got != "send_email/k-1: it conflicted with another change" {
+		t.Fatalf("recorded %q — a stored reason must not carry the refusal's own text", got)
+	}
+}
+
+// What the caller is told when they present that key again. Not "in flight"
+// (the attempt is over) and not a fresh run (it may have taken effect) — the
+// one thing they can act on.
+func TestARetryOfAFailedRunIsToldToCheckBeforeUsingANewKey(t *testing.T) {
+	f := newRetryFixture(t)
+	f.claims.verdict = Claim{State: ClaimFailed, Reason: "it conflicted with another change"}
+
+	_, err := f.invoke(t, `{"idempotency_key":"k-1"}`)
+	if !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
+	}
+	for _, want := range []string{"may or", "NEW key", "it conflicted with another change"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
+	}
+	if f.tool.runs != 0 {
+		t.Fatal("the tool ran again under a key whose earlier attempt may have taken effect")
 	}
 }
 
@@ -428,14 +489,24 @@ func TestBookkeepingFailuresNeverChangeWhatTheCallerIsTold(t *testing.T) {
 			t.Fatalf("out = %s", out)
 		}
 	})
-	t.Run("releasing fails after a failed call", func(t *testing.T) {
+	t.Run("recording a failed run fails", func(t *testing.T) {
 		f := newRetryFixture(t)
 		f.claims.verdict = Claim{State: ClaimFresh}
 		f.tool.fail = errors.New("the provider refused the write")
-		f.claims.releaseErr = errors.New("the delete failed")
+		f.claims.failErr = errors.New("the update failed")
 		_, err := f.invoke(t, `{"idempotency_key":"k-1"}`)
 		if err == nil || !strings.Contains(err.Error(), "provider refused") {
 			t.Fatalf("err = %v, want the handler's own failure", err)
+		}
+	})
+	t.Run("releasing an unrun key fails", func(t *testing.T) {
+		f, approvals := approvedRetryFixture(t)
+		approvals.redeemErr = fmt.Errorf("not yours: %w", apperrors.ErrApprovalTokenInvalid)
+		f.claims.releaseErr = errors.New("the delete failed")
+		f.claims.verdict = Claim{State: ClaimFresh}
+		_, err := f.invoke(t, `{"idempotency_key":"k-1","approval_id":"`+ids.NewV7().String()+`"}`)
+		if !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
+			t.Fatalf("err = %v, want the redemption's own refusal", err)
 		}
 	})
 }
@@ -477,5 +548,237 @@ func TestARefusedCallerNeverOccupiesAKey(t *testing.T) {
 	}
 	if len(f.claims.claimed) != 0 {
 		t.Fatalf("a refused caller claimed %v", f.claims.claimed)
+	}
+}
+
+// consumingApprovals redeems an approval EXACTLY once, like the real engine:
+// a second redemption of the same id fails, because the row is the authority
+// object and it is spent.
+type consumingApprovals struct {
+	redeemed  map[ids.ApprovalID]bool
+	redeems   int
+	stageErr  error
+	staged    ids.ApprovalID
+	redeemErr error
+}
+
+func (a *consumingApprovals) Stage(context.Context, StageRequest) (ids.ApprovalID, error) {
+	return a.staged, a.stageErr
+}
+
+func (a *consumingApprovals) Redeem(_ context.Context, id ids.ApprovalID, _, _ string) (int64, bool, error) {
+	a.redeems++
+	if a.redeemErr != nil {
+		return 0, false, a.redeemErr
+	}
+	if a.redeemed[id] {
+		return 0, false, fmt.Errorf("approval already consumed: %w", apperrors.ErrApprovalTokenInvalid)
+	}
+	if a.redeemed == nil {
+		a.redeemed = map[ids.ApprovalID]bool{}
+	}
+	a.redeemed[id] = true
+	return 0, false, nil
+}
+
+// approvedRetryFixture is a 🟡 tool on a surface with a single-use approvals
+// engine — the shape the retry key is worth most on, since a confirm-first
+// tool is a confirm-first tool because its effect cannot be taken back.
+func approvedRetryFixture(t *testing.T) (*retryFixture, *consumingApprovals) {
+	t.Helper()
+	f := &retryFixture{
+		tool:    &writingTool{spec: writeToolSpec("send_email")},
+		claims:  &recordingClaims{},
+		reader:  &answeringReader{},
+		charger: &countingCharger{},
+	}
+	f.tool.spec.Tier = mcp.TierConfirmationRequired
+	// It answers with the record it changed, as every mutating tool on this
+	// surface does — which is what makes its result replayable at all.
+	f.tool.records = []ids.UUID{ids.NewV7()}
+	approvals := &consumingApprovals{staged: ids.From[ids.ApprovalKind](ids.NewV7())}
+	f.registry = NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}),
+		WithIdempotency(f.claims), WithReplayReader(f.reader), WithReadCharger(f.charger))
+	f.registry.Register(f.tool)
+	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+	f.ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
+		PassportID: ids.NewV7(),
+		Scopes:     principal.NewScopeSet(principal.ScopeWrite),
+	})
+	return f, approvals
+}
+
+// The claim is taken BEFORE the approval is redeemed, and this is why. An
+// approval is single-use, so redeeming first means the retry of an approved
+// send — the exact call whose response was lost — dies on the consumed
+// approval and never reaches the result the first attempt recorded. Retry
+// safety would be missing from precisely the tools that need it.
+func TestTheRetryOfAnApprovedCallReplaysInsteadOfRedeemingTwice(t *testing.T) {
+	f, approvals := approvedRetryFixture(t)
+	approval := ids.NewV7()
+	call := `{"idempotency_key":"k-1","approval_id":"` + approval.String() + `"}`
+
+	f.claims.verdict = Claim{State: ClaimFresh}
+	first, err := f.invoke(t, call)
+	if err != nil {
+		t.Fatalf("the approved call: %v", err)
+	}
+	if f.tool.runs != 1 || approvals.redeems != 1 {
+		t.Fatalf("runs=%d redeems=%d, want 1 and 1", f.tool.runs, approvals.redeems)
+	}
+
+	// The response was lost; the agent repeats the identical call.
+	f.claims.verdict = Claim{State: ClaimReplay, Result: first, Records: 1}
+	second, err := f.invoke(t, call)
+	if err != nil {
+		t.Fatalf("the retry of the approved call: %v", err)
+	}
+	if string(second) != string(first) {
+		t.Fatalf("the retry answered differently:\nfirst  %s\nsecond %s", first, second)
+	}
+	if f.tool.runs != 1 {
+		t.Fatal("the retry sent a second email")
+	}
+	if approvals.redeems != 1 {
+		t.Fatalf("the retry attempted redemption %d times — a spent approval must not be asked for again", approvals.redeems)
+	}
+}
+
+// The mirror of the ordering above: redemption comes AFTER the claim, so a
+// refused redemption gives the key straight back. Nothing ran, so nothing is
+// in doubt.
+func TestARefusedRedemptionGivesTheKeyBack(t *testing.T) {
+	f, approvals := approvedRetryFixture(t)
+	approvals.redeemErr = fmt.Errorf("that approval is not yours: %w", apperrors.ErrApprovalTokenInvalid)
+	f.claims.verdict = Claim{State: ClaimFresh}
+
+	_, err := f.invoke(t, `{"idempotency_key":"k-1","approval_id":"`+ids.NewV7().String()+`"}`)
+	if !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
+		t.Fatalf("err = %v, want the redemption's own refusal", err)
+	}
+	if f.tool.runs != 0 {
+		t.Fatal("the tool ran on a refused redemption")
+	}
+	if len(f.claims.released) != 1 {
+		t.Fatalf("released = %v, want the key back — nothing ran under it", f.claims.released)
+	}
+	if len(f.claims.failed) != 0 {
+		t.Fatalf("an unrun call was recorded as a failed run: %v", f.claims.failed)
+	}
+}
+
+// A 🟡 call with no approval is STAGED, and staging must not hold a key: the
+// call did not run, and the retry that redeems the approval is the same call
+// under the same key.
+func TestAStagedCallHoldsNoKey(t *testing.T) {
+	f, _ := approvedRetryFixture(t)
+	if _, err := f.invoke(t, `{"idempotency_key":"k-1"}`); err == nil {
+		t.Fatal("a 🟡 call with no approval was executed")
+	}
+	if len(f.claims.claimed) != 0 {
+		t.Fatalf("staging claimed %v", f.claims.claimed)
+	}
+}
+
+// The transport dropping is the motivating case, and it cancels the request
+// context — so bookkeeping done on that context would fail exactly when the
+// caller most needs the result recorded, leaving the claim in flight for the
+// whole window and the one answer the retry exists to fetch unreachable.
+func TestTheRunIsRecordedEvenWhenTheCallerIsGone(t *testing.T) {
+	t.Run("a completed run", func(t *testing.T) {
+		f := newRetryFixture(t)
+		f.claims.verdict = Claim{State: ClaimFresh}
+		ctx, cancel := context.WithCancel(f.ctx)
+		f.ctx = ctx
+		f.tool.onHandle = cancel // the client hangs up mid-call
+
+		if _, err := f.invoke(t, `{"idempotency_key":"k-1"}`); err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		if len(f.claims.settled) != 1 {
+			t.Fatalf("settled = %v, want the result recorded", f.claims.settled)
+		}
+		if !f.claims.settleCtxLive {
+			t.Fatal("settlement ran on the caller's canceled context, so it could only ever fail")
+		}
+	})
+	t.Run("a failed run", func(t *testing.T) {
+		f := newRetryFixture(t)
+		f.claims.verdict = Claim{State: ClaimFresh}
+		ctx, cancel := context.WithCancel(f.ctx)
+		f.ctx = ctx
+		f.tool.onHandle = cancel
+		f.tool.fail = errors.New("the provider refused the write")
+
+		if _, err := f.invoke(t, `{"idempotency_key":"k-1"}`); err == nil {
+			t.Fatal("the failure was swallowed")
+		}
+		if !f.claims.failCtxLive {
+			t.Fatal("the failure was recorded on the caller's canceled context")
+		}
+	})
+}
+
+// A read has nothing to make safe to repeat, and its schema says so — so
+// accepting the argument anyway would be the surface contradicting the schema
+// it advertises, which is the defect A4 exists to close.
+func TestAReadOnlyToolRefusesTheRetryKeyItNeverAdvertised(t *testing.T) {
+	f := newRetryFixture(t)
+	read := &writingTool{spec: readToolSpec("search_records")}
+	f.registry.Register(read)
+	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
+		PassportID: ids.NewV7(),
+		Scopes:     principal.NewScopeSet(principal.ScopeRead, principal.ScopeWrite),
+	})
+
+	_, err := f.registry.Invoke(ctx, "search_records", json.RawMessage(`{"idempotency_key":"k-1"}`))
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Fatalf("err = %v, want a BadArgsError", err)
+	}
+	if read.runs != 0 {
+		t.Fatal("a read answer was frozen for the replay window")
+	}
+	if len(f.claims.claimed) != 0 {
+		t.Fatalf("a read tool claimed %v", f.claims.claimed)
+	}
+	// The same tool without the key is untouched.
+	if _, err := f.registry.Invoke(ctx, "search_records", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("an unkeyed read was refused: %v", err)
+	}
+}
+
+// A replay costs what the CALL cost, recorded with the result — not the length
+// of the evidence list, which dedupes and so is the smaller number every time
+// they differ. Deriving the charge from the document would make retrying an
+// answer cheaper than asking for it.
+func TestAReplayCostsWhatTheCallCostAndNotWhatItCanName(t *testing.T) {
+	f := newRetryFixture(t)
+	same := ids.NewV7()
+	f.tool.records = []ids.UUID{same, same, ids.NewV7()} // one record served twice
+	f.claims.verdict = Claim{State: ClaimFresh}
+
+	out, err := f.invoke(t, `{"idempotency_key":"k-1"}`)
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if f.charger.charged != 3 {
+		t.Fatalf("the call charged %d, want 3 records served", f.charger.charged)
+	}
+	if f.claims.storedRecords != 3 {
+		t.Fatalf("recorded cost %d, want the 3 the call was charged", f.claims.storedRecords)
+	}
+
+	replayed := newRetryFixture(t)
+	replayed.claims.verdict = Claim{State: ClaimReplay, Result: out, Records: f.claims.storedRecords}
+	if _, err := replayed.invoke(t, `{"idempotency_key":"k-1"}`); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if replayed.charger.charged != 3 {
+		t.Fatalf("the replay charged %d, want the 3 the call cost — its evidence list names only 2",
+			replayed.charger.charged)
 	}
 }

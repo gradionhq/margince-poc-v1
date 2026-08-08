@@ -29,6 +29,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -47,12 +49,14 @@ var (
 	errInvalidRetryKey   = errors.New("`idempotency_key` must be a string")
 	errEmptyRetryKey     = errors.New("`idempotency_key` is empty; omit it, or send the key you will retry with")
 	errRetryKeyTooLong   = fmt.Errorf("`idempotency_key` is longer than %d characters", maxRetryKeyLen)
+	errControlInRetryKey = errors.New("`idempotency_key` contains a control character; use printable text")
 )
 
-// maxRetryKeyLen bounds the caller-chosen retry key. It is the same 255 the
-// REST middleware applies to the Idempotency-Key header, because the two doors
-// write the same column and a key one door accepts and the other refuses would
-// be one promise with two edges.
+// maxRetryKeyLen bounds the caller-chosen retry key, in the characters the
+// advertised `maxLength` counts. It is the same 255 the REST middleware applies
+// to the Idempotency-Key header, because the two doors write the same column
+// and a key one door accepts and the other refuses would be one promise with
+// two edges.
 const maxRetryKeyLen = 255
 
 // reserved is one call's surface-owned arguments, plus what is left of it.
@@ -115,15 +119,30 @@ func splitReserved(in json.RawMessage) (reserved, error) {
 // An empty or blank key is REFUSED rather than read as "no key". A model that
 // sends `""` asked for retry safety and would silently not get it, and what
 // that hides is a second irreversible act — the one thing the key exists to
-// prevent. The length bound is checked here rather than at the claim, so an
-// over-long key is named as the caller's own argument instead of surfacing as
-// whatever the storage layer says about a column.
+// prevent.
+//
+// The length is counted in RUNES, because that is what the advertised
+// `maxLength` counts: JSON Schema measures characters and Go's len measures
+// UTF-8 bytes, so a byte count would refuse keys the schema this surface
+// publishes says are legal — the advertised-vs-enforced split one axis over.
+//
+// A CONTROL CHARACTER is refused for a reason worth stating: `text` cannot hold
+// a NUL, so a key carrying one fails at the INSERT rather than here — and a
+// failed claim refuses the call. That is safe, but it is a refusal the caller
+// cannot act on ("could not be made safe to retry") for a defect that is
+// entirely in their own argument. Naming it here is the difference between an
+// answer and a mystery.
 func checkRetryKey(key string) error {
 	if strings.TrimSpace(key) == "" {
 		return errEmptyRetryKey
 	}
-	if len(key) > maxRetryKeyLen {
+	if utf8.RuneCountInString(key) > maxRetryKeyLen {
 		return errRetryKeyTooLong
+	}
+	for _, r := range key {
+		if unicode.IsControl(r) {
+			return errControlInRetryKey
+		}
 	}
 	return nil
 }

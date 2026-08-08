@@ -110,6 +110,44 @@ func TestSplitReservedKeepsRefusingABadApprovalID(t *testing.T) {
 	}
 }
 
+// The advertised `maxLength` counts CHARACTERS, so the surface must too: Go's
+// len counts UTF-8 bytes, and a byte count would refuse keys the schema this
+// server publishes calls legal.
+func TestTheKeyBoundCountsCharactersNotBytes(t *testing.T) {
+	// maxRetryKeyLen four-byte runes: legal by the advertised schema, and four
+	// times the bound in bytes.
+	key := strings.Repeat("\U0001F600", maxRetryKeyLen)
+	res, err := splitReserved(json.RawMessage(`{"idempotency_key":"` + key + `"}`))
+	if err != nil {
+		t.Fatalf("a %d-character key was refused: %v", maxRetryKeyLen, err)
+	}
+	if res.RetryKey != key {
+		t.Fatal("the key did not survive the split")
+	}
+	over, err := json.Marshal(map[string]string{idempotencyKeyArg: key + "\U0001F600"})
+	if err != nil {
+		t.Fatalf("encoding the over-long probe: %v", err)
+	}
+	if _, err := splitReserved(over); !errors.Is(err, errRetryKeyTooLong) {
+		t.Fatalf("a %d-character key → %v, want the length refusal", maxRetryKeyLen+1, err)
+	}
+}
+
+// A NUL cannot live in the `text` column the claim is written to, so a key
+// carrying one fails at the INSERT — which refuses the call safely, but with a
+// message about this surface rather than about the caller's own argument.
+func TestAControlCharacterInTheKeyIsNamedAsTheCallersArgument(t *testing.T) {
+	for _, key := range []string{"a\x00b", "a\nb", "a\tb", "\x1b[0m"} {
+		encoded, err := json.Marshal(map[string]string{idempotencyKeyArg: key})
+		if err != nil {
+			t.Fatalf("encoding the probe: %v", err)
+		}
+		if _, err := splitReserved(encoded); !errors.Is(err, errControlInRetryKey) {
+			t.Errorf("%q → %v, want the control-character refusal", key, err)
+		}
+	}
+}
+
 // A key at exactly the bound is legal: the refusal is for what exceeds it, and
 // an off-by-one here would refuse keys the REST door accepts for the same
 // column.

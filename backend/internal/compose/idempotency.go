@@ -53,6 +53,7 @@ const (
 	claimReplay                         // recorded response is returned
 	claimInProgress                     // first attempt has not finished
 	claimMismatch                       // same key, different request digest
+	claimFailed                         // an earlier attempt RAN and recorded no result
 )
 
 // The claim itself — claimKey, settleClaim, releaseClaim — takes a CONTEXT and
@@ -119,8 +120,10 @@ func idempotency(pool *pgxpool.Pool, probes map[string]replayProbe) func(http.Ha
 
 			rec := &replayRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rec, r)
+			// Zero records: this door charges no read bound, so its claims carry
+			// no cost to record (0197).
 			if err := settleClaim(r.Context(), pool, actor.ID, key, endpoint,
-				rec.status, rec.buf.String(), rec.Header().Get("Content-Type")); err != nil {
+				rec.status, rec.buf.String(), rec.Header().Get("Content-Type"), 0); err != nil {
 				slog.ErrorContext(r.Context(), "idempotency claim settlement failed", "err", err)
 			}
 		})
@@ -170,6 +173,9 @@ type storedResponse struct {
 	status      int
 	body        string
 	contentType string
+	// records is what the recorded answer cost the caller's read bound, for the
+	// surface that charges one. Zero for a REST claim, which charges none.
+	records int
 }
 
 // claimKey runs the insert-first claim. Any claim-infrastructure failure
@@ -220,14 +226,15 @@ func resolveExistingClaim(ctx context.Context, tx pgx.Tx, principalID, key, endp
 	var storedDigest, contentType string
 	var status *int
 	var respBody *string
+	var records int
 	var expired bool
 	err := tx.QueryRow(ctx, `
-		SELECT request_digest, response_status, response_body, response_content_type,
+		SELECT request_digest, response_status, response_body, response_content_type, response_records,
 		       created_at < now() - make_interval(secs => $4)
 		FROM idempotency_key
 		WHERE principal_id = $1 AND key = $2 AND endpoint = $3
 		FOR UPDATE`,
-		principalID, key, endpoint, replayWindow.Seconds()).Scan(&storedDigest, &status, &respBody, &contentType, &expired)
+		principalID, key, endpoint, replayWindow.Seconds()).Scan(&storedDigest, &status, &respBody, &contentType, &records, &expired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The retention sweep removed the row between the INSERT above and
 		// this read. It was past the replay window, so it was protecting
@@ -254,21 +261,31 @@ func resolveExistingClaim(ctx context.Context, tx pgx.Tx, principalID, key, endp
 		_, err := tx.Exec(ctx, `
 			UPDATE idempotency_key
 			SET request_digest = $4, response_status = NULL, response_body = NULL,
-			    response_content_type = DEFAULT, created_at = now()
+			    response_content_type = DEFAULT, response_records = DEFAULT, created_at = now()
 			WHERE principal_id = $1 AND key = $2 AND endpoint = $3`,
 			principalID, key, endpoint, digest)
 		return claimFresh, storedResponse{}, err
+	}
+	stored := storedResponse{contentType: contentType, records: records}
+	if respBody != nil {
+		stored.body = *respBody
 	}
 	switch {
 	case storedDigest != digest:
 		return claimMismatch, storedResponse{}, nil
 	case status == nil:
 		return claimInProgress, storedResponse{}, nil
+	case *status < 200 || *status >= 300:
+		// A RECORDED failure — the attempt reached its handler and produced no
+		// result. Only the tool surface writes one (failClaim); the middleware
+		// releases instead, so a REST row is never in this state. It is not a
+		// replay and not a free key: whether the effect landed is exactly what
+		// the recording could not determine, so the body carries the reason and
+		// the caller decides.
+		stored.status = *status
+		return claimFailed, stored, nil
 	default:
-		stored := storedResponse{status: *status, contentType: contentType}
-		if respBody != nil {
-			stored.body = *respBody
-		}
+		stored.status = *status
 		return claimReplay, stored, nil
 	}
 }
@@ -277,16 +294,26 @@ func resolveExistingClaim(ctx context.Context, tx pgx.Tx, principalID, key, endp
 // anything else (see the package comment for why failures are not
 // replayed).
 func settleClaim(ctx context.Context, pool *pgxpool.Pool, principalID, key, endpoint string,
-	status int, body, contentType string,
+	status int, body, contentType string, records int,
 ) error {
 	if status < 200 || status >= 300 {
 		return releaseClaim(ctx, pool, principalID, key, endpoint)
 	}
+	return recordClaimOutcome(ctx, pool, principalID, key, endpoint, status, body, contentType, records)
+}
+
+// recordClaimOutcome writes a settled response onto a held claim, whatever that
+// response says. settleClaim reaches it for a success; failClaim reaches it for
+// a run that produced none.
+func recordClaimOutcome(ctx context.Context, pool *pgxpool.Pool, principalID, key, endpoint string,
+	status int, body, contentType string, records int,
+) error {
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			UPDATE idempotency_key SET response_status = $4, response_body = $5, response_content_type = $6
+			UPDATE idempotency_key
+			SET response_status = $4, response_body = $5, response_content_type = $6, response_records = $7
 			WHERE principal_id = $1 AND key = $2 AND endpoint = $3`,
-			principalID, key, endpoint, status, body, contentType)
+			principalID, key, endpoint, status, body, contentType, records)
 		return err
 	})
 }

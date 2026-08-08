@@ -58,7 +58,7 @@ func TestAToolsRetryKeyRunsItsCallOnceAndReplaysTheResult(t *testing.T) {
 	if inFlight := claimState(ctx, t, claims, "send_email", "k-1", "digest-a"); inFlight.State != agents.ClaimInFlight {
 		t.Fatalf("a retry mid-flight = %v, want in-flight", inFlight.State)
 	}
-	if err := claims.Settle(ctx, "send_email", "k-1", recorded); err != nil {
+	if err := claims.Settle(ctx, "send_email", "k-1", recorded, 3); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 
@@ -68,6 +68,11 @@ func TestAToolsRetryKeyRunsItsCallOnceAndReplaysTheResult(t *testing.T) {
 	}
 	if string(replay.Result) != string(recorded) {
 		t.Fatalf("replayed %s, recorded %s", replay.Result, recorded)
+	}
+	// And what it COST travels with it, so the replay charges the caller's read
+	// bound what the call charged rather than what the document can name.
+	if replay.Records != 3 {
+		t.Fatalf("the replay carries a cost of %d, want the 3 the call was charged", replay.Records)
 	}
 }
 
@@ -79,7 +84,7 @@ func TestAToolsRetryKeyRefusesADifferentCall(t *testing.T) {
 	if first := claimState(ctx, t, claims, "update_record", "k-2", "digest-a"); first.State != agents.ClaimFresh {
 		t.Fatalf("the first claim = %v, want fresh", first.State)
 	}
-	if err := claims.Settle(ctx, "update_record", "k-2", json.RawMessage(`{"data":{}}`)); err != nil {
+	if err := claims.Settle(ctx, "update_record", "k-2", json.RawMessage(`{"data":{}}`), 1); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 	// Same key, different arguments. Replaying the first result here would
@@ -123,7 +128,7 @@ func TestReleasingASettledKeyDoesNotDiscardItsResult(t *testing.T) {
 	recorded := json.RawMessage(`{"schema_version":"1.0.0","evidence":[],"data":{"sent":true}}`)
 
 	claimState(ctx, t, claims, "send_email", "k-4", "digest-a")
-	if err := claims.Settle(ctx, "send_email", "k-4", recorded); err != nil {
+	if err := claims.Settle(ctx, "send_email", "k-4", recorded, 2); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 	if err := claims.Release(ctx, "send_email", "k-4"); err != nil {
@@ -168,5 +173,61 @@ func TestOneKeyIsThreeDifferentClaims(t *testing.T) {
 	}
 	if outcome != claimFresh {
 		t.Fatalf("a REST call collided with a tool's key: %v", outcome)
+	}
+}
+
+// A handler can fail AFTER its write committed, so a failed run is recorded
+// rather than released: the key stays spent, and the caller is told what the
+// surface actually knows.
+func TestAFailedRunIsRecordedAndItsKeyIsNotReusable(t *testing.T) {
+	e := integration.Setup(t)
+	claims := toolIdempotency(e.Pool)
+	ctx := agentCtxAs(e, "agent:"+ids.NewV7().String())
+
+	if first := claimState(ctx, t, claims, "create_record", "k-5", "digest-a"); first.State != agents.ClaimFresh {
+		t.Fatalf("the first claim = %v, want fresh", first.State)
+	}
+	if err := claims.Fail(ctx, "create_record", "k-5", "it conflicted with another change"); err != nil {
+		t.Fatalf("fail: %v", err)
+	}
+
+	after := claimState(ctx, t, claims, "create_record", "k-5", "digest-a")
+	if after.State != agents.ClaimFailed {
+		t.Fatalf("the key after a failed run = %v, want failed — a fresh claim here would run it twice", after.State)
+	}
+	if after.Reason != "it conflicted with another change" {
+		t.Fatalf("recorded reason %q", after.Reason)
+	}
+	if after.Result != nil {
+		t.Fatalf("a failed run offered a result to replay: %s", after.Result)
+	}
+}
+
+// A claim scoped to nobody would be one row every such caller shares, so the
+// adapter refuses it rather than writing an empty principal.
+func TestAClaimWithNoPrincipalIsRefused(t *testing.T) {
+	e := integration.Setup(t)
+	claims := toolIdempotency(e.Pool)
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+	}{
+		{name: "no actor at all", ctx: principal.WithWorkspaceID(context.Background(), e.WS)},
+		{name: "an actor with no id", ctx: agentCtxAs(e, "")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := claims.Claim(tc.ctx, "send_email", "k-6", "digest-a"); err == nil {
+				t.Fatal("the claim was taken")
+			}
+			if err := claims.Settle(tc.ctx, "send_email", "k-6", json.RawMessage(`{}`), 0); err == nil {
+				t.Fatal("the settlement was written")
+			}
+			if err := claims.Fail(tc.ctx, "send_email", "k-6", "why"); err == nil {
+				t.Fatal("the failure was written")
+			}
+			if err := claims.Release(tc.ctx, "send_email", "k-6"); err == nil {
+				t.Fatal("the release ran")
+			}
+		})
 	}
 }

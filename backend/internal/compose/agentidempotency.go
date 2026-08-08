@@ -6,7 +6,7 @@ package compose
 // Retry safety for the governed tool surface, over the claim the REST door
 // already uses.
 //
-// The whole adapter is the two translations the tool surface cannot make for
+// The whole adapter is the translations the tool surface cannot make for
 // itself: which principal holds the key, and what a claim outcome means to a
 // caller that speaks tool results rather than HTTP. The claim transaction, the
 // 24h window, the digest comparison and the retention sweep are
@@ -17,7 +17,6 @@ package compose
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +37,15 @@ func mcpClaimEndpoint(tool string) string { return "MCP " + tool }
 // than defaulting into a claim nobody made.
 const mcpClaimContentType = "application/json"
 
+// The two statuses a tool's claim records. A tools/call has no HTTP status of
+// its own; these are how the shared row distinguishes its three settled states
+// — success, ran-and-failed, still in flight (NULL) — using the column
+// resolveExistingClaim already reads.
+const (
+	mcpClaimSucceeded = 200
+	mcpClaimFailed    = 500
+)
+
 // agentClaims implements the tool surface's claim seam.
 type agentClaims struct{ pool *pgxpool.Pool }
 
@@ -46,21 +54,32 @@ var _ agents.Idempotency = agentClaims{}
 // toolIdempotency is the claim store every composed tool surface installs.
 func toolIdempotency(pool *pgxpool.Pool) agentClaims { return agentClaims{pool: pool} }
 
-// Claim takes the key for this call inside the caller's workspace transaction.
+// claimHolder answers who a key belongs to.
 //
-// The principal is the ACTOR, which for a passport call is
-// "agent:<passport_id>" — so a key is scoped to the passport that spent it. Two
-// agents acting for one human cannot collide on a key, and neither can an agent
-// and the human themselves.
-func (c agentClaims) Claim(ctx context.Context, tool, key, digest string) (agents.Claim, error) {
+// The ACTOR, which for a passport call is "agent:<passport_id>" — so a key is
+// scoped to the passport that spent it. Two agents acting for one human cannot
+// collide on a key, and neither can an agent and the human themselves.
+//
+// An EMPTY id is refused as hard as a missing principal, because it is the same
+// failure wearing a valid-looking value: principal.Actor answers ok for a
+// zero-value Principal, and an id-less claim would write `principal_id = ”` —
+// one row every such caller in the workspace shares, and one caller's recorded
+// result replayable by another.
+func claimHolder(ctx context.Context, verb string) (string, error) {
 	actor, ok := principal.Actor(ctx)
-	if !ok {
-		// Unreachable behind the admission gate, which has already resolved the
-		// caller. Named rather than defaulted: a claim scoped to nobody would be
-		// a key every caller shares.
-		return agents.Claim{}, errors.New("compose: no principal on a tools/call idempotency claim")
+	if !ok || actor.ID == "" {
+		return "", fmt.Errorf("compose: no principal %s a tools/call idempotency claim", verb)
 	}
-	outcome, stored, err := claimKey(ctx, c.pool, actor.ID, key, mcpClaimEndpoint(tool), digest)
+	return actor.ID, nil
+}
+
+// Claim takes the key for this call inside the caller's workspace transaction.
+func (c agentClaims) Claim(ctx context.Context, tool, key, digest string) (agents.Claim, error) {
+	holder, err := claimHolder(ctx, "claiming")
+	if err != nil {
+		return agents.Claim{}, err
+	}
+	outcome, stored, err := claimKey(ctx, c.pool, holder, key, mcpClaimEndpoint(tool), digest)
 	if err != nil {
 		return agents.Claim{}, err
 	}
@@ -72,30 +91,47 @@ func (c agentClaims) Claim(ctx context.Context, tool, key, digest string) (agent
 	case claimMismatch:
 		return agents.Claim{State: agents.ClaimMismatch}, nil
 	case claimReplay:
-		return agents.Claim{State: agents.ClaimReplay, Result: json.RawMessage(stored.body)}, nil
+		return agents.Claim{
+			State: agents.ClaimReplay, Result: json.RawMessage(stored.body), Records: stored.records,
+		}, nil
+	case claimFailed:
+		return agents.Claim{State: agents.ClaimFailed, Reason: stored.body}, nil
 	default:
 		return agents.Claim{}, fmt.Errorf("compose: unknown idempotency claim outcome %d", outcome)
 	}
 }
 
-// Settle records the sealed result so a repeat of the same key answers with it.
-// The 200 is the claim table's "this attempt succeeded" marker rather than a
-// status any tool caller sees — a tools/call has no HTTP status of its own, and
-// the column is what settleClaim reads to tell a settled claim from a released
-// one.
-func (c agentClaims) Settle(ctx context.Context, tool, key string, result json.RawMessage) error {
-	actor, ok := principal.Actor(ctx)
-	if !ok {
-		return errors.New("compose: no principal settling a tools/call idempotency claim")
+// Settle records the sealed result, and what it cost the caller's read bound,
+// so a repeat of the same key answers with it at the same price.
+func (c agentClaims) Settle(ctx context.Context, tool, key string, result json.RawMessage, records int) error {
+	holder, err := claimHolder(ctx, "settling")
+	if err != nil {
+		return err
 	}
-	return settleClaim(ctx, c.pool, actor.ID, key, mcpClaimEndpoint(tool), 200, string(result), mcpClaimContentType)
+	return recordClaimOutcome(ctx, c.pool, holder, key, mcpClaimEndpoint(tool),
+		mcpClaimSucceeded, string(result), mcpClaimContentType, records)
 }
 
-// Release gives the key back after a failed attempt.
-func (c agentClaims) Release(ctx context.Context, tool, key string) error {
-	actor, ok := principal.Actor(ctx)
-	if !ok {
-		return errors.New("compose: no principal releasing a tools/call idempotency claim")
+// Fail records that the tool ran under this key and produced no result. The
+// reason is stored where a result would be, and a later attempt is told it
+// rather than being allowed to run again — see agents.Idempotency for why a
+// failed run is not a free key.
+func (c agentClaims) Fail(ctx context.Context, tool, key, reason string) error {
+	holder, err := claimHolder(ctx, "failing")
+	if err != nil {
+		return err
 	}
-	return releaseClaim(ctx, c.pool, actor.ID, key, mcpClaimEndpoint(tool))
+	// No records: nothing was handed over, so there is nothing a replay of it
+	// could cost — and it will never be replayed in any case.
+	return recordClaimOutcome(ctx, c.pool, holder, key, mcpClaimEndpoint(tool),
+		mcpClaimFailed, reason, mcpClaimContentType, 0)
+}
+
+// Release gives back a key whose call never ran.
+func (c agentClaims) Release(ctx context.Context, tool, key string) error {
+	holder, err := claimHolder(ctx, "releasing")
+	if err != nil {
+		return err
+	}
+	return releaseClaim(ctx, c.pool, holder, key, mcpClaimEndpoint(tool))
 }
