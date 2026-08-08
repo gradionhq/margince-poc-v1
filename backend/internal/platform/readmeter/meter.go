@@ -79,6 +79,10 @@ type Meter struct {
 	limit  int
 	window time.Duration
 	now    func() time.Time
+	// unbounded marks the meter Unmetered built: it admits every read and
+	// records none, because this composition declared no bound rather than
+	// failed to reach one.
+	unbounded bool
 }
 
 // New constructs a Meter over rdb using the real wall clock. A nil rdb is
@@ -86,6 +90,23 @@ type Meter struct {
 // passed, because a counter that cannot be read cannot show headroom.
 func New(rdb *redis.Client, limit int, window time.Duration) *Meter {
 	return NewWithClock(rdb, limit, window, time.Now)
+}
+
+// Unmetered is a meter that counts nothing and bounds nothing — for a
+// composition that DECLARES it serves no bounded agent surface.
+//
+// It is not the same thing as a meter that cannot reach its counter, and the
+// difference is the whole of why it is a named constructor rather than a nil.
+// A meter with no Redis fails CLOSED, because it was asked to bound an agent
+// and could not answer. This one was never asked: the test harness and any
+// role that serves no agent principals compose it on purpose, and a reader who
+// finds it knows a decision was taken rather than a dependency forgotten.
+//
+// Nothing in a production api path may use it. cmd/api wires the Redis-backed
+// meter, and a deployment that misconfigures Redis gets the loud refusal rather
+// than this.
+func Unmetered() *Meter {
+	return &Meter{limit: DefaultLimit, window: DefaultWindow, now: time.Now, unbounded: true}
 }
 
 // NewWithClock takes the clock as a dependency so the fixed window a charge
@@ -112,7 +133,7 @@ func NewWithClock(rdb *redis.Client, limit int, window time.Duration, now func()
 // served, so it never races a charge — the same discipline
 // overlaybudget.Meter.RebindFrom follows.
 func (m *Meter) RebindFrom(src *Meter) {
-	m.rdb, m.limit, m.window, m.now = src.rdb, src.limit, src.window, src.now
+	m.rdb, m.limit, m.window, m.now, m.unbounded = src.rdb, src.limit, src.window, src.now, src.unbounded
 }
 
 // Limit is the configured threshold, for the refusal envelope to report.
@@ -230,6 +251,9 @@ func (m *Meter) add(ctx context.Context, key string, n int) error {
 //     the fail-closed branch: the meter does not know whether the threshold has
 //     been passed, and a control that cannot answer must not answer "no".
 func (m *Meter) Read(ctx context.Context) Reading {
+	if m.unbounded {
+		return Reading{Limit: m.limit}
+	}
 	ws, agent, metered := m.meteredAgent(ctx)
 	if !metered {
 		return Reading{Limit: m.limit}

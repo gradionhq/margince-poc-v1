@@ -210,3 +210,35 @@ func TestAnUnusableConfiguredWindowFallsBackToTheSpecDefault(t *testing.T) {
 		t.Error("the window fallback did not produce a usable bucket")
 	}
 }
+
+// Unmetered and "cannot reach the counter" must never be the same thing. One is
+// a composition that declared no bound; the other is a bound that could not
+// answer, and only the second may refuse. Collapsing them would make every
+// Redis outage look like a deliberate opt-out.
+func TestAnUnmeteredCompositionAdmitsWhereAnUnreachableOneRefuses(t *testing.T) {
+	declared, unreachable := Unmetered(), New(nil, DefaultLimit, DefaultWindow)
+	ctx := agentCtx(t)
+
+	if declared.Read(ctx).Exceeded {
+		t.Error("a composition that declared no read bound refused an agent read")
+	}
+	if !unreachable.Read(ctx).Exceeded {
+		t.Error("a bound that cannot reach its counter admitted an agent read")
+	}
+	if err := declared.Consume(ctx, 5000); err != nil {
+		t.Errorf("charging an unmetered composition failed: %v", err)
+	}
+}
+
+// The rebind carries the unbounded flag too, so a Server that starts unmetered
+// and is later rebound to a real meter actually becomes bounded — and one
+// rebound to Unmetered does not keep enforcing a counter nothing pays into.
+func TestRebindingCarriesWhetherTheCompositionIsBounded(t *testing.T) {
+	shared := New(nil, DefaultLimit, DefaultWindow)
+
+	shared.RebindFrom(Unmetered())
+
+	if shared.Read(agentCtx(t)).Exceeded {
+		t.Error("rebinding to an unmetered composition left the meter refusing")
+	}
+}
