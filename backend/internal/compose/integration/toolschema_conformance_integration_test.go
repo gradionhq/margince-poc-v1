@@ -92,6 +92,12 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		// too, and it is the one a caller is most likely to mis-read.
 		{"search_records", `{"q":"nothing here matches this"}`},
 		{"read_record", `{"record_type":"person","id":"` + person.String() + `"}`},
+		// A plan that matches rows and one that matches none. The empty answer
+		// is the one worth holding to the shape: `coverage` is the field a
+		// caller reads before believing a short result, and it is not omitempty
+		// precisely so an absent one cannot read as a complete one.
+		{"query_workspace", `{"plan":{"version":"v1","target":"deal","where":[{"field":"status","op":"eq","value":"open"}]}}`},
+		{"query_workspace", `{"plan":{"version":"v1","target":"deal","where":[{"field":"name","op":"eq","value":"nothing here matches this"}]}}`},
 		{"read_record", `{"record_type":"deal","id":"` + deal.String() + `"}`},
 		{"catch_me_up_on", `{"record_type":"deal","record_id":"` + deal.String() + `"}`},
 		{"prep_for_meeting", `{"record_type":"deal","record_id":"` + deal.String() + `"}`},
