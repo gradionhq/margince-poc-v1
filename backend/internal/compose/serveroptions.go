@@ -470,6 +470,27 @@ func WithAccountBrief(brain completer, routingVersion string) Option {
 	}
 }
 
+// WithCompanyDossier binds the lane that writes what a company IS, and the
+// routing version that identifies the binding in every cached dossier's
+// fingerprint.
+//
+// Unlike the growth fit's, this lane is an improvement rather than a
+// precondition: the floor already describes the company from the same fields,
+// one restated value per sentence. What the model adds is prose a person reads
+// before a call instead of a list they skim.
+//
+// It rebuilds the shared handler set from BOTH services for the reason
+// WithGrowthFit does — replacing that set while remembering only one service
+// would leave the other endpoint answering from a service the Server no longer
+// holds. Either option may run first.
+func WithCompanyDossier(brain completer, routingVersion string) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.orgDossierSvc = orgdossier.NewService(pool, s.peopleStore, brain, routingVersion, time.Now)
+		s.orgDossierHandlers = orgdossier.NewHandlers(
+			s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay)
+	}
+}
+
 // WithGrowthFit binds the lane that judges how well a company fits what we
 // sell, and the routing version that identifies the binding in every cached
 // assessment's fingerprint.

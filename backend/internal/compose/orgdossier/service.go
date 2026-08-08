@@ -46,6 +46,7 @@ const storedVersion = 1
 type Service struct {
 	pool  *pgxpool.Pool
 	facts Facts
+	lane  Completer
 	now   func() time.Time
 	// routingVersion identifies the model binding in the fingerprint, so a
 	// re-pointed lane invalidates rather than serving assemblies written
@@ -55,11 +56,15 @@ type Service struct {
 
 // NewService binds the dossier to its reads; compose constructs it once per
 // process role.
-func NewService(pool *pgxpool.Pool, facts Facts, routingVersion string, now func() time.Time) *Service {
+// A nil lane is the no-model deployment, which serves the deterministic floor
+// and says so.
+func NewService(pool *pgxpool.Pool, facts Facts, lane Completer,
+	routingVersion string, now func() time.Time,
+) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{pool: pool, facts: facts, now: now, routingVersion: routingVersion}
+	return &Service{pool: pool, facts: facts, lane: lane, now: now, routingVersion: routingVersion}
 }
 
 // stored is the cached envelope: the payload plus what it takes to decide
@@ -107,14 +112,13 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 		return cached.wire(orgID), nil
 	}
 
+	sections, by := WriteDossier(ctx, s.lane, in)
 	written := stored{
 		Fingerprint: fingerprint,
 		Version:     storedVersion,
 		GeneratedAt: s.now().UTC(),
-		// No model lane is wired yet, so every assembly is the floor and says
-		// so. The surface never claims a model wrote what the floor did.
-		GeneratedBy: string(crmcontracts.Deterministic),
-		Sections:    keepGrounded(Deterministic(in), in),
+		GeneratedBy: string(by),
+		Sections:    sections,
 	}
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return zero, err
