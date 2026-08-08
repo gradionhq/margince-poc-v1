@@ -80,6 +80,44 @@ func overlayFor(unit, target, update string) string {
 		"\n  version: \"1\"\nactions:\n  - target: " + target + "\n    update:\n" + update
 }
 
+// committedBaseRoot builds a temp repository whose backend/api/ holds the
+// REAL committed contracts, copied byte for byte, and NO extensions at all.
+//
+// The zero-fragment condition is structural here rather than incidental: the
+// tree has no extensions/ directory, so scanExtensions returns the empty set by
+// construction and no future unit can change that. Reading the live tree
+// instead would tie the empty-tree guarantee to the accident that no unit
+// currently ships an api/ layer — and Task 10 lands the first one, at which
+// point the test would fail for a reason unrelated to what it proves, and the
+// tempting fix under time pressure is to delete it.
+func committedBaseRoot(t *testing.T) (root string, committed map[string][]byte) {
+	t.Helper()
+	repo, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "backend", "api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	committed = make(map[string][]byte, len(composedContractBases))
+	for _, base := range composedContractBases {
+		raw, err := os.ReadFile(filepath.Join(repo, "backend", "api", base))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "backend", "api", base), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		committed[base] = raw
+	}
+	units, err := scanExtensions(root)
+	if err != nil || len(units) != 0 {
+		t.Fatalf("units, err = %v, %v — the fixture must carry no extensions", units, err)
+	}
+	return root, committed
+}
+
 // TestComposedContractIsByteIdenticalWithNoFragments is the empty-tree
 // guarantee, and it is a COMPARISON against the committed bytes rather than
 // a property the composer asserts about itself: with no extension shipping
@@ -89,28 +127,27 @@ func overlayFor(unit, target, update string) string {
 // vanilla composed contract would stop matching the file every other lane
 // reads, and the empty-tree property the composition rests on would die
 // silently.
+//
+// The bytes are the real committed contracts (up to 839 KB of comments,
+// anchors, flow mappings and folded scalars — everything a round trip
+// rewrites); only the zero-fragment condition is synthesised. See
+// committedBaseRoot for why.
 func TestComposedContractIsByteIdenticalWithNoFragments(t *testing.T) {
-	root, err := filepath.Abs(repoRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	files, err := composedFiles(root)
+	root, committed := committedBaseRoot(t)
+	got, err := composedContracts(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, base := range composedContractBases {
 		t.Run(base, func(t *testing.T) {
-			want, err := os.ReadFile(filepath.Join(root, "backend", "api", base))
-			if err != nil {
-				t.Fatal(err)
-			}
-			got, ok := files["api/"+base]
+			want := committed[base]
+			composed, ok := got[base]
 			if !ok {
-				t.Fatalf("the composition does not emit api/%s at all", base)
+				t.Fatalf("the composition does not emit %s at all", base)
 			}
-			if !bytes.Equal(got, want) {
-				t.Fatalf("composed api/%s is not the base byte-for-byte: %d bytes vs %d; first difference at offset %d",
-					base, len(got), len(want), firstDifference(got, want))
+			if !bytes.Equal(composed, want) {
+				t.Fatalf("composed %s is not the base byte-for-byte: %d bytes vs %d; first difference at offset %d",
+					base, len(composed), len(want), firstDifference(composed, want))
 			}
 		})
 	}
@@ -128,6 +165,27 @@ func TestComposedContractIsByteIdenticalWithNoFragments(t *testing.T) {
 			t.Fatalf("merged = %q, want the base unchanged", merged)
 		}
 	})
+}
+
+// TestComposedFilesEmitsEveryContract is the wiring half, separated from the
+// byte-identity half deliberately: this one reads the LIVE tree, so it keeps
+// holding once a unit ships fragments (the merged contract will then differ
+// from its base, which is the point of the feature), while the test above
+// keeps proving the vanilla case against a tree that has none.
+func TestComposedFilesEmitsEveryContract(t *testing.T) {
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := composedFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, base := range composedContractBases {
+		if _, ok := files["api/"+base]; !ok {
+			t.Errorf("the composition does not emit api/%s", base)
+		}
+	}
 }
 
 // firstDifference reports the byte offset the two slices diverge at, so a
@@ -255,9 +313,17 @@ func TestFragmentRefusals(t *testing.T) {
 			wantErr: "already declares",
 		},
 		{
-			name:    "a target whose parent does not exist",
+			// A container that exists in one contract but not in the one being
+			// targeted: jobs.yaml has no components block, so the walk must
+			// refuse rather than invent one.
+			name:    "a container the targeted contract does not have",
+			api:     map[string]string{"jobs.yaml": overlayFor("u", "$.components.schemas.Thing", "      type: object\n")},
+			wantErr: "no components to extend",
+		},
+		{
+			name:    "a target outside every extendable container",
 			api:     map[string]string{"crm.yaml": overlayFor("u", "$.webhooks.thing", "      x: 1\n")},
-			wantErr: "webhooks",
+			wantErr: "never contract structure",
 		},
 		{
 			name:    "a route outside the unit's namespace",
@@ -276,6 +342,162 @@ func TestFragmentRefusals(t *testing.T) {
 			_, err := composeFrom(t, root)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("err = %v, want an error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestFragmentCannotReachInsideACoreNode is the additive-only rule at the
+// depth that matters. A leaf-only check is not enough: every target below adds
+// a NEW key, so "the final key must not exist" is satisfied, and each one still
+// mutates the interior of a node core owns.
+//
+// This is not theoretical. Before the ownership rule existed,
+// $.components.schemas.Deal.properties.hijacked composed successfully into the
+// REAL crm.yaml — `injected: true` landed inside the core Deal schema, where
+// gen-recordfields and gen-agentpolicy would compile it into a core type the
+// moment they read the composed lane.
+func TestFragmentCannotReachInsideACoreNode(t *testing.T) {
+	cases := []struct{ name, base, target string }{
+		{"a core schema's properties", "crm.yaml", "$.components.schemas.Deal.properties.hijacked"},
+		{"a core schema directly", "crm.yaml", "$.components.schemas.Deal.hijacked"},
+		{"a core job kind", "jobs.yaml", "$.kinds.core_thing.retry"},
+		{"a core path item", "crm.yaml", "$.paths['/v1/deals'].post"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fragmentRoot(t, map[string]map[string]string{
+				"u": {tc.base: overlayFor("u", tc.target, "      injected: true\n")},
+			})
+			files, err := composeFrom(t, root)
+			if err == nil {
+				t.Fatalf("composed an interior mutation of a core node:\n%s", files[tc.base])
+			}
+			if !strings.Contains(err.Error(), "never a field inside one") && !strings.Contains(err.Error(), "route namespace") {
+				t.Fatalf("err = %v, want the ownership (or route-namespace) refusal", err)
+			}
+		})
+	}
+
+	// The same rule against the REAL contracts, not a stand-in — the shape that
+	// actually composed before the fix.
+	t.Run("against the committed crm.yaml", func(t *testing.T) {
+		_, committed := committedBaseRoot(t)
+		frags := []contractFragment{{Unit: "u", Source: "extensions/u/api/crm.yaml",
+			Actions: []overlayAction{{
+				Target: "$.components.schemas.Deal.properties.hijacked",
+				Update: yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
+			}}}}
+		if _, err := mergeContract(committed["crm.yaml"], frags); err == nil {
+			t.Fatal("a field was injected into the committed Deal schema")
+		} else if !strings.Contains(err.Error(), "components.schemas.Deal") {
+			t.Fatalf("err = %v, want the refusal to name the core node", err)
+		}
+	})
+}
+
+// TestOneUnitCannotExtendAnotherUnitsNode closes the ordering-decides-validity
+// class the `claimed` map structurally cannot see, because the two targets are
+// different strings.
+//
+// alpha declares $.components.schemas.Shared; beta targets
+// $.components.schemas.Shared.properties, whose parent exists ONLY because
+// alpha ran first. Before the ownership rule, alpha→beta composed and
+// beta→alpha errored — deterministic, so never a flake, but the validity of a
+// unit's fragment depended on another unit's name sorting earlier.
+func TestOneUnitCannotExtendAnotherUnitsNode(t *testing.T) {
+	units := map[string]map[string]string{
+		"alpha": {"crm.yaml": overlayFor("alpha", "$.components.schemas.Shared", "      type: object\n")},
+		"beta":  {"crm.yaml": overlayFor("beta", "$.components.schemas.Shared.properties", "      stolen: {type: string}\n")},
+	}
+	files, err := composeFrom(t, fragmentRoot(t, units))
+	if err == nil {
+		t.Fatalf("beta extended alpha's node:\n%s", files["crm.yaml"])
+	}
+	for _, want := range []string{"components.schemas.Shared", "alpha", "beta"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not name %q", err, want)
+		}
+	}
+
+	// The refusal must not depend on which unit sorts first: reversing the
+	// names must refuse too, and for the same reason. Previously exactly one
+	// of the two orders composed.
+	t.Run("and not the other way round either", func(t *testing.T) {
+		reversed := map[string]map[string]string{
+			"zeta": {"crm.yaml": overlayFor("zeta", "$.components.schemas.Shared", "      type: object\n")},
+			"aaa":  {"crm.yaml": overlayFor("aaa", "$.components.schemas.Shared.properties", "      stolen: {type: string}\n")},
+		}
+		if _, err := composeFrom(t, fragmentRoot(t, reversed)); err == nil {
+			t.Fatal("the reverse order composed — validity still depends on unit name order")
+		}
+	})
+}
+
+// A unit MAY reach inside a node it declared itself: that is the difference
+// between an ownership rule and a blanket depth limit, and without it a unit
+// could not split a schema across two actions.
+func TestAUnitMayExtendItsOwnNode(t *testing.T) {
+	doc := "overlay: " + overlayVersion + "\ninfo:\n  title: solo\n  version: \"1\"\nactions:\n" +
+		"  - target: $.components.schemas.SoloThing\n    update:\n      type: object\n" +
+		"  - target: $.components.schemas.SoloThing.properties\n    update:\n      id: {type: string}\n"
+	files, err := composeFrom(t, fragmentRoot(t, map[string]map[string]string{"solo": {"crm.yaml": doc}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	crm := string(files["crm.yaml"])
+	for _, want := range []string{"SoloThing:", "properties:", "id: {type: string}"} {
+		if !strings.Contains(crm, want) {
+			t.Fatalf("composed contract misses %q:\n%s", want, crm)
+		}
+	}
+}
+
+// A top-level target is refused: $.webhooks would add a block of contract
+// STRUCTURE, and it also has no owner node for the ownership rule to judge.
+func TestFragmentCannotAddATopLevelBlock(t *testing.T) {
+	root := fragmentRoot(t, map[string]map[string]string{
+		"u": {"crm.yaml": overlayFor("u", "$.webhooks", "      thing: {}\n")},
+	})
+	_, err := composeFrom(t, root)
+	if err == nil || !strings.Contains(err.Error(), "never contract structure") {
+		t.Fatalf("err = %v, want the container refusal", err)
+	}
+
+	// Naming a container itself is refused by the same rule, and must be: it
+	// would replace every path in the contract at once.
+	t.Run("nor the container itself", func(t *testing.T) {
+		root := fragmentRoot(t, map[string]map[string]string{
+			"u": {"crm.yaml": overlayFor("u", "$.paths", "      /v1/ext/u/x: {}\n")},
+		})
+		if _, err := composeFrom(t, root); err == nil || !strings.Contains(err.Error(), "never contract structure") {
+			t.Fatalf("err = %v, want the container refusal", err)
+		}
+	})
+}
+
+// TestUpdateBlockRejectsADuplicateKey closes the last hole in "can a second
+// declaration reach the emitters unseen?". `update:` is a yaml.Node
+// destination, which yaml.v3 assigns raw — so neither KnownFields nor its own
+// uniqueKeys default applies, and a duplicate would ride verbatim into the
+// composed contract for a downstream parser to arbitrate.
+func TestUpdateBlockRejectsADuplicateKey(t *testing.T) {
+	cases := map[string]string{
+		"at the top of the update":  "      type: object\n      type: string\n",
+		"nested inside the update":  "      properties:\n        id: {type: string}\n        id: {type: integer}\n",
+		"inside a sequence element": "      oneOf:\n        - {type: string, type: integer}\n",
+	}
+	for name, update := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := fragmentRoot(t, map[string]map[string]string{
+				"u": {"crm.yaml": overlayFor("u", "$.components.schemas.UThing", update)},
+			})
+			files, err := composeFrom(t, root)
+			if err == nil {
+				t.Fatalf("a duplicate key rode into the composed contract:\n%s", files["crm.yaml"])
+			}
+			if !strings.Contains(err.Error(), "declared twice") {
+				t.Fatalf("error %q does not report the duplicate", err)
 			}
 		})
 	}

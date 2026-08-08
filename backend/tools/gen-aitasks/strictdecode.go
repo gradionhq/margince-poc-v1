@@ -8,12 +8,24 @@ package main
 // declaration of something reach the emitters without being seen?
 //
 // Duplicate keys are the third member of that question and need no code
-// here: yaml.v3's decoder refuses them by default (uniqueKeys), at every
-// depth and independently of KnownFields. gen-jobs' rejectDuplicateKinds
-// predates that knowledge and is belt-and-braces over the same property
-// with a nicer message; adding a second copy of it here would be a third.
-// TestAITasksRejectsDuplicateKey pins the behaviour so a yaml.v3 bump that
-// changed the default could not land quietly.
+// here: yaml.v3's decoder refuses them by default (uniqueKeys), independently
+// of KnownFields, and that default survives into a custom UnmarshalYAML —
+// node.Decode builds a fresh decoder which carries uniqueKeys even though it
+// drops KnownFields.
+//
+// The one destination that default does NOT reach is a `yaml.Node`: yaml.v3
+// assigns the raw node without going through the mapping decoder, so neither
+// uniqueKeys nor KnownFields applies. Nothing in THIS generator decodes into a
+// Node — every field it declares is a typed Go value — which is why the
+// property holds here with no code. gen-composition's parseOverlay does decode
+// into a Node (it must; `update:` holds arbitrary contract fragments) and pays
+// for it with an explicit rejectDuplicateKeys walk. So this is a fact about
+// this generator's destinations, not a blanket fact about the library.
+//
+// gen-jobs' rejectDuplicateKinds predates that knowledge and is belt-and-braces
+// over the same property with a nicer message; adding a second copy of it here
+// would be a third. TestAITasksRejectsDuplicateKey pins the behaviour so a
+// yaml.v3 bump that changed the default could not land quietly.
 
 import (
 	"bytes"

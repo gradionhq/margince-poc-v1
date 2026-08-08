@@ -259,8 +259,17 @@ func computeInputs(root string) (manifestInputs, error) {
 	return manifestInputs{Core: core, ApprovalsLock: lock, Extensions: rows}, nil
 }
 
-// coreDigest covers exactly the committed inputs the composed outputs
-// derive from: the workspace definition plus EVERY member's go.mod and
+// coreDigest covers the committed inputs the composed outputs derive from,
+// with ONE known gap: it hashes backend/api/crm.yaml but not the three base
+// contracts that became composition inputs alongside it (jobs.yaml,
+// ai-tasks.yaml, public-events.yaml — see composedContractBases). Editing one
+// of those therefore escapes the fast staleness probe (-verify-inputs); the
+// full -verify still catches it, by regenerating and finding the output hash
+// no longer reproduces the recorded one. Task 12b owns closing this, and it is
+// three strings in the list below. Do not read the list as complete until it
+// does.
+//
+// What it does cover: the workspace definition plus EVERY member's go.mod and
 // go.sum (any member's dependency change can change the composed
 // go.work.sum `go list -m all` resolves — tracking only backend's would
 // let a tools/ or cli/ bump slip past `-verify`), the composition module
