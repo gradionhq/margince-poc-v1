@@ -42,9 +42,11 @@ func TestNewDeclaresAServedTool(t *testing.T) {
 }
 
 // TestQuoteReturnsAKnownQuote: the handler ignores its input and returns
-// one of the declared quotes, shaped as the OutputSchema promises.
+// one of the declared quotes, shaped as the OutputSchema promises. The
+// Runtime is nil here because this tool reaches nothing through it — which
+// is exactly what a unit needing no capability looks like.
 func TestQuoteReturnsAKnownQuote(t *testing.T) {
-	out, err := New().Tools[0].Handle(context.Background(), nil)
+	out, err := New().Tools[0].Handle(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

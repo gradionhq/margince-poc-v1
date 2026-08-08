@@ -22,7 +22,16 @@ import (
 // signature mirrors the core mcp.Tool.Handle the boot adapts it to;
 // arguments and result are the raw JSON the tool's own typed decode
 // validates.
-type ToolHandler func(ctx context.Context, in json.RawMessage) (json.RawMessage, error)
+//
+// rt is the capability handle, and it arrives HERE — at invocation — rather
+// than through the unit's constructor. That is the whole reason a
+// declaration can be inert: New() is handed nothing, so a Tool value sitting
+// in a slice holds no route into the core, and the boot can validate the
+// composed set before any of it applies. The core mints rt for this one call
+// and releases it when this function returns, which is why retaining it is a
+// mistake the runtime reports (ErrRuntimeExpired) rather than one that
+// quietly works. A handler needing no capability ignores the parameter.
+type ToolHandler func(ctx context.Context, rt Runtime, in json.RawMessage) (json.RawMessage, error)
 
 // Tier is the risk tier an extension REQUESTS for a governed tool:
 // auto-execute runs without confirmation, confirmation-

@@ -51,7 +51,7 @@ func TestBuildExtensionToolsAdaptsHandlerBearingTools(t *testing.T) {
 				Name: "served", Description: unitToolDescription, Version: "1.0.0",
 				Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
 				InputSchema: json.RawMessage(`{"type":"object"}`),
-				Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+				Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
 					return json.RawMessage(`{"ok":true}`), nil
 				},
 			},
@@ -91,7 +91,7 @@ func TestBuildExtensionToolsRejectsServedConfirmationRequired(t *testing.T) {
 		Tools: []extension.Tool{{
 			Name: "archive", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 		}},
 	}})
 	if err == nil || !strings.Contains(err.Error(), "confirmation-required tool is not yet supported") {
@@ -107,7 +107,7 @@ func TestBuildExtensionToolsRejectsCrossUnitServedNameCollision(t *testing.T) {
 	served := extension.Tool{
 		Name: "quote", Description: unitToolDescription, Version: "1.0.0",
 		Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-		Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+		Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 	}
 	_, err := buildExtensionTools([]extension.Extension{
 		{Name: "unit-a", Version: "1.0.0", Tools: []extension.Tool{served}},
@@ -137,7 +137,7 @@ func TestBuildExtensionToolsRejectsAServedEgressTool(t *testing.T) {
 				Tools: []extension.Tool{{
 					Name: outboundVerbs[scope], Version: "1.0.0",
 					Tier: extension.TierAutoExecute, RequestedScope: scope,
-					Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+					Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 				}},
 			}})
 			if err == nil || !strings.Contains(err.Error(), "outbound") {
@@ -155,7 +155,7 @@ func TestBuildExtensionToolsDefaultsTheInputSchema(t *testing.T) {
 		Tools: []extension.Tool{{
 			Name: "count_things", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 		}},
 	}})
 	if err != nil {
@@ -177,7 +177,7 @@ func TestBuildExtensionToolsRejectsAServedToolWithNoDescription(t *testing.T) {
 		Tools: []extension.Tool{{
 			Name: "give_quote", Version: "1.0.0",
 			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 		}},
 	}})
 	if err == nil || !strings.Contains(err.Error(), "declares no Description") {
@@ -210,7 +210,7 @@ func TestBuildExtensionToolsAcceptsAnUndescribedInertTool(t *testing.T) {
 // verb rather than registering a title-less spec (which the core registry
 // refuses outright).
 func TestBuildExtensionToolsCarriesTheTitleAndFallsBackToTheVerb(t *testing.T) {
-	handle := func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil }
+	handle := func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil }
 	tools, err := buildExtensionTools([]extension.Extension{{
 		Name: "demo", Version: "1.0.0",
 		Tools: []extension.Tool{
@@ -246,7 +246,7 @@ func TestComposedToolServesThroughAdmission(t *testing.T) {
 		Tools: []extension.Tool{{
 			Name: "give_quote", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{"quote":"it ain't over"}`), nil
 			},
 		}},
@@ -280,7 +280,7 @@ func TestComposedReadToolRequiresTheScope(t *testing.T) {
 		Tools: []extension.Tool{{
 			Name: "give_quote", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{}`), nil
 			},
 		}},

@@ -61,7 +61,7 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 				return nil, fmt.Errorf("compose: extensions %q and %q both serve a tool named %q", owner, e.Name, tool.Name)
 			}
 			served[tool.Name] = e.Name
-			adapted, err := adaptExtensionTool(tool)
+			adapted, err := adaptExtensionTool(e.Name, tool)
 			if err != nil {
 				return nil, fmt.Errorf("compose: extension %q, tool %q: %w", e.Name, tool.Name, err)
 			}
@@ -72,8 +72,12 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 }
 
 // adaptExtensionTool maps ONE handler-bearing declaration onto the core
-// seam, refusing the shapes this surface cannot honestly serve.
-func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
+// seam, refusing the shapes this surface cannot honestly serve. unit is the
+// declaring extension's name, carried onto the adapted tool because it is
+// what the per-call Runtime is scoped to — the composed declaration is the
+// only place that fact exists, and the handler must never be able to supply
+// it.
+func adaptExtensionTool(unit extension.Name, tool extension.Tool) (extensionTool, error) {
 	tier, err := mcpTier(tool.Tier)
 	if err != nil {
 		return extensionTool{}, err
@@ -151,6 +155,7 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 			// false for everything this surface serves today.
 			Egress: scope.Egresses(),
 		},
+		unit:   string(unit),
 		handle: tool.Handle,
 	}, nil
 }
@@ -225,12 +230,29 @@ func mcpScope(s extension.Scope) (principal.Scope, error) {
 // seam: the derived spec drives the admission gate exactly as a core
 // tool's does, and Handle runs only after admission.
 type extensionTool struct {
-	spec   mcp.ToolSpec
+	spec mcp.ToolSpec
+	// unit is the declaring extension's name, the scope of every Runtime
+	// this tool's handler is invoked with.
+	unit   string
 	handle extension.ToolHandler
 }
 
 func (t extensionTool) Spec() mcp.ToolSpec { return t.spec }
 
+// Handle mints the call-scoped Runtime, runs the handler with it, and
+// releases it — which is the design's central mechanism, and the reason it
+// is HERE and not in the unit's constructor. A declaration holds no handle,
+// so nothing an extension can reach exists until admission has already
+// happened and this line runs; and because the release is deferred rather
+// than left to the handler, a retained Runtime is a reported failure
+// (extension.ErrRuntimeExpired) rather than a live capability that outlived
+// the call it was granted for.
 func (t extensionTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	return t.handle(ctx, in)
+	pool, vault := boundExtensionRuntime()
+	rt := runtimeFor(t.unit, pool, vault)
+	// Deferred, not called on the return path: a handler that panics has
+	// still finished with its Runtime, and a panic recovered upstream must
+	// not leave a live one behind.
+	defer rt.release()
+	return t.handle(ctx, rt, in)
 }

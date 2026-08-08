@@ -225,6 +225,12 @@ func startRunnerLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	if rverr != nil {
 		return rverr
 	}
+	// The same pool and custodian back the extension tier's per-call Runtime:
+	// a Surface-B run invokes governed extension tools through the runner's
+	// registry, so this role serves them and must bind what they reach the
+	// installation through. Bound here rather than at RegisterExtensions
+	// because a declaration is inert and needs neither.
+	compose.BindExtensionRuntime(pool, runnerVault)
 	runnerSvc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault), send)
 	_, _ = fmt.Fprintln(stdout, "worker resuming approved Surface-B runs (cg:overnight-agent)")
 	lanes.runner = runnerSvc

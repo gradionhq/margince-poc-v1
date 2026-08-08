@@ -110,7 +110,7 @@ func TestTheSweepSkipsExactlyWhatTheComposedSetRegisters(t *testing.T) {
 		Tools: []extension.Tool{{
 			Name: "yogi_quote", Description: unitToolDescription, Version: "1.0.0",
 			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
-			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 		}},
 	}})
 	if err != nil {

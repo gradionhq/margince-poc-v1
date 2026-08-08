@@ -73,7 +73,10 @@ type quoteOut struct {
 
 // quote returns a random quote. It takes no arguments — the input is
 // ignored rather than decoded — so there is nothing to validate and
-// nothing that can fail but the JSON encode.
-func quote(_ context.Context, _ json.RawMessage) (json.RawMessage, error) {
+// nothing that can fail but the JSON encode. The Runtime is ignored too:
+// the quotes are a fixed slice in this file, so the tool reaches nothing in
+// the workspace and needs no capability. The parameter is taken and dropped
+// rather than wrapped away, because Handle must stay a bare identifier.
+func quote(_ context.Context, _ extension.Runtime, _ json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(quoteOut{Quote: quotes[rand.IntN(len(quotes))]})
 }
