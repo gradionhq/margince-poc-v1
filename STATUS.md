@@ -83,12 +83,29 @@ closes the door on manually entered financial figures that plan §4.6 left ajar.
   only band with no colour, on purpose: giving it one would put an abstention
   on the same scale as a verdict.
 
-**What is left on PR 4.** `getClaimEvidence` (DOSS-WIRE-3, six source kinds),
-and the DOSSIER's own panel — the dossier endpoint is still curl-only. The
-dossier's model lane is also unwired (`orgdossier.Service` threads a
-`routingVersion` but takes no `Completer`); that one is cosmetic rather than
-load-bearing, since its floor already describes a company from its own fields,
-where growth fit's floor could only abstain.
+- **PR 4 (dossier panel + evidence)** — `screens/companydossier.tsx` renders the
+  dossier between the brief and the growth fit, and `getClaimEvidence` gives
+  every `fact` and `profile_field` citation a receipt: where the value came
+  from, the span it rests on, when a person last confirmed it, and what could
+  not be recorded. `screens/companyevidence.tsx` is the modal the chips open.
+
+**PR 4 is complete.** What remains on the company page is the DOSSIER's model
+lane (`orgdossier.Service` threads a `routingVersion` but takes no `Completer`).
+That one is cosmetic rather than load-bearing: its floor already describes a
+company from its own fields, where growth fit's floor could only abstain, which
+is why growth fit's lane was built first.
+
+**Two spec deviations on the evidence surface, both raised upstream.** The
+chapter addresses the receipt as `/claims/{claimId}/evidence`, but nothing here
+mints a claim identity — a sentence cites `(entity_type, entity_id)`, so the
+receipt is keyed on that and scoped under its company. And DOSS-PARAM-9's
+source-kind vocabulary has no `migration`, though migration 0099 makes it one of
+four provenance values a stored value can carry.
+
+**Two open issues from the review round**: [#2](../../issues/2) (nothing writes
+`retrieved_at`, so freshness measures the last write) and
+[#3](../../issues/3) (a row-scope miss on the anchor company reads as "you have
+not described your own company").
 
 **Two things to know before touching it.** Adding a contract operation breaks
 the build until its handler exists — `compose.Server` asserts
@@ -112,9 +129,9 @@ needs a backend capability built from scratch.
 skips) are green. Nothing is pushed: this work stays in the worktree until it
 is tested locally.
 
-**Next**, in plan order: finish PR 4 (`getClaimEvidence`, then the dossier
-panel), PR 5 (documents), then PR 6/8 (attachments, account-started email) and
-PR 9/10 (finance) against their ADRs.
+**Next**, in plan order: PR 5 (documents), then PR 6/8 (attachments,
+account-started email) and PR 9/10 (finance) against their ADRs. The dossier's
+own model lane is a small follow-up whenever it is wanted.
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 
