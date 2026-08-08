@@ -701,6 +701,7 @@ export const vi = {
   "co.brief.cite.person": "contact",
   "co.brief.cite.organization": "tài khoản",
   "co.brief.cite.fact": "dữ kiện",
+  "co.brief.cite.profile_field": "trường hồ sơ",
   // Several sources of one kind that have no screen to open collapse into one
   // counted chip, rather than a run of identical labels.
   "co.brief.cite.deal.many": "{count} deal",
@@ -708,6 +709,7 @@ export const vi = {
   "co.brief.cite.person.many": "{count} contact",
   "co.brief.cite.organization.many": "{count} tài khoản",
   "co.brief.cite.fact.many": "{count} dữ kiện",
+  "co.brief.cite.profile_field.many": "{count} trường hồ sơ",
   "approval.kind.advance_deal": "Chuyển giai đoạn của deal",
   "approval.kind.close_date_correction": "Sửa ngày chốt",
   "approval.kind.deal_follow_up": "Thêm việc theo dõi cho deal",

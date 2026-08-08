@@ -701,6 +701,7 @@ export const en = {
   "co.brief.cite.person": "contact",
   "co.brief.cite.organization": "account",
   "co.brief.cite.fact": "fact",
+  "co.brief.cite.profile_field": "profile field",
   // Several sources of one kind that have no screen to open collapse into one
   // counted chip, rather than a run of identical labels.
   "co.brief.cite.deal.many": "{count} deals",
@@ -708,6 +709,7 @@ export const en = {
   "co.brief.cite.person.many": "{count} contacts",
   "co.brief.cite.organization.many": "{count} accounts",
   "co.brief.cite.fact.many": "{count} facts",
+  "co.brief.cite.profile_field.many": "{count} profile fields",
   "approval.kind.advance_deal": "Move a deal forward",
   "approval.kind.close_date_correction": "Correct a close date",
   "approval.kind.deal_follow_up": "Add a follow-up on a deal",
