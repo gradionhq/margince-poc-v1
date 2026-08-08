@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import { Button, Field } from "../design-system/atoms";
+import { Button, Disclosure, Field } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
@@ -184,13 +184,16 @@ export function OAuthConnectPanel({
           body={problemMessageOf(connect.error, t)}
         />
       )}
-      <p
-        className="spoken-hint"
-        style={{ maxWidth: 460, margin: "4px auto 0" }}
-      >
-        <ShieldCheck aria-hidden /> {t(copy.hint)}
-      </p>
-      <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
+      {/* What the grant covers, and the consent-screen warning the provider
+          shows for a self-hosted app. Both are true and both matter to
+          somebody; neither is what the reader is deciding at this moment,
+          which is whether to press Connect. */}
+      <Disclosure summary={t("ob.s4.accessToggle")}>
+        <p className="spoken-hint">
+          <ShieldCheck aria-hidden /> {t(copy.hint)}
+        </p>
+        <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
+      </Disclosure>
       <div className="ob-connect-dialog-actions">
         <Button
           variant="primary"
@@ -549,12 +552,11 @@ export function ImapConnectPanel({
         </Field>
       </div>
 
-      <p
-        className="spoken-hint"
-        style={{ maxWidth: 460, margin: "12px auto 0" }}
-      >
-        <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
-      </p>
+      <Disclosure summary={t("ob.s4.accessToggle")}>
+        <p className="spoken-hint">
+          <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
+        </p>
+      </Disclosure>
 
       {connect.isError && (
         <ConnectWarn

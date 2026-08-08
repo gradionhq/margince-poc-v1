@@ -26,6 +26,12 @@ export type ClarifyAnswer = {
   /** The human declined the question (humans outrank the reader): nothing
    * is written to the field, and it stops counting as an open decision. */
   dismissed?: boolean;
+  /** The dismissal was NOT the human's — another answer of theirs already
+   * settled this question, so it was retired rather than declined. Both
+   * resolve identically on the wire; they read differently to a person, and
+   * a surface that tells someone they skipped a question they never saw is
+   * wrong about the only part they can check. */
+  autoResolved?: boolean;
 };
 
 // Whether a clarify sits over a human_conflict comparison: dismissing one of

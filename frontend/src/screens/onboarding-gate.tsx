@@ -10,13 +10,14 @@ import {
   useState,
 } from "react";
 import type { components } from "../api/schema";
+import { Disclosure } from "../design-system/atoms";
 import {
   MarginceCoreScene,
   type MarginceCoreState,
 } from "../design-system/margince-core";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { normalizeUrl } from "./onboarding";
+import { normalizeUrl, skipReasonText } from "./onboarding";
 import "./onboarding-gate.css";
 
 // The first screen of onboarding: one question, then the wait for the website
@@ -141,7 +142,11 @@ export function OnboardingGate({
           {t("ob.gate.field")}
         </label>
         {/* The border and the focus ring sit on the WRAPPER, so the field and
-            its inline submit share one outline instead of drawing two. */}
+            its inline submit share one outline instead of drawing two. The
+            stylesheet reads the input's own `aria-invalid` through `:has()` to
+            colour that outline, which is why rejection is not mirrored onto a
+            second attribute here: one source, and it is the one assistive
+            technology already reads. */}
         <div className="ob-gate-field">
           <input
             id="ob-gate-website"
@@ -194,6 +199,14 @@ export function OnboardingGate({
           </button>
         </p>
       )}
+
+      {/* The promise the product makes about the read, one press away rather
+          than in the sentence under the headline. Everyone is entitled to it;
+          almost nobody needs it before typing a domain, and carrying it in the
+          opening paragraph is what made that paragraph four lines long. */}
+      <Disclosure summary={t("ob.gate.trustToggle")}>
+        <p className="ob-gate-trust">{t("ob.gate.trustBody")}</p>
+      </Disclosure>
 
       {/* Named BEFORE the reader hands over their website, not after: which
           model is about to read it is part of the decision to let it. */}
@@ -315,13 +328,8 @@ function phaseKey(read: CompanySiteRead): MessageKey | null {
   return null;
 }
 
-// The honest fallback for a page whose skip/failure carries no reason.
 function reasonOf(t: Translate, page: CompanySiteReadPage): string {
-  return page.reason !== null &&
-    page.reason !== undefined &&
-    page.reason.trim() !== ""
-    ? page.reason
-    : t("ob.scan.pageNoReason");
+  return skipReasonText(t, page.reason);
 }
 
 // Colour is never the only carrier: the tile's own name says what happened to

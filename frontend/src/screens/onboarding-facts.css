@@ -5,15 +5,22 @@
  * appears rather than a warning re-styled per call site.
  */
 
+/* A full sentence in a tinted box, so the box is padded like one: at the meta
+   size the notice wraps to two or three lines in every language, and a tighter
+   top and bottom than sides made the last line sit on the border. Even padding
+   on all four sides is what lets the rule read as a notice rather than as a
+   strip. `pretty` keeps the last line off a single orphaned word, which at this
+   width is what a ragged notice usually ends on. */
 .ob-facts-cap {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   border: 1px solid var(--warnBorder);
   border-radius: var(--r-sm);
   background: var(--warnSurface);
   color: var(--textContent);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
+  text-wrap: pretty;
 }
 .ob-facts-cap:empty {
   display: none;

@@ -357,9 +357,18 @@ export function useCompanyRead({
   // readCompleted flag, so review stays reachable after the run retires.
   // Reordering these dispatches, or correlating REVIEW_READY, would strand
   // a completed read one event short of its review.
+  //
+  // `proposalArmed` is read here, and that is the point rather than a
+  // formality: the pending terminal is a ref, and a ref cannot wake an
+  // effect. The flag is set in the same tick the ref is, so it is the
+  // observable half of "a terminal is now waiting". Without it in the
+  // dependency list, a join that had ALREADY failed before the read finished
+  // leaves every dependency unchanged at the moment the terminal arrives —
+  // and the act sits on "opening your review" forever, with no way out but a
+  // reload.
   useEffect(() => {
     const terminal = pendingTerminal.current;
-    if (!terminal) {
+    if (!proposalArmed || !terminal) {
       return;
     }
     // A failed wizard-state join means the proposal can only answer for a
@@ -400,7 +409,14 @@ export function useCompanyRead({
     if (open.length === 0) {
       dispatch({ type: "REVIEW_READY" });
     }
-  }, [proposal.data, proposal.isError, proposalJoin, answers, dispatch]);
+  }, [
+    proposal.data,
+    proposal.isError,
+    proposalJoin,
+    proposalArmed,
+    answers,
+    dispatch,
+  ]);
 
   // The invariant this effect exists for: a question the server still
   // considers open always has exactly one place to answer it. The terminal

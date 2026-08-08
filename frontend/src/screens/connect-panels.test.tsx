@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import {
   OAuthConnectPanel,
   OAuthReturnPanel,
@@ -42,11 +43,12 @@ afterEach(() => {
 describe("the Google connect panel", () => {
   it("warns about the unverified-app notice and how to get past it", () => {
     render(<OAuthConnectPanel provider="gmail" onDismiss={() => {}} />);
-    expect(
-      screen.getByText(/unverified app.*Advanced.*Continue/i),
-    ).toBeTruthy();
+    // Both sentences read from the catalog: which caveat the panel carries is
+    // the behaviour under test, and a copy edit that leaves it carrying the
+    // same one should not read as a broken panel.
+    expect(screen.getByText(en["ob.s4.googleUnverified"])).toBeTruthy();
     // The reassurance is honest about scope: read-only, never sends.
-    expect(screen.getByText(/only ever reads/i)).toBeTruthy();
+    expect(screen.getByText(en["ob.s4.googleHint"])).toBeTruthy();
   });
 });
 

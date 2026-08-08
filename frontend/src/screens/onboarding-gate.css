@@ -4,8 +4,9 @@
  *
  * Three rules here are behaviour rather than taste:
  *
- *  - the surface SCROLLS and centres by flex slack, never by translation, so the
- *    submit button survives 200% zoom and a phone keyboard;
+ *  - the surface SCROLLS and is anchored from the top, never translated: the
+ *    column has to hold still while a read grows under it, and the submit
+ *    button has to survive 200% zoom and a phone keyboard;
  *  - every region that changes while a read polls (the phase line, the count
  *    row, the cost line) holds its own height, so an arriving page never moves
  *    what someone is reading;
@@ -17,15 +18,25 @@
  */
 
 .ob-gate {
+  /* One measure for the question and everything that answers it — the field,
+     and the message about what is in the field. A notice that spans the whole
+     column reads as a banner over the page; at the field's own width it reads
+     as attached to the control it is about. */
+  --ob-gate-measure: 420px;
   width: min(540px, 100%);
   margin: 0 auto;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-4);
-  padding: 48px var(--space-6);
+  /* Anchored under a deliberate top band rather than centred in the viewport.
+     A centred column re-centres on every arriving page, so the line someone is
+     reading travels upward while they read it; anchored, growth extends
+     downward into the band the bottom padding reserves. */
+  justify-content: flex-start;
+  gap: var(--space-5);
+  padding: clamp(var(--space-12), 13vh, var(--space-16)) var(--space-6)
+    var(--space-16);
   text-align: center;
 }
 @supports (min-height: 100dvh) {
@@ -44,7 +55,7 @@
      the ask stands clear of both — so the reader's eye is given three things,
      not five evenly spaced ones. The flex gap is the pair's spacing; these two
      margins buy the breaks around it. */
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 @keyframes ob-gate-rise {
@@ -90,18 +101,18 @@
 .ob-gate-title {
   margin: 0;
   font-family: var(--f-display);
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: -0.026em;
-  line-height: 1.15;
+  font-size: var(--fs-display);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-display);
+  line-height: var(--lh-tight);
   text-wrap: balance;
   color: var(--textPrimary);
 }
 .ob-gate-sub {
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--space-4);
   max-width: 452px;
-  font-size: 14.5px;
-  line-height: 1.62;
+  font-size: var(--fs-body);
+  line-height: var(--lh-relaxed);
   color: var(--textContent);
 }
 
@@ -120,7 +131,7 @@
    question. */
 .ob-gate-field {
   width: 100%;
-  max-width: 420px;
+  max-width: var(--ob-gate-measure);
   display: flex;
   align-items: center;
   min-height: 52px;
@@ -140,6 +151,17 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accentLight);
 }
+/* A refused field wears the danger boundary, focused or not. The accent ring
+   means "this is where you are", which on the value the gate just rejected
+   reads as approval of it — and it left the state resting entirely on the
+   message below, which is a second place to look. Same specificity as the
+   :focus-within rule above, so source order is what makes the state win. */
+.ob-gate-field:has([aria-invalid="true"]) {
+  border-color: var(--danger);
+}
+.ob-gate-field:has([aria-invalid="true"]):focus-within {
+  box-shadow: 0 0 0 3px var(--dangerBg);
+}
 .ob-gate-input {
   flex: 1;
   min-width: 0;
@@ -148,7 +170,7 @@
   outline: 0;
   padding: 13px var(--space-3) 13px 0;
   font-family: var(--f-body);
-  font-size: 15px;
+  font-size: var(--fs-lead);
   color: var(--textPrimary);
 }
 .ob-gate-input::placeholder {
@@ -166,8 +188,8 @@
   background: var(--accent);
   color: var(--textOnAccentControl);
   font-family: var(--f-body);
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
   transition: background 0.12s ease;
 }
@@ -187,8 +209,37 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--textMeta);
+}
+
+/*
+ * The trust fold, on a column where everything else is centred.
+ *
+ * The shared `.disclosure` atom is built for a left-aligned form: its summary
+ * hangs a chevron off the left edge and its rule spans whatever box it is in.
+ * Both read as a misalignment here — a lone left-aligned control under a
+ * centred headline, and a hairline wider than the field it sits under. So the
+ * control centres with its own chevron and the rule is cut to the same measure
+ * as the field, which is what makes it read as belonging to this column rather
+ * than to the page.
+ */
+.ob-gate .disclosure {
+  width: 100%;
+  max-width: var(--ob-gate-measure);
+  margin: 0 auto;
+  padding-top: var(--space-4);
+}
+.ob-gate .disclosure-summary {
+  justify-content: center;
+}
+.ob-gate-trust {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-relaxed);
+  color: var(--textMeta);
+  text-align: center;
+  text-wrap: pretty;
 }
 .ob-gate-link {
   background: transparent;
@@ -196,8 +247,8 @@
   padding: 2px;
   cursor: pointer;
   font-family: var(--f-body);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
   color: var(--accent);
 }
 .ob-gate-link:hover,
@@ -208,13 +259,16 @@
 .ob-gate-alert {
   margin: 0;
   width: 100%;
+  /* The field's measure, not the column's: an error about what was typed has
+     to sit under the box it was typed into, edge to edge with it. */
+  max-width: var(--ob-gate-measure);
   text-align: left;
   background: var(--dangerBg);
   border: 1px solid var(--danger);
   border-radius: var(--r-sm);
-  padding: 10px var(--space-3);
-  font-size: 12.5px;
-  line-height: 1.45;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
   color: var(--textContent);
 }
 
@@ -244,17 +298,17 @@
   gap: var(--space-2);
   flex-wrap: wrap;
   justify-content: center;
-  margin: var(--space-2) 0 0;
+  margin: var(--space-3) 0 0;
   color: var(--textMeta);
-  font-size: 11px;
+  font-size: var(--fs-meta);
 }
 
 .ob-gate-ai span {
   color: var(--aiText);
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -271,8 +325,8 @@
   max-width: 100%;
   color: var(--textContent);
   font-family: var(--f-mono);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
 }
 
 /* The gate and the theatre are full-viewport stages, not cards on a page: the
@@ -285,22 +339,36 @@
   overflow: hidden;
   background: var(--bgElevated);
 }
+@supports (min-height: 100dvh) {
+  .ob-gate-stage {
+    /* The stage and the column it holds have to agree on what the whole screen
+       is. Left on 100vh while .ob-gate resolves to 100dvh, the two differ by
+       the height of the mobile browser chrome, and the surface steps as that
+       chrome retracts. */
+    min-height: 100dvh;
+  }
+}
 
 /* ===== the read theatre ================================================= */
 
-/* One alignment for the whole theatre, held everywhere below the (centred)
-   headline: a crawl is a report, and a report reads left-aligned, flush to
-   one edge, top to bottom — not centred one row and flush the next. Every
-   region also takes the column's full width, which is what lets the tile
-   grid and the wrapping model list stay inside it instead of shrink-wrapping
-   to a size the flex column then centres past the edge. */
+/* ONE alignment for the whole theatre, the head included. A crawl is a report,
+   and a report reads flush to one edge, top to bottom. Centring the headline
+   and its subtitle over a flush-left crawl stacked two layouts that had nothing
+   to say to each other, and the seam between them was the first thing the eye
+   found. */
+.ob-scan {
+  align-items: flex-start;
+  text-align: left;
+}
+/* Every region takes the column's full width, which is what lets the tile grid
+   and the wrapping model list stay inside it instead of shrink-wrapping to a
+   size the flex column then places past the edge. */
 .ob-scan-phase,
 .ob-scan-strip,
 .ob-scan-ticker,
 .ob-scan-counts,
 .ob-scan-cost {
   width: 100%;
-  text-align: left;
 }
 
 /* Fixed height so the crossfade cannot move the strip beneath it. */
@@ -310,9 +378,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-family: var(--f-mono);
-  font-size: 12px;
-  letter-spacing: 0.02em;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
+  letter-spacing: var(--tracking-normal);
   color: var(--aiText);
 }
 @keyframes ob-scan-fade {
@@ -363,12 +431,23 @@
      flex items sizes itself to fit ALL of them on one line before wrapping
      is even considered, so at 40+ tiles the box — and the tiles inside it —
      ran straight past the column's edge and off the viewport. Taking the
-     full width up front means wrapping happens against a size that is
-     already correct. */
+     full width up front, and capping it there, means wrapping happens
+     against a size that is already correct however many pages arrive. */
+  max-width: 100%;
   min-height: 22px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  /* Rows stack from the top as the strip grows, so a new row appears below
+     the ones already read rather than re-spacing all of them. */
+  align-content: flex-start;
+  gap: var(--space-1);
+  /* The sheen below travels 70% of this box's width in each direction, which
+     is a long way outside it. Clipped exactly at the horizontal edges and
+     deliberately NOT at the vertical ones, so the light stays inside the
+     column's own left rule — the line the eye reads down on a flush-left
+     report — while keeping the few pixels of vertical bleed that make it read
+     as light rather than as a filled bar. */
+  clip-path: inset(-6px 0);
 }
 /* A slow light crossing the tiles: the strip's own way of saying the crawl is
    still going, which the growing row alone cannot say (a row that has not gained
@@ -376,7 +455,9 @@
 .ob-scan-strip::after {
   content: "";
   position: absolute;
-  inset: -4px -6px;
+  /* Bleeds vertically only. Sideways it would cross the column's own edge,
+     which on a flush-left report is the one line the eye uses to read down. */
+  inset: -4px 0;
   pointer-events: none;
   border-radius: var(--r-sm);
   background: linear-gradient(
@@ -411,6 +492,10 @@
 }
 .ob-scan-tile {
   display: block;
+  /* Never squeezed by the row it lands in: a tile that shrinks stops being the
+     same shape as the tile beside it, and shape is what carries the status for
+     a reader who cannot use the colour. */
+  flex: none;
   width: 14px;
   height: 14px;
   border-radius: 3px;
@@ -438,8 +523,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  font-family: var(--f-mono);
-  font-size: 12px;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
   color: var(--textMeta);
 }
@@ -447,7 +532,7 @@
    eye is told which one to follow. It is also the only one that climbs. */
 .ob-scan-counts .ob-scan-found {
   color: var(--accent);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 /* A drawn separator rather than a character: a middot in a string would be copy
    outside the catalog, and a screen reader reads it aloud. */
@@ -478,8 +563,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  margin-top: var(--space-2);
-  padding-top: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--borderSubtle);
 }
 .ob-scan-cost-head {
@@ -490,10 +575,10 @@
 }
 .ob-scan-cost-label {
   margin: 0;
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  font-family: var(--f-body);
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--aiText);
 }
@@ -501,7 +586,7 @@
   margin: 0;
   min-height: 15px;
   font-family: var(--f-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
   color: var(--textMeta);
 }
@@ -517,7 +602,7 @@
   margin: 0;
   color: var(--textMeta);
   font-family: var(--f-mono);
-  font-size: 10px;
+  font-size: var(--fs-meta);
   overflow-wrap: anywhere;
 }
 
@@ -528,8 +613,8 @@
 .ob-scan-ticker {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: var(--space-2) 0 0;
+  gap: var(--space-1);
+  margin: var(--space-3) 0 0;
 }
 
 /* min-height reserves the wrapped case (path's own line plus the reason's
@@ -541,7 +626,7 @@
   min-height: 46px;
   display: flex;
   align-items: baseline;
-  padding: 4px var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--r-sm);
   list-style: none;
 }
@@ -566,7 +651,7 @@
   overflow: hidden;
   color: var(--textContent);
   font-family: var(--f-mono);
-  font-size: 11px;
+  font-size: var(--fs-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -600,7 +685,7 @@
   cursor: pointer;
   color: var(--textMeta);
   font-family: var(--f-body);
-  font-size: 10.5px;
+  font-size: var(--fs-meta);
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
@@ -617,8 +702,8 @@
 .ob-scan-ticker-total {
   margin: 0;
   padding: 0 var(--space-2);
-  font-family: var(--f-mono);
-  font-size: 10.5px;
+  font-family: var(--f-body);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
   color: var(--textMeta);
 }
@@ -640,19 +725,19 @@
 
 @media (max-width: 899px) {
   .ob-gate {
-    gap: var(--space-3);
-    padding: 32px var(--space-4);
+    gap: var(--space-4);
+    padding: var(--space-10) var(--space-4) var(--space-12);
   }
   .ob-gate .core {
     --coreSize: 130px;
     --coreGlass: 88px;
   }
   .ob-gate-title {
-    font-size: 25px;
+    font-size: var(--fs-h1);
   }
   .ob-gate-input {
-    /* 16px or iOS zooms the page on focus. */
-    font-size: 16px;
+    /* Never below 16px, or iOS zooms the page on focus. */
+    font-size: var(--fs-h3);
   }
 }
 
