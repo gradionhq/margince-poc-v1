@@ -347,18 +347,33 @@ func (t advanceDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mcp
 	if err := decodeArgs(in, &args); err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	semantic, pipelineID, err := t.stages.StageSemantic(ctx, args.ToStageID)
+	return dealMoveResolverInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
+}
+
+// dealMoveResolverInput is what the tier gate is shown for a deal move: both
+// endpoints of the move, resolved to their semantics, plus the pipeline the
+// target belongs to.
+//
+// One builder for both dynamic tools, because they share one resolver. Two
+// copies would let the gate be fed differently by each — and the difference
+// that mattered would be the one that stopped reading the source, putting the
+// reopen hole back on whichever tool was edited second.
+func dealMoveResolverInput(
+	ctx context.Context, p datasource.SystemOfRecordProvider, stages StageResolver,
+	dealID, toStageID ids.UUID, args json.RawMessage,
+) (mcp.TierResolverInput, error) {
+	target, pipelineID, err := stages.StageSemantic(ctx, toStageID)
 	if err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	source, err := dealStageSemantic(ctx, t.p, t.stages, args.DealID)
+	source, err := dealStageSemantic(ctx, p, stages, dealID)
 	if err != nil {
 		return mcp.TierResolverInput{}, err
 	}
 	return mcp.TierResolverInput{
-		Args:                in,
+		Args:                args,
 		SourceStageSemantic: source,
-		TargetStageSemantic: semantic,
+		TargetStageSemantic: target,
 		PipelineID:          pipelineID.String(),
 	}, nil
 }

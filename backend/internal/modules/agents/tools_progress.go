@@ -63,23 +63,10 @@ func (t progressDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mc
 	if err := decodeArgs(in, &args); err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	semantic, pipelineID, err := t.stages.StageSemantic(ctx, args.ToStageID)
-	if err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	// The deal's CURRENT stage too, through the same reader advance_deal uses:
-	// this tool shares that resolver, so it has to feed it the same two
-	// endpoints or the shared rule would hold on one tool and not the other.
-	source, err := dealStageSemantic(ctx, t.p, t.stages, args.DealID)
-	if err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	return mcp.TierResolverInput{
-		Args:                in,
-		SourceStageSemantic: source,
-		TargetStageSemantic: semantic,
-		PipelineID:          pipelineID.String(),
-	}, nil
+	// The SAME builder advance_deal uses: this tool shares that tool's resolver,
+	// so it has to feed it the same two endpoints, and a second copy is how the
+	// shared rule comes to hold on one tool and not the other.
+	return dealMoveResolverInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
 }
 
 // StageInfo pins the staged move to the deal's CURRENT version, exactly
