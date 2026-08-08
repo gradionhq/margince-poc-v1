@@ -354,15 +354,20 @@ func organizationOutcome(match OrganizationMatch) ResolveOutcome {
 func companyDomains(c ResolveCandidate, consumerMail *freemail.Matcher) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(c.Domains)+len(c.Emails))
-	add := func(domain string) {
-		// The canonical parser, not a lowercase: a model handed "company
-		// domains" passes what is on the card, which is routinely
-		// `https://www.acme.example/`. Hostname strips the scheme, the path and
-		// the subdomain down to the registrable name the organization's own
-		// domain rows are stored under — so the difference between an exact hit
-		// and a name guess stops depending on how the caller happened to type it.
-		domain, ok := freemail.Hostname(domain)
-		if !ok || consumerMail.IsConsumer(domain) {
+	add := func(claimed string) {
+		// companyHost, which is what the organization_domain index is KEYED on —
+		// not a lowercase, and not freemail.Hostname either. A model handed
+		// "company domains" passes what is on the card, which is routinely
+		// `https://www.acme.example/careers`; companyHost is the same reducer the
+		// write path runs before storing a domain, so a claimed URL and a stored
+		// row meet in the middle instead of the caller's typing deciding whether
+		// this is an exact hit or a name guess.
+		// Trimmed first: companyHost prefixes a scheme onto anything without
+		// one, and a stray space would make that unparseable. The write path it
+		// is shared with arrives through a transport that has already validated
+		// the string; a tool argument has not.
+		domain, err := companyHost(strings.TrimSpace(claimed))
+		if err != nil || consumerMail.IsConsumer(domain) {
 			return
 		}
 		if _, dup := seen[domain]; dup {

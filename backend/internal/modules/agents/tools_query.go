@@ -241,8 +241,14 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 // admit reads one ref's target and every hop behind it, and reports whether the
 // row survives. It NOTES nothing: a row that fails here is never served, and a
 // record the caller was not given may not be charged to them.
+//
+// Both reads go through servedRecords.read — the ONE cached seam read this
+// package has — so a hop shared by a page of rows is asked for once, and the
+// rule about what a denial means as against a fault is written down once.
 func (t queryWorkspace) admit(ctx context.Context, ref QueryRef, served *servedRecords) (admittedRow, bool, error) {
-	record, readable, err := t.read(ctx, ref.Type, ref.ID)
+	record, readable, err := served.read(ctx, t.p, datasource.EntityRef{
+		Type: datasource.EntityType(ref.Type), ID: ref.ID,
+	})
 	if err != nil || !readable {
 		return admittedRow{}, false, err
 	}
@@ -252,7 +258,9 @@ func (t queryWorkspace) admit(ctx context.Context, ref QueryRef, served *servedR
 	// disclosure the hop's own row scope refused at selection.
 	hops := make([]datasource.Record, 0, len(ref.Evidence))
 	for _, hop := range ref.Evidence {
-		read, admitted, err := t.readHop(ctx, hop, served)
+		read, admitted, err := served.read(ctx, t.p, datasource.EntityRef{
+			Type: datasource.EntityType(hop.RecordType), ID: hop.ID,
+		})
 		if err != nil || !admitted {
 			return admittedRow{}, false, err
 		}
@@ -292,39 +300,6 @@ func (t queryWorkspace) serve(ctx context.Context, ref QueryRef, row admittedRow
 type admittedRow struct {
 	record datasource.Record
 	hops   []datasource.Record
-}
-
-// read fetches one record through the seam, WITHOUT stamping it.
-//
-// The BOOL is the verdict, kept separate from the error because the two mean
-// different things to the caller. False is a definite answer — archived, or an
-// authority narrowed since the plan ran — and the row is dropped. An error is
-// the ABSENCE of an answer, and is returned: reporting an unreachable store as
-// a partial result would describe an infrastructure fault as a property of the
-// caller's data, and they would act on the rows that did come back.
-func (t queryWorkspace) read(ctx context.Context, recordType string, id ids.UUID) (datasource.Record, bool, error) {
-	record, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(recordType), ID: id})
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
-			return datasource.Record{}, false, nil
-		}
-		return datasource.Record{}, false, err
-	}
-	return record, true, nil
-}
-
-// readHop reads one hop record, through the cache.
-func (t queryWorkspace) readHop(ctx context.Context, hop QueryEvidence, served *servedRecords) (datasource.Record, bool, error) {
-	key := datasource.EntityRef{Type: datasource.EntityType(hop.RecordType), ID: hop.ID}
-	if cached, ok := served.hops[key]; ok {
-		return cached.record, cached.readable, nil
-	}
-	record, readable, err := t.read(ctx, hop.RecordType, hop.ID)
-	if err != nil {
-		return datasource.Record{}, false, err
-	}
-	served.hops[key] = hopRead{record: record, readable: readable}
-	return record, readable, nil
 }
 
 // hopRead is one hop read and its verdict, so an unreadable hop is remembered

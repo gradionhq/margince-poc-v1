@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -323,6 +324,35 @@ func TestARecordNamedByTwoCandidatesIsChargedOnce(t *testing.T) {
 		if len(answer.Matches) != 1 || answer.Matches[0].Record.ID != person {
 			t.Errorf("candidate %d = %+v, want the shared record", i, answer)
 		}
+	}
+}
+
+// The key lists are bounded, and the refusal names the field that is over.
+//
+// The read asks the exact lanes ONE KEY AT A TIME, which is what stops two
+// addresses collapsing into one answer — and is exactly what makes an unbounded
+// list a multiplier: twenty candidates of a thousand addresses each would be
+// twenty thousand sequential lookups in one transaction, from a passport holding
+// nothing but `read`.
+func TestTheKeysOnOneCandidateAreBounded(t *testing.T) {
+	for _, field := range []string{"emails", "phones", "domains"} {
+		t.Run(field, func(t *testing.T) {
+			keys := make([]string, resolveMaxKeysPerCandidate+1)
+			for i := range keys {
+				keys[i] = fmt.Sprintf(`"k%d@acme.example"`, i)
+			}
+			args := fmt.Sprintf(`{"candidates":[{"kind":"person","%s":[%s]}]}`, field, strings.Join(keys, ","))
+			tool := resolveEntities{p: &queryProbeProvider{}, resolve: unreachedResolver(t)}
+
+			var bad *BadArgsError
+			_, err := tool.Handle(t.Context(), json.RawMessage(args))
+			if !errors.As(err, &bad) {
+				t.Fatalf("an oversized `%s` answered %v, want an argument refusal", field, err)
+			}
+			if !strings.Contains(err.Error(), field) {
+				t.Errorf("the refusal never names `%s`: %v", field, err)
+			}
+		})
 	}
 }
 

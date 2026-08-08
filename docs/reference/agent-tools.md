@@ -44,9 +44,9 @@ the credential: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## The catalog
 
-The **33 core tools**, listed in the order `Registry.Specs()` sorts them — which
+The **35 core tools**, listed in the order `Registry.Specs()` sorts them — which
 is the order `tools/list` returns. An enabled extension unit adds its own verbs
-to the same listing, so a vanilla install answers 34: these plus `yogi_quote`
+to the same listing, so a vanilla install answers 36: these plus `yogi_quote`
 (🟢, `read`), which is not tabled here because the catalog tracks the core
 surface.
 
@@ -158,8 +158,8 @@ The passport vocabulary is closed: `read`, `draft`, `write`, `send`, `enrich`
 passport's scopes and the granting human's live RBAC and seat — never the union,
 and never the passport alone.
 
-Counts are of the core catalog above — 35 tools; an enabled unit's verbs add to
-them (vanilla: `yogi_quote` makes it 36, and `read` 18).
+Counts are of the core catalog above; an enabled unit's verbs add to them
+(vanilla: `yogi_quote` makes `read` 18).
 
 | Scope | Tools it unlocks | What it means |
 |---|---|---|

@@ -69,6 +69,19 @@ const CodeResolutionBoundedByVisibility = "resolution_bounded_by_visibility"
 // carries, and far short of a sweep.
 const resolveMaxCandidates = 20
 
+// resolveMaxKeysPerCandidate bounds each key list on one candidate.
+//
+// It is a bound on WORK, and it exists because the read asks the exact lanes one
+// key at a time — which is what stops two addresses collapsing to one answer, and
+// what makes an unbounded list a multiplier. Twenty candidates carrying a
+// thousand addresses each would be twenty thousand sequential indexed lookups
+// inside a single transaction, from a caller holding nothing but `read`.
+//
+// Ten is past anything a card, a signature block or a meeting note carries. A
+// payload with more keys than this is not a payload; it is a list, and a list of
+// addresses is a batch of candidates.
+const resolveMaxKeysPerCandidate = 10
+
 // resolveKinds is the closed set of record types a candidate may ask about,
 // spelled with the seam's own constants so the check and the value that crosses
 // the seam cannot drift apart.
@@ -150,9 +163,9 @@ func (t resolveEntities) Spec() mcp.ToolSpec {
 					"ref":{"type":"string","description":"Your own label for this candidate, echoed back on its answer so a batch can be lined up. Any string; it is never stored."},
 					"name":{"type":"string","description":"Full name for a person, trading name for a company."},
 					"legal_name":{"type":"string","description":"The registered company name, when it differs from the trading name. Read for an organization only."},
-					"emails":{"type":"array","items":{"type":"string"},"description":"Every address on the payload, not just the primary one. For an organization each address also contributes its domain, unless it is a consumer mail domain."},
-					"phones":{"type":"array","items":{"type":"string"},"description":"Phone numbers in E.164 form; one that does not normalize is not a key and is ignored."},
-					"domains":{"type":"array","items":{"type":"string"},"description":"Company domains claimed by the payload. Read for an organization only."}},
+					"emails":{"type":"array","maxItems":10,"items":{"type":"string"},"description":"Every address on the payload, not just the primary one. For an organization each address also contributes its domain, unless it is a consumer mail domain."},
+					"phones":{"type":"array","maxItems":10,"items":{"type":"string"},"description":"Phone numbers in E.164 form; one that does not normalize is not a key and is ignored."},
+					"domains":{"type":"array","maxItems":10,"items":{"type":"string"},"description":"Company domains claimed by the payload. Read for an organization only."}},
 				"additionalProperties":false}}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[ResolveEntitiesResult](),
@@ -195,6 +208,14 @@ func (t resolveEntities) Handle(ctx context.Context, in json.RawMessage) (json.R
 		if !resolveKinds[c.Kind] {
 			return nil, &BadArgsError{Cause: fmt.Errorf(
 				"`kind` takes person or organization, not %q; leads are not resolved", c.Kind)}
+		}
+		for field, keys := range map[string][]string{"emails": c.Emails, "phones": c.Phones, "domains": c.Domains} {
+			if len(keys) > resolveMaxKeysPerCandidate {
+				return nil, &BadArgsError{Cause: fmt.Errorf(
+					"`%s` takes at most %d entries per candidate and this one carries %d; each key is looked "+
+						"up on its own, so a list of them is a batch of candidates rather than one",
+					field, resolveMaxKeysPerCandidate, len(keys))}
+			}
 		}
 		seam = append(seam, ResolveCandidate{
 			Kind: c.Kind, Name: c.Name, LegalName: c.LegalName,

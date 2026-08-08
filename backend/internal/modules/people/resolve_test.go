@@ -107,20 +107,48 @@ func TestResolveRequiresTheGrantForEveryKindInTheBatch(t *testing.T) {
 // private address onto whichever company first claimed that provider.
 func TestCompanyDomainsDerivesFromEmailsAndDropsConsumerMail(t *testing.T) {
 	got := companyDomains(ResolveCandidate{
-		// A URL, a bare name and a subdomain: what a model actually passes when
-		// asked for "company domains".
-		Domains: []string{"https://www.Acme.example/careers", " acme.example "},
-		Emails:  []string{"anna@acme.example", "anna@gmail.com", "not-an-address"},
+		Emails: []string{"anna@acme.example", "anna@gmail.com", "not-an-address"},
 	}, freemail.New(nil, nil))
 
-	if !slices.Contains(got, "acme.example") {
-		t.Errorf("domains = %v, want the company domain", got)
+	if !slices.Equal(got, []string{"acme.example"}) {
+		t.Errorf("domains = %v, want only the company one", got)
 	}
-	if slices.Contains(got, "gmail.com") {
-		t.Errorf("domains = %v, want no consumer-mail domain — it matches every private address", got)
+}
+
+// A CLAIMED DOMAIN IS WHATEVER THE CARD SAYS, and each form has to reduce to the
+// key the organization_domain index is stored under.
+//
+// Each case stands alone, with nothing else in the candidate to supply the
+// answer. An earlier version of this test passed a URL alongside the bare name
+// and asserted the result contained `acme.example` — which the bare name
+// supplied on its own, so the assertion held whether or not the URL was parsed
+// at all. cubic caught the bug the test could not.
+func TestEveryClaimedDomainFormReducesToTheStoredKey(t *testing.T) {
+	for _, claimed := range []string{
+		"acme.example",
+		" Acme.example ",
+		"www.acme.example",
+		"https://www.acme.example/careers",
+		"http://acme.example",
+	} {
+		t.Run(claimed, func(t *testing.T) {
+			got := companyDomains(ResolveCandidate{Domains: []string{claimed}}, freemail.New(nil, nil))
+			if !slices.Equal(got, []string{"acme.example"}) {
+				t.Errorf("domains = %v, want [acme.example]", got)
+			}
+		})
 	}
-	if len(got) != 1 {
-		t.Errorf("domains = %v, want one entry: a URL, a bare name and an address all name one key", got)
+}
+
+// The same domain claimed in two forms is ONE key, not two lookups.
+func TestTheSameDomainInTwoFormsIsOneKey(t *testing.T) {
+	got := companyDomains(ResolveCandidate{
+		Domains: []string{"https://www.acme.example/", "acme.example"},
+		Emails:  []string{"anna@acme.example"},
+	}, freemail.New(nil, nil))
+
+	if !slices.Equal(got, []string{"acme.example"}) {
+		t.Errorf("domains = %v, want one entry", got)
 	}
 }
 
