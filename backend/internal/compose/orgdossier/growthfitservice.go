@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/gradionhq/margince/backend/internal/compose/claims"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -43,6 +44,7 @@ type GrowthFitService struct {
 	pool  *pgxpool.Pool
 	facts Facts
 	self  SelfOffering
+	lane  Completer
 	now   func() time.Time
 	// routingVersion identifies the model binding in the fingerprint, so a
 	// re-pointed lane invalidates rather than serving assessments written
@@ -51,22 +53,26 @@ type GrowthFitService struct {
 }
 
 // NewGrowthFitService binds the assessment to its reads; compose constructs it
-// once per process role.
+// once per process role. A nil lane is the no-model deployment, which serves
+// the deterministic floor and says so.
 func NewGrowthFitService(pool *pgxpool.Pool, facts Facts, self SelfOffering,
-	routingVersion string, now func() time.Time,
+	lane Completer, routingVersion string, now func() time.Time,
 ) *GrowthFitService {
 	if now == nil {
 		now = time.Now
 	}
-	return &GrowthFitService{pool: pool, facts: facts, self: self, now: now, routingVersion: routingVersion}
+	return &GrowthFitService{
+		pool: pool, facts: facts, self: self, lane: lane,
+		now: now, routingVersion: routingVersion,
+	}
 }
 
 // storedGrowthFit is the cached envelope.
 //
-// It carries no factors, whitespace or objections yet, and the wire fields for
-// them stay absent rather than empty. The deterministic floor abstains, and an
-// abstention with an empty "what argues for this company" list would read as a
-// finding that nothing does — the opposite of what it means.
+// An abstention carries no claims, and the wire fields for them stay ABSENT
+// rather than empty: an empty "what argues for this company" list beside
+// "not enough evidence" would read as a finding that nothing does, which is the
+// opposite of what an abstention means.
 type storedGrowthFit struct {
 	Fingerprint  string                        `json:"fingerprint"`
 	Version      int                           `json:"version"`
@@ -76,6 +82,7 @@ type storedGrowthFit struct {
 	CappedReason string                        `json:"capped_reason"`
 	NextStep     string                        `json:"next_step"`
 	Completeness crmcontracts.DataCompleteness `json:"completeness"`
+	Claims       GrowthFitClaims               `json:"claims"`
 }
 
 // Get serves the growth fit, re-assessing when the cache no longer describes
@@ -123,22 +130,18 @@ func (s *GrowthFitService) Get(ctx context.Context, orgID ids.OrganizationID, fo
 		return cached.wire(orgID), nil
 	}
 
-	// No model lane is wired yet, so every assessment is the deterministic
-	// floor — which, for growth fit, ABSTAINS (DOSS-PARAM-7). The floor
-	// restates recorded values and grading is not a restatement, so it proposes
-	// `unknown` and lets the formula's own floor confirm it. What the reader
-	// gets is the completeness figure and the named gap, which is the honest
-	// answer until a model is configured.
-	assessed := Assess(in, crmcontracts.GrowthFitBandUnknown, confirmed, s.now().UTC())
+	utc := func() time.Time { return s.now().UTC() }
+	assessed, by := WriteGrowthFit(ctx, s.lane, in, confirmed, utc)
 	written := storedGrowthFit{
 		Fingerprint:  fingerprint,
 		Version:      growthFitStoredVersion,
-		GeneratedAt:  s.now().UTC(),
-		GeneratedBy:  string(crmcontracts.Deterministic),
+		GeneratedAt:  utc(),
+		GeneratedBy:  string(by),
 		Band:         string(assessed.Band),
 		CappedReason: assessed.CappedReason,
 		NextStep:     assessed.NextStep,
 		Completeness: assessed.Completeness,
+		Claims:       assessed.Claims,
 	}
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return zero, err
@@ -180,6 +183,26 @@ func (g storedGrowthFit) wire(orgID ids.OrganizationID) crmcontracts.Organizatio
 	}
 	if g.NextStep != "" {
 		out.NextStep = &g.NextStep
+	}
+	// Each list stays absent when it is empty, for the reason the envelope's
+	// own comment gives: a rendered-but-empty "what argues against them" reads
+	// as a finding of nothing rather than as nothing found.
+	if factors := wireSentences(g.Claims.PositiveFactors); len(factors) > 0 {
+		out.PositiveFactors = &factors
+	}
+	if factors := wireSentences(g.Claims.NegativeFactors); len(factors) > 0 {
+		out.NegativeFactors = &factors
+	}
+	if space := wireSentences(g.Claims.Whitespace); len(space) > 0 {
+		out.Whitespace = &space
+	}
+	if objections := wireSentences(g.Claims.Objections); len(objections) > 0 {
+		out.Objections = &objections
+	}
+	if g.Claims.RecommendedAngle != nil {
+		if angle := wireSentences([]claims.Sentence{*g.Claims.RecommendedAngle}); len(angle) == 1 {
+			out.RecommendedAngle = &angle[0]
+		}
 	}
 	return out
 }

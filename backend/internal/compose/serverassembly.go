@@ -139,10 +139,14 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// The dossier reads the SAME people store the 360 and the brief read, so
 	// the three cannot drift about what a company's facts are. No model lane is
 	// wired yet: every assembly is the deterministic floor and says so.
+	// The growth-fit lane is nil here: WithGrowthFit binds the api role's
+	// lane, and without it the assessment serves its deterministic floor —
+	// which for growth fit is an abstention, labelled as one.
+	s.orgDossierSvc = orgdossier.NewService(pool, s.peopleStore, "", time.Now)
+	s.orgGrowthFitSvc = orgdossier.NewGrowthFitService(
+		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now)
 	s.orgDossierHandlers = orgdossier.NewHandlers(
-		orgdossier.NewService(pool, s.peopleStore, "", time.Now),
-		orgdossier.NewGrowthFitService(pool, s.peopleStore, offeringConfirmed(s.peopleStore), "", time.Now),
-		s.sorDispatch.isOverlay)
+		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,

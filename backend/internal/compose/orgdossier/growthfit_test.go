@@ -229,6 +229,34 @@ func TestTheAbstentionFloorMatchesTheSpecsWorkedExamples(t *testing.T) {
 	}
 }
 
+// An `unknown` band must never arrive bare, whatever produced it.
+//
+// The reader cannot distinguish "we could not tell" from "a poor fit" without
+// a reason beside it, and those are opposite conclusions. Above the floor
+// nothing is missing, so the honest reason is not a data-gathering step — it is
+// that nothing is configured to judge with.
+func TestAnAbstentionWithNothingMissingStillSaysWhyItAbstained(t *testing.T) {
+	complete := fourOfSeven()
+	fresh := assessedAt.Add(-24 * time.Hour)
+	complete.ProfileFields = append(complete.ProfileFields,
+		machineField("buying_center", "Head of Operations", fresh),
+		machineField("buying_intents", "Cutting peak demand charges", fresh))
+	complete.Facts = append(complete.Facts, machineFact("technology", "SAP S/4HANA", fresh))
+
+	got := Assess(complete, crmcontracts.GrowthFitBandUnknown, true, assessedAt)
+
+	if got.Completeness.Present != got.Completeness.Expected {
+		t.Fatalf("present/expected = %d/%d, want a complete company for this case",
+			got.Completeness.Present, got.Completeness.Expected)
+	}
+	if got.Band != crmcontracts.GrowthFitBandUnknown {
+		t.Errorf("band = %q, want unknown", got.Band)
+	}
+	if got.NextStep == "" {
+		t.Error("a bare unknown: the reader cannot tell 'we could not judge' from 'a poor fit'")
+	}
+}
+
 // An assembly that wants nothing has no proportion to compare, and must not
 // divide by zero or judge a company it read nothing about.
 func TestAnEmptyRequiredSetAbstainsRatherThanDividingByZero(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/claims"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
@@ -171,14 +172,67 @@ func countsAsPresent(value, source string, retrievedAt *time.Time, updatedAt, no
 // sourceHuman is the provenance a person's own answer carries (migration 0099).
 const sourceHuman = "human"
 
+// GrowthFitClaims is the reasoning behind a band, in the one claim vocabulary
+// every generated surface here uses. Each claim carries the target-side records
+// it was written from, so the reader can open the evidence rather than take the
+// band on trust.
+type GrowthFitClaims struct {
+	PositiveFactors  []claims.Sentence `json:"positive_factors,omitempty"`
+	NegativeFactors  []claims.Sentence `json:"negative_factors,omitempty"`
+	Whitespace       []claims.Sentence `json:"whitespace,omitempty"`
+	Objections       []claims.Sentence `json:"objections,omitempty"`
+	RecommendedAngle *claims.Sentence  `json:"recommended_angle,omitempty"`
+}
+
+// empty reports whether nothing survived the grounding filter.
+func (c GrowthFitClaims) empty() bool {
+	return len(c.All()) == 0
+}
+
+// All flattens every claim into one list. The cert case asks what the whole
+// assessment cited, and a question about the assessment should not have to
+// know which of five buckets an answer landed in.
+func (c GrowthFitClaims) All() []claims.Sentence {
+	out := make([]claims.Sentence, 0,
+		len(c.PositiveFactors)+len(c.NegativeFactors)+len(c.Whitespace)+len(c.Objections)+1)
+	out = append(out, c.PositiveFactors...)
+	out = append(out, c.NegativeFactors...)
+	out = append(out, c.Whitespace...)
+	out = append(out, c.Objections...)
+	if c.RecommendedAngle != nil {
+		out = append(out, *c.RecommendedAngle)
+	}
+	return out
+}
+
+// JudgeableBandCount is how many bands a model may actually propose —
+// everything except the abstention. A cert scenario accepting all of them
+// accepts every reply, which the corpus refuses.
+const JudgeableBandCount = 3
+
+// BandIsJudgeable reports whether a band is one the MODEL may propose.
+// `unknown` is not: abstention is the counting step's verdict, so a scenario
+// that accepted it would be certifying a decision the model does not make.
+func BandIsJudgeable(band crmcontracts.GrowthFitBand) bool {
+	rank, known := bandRank[band]
+	return known && rank > bandRank[crmcontracts.GrowthFitBandUnknown]
+}
+
 // Assessment is the growth fit before it is dressed for the wire: the band that
-// survived both gates, why it could not go higher, and what to do next.
+// survived both gates, why it could not go higher, what to do next, and — when
+// a band was actually reached — the claims behind it.
 type Assessment struct {
 	Band         crmcontracts.GrowthFitBand
 	CappedReason string
 	NextStep     string
 	Completeness crmcontracts.DataCompleteness
+	Claims       GrowthFitClaims
 }
+
+// nowFunc is the injected clock. The assessment is stamped and the freshness
+// window is measured against it, so a test names the instant rather than racing
+// the wall clock.
+type nowFunc func() time.Time
 
 // Assess applies DOSS-FORM-2 to one company: count the inputs, abstain below
 // the floor, and cap what is left when we have not confirmed our own offering.
@@ -202,6 +256,19 @@ func Assess(in Input, proposed crmcontracts.GrowthFitBand, selfConfirmed bool, n
 	}
 
 	out.Band = proposed
+	if proposed == crmcontracts.GrowthFitBandUnknown {
+		// An abstention with the facts all present did not come from the
+		// counting — nothing was missing. It came from having no writer: no
+		// model lane is configured, or the one configured failed.
+		//
+		// It still needs a reason. `unknown` means "we could not tell", and a
+		// reader given that with nothing beside it cannot distinguish it from
+		// "a poor fit" — which is the opposite conclusion, and the single
+		// misreading this band exists to prevent (DOSS-AC-12).
+		out.NextStep = "the facts needed are all recorded, but nothing is configured to " +
+			"judge them — ask an administrator to configure the AI model"
+		return out
+	}
 	if !selfConfirmed && bandRank[proposed] > bandRank[crmcontracts.GrowthFitBandModerate] {
 		out.Band = crmcontracts.GrowthFitBandModerate
 		out.CappedReason = "we have not confirmed what this workspace itself sells, " +

@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -262,6 +263,13 @@ type Server struct {
 	// peopleStore is shared by the 360 and the account brief: the brief reads
 	// the company's curated profile through it, under the caller's own gates.
 	peopleStore *people.Store
+
+	// orgDossierSvc and orgGrowthFitSvc are the company view's other two
+	// generated surfaces. They are held for WithGrowthFit's sake: rebinding one
+	// lane must not silently drop the other's handler, which is what building a
+	// fresh handler set from a half-remembered pair would do.
+	orgDossierSvc   *orgdossier.Service
+	orgGrowthFitSvc *orgdossier.GrowthFitService
 
 	// resetRuntime is the non-Postgres purge set POST /admin/reset-data runs —
 	// the job queue, the event bus, the cache-flush announcement — injected by
