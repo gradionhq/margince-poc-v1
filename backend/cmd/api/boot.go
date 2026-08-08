@@ -21,10 +21,10 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
@@ -139,7 +139,7 @@ func sharedRedisClient(cfg apiConfig, logger *slog.Logger) (*redis.Client, func(
 
 // overlayOptions wires the overlay's two cross-role edges: the budget every
 // force-fresh read spends against, and the incumbent's inbound push.
-func overlayOptions(cfg apiConfig, deployCfg deployconfig.Config, rdb *redis.Client, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, error) {
+func overlayOptions(cfg apiConfig, deployCfg deployconfig.Config, rdb *redis.Client, quotaMeter *agentquota.Meter, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, error) {
 	// The overlay budget meter records against Redis, the SAME server the
 	// worker's poller uses, so force-fresh reads (this role) and poller
 	// sweeps (cmd/worker) spend against ONE shared per-workspace-per-
@@ -147,12 +147,11 @@ func overlayOptions(cfg apiConfig, deployCfg deployconfig.Config, rdb *redis.Cli
 	// here, not in compose); WithOverlayMeter Rebinds the Server's shared
 	// instance to it.
 	overlayMeter := overlaybudget.New(rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()))
-	// The MCP-SESS-READS bound rides the SAME Redis. It is wired here, beside
-	// the other meter, because this is the role that serves agent principals:
-	// left fail-closed, an api with Redis configured would refuse every agent
-	// read it was perfectly able to count.
-	readMeter := readmeter.New(rdb, readmeter.DefaultLimit, readmeter.DefaultWindow)
-	opts := []compose.Option{compose.WithOverlayMeter(overlayMeter), compose.WithReadMeter(readMeter)}
+	// The MCP-SESS-* counters ride the SAME Redis. The meter is built by the
+	// caller rather than here, because the model path needs the same pointer to
+	// charge MCP-SESS-COST against — two meters would count one agent's spend
+	// in two windows, neither of them the one the gate reads.
+	opts := []compose.Option{compose.WithOverlayMeter(overlayMeter), compose.WithAgentQuota(quotaMeter)}
 
 	// The HubSpot webhook-as-signal receiver (OVA-WIRE-10) mounts only when the
 	// app client secret is configured — it verifies the inbound v3 signature

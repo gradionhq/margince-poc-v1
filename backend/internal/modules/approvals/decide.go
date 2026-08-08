@@ -80,6 +80,14 @@ func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 	if err != nil {
 		return a, err
 	}
+	// A step-up's effect is not a write into another module, so it does not run
+	// through the effect table — which is closed to agent-minted stagings for
+	// the reason serverProposed states, and a step-up is always agent-minted.
+	// It widens the window the staging named, from that row's own passport
+	// (quotarelease.go).
+	if approve && a.Kind == KindQuotaRelease {
+		return a, s.applyQuotaRelease(ctx, a)
+	}
 	// The kind's follow-on effect runs after the decision committed: the
 	// approval IS decided either way; an effect failure surfaces to the
 	// deciding human (the approved-unredeemed row and its audit trail

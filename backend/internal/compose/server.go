@@ -37,13 +37,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -226,15 +226,15 @@ type Server struct {
 	// at all. WithOverlayMeter Rebinds this shared pointer to the live
 	// Redis-backed meter at boot.
 	overlayMeter *overlaybudget.Meter
-	// readMeter is the MCP-SESS-READS bound this role enforces on agent
+	// quotaMeter is the MCP-SESS-READS bound this role enforces on agent
 	// reads, shared by the two things that must agree about it: the admission
 	// gate that REFUSES on it and the tool registry that CHARGES it.
 	//
 	// Always non-nil (newServer constructs it unconditionally, fail-closed
-	// with no Redis), and WithReadMeter Rebinds this ONE pointer to the live
+	// with no Redis), and WithAgentQuota Rebinds this ONE pointer to the live
 	// Redis-backed meter at boot — so no option order can leave the gate
 	// enforcing a different counter from the one the registry pays into.
-	readMeter *readmeter.Meter
+	quotaMeter *agentquota.Meter
 	// overlayBackfillLimit bounds the overlay initial mirror backfill per
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
@@ -323,7 +323,6 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		peopleHandlers:     newPeopleHandlers(pool),
 		dealsHandlers:      dealsH,
 		activitiesHandlers: newActivitiesHandlers(pool),
-		approvalsHandlers:  approvalsHandlersWithEffects(pool),
 		searchHandlers:     search.NewHandlers(pool),
 		// Constructed, not merely embedded: the handler carries no nil-pool
 		// branch, so the zero value would panic on the first authenticated
@@ -371,11 +370,16 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// doc). Fail-closed until WithOverlayMeter Rebinds it with the live
 		// Redis client + config.
 		overlayMeter: failClosedOverlayMeter(),
-		// Fail-closed until WithReadMeter Rebinds it: a role serving the agent
+		// Fail-closed until WithAgentQuota Rebinds it: a role serving the agent
 		// surface with no Redis cannot tell whether an agent has passed its
 		// read bound, and answers that it has.
-		readMeter: readmeter.New(nil, readmeter.DefaultLimit, readmeter.DefaultWindow),
+		quotaMeter: agentquota.New(nil, agentquota.Limits{}, agentquota.DefaultWindow),
 	}
+	// After the literal, because the decision path takes the SAME meter pointer
+	// the gate and the registry take: a step-up refused against one counter and
+	// released into another would read, from the human's side, as an approval
+	// that did nothing.
+	srv.approvalsHandlers = approvalsHandlersWithEffects(pool, srv.quotaMeter)
 	srv.wireCaptureSettingsSurface(pool)
 	srv.wireExportSurface(pool, log)
 	srv.wireOnboardingSurface(pool)
@@ -409,9 +413,9 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// bound, the other pays into it, and a surface where those were two
 	// counters would step an agent up against a number nothing was charging.
 	s.toolRegistry = registryWithGate(pool,
-		auth.NewGate(identity.NewService(pool), auth.WithReadBound(s.readMeter)),
+		auth.NewGate(identity.NewService(pool), auth.WithQuota(s.quotaMeter)),
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
-		agents.WithReadCharger(s.readMeter))
+		agents.WithQuotaCharger(s.quotaMeter), agents.WithCostShare(s.quotaMeter))
 }
 
 // signalStrength bridges people's §4 relationship-strength computation to

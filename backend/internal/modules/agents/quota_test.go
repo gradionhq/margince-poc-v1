@@ -9,6 +9,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -17,19 +18,36 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// countingCharger is the read bound as the registry uses it: it only ever
-// receives charges, which is the whole of this half of the seam.
+// countingCharger is the meter as the registry uses it: it only ever receives
+// charges, which is the whole of this half of the seam. It keeps them PER
+// COUNTER, because most of what is worth asserting here is that a call was
+// charged against the right one.
 type countingCharger struct {
-	charged int
-	calls   int
+	charged map[agentquota.Counter]int
+	times   map[agentquota.Counter]int
 	err     error
+	// errOn narrows a failing meter to ONE counter. Redis being down fails
+	// every charge, and a test about the answer-stage asymmetry needs the
+	// call-ceiling charge — which runs first and refuses before the handler —
+	// to succeed, or it proves the wrong refusal.
+	errOn agentquota.Counter
 }
 
-func (c *countingCharger) Consume(_ context.Context, n int) error {
-	c.calls++
-	c.charged += n
-	return c.err
+func newCountingCharger() *countingCharger {
+	return &countingCharger{charged: map[agentquota.Counter]int{}, times: map[agentquota.Counter]int{}}
 }
+
+func (c *countingCharger) Consume(_ context.Context, counter agentquota.Counter, n int) error {
+	c.times[counter]++
+	c.charged[counter] += n
+	if c.err != nil && (c.errOn == "" || c.errOn == counter) {
+		return c.err
+	}
+	return nil
+}
+
+// reads is what the counter every pre-existing spec here is about was charged.
+func (c *countingCharger) reads() int { return c.charged[agentquota.Reads] }
 
 // servingTool hands back the records it was built with, through the ONE place
 // a datasource.Record becomes tool output — so it exercises the charge point
@@ -67,11 +85,11 @@ func readToolSpec(name string) mcp.ToolSpec {
 // holding scope. Options vary only what a given test is about.
 func chargingRegistry(t *testing.T, tool mcp.Tool, opts ...chargeTestOption) (*Registry, *countingCharger, context.Context) {
 	t.Helper()
-	cfg := chargeTest{charger: &countingCharger{}, scope: principal.ScopeRead}
+	cfg := chargeTest{charger: newCountingCharger(), scope: principal.ScopeRead}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithReadCharger(cfg.charger))
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithQuotaCharger(cfg.charger))
 	if cfg.noCharger {
 		r = NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
 	}
@@ -94,9 +112,14 @@ type chargeTest struct {
 type chargeTestOption func(*chargeTest)
 
 // withChargerError makes the meter unreachable, so a test can say what an
-// uncountable read does.
+// uncountable charge does.
 func withChargerError(err error) chargeTestOption {
 	return func(c *chargeTest) { c.charger.err = err }
+}
+
+// withChargerErrorOn makes exactly one counter unrecordable.
+func withChargerErrorOn(counter agentquota.Counter, err error) chargeTestOption {
+	return func(c *chargeTest) { c.charger.err, c.charger.errOn = err, counter }
 }
 
 // withScope runs the caller under a scope other than read.
@@ -120,8 +143,8 @@ func TestAnAnswerChargesForEveryRecordItServed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if charger.charged != 20 {
-		t.Errorf("a 20-record answer charged %d records", charger.charged)
+	if charger.reads() != 20 {
+		t.Errorf("a 20-record answer charged %d records", charger.reads())
 	}
 }
 
@@ -136,8 +159,8 @@ func TestARecordServedTwiceIsChargedTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if charger.charged != 3 {
-		t.Errorf("one record served three times charged %d; the bound counts what was handed over, not what is citable", charger.charged)
+	if charger.reads() != 3 {
+		t.Errorf("one record served three times charged %d; the bound counts what was handed over, not what is citable", charger.reads())
 	}
 }
 
@@ -166,8 +189,8 @@ func TestAFailedAnswerChargesNothing(t *testing.T) {
 		t.Fatal("the failing handler reported success")
 	}
 
-	if charger.calls != 0 {
-		t.Errorf("a failed answer charged the read bound %d times", charger.calls)
+	if charger.times[agentquota.Reads] != 0 {
+		t.Errorf("a failed answer charged the read bound %d times", charger.times[agentquota.Reads])
 	}
 }
 
@@ -181,8 +204,8 @@ func TestAnAnswerWithNoRecordsChargesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if charger.calls != 0 {
-		t.Errorf("a record-free answer charged the read bound %d times", charger.calls)
+	if charger.times[agentquota.Reads] != 0 {
+		t.Errorf("a record-free answer charged the read bound %d times", charger.times[agentquota.Reads])
 	}
 }
 
@@ -219,8 +242,8 @@ func TestAWriteThatReturnsARecordStillCharges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if charger.charged != 1 {
-		t.Errorf("a write's read-back charged %d records", charger.charged)
+	if charger.reads() != 1 {
+		t.Errorf("a write's read-back charged %d records", charger.reads())
 	}
 }
 
@@ -264,8 +287,8 @@ func TestAToolThatNamesRecordsChargesForThem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if charger.charged != 50 {
-		t.Errorf("a 50-record answer built from named records charged %d", charger.charged)
+	if charger.reads() != 50 {
+		t.Errorf("a 50-record answer built from named records charged %d", charger.reads())
 	}
 }
 
@@ -278,7 +301,10 @@ func TestAWriteIsServedEvenWhenItsChargeCannotBeRecorded(t *testing.T) {
 	spec.RequiredScope = principal.ScopeWrite
 	r, _, ctx := chargingRegistry(t, &servingTool{spec: spec, records: 1},
 		withScope(principal.ScopeWrite),
-		withChargerError(errors.New("redis is unreachable")))
+		// The ANSWER-stage charge is the one that fails here: by then the send
+		// has happened. A meter that failed the call-ceiling charge too would
+		// refuse before the handler ran, which is the opposite property.
+		withChargerErrorOn(agentquota.Reads, errors.New("redis is unreachable")))
 
 	out, err := r.Invoke(ctx, "send_email", json.RawMessage(`{}`))
 	if err != nil {
@@ -286,5 +312,98 @@ func TestAWriteIsServedEvenWhenItsChargeCannotBeRecorded(t *testing.T) {
 	}
 	if len(out) == 0 {
 		t.Error("the write's result was withheld")
+	}
+}
+
+// Every admitted call spends the ceiling every other quota sits under, and it
+// spends exactly one however many records the answer carried. Charging it per
+// record would make MCP-SESS-CALLS a second read bound with a different number.
+func TestEveryAdmittedCallSpendsOneOfTheCallCeiling(t *testing.T) {
+	r, charger, ctx := chargingRegistry(t, &servingTool{spec: readToolSpec("search_records"), records: 20})
+
+	if _, err := r.Invoke(ctx, "search_records", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := charger.charged[agentquota.Calls]; got != 1 {
+		t.Errorf("one call answering 20 records spent %d of the call ceiling, want 1", got)
+	}
+}
+
+// A call the meter cannot COUNT does not run. This is the one charge point at
+// which nothing has happened yet, which is exactly what lets it refuse — and
+// the ceiling it defends is the one every other quota sits under, so leaving it
+// uncounted while Redis blinks would let a flood through the gap.
+func TestACallThatCannotBeCountedIsNotRun(t *testing.T) {
+	tool := &servingTool{spec: readToolSpec("search_records"), records: 5}
+	r, charger, ctx := chargingRegistry(t, tool,
+		withChargerErrorOn(agentquota.Calls, errors.New("redis is unreachable")))
+
+	out, err := r.Invoke(ctx, "search_records", json.RawMessage(`{}`))
+
+	if !errors.Is(err, apperrors.ErrBudgetExceeded) {
+		t.Fatalf("an uncountable call → %v, want ErrBudgetExceeded", err)
+	}
+	if out != nil {
+		t.Error("the answer was served anyway")
+	}
+	if charger.times[agentquota.Reads] != 0 {
+		t.Error("the handler ran: records were charged for a call that was never counted")
+	}
+}
+
+// The act a call performs is charged against the counter its own KIND names,
+// derived by the same function the gate refuses on. The two halves must agree,
+// and the test that would pass without them agreeing is one that calls the
+// derivation directly — so this one goes through the registry.
+func TestTheActIsChargedAgainstTheCounterItsKindNames(t *testing.T) {
+	cases := []struct {
+		name    string
+		scope   principal.Scope
+		egress  bool
+		counter agentquota.Counter
+	}{
+		{"update_record", principal.ScopeWrite, false, agentquota.Writes},
+		{"send_email", principal.ScopeSend, true, agentquota.Egress},
+	}
+	for _, c := range cases {
+		spec := readToolSpec(c.name)
+		spec.RequiredScope, spec.Egress = c.scope, c.egress
+		r, charger, ctx := chargingRegistry(t, &servingTool{spec: spec, records: 1}, withScope(c.scope))
+
+		if _, err := r.Invoke(ctx, c.name, json.RawMessage(`{}`)); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+
+		if got := charger.charged[c.counter]; got != 1 {
+			t.Errorf("%s spent %d of %s, want 1", c.name, got, c.counter)
+		}
+		// And nothing of the OTHER act counter: a send that also spent the write
+		// quota would exhaust the loose bound while the tight one guarded nothing.
+		other := agentquota.Writes
+		if c.counter == agentquota.Writes {
+			other = agentquota.Egress
+		}
+		if got := charger.charged[other]; got != 0 {
+			t.Errorf("%s also spent %d of %s", c.name, got, other)
+		}
+	}
+}
+
+// A read-only tool is charged ONCE, per record, and never a second time for the
+// act. Its act IS its records; a separate call-shaped charge on top would meter
+// the same answer twice against the same counter.
+func TestAReadOnlyToolIsChargedForItsRecordsAndNotAlsoForTheAct(t *testing.T) {
+	r, charger, ctx := chargingRegistry(t, &servingTool{spec: readToolSpec("search_records"), records: 4})
+
+	if _, err := r.Invoke(ctx, "search_records", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	if charger.reads() != 4 {
+		t.Errorf("a 4-record read charged %d", charger.reads())
+	}
+	if charger.times[agentquota.Reads] != 1 {
+		t.Errorf("a read-only answer touched the read counter %d times, want one", charger.times[agentquota.Reads])
 	}
 }

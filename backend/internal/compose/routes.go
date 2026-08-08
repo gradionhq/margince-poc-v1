@@ -40,7 +40,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// The SAME meter the tool registry charges: this door refuses on the bound
 	// the other door pays into, so a Passport cannot spend its window on one
 	// and keep reading on the other.
-	gate := auth.NewGate(identitySvc, auth.WithReadBound(srv.readMeter))
+	gate := auth.NewGate(identitySvc, auth.WithQuota(srv.quotaMeter))
 	// This registry admits REST calls; it never INVOKES a tool — a REST enrich
 	// runs scrapeHandlers, not the tool — so the enricher here supplies only the
 	// spec's cap and tier, and the ZERO value supplies those. Deliberately not

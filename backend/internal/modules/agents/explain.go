@@ -18,6 +18,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
@@ -38,8 +39,26 @@ func (s *Dispatcher) explain(tool string, err error) string {
 	var (
 		badArgs     *BadArgsError
 		unknownTool *UnknownToolError
+		steppedUp   *StepUpStagedError
+		overQuota   *auth.QuotaExceededError
 	)
 	switch {
+	case errors.As(err, &steppedUp):
+		// The step-up, ANSWERED FIRST because it also matches the budget branch
+		// below and only this one says what has changed: a human is now looking
+		// at the question. The instruction differs from the 🟡 loop's in the one
+		// way that matters — there is no token to present, because approving
+		// widens the window rather than releasing a call.
+		return "This agent has reached a volume limit for this window, and the person who connected it has been " +
+			"asked whether it may continue. Do not send an approval_id: once they approve, repeat this call unchanged. (" +
+			steppedUp.Error() + ")"
+	case errors.As(err, &overQuota):
+		// A hard stop. Naming the window as the only thing that ends it is the
+		// whole value of this branch: an agent told to "ask a human" about a
+		// send ceiling waits for an approval nobody can grant.
+		return "This agent has reached a volume limit for this window that no approval lifts. Stop calling this tool " +
+			"and tell the user what is blocking it; the same call can succeed after the window rolls. (" +
+			overQuota.Error() + ")"
 	case errors.Is(err, apperrors.ErrRequiresApproval):
 		return "This is a confirm-first (🟡) action: it needs human approval before it runs. " +
 			"Ask the user to perform it in the CRM, or wait for the approval flow. Nothing was changed. (" + err.Error() + ")"

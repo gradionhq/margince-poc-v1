@@ -58,10 +58,14 @@ type Registry struct {
 	// granting human's authority live per call. A nil gate fails closed
 	// for agent principals (Gate.Admit owns that rule).
 	gate *auth.Gate
-	// reads is the MCP-SESS-READS meter this surface CHARGES. The gate holds
-	// the same meter and does the refusing; the split is deliberate — a bound
-	// is enforced where admission is decided and paid where records leave.
-	reads ReadCharger
+	// quota is the MCP-SESS-* meter this surface CHARGES. The gate holds the
+	// same meter and does the refusing; the split is deliberate — a bound is
+	// enforced where admission is decided and paid where records and effects
+	// leave.
+	quota QuotaCharger
+	// cost answers the SOFT budget-share counter, whose only effect is a
+	// warning on the answer (quota.go).
+	cost CostShareReader
 }
 
 // NewRegistry builds the tool surface over its approvals engine and admission
@@ -224,13 +228,17 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	// before staging, and both halves matter: a caller the gate turns away learns
 	// nothing about arguments, while a caller it would send to the approval queue
 	// is told about its own bad arguments first — staging an unrunnable call spends
-	// a human's yes on something that was never going to happen.
-	if err == nil || errors.Is(err, apperrors.ErrRequiresApproval) {
+	// a human's yes on something that was never going to happen. A step-up is
+	// staging too, and spends the same yes.
+	if askedOfAHuman(err) {
 		if argErr := r.requireDeclaredArgs(name, args); argErr != nil {
 			return nil, argErr
 		}
 	}
 	ctx = admitted
+	if stepUp := releasableQuotaRefusal(err); stepUp != nil {
+		return nil, r.stageStepUp(ctx, stepUp)
+	}
 	switch {
 	case err == nil:
 		// An auto-execute call may still carry approval_id: the retry of a
@@ -274,6 +282,13 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 // error carries the sentinel and the message the caller acts on, not a document
 // with an empty payload inside it.
 func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
+	// The call ceiling is charged HERE, at the one point every admitted call
+	// passes on its way to a handler, and BEFORE the handler runs — the only
+	// moment at which "has anything happened yet?" is still no, which is what
+	// lets an uncountable call be refused rather than absorbed.
+	if err := r.chargeCall(ctx, spec); err != nil {
+		return nil, err
+	}
 	ctx, trace := withTrace(ctx)
 	ctx, facts := withEnvelopeFacts(ctx)
 	noteRowScope(ctx)
@@ -281,6 +296,7 @@ func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, ar
 	if err != nil {
 		return nil, err
 	}
+	r.noteCostShare(ctx)
 	sealed, err := sealEnvelope(spec, trace, facts, out)
 	if err != nil {
 		return nil, err
@@ -290,7 +306,7 @@ func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, ar
 	// recorded can still refuse it. An answer sealed and then charged in the
 	// other order would spend the window on a result a marshalling failure was
 	// about to discard.
-	if err := r.chargeReads(ctx, spec, facts.servedCount()); err != nil {
+	if err := r.chargeAnswer(ctx, spec, facts.servedCount()); err != nil {
 		return nil, err
 	}
 	return sealed, nil

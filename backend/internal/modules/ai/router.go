@@ -46,10 +46,13 @@ type routeMeta struct {
 // before the call, and every call lands in the meter. This is the one
 // place routing policy lives — callers never pick a model.
 type Router struct {
-	clients         map[Tier]model.Client
-	embedder        model.Client
-	profile         Profile
-	meter           usageStore
+	clients  map[Tier]model.Client
+	embedder model.Client
+	profile  Profile
+	meter    usageStore
+	// agentSpend is the per-Passport share of the workspace budget
+	// (MCP-SESS-COST). Nil in every role that serves no inbound agent.
+	agentSpend      AgentTokenSpender
 	budget          BudgetPolicy
 	stripper        model.SecretStripper
 	cache           *resultCache

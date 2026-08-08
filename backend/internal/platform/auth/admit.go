@@ -15,21 +15,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
-
-// ReadBound answers whether the calling agent has been handed more records
-// this window than MCP-SESS-READS allows. It is an interface rather than the
-// concrete meter so this package — the one admission point — stays testable
-// without a Redis client, and so a deployment that has not composed a bound is
-// a visible nil rather than a meter that silently answers "plenty".
-type ReadBound interface {
-	Read(ctx context.Context) readmeter.Reading
-}
 
 // Gate admits governed actions. Its authority source is the
 // shared/ports/authz seam: identity implements it, the composition root
@@ -38,7 +29,7 @@ type ReadBound interface {
 // instead of surviving on whatever the transport stamped earlier.
 type Gate struct {
 	authority authz.Resolver
-	reads     ReadBound
+	quota     Quota
 }
 
 // GateOption configures a Gate at construction. Variadic rather than
@@ -47,18 +38,18 @@ type Gate struct {
 // nil by copy-paste.
 type GateOption func(*Gate)
 
-// WithReadBound installs the MCP-SESS-READS meter. A gate built WITHOUT one
-// does not enforce the read bound at all, which is a real composition rather
-// than an oversight: the Surface-B runner and the workflow paths build a gate
-// and run as the human or system that started them, whom this bound does not
-// govern. The api server — the one role an agent principal ever reaches —
+// WithQuota installs the per-Passport volume meter (MCP-SESS-*). A gate built
+// WITHOUT one does not enforce any of those bounds, which is a real composition
+// rather than an oversight: the Surface-B runner and the workflow paths build a
+// gate and run as the human or system that started them, whom these bounds do
+// not govern. The api server — the one role an agent principal ever reaches —
 // passes it, from the same pointer it gives the registry that charges it.
-func WithReadBound(reads ReadBound) GateOption {
-	return func(g *Gate) { g.reads = reads }
+func WithQuota(quota Quota) GateOption {
+	return func(g *Gate) { g.quota = quota }
 }
 
 // NewGate builds the admission point over its authority seam. Options add
-// the dependencies only some roles have — today, the read bound.
+// the dependencies only some roles have — today, the volume meter.
 func NewGate(authority authz.Resolver, opts ...GateOption) *Gate {
 	g := &Gate{authority: authority}
 	for _, opt := range opts {
@@ -132,20 +123,12 @@ func (g *Gate) Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp
 	// runs AFTER scope and seat so a caller who may not run the verb at all
 	// never learns that a quota exists, let alone how much of it is spent.
 	//
-	// It binds READ-ONLY tools only, through the spec's own predicate rather
-	// than a second scope comparison — one definition of "this tool only
-	// reads", so the refusal here and the charge in the agents registry cannot
-	// drift apart as scope semantics evolve. The bound is MCP-SESS-READS and it
-	// counts records handed over; refusing a write because reading was heavy
-	// would enforce a limit nobody wrote. A write that returns a record still
-	// COUNTS toward the window (the charge point is where records leave the
-	// surface, not here) — it is only the refusal that is read-scoped.
-	if spec.ReadOnly() && g.reads != nil {
-		if reading := g.reads.Read(ctx); reading.Exceeded {
-			return ctx, fmt.Errorf(
-				"gate: %s: this agent has been handed %d records against a limit of %d for this window; it may read again when the window rolls, or once an operator raises the limit: %w",
-				spec.Name, reading.Observed, reading.Limit, apperrors.ErrBudgetExceeded)
-		}
+	// Which counters bind THIS call, and what crossing one costs, is quota.go's
+	// business. It runs before tier because a suspended Passport is refused
+	// whatever the tier resolves to, and resolving a dynamic tier costs a
+	// database read the refused caller should not be able to make us pay.
+	if err := g.refuseOnQuota(ctx, spec); err != nil {
+		return ctx, err
 	}
 
 	tier := spec.Tier
@@ -177,7 +160,7 @@ func deniedIfGone(what, tool string, err error) error {
 	return fmt.Errorf("gate: %s: resolving %s: %w", tool, what, err)
 }
 
-// AdmitRead applies the READ QUOTA alone, for a call that has no tool spec to
+// AdmitRead applies the READ quota alone, for a call that has no tool spec to
 // admit against — the ADR-0055 REST surface's non-mutating half.
 //
 // It exists because that path has no tier to resolve and no scope to check
@@ -187,19 +170,24 @@ func deniedIfGone(what, tool string, err error) error {
 // /v1 — one credential, two doors, one of them unbounded. ADR-0055's whole
 // claim is that those two doors are governed alike.
 //
+// MCP-SESS-CALLS is deliberately NOT applied here. It counts TOOL calls, and a
+// REST GET is not one: charging it would meter the same credential against a
+// ceiling written for a surface this request never touched, and the two doors
+// would then disagree about what a call is. The mutating REST half has no such
+// gap — it resolves the operation's tool twin and admits against that spec
+// (compose/agentgate.go), so writes, egress and calls all bind there.
+//
 // Non-agents are admitted untouched, exactly as Admit leaves them.
 func (g *Gate) AdmitRead(ctx context.Context) error {
-	if g == nil || g.reads == nil {
+	if g == nil || g.quota == nil {
 		return nil
 	}
 	p, ok := principal.Actor(ctx)
 	if !ok || p.Type != principal.PrincipalAgent {
 		return nil
 	}
-	if reading := g.reads.Read(ctx); reading.Exceeded {
-		return fmt.Errorf(
-			"gate: this agent has been handed %d records against a limit of %d for this window; it may read again when the window rolls, or once an operator raises the limit: %w",
-			reading.Observed, reading.Limit, apperrors.ErrBudgetExceeded)
+	if reading := g.quota.Read(ctx, agentquota.Reads); reading.Exceeded {
+		return &QuotaExceededError{Reading: reading}
 	}
 	return nil
 }

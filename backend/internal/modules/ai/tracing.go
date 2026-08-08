@@ -159,6 +159,12 @@ func (r *Router) attemptLadder(ctx context.Context, lc *logicalCall, base Call, 
 			// mislabeling this a provider error.
 			return out, t, false, fmt.Errorf("ai: call served but metering failed: %w", errors.Join(errMeteringFailed, meterErr))
 		}
+		// The same tokens, charged to the agent that caused them. It is a
+		// second counter over one spend rather than a re-derivation of the
+		// first: the workspace budget answers "is this installation spending
+		// too much", and only this one answers "is one connected agent taking
+		// a disproportionate share of it".
+		r.spendAgentTokens(ctx, out.InputTokens+out.OutputTokens)
 		if !r.cacheOff {
 			r.cache.put(key, wsID, out, t)
 		}

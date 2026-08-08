@@ -31,6 +31,11 @@ import (
 // never stages, it only reads the declared surface.
 type stubApprovals struct{}
 
+// StageQuotaRelease satisfies the seam; a step-up never reaches these tests.
+func (stubApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
+
 func (stubApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
 	return ids.ApprovalID{}, nil
 }

@@ -24,6 +24,11 @@ import (
 // gate actually staged.
 type capturingApprovals struct{ last agents.StageRequest }
 
+// StageQuotaRelease satisfies the seam; a step-up never reaches these tests.
+func (c *capturingApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
+
 func (c *capturingApprovals) Stage(_ context.Context, in agents.StageRequest) (ids.ApprovalID, error) {
 	c.last = in
 	return ids.ApprovalID{}, nil
@@ -125,6 +130,11 @@ func TestConfirmFirstTargetsArePinnable(t *testing.T) {
 // pinningApprovals redeems successfully and reports a pin, standing in for
 // an approval whose target carried a version.
 type pinningApprovals struct{ version int64 }
+
+// StageQuotaRelease satisfies the seam; a step-up never reaches these tests.
+func (pinningApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
 
 func (pinningApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
 	return ids.ApprovalID{}, nil

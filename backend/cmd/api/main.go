@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -106,7 +107,13 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	opts = append(opts, surfaceOpts...)
 
-	overlayOpts, err := overlayOptions(cfg, deployCfg, rdb, pool, logger, stdout)
+	// The per-Passport volume meter, built once and shared: the admission gate
+	// and the tool registry take it through WithAgentQuota, and the model path
+	// takes it below so a model call charges the agent that caused it. This is
+	// the role that serves agent principals, so leaving it fail-closed would
+	// refuse every agent read an api with Redis configured could count.
+	quotaMeter := agentquota.New(rdb, agentquota.Limits{}, agentquota.DefaultWindow)
+	overlayOpts, err := overlayOptions(cfg, deployCfg, rdb, quotaMeter, pool, logger, stdout)
 	if err != nil {
 		return err
 	}
@@ -127,6 +134,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	opts = append(opts, modelOpts...)
+	// MCP-SESS-COST: the same meter the gate reads, charged where the tokens
+	// are known. A model path bound to a different meter would meter an agent's
+	// spend into a window nothing else looks at.
+	*modelPath = modelPath.WithAgentTokenSpend(compose.AgentTokenSpend(quotaMeter))
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	apiHandler := compose.New(pool, logger, opts...)

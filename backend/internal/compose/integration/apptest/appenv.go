@@ -22,9 +22,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
-	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
 
@@ -128,7 +128,7 @@ func SetupAppWithOriginOptions(t *testing.T, opts func(origin string) []compose.
 		// every agent read in a lane that is testing something else. Declaring
 		// the app under test unbounded is the honest spelling: a suite that
 		// wants the bound composes its own metered Server.
-		compose.WithReadMeter(readmeter.Unmetered()),
+		compose.WithAgentQuota(agentquota.Unmetered()),
 	}, opts(origin)...)
 	ts.Config.Handler = compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), allOpts...)
 	ts.StartTLS()
