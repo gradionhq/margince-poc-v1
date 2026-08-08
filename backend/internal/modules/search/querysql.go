@@ -276,8 +276,9 @@ var sqlComparators = map[string]string{
 	OpGte: ">=",
 }
 
-// dateLayout is the contract's date encoding, and timestampLayouts the two
-// spellings a caller may send an instant in.
+// dateLayout is the contract's date encoding. An instant carries the contract's
+// own timestamp encoding instead (time.RFC3339, at the one call site that binds
+// one), so there is nothing to name twice.
 const dateLayout = "2006-01-02"
 
 // bind turns one JSON operand into a bound parameter under the field's kind,

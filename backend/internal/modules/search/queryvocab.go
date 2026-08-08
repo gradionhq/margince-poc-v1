@@ -251,7 +251,7 @@ func (r *VocabularyResolver) resolveTarget(ctx context.Context, schema *schemaRe
 	fields = slices.DeleteFunc(fields, func(f Field) bool { return !stored.answers(f) })
 	slices.SortFunc(fields, func(a, b Field) int { return strings.Compare(a.Name, b.Name) })
 
-	inverse, err := storedInverseRelations(ctx, schema, entity)
+	inverse, err := storedInverseRelations(ctx, schema, entity, inverseRelations(entity))
 	if err != nil {
 		return TargetVocabulary{}, err
 	}
@@ -271,16 +271,24 @@ func (r *VocabularyResolver) resolveTarget(ctx context.Context, schema *schemaRe
 // published from a reference no table holds would validate and then fail as a
 // database error, which is the "published but unanswerable" case this whole
 // filter exists to remove, one level up from a field.
-func storedInverseRelations(ctx context.Context, schema *schemaReads, entity string) ([]Relation, error) {
+func storedInverseRelations(ctx context.Context, schema *schemaReads, entity string, candidates []Relation) ([]Relation, error) {
 	var kept []Relation
-	for _, relation := range inverseRelations(entity) {
+	for _, relation := range candidates {
 		stored, err := schema.of(ctx, relation.Target)
 		if err != nil {
 			return nil, err
 		}
 		// Via is `<referring type>.<column>`; the column is what the join runs
-		// on, and it is an id on the referring record.
-		_, column, _ := strings.Cut(relation.Via, ".")
+		// on, and it is an id on the referring record. An UNQUALIFIED Via
+		// here is a wiring defect rather than a missing column — the executor
+		// reads the same two spellings to decide the join's direction — and
+		// dropping the hop for it would hide the defect behind a vocabulary
+		// that merely looks narrower than it should be.
+		_, column, qualified := strings.Cut(relation.Via, ".")
+		if !qualified {
+			return nil, fmt.Errorf("search: inverse relation %q on %s carries an unqualified reference %q",
+				relation.Name, entity, relation.Via)
+		}
 		if stored.answers(newField(column, KindID)) {
 			kept = append(kept, relation)
 		}

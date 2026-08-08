@@ -383,3 +383,21 @@ func TestThePublishedDocumentCarriesTheFilteredVocabulary(t *testing.T) {
 		t.Errorf("the document publishes %v", names)
 	}
 }
+
+// An inverse relation whose reference is unqualified is a WIRING defect: the
+// executor reads the same two spellings to decide the join's direction, so a
+// bare one would join in the wrong direction. Dropping the hop instead would
+// hide it behind a vocabulary that merely looks narrower than it should.
+func TestAnUnqualifiedInverseReferenceFailsLoudlyRatherThanNarrowing(t *testing.T) {
+	schema := newSchemaReads(stubColumns{tables: map[string][]StoredColumn{
+		"deal": columnsOf("id:uuid", "organization_id:uuid"),
+	}})
+	_, err := storedInverseRelations(context.Background(), schema, entityOrganization,
+		[]Relation{{Name: "deals", Target: entityDeal, Via: "organization_id"}})
+	if err == nil {
+		t.Fatal("an unqualified inverse reference was silently dropped")
+	}
+	if !strings.Contains(err.Error(), "unqualified") {
+		t.Errorf("the fault does not name what is wrong: %v", err)
+	}
+}

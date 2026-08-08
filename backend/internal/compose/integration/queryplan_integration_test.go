@@ -270,7 +270,7 @@ func TestQueryPlanTraversalBetweenTablesThatShareAColumnName(t *testing.T) {
 	if len(result.Rows) != 1 || result.Rows[0].ID != f.rep1Deal {
 		t.Fatalf("rows are %v", rowNames(result))
 	}
-	if result.Rows[0].Evidence[0].ID != f.project {
+	if len(result.Rows[0].Evidence) != 1 || result.Rows[0].Evidence[0].ID != f.project {
 		t.Fatalf("evidence is %+v", result.Rows[0].Evidence)
 	}
 }
