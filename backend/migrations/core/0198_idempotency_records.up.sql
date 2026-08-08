@@ -1,4 +1,4 @@
--- 0197: record what a settled claim COST, so replaying it costs the same.
+-- 0198: record what a settled claim COST, so replaying it costs the same.
 --
 -- The governed tool surface charges every record an answer hands over against
 -- the caller's MCP-SESS-READS bound. A replay hands the same records over
