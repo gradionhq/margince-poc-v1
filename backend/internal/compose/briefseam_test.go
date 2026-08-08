@@ -61,14 +61,14 @@ func TestEveryPersistedBriefFieldIsServedOrNamedAsWithheld(t *testing.T) {
 		t.Fatalf("marshalling the served run: %v", err)
 	}
 
-	assertEveryFieldSurvives(t, "BriefRun", run, map[string]string{
+	assertEveryFieldSurvives(t, "BriefRun", reflect.TypeOf(run), map[string]string{
 		"ID": runID.String(), "UserID": "", "GeneratedAt": "2026-08-08T06:11:00Z",
 		"AsOf": "2026-08-08T05:22:00Z", "CandidateCount": "17", "RevenueNormMinor": "",
 		// The items are covered field by field below; what this row asserts is
 		// that the list itself arrived.
 		"Items": dealID.String(),
 	}, string(served))
-	assertEveryFieldSurvives(t, "BriefRunItem", run.Items[0], map[string]string{
+	assertEveryFieldSurvives(t, "BriefRunItem", reflect.TypeOf(run.Items[0]), map[string]string{
 		"ID": itemID.String(), "DealID": dealID.String(), "Rank": "3", "Composite": "0.815",
 		"Features": "0.44", "EvidenceIDs": evidence.String(), "State": "snoozed",
 		"StateAt": "2026-08-08T07:33:00Z", "SnoozedUntil": "2026-08-09T08:44:00Z",
@@ -81,9 +81,12 @@ func TestEveryPersistedBriefFieldIsServedOrNamedAsWithheld(t *testing.T) {
 // assertEveryFieldSurvives walks a persisted struct's exported fields and
 // requires each one's probe value to appear in what the tool served — unless
 // the field is named as withheld, in which case it must NOT appear.
-func assertEveryFieldSurvives(t *testing.T, shape string, persisted any, probes map[string]string, served string) {
+//
+// It takes the TYPE rather than a value because that is all it reads: the
+// values it checks for are the probes, which the caller wrote and this cannot
+// re-derive.
+func assertEveryFieldSurvives(t *testing.T, shape string, fields reflect.Type, probes map[string]string, served string) {
 	t.Helper()
-	fields := reflect.TypeOf(persisted)
 	for i := range fields.NumField() {
 		name := fields.Field(i).Name
 		probe, described := probes[name]
