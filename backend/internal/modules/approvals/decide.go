@@ -164,6 +164,19 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 		Kind: a.Kind, Verdict: verdict, DecidedBy: openapi_types.UUID(p.UserID),
 	}
 	if edited != nil {
+		// A step-up carries nothing a human should rewrite. Its payload IS the
+		// question they were shown — which counter, which window, how much was
+		// spent — so an edit releases something other than what was asked. The
+		// meter refuses the impossible ones (a hard-stop counter, a window that
+		// has not started), but a read step-up edited into a write release is
+		// neither impossible nor what anyone saw.
+		//
+		// Refused inside the transaction, before the edit lands and before the
+		// status is written: there is no correct edit here, so there is nothing
+		// to salvage and nothing should be recorded as decided.
+		if a.Kind == KindQuotaRelease {
+			return row{}, &InvalidEditError{Cause: errors.New("a step-up is answered yes or no, not edited")}
+		}
 		if err := applyEditedPayload(ctx, tx, id, edited, a, auditEvidence, &decidedPayload); err != nil {
 			return row{}, err
 		}
