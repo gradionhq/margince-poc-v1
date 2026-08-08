@@ -200,6 +200,6 @@ off every commit (`git commit -s`), then the usual PR loop ([CONTRIBUTING.md](..
 merge only when the gates are green.
 
 Two things this how-to does **not** yet cover, because those capabilities haven't landed yet: a unit
-owning its own `x_<name>_*` tables (the extension-migration namespace) and its own `/x/<name>/`
+owning its own `ext_<name>_*` tables (the extension-migration namespace) and its own `/v1/ext/<name>/`
 HTTP surface. Today an extension contributes policy the core already knows how to apply — a
 jurisdiction pack. When those capabilities ship, this guide grows the steps for them.

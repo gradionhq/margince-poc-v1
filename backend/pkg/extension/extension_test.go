@@ -27,6 +27,23 @@ func TestNameValidate(t *testing.T) {
 	}
 }
 
+func TestOverlongNameErrorStatesTheCurrentBudget(t *testing.T) {
+	// The error an author actually reads must name the real budget. It is
+	// derived from maxNameLength and the ext_ prefix, so assert the string
+	// rather than the arithmetic — arithmetic against its own constants can
+	// never fail, and would pin nothing.
+	err := Name(strings.Repeat("a", maxNameLength+1)).Validate()
+	if err == nil {
+		t.Fatal("an over-long name validated")
+	}
+	if !strings.Contains(err.Error(), "ext_") {
+		t.Errorf("error does not mention the ext_ prefix: %v", err)
+	}
+	if !strings.Contains(err.Error(), "26") {
+		t.Errorf("error does not state the 26-byte table-suffix budget: %v", err)
+	}
+}
+
 func TestVersionValidate(t *testing.T) {
 	for _, valid := range []Version{"0.1.0", "1.0.0-rc.1", "2026-07-22"} {
 		if err := valid.Validate(); err != nil {

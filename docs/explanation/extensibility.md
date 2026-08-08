@@ -91,7 +91,7 @@ func New() extension.Extension {
 
 That value is the entire contract. `Name` is the canonical unit name (it must equal the directory
 name, obeys `^[a-z0-9]+(-[a-z0-9]+)*$`, ≤32 chars) and keys the unit's namespace everywhere it will
-touch — `x_<name>_<table>` tables, `/x/<name>/` paths, the `x_<name>` database role. `Version` is
+touch — `ext_<name>_<table>` tables, `/v1/ext/<name>/` paths, the `ext_<name>` database role. `Version` is
 recorded in the boot inventory and carries no authority. **Capabilities are the remaining fields** —
 `Jurisdictions` (passive policy) and `Tools` (the first *governed* kind: a risk-tier request in the
 manifest, and — when the declaration carries a handler — a tool the agent surface actually serves,
@@ -242,9 +242,9 @@ aliases, so the core retention engine consults the *same* constants an extension
 
 **How new capabilities arrive.** A new capability kind is a new *field* on `extension.Extension` and a
 new marked `pkg/**` package holding its contract — existing units keep compiling. Capabilities are
-reserved in the naming scheme but **not yet landed**: a unit owning its own `x_<name>_*` tables (the
+reserved in the naming scheme but **not yet landed**: a unit owning its own `ext_<name>_*` tables (the
 extension-migration namespace — which is why `cmd/migrate` is permitted but not *required* to wire the
-composition today) and its own `/x/<name>/` HTTP surface. The unit name is already validated to the
+composition today) and its own `/v1/ext/<name>/` HTTP surface. The unit name is already validated to the
 full identifier budget so a name chosen today stays valid when those arrive.
 
 **The composition is Go-only today, and it says so out loud.** `build/composition/` already emits

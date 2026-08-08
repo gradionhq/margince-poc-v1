@@ -39,8 +39,8 @@ var nameGrammar = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // maxNameLength bounds the unit name's SHARE of PostgreSQL's 63-byte
 // identifier budget — a longer name would be silently TRUNCATED there,
-// and two long names could collide on one `x_<name>` role. 32 leaves 28
-// bytes for a table suffix in `x_<name>_<table>`; the suffix's own
+// and two long names could collide on one `ext_<name>` role. 32 leaves 26
+// bytes for a table suffix in `ext_<name>_<table>`; the suffix's own
 // share is enforced where tables are DECLARED — the extension-migration
 // slice validates every complete derived identifier
 // against the full budget, since only the migration knows its table
@@ -49,8 +49,8 @@ const maxNameLength = 32
 
 // Name is the canonical extension name and must equal the
 // extensions/<name> directory name, stable across versions. It keys the
-// namespace at every layer (x_<name>_ tables, /x/<name>/ paths, the
-// x_<name> database role).
+// namespace at every layer (ext_<name>_ tables, /v1/ext/<name>/ paths, the
+// ext_<name> database role).
 type Name string
 
 // Validate enforces the exact grammar — lower-case [a-z0-9] segments
@@ -64,7 +64,7 @@ func (n Name) Validate() error {
 		return fmt.Errorf("extension name %q is not a valid unit name (lower-case [a-z0-9] segments joined by single hyphens)", string(n))
 	}
 	if len(n) > maxNameLength {
-		return fmt.Errorf("extension name %q is %d characters — the unit name keys SQL identifiers (x_<name>_<table>, 63-byte limit), so it is capped at %d", string(n), len(n), maxNameLength)
+		return fmt.Errorf("extension name %q is %d characters — the unit name keys SQL identifiers (ext_<name>_<table>, 63-byte limit, 26 bytes left for the table suffix), so it is capped at %d", string(n), len(n), maxNameLength)
 	}
 	return nil
 }
