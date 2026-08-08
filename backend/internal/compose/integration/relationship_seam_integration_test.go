@@ -59,7 +59,7 @@ func wireEdge(t *testing.T, raw json.RawMessage) (ids.UUID, edgeFields) {
 		ID         ids.UUID        `json:"id"`
 		Fields     json.RawMessage `json:"fields"`
 	}
-	if err := json.Unmarshal(raw, &record); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, raw), &record); err != nil {
 		t.Fatalf("unreadable answer %s: %v", raw, err)
 	}
 	if record.RecordType != "relationship" {

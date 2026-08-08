@@ -75,6 +75,7 @@ func (t archiveRecord) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err != nil {
 		return nil, err
 	}
+	noteEvidence(ctx, ref.Type, ref.ID)
 	return json.Marshal(ArchiveResult{Archived: true, RecordType: ref.Type, ID: ref.ID})
 }
 
@@ -157,7 +158,8 @@ func (t promoteLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err != nil {
 		return nil, fmt.Errorf("crmagents: promotion landed but read-back failed: %w", err)
 	}
-	return json.Marshal(PromoteLeadResult{Merged: merged, Person: newWireRecord(rec)})
+	noteEvidence(ctx, datasource.EntityLead, args.LeadID)
+	return json.Marshal(PromoteLeadResult{Merged: merged, Person: newWireRecord(ctx, rec)})
 }
 
 // --- merge_records (🟡 write — collapses two records into one) ---
@@ -259,6 +261,11 @@ func (t mergeRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err != nil {
 		return nil, err
 	}
+	// BOTH records, not only the one that survived: the source is what was
+	// folded in, and an evidence list naming only the survivor describes half of
+	// what happened.
+	noteEvidence(ctx, ref.Type, ref.ID)
+	noteEvidence(ctx, datasource.EntityType(args.RecordType), args.SourceID)
 	return json.Marshal(MergeRecordsResult{Merged: true, RecordType: ref.Type, SurvivorID: ref.ID})
 }
 

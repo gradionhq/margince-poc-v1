@@ -368,35 +368,26 @@ func (s *Dispatcher) result(name string, out json.RawMessage) map[string]any {
 // widen every integer to a float64 and reorder every key — so the two would
 // disagree on exactly the tools that return a version or a count.
 //
-// A tool that declares an object schema and then answers with something else
-// is OUR defect, not the caller's, and NOTHING detects it before this point:
+// A tool that declares a shape and then answers with something else is OUR
+// defect, not the caller's, and NOTHING detects it before this point:
 // registration checks the declared schema, never a handler's answer, so the
 // two halves of that agreement are held apart — one at boot, one only here, at
 // the moment a real result exists. That is why this branch reports rather than
 // assumes. The member is left off because omitting an optional one beats
 // emitting one that violates the schema this same server just advertised, and
 // the caller still gets the whole answer in the text block.
+//
+// ONE check, not two. The envelope is built by this server, so its object-ness
+// is not in question; what can still part company is the payload under `data`
+// against the shape the tool declared for it — and the declared schema states
+// that the envelope is an object with `data` in it, so reading the result
+// against the schema asks both questions at once. A separate object-ness probe
+// here would be a second, weaker definition of the same word.
 func (s *Dispatcher) structuredContent(name string, out json.RawMessage) (json.RawMessage, bool) {
 	spec, ok := s.registry.Spec(name)
 	if !ok || spec.OutputSchema == nil {
 		return nil, false
 	}
-	// Decoding into map[string]json.RawMessage both proves out is a JSON
-	// object and leaves its bytes untouched. A literal null decodes into a nil
-	// map with no error, so it is refused explicitly rather than passing as an
-	// object with no members.
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(out, &object); err != nil {
-		s.log.Error("mcp: tool declares an object outputSchema but did not return a JSON object", "tool", name, "err", err)
-		return nil, false
-	}
-	if object == nil {
-		s.log.Error("mcp: tool declares an object outputSchema but returned JSON null", "tool", name)
-		return nil, false
-	}
-	// And then the schema itself, which object-ness used to stand in for while a
-	// bare object schema claimed nothing more. It now names which members are
-	// present and what they hold, so that is what gets checked.
 	if defect := ResultDefect(spec.OutputSchema, out); defect != "" {
 		s.log.Error("mcp: tool result does not satisfy the schema this server advertised for it",
 			"tool", name, "defect", defect)

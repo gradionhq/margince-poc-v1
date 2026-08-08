@@ -56,6 +56,7 @@ func (t checkAvailability) Handle(ctx context.Context, in json.RawMessage) (json
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	noteDerivedContent(ctx)
 	return marshalResult(t.comms.Availability(ctx, args.HostUserID, args.From, args.To, args.DurationMinutes))
 }
 
@@ -241,6 +242,9 @@ func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 	// booking the schema says is impossible.
 	if err := requireBookingLinks(args); err != nil {
 		return nil, err
+	}
+	for _, link := range args.Links {
+		noteEvidence(ctx, datasource.EntityType(link.EntityType), link.EntityID)
 	}
 	return t.comms.BookMeeting(ctx, args)
 }

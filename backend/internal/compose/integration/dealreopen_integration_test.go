@@ -85,7 +85,7 @@ func dealStageOf(ctx context.Context, t *testing.T, registry *agents.Registry, d
 			StageID string `json:"stage_id"`
 		} `json:"fields"`
 	}
-	if err := json.Unmarshal(out, &record); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, out), &record); err != nil {
 		t.Fatalf("unreadable read_record answer %s: %v", out, err)
 	}
 	return record.Fields.StageID
@@ -104,7 +104,7 @@ func createDealForReopen(ctx context.Context, t *testing.T, registry *agents.Reg
 	var created struct {
 		ID ids.UUID `json:"id"`
 	}
-	if err := json.Unmarshal(out, &created); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, out), &created); err != nil {
 		t.Fatalf("unreadable create_record answer %s: %v", out, err)
 	}
 	return created.ID

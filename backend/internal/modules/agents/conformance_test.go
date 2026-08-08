@@ -46,9 +46,15 @@ func (e echoTool) Handle(context.Context, json.RawMessage) (json.RawMessage, err
 // every fake in this package is registered to exercise something else.
 const describedForRegistration = "A stand-in tool, offered so the registry has something to admit."
 
+// testToolVersion is the stand-in result-contract version a fake tool carries,
+// for the same reason describedForRegistration exists: Register refuses a
+// version-less tool, because every result it seals reports one as
+// `schema_version`.
+const testToolVersion = "1.0.0-test"
+
 func objectSpec(name string, scope principal.Scope) mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: name, Title: name, Description: name + " does the thing the test needs it to do.",
+		Name: name, Title: name, Version: testToolVersion, Description: name + " does the thing the test needs it to do.",
 		RequiredScope: scope, Tier: mcp.TierAutoExecute,
 		InputSchema:  json.RawMessage(`{"type":"object"}`),
 		OutputSchema: json.RawMessage(`{"type":"object"}`),
@@ -135,7 +141,7 @@ func fullRegistry(t *testing.T) *Registry {
 		func(context.Context) ([]SlippingDeal, error) { return nil, nil },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", nil })
 	RegisterNetworkTools(r,
-		func(context.Context, ids.UUID) ([]KnownColleague, error) { return nil, nil },
+		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, nil },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) { return DealCoverageAnswer{}, nil },
 		func(context.Context, ids.UUID) ([]IntroRoute, bool, error) { return nil, false, nil },
 		func(context.Context) (AtRiskReport, error) { return AtRiskReport{}, nil })
@@ -188,22 +194,26 @@ func TestToolsCallReturnsStructuredContentBesideTheTextBlock(t *testing.T) {
 	if !ok {
 		t.Fatalf("structuredContent is %T, want the handler's own json.RawMessage", structured)
 	}
-	if string(raw) != out {
-		t.Errorf("structuredContent = %s, want the handler's bytes unchanged %s", raw, out)
+	// The handler's bytes ride inside the envelope every result now carries, and
+	// they ride there UNCHANGED — that is what makes structuredContent and the
+	// text block comparable, and it is why this reads the payload rather than
+	// re-encoding a decoded copy of it.
+	if got := string(payloadOf(t, raw)); got != out {
+		t.Errorf("structuredContent payload = %s, want the handler's bytes unchanged %s", got, out)
 	}
-	if got := textBlock(t, res); got != out {
-		t.Errorf("text block = %s, want the same serialized JSON %s", got, out)
+	if got := textBlock(t, res); got != string(raw) {
+		t.Errorf("text block = %s, want the same serialized result %s", got, raw)
 	}
 }
 
-// A tool that declares an object schema and then answers with something else
-// is this server's defect. The caller still gets the answer it can read, the
-// operator is told, and the member that would violate the advertised schema is
-// left off rather than sent.
+// A tool that declares an object shape and then answers with something else is
+// this server's defect. The caller still gets the answer it can read, the
+// operator is told which member parted company with the schema, and the member
+// that would violate the advertised schema is left off rather than sent.
 func TestNonObjectToolOutputIsReportedAndOmittedFromStructuredContent(t *testing.T) {
 	for _, tc := range []struct{ name, out, wantLogged string }{
-		{"answers_null", `null`, "returned JSON null"},
-		{"answers_array", `[{"id":1}]`, "did not return a JSON object"},
+		{"answers_null", `null`, "is null, which is not a value of the declared type"},
+		{"answers_array", `[{"id":1}]`, "result.data: declared an object"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var log strings.Builder
@@ -214,8 +224,11 @@ func TestNonObjectToolOutputIsReportedAndOmittedFromStructuredContent(t *testing
 			if _, present := res["structuredContent"]; present {
 				t.Errorf("structuredContent present for output %s — it cannot conform to the advertised object schema", tc.out)
 			}
-			if got := textBlock(t, res); got != tc.out {
-				t.Errorf("text block = %s, want the handler's answer %s — the caller still gets what it can read", got, tc.out)
+			// The caller still gets what it can read: the envelope is well formed
+			// whatever the handler put inside it, so the defect is confined to
+			// the payload rather than costing the answer its whole rendering.
+			if got := string(payloadOf(t, json.RawMessage(textBlock(t, res)))); got != tc.out {
+				t.Errorf("text block payload = %s, want the handler's answer %s — the caller still gets what it can read", got, tc.out)
 			}
 			if !strings.Contains(log.String(), tc.wantLogged) {
 				t.Errorf("operator log = %q, want it to name the defect (%q)", log.String(), tc.wantLogged)

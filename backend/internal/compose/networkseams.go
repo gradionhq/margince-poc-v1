@@ -32,8 +32,9 @@ import (
 // probe, so an unpromoted captured contact 404s here exactly as it does on the
 // HTTP path rather than leaking through the agent.
 func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
-	return func(ctx context.Context, personID ids.UUID) ([]agents.KnownColleague, error) {
+	return func(ctx context.Context, personID ids.UUID) ([]agents.KnownColleague, bool, error) {
 		var out []agents.KnownColleague
+		var truncated bool
 		err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 			// Over-fetch, rank by warmth, THEN cap — the same three steps the
 			// HTTP surface takes, for the same reason. EdgesForPerson orders
@@ -41,13 +42,23 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 			// most RECENT colleagues under the label "who knows them best".
 			// The HTTP path and this one must rank identically, or the answer
 			// depends on who asked rather than on the relationships.
-			edges, err := search.EdgesForPerson(ctx, tx, personID, agentWhoKnowsFetch)
+			// One row past the FETCH bound, because the fetch is a bound too and
+			// a quieter one: the ranking runs over what was read, so a contact
+			// with more colleagues than this reads has some of them ranked
+			// against nothing. Both bounds are reported the same way.
+			edges, err := search.EdgesForPerson(ctx, tx, personID, agentWhoKnowsFetch+1)
 			if err != nil {
 				return err
 			}
+			edges, scanCut := trimToScanBound(edges)
+			truncated = scanCut
 			now := clockNow()
 			search.SortByStrength(edges, now)
 			if len(edges) > agentWhoKnowsCap {
+				// Said out loud, not just done. The two other bounded walks on
+				// this surface report their cap, and a colleague list that
+				// stopped silently is the one a model will call complete.
+				truncated = true
 				edges = edges[:agentWhoKnowsCap]
 			}
 			names, err := search.MemberNames(ctx, tx, edges)
@@ -68,8 +79,21 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 			}
 			return nil
 		})
-		return out, err
+		return out, truncated, err
 	}
+}
+
+// trimToScanBound cuts the one over-fetched edge back to the scan bound and
+// answers whether there was one.
+//
+// It reads one row past the bound for the same reason the contact fetch does:
+// the bound itself is not evidence that anything was dropped, and a contact with
+// exactly agentWhoKnowsFetch colleagues had all of them ranked.
+func trimToScanBound(edges []search.InteractionEdge) ([]search.InteractionEdge, bool) {
+	if len(edges) <= agentWhoKnowsFetch {
+		return edges, false
+	}
+	return edges[:agentWhoKnowsFetch], true
 }
 
 // agentWhoKnowsCap bounds what the tool hands a model. The question is who to

@@ -118,6 +118,10 @@ func (t enrichCompany) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err != nil {
 		return nil, err
 	}
+	// A crawl reads a website. Whatever it answers with came from outside the
+	// workspace entirely, which is the plainest T2 there is.
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityOrganization, args.OrganizationID)
 	return t.enricher.EnrichCompany(ctx, args.OrganizationID, args.URL, args.Depth)
 }
 

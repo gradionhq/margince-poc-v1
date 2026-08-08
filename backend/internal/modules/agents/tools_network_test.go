@@ -14,6 +14,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -50,8 +51,8 @@ func TestAnAbsentSeamRegistersNoTool(t *testing.T) {
 func TestNobodyKnowsThemIsAnAnswerNotAnError(t *testing.T) {
 	// "The account is cold" is true, useful, and exactly what a rep needs to
 	// hear. Returning an error would make the model narrate a malfunction.
-	tool := whoKnowsTool{list: func(context.Context, ids.UUID) ([]KnownColleague, error) {
-		return nil, nil
+	tool := whoKnowsTool{list: func(context.Context, ids.UUID) ([]KnownColleague, bool, error) {
+		return nil, false, nil
 	}}
 	out, err := tool.Handle(context.Background(), json.RawMessage(`{"person_id":"`+ids.NewV7().String()+`"}`))
 	if err != nil {
@@ -68,13 +69,54 @@ func TestNobodyKnowsThemIsAnAnswerNotAnError(t *testing.T) {
 	}
 }
 
+// A capped colleague list says so. The same claim intro_path_to and
+// at_risk_relationships already make: a ranked list a model is handed with
+// nothing marking its cap is one it reports as the whole network.
+func TestACappedColleagueListSaysSo(t *testing.T) {
+	tool := whoKnowsTool{list: func(context.Context, ids.UUID) ([]KnownColleague, bool, error) {
+		return []KnownColleague{{UserID: ids.NewV7(), DisplayName: "Anna Weber"}}, true, nil
+	}}
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+	r.Register(tool)
+
+	out, err := r.Invoke(scopedAgentCtx(principal.ScopeRead), "who_knows",
+		json.RawMessage(`{"person_id":"`+ids.NewV7().String()+`"}`))
+	if err != nil {
+		t.Fatalf("who_knows: %v", err)
+	}
+
+	env := sealedEnvelope(t, out)
+	if _, warned := warningNamed(env, warningSweepTruncated); !warned {
+		t.Errorf("a capped colleague list carries no truncation warning: %v", env.Warnings)
+	}
+}
+
+// And an uncapped one does not, or the warning says nothing.
+func TestAnUncappedColleagueListClaimsNoCap(t *testing.T) {
+	tool := whoKnowsTool{list: func(context.Context, ids.UUID) ([]KnownColleague, bool, error) {
+		return []KnownColleague{{UserID: ids.NewV7(), DisplayName: "Anna Weber"}}, false, nil
+	}}
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+	r.Register(tool)
+
+	out, err := r.Invoke(scopedAgentCtx(principal.ScopeRead), "who_knows",
+		json.RawMessage(`{"person_id":"`+ids.NewV7().String()+`"}`))
+	if err != nil {
+		t.Fatalf("who_knows: %v", err)
+	}
+
+	if _, warned := warningNamed(sealedEnvelope(t, out), warningSweepTruncated); warned {
+		t.Error("a complete colleague list claims it was capped")
+	}
+}
+
 func TestWhoKnowsRefusesAMalformedPersonID(t *testing.T) {
 	// The seam is never reached with a bad id: a tool that forwarded garbage
 	// would turn a typo into a database error.
 	reached := false
-	tool := whoKnowsTool{list: func(context.Context, ids.UUID) ([]KnownColleague, error) {
+	tool := whoKnowsTool{list: func(context.Context, ids.UUID) ([]KnownColleague, bool, error) {
 		reached = true
-		return nil, nil
+		return nil, false, nil
 	}}
 	if _, err := tool.Handle(context.Background(), json.RawMessage(`{"person_id":"not-a-uuid"}`)); err == nil {
 		t.Error("a malformed person_id was accepted")
@@ -89,8 +131,8 @@ func TestTheSeamsErrorReachesTheCaller(t *testing.T) {
 	// agent told "nobody knows them" when it was actually refused would report
 	// a cold account instead of a permission problem.
 	denied := errors.New("permission denied")
-	tool := whoKnowsTool{list: func(context.Context, ids.UUID) ([]KnownColleague, error) {
-		return nil, denied
+	tool := whoKnowsTool{list: func(context.Context, ids.UUID) ([]KnownColleague, bool, error) {
+		return nil, false, denied
 	}}
 	_, err := tool.Handle(context.Background(), json.RawMessage(`{"person_id":"`+ids.NewV7().String()+`"}`))
 	if !errors.Is(err, denied) {

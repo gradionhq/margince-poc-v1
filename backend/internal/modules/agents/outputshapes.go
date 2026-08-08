@@ -327,3 +327,53 @@ func eachWireField(t reflect.Type, visit func(name string, optional bool, field 
 	}
 	return nil
 }
+
+// envelopeDataMember is where a tool's own declared shape sits inside the
+// envelope's schema. Named once because the deriver writes it and Invoke fills
+// it, and a typo in either half would advertise a member nothing answers with.
+const envelopeDataMember = "data"
+
+// envelopedSchema is the schema a tool ADVERTISES now that Invoke seals every
+// result: the Envelope's own shape, with `data` replaced by the shape the tool's
+// handler marshals.
+//
+// The envelope half is DERIVED from the Envelope type, the same way every other
+// schema on this surface is derived from the type that answers with it, so the
+// six fields cannot be advertised in one spelling and answered in another. The
+// tool half is spliced in as BYTES rather than re-encoded: an output schema may
+// be hand-written (an extension unit closes its result with
+// `additionalProperties: false`), and a round trip through the deriver's own
+// struct would quietly drop whatever it does not model.
+func envelopedSchema(inner json.RawMessage) (json.RawMessage, error) {
+	return spliceResultSchema(schemaFor[Envelope](), inner)
+}
+
+// spliceResultSchema puts inner under envelope's `data` member.
+//
+// It is separate from envelopedSchema so the refusals below can be exercised:
+// the envelope schema envelopedSchema passes is derived from a type in this
+// package and cannot be malformed, and a guard that only ever holds against an
+// argument nothing can supply is a guard nobody has read.
+func spliceResultSchema(envelope, inner json.RawMessage) (json.RawMessage, error) {
+	// The envelope's own schema, read back as raw members so the splice is a map
+	// assignment rather than a string edit. Marshalling a map sorts its keys, so
+	// the result is byte-identical on every process — which matters because this
+	// is embedded verbatim into tools/list and a client caches it.
+	var shape struct {
+		Type       string                     `json:"type"`
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(envelope, &shape); err != nil {
+		return nil, fmt.Errorf("cannot read the envelope's own schema: %w", err)
+	}
+	if _, ok := shape.Properties[envelopeDataMember]; !ok {
+		return nil, fmt.Errorf("the envelope schema has no %q member to carry a tool's result", envelopeDataMember)
+	}
+	shape.Properties[envelopeDataMember] = inner
+	sealed, err := json.Marshal(shape)
+	if err != nil {
+		return nil, fmt.Errorf("cannot encode the enveloped schema: %w", err)
+	}
+	return sealed, nil
+}

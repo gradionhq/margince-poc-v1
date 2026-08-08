@@ -206,5 +206,5 @@ func (t updateRecord) applyRecord(ctx context.Context, args updateRecordArgs, pa
 	if err != nil {
 		return wireRecord{}, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
 	}
-	return newWireRecord(rec), nil
+	return newWireRecord(ctx, rec), nil
 }

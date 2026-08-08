@@ -267,8 +267,17 @@ func TestComposedToolServesThroughAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a 🟢 read tool held by a read-scoped principal must admit: %v", err)
 	}
-	if got := string(out); got != `{"quote":"it ain't over"}` {
-		t.Fatalf("handler result not returned verbatim: %s", got)
+	// The unit's own bytes, unchanged, inside the result envelope the registry
+	// seals every answer into — an extension tool is governed and rendered
+	// exactly like a core one, which is the property this asserts.
+	var sealed struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(out, &sealed); err != nil {
+		t.Fatalf("an extension tool's result is not an envelope: %v (%s)", err, out)
+	}
+	if got := string(sealed.Data); got != `{"quote":"it ain't over"}` {
+		t.Fatalf("handler result not carried verbatim: %s", got)
 	}
 }
 

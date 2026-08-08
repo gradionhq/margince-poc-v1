@@ -123,6 +123,14 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 		return extensionTool{}, errors.New("a served tool declares no Description — the text a model selects it by, " +
 			"which nothing about the tool can be derived from")
 	}
+	// And its result contract's version, in the same phase and for the same
+	// shape of reason: every result this surface seals carries it as
+	// `schema_version`, and a unit declaring none would tell every client that
+	// its result shape can never be compared against a later one.
+	if strings.TrimSpace(tool.Version) == "" {
+		return extensionTool{}, errors.New("a served tool declares no Version — every result carries it as " +
+			"schema_version, which is what lets a client tell a changed shape from changed data")
+	}
 	input := tool.InputSchema
 	if input == nil {
 		// MCP requires every tool to advertise an object input schema; a tool
