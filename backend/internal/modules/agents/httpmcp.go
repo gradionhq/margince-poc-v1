@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // mcpCallDeadline bounds one JSON-RPC exchange's response write. A dynamic
@@ -236,13 +237,28 @@ type httpMCPHandler struct {
 // its cause, so the one place that cause survives is this logger. A nil one
 // falls back to slog.Default(), which in a process that never called
 // SetDefault means the record is written somewhere nobody is reading.
-func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), challenge func(*http.Request) string, name, version string, log *slog.Logger) http.Handler {
+func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), challenge func(*http.Request) string, name, version string, log *slog.Logger, opts ...HTTPOption) http.Handler {
+	server := NewDispatcher(registry, bindAuthenticated, name, version).WithLogger(log)
+	for _, opt := range opts {
+		opt(server)
+	}
 	return &httpMCPHandler{
-		server:       NewDispatcher(registry, bindAuthenticated, name, version).WithLogger(log),
+		server:       server,
 		authenticate: authenticate,
 		challenge:    challenge,
 		sessions:     newSessionRegistry(),
 	}
+}
+
+// HTTPOption configures the dispatcher behind the HTTP transport. What it
+// carries is composed by OTHER modules and injected at the composition edge,
+// so it is variadic rather than a positional parameter: a caller that mounts
+// no such module does not have to name one.
+type HTTPOption func(*Dispatcher)
+
+// WithResourceProvider publishes read-only documents beside the tool surface.
+func WithResourceProvider(provider mcp.ResourceProvider) HTTPOption {
+	return func(d *Dispatcher) { d.WithResources(provider) }
 }
 
 // bindAuthenticated is the Binder the shared dispatcher gets on this

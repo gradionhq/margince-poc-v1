@@ -148,7 +148,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// gate signal: with the connector off none of these routes is
 	// registered, so the mux's own 404 answers all of them identically and
 	// nothing tells a prober which gate is closed.
-	if mcp := srv.mcpHandler(identitySvc, log); mcp != nil {
+	if mcp := srv.mcpHandler(pool, identitySvc, log); mcp != nil {
 		// ONE set of limiters for the whole group: the transport and the
 		// authorization server are two halves of one internet-facing surface,
 		// and a second construction would give each its own private ceilings.
