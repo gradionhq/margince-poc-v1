@@ -474,3 +474,58 @@ func TestAQueryIsChargedPerRecordIncludingItsHops(t *testing.T) {
 		t.Errorf("the bound was consulted %d times, want one charge for the whole answer", charger.calls)
 	}
 }
+
+// A row dropped because its hop became unreadable is neither CHARGED nor NAMED.
+//
+// The read bound counts records the agent was actually given, so charging for a
+// row it never received bills the caller for a withheld record. And the
+// envelope names what the answer rests on, so naming a record absent from
+// `rows` describes an answer that does not exist — while disclosing the id of
+// something the caller was denied.
+func TestADroppedRowIsNeitherChargedNorNamed(t *testing.T) {
+	kept, keptOrg := ids.NewV7(), ids.NewV7()
+	dropped, goneOrg := ids.NewV7(), ids.NewV7()
+	provider := &queryProbeProvider{
+		records: map[ids.UUID]datasource.Record{
+			kept:    recordAt(datasource.EntityDeal, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
+			keptOrg: recordAt(datasource.EntityOrganization, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), true),
+			dropped: recordAt(datasource.EntityDeal, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), true),
+		},
+		fail: map[ids.UUID]error{goneOrg: apperrors.ErrPermissionDenied},
+	}
+	hop := func(org ids.UUID) []QueryEvidence {
+		return []QueryEvidence{{Relation: "organization_id", RecordType: "organization", ID: org, Title: "Kärcher"}}
+	}
+	tool := queryWorkspace{p: provider, run: func(context.Context, json.RawMessage) (QueryAnswer, error) {
+		return QueryAnswer{
+			Refs: []QueryRef{
+				{Type: "deal", ID: kept, Evidence: hop(keptOrg)},
+				{Type: "deal", ID: dropped, Evidence: hop(goneOrg)},
+			},
+			Coverage: CoverageCompleteExact, Limit: 25,
+		}, nil
+	}}
+	registry, charger, ctx := chargingRegistry(t, tool)
+
+	out, err := registry.Invoke(ctx, "query_workspace", json.RawMessage(`{"plan":{"version":"v1","target":"deal"}}`))
+	if err != nil {
+		t.Fatalf("invoking query_workspace: %v", err)
+	}
+	env := sealedEnvelope(t, out)
+
+	// The served row and its organization, and nothing for the row that was
+	// dropped — not the deal that WAS readable, and not the hop that was not.
+	if charger.charged != 2 {
+		t.Errorf("charged %d records, want 2 — the served row and its hop, and nothing for the dropped row",
+			charger.charged)
+	}
+	for _, ref := range env.Evidence {
+		if ref.RecordID == dropped || ref.RecordID == goneOrg {
+			t.Errorf("the envelope names %s, which is not in the answer", ref.RecordID)
+		}
+	}
+	if len(env.Evidence) != 2 {
+		t.Errorf("the envelope names %d records for a one-row answer with one hop, want 2: %+v",
+			len(env.Evidence), env.Evidence)
+	}
+}

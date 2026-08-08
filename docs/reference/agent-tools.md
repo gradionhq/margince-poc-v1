@@ -132,11 +132,11 @@ passport's scopes and the granting human's live RBAC and seat — never the unio
 and never the passport alone.
 
 Counts are of the core catalog above; an enabled unit's verbs add to them
-(vanilla: `yogi_quote` makes `read` 13).
+(vanilla: `yogi_quote` makes `read` 14).
 
 | Scope | Tools it unlocks | What it means |
 |---|---|---|
-| `read` | 12 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
+| `read` | 13 | Reads only. It is also the sole scope that makes a tool `readOnlyHint: true`, and the only scope a **read seat** may spend at all. |
 | `draft` | 2 | Proposes text. Not read-only: `draft_email` returns a proposal and writes nothing, while `draft_follow_ups_for` persists a draft activity on the deal's timeline. |
 | `write` | 12 | Creates, patches, archives, advances, merges, promotes, disqualifies, re-links — every change that stays inside the workspace. |
 | `send` | 3 | The three egress verbs. All three are 🟡, so the scope buys the right to *ask*, never the right to send unattended. |

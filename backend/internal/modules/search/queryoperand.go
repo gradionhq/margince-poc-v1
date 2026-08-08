@@ -178,7 +178,3 @@ func geoOperandMatches(raw json.RawMessage) bool {
 	}
 	return operand.Center != "" && operand.RadiusKM != nil && *operand.RadiusKM > 0
 }
-
-// assertion that the refusal really is the plural fault form the transports
-// render; a refusal that stopped implementing it would degrade to an
-// unclassified internal error on the tool surface.

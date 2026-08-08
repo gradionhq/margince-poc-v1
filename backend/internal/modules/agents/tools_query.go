@@ -193,6 +193,14 @@ func (t queryWorkspace) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 // and nothing would re-check that the caller may still read it. It is read
 // back like any other record, through a cache — a page of deals at one
 // organization is one hop read, not one per row.
+//
+// READING AND SERVING ARE SEPARATE STEPS, and that is the whole shape of this
+// function. A row is admitted only when its target AND every hop behind it came
+// back readable, so a row that fails either test is dropped — and a dropped row
+// must not be counted or named. Noting during the read would charge the caller
+// for a record they were never given and put it in the envelope's evidence,
+// where it would describe an answer that does not contain it. So the reads
+// happen first and newWireRecord runs only over what is actually served.
 func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryWorkspaceResult, error) {
 	result := QueryWorkspaceResult{
 		Rows:         make([]QueryWorkspaceRow, 0, len(answer.Refs)),
@@ -201,22 +209,10 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 		ExecutedPlan: answer.Narrative,
 		Limit:        answer.Limit,
 	}
-	hops := hopCache{seen: map[datasource.EntityRef]hopRead{}}
+	served := servedRecords{hops: map[datasource.EntityRef]hopRead{}, noted: map[datasource.EntityRef]wireRecord{}}
 	var dropped bool
 	for _, ref := range answer.Refs {
-		record, readable, err := t.read(ctx, ref.Type, ref.ID)
-		if err != nil {
-			return QueryWorkspaceResult{}, err
-		}
-		if !readable {
-			dropped = true
-			continue
-		}
-		// A hop that can no longer be read takes its row with it. The hop is
-		// part of why the row was selected, so serving the row without it would
-		// tell the caller that a deal sits at an organization they may not know
-		// exists — the disclosure the hop's own row scope refused at selection.
-		evidence, admitted, err := t.hydrateEvidence(ctx, ref.Evidence, &hops)
+		row, admitted, err := t.admit(ctx, ref, &served)
 		if err != nil {
 			return QueryWorkspaceResult{}, err
 		}
@@ -224,9 +220,7 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 			dropped = true
 			continue
 		}
-		result.Rows = append(result.Rows, QueryWorkspaceRow{
-			Record: record, Score: ref.Score, Evidence: evidence,
-		})
+		result.Rows = append(result.Rows, t.serve(ctx, ref, row, &served))
 	}
 	if dropped {
 		result.Coverage = CoveragePartialDegraded
@@ -244,59 +238,40 @@ func (t queryWorkspace) hydrate(ctx context.Context, answer QueryAnswer) (QueryW
 	return result, nil
 }
 
-// read fetches one record through the seam.
-//
-// The BOOL is the verdict, kept separate from the error because the two mean
-// different things to the caller. False is a definite answer — archived, or an
-// authority narrowed since the plan ran — and the row is dropped. An error is
-// the ABSENCE of an answer, and is returned: reporting an unreachable store as
-// a partial result would describe an infrastructure fault as a property of the
-// caller's data, and they would act on the rows that did come back.
-func (t queryWorkspace) read(ctx context.Context, recordType string, id ids.UUID) (wireRecord, bool, error) {
-	record, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(recordType), ID: id})
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
-			return wireRecord{}, false, nil
-		}
-		return wireRecord{}, false, err
+// admit reads one ref's target and every hop behind it, and reports whether the
+// row survives. It NOTES nothing: a row that fails here is never served, and a
+// record the caller was not given may not be charged to them.
+func (t queryWorkspace) admit(ctx context.Context, ref QueryRef, served *servedRecords) (admittedRow, bool, error) {
+	record, readable, err := t.read(ctx, ref.Type, ref.ID)
+	if err != nil || !readable {
+		return admittedRow{}, false, err
 	}
-	return newWireRecord(ctx, record), true, nil
-}
-
-// hopRead is one hop read and its verdict, so an unreadable hop is
-// remembered as a verdict rather than as a missing map entry — the two are
-// indistinguishable otherwise, and a second row sharing the hop would ask again.
-type hopRead struct {
-	record   wireRecord
-	readable bool
-}
-
-// hopCache holds the hop records one answer has already read. A plan's rows
-// commonly share a hop — every deal at one organization — so without it a page
-// of 200 rows would read the same organization 200 times over.
-type hopCache struct {
-	seen map[datasource.EntityRef]hopRead
-}
-
-// hydrateEvidence reads each hop record back through the seam. The bool is
-// false when ANY hop is no longer readable, which drops the row that rested on
-// it.
-func (t queryWorkspace) hydrateEvidence(ctx context.Context, refs []QueryEvidence, hops *hopCache) ([]QueryEvidence, bool, error) {
-	out := make([]QueryEvidence, 0, len(refs))
-	for _, ref := range refs {
-		key := datasource.EntityRef{Type: datasource.EntityType(ref.RecordType), ID: ref.ID}
-		hop, cached := hops.seen[key]
-		if !cached {
-			record, readable, err := t.read(ctx, ref.RecordType, ref.ID)
-			if err != nil {
-				return nil, false, err
-			}
-			hop = hopRead{record: record, readable: readable}
-			hops.seen[key] = hop
+	// A hop that can no longer be read takes its row with it. The hop is part
+	// of why the row was selected, so serving the row without it would tell the
+	// caller that a deal sits at an organization they may not know exists — the
+	// disclosure the hop's own row scope refused at selection.
+	hops := make([]datasource.Record, 0, len(ref.Evidence))
+	for _, hop := range ref.Evidence {
+		read, admitted, err := t.readHop(ctx, hop, served)
+		if err != nil || !admitted {
+			return admittedRow{}, false, err
 		}
-		if !hop.readable {
-			return nil, false, nil
-		}
+		hops = append(hops, read)
+	}
+	return admittedRow{record: record, hops: hops}, true, nil
+}
+
+// serve stamps an admitted row's records, which is where they are counted and
+// where the envelope learns of them. Each distinct record is stamped ONCE: a
+// page of deals sharing one organization spends that organization once, not
+// once per row.
+func (t queryWorkspace) serve(ctx context.Context, ref QueryRef, row admittedRow, served *servedRecords) QueryWorkspaceRow {
+	out := QueryWorkspaceRow{
+		Record:   served.stamp(ctx, row.record),
+		Score:    ref.Score,
+		Evidence: make([]QueryEvidence, 0, len(ref.Evidence)),
+	}
+	for i, hop := range ref.Evidence {
 		// The title stays the executor's: it came out of a statement carrying
 		// the hop's own row scope, so it is already the caller's to read, and
 		// re-deriving it here would need each record type's display-title rule
@@ -304,10 +279,79 @@ func (t queryWorkspace) hydrateEvidence(ctx context.Context, refs []QueryEvidenc
 		// package. What the seam read adds is what the statement could not: the
 		// trust tier, the envelope's evidence entry, and a re-check that the
 		// caller may still read the record at all.
-		out = append(out, QueryEvidence{
-			Relation: ref.Relation, RecordType: ref.RecordType, ID: ref.ID,
-			Title: ref.Title, TrustTier: hop.record.TrustTier,
+		out.Evidence = append(out.Evidence, QueryEvidence{
+			Relation: hop.Relation, RecordType: hop.RecordType, ID: hop.ID,
+			Title: hop.Title, TrustTier: served.stamp(ctx, row.hops[i]).TrustTier,
 		})
 	}
-	return out, true, nil
+	return out
+}
+
+// admittedRow is one row that survived hydration, with the records behind it —
+// held as datasource.Records because nothing has been stamped yet.
+type admittedRow struct {
+	record datasource.Record
+	hops   []datasource.Record
+}
+
+// read fetches one record through the seam, WITHOUT stamping it.
+//
+// The BOOL is the verdict, kept separate from the error because the two mean
+// different things to the caller. False is a definite answer — archived, or an
+// authority narrowed since the plan ran — and the row is dropped. An error is
+// the ABSENCE of an answer, and is returned: reporting an unreachable store as
+// a partial result would describe an infrastructure fault as a property of the
+// caller's data, and they would act on the rows that did come back.
+func (t queryWorkspace) read(ctx context.Context, recordType string, id ids.UUID) (datasource.Record, bool, error) {
+	record, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(recordType), ID: id})
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
+			return datasource.Record{}, false, nil
+		}
+		return datasource.Record{}, false, err
+	}
+	return record, true, nil
+}
+
+// readHop reads one hop record, through the cache.
+func (t queryWorkspace) readHop(ctx context.Context, hop QueryEvidence, served *servedRecords) (datasource.Record, bool, error) {
+	key := datasource.EntityRef{Type: datasource.EntityType(hop.RecordType), ID: hop.ID}
+	if cached, ok := served.hops[key]; ok {
+		return cached.record, cached.readable, nil
+	}
+	record, readable, err := t.read(ctx, hop.RecordType, hop.ID)
+	if err != nil {
+		return datasource.Record{}, false, err
+	}
+	served.hops[key] = hopRead{record: record, readable: readable}
+	return record, readable, nil
+}
+
+// hopRead is one hop read and its verdict, so an unreadable hop is remembered
+// as a verdict rather than as a missing map entry — the two are
+// indistinguishable otherwise, and a second row sharing the hop would ask again.
+type hopRead struct {
+	record   datasource.Record
+	readable bool
+}
+
+// servedRecords is one answer's bookkeeping: the hop records already read, and
+// the records already stamped. Both are keyed by ref so a record shared across
+// rows is read once and counted once.
+type servedRecords struct {
+	hops  map[datasource.EntityRef]hopRead
+	noted map[datasource.EntityRef]wireRecord
+}
+
+// stamp puts a record through newWireRecord the FIRST time it is served, and
+// returns the same wire record for every later row that names it. Stamping
+// twice would count one record twice against a bound that measures what the
+// caller was given.
+func (s *servedRecords) stamp(ctx context.Context, record datasource.Record) wireRecord {
+	if wire, ok := s.noted[record.Ref]; ok {
+		return wire
+	}
+	wire := newWireRecord(ctx, record)
+	s.noted[record.Ref] = wire
+	return wire
 }
