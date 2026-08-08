@@ -104,7 +104,7 @@ func TestDeriveUnitManifestIgnoresGoIgnoredFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	derived, err := deriveUnitManifest(unit, realVocabulary(t), nil)
+	derived, err := deriveUnitManifest(unit, realVocabulary(t), nil, nil)
 	if err != nil {
 		t.Fatalf("derivation should ignore _scratch.go and read u.go: %v", err)
 	}
@@ -191,7 +191,7 @@ func assertCommittedManifest(t *testing.T, dir, name string, wantSubstrings ...s
 	// The verbs come from the MERGED contract, the same way `make gen` derives
 	// them, so this test binds the committed manifest to both halves of the
 	// declaration — the unit's Go file and its api/ fragment.
-	derived, err := deriveUnitManifest(unit, realVocabulary(t), committedUnitVerbs(t, unit))
+	derived, err := deriveUnitManifest(unit, realVocabulary(t), committedUnitVerbs(t, unit), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func deriveSynthetic(t *testing.T, name, source string, verbs ...declaredVerb) (
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deriveUnitManifest(unit, realVocabulary(t), verbs)
+	return deriveUnitManifest(unit, realVocabulary(t), verbs, nil)
 }
 
 // syntheticVerb is the contract-declared half of a unit under test: what the

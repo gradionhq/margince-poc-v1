@@ -158,10 +158,25 @@ func parseTarget(target string) ([]string, error) {
 // express it. Declared longest-prefix-first, since a shorter entry would
 // otherwise shadow a longer one.
 //
-// The list is deliberately short, and an omission is a loud refusal rather than
-// a silent pass: a unit needing components.responses or a River queue gets a
-// named error and the list gains a reviewed line, which is the same posture
+// The list is deliberately short, and a container that is NOT on it is not
+// forbidden in principle — it is simply not composed yet. An omission is a loud
+// refusal rather than a silent pass, and the refusal says which of the two it
+// is, because the two call for different things from the reader: a unit needing
+// components.responses is asking for a container nobody has built the
+// composition for, and the answer is a reviewed line here. The same posture
 // composedWork takes toward go.work directives it does not compose yet.
+//
+// `queues` is the one omission with an argument BEHIND it rather than merely
+// waiting for one, and it belongs here because gen-jobs requires every kind's
+// queue: to name a queues: entry, so a reader adding job kinds arrives at this
+// list immediately. A River queue is a bound on the process's worker pool,
+// shared with core work — an extension declaring one would not be adding a
+// capability beside a core node, it would be allocating a share of the
+// installation's concurrency from a directory. Composition's own queue set
+// (compose/jobqueues.go) would have to become composed too, and the census that
+// holds declared bounds equal to built ones with it. So an extension job rides
+// one of the pools the installation already declared, and the job composer
+// checks that it does (tools/gen-composition/extjobs.go).
 var ownershipContainers = [][]string{
 	{"components", "schemas"},
 	{"paths"},
@@ -239,7 +254,7 @@ func containerList() string {
 func checkOwnership(unit string, steps []string, owners map[string]string) error {
 	container, ok := ownershipContainerFor(steps)
 	if !ok {
-		return fmt.Errorf("does not name a node inside a container an extension may extend (%s) — an extension adds capabilities to the contract, never contract structure", containerList())
+		return fmt.Errorf("names a node inside a container this composer does not compose yet — an extension may extend %s. That is a statement about what has been built, not a verdict on the request: if this container should be composable, the composition for it (and the gates that read it) is the change to make. Contract STRUCTURE is the one class that stays out — a fragment adds capabilities, never the shape of the document", containerList())
 	}
 	if len(steps) == len(container)+1 {
 		// The node is being created here; addNode refuses it if it already

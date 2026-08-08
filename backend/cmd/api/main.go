@@ -64,7 +64,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// snapshot serves registration and the boot inventory below, so both
 	// observe the same declarations.
 	extensions := composition.Extensions()
-	if err := compose.RegisterExtensions(extensions, composition.Verbs()); err != nil {
+	if err := compose.RegisterExtensions(extensions, composition.Verbs(), composition.Jobs()); err != nil {
 		return err
 	}
 

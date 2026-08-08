@@ -177,7 +177,7 @@ func TestComposedFilesEmitsEveryContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, _, err := composedFiles(root)
+	files, _, _, err := composedFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +323,7 @@ func TestFragmentRefusals(t *testing.T) {
 		{
 			name:    "a target outside every extendable container",
 			api:     map[string]string{"crm.yaml": overlayFor("u", "$.webhooks.thing", "      x: 1\n")},
-			wantErr: "never contract structure",
+			wantErr: "never the shape of the document",
 		},
 		{
 			name:    "a route outside the unit's namespace",
@@ -473,7 +473,7 @@ func TestFragmentCannotAddATopLevelBlock(t *testing.T) {
 		"u": {"crm.yaml": overlayFor("u", "$.webhooks", "      thing: {}\n")},
 	})
 	_, err := composeFrom(t, root)
-	if err == nil || !strings.Contains(err.Error(), "never contract structure") {
+	if err == nil || !strings.Contains(err.Error(), "never the shape of the document") {
 		t.Fatalf("err = %v, want the container refusal", err)
 	}
 
@@ -483,7 +483,7 @@ func TestFragmentCannotAddATopLevelBlock(t *testing.T) {
 		root := fragmentRoot(t, map[string]map[string]string{
 			"u": {"crm.yaml": overlayFor("u", "$.paths", "      /ext/u/x: {}\n")},
 		})
-		if _, err := composeFrom(t, root); err == nil || !strings.Contains(err.Error(), "never contract structure") {
+		if _, err := composeFrom(t, root); err == nil || !strings.Contains(err.Error(), "never the shape of the document") {
 			t.Fatalf("err = %v, want the container refusal", err)
 		}
 	})

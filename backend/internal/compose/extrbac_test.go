@@ -73,7 +73,7 @@ func TestTwoUnitsDerivingOneRbacObjectAreRefusedByName(t *testing.T) {
 	t.Cleanup(func() { setComposedTools(nil); setComposedVerbs(nil) })
 	bootErr := RegisterExtensions([]extension.Extension{
 		{Name: "crm", Version: "0.1.0"}, {Name: "crm-demo", Version: "0.1.0"},
-	}, []extension.Verb{crm, crmDemo})
+	}, []extension.Verb{crm, crmDemo}, nil)
 	if bootErr == nil || !strings.Contains(bootErr.Error(), "both derive RBAC object") {
 		t.Fatalf("boot err = %v, want the derived-name collision", bootErr)
 	}
@@ -121,7 +121,7 @@ func TestRegisterExtensionsRegistersTheDeclaredObjects(t *testing.T) {
 	t.Cleanup(func() { setComposedTools(nil); setComposedVerbs(nil) })
 	gated := unitVerb("crm-demo", "demo_sync", extension.TierAutoExecute, extension.ScopeRead)
 	gated.RbacObject = "ext_crm_demo_widget"
-	if err := RegisterExtensions([]extension.Extension{{Name: "crm-demo", Version: "0.1.0"}}, []extension.Verb{gated}); err != nil {
+	if err := RegisterExtensions([]extension.Extension{{Name: "crm-demo", Version: "0.1.0"}}, []extension.Verb{gated}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !identity.RBACObjectGrantable("ext_crm_demo_widget") {
@@ -146,7 +146,7 @@ func TestRegisterExtensionsRefusesAnObjectOutsideTheNamespace(t *testing.T) {
 	// purpose, and this is the case that proves the second one still runs.
 	squatting := unitVerb("crm-demo", "demo_sync", extension.TierAutoExecute, extension.ScopeRead)
 	squatting.RbacObject = "ext_crm_demo__widget"
-	if err := RegisterExtensions([]extension.Extension{{Name: "crm-demo", Version: "0.1.0"}}, []extension.Verb{squatting}); err == nil {
+	if err := RegisterExtensions([]extension.Extension{{Name: "crm-demo", Version: "0.1.0"}}, []extension.Verb{squatting}, nil); err == nil {
 		t.Fatal("the boot accepted an object the vocabulary refuses")
 	}
 	if len(ComposedVerbs()) != 0 {

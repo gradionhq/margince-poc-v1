@@ -23,3 +23,11 @@ func Extensions() []extension.Extension {
 func Verbs() []extension.Verb {
 	return nil
 }
+
+// Jobs returns every scheduled job the enabled units' jobs.yaml fragments
+// declare, read out of the merged contract at generation time and re-emitted
+// here as literals — so a bare role binary knows each job's cadence, wall
+// clocks, queue, attempt cap, risk tier and requested scope.
+func Jobs() []extension.JobDeclaration {
+	return nil
+}

@@ -149,6 +149,33 @@ func declaredKindTypes(t *testing.T) map[string]bool {
 	return declared
 }
 
+// composedJobArgsTypes are the ONLY args types whose kinds api/jobs.yaml does
+// not name, and the exemption is two names rather than a pattern on purpose.
+//
+// They are the extension tier's job seam (internal/compose/extjobs.go). A
+// composed unit's kinds are not knowable when this repository is generated —
+// the file below is committed and drift-gated, so a composed installation could
+// not regenerate it without failing that gate on every build that enabled a
+// unit — and the closed union's members are bare identifiers in package
+// compose, which an extension module cannot be. So these two types carry their
+// kind in a FIELD, one pair serving every composed job.
+//
+// What replaces the guarantee this gate gives every other type is not nothing,
+// and it is not weaker at the point that matters. The union stops an undeclared
+// kind at COMPILE time; for these two it is stopped at BOOT, by the same
+// jobs.MustBeTotal the runner already refuses on — RegisterExtensions declares
+// the composed kinds through jobs.RegisterComposed before NewJobRunner runs, so
+// a kind with no declaration still cannot reach River's one-minute default. It
+// aborts the boot instead of failing the build.
+//
+// A pattern (say, any name beginning ext) would re-open exactly what this gate
+// closes: someone could add a third args type that looks like the seam's and
+// take the exemption with it. Two names means a third one fails here.
+var composedJobArgsTypes = map[string]bool{
+	"extJobDispatcherArgs": true,
+	"extJobWorkspaceArgs":  true,
+}
+
 // TestEveryJobArgsTypeIsDeclaredInTheContract is the half the generated
 // assertions cannot reach. They name only kinds the contract already carries,
 // so a type someone added and merely ENQUEUED — Runner.Enqueue takes a bare
@@ -164,6 +191,9 @@ func TestEveryJobArgsTypeIsDeclaredInTheContract(t *testing.T) {
 			continue
 		}
 		found++
+		if composedJobArgsTypes[typeName] {
+			continue
+		}
 		if !declared[typeName] {
 			t.Errorf("%s is a River job (it declares Kind()) but is not in api/jobs.yaml. Add it there and run `make gen` — an undeclared kind runs on River's one-minute default and is invisible to both job surfaces.", typeName)
 		}

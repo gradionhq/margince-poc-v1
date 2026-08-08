@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -22,7 +23,7 @@ import (
 // registered extension never serves. This is also where the manifest
 // emission and the approval filtering slot in: both
 // operate on the declared set before anything is applied.
-func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb) error {
+func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb, jobDecls []extension.JobDeclaration) error {
 	if err := validateExtensionSet(exts); err != nil {
 		return err
 	}
@@ -36,6 +37,14 @@ func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb) erro
 		return err
 	}
 	rbacObjects, err := extensionRbacObjects(verbs)
+	if err != nil {
+		return err
+	}
+	// Still the validate phase: joining a unit's Go job behavior to its
+	// contract-declared kinds can refuse the set (an undeclared job, a
+	// confirm-first tier, an outbound scope), and it must do so before a
+	// jurisdiction pack is applied.
+	composedSet, err := buildExtensionJobs(exts, jobDecls)
 	if err != nil {
 		return err
 	}
@@ -53,6 +62,16 @@ func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb) erro
 	if err := RegisterRbacObjects(rbacObjects); err != nil {
 		return err
 	}
+	// The composed job kinds join the declaration table before any runner is
+	// built, because everything the runner then asks about them — the wall
+	// clock Govern hands River, the queue a fan-out child lands on, the
+	// attempt cap, the totality check that refuses an undeclared kind — is
+	// answered by jobs.SpecFor. Registering the workers first would mean
+	// registering them under the zero Spec, which is River's silent minute.
+	if err := jobs.RegisterComposed(composedJobSpecs(composedSet)); err != nil {
+		return err
+	}
+	setComposedJobs(composedSet)
 	setComposedTools(tools)
 	setComposedVerbs(verbs)
 	return nil
@@ -110,6 +129,9 @@ func validateExtensionSet(exts []extension.Extension) error {
 		if err := preflightSecrets(e); err != nil {
 			return err
 		}
+		if err := preflightJobs(e); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -131,6 +153,24 @@ func preflightSecrets(e extension.Extension) error {
 			return fmt.Errorf("compose: extension %q declares secret %q at %s scope twice", e.Name, req.Key, req.Scope)
 		}
 		seen[req] = true
+	}
+	return nil
+}
+
+// preflightJobs validates one unit's scheduled jobs through the same published
+// Job.Validate the manifest generator runs, and rejects a job name declared
+// twice within the unit — the same fail-closed boundary preflightTools holds,
+// for a declaration that reached the composed set outside the generator path.
+func preflightJobs(e extension.Extension) error {
+	seen := make(map[string]bool, len(e.Jobs))
+	for _, job := range e.Jobs {
+		if err := job.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
+		}
+		if seen[job.Name] {
+			return fmt.Errorf("compose: extension %q declares job %q twice", e.Name, job.Name)
+		}
+		seen[job.Name] = true
 	}
 	return nil
 }

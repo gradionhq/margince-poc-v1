@@ -61,6 +61,18 @@ const extensionsGenVerbsDoc = `
 func Verbs() []extension.Verb {
 `
 
+// extensionsGenJobsDoc introduces the scheduled-job half of the wiring, on
+// exactly the terms the verb literals are emitted on: compose/extjobs.go's two
+// boot refusals read Tier and RequestedScope, and a bare role binary ships no
+// repository to read the merged contract back from.
+const extensionsGenJobsDoc = `
+// Jobs returns every scheduled job the enabled units' jobs.yaml fragments
+// declare, read out of the merged contract at generation time and re-emitted
+// here as literals — so a bare role binary knows each job's cadence, wall
+// clocks, queue, attempt cap, risk tier and requested scope.
+func Jobs() []extension.JobDeclaration {
+`
+
 // frontendGenHeader is shared by the committed vanilla stub and every composed
 // output — the vanilla body below it must stay byte-identical to
 // frontend/src/composition/extensions.gen.ts (held by `-verify` via
@@ -114,29 +126,35 @@ export const extensions: readonly ExtensionDescriptor[] = `
 // composedFiles builds every deterministic output of the composition
 // (everything except go.work.sum, which only the go command writes),
 // keyed by path relative to build/composition/.
-func composedFiles(root string) (map[string][]byte, []declaredVerb, error) {
+func composedFiles(root string) (map[string][]byte, []declaredVerb, []extension.JobDeclaration, error) {
 	units, err := scanExtensions(root)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	work, goVersion, err := composedWork(root, units)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	contracts, err := composedContracts(root, units)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// Read back OUT of the merged contracts, not out of the fragments: the
 	// governance the composed program serves is derived from the document a
 	// client is handed. See extverbs.go.
 	verbs, err := extensionVerbs(units, contracts)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	wiring, err := canonicalGoSource("backend/extensions_gen.go", extensionsGen(units, verbs))
+	// The same read, on the jobs contract: a scheduled job's mechanics are
+	// declared in the merged document and nowhere in Go.
+	jobDecls, err := extensionJobs(units, contracts)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	wiring, err := canonicalGoSource("backend/extensions_gen.go", extensionsGen(units, verbs, jobDecls))
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	files := map[string][]byte{
 		goWorkFile:                   work,
@@ -149,7 +167,7 @@ func composedFiles(root string) (map[string][]byte, []declaredVerb, error) {
 	for base, content := range contracts {
 		files["api/"+base] = content
 	}
-	return files, verbs, nil
+	return files, verbs, jobDecls, nil
 }
 
 // canonicalGoSource parses emitted Go source and requires it to already
@@ -229,7 +247,7 @@ func composedGoMod(goVersion string) []byte {
 // pinned to its extensions/<name> directory — composition.json and the
 // boot inventory attribute the unit by that name, so a declaration
 // disagreeing with it must not compose under a different identity.
-func extensionsGen(units []extensionUnit, verbs []declaredVerb) []byte {
+func extensionsGen(units []extensionUnit, verbs []declaredVerb, jobDecls []extension.JobDeclaration) []byte {
 	var b strings.Builder
 	b.WriteString(extensionsGenHeader)
 	if anySchema(verbs) {
@@ -248,6 +266,8 @@ func extensionsGen(units []extensionUnit, verbs []declaredVerb) []byte {
 		b.WriteString("\treturn nil\n}\n")
 		b.WriteString(extensionsGenVerbsDoc)
 		b.WriteString("\treturn nil\n}\n")
+		b.WriteString(extensionsGenJobsDoc)
+		b.WriteString("\treturn nil\n}\n")
 		return []byte(b.String())
 	}
 	b.WriteString("\treturn []extension.Extension{\n")
@@ -257,6 +277,8 @@ func extensionsGen(units []extensionUnit, verbs []declaredVerb) []byte {
 	b.WriteString("\t}\n}\n")
 	b.WriteString(extensionsGenVerbsDoc)
 	writeVerbLiterals(&b, verbs)
+	b.WriteString(extensionsGenJobsDoc)
+	writeJobLiterals(&b, jobDecls)
 	b.WriteString(`
 // mustBe pins a unit to its extensions/<name> directory: a declaration
 // whose Name disagrees with the directory it shipped in is a wiring
@@ -379,6 +401,40 @@ func writeSchemaLiteral(b *strings.Builder, field string, raw json.RawMessage) {
 		return
 	}
 	fmt.Fprintf(b, "\t\t\t%s:%s json.RawMessage(%q),\n", field, strings.Repeat(" ", len("RequestedScope")-len(field)), string(raw))
+}
+
+// writeJobLiterals emits the composed job set as a Go slice literal.
+//
+// A duration is written as the integer nanosecond count it IS, not as a
+// `6 * time.Hour` expression: the emitted file would then have to import time,
+// and the value a reviewer reads would be an expression whose meaning depends
+// on the emitter and Go's parser agreeing about the same string twice. The
+// declaration's own spelling lives in the fragment, where a reviewer reads it.
+//
+// Fields are written unconditionally rather than omitted when zero, for the
+// reason the verb literals are: the emitted source is what a reviewer reads to
+// see what an installation schedules, and a missing line would have to be read
+// as "absent" or as "the zero value" with nothing on the page to say which.
+func writeJobLiterals(b *strings.Builder, decls []extension.JobDeclaration) {
+	if len(decls) == 0 {
+		b.WriteString("\treturn nil\n}\n")
+		return
+	}
+	b.WriteString("\treturn []extension.JobDeclaration{\n")
+	for _, d := range decls {
+		b.WriteString("\t\t{\n")
+		fmt.Fprintf(b, "\t\t\tUnit:              %q,\n", string(d.Unit))
+		fmt.Fprintf(b, "\t\t\tJob:               %q,\n", d.Job)
+		fmt.Fprintf(b, "\t\t\tQueue:             %q,\n", d.Queue)
+		fmt.Fprintf(b, "\t\t\tCadence:           %d,\n", int64(d.Cadence))
+		fmt.Fprintf(b, "\t\t\tDispatcherTimeout: %d,\n", int64(d.DispatcherTimeout))
+		fmt.Fprintf(b, "\t\t\tTimeout:           %d,\n", int64(d.Timeout))
+		fmt.Fprintf(b, "\t\t\tMaxAttempts:       %d,\n", d.MaxAttempts)
+		fmt.Fprintf(b, "\t\t\tTier:              %q,\n", string(d.Tier))
+		fmt.Fprintf(b, "\t\t\tRequestedScope:    %q,\n", string(d.RequestedScope))
+		b.WriteString("\t\t},\n")
+	}
+	b.WriteString("\t}\n}\n")
 }
 
 // anySchema reports whether the emitted literals will mention

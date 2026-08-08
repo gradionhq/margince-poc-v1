@@ -143,11 +143,11 @@ func generate(root string) error {
 	// composedFiles FIRST: the manifests are derived from the merged contracts
 	// it produces, so the composition has to exist before a manifest can be
 	// written. This is the same ordering `make gen` applies one level up.
-	files, verbs, err := composedFiles(root)
+	files, verbs, jobDecls, err := composedFiles(root)
 	if err != nil {
 		return err
 	}
-	if err := generateUnitManifests(root, units, verbs); err != nil {
+	if err := generateUnitManifests(root, units, verbs, jobDecls); err != nil {
 		return err
 	}
 	for rel, content := range files {
@@ -233,11 +233,11 @@ func verifyOutputs(root string, recorded manifest) error {
 	if err != nil {
 		return err
 	}
-	files, verbs, err := composedFiles(root)
+	files, verbs, jobDecls, err := composedFiles(root)
 	if err != nil {
 		return err
 	}
-	if err := verifyUnitManifests(root, units, verbs); err != nil {
+	if err := verifyUnitManifests(root, units, verbs, jobDecls); err != nil {
 		return err
 	}
 	current, err := currentManifest(root, files)
@@ -344,7 +344,7 @@ var vanillaStubs = []struct {
 }{
 	{
 		rel:   "composition/extensions_gen.go",
-		emit:  func() []byte { return extensionsGen(nil, nil) },
+		emit:  func() []byte { return extensionsGen(nil, nil, nil) },
 		align: "align the committed stub with tools/gen-composition",
 	},
 	{

@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // unitManifestFile is the per-unit generated manifest: what
@@ -139,14 +141,15 @@ func descriptorDigest(c riskTierRequest) (string, error) {
 // generateUnitManifests derives and writes every enabled unit's manifest.
 // The write is skipped when the content is current, so the lane-frequent
 // `make composition` never churns source-tree mtimes.
-func generateUnitManifests(root string, units []extensionUnit, verbs []declaredVerb) error {
+func generateUnitManifests(root string, units []extensionUnit, verbs []declaredVerb, jobDecls []extension.JobDeclaration) error {
 	vocab, err := publishedVocabulary(root)
 	if err != nil {
 		return err
 	}
 	byUnit := verbsByUnit(verbs)
+	jobsByUnit := jobDeclarationsByUnit(jobDecls)
 	for _, u := range units {
-		encoded, err := deriveUnitManifest(u, vocab, byUnit[u.Name])
+		encoded, err := deriveUnitManifest(u, vocab, byUnit[u.Name], jobsByUnit[u.Name])
 		if err != nil {
 			return err
 		}
@@ -198,19 +201,30 @@ func writeFileAtomic(dir, path string, content []byte) error {
 	return os.Rename(tmpName, path)
 }
 
+// jobDeclarationsByUnit groups the composed job declarations by declaring
+// unit, so each manifest derivation sees its own and no other's.
+func jobDeclarationsByUnit(decls []extension.JobDeclaration) map[string][]extension.JobDeclaration {
+	byUnit := map[string][]extension.JobDeclaration{}
+	for _, d := range decls {
+		byUnit[string(d.Unit)] = append(byUnit[string(d.Unit)], d)
+	}
+	return byUnit
+}
+
 // verifyUnitManifests re-derives every unit's manifest and requires the
 // file next to the unit to be byte-identical — a hand edit, a stale
 // derivation, or a foreign encoder fails here even when the semantic
 // content agrees (the composition.json input row only pins the digest;
 // THIS is the gate that ties the digest back to the declaration).
-func verifyUnitManifests(root string, units []extensionUnit, verbs []declaredVerb) error {
+func verifyUnitManifests(root string, units []extensionUnit, verbs []declaredVerb, jobDecls []extension.JobDeclaration) error {
 	vocab, err := publishedVocabulary(root)
 	if err != nil {
 		return err
 	}
 	byUnit := verbsByUnit(verbs)
+	jobsByUnit := jobDeclarationsByUnit(jobDecls)
 	for _, u := range units {
-		encoded, err := deriveUnitManifest(u, vocab, byUnit[u.Name])
+		encoded, err := deriveUnitManifest(u, vocab, byUnit[u.Name], jobsByUnit[u.Name])
 		if err != nil {
 			return err
 		}

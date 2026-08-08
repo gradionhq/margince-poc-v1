@@ -33,7 +33,7 @@ func scannableGoFile(name string) bool {
 	return !strings.HasSuffix(name, "_test.go")
 }
 
-func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declaredVerb) ([]byte, error) {
+func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declaredVerb, jobDecls []extension.JobDeclaration) ([]byte, error) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution)
 	if err != nil {
@@ -45,7 +45,7 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declar
 	if err := rejectLiveInitializers(pkgs, fset); err != nil {
 		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
-	r := &unitReader{fset: fset, vocab: vocab, verbs: verbs}
+	r := &unitReader{fset: fset, vocab: vocab, verbs: verbs, jobs: jobDecls}
 	newFn, newFile, count := findNew(pkgs)
 	if count == 0 {
 		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is required", u.Name)
@@ -104,6 +104,10 @@ type unitReader struct {
 	// to join behavior to declaration (joinToolsToContract) and to build the
 	// manifest's risk tiers, which are contract-derived, not AST-derived.
 	verbs []declaredVerb
+	// jobs are the scheduled jobs this unit's jobs.yaml fragment declares,
+	// read from the MERGED contract for the same reason verbs are: the join
+	// between behavior and declaration, and the manifest's job risk tiers.
+	jobs []extension.JobDeclaration
 }
 
 func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManifest, error) {
@@ -119,7 +123,11 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 	if err != nil {
 		return unitManifest{}, err
 	}
-	m := unitManifest{Schema: 1, RiskTiers: tiers}
+	jobTiers, err := jobRequests(r.jobs)
+	if err != nil {
+		return unitManifest{}, err
+	}
+	m := unitManifest{Schema: 1, RiskTiers: append(tiers, jobTiers...)}
 	for _, elt := range lit.Elts {
 		if err := r.readExtensionField(elt, file, &m); err != nil {
 			return unitManifest{}, err
@@ -169,6 +177,16 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 		tools, err = r.readTools(kv.Value, file)
 		if err == nil {
 			err = r.joinToolsToContract(tools, r.verbs)
+		}
+	case "Jobs":
+		// Symmetric with Tools: the manifest's job risk tiers are already set,
+		// from the merged contract. What the Go slice contributes is the join —
+		// behavior for a job the contract does not declare is a defect,
+		// reported at its own line.
+		var declared []declaredTool
+		declared, err = r.readJobs(kv.Value, file)
+		if err == nil {
+			err = r.joinJobsToContract(declared, r.jobs)
 		}
 	case "Jurisdictions":
 		// Recognized and deliberately skipped: a jurisdiction pack is
