@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -63,26 +62,6 @@ type Registry struct {
 	// the same meter and does the refusing; the split is deliberate — a bound
 	// is enforced where admission is decided and paid where records leave.
 	reads ReadCharger
-}
-
-// ReadCharger records records handed over against the caller's read bound.
-// Registry only ever charges; reading the bound and refusing on it belongs to
-// the one admission point, so this half of the seam cannot be used to decide
-// anything.
-type ReadCharger interface {
-	Consume(ctx context.Context, n int) error
-}
-
-// RegistryOption configures a Registry at construction.
-type RegistryOption func(*Registry)
-
-// WithReadCharger installs the meter tool results are charged against. It is
-// the same pointer compose hands the admission gate as its ReadBound, so the
-// half that refuses and the half that pays can never end up counting against
-// different windows. A registry without one records nothing — the composition
-// no agent principal reaches (see auth.WithReadBound).
-func WithReadCharger(reads ReadCharger) RegistryOption {
-	return func(r *Registry) { r.reads = reads }
 }
 
 // NewRegistry builds the tool surface over its approvals engine and admission
@@ -302,33 +281,19 @@ func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, ar
 	if err != nil {
 		return nil, err
 	}
-	r.chargeReads(ctx, spec, facts.servedCount())
-	return sealEnvelope(spec, trace, facts, out)
-}
-
-// chargeReads records what one answer handed over against MCP-SESS-READS, at
-// the one place every tool's result passes through. Charging per TOOL instead
-// would be a list to maintain, and the read tool added next is the one that
-// forgets — which is exactly how a densely-joined answer becomes the cheapest
-// bulk read on the surface (A139).
-//
-// It charges only after a SUCCESSFUL answer: the bound counts records the agent
-// was actually given, and a handler that failed gave it none.
-//
-// A charge that cannot be recorded is logged rather than returned. The records
-// have already left the surface, so failing the call here would hide a
-// completed read behind an error AND still leave it uncounted. Nothing is
-// spent through the gap either: the gate reads the same counter and fails
-// closed when it is unreachable, so the next call is refused rather than
-// waved through.
-func (r *Registry) chargeReads(ctx context.Context, spec mcp.ToolSpec, served int) {
-	if r.reads == nil || served <= 0 {
-		return
+	sealed, err := sealEnvelope(spec, trace, facts, out)
+	if err != nil {
+		return nil, err
 	}
-	if err := r.reads.Consume(ctx, served); err != nil {
-		slog.ErrorContext(ctx, "recording served records against the read bound failed",
-			"tool", spec.Name, "records", served, "err", err)
+	// Charged AFTER sealing and BEFORE returning: at this point the answer
+	// exists but has not reached the caller, so a charge that cannot be
+	// recorded can still refuse it. An answer sealed and then charged in the
+	// other order would spend the window on a result a marshalling failure was
+	// about to discard.
+	if err := r.chargeReads(ctx, spec, facts.servedCount()); err != nil {
+		return nil, err
 	}
+	return sealed, nil
 }
 
 // tierResolverFor builds the resolver Admit consults for the call's tier. A

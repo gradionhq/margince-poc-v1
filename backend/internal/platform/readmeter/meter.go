@@ -205,8 +205,11 @@ func (m *Meter) usable(ctx context.Context) (ws ids.UUID, agent string, ok bool)
 }
 
 // bucket is the fixed window a moment falls in.
+// It divides in NANOSECONDS rather than whole seconds: a sub-second window
+// truncates to zero seconds and the division panics, and a window is a
+// caller-supplied duration with nothing stopping it being 500ms.
 func (m *Meter) bucket() int64 {
-	return m.now().UTC().Unix() / int64(m.window.Seconds())
+	return m.now().UTC().UnixNano() / int64(m.window)
 }
 
 // Consume records n records served to ctx's Passport.
@@ -281,7 +284,9 @@ func (m *Meter) counter(ctx context.Context, key string) (int, error) {
 
 // ttlSeconds covers the window plus an hour of clock-skew slack, so a counter
 // never outlives its window (over-counting a later one) nor expires inside it
-// (under-counting this one).
+// (under-counting this one). Redis expiry has one-second granularity, so a
+// sub-second window still gets a whole second at minimum — the slack already
+// guarantees that, and it is named here so the floor is not a surprise.
 func (m *Meter) ttlSeconds() int {
-	return int((m.window + time.Hour).Seconds())
+	return max(1, int((m.window + time.Hour).Seconds()))
 }

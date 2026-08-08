@@ -242,3 +242,21 @@ func TestRebindingCarriesWhetherTheCompositionIsBounded(t *testing.T) {
 		t.Error("rebinding to an unmetered composition left the meter refusing")
 	}
 }
+
+// A window is a caller-supplied duration and nothing stops it being sub-second.
+// Bucketing in whole seconds truncated that to zero and divided by it, so the
+// first read of a 500ms window panicked rather than answering.
+func TestASubSecondWindowBucketsRatherThanDividingByZero(t *testing.T) {
+	now := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
+	meter := NewWithClock(nil, DefaultLimit, 500*time.Millisecond, func() time.Time { return now })
+
+	first := meter.bucket()
+	now = now.Add(600 * time.Millisecond)
+
+	if meter.bucket() == first {
+		t.Error("a 500ms window did not roll after 600ms")
+	}
+	if meter.ttlSeconds() < 1 {
+		t.Errorf("a sub-second window asked Redis for a %ds expiry, which never expires", meter.ttlSeconds())
+	}
+}

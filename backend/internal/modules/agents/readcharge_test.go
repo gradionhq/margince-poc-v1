@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -61,18 +62,51 @@ func readToolSpec(name string) mcp.ToolSpec {
 	}
 }
 
-func chargingRegistry(t *testing.T, tool mcp.Tool) (*Registry, *countingCharger, context.Context) {
+// chargingRegistry is the ONE setup every test here shares: a registry with a
+// counting charger, the tool under test registered, and an agent context
+// holding scope. Options vary only what a given test is about.
+func chargingRegistry(t *testing.T, tool mcp.Tool, opts ...chargeTestOption) (*Registry, *countingCharger, context.Context) {
 	t.Helper()
-	charger := &countingCharger{}
-	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithReadCharger(charger))
+	cfg := chargeTest{charger: &countingCharger{}, scope: principal.ScopeRead}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithReadCharger(cfg.charger))
+	if cfg.noCharger {
+		r = NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+	}
 	r.Register(tool)
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
 		PassportID: ids.NewV7(),
-		Scopes:     principal.NewScopeSet(principal.ScopeRead),
+		Scopes:     principal.NewScopeSet(cfg.scope),
 	})
-	return r, charger, ctx
+	return r, cfg.charger, ctx
+}
+
+type chargeTest struct {
+	charger   *countingCharger
+	scope     principal.Scope
+	noCharger bool
+}
+
+type chargeTestOption func(*chargeTest)
+
+// withChargerError makes the meter unreachable, so a test can say what an
+// uncountable read does.
+func withChargerError(err error) chargeTestOption {
+	return func(c *chargeTest) { c.charger.err = err }
+}
+
+// withScope runs the caller under a scope other than read.
+func withScope(s principal.Scope) chargeTestOption {
+	return func(c *chargeTest) { c.scope = s }
+}
+
+// withNoCharger composes the registry with no meter at all.
+func withNoCharger() chargeTestOption {
+	return func(c *chargeTest) { c.noCharger = true }
 }
 
 // The charge is PER RECORD, taken where records leave the surface. One call
@@ -96,15 +130,7 @@ func TestAnAnswerChargesForEveryRecordItServed(t *testing.T) {
 // and reusing that count for the bound would let a handler that reads a page
 // twice pay for it once.
 func TestARecordServedTwiceIsChargedTwice(t *testing.T) {
-	charger := &countingCharger{}
-	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithReadCharger(charger))
-	repeated := ids.NewV7()
-	r.Register(&repeatingTool{spec: readToolSpec("read_record"), id: repeated, times: 3})
-	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
-		PassportID: ids.NewV7(), Scopes: principal.NewScopeSet(principal.ScopeRead),
-	})
+	r, charger, ctx := chargingRegistry(t, &repeatingTool{spec: readToolSpec("read_record"), id: ids.NewV7(), times: 3})
 
 	if _, err := r.Invoke(ctx, "read_record", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
@@ -160,26 +186,23 @@ func TestAnAnswerWithNoRecordsChargesNothing(t *testing.T) {
 	}
 }
 
-// A charge that cannot be recorded must not fail the call: the records have
-// already left the surface, and answering with an error would hide a completed
-// read while still leaving it uncounted. Nothing is spent through the gap —
-// the gate reads the same counter and fails closed when it is unreachable.
-func TestACountingFailureDoesNotFailTheAnswer(t *testing.T) {
-	charger := &countingCharger{err: errors.New("redis is unreachable")}
-	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithReadCharger(charger))
-	r.Register(&servingTool{spec: readToolSpec("search_records"), records: 5})
-	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
-		PassportID: ids.NewV7(), Scopes: principal.NewScopeSet(principal.ScopeRead),
-	})
+// A read that cannot be COUNTED is not served. Logging and answering anyway
+// looks contained — the gate fails closed while the counter is down — but a
+// charge lost to a transient write error is lost for good: the counter comes
+// back short and those records are read again for free. Every blip would
+// quietly raise the ceiling.
+func TestAnAnswerThatCannotBeCountedIsWithheld(t *testing.T) {
+	r, _, ctx := chargingRegistry(t,
+		&servingTool{spec: readToolSpec("search_records"), records: 5},
+		withChargerError(errors.New("redis is unreachable")))
 
 	out, err := r.Invoke(ctx, "search_records", json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("an unrecordable charge failed the answer: %v", err)
+
+	if !errors.Is(err, apperrors.ErrBudgetExceeded) {
+		t.Fatalf("an uncountable read → %v, want ErrBudgetExceeded", err)
 	}
-	if len(out) == 0 {
-		t.Error("the answer came back empty")
+	if out != nil {
+		t.Error("the answer was served anyway; a read that cannot be counted must not be handed over")
 	}
 }
 
@@ -188,16 +211,9 @@ func TestACountingFailureDoesNotFailTheAnswer(t *testing.T) {
 // over; a surface where a read-back was free would meter one door and leave
 // the other open beside it.
 func TestAWriteThatReturnsARecordStillCharges(t *testing.T) {
-	charger := &countingCharger{}
-	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}), WithReadCharger(charger))
 	spec := readToolSpec("update_record")
 	spec.RequiredScope = principal.ScopeWrite
-	r.Register(&servingTool{spec: spec, records: 1})
-	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
-		PassportID: ids.NewV7(), Scopes: principal.NewScopeSet(principal.ScopeWrite),
-	})
+	r, charger, ctx := chargingRegistry(t, &servingTool{spec: spec, records: 1}, withScope(principal.ScopeWrite))
 
 	if _, err := r.Invoke(ctx, "update_record", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
@@ -212,13 +228,7 @@ func TestAWriteThatReturnsARecordStillCharges(t *testing.T) {
 // The Surface-B runner builds one, and it runs as the human or the system that
 // started it — neither of whom this bound governs.
 func TestARegistryWithNoChargerServesNormally(t *testing.T) {
-	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
-	r.Register(&servingTool{spec: readToolSpec("search_records"), records: 3})
-	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
-		PassportID: ids.NewV7(), Scopes: principal.NewScopeSet(principal.ScopeRead),
-	})
+	r, _, ctx := chargingRegistry(t, &servingTool{spec: readToolSpec("search_records"), records: 3}, withNoCharger())
 
 	if _, err := r.Invoke(ctx, "search_records", json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("a registry with no read charger failed to serve: %v", err)

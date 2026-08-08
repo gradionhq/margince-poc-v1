@@ -21,23 +21,38 @@ import (
 // does. Re-reading MARGINCE_TEST_REDIS here would be a second spelling of the
 // same fixture for no gain.
 
-// meteredCall builds a context for one Passport, and the clock the meter reads
-// its window from, so a test can advance time rather than sleep.
-func meteredCall(t *testing.T, passport ids.UUID) context.Context {
+// meteredCall builds a context for one Passport inside workspace ws. The
+// workspace is a PARAMETER because the isolation test has to hold it fixed:
+// minting a fresh one per call would separate the two Passports by workspace as
+// well, and the test would pass without ever proving per-Passport isolation.
+func meteredCall(t *testing.T, ws ids.UUID, passport ids.UUID) context.Context {
 	t.Helper()
-	ctx := principal.WithWorkspaceID(t.Context(), ids.New[ids.WorkspaceKind]().UUID)
+	ctx := principal.WithWorkspaceID(t.Context(), ws)
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalAgent, ID: "agent:reader", PassportID: passport,
 	})
 }
+
+// frozen is the clock every test here reads. The window a charge lands in must
+// be chosen by the test, not by whether the suite happened to run across a UTC
+// boundary — a bound tested against the wall clock is a bound that fails on the
+// hour (T11).
+func frozen(at *time.Time) func() time.Time { return func() time.Time { return *at } }
+
+// aWorkspace is one workspace id, for the tests that need only that they have one.
+func aWorkspace() ids.UUID { return ids.New[ids.WorkspaceKind]().UUID }
+
+// aPassport is one Passport id.
+func aPassport() ids.UUID { return ids.New[ids.PassportKind]().UUID }
 
 // The bound's arithmetic, end to end: records accumulate ACROSS calls, and the
 // threshold is crossed by their sum rather than by any single call. This is
 // what "per record, not per call" means operationally — four reads of 30 trip a
 // limit of 100 that no one of them approaches.
 func TestRecordsAccumulateAcrossCallsUntilTheThresholdIsCrossed(t *testing.T) {
-	meter := New(budgettest.Client(t), 100, time.Hour)
-	ctx := meteredCall(t, ids.New[ids.PassportKind]().UUID)
+	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
+	meter := NewWithClock(budgettest.Client(t), 100, time.Hour, frozen(&at))
+	ctx := meteredCall(t, aWorkspace(), aPassport())
 
 	for range 3 {
 		if err := meter.Consume(ctx, 30); err != nil {
@@ -64,8 +79,9 @@ func TestRecordsAccumulateAcrossCallsUntilTheThresholdIsCrossed(t *testing.T) {
 // A single call over the threshold trips it on its own. This is the evasion
 // §2.2 names by hand: "a single search_records returning 5,000 rows trips it".
 func TestOneOversizedCallTripsTheThresholdByItself(t *testing.T) {
-	meter := New(budgettest.Client(t), 100, time.Hour)
-	ctx := meteredCall(t, ids.New[ids.PassportKind]().UUID)
+	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
+	meter := NewWithClock(budgettest.Client(t), 100, time.Hour, frozen(&at))
+	ctx := meteredCall(t, aWorkspace(), aPassport())
 
 	if err := meter.Consume(ctx, 5000); err != nil {
 		t.Fatal(err)
@@ -79,10 +95,12 @@ func TestOneOversizedCallTripsTheThresholdByItself(t *testing.T) {
 // Two Passports reading the same workspace do not spend each other's budget —
 // otherwise one busy agent would step-up every other agent the workspace runs.
 func TestOnePassportsReadingDoesNotRefuseAnother(t *testing.T) {
-	client := budgettest.Client(t)
-	meter := New(client, 100, time.Hour)
-	busy := meteredCall(t, ids.New[ids.PassportKind]().UUID)
-	quiet := meteredCall(t, ids.New[ids.PassportKind]().UUID)
+	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
+	meter := NewWithClock(budgettest.Client(t), 100, time.Hour, frozen(&at))
+	// ONE workspace, two Passports — the whole point of the test.
+	ws := aWorkspace()
+	busy := meteredCall(t, ws, aPassport())
+	quiet := meteredCall(t, ws, aPassport())
 
 	if err := meter.Consume(busy, 500); err != nil {
 		t.Fatal(err)
@@ -100,9 +118,9 @@ func TestOnePassportsReadingDoesNotRefuseAnother(t *testing.T) {
 // released when the window rolls — asserted by advancing the injected clock
 // rather than by waiting for one.
 func TestTheWindowRollsOverAndReleasesTheThreshold(t *testing.T) {
-	now := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
-	meter := NewWithClock(budgettest.Client(t), 100, time.Hour, func() time.Time { return now })
-	ctx := meteredCall(t, ids.New[ids.PassportKind]().UUID)
+	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
+	meter := NewWithClock(budgettest.Client(t), 100, time.Hour, frozen(&at))
+	ctx := meteredCall(t, aWorkspace(), aPassport())
 	if err := meter.Consume(ctx, 200); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +128,7 @@ func TestTheWindowRollsOverAndReleasesTheThreshold(t *testing.T) {
 		t.Fatal("200 records did not cross a threshold of 100 inside the window")
 	}
 
-	now = now.Add(time.Hour)
+	at = at.Add(time.Hour)
 
 	reading := meter.Read(ctx)
 	if reading.Exceeded {
