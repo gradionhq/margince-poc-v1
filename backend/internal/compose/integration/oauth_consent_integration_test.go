@@ -281,7 +281,7 @@ func (o *oauthEnv) authorizeNoFollow(t *testing.T, extra url.Values) (int, strin
 		return http.ErrUseLastResponse
 	}
 	defer func() { o.Client.CheckRedirect = nil }()
-	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := o.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
 	}

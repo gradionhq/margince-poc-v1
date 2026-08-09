@@ -9,7 +9,8 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { PeopleCard } from "./company360";
 import { CompanyScreen } from "./organizations";
@@ -139,6 +140,15 @@ function stub(three60: unknown, status = 200, account: unknown = org) {
           dropped_count: 0,
         });
       }
+      // The viewer's grants. Without this useCan denies — it fails closed on a
+      // missing snapshot — and every in-place editor on the page renders as
+      // read-only text, so a test could not tell "correctly withheld" from
+      // "never built".
+      if (pathname.endsWith("/v1/me")) {
+        return jsonResponse(
+          meFixture({ allow: { organization: ["read", "update"] } }),
+        );
+      }
       if (pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(account);
       }
@@ -173,9 +183,18 @@ function stub(three60: unknown, status = 200, account: unknown = org) {
   return fetched;
 }
 
+// useMe only asks /v1/me once a workspace slug is resolved, and useCan denies
+// until it answers — so without the slug every in-place editor on this page
+// renders read-only and a test cannot tell a withheld control from a missing
+// one.
+beforeEach(() => {
+  globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  globalThis.localStorage.clear();
   briefBody = EMPTY_BRIEF;
 });
 
@@ -395,23 +414,25 @@ describe("company view — consent is per purpose", () => {
   });
 });
 
-describe("company view — the rails belong to the account, not to a tab", () => {
-  it("keeps both side columns mounted when the reader switches tab", async () => {
+describe("company view — the context column belongs to the account, not to a tab", () => {
+  it("keeps the context column mounted when the reader switches tab", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
 
     await screen.findByRole("complementary", { name: "Business" });
-    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
 
-    // Partner and History used to render in a header-only frame, so both
-    // rails unmounted, the grid re-columned under the reader, and every query
-    // behind them refetched on the way back.
+    // Partner and History used to render in a header-only frame, so the side
+    // column unmounted, the grid re-columned under the reader, and every query
+    // behind it refetched on the way back.
     expect(
       screen.getByRole("complementary", { name: "Business" }),
     ).toBeTruthy();
-    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
+    // There is no second landmark to check any more: the profile, documents,
+    // facts and tools disclosures live INSIDE the Business column (plan §4 —
+    // one context column, not two), so they ride on its mount.
+    expect(screen.queryByRole("complementary", { name: "Profile" })).toBeNull();
   });
 
   it("does not refetch the account when the reader switches tab and back", async () => {
@@ -1154,7 +1175,7 @@ describe("company view — the visit baseline", () => {
 });
 
 describe("company view — where the account stands, and what it is to us", () => {
-  it("shows the lifecycle and every relationship type as separate badges", async () => {
+  it("shows where the account stands and every relationship type, as separate things", async () => {
     // Not "partner": that type also raises the Partner tab, and the badge and
     // the tab would then share a label, which tells the test nothing.
     stub(view(), 200, {
@@ -1167,20 +1188,250 @@ describe("company view — where the account stands, and what it is to us", () =
 
     // The retired classification held ONE value, which is how an account whose
     // contract had ended still read as "Prospect" while it was also a partner.
+    // Lifecycle is now the editable control; the types stay read-only badges.
+    // findBy, not getBy: the control appears only once /me answers with the
+    // viewer's grants, which resolves independently of the 360 awaited above.
+    expect(
+      await screen.findByRole("button", { name: "Change Account lifecycle" }),
+    ).toBeTruthy();
     expect(screen.getByText("Former customer")).toBeTruthy();
     expect(screen.getByText("Customer")).toBeTruthy();
     expect(screen.getByText("Supplier")).toBeTruthy();
   });
 
-  it("draws no badge for an account nobody has assessed", async () => {
+  it("offers the lifecycle control on an account nobody has assessed yet", async () => {
     stub(view(), 200, { ...org, lifecycle: "unknown", relationship_types: [] });
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
-    // 'unknown' is the honest default, and a badge announcing it on every new
-    // record is noise — the old column defaulted to 'prospect' and rendered
-    // that default as though someone had judged it.
-    expect(screen.queryByText("Not assessed")).toBeNull();
+    // 'unknown' used to draw nothing, on the reasoning that a badge announcing
+    // "nobody has assessed this" is noise. That holds for a badge and breaks
+    // for a control: hiding it at 'unknown' takes the field away from exactly
+    // the account that needs it set, and there is no other way in from here.
+    // What it must NOT do is read as a verdict, which is why it carries the
+    // field name and 'Not assessed' never stands on its own.
+    const control = await screen.findByRole("button", {
+      name: "Change Account lifecycle",
+    });
+    expect(control.textContent).toContain("Not assessed");
+  });
+});
+
+// §4.2's "never render" list is the hard half of the KPI row, and each case
+// below is one of its bullets. They are about what the page must NOT claim,
+// which is exactly what a refactor loses silently.
+describe("company view — the KPI row never invents a figure", () => {
+  const commercial = (over: Record<string, unknown>) => ({
+    account: { lifecycle: "prospect", relationship_types: [] },
+    commercial: {
+      open_count: 2,
+      stalled_count: 0,
+      priced_count: 0,
+      converted_count: 0,
+      ...over,
+    },
+  });
+
+  it("shows no money at all when no open deal carries a convertible amount", async () => {
+    stub(view({ state_strip: commercial({}) }));
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // A zero here would claim a priced pipeline worth nothing. The truth is
+    // that the page cannot price this one, so it reports the count instead.
+    // No currency figure AT ALL — not merely no zero. A stray non-zero total
+    // would be the worse failure, and the loose form would have passed it.
+    expect(strip.textContent).not.toMatch(/[€$£]/);
+    expect(within(strip).getByText("2 open")).toBeTruthy();
+    expect(
+      within(strip).getByText("No convertible amount on these deals"),
+    ).toBeTruthy();
+  });
+
+  // Two cards saying "in conversation" in different words is one card's worth
+  // of information taking two of the four slots. On a live account the health
+  // card reports the BALANCE of the exchange, which the engagement card does
+  // not answer: they write and we do not reply, and we write into silence,
+  // are both recent and are opposite problems.
+  it("reports who is carrying a live relationship, not that it is live", async () => {
+    stub(
+      view({
+        health: { days_since_last_inbound: 0, reply_balance: 0.86 },
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: {
+            state: "active",
+            last_inbound_at: "2026-08-08T10:00:00Z",
+          },
+          commercial: {
+            open_count: 1,
+            stalled_count: 0,
+            priced_count: 1,
+            converted_count: 0,
+            open_pipeline_minor_base: 100000,
+            base_currency: "EUR",
+          },
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // 86% of the exchange is theirs: they are asking more than we answer.
+    expect(within(strip).getByText("One-sided")).toBeTruthy();
+    expect(
+      within(strip).getByText(/86% of the exchange is theirs/),
+    ).toBeTruthy();
+  });
+
+  it("says an empty pipeline is empty, not unpriced", async () => {
+    stub(view({ state_strip: commercial({ open_count: 0 }) }));
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // "No convertible amount" on an account with nothing open reports a data
+    // problem where the truth is that nothing is running.
+    expect(within(strip).getByText("No open deals")).toBeTruthy();
+    expect(strip.textContent).not.toContain("No convertible amount");
+  });
+
+  it("names the conversion behind a cross-currency total", async () => {
+    stub(
+      view({
+        state_strip: commercial({
+          open_pipeline_minor_base: 4500000,
+          base_currency: "EUR",
+          priced_count: 2,
+          converted_count: 1,
+          fx_as_of: "2026-02-14",
+        }),
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // §4.2 bars a cross-currency sum with no conversion source and as-of date.
+    // The date is the oldest rate behind the figure — how far back any part of
+    // it reaches.
+    // The DATE itself, not just the prefix: a dropped or wrong interpolation
+    // is exactly the failure this qualification exists to prevent.
+    expect(
+      within(strip).getByText(/1 converted, rates from .*2026/),
+    ).toBeTruthy();
+  });
+
+  it("keeps saying the pipeline is unpriced even when a deal has stalled", async () => {
+    stub(view({ state_strip: commercial({ stalled_count: 1 }) }));
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // A reader told only "1 stalled" has no way to know the pipeline carries
+    // no figure at all. Both qualifications are true, so both are shown.
+    expect(strip.textContent).toContain("No convertible amount on these deals");
+    expect(strip.textContent).toContain("1 stalled");
+  });
+
+  it("says how much of the pipeline a partial total covers", async () => {
+    stub(
+      view({
+        state_strip: commercial({
+          open_pipeline_minor_base: 4500000,
+          base_currency: "EUR",
+          priced_count: 1,
+        }),
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // A sum covering one of two deals, shown bare, reads as the whole
+    // pipeline — the unlabelled cross-currency total §4.2 forbids.
+    expect(within(strip).getByText("1 of 2 deals priced")).toBeTruthy();
+  });
+
+  it("labels the sum of open deals Open pipeline, never revenue or potential", async () => {
+    stub(
+      view({
+        state_strip: commercial({
+          open_pipeline_minor_base: 4500000,
+          base_currency: "EUR",
+          priced_count: 2,
+        }),
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    expect(within(strip).getByText("Open pipeline")).toBeTruthy();
+    expect(strip.textContent).not.toMatch(/revenue|potential/i);
+  });
+
+  // §4.2 gives customers and prospects different questions. A customer's page
+  // is asked how the relationship stands; a prospect's is asked when the deal
+  // lands. Showing one set to both makes half the row noise.
+  it("asks a prospect when the deal closes, and a customer how it is going", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "prospect", relationship_types: [] },
+          commercial: {
+            open_count: 1,
+            stalled_count: 0,
+            priced_count: 1,
+            converted_count: 0,
+            open_pipeline_minor_base: 100000,
+            base_currency: "EUR",
+            next_close_on: "2026-09-30",
+          },
+        },
+      }),
+    );
+    renderCompany();
+    let strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Expected close")).toBeTruthy();
+    expect(within(strip).queryByText("Relationship")).toBeNull();
+
+    cleanup();
+    stub(
+      view({
+        health: { days_since_last_inbound: 90 },
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          commercial: {
+            open_count: 1,
+            stalled_count: 0,
+            priced_count: 1,
+            converted_count: 0,
+            open_pipeline_minor_base: 100000,
+            base_currency: "EUR",
+            next_close_on: "2026-09-30",
+          },
+        },
+      }),
+    );
+    renderCompany();
+    strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Relationship")).toBeTruthy();
+    expect(within(strip).getByText("Gone quiet")).toBeTruthy();
+    expect(within(strip).queryByText("Expected close")).toBeNull();
   });
 });
 
@@ -1198,7 +1449,14 @@ describe("company view — the state strip", () => {
             last_inbound_at: "2026-04-30T09:00:00Z",
             last_outbound_at: "2026-07-17T09:00:00Z",
           },
-          commercial: { open_count: 2, stalled_count: 1 },
+          // The full wire shape, so this case fails if the contract moves
+          // under it rather than being silently accepted by a loose stub.
+          commercial: {
+            open_count: 2,
+            stalled_count: 1,
+            priced_count: 0,
+            converted_count: 0,
+          },
         },
       }),
     );
@@ -1210,7 +1468,7 @@ describe("company view — the state strip", () => {
     expect(within(strip).getByText("Former customer")).toBeTruthy();
     expect(within(strip).getByText("Waiting on them")).toBeTruthy();
     expect(within(strip).getByText("2 open")).toBeTruthy();
-    expect(within(strip).getByText("1 stalled")).toBeTruthy();
+    expect(strip.textContent).toContain("1 stalled");
   });
 
   it("states the worst thing standing open, in the words its producer wrote", async () => {
@@ -1419,5 +1677,34 @@ describe("company view — the way in to one contact", () => {
     await screen.findByText("Mira");
     expect(screen.getByText("in regular contact")).toBeTruthy();
     expect(fetched.filter((path) => path.endsWith("/graph"))).toHaveLength(1);
+  });
+});
+
+describe("company view — the account's primary actions", () => {
+  it("offers logging what happened and setting what happens next, as separate verbs", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // One button reading "Log activity", with the task hidden behind a type
+    // picker inside it, is why accounts collect notes and no follow-ups. The
+    // two verbs answer different questions and are asked separately.
+    expect(
+      await screen.findByRole("button", { name: "Log activity" }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Add task" }),
+    ).toBeTruthy();
+  });
+
+  it("offers neither on an archived company", async () => {
+    stub(view(), 200, { ...org, archived_at: "2026-07-01T09:00:00Z" });
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // The server refuses a write against a retired record, so the button would
+    // only open a form that fails on save.
+    expect(screen.queryByRole("button", { name: "Log activity" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add task" })).toBeNull();
   });
 });

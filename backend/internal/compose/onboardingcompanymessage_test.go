@@ -99,7 +99,7 @@ func TestOnboardingCompanyMessageAnswersAndReturnsTheDeterministicNextField(t *t
 		t.Fatalf("decode reply: %v", err)
 	}
 	if reply.Kind != crmcontracts.CompanyConversationCorrection || len(reply.ProposedChanges) != 1 ||
-		reply.ProposedChanges[0].Field != crmcontracts.DisplayName ||
+		reply.ProposedChanges[0].Field != crmcontracts.CompanySiteReadSuggestedChangeFieldDisplayName ||
 		reply.NextRequiredField == nil || *reply.NextRequiredField != crmcontracts.OnboardingNextRequiredDisplayName ||
 		reply.AvailableAction != nil || runtime.runID != stateID {
 		t.Fatalf("reply = %+v, runtime run = %s", reply, runtime.runID)

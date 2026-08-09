@@ -38,6 +38,14 @@ type grantRequirement struct {
 	Action principal.Action
 }
 
+// kindLinkedInMatch is the staged kind for "this imported connection is this
+// contact". This module makes three separate statements about it — the grants
+// deciding it needs, that only the member it was staged for may decide it, and
+// that it declines the version pin — and a typo across them would leave the
+// kind half-governed with nothing saying so. Compose owns the registration
+// spelling; the compose-side waiver fitness tests bind the two together.
+const kindLinkedInMatch = "linkedin_match"
+
 // decisionGrants maps each stageable kind onto the RBAC its effect needs given
 // the KIND ALONE; approving requires every one of them. A kind whose grant also
 // depends on what the staging points at carries that half in
@@ -45,6 +53,20 @@ type grantRequirement struct {
 // both today, and decisionGrantsFor combines them so one that grows a second half
 // gains authority rather than silently losing the first.
 var decisionGrants = map[string][]grantRequirement{
+	// A step-up requires NO object grant, and the empty slice is the decision
+	// rather than an omission. Releasing a volume window touches no record: it
+	// does not widen what the agent may read, only how much of what it may
+	// already read it may be handed. There is no object to name, and naming one
+	// would be a fiction that decided the wrong question — a human holding
+	// deal.update is not thereby the person who lent this passport.
+	//
+	// What bounds it instead is selfOnlyKinds below: the lender, and nobody
+	// else. Without that entry this empty set would make a step-up decidable by
+	// everyone, which is the failure decisionGrantsFor's own comment names — so
+	// the two entries are one decision and TestAStepUpIsDecidedByTheLenderAlone
+	// holds them together.
+	KindQuotaRelease: {},
+
 	"advance_deal": {{tableDeal, principal.ActionUpdate}},
 	// progress_deal is advance_deal plus a timeline note; the gated effect
 	// is the deal move, so deciding it needs the same grant.
@@ -108,7 +130,7 @@ var decisionGrants = map[string][]grantRequirement{
 	// Approving a LinkedIn match links an imported connection to a contact and
 	// writes that contact's LinkedIn address — a person write, so deciding it
 	// needs the grant the write itself takes.
-	"linkedin_match": {{tablePerson, principal.ActionUpdate}},
+	kindLinkedInMatch: {{tablePerson, principal.ActionUpdate}},
 	// Accepting a capture_counterparty proposal (ADR-0072/A118: a first-time
 	// sender the verdict engine could not judge) creates the person and, unless
 	// the domain is free-mail, the organization behind them — so deciding it
@@ -232,7 +254,11 @@ const (
 // must BE the member it was staged for. It is the inbox's mirror of the
 // webhooks module's selfOnlyEvents, which keeps the same three LinkedIn facts
 // off the workspace fan-out for the same reason.
-var selfOnlyKinds = map[string]bool{"linkedin_match": true}
+//
+// A step-up is the other: "may this agent keep reading" is a question about ONE
+// connection, and the only person who can answer it is the human whose authority
+// that connection borrows.
+var selfOnlyKinds = map[string]bool{kindLinkedInMatch: true, KindQuotaRelease: true}
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would

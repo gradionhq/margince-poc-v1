@@ -23,6 +23,11 @@ type refusingApprovals struct{}
 
 var errRedeemRefused = errors.New("approval already consumed")
 
+// StageQuotaRelease satisfies the seam; a step-up never reaches these tests.
+func (refusingApprovals) StageQuotaRelease(context.Context, QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
+
 func (refusingApprovals) Stage(context.Context, StageRequest) (ids.ApprovalID, error) {
 	return ids.ApprovalID{}, errRedeemRefused
 }

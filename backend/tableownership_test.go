@@ -226,8 +226,12 @@ var tableOwners = map[string]string{
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)
 	"idempotency_key": "internal/compose",
-	"brief_run":       "internal/compose/briefs",
-	"brief_item":      "internal/compose/briefs",
+	// The MCP Tasks handle, beside the claim above and owned for the same
+	// reason: it is transport-owned operational state, not a domain record, and
+	// modules/agents declares the seam while owning no SQL.
+	"agent_task": "internal/compose",
+	"brief_run":  "internal/compose/briefs",
+	"brief_item": "internal/compose/briefs",
 	// The company view's per-user visit baseline: view state, not a record
 	// fact, so it is written without an audit row — the saved-view ruling.
 	// The person view acknowledges visits into the SAME table (one baseline
@@ -243,7 +247,9 @@ var tableOwners = map[string]string{
 	"suggestion_dismissal": "internal/compose/org360",
 	// The account brief's per-user cache: derived content, regenerable at
 	// any time, readable by nobody but its own user. Same ruling.
-	"org_brief": "internal/compose/orgbrief",
+	"org_brief":      "internal/compose/orgbrief",
+	"org_dossier":    "internal/compose/orgdossier",
+	"org_growth_fit": "internal/compose/orgdossier",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it.
 	// system_log is the non-entity operational ledger written through
@@ -271,6 +277,7 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/people:deal":                 "merge/promote relink deal FK rows in the single transaction",
 	"internal/modules/people:project":              "org merge re-anchors the merged-away company's projects onto the survivor in the same transaction (PROJ-LIFE-4) — the anchor is NOT NULL ... ON DELETE RESTRICT, so a project cannot stay behind, and leaving it turns the survivor's deals un-editable against the deal_project_same_org trigger",
 	"internal/modules/people:activity_link":        "merge/promote relink timeline links in the single transaction",
+	"internal/modules/people:attachment":           "org merge carries the document library's account pointer onto the survivor in the same transaction — organization_id is a denormalized READ path nothing else maintains, so a file left on the dissolved company is filed under a record that no longer exists and reads to a user as the contract having vanished",
 	"internal/modules/people:activity_participant": "capture records the counterparty by ADDRESS because no person exists yet — the creation gate runs after that transaction commits, and for a suppressed sender never runs at all. linkActivityToPerson is the one chokepoint every ensure path reaches AND the one that has already settled the person against a merge, so naming that party is the same write, on the same row, in the same transaction as the link",
 	"internal/modules/people:list_member":          "merge relinks list memberships (and archive purges them) in the single transaction",
 	"internal/modules/people:taggable":             "merge relinks tag rows (and archive purges them) in the single transaction",

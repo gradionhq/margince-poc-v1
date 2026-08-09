@@ -348,7 +348,7 @@ func personNameAndTitle(t *testing.T, invoke func(tool, args string) (json.RawMe
 			Title    string `json:"title"`
 		} `json:"fields"`
 	}
-	if err := json.Unmarshal(out, &rec); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, out), &rec); err != nil {
 		t.Fatal(err)
 	}
 	return rec.Fields.FullName, rec.Fields.Title
@@ -394,7 +394,7 @@ func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 			Replay     json.RawMessage `json:"replay"`
 		} `json:"staged_approval"`
 	}
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, out), &result); err != nil {
 		t.Fatal(err)
 	}
 	if result.Fields.FullName != "Mona Human" || result.Fields.Title != "VP Engineering" {

@@ -13,18 +13,68 @@ package compose
 // This file proves the SET and the one seam guard. That each derived verb
 // actually answers ErrUnsupportedBySoR is proved where it can only be proved —
 // against a real overlay workspace, in
-// compose/integration/overlay_toolsurface_integration_test.go, whose
+// compose/integration/overlay/overlay_toolsurface_integration_test.go, whose
 // nativeOnlyAgentTools drives every one of them through the live registry.
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// overlayPinName is the integration suite two gates in this package defer to: it
+// drives every native-only verb through the live registry against a real overlay
+// workspace, so the lists here can be derived from it rather than hand-kept.
+const overlayPinName = "overlay_toolsurface_integration_test.go"
+
+// overlayPin locates that suite by NAME, anywhere under integration/.
+//
+// By name rather than by a fixed path, because a gate that breaks when a file it
+// only READS is relocated is asserting where the file lives, which is not the
+// obligation it exists for. The suites under integration/ are split into packages
+// as the lane needs scheduling slots, so that relocation is routine.
+//
+// Exactly one match, or this fails. Taking the last of several would be the
+// worse failure: a split in progress leaves two copies of a suite for as long as
+// it takes to delete the first, and both gates would silently derive their verb
+// lists from whichever the walk reached last — green against a stale pin, which
+// is the shape of every finding this gate exists to prevent.
+func overlayPin(t *testing.T) string {
+	t.Helper()
+	var found []string
+	err := filepath.WalkDir("integration", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && d.Name() == overlayPinName {
+			found = append(found, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking integration/ for %s: %v", overlayPinName, err)
+	}
+	switch len(found) {
+	case 1:
+		return found[0]
+	case 0:
+		t.Fatalf("%s is nowhere under integration/ — the pin these gates defer to is gone, so they "+
+			"would assert nothing. Restore it, or point overlayPinName at whatever replaced it.",
+			overlayPinName)
+	default:
+		t.Fatalf("%d files named %s under integration/ (%s) — these gates cannot tell which one is "+
+			"the pin, and picking either would assert against a source nobody chose. Delete the "+
+			"stale copy, or rename it.", len(found), overlayPinName, strings.Join(found, ", "))
+	}
+	return ""
+}
 
 // unservableRecordWriteVerbs derives the set: a verb that writes a record
 // (overlayRecordWriteTools) and has no seam verb the overlay provider can serve
@@ -61,7 +111,7 @@ func TestEveryUnservableRecordWriteVerbIsARegisteredToolTheOverlayPinDrives(t *t
 		if !driven[verb] {
 			t.Errorf("%s writes a record the overlay provider cannot serve, so an overlay workspace must "+
 				"meet a declared refusal on the TOOL path too — and nothing proves it does. Add it to "+
-				"nativeOnlyAgentTools in compose/integration/overlay_toolsurface_integration_test.go, "+
+				"nativeOnlyAgentTools in compose/integration/overlay/overlay_toolsurface_integration_test.go, "+
 				"which drives each verb through the live registry against a real overlay workspace.", verb)
 		}
 	}
@@ -72,7 +122,7 @@ func TestEveryUnservableRecordWriteVerbIsARegisteredToolTheOverlayPinDrives(t *t
 // with it while the pin covers something else.
 func overlayPinnedToolVerbs(t *testing.T) map[string]bool {
 	t.Helper()
-	const pin = "integration/overlay_toolsurface_integration_test.go"
+	pin := overlayPin(t)
 	// Two fixtures, because the two refusal mechanisms are different facts:
 	// nativeOnlyAgentTools are decorator-guarded, providerRefusedRecordWrites
 	// inherit the provider's own refusal. The same suite drives both.

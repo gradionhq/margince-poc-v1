@@ -89,3 +89,47 @@ describe("a dialog holds the keyboard", () => {
     expect(document.activeElement).toBe(opener);
   });
 });
+
+// A right-anchored dialog is the same dialog: same portal, same Esc, same
+// trap. Only where it sits changes.
+describe("a drawer is a dialog anchored to the right edge", () => {
+  it("keeps the dialog role and the Escape close", async () => {
+    function DrawerHarness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <Modal
+          open={open}
+          onClose={() => setOpen(false)}
+          labelledBy="d"
+          placement="right"
+        >
+          <h2 id="d">Write email</h2>
+        </Modal>
+      );
+    }
+    render(<DrawerHarness />);
+    const drawer = screen.getByRole("dialog", { name: "Write email" });
+    expect(drawer.classList.contains("modal-drawer")).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  // The width of a drawer comes from the viewport, so the centred-box size
+  // variants must not also apply — two width rules would fight.
+  it("ignores the centred-box size variant", () => {
+    render(
+      <Modal
+        open
+        onClose={() => {}}
+        labelledBy="d"
+        placement="right"
+        size="wide"
+      >
+        <h2 id="d">Evidence</h2>
+      </Modal>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Evidence" });
+    expect(dialog.classList.contains("modal-drawer")).toBe(true);
+    expect(dialog.classList.contains("modal-wide")).toBe(false);
+  });
+});

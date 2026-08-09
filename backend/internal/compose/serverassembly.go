@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -135,6 +136,19 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(pool), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
+	// The dossier reads the SAME people store the 360 and the brief read, so
+	// the three cannot drift about what a company's facts are. No model lane is
+	// wired yet: every assembly is the deterministic floor and says so.
+	// Both lanes are nil here: WithCompanyDossier and WithGrowthFit bind the
+	// api role's, and without them each surface serves its deterministic floor.
+	// The two floors differ in kind — the dossier's still describes the company,
+	// where growth fit's can only abstain — which is why they are separate
+	// options rather than one.
+	s.orgDossierSvc = orgdossier.NewService(pool, s.peopleStore, nil, "", time.Now)
+	s.orgGrowthFitSvc = orgdossier.NewGrowthFitService(
+		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now)
+	s.orgDossierHandlers = orgdossier.NewHandlers(
+		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,

@@ -14,10 +14,8 @@
 // fixtures (SearchEnv mostly, Env in one suite) and its shared seed, job-wait and
 // HTTP-stub helpers; it owns its own connector stubs, seeding and assertions.
 //
-// One capture suite did NOT come along: capturedbykind_http_integration_test.go
-// drives the booted-app fixture in the parent's e2e_integration_test.go, which is
-// declared in a test file and so is not importable. It stays there until that
-// fixture is promoted the way SearchEnv was.
+// One capture suite is not here: capturedbykind_http_integration_test.go rides
+// the booted-app fixture and lives in the parent package.
 //
 // The production capture module is imported as capturemod, because inside a
 // package named capture a bare capture.X reads as a self-reference.

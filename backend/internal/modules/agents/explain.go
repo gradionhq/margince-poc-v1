@@ -18,6 +18,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
@@ -38,8 +39,41 @@ func (s *Dispatcher) explain(tool string, err error) string {
 	var (
 		badArgs     *BadArgsError
 		unknownTool *UnknownToolError
+		steppedUp   *StepUpStagedError
+		overQuota   *auth.QuotaExceededError
 	)
 	switch {
+	case errors.As(err, &steppedUp):
+		// A step-up that reached a human. It is its own branch rather than a
+		// wording variant of the one below because the INSTRUCTION differs: wait
+		// for the person who connected this agent, then repeat the call
+		// unchanged — and specifically do not present an approval_id, which is
+		// the 🟡 loop's move and cannot work for a kind no tool redeems.
+		// The approval id is deliberately NOT quoted. It is the one identifier a
+		// caller told "do not send an approval_id" would reach for, and it opens
+		// nothing here: a step-up is released by the human, not redeemed by the
+		// agent. The human finds it in their own inbox.
+		return "This agent has reached its " + string(steppedUp.Counter) + " limit for this window, and the person " +
+			"who connected it has been asked whether it may continue. Do not send an approval_id: once they approve, " +
+			"repeat this call unchanged."
+	case errors.As(err, &overQuota) && overQuota.Releasable():
+		// A releasable counter with NO question open: the human already declined
+		// one, or this surface has no inbox to ask through. The branch above
+		// would have matched if one were open, so reaching here means asking is
+		// not the next move — and saying "no approval lifts it" would contradict
+		// the refusal quoted beside it, which correctly says a release WOULD end
+		// this. What is true of both is that nothing is pending.
+		return "This agent has reached a volume limit for this window, and no request to continue is open: " +
+			"the person who connected it has already declined one, or cannot be asked from here. Stop calling this " +
+			"tool and tell the user what is blocking it; the same call can succeed after the window rolls. (" +
+			overQuota.Error() + ")"
+	case errors.As(err, &overQuota):
+		// A hard stop. Naming the window as the only thing that ends it is the
+		// whole value of this branch: an agent told to "ask a human" about a
+		// send ceiling waits for an approval nobody can grant.
+		return "This agent has reached a volume limit for this window that no approval lifts. Stop calling this tool " +
+			"and tell the user what is blocking it; the same call can succeed after the window rolls. (" +
+			overQuota.Error() + ")"
 	case errors.Is(err, apperrors.ErrRequiresApproval):
 		return "This is a confirm-first (🟡) action: it needs human approval before it runs. " +
 			"Ask the user to perform it in the CRM, or wait for the approval flow. Nothing was changed. (" + err.Error() + ")"

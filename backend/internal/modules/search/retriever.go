@@ -26,24 +26,24 @@ func NewRetriever(store *Store, embedder Embedder) *Retriever {
 
 var _ retrieval.Retriever = (*Retriever)(nil)
 
-func (r *Retriever) Search(ctx context.Context, q retrieval.Query) ([]retrieval.Hit, error) {
-	limit := clampLimit(q.Limit)
-	hits, err := r.store.HybridSearch(ctx, q.Text, r.embedder, limit)
-	if err != nil {
-		return nil, err
-	}
-	wanted := map[datasource.EntityType]bool{}
+// Search narrows BOTH hybrid lanes to the record types asked for rather than
+// filtering the fused page afterwards. The page is a global top-N, so
+// post-filtering spends it on types the caller never named and can answer
+// nothing for a type that merely ranks below five others — a recall hole a
+// caller reads as "there are no such records".
+func (r *Retriever) Search(ctx context.Context, q retrieval.Query) (retrieval.Result, error) {
+	types := make([]string, 0, len(q.EntityTypes))
 	for _, t := range q.EntityTypes {
-		wanted[t] = true
+		types = append(types, string(t))
 	}
-	out := make([]retrieval.Hit, 0, len(hits))
+	hits, semantic, err := r.store.HybridSearch(ctx, q.Text, r.embedder, clampLimit(q.Limit), types...)
+	if err != nil {
+		return retrieval.Result{}, err
+	}
+	out := retrieval.Result{Hits: make([]retrieval.Hit, 0, len(hits)), SemanticRanking: semantic}
 	for _, hit := range hits {
-		entityType := datasource.EntityType(hit.Type)
-		if len(wanted) > 0 && !wanted[entityType] {
-			continue
-		}
-		out = append(out, retrieval.Hit{
-			Ref:   datasource.EntityRef{Type: entityType, ID: hit.ID},
+		out.Hits = append(out.Hits, retrieval.Hit{
+			Ref:   datasource.EntityRef{Type: datasource.EntityType(hit.Type), ID: hit.ID},
 			Score: hit.Score,
 			Evidence: []retrieval.Evidence{{
 				Source:  hit.Type + ":" + hit.ID.String(),

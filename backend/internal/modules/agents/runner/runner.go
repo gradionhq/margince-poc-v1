@@ -30,6 +30,14 @@ import (
 // surface. agents.Registry satisfies it; nothing else may.
 type Invoker interface {
 	Invoke(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error)
+	// Offered is the catalog THIS caller may invoke — the scope-filtered set,
+	// which is what the run is shown. A run offered a verb its passport cannot
+	// spend is being asked to choose among names it will be refused for, and
+	// the whole listing rides in the system prompt, which elision never touches.
+	Offered(ctx context.Context) []mcp.ToolSpec
+	// Specs is the WHOLE catalog, and it is a separate question. It names which
+	// tools an observation may be attributed to, which is about what already
+	// happened rather than what may be chosen next — see sourceVocabulary.
 	Specs() []mcp.ToolSpec
 }
 
@@ -171,7 +179,7 @@ func New(tools Invoker, brain Brain) *Runner {
 // Run executes a fresh job until terminal answer, suspension, or a
 // budget guarantee fires.
 func (r *Runner) Run(ctx context.Context, job Job) (Result, error) {
-	win := newWindow(job, r.tools.Specs())
+	win := newWindow(job, r.tools.Offered(ctx), r.tools.Specs())
 	return r.loop(ctx, job, win, Result{})
 }
 
@@ -187,7 +195,8 @@ type Decision struct {
 // silently changed under an approved diff). Rejected: the refusal is
 // observed and the model re-plans without that action.
 func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, error) {
-	win, err := windowFromSnapshot(job, r.tools.Specs(), dec.Pending.Window, dec.Pending.Fence, dec.Pending.TranscriptVersion)
+	win, err := windowFromSnapshot(job, r.tools.Offered(ctx), r.tools.Specs(),
+		dec.Pending.Window, dec.Pending.Fence, dec.Pending.TranscriptVersion)
 	if err != nil {
 		return Result{}, err
 	}

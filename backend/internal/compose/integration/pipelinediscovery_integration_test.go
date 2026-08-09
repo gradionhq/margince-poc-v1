@@ -55,7 +55,7 @@ func TestADealCanBeCreatedFromNothingButTheToolSurface(t *testing.T) {
 	var answer struct {
 		Pipelines []toolPipeline `json:"pipelines"`
 	}
-	if err := json.Unmarshal(out, &answer); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, out), &answer); err != nil {
 		t.Fatalf("unreadable list_pipelines answer %s: %v", out, err)
 	}
 	if len(answer.Pipelines) == 0 {
@@ -100,7 +100,7 @@ func TestADealCanBeCreatedFromNothingButTheToolSurface(t *testing.T) {
 		ID         ids.UUID        `json:"id"`
 		Fields     json.RawMessage `json:"fields"`
 	}
-	if err := json.Unmarshal(created, &record); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, created), &record); err != nil {
 		t.Fatalf("unreadable create_record answer %s: %v", created, err)
 	}
 	if record.RecordType != "deal" || record.ID.IsZero() {
@@ -135,7 +135,7 @@ func TestADealCanBeAdvancedToAStageObtainedFromTheToolSurface(t *testing.T) {
 	var answer struct {
 		Pipelines []toolPipeline `json:"pipelines"`
 	}
-	if err := json.Unmarshal(out, &answer); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, out), &answer); err != nil {
 		t.Fatalf("unreadable list_pipelines answer %s: %v", out, err)
 	}
 
@@ -167,7 +167,7 @@ func TestADealCanBeAdvancedToAStageObtainedFromTheToolSurface(t *testing.T) {
 			StageID ids.UUID `json:"stage_id"`
 		} `json:"fields"`
 	}
-	if err := json.Unmarshal(advanced, &record); err != nil {
+	if err := json.Unmarshal(ToolPayload(t, advanced), &record); err != nil {
 		t.Fatalf("unreadable advance_deal answer %s: %v", advanced, err)
 	}
 	if record.Fields.StageID != target {

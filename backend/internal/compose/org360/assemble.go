@@ -41,6 +41,7 @@ const (
 	sectionNextSteps       = crmcontracts.Organization360SectionsOmitted("next_steps")
 	sectionSinceLastVisit  = crmcontracts.Organization360SectionsOmitted("since_last_visit")
 	sectionSuggestions     = crmcontracts.Organization360SectionsOmitted("suggestions")
+	sectionNextMeeting     = crmcontracts.Organization360SectionsOmitted("next_meeting")
 )
 
 // Service assembles the 360 and maintains the visit baseline.
@@ -100,6 +101,7 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionStateStrip, a.readStateStrip},
 		{sectionHealth, a.readHealth},
 		{sectionNextSteps, a.readNextSteps},
+		{sectionNextMeeting, a.readNextMeeting},
 		{sectionTags, a.readTags},
 		{sectionListMemberships, a.readListMemberships},
 		{sectionApprovals, a.readPendingApprovals},
@@ -303,6 +305,21 @@ func (a *assembly) readNextSteps() error {
 		Data []crmcontracts.Organization360NextStep `json:"data"`
 		Page crmcontracts.PageInfo                  `json:"page"`
 	}{Data: data, Page: page}
+	return nil
+}
+
+// readNextMeeting gates on the same grant the timeline does: a meeting IS an
+// activity, and a caller who may not read the account's activities may not learn
+// one is booked by another route.
+func (a *assembly) readNextMeeting() error {
+	if err := auth.Require(a.ctx, "activity", principal.ActionRead); err != nil {
+		return err
+	}
+	meeting, err := nextMeetingSection(a.ctx, a.tx, a.orgID, a.now)
+	if err != nil {
+		return err
+	}
+	a.out.NextMeeting = meeting
 	return nil
 }
 

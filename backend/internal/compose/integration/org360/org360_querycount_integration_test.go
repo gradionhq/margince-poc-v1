@@ -127,7 +127,20 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 	// section, and it costs its own grant check and its own read. Two rather
 	// than one because the read is gated like every other section — a caller
 	// without the activity grant gets silence, not a timestamp.
-	const budget = 27
+	//
+	// Raised 27 → 28 for next_meeting: ONE query, not the two it would take to
+	// read the meeting and then its attendees. The attendees arrive as JSON
+	// from a lateral sub-select carrying their own row-scope predicate, so the
+	// section stays flat in the size of the meeting as well as the account. It
+	// reuses the activity grant the timeline already checked, so it costs no
+	// second admission.
+	//
+	// Raised 28 → 29 for the contacts' internal routes: ONE query for the whole
+	// contact set, not one per contact, which is the difference between a
+	// composite that costs the same on every account and one that costs most on
+	// the accounts with the most contacts. It rides the person grant the
+	// contacts section already checked, so it costs no second admission.
+	const budget = 29
 	if smallCost > budget {
 		t.Errorf("one 360 issued %d queries, budget is %d", smallCost, budget)
 	}

@@ -1,0 +1,30 @@
+name: a_description_is_not_a_name
+task: agent_loop
+site: loop
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  goal: >-
+    Find me customers who ran into the same problem this prospect has —
+    a pilot that stalled once their plant went into shutdown season.
+  trigger_ref: manual:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e08
+  grounding:
+    - source_id: user:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e0e
+      trust_tier: T1
+      content: owner_id=user_42
+  tools: catalog
+expect:
+  outcome: accepted
+  answer: search_context
+  rubric: >
+    The goal describes a SITUATION in the caller's own words and names no
+    record, no field and no condition. Score high only if the turn calls
+    search_context, which ranks by meaning and returns the excerpt that made
+    each record rank. search_records matches text stored on a record, and this
+    phrasing appears on none of them, so it would answer an empty list that
+    reads as "no customer ever hit this". query_workspace needs conditions in
+    a closed vocabulary, and "a pilot that stalled" is not one.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

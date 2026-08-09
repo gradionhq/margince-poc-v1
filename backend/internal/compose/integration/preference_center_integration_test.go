@@ -59,7 +59,7 @@ func sendMarketing(t *testing.T, e *apptest.AppEnv, activityID, purpose, host, x
 	if xfProto != "" {
 		req.Header.Set("X-Forwarded-Proto", xfProto)
 	}
-	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("send-email: %v", err)
 	}

@@ -13,10 +13,24 @@ var searchRecordsCopy = toolCopy{
 	Limits: "It matches text stored ON the record. It does not read a timeline: message bodies, " +
 		"call notes and meeting content are not searched, so a query describing what someone said " +
 		"or did will not find them.",
-	Instead: "Use read_record when you already hold the record's id, and run_report when the " +
-		"question is a count, a total or a breakdown rather than a set of records.",
+	Instead: "Use list_records when the question is which records meet a condition rather than " +
+		"what one is called, read_record when you already hold the record's id, and run_report " +
+		"when the question is a count, a total or a breakdown rather than a set of records.",
 	Retain: "Keep each result's record_type and id together: every other tool identifies a record " +
 		"by both, and an id alone does not say which type it belongs to.",
+}
+
+var listRecordsCopy = toolCopy{
+	Purpose: "Enumerate the people, organizations, deals, leads or projects that meet exact " +
+		"conditions — every deal in one pipeline, the leads one person owns, the projects still " +
+		"being delivered.",
+	Limits: "It narrows only by the filters this workspace publishes for that record_type, which " +
+		"the schema lists per type, and it answers ONE page: the set continues past it.",
+	Instead: "Use search_records when the question is what a record is called rather than which " +
+		"records meet a condition, and run_report when the answer is a count or a total rather " +
+		"than the records themselves.",
+	Retain: "Keep next_cursor and pass it back to read the next page — a second call without it " +
+		"re-reads the first one.",
 }
 
 var readRecordCopy = toolCopy{

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gradionhq/margince/backend/internal/compose/claims"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
@@ -172,7 +173,7 @@ func deterministicAnswer(question crmcontracts.OrganizationQuestion, orgID strin
 		// written from the records it cites.
 		return nil
 	}
-	return dedupedSentences(answered)
+	return claims.Dedupe(answered)
 }
 
 // openAnswer lists what is open, one record per sentence.

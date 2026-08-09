@@ -11,7 +11,7 @@ package integration
 // drives — that suite calls privacy.ListRecordHistory directly, so the
 // entity_type path-param validation, the malformed-cursor 422, and the
 // JSON shape only exist at the transport. This suite rides the same
-// real-handler-stack e2e harness as e2e_integration_test.go (TLS httptest
+// real-handler-stack e2e harness apptest.AppEnv (TLS httptest
 // server, session cookie, workspace header) and reuses
 // recordhistory_integration_test.go's seedRecordAuditRow/seedWorkspaceUser
 // plus fieldhistory_integration_test.go's seedAuditDiffRow to write the

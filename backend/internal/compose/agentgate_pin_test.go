@@ -24,6 +24,11 @@ import (
 // gate actually staged.
 type capturingApprovals struct{ last agents.StageRequest }
 
+// StageQuotaRelease satisfies the seam; a step-up never reaches these tests.
+func (c *capturingApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
+
 func (c *capturingApprovals) Stage(_ context.Context, in agents.StageRequest) (ids.ApprovalID, error) {
 	c.last = in
 	return ids.ApprovalID{}, nil
@@ -126,6 +131,11 @@ func TestConfirmFirstTargetsArePinnable(t *testing.T) {
 // an approval whose target carried a version.
 type pinningApprovals struct{ version int64 }
 
+// StageQuotaRelease satisfies the seam; a step-up never reaches these tests.
+func (pinningApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
+}
+
 func (pinningApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
 	return ids.ApprovalID{}, nil
 }
@@ -155,7 +165,7 @@ func TestRedemptionCarriesThePinOntoTheForwardedRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/v1/offers/x", nil)
 	req.Header.Set(approvalTokenHeader, approvalID.String())
 
-	if !redeemIfPresented(httptest.NewRecorder(), req, next, pinningApprovals{version: 9}, pol, nil) {
+	if handled, _ := redeemIfPresented(httptest.NewRecorder(), req, next, pinningApprovals{version: 9}, pol, nil); !handled {
 		t.Fatal("a presented token must be handled by the gate")
 	}
 	if forwarded != "9" {
@@ -177,7 +187,7 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/custom-fields", nil)
 	req.Header.Set(approvalTokenHeader, approvalID.String())
 
-	if !redeemIfPresented(httptest.NewRecorder(), req, next, &capturingApprovals{}, pol, nil) {
+	if handled, _ := redeemIfPresented(httptest.NewRecorder(), req, next, &capturingApprovals{}, pol, nil); !handled {
 		t.Fatal("a presented token must be handled by the gate")
 	}
 	if forwarded != "" {
@@ -233,19 +243,15 @@ func stagedRowDecidable(pol agentPolicy, hasTargetID bool) (bool, string) {
 // the target id out of the route's {id} parameter, so a route without one stages
 // its type with a NULL id — a different decidability question from the same
 // type's, and one a type-only walk answers green over.
+//
+// Every row reaching here has a decision-grant mapping already:
+// TestEveryConfirmationRequiredPolicyHasAnApprovalKind holds that absolutely,
+// over this same table. So a policy whose kind is unmapped fails there, on the
+// root cause, rather than being quietly stepped over here.
 func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 	checked := 0
 	for route, pol := range agentPolicies {
 		if pol.Access != accessTool || pol.Tier == tierAutoExecute || pol.RecordType == "" {
-			continue
-		}
-		if !approvals.KindHasDecisionGrants(pol.Tool) {
-			// No row is ever minted: stageRefusal refuses the call at exactly this
-			// mapping check, which is an honest 403 rather than an authority
-			// object nobody can decide. Every 🟡 tool the REGISTRY admits is held
-			// to the mapping by TestEveryConfirmationRequiredToolHasADecisionGrantMapping,
-			// so this names only the contract-only verbs whose kind was never
-			// mapped, and it cannot become a way to skip the check below.
 			continue
 		}
 		checked++

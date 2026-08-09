@@ -8,9 +8,9 @@ package agents
 // the report engine. See toolcopy.go for what each field answers.
 
 var catchMeUpOnCopy = toolCopy{
-	Purpose: "Answer \"what has been going on with this?\" for one person, account, deal, lead " +
-		"or project: the recent activity and the related records, assembled into one picture " +
-		"with the evidence each part rests on.",
+	Purpose: "Answer \"what has been going on with this?\" for one person, account, deal, lead, " +
+		"project or captured meeting: the recent activity and the related records, assembled " +
+		"into one picture with the evidence each part rests on.",
 	Limits: "It is built around ONE record you name, and everything it reports carries a source; " +
 		"what cannot be evidenced is absent rather than inferred.",
 	Instead: "Use prep_for_meeting when the goal is a meeting about to happen, read_record when " +
@@ -23,13 +23,19 @@ var catchMeUpOnCopy = toolCopy{
 var prepForMeetingCopy = toolCopy{
 	Purpose: "Get ready for a specific meeting: the same assembled picture as a catch-up, plus " +
 		"the open items pulled out as the things to raise.",
-	Limits: "It is built around the record the meeting is about, not around a calendar entry, " +
-		"and it does not read the invitation or the attendee list.",
+	// Deliberately silent about anchoring on the meeting record itself. The
+	// input schema advertises it, and prose that also recommended it cost more
+	// than it bought: two bindings began reading the trigger's `calendar:…`
+	// reference as an activity record id and preparing against a record that
+	// does not exist. What the tool accepts is the schema's job to say.
+	Limits: "It is built around ONE record you name, and everything it reports carries a source; " +
+		"what cannot be evidenced is absent rather than inferred. Given a meeting it works out " +
+		"which record that meeting is about and names the others alongside.",
 	Instead: "Use catch_me_up_on when there is no meeting and the question is simply what has " +
 		"been happening, and check_availability when the goal is finding a time rather than " +
 		"preparing for one.",
 	Retain: "The focus list names the open items by record_id; those are what to act on after " +
-		"the meeting.",
+		"the meeting. prepared_for names the record the prep was built around.",
 }
 
 var whatsSlippingCopy = toolCopy{
@@ -104,4 +110,18 @@ var runReportCopy = toolCopy{
 		"records themselves rather than a number over them.",
 	Retain: "Call a report with no plan arguments first to see what it answers by default, then " +
 		"narrow using the names its own catalog entry lists.",
+}
+
+var readBriefCopy = toolCopy{
+	Purpose: "Read the ranked queue the person you act for sees when they open their morning " +
+		"brief — the deals the workspace decided are worth their attention today, in order, " +
+		"with the rows behind each ranking.",
+	Limits: "It re-reads the last assembled run rather than building a new one, so its as_of " +
+		"says how current it is, and it is that person's own queue: it cannot be asked for " +
+		"anyone else's. Acting on, dismissing or snoozing an item is theirs alone.",
+	Instead: "Use whats_slipping_this_week when the question is which deals are losing momentum " +
+		"regardless of what today's brief chose, and read_record for what one of these deals " +
+		"currently says.",
+	Retain: "Each item names a deal_id and its evidence_ids; read those to cite what the ranking " +
+		"rested on rather than restating the item's own summary.",
 }

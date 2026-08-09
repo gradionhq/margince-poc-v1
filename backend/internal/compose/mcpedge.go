@@ -39,8 +39,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
@@ -70,7 +74,7 @@ var errMissingBearer = errors.New("missing bearer token")
 // its time windows against an injectable clock — so a second instance would
 // hold a second cache and, worse, its own time.Now, silently escaping a clock
 // a test injected on the process's real service.
-func (s *Server) mcpHandler(auth *identity.Service, log *slog.Logger) http.Handler {
+func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slog.Logger) http.Handler {
 	if !s.mcpConnectorEnabled {
 		return nil
 	}
@@ -86,7 +90,44 @@ func (s *Server) mcpHandler(auth *identity.Service, log *slog.Logger) http.Handl
 	// operator can compare it against what their front end actually routes.
 	log.Info("mcp: consent screen redirect target", "location", identity.ConsentScreenPath)
 	return agents.NewHTTPHandler(s.toolRegistry, mcpAuthenticate(auth),
-		agents.ResourceMetadataChallenge, mcpServerName, mcpServerVersion, log)
+		agents.ResourceMetadataChallenge, mcpServerName, mcpServerVersion, log,
+		// The cross-module edge: composing the query vocabulary is the search
+		// module's job and publishing it is the transport's, and neither
+		// reaches for the other (ADR-0054 §3). It is wired here, once — and
+		// the custom-field half rides the same fieldcatalog seam every record
+		// store does, so a workspace's own columns are askable without this
+		// edge knowing anything about them.
+		//
+		// The schema reader is what keeps the published vocabulary honest: a
+		// field the contract declares and no table holds is not askable, so
+		// what this document advertises is what a plan can be answered from.
+		// Without it the vocabulary is the contract's, which is WIDER — and a
+		// wider vocabulary published here would refuse at execution what it
+		// advertised at discovery.
+		//
+		// queryVocabulary is the SAME construction query_workspace's executor
+		// validates against (queryseam.go), which is what makes "what this
+		// document advertises" and "what a plan can be answered from" the same
+		// sentence rather than two that have to be kept in step.
+		// TWO providers now, fanned into the one the transport takes: the
+		// vocabulary above, and the interactive views the tool surface serves. The
+		// views come second, so a URI collision resolves to the vocabulary — see
+		// composeResources for why the order is stated rather than incidental, and
+		// TestTheProductionProvidersPublishDisjointSchemes for the gate that makes
+		// it moot — which is the one that reaches BOTH of these, unlike the
+		// duplicate sweep, which only sees the view catalogue.
+		agents.WithResourceProvider(composeResources(
+			mcpResourceProviders(search.NewQuerySchemaResource(queryVocabulary(pool)))...,
+		)),
+		// The Tasks extension, which is why a confirm-first call no longer dead-ends
+		// for a client that can hold a handle. The store is composed here for the
+		// same reason the claim store is: agent_task rows are this transport's own
+		// operational state, and modules/agents owns no SQL.
+		// A plain service, like every other staging-side construction here: the
+		// per-kind effects belong to the DECIDE path, and a task neither decides
+		// nor triggers one. What it does is read a decision and then take the
+		// ordinary redemption route through Registry.Invoke.
+		agents.WithTaskStore(toolTasks(pool), approvalsAdapter{svc: approvals.NewService(pool)}))
 }
 
 // mcpAuthenticate binds one request to its agent principal. It runs on EVERY

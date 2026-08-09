@@ -5,27 +5,40 @@
 
 // Package integration holds the cross-module integration suites — the
 // compose charter exercised end to end over a real migrated Postgres —
-// and the shared harnesses they ride: Env here, and SearchEnv in
-// searchenv.go. Both live in non-test files so the white-box suites that
-// must stay inside their package (compose root, briefs) can import them;
-// both deliberately import modules and platform only, never compose, so no
-// import cycle can form.
+// and the shared fixtures they ride. There are three, all exported, all in
+// non-test files:
+//
+//   - Env, here — a migrated database plus the core stores.
+//   - SearchEnv, in searchenv.go — lighter, and despite the name mostly taken
+//     for the database rather than the search store.
+//   - apptest.AppEnv, in the apptest subpackage — the booted application behind
+//     a TLS test server.
+//
+// Env and SearchEnv live here because the white-box suites that must stay in
+// their own package (compose root, briefs) import them, so neither may import
+// compose. AppEnv boots a compose handler stack and therefore CANNOT live here:
+// that would close a cycle through those same white-box tests. It sits one level
+// down instead, and nothing in apptest may import this package, or the cycle
+// closes from the other side.
 //
 // Suites also live in sibling packages that import this one. That is how the
 // lane gets more than one scheduling slot: one package is one slot, and this
 // package is large enough to be the lane's long pole on its own. The set of such
 // packages is the subdirectories of this one, which is where to look rather than
-// a list here that the next split would have to remember to extend.
-// Split a group out when it is a closed seam — it rides an EXPORTED
-// fixture (Env or SearchEnv) rather than the booted-app fixture in
-// e2e_integration_test.go, and it neither needs nor owes an unexported helper
-// across the boundary. A helper that two such groups need is promoted here; one
-// that only a group needs stays with it.
+// a list here that the next split would have to remember to extend — apptest is
+// the exception, a fixture package rather than a suite slot.
 //
-// A fixture is only importable if its METHODS are in a non-test file too: a
-// method declared in a _test.go file is not part of the package a sibling
-// imports, so a group could hold the fixture and still be unable to build a
-// principal context or seed a row. Promote the methods with the type.
+// Split a group out when it is a closed seam: it rides one of the three exported
+// fixtures, and it neither needs nor owes an unexported helper across the
+// boundary. Any of the three will do — a group riding AppEnv is no longer stuck.
+// A helper that two such groups need is promoted here; one that only a group
+// needs stays with it.
+//
+// Two things a split reliably runs into. A fixture is only importable if its
+// METHODS are in a non-test file too, since a method declared in a _test.go file
+// is not part of the package a sibling imports. And once the fixture's type is
+// foreign, a suite cannot declare methods on it at all — helpers a group keeps
+// become plain functions taking the fixture.
 package integration
 
 import (
@@ -120,11 +133,15 @@ func Setup(t *testing.T) *Env {
 		}
 	}
 
-	pool, err := database.NewPool(ctx, appDSN)
+	// Shared across the package's tests, and deliberately not closed here — see
+	// testdb.Pool for why the connections, not the pool object, are the cost.
+	pool, err := testdb.Pool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pool.Close)
+	// Registered here, before the test adds any cleanup of its own, so it runs
+	// last and sees a package that has genuinely stopped.
+	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.Pool = pool
 	e.People = people.NewStore(pool)
 	e.Deals = deals.NewStore(pool)
@@ -426,9 +443,8 @@ func AgentWithOrgRead(e *Env) context.Context {
 	})
 }
 
-// SchedulerPerms is the booking write's caller: the person grant it reads and
-// the activity grant it writes, and nothing else — not a superset of RepPerms,
-// which also holds deal and pipeline. Row scope stays team.
+// SchedulerPerms is RepPerms plus the activity grant the booking write
+// needs; row scope stays team.
 var SchedulerPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
@@ -452,11 +468,15 @@ func ApplyRiverSchema(t *testing.T) {
 		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
 	}
 	ctx := context.Background()
-	ownerPool, err := database.NewPool(ctx, ownerDSN)
+	// The shared owner pool, not a fresh one: every suite that needs a real
+	// worker calls this, and each call is one existence probe. testdb.Pool
+	// refuses to open before EnsureSchema has run, so a caller that reached
+	// here without a harness Setup is told so rather than served a connection
+	// older than the schema.
+	ownerPool, err := testdb.Pool(ctx, ownerDSN)
 	if err != nil {
 		t.Fatalf("opening owner pool: %v", err)
 	}
-	defer ownerPool.Close()
 	if err := testdb.EnsureRiverSchema(ctx, ownerPool, jobs.Migrate); err != nil {
 		t.Fatal(err)
 	}

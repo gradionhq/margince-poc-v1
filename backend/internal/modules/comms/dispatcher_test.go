@@ -360,7 +360,7 @@ func TestADispatcherConfiguredWithOneRungStillTransmitsOnce(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
 	d := NewDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
-		liveSeat(), &stubConsent{}, nil, func() time.Time { return testNow }, time.Hour, 1)
+		liveSeat(), nil, &stubConsent{}, nil, func() time.Time { return testNow }, time.Hour, 1)
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -368,5 +368,70 @@ func TestADispatcherConfiguredWithOneRungStillTransmitsOnce(t *testing.T) {
 	}
 	if got != OutcomeSent || sender.calls != 1 {
 		t.Errorf("outcome=%v calls=%d, want OutcomeSent/1 — the first attempt must reach the provider", got, sender.calls)
+	}
+}
+
+// A channel that cannot carry files PARKS the message rather than transmitting
+// the text alone. Stripping is the one behaviour ADR-0086 exists to forbid,
+// because it fails silently: the send succeeds, the timeline shows an
+// attachment chip because it records what was STAGED, and only the recipient —
+// who sees a message referring to a file that is not there — knows.
+func TestACarriageMismatchParksAndNamesTheFiles(t *testing.T) {
+	store := &fakeStore{}
+	d := NewDispatcher(store, fakeResolver{}, liveSeat(), nil, &stubConsent{}, nil,
+		func() time.Time { return testNow }, time.Hour, 3)
+	del := Delivery{
+		ID: ids.NewV7(), Provider: "telegram",
+		Attachments: []OutboundFile{{AttachmentID: ids.NewV7(), Filename: "contract.pdf"}},
+	}
+
+	outcome, _, err := d.gateAttachmentCarriage(context.Background(), del,
+		sendSeam{carriesAttachments: false})
+	if err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if outcome != OutcomeParked {
+		t.Fatalf("outcome = %q, want parked — the alternative is a message that lies about its contents", outcome)
+	}
+	// The reason names the channel AND the file: "this could not be sent" with
+	// no subject leaves a person guessing which of the two to fix.
+	for _, want := range []string{"telegram", "contract.pdf"} {
+		if !strings.Contains(store.parked, want) {
+			t.Errorf("park reason %q does not name %q", store.parked, want)
+		}
+	}
+}
+
+func TestACarryingChannelIsNotParkedForItsFiles(t *testing.T) {
+	store := &fakeStore{}
+	d := NewDispatcher(store, fakeResolver{}, liveSeat(), nil, &stubConsent{}, nil,
+		func() time.Time { return testNow }, time.Hour, 3)
+	del := Delivery{
+		ID: ids.NewV7(), Provider: "gmail",
+		Attachments: []OutboundFile{{AttachmentID: ids.NewV7(), Filename: "contract.pdf"}},
+	}
+	outcome, _, err := d.gateAttachmentCarriage(context.Background(), del,
+		sendSeam{carriesAttachments: true})
+	if err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if outcome != outcomeUndecided {
+		t.Errorf("outcome = %q, want undecided — a channel that declared carriage sends its files", outcome)
+	}
+}
+
+// The overwhelming majority of deliveries carry no files. A gate that parked
+// them would stop every send on every channel that never declared carriage.
+func TestAMessageWithNoFilesIsNeverParkedForCarriage(t *testing.T) {
+	store := &fakeStore{}
+	d := NewDispatcher(store, fakeResolver{}, liveSeat(), nil, &stubConsent{}, nil,
+		func() time.Time { return testNow }, time.Hour, 3)
+	outcome, _, err := d.gateAttachmentCarriage(context.Background(),
+		Delivery{ID: ids.NewV7(), Provider: "telegram"}, sendSeam{carriesAttachments: false})
+	if err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if outcome != outcomeUndecided {
+		t.Errorf("outcome = %q, want undecided for a message carrying no files", outcome)
 	}
 }

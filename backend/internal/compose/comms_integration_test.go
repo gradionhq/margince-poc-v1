@@ -117,17 +117,12 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	assertStaged(t, stager, 0, "the suppressed MCP send")
 
 	from := time.Date(2026, 7, 7, 8, 0, 0, 0, time.UTC)
-	raw, err := adapter.Availability(ctx, nil, from, from.Add(10*time.Hour), 60)
+	avail, err := adapter.Availability(ctx, nil, from, from.Add(10*time.Hour), 60)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var avail struct {
-		Slots []struct {
-			Start time.Time `json:"start"`
-		} `json:"slots"`
-	}
-	if err := json.Unmarshal(raw, &avail); err != nil || len(avail.Slots) == 0 {
-		t.Fatalf("availability over the seam: %v (%s)", err, raw)
+	if len(avail.Slots) == 0 {
+		t.Fatalf("availability over the seam returned no slots: %+v", avail)
 	}
 
 	booked, err := adapter.BookMeeting(ctx, agents.BookMeetingArgs{
@@ -185,7 +180,7 @@ func TestIntentToolsReturnTheAssembledPicture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := assembledJSONForTest(assembled)
+	raw, err := assembledJSONForTest(ctx, assembled)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,6 +211,6 @@ func TestIntentToolsReturnTheAssembledPicture(t *testing.T) {
 
 // assembledJSONForTest reaches the agents module's wire rendering; the
 // alias keeps the test honest to the exact shape the tool returns.
-func assembledJSONForTest(assembled retrieval.Context) (json.RawMessage, error) {
-	return agents.AssembledContextJSON(assembled)
+func assembledJSONForTest(ctx context.Context, assembled retrieval.Context) (json.RawMessage, error) {
+	return agents.AssembledContextJSON(ctx, assembled)
 }

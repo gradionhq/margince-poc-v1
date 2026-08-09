@@ -8,6 +8,7 @@ import {
   EmptyState,
   SectionHeader,
 } from "../design-system/atoms";
+import { Meter } from "../design-system/readings";
 import { formatMoney, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { QueryGate, throwProblem } from "./common";
@@ -124,9 +125,14 @@ export function AiUsageCard() {
                 }}
               >
                 <div style={{ flex: 1 }}>
-                  <div className="meterbar">
-                    <span style={{ width: `${Math.min(100, pct)}%` }} />
-                  </div>
+                  {/* pct, not the raw token pair: a workspace with no monthly
+                      budget configured reads as fully spent (pct is 100 above),
+                      and the bar must say what the caption beside it says. */}
+                  <Meter
+                    value={pct}
+                    max={100}
+                    label={t("aiusage.budgetMeter")}
+                  />
                   <p className="sub">
                     {t("aiusage.budget", {
                       spent: formatNumber(data.budget.spent_tokens, locale),

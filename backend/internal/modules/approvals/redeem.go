@@ -21,6 +21,12 @@ import (
 // judgment about the world NOW, not standing authority.
 const redemptionTTL = 15 * time.Minute
 
+// RedemptionWindow is redemptionTTL for callers that must not outlive it —
+// a durable handle to a decision has to stay answerable for exactly as long as
+// the decision can still be acted on, and one that expired sooner would strand
+// an approval a human had already granted.
+const RedemptionWindow = redemptionTTL
+
 // Redeem consumes one approved staging for exactly the call it was staged
 // for: same tool, same diff_hash, same passport, and the target row still
 // at the version the human saw. Single-use is enforced by the conditional
@@ -174,6 +180,41 @@ var contextTargetKinds = map[string]string{
 		"writes bump — and the same enrichment run that discovers the leads writes " +
 		"the company's profile fields, so the pin went stale before any human saw " +
 		"the lead and every accept failed for the row's lifetime.",
+	"deal_follow_up": "A reconciled follow-up is filed under the deal it is about, but the " +
+		"effect CREATES an activity and reads none of the deal's own fields. Its stager " +
+		"has always said it carries no pin, and stopped being right when the pin moved " +
+		"server-side: an overnight proposal waits until someone works their morning " +
+		"inbox, which is exactly the window a rep moves the stage, edits the amount or " +
+		"corrects the close date in — and any one of those cancelled the follow-up they " +
+		"had just approved.",
+	"capture_counterparty": "The proposal is filed under the ACTIVITY that carried the " +
+		"unrecognized sender, because that message is the evidence a human judges it on. " +
+		"The effect creates a person and an organization and closes the capture " +
+		"disposition; it never writes the activity. Pinning bound the answer to a row " +
+		"that relinking, a participant correction or a subject fix bumps — every one of " +
+		"which is ordinary inbox work on the very message the question is about.",
+}
+
+// unpinnedKinds are the staging kinds whose target IS the row their effect
+// writes — so contextTargetKinds does not describe them — but for which the pin
+// protects nothing, and therefore only ever cancels the approval when the row
+// moves for an unrelated reason. The value is the reason why.
+//
+// Two waivers rather than one because they make different claims, and a reader
+// has to be able to tell which is being made. contextTargetKinds says the target
+// is context the proposal is merely ABOUT; this one says the target is the
+// operand and the pin still binds nothing. Filing a kind under the wrong one
+// leaves a label that reads true and is not, which is worse than the pin it
+// removes. TestEveryUnpinnedKindIsExplained holds each entry to its rationale,
+// and TestNoKindIsBothContextOnlyAndUnpinned holds the two maps apart.
+var unpinnedKinds = map[string]string{
+	kindLinkedInMatch: "The proposal's claim is \"this imported connection is this contact\", and no " +
+		"field edit on the contact can make that claim false — the founder decision is " +
+		"explicitly that editing a contact must not cancel a LinkedIn match waiting to be " +
+		"decided. The write it authorizes is an additive, idempotent person_social insert " +
+		"rather than a patch of any field a human could have seen, so there is no content " +
+		"state for a pin to protect. Pinning also broke the second of two matches onto one " +
+		"contact, because applying the first bumps that person's version.",
 }
 
 // TargetIsContextOnly reports whether this kind's target names context rather
@@ -183,11 +224,28 @@ func TargetIsContextOnly(kind string) bool {
 	return ok
 }
 
+// TargetVersionUnpinned reports whether this kind operates on its target but
+// declines the version pin, per unpinnedKinds.
+func TargetVersionUnpinned(kind string) bool {
+	_, ok := unpinnedKinds[kind]
+	return ok
+}
+
 // ContextTargetKinds reports the declared kinds and their rationales, so a
 // fitness test can hold each one to an explanation.
 func ContextTargetKinds() map[string]string {
-	out := make(map[string]string, len(contextTargetKinds))
-	for kind, why := range contextTargetKinds {
+	return copyRationales(contextTargetKinds)
+}
+
+// UnpinnedKinds reports the declared kinds and their rationales, for the same
+// reason ContextTargetKinds does.
+func UnpinnedKinds() map[string]string {
+	return copyRationales(unpinnedKinds)
+}
+
+func copyRationales(declared map[string]string) map[string]string {
+	out := make(map[string]string, len(declared))
+	for kind, why := range declared {
 		out[kind] = why
 	}
 	return out

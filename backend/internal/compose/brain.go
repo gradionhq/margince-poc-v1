@@ -41,6 +41,14 @@ type completer interface {
 // seat-derived monthly budget. A lane is named for the ai.Task it rides,
 // so the wiring reads in one vocabulary — the contract's.
 type ModelPath struct {
+	// router is the assembled model runtime behind every lane below. It is
+	// held so a composition can bind what only IT knows — the per-Passport
+	// cost counter (MCP-SESS-COST) is the first such thing, and it depends on
+	// a Redis meter this constructor has no business receiving. Unexported:
+	// the lanes are the ModelPath's surface, and a caller reaching past them
+	// to route its own call would be a second model path.
+	router *ai.Router
+
 	AgentLoop       runner.Brain // the Surface-B reason-act loop (records served model identity)
 	ColdStart       completer    // the website read-back extraction
 	SiteExtract     completer    // the deep read's profile lane (one premium-first call)
@@ -56,7 +64,12 @@ type ModelPath struct {
 	// standing account brief and the prepared "Ask Margince" questions. Both
 	// degrade to a deterministic floor, so a role without this lane still
 	// answers — just not in written prose.
-	Summarize  completer
+	Summarize completer
+	// GrowthFit judges how well one company fits what we sell. It is the only
+	// company-view lane whose absence changes the ANSWER rather than the prose:
+	// its floor abstains, because grading is not a restatement of recorded
+	// values (DOSS-PARAM-7).
+	GrowthFit  completer
 	DraftReply completer // activity-anchored email reply drafting
 	OfferDraft completer // the offer regenerate-from-signal drafting call
 	// CaptureClassify is the §2.8 batched mail-label lane (ADR-0063) —
@@ -98,6 +111,17 @@ func (p *ModelPath) SetCompanyContextEnabled(enabled bool) {
 	if brain, ok := p.AgentLoop.(agentBrain); ok && brain.companyContext != nil {
 		brain.companyContext.enabled = enabled
 	}
+}
+
+// WithAgentTokenSpend binds the per-Passport share of the workspace AI budget
+// (MCP-SESS-COST) that every served model call is charged against, and answers
+// the same path for chaining. A ModelPath without one meters the workspace and
+// nothing else, which is correct for every role that serves no inbound agent.
+func (m ModelPath) WithAgentTokenSpend(spend ai.AgentTokenSpender) ModelPath {
+	if m.router != nil {
+		m.router.WithAgentTokenSpend(spend)
+	}
+	return m
 }
 
 // NewModelPath builds the production model path from a validated
@@ -184,6 +208,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		return routerBrain{router: router, task: task, companyContext: companyContext}
 	}
 	return ModelPath{
+		router:                     router,
 		AgentLoop:                  agentBrain{router: router, companyContext: companyContext},
 		ColdStart:                  brain(ai.TaskColdStart),
 		SiteExtract:                brain(ai.TaskSiteExtract),
@@ -192,6 +217,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		RateExtract:                brain(ai.TaskRateExtract),
 		BriefRanking:               brain(ai.TaskBriefRanking),
 		Summarize:                  brain(ai.TaskSummarize),
+		GrowthFit:                  brain(ai.TaskGrowthFit),
 		DraftReply:                 brain(ai.TaskDraftReply),
 		OfferDraft:                 brain(ai.TaskOfferDraft),
 		CaptureClassify:            brain(ai.TaskCaptureClassify),

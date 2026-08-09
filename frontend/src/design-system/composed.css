@@ -207,9 +207,56 @@
   margin: 12px 0 16px;
 }
 
-/* The three-zone record page: what this record IS on the left, what is
-   happening in the middle, the business around it on the right. The middle
-   column is the one that grows, so the rails keep a fixed share and the
+/* On a phone the record's verbs stick to the bottom of the viewport (plan
+ * §10.3). A rep scrolling an account's story is several screens from the
+ * header by the time they decide to write; an action row that scrolled away
+ * with the header means scrolling back up to act on what they just read.
+ *
+ * Sticky rather than fixed: it participates in the layout, so it cannot cover
+ * the last row of content the way a fixed bar does. */
+/* The record's verbs follow the reader down the page on a phone (plan §10.3).
+   A rep scrolling an account's story is several screens from the header by the
+   time they decide to write, and an action row that scrolled away with the
+   header means scrolling back up to act on what they just read.
+
+   The app's own navigation is already fixed at the bottom of a phone viewport
+   (shell.css: bottom 8px, z-index 30), so this bar stops ABOVE it. Sitting at
+   bottom:0 would put every record verb underneath the nav — present in the
+   DOM, unreachable by thumb. */
+@media (max-width: 720px) {
+  .record-actions {
+    position: sticky;
+    bottom: var(--phoneNavClearance);
+    /* Above the page's own content and below the app nav, so neither covers
+       the other. The modal overlay (50) still wins over both: an action bar
+       across an open dialog would trap a rep behind a button they cannot
+       reach. */
+    z-index: 2;
+    margin: 12px 0 0;
+    padding: var(--space-2) 0;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  /* The bar floats over the end of the page while scrolling, so the record
+     reserves room for it AND for the nav below it — without this the last row
+     of the timeline sits permanently underneath and cannot be scrolled to. */
+  .record-zones {
+    padding-bottom: calc(var(--phoneNavClearance) + var(--space-6));
+  }
+}
+
+/* A pointer-driven page keeps the verbs where they were: the sticky bar exists
+ * for a thumb, and on a desktop it would only shrink the reading area. */
+@media (min-width: 721px) {
+  .record-actions {
+    position: static;
+  }
+}
+
+/* The record page's zones: what is happening in the work column, the business
+   around it beside. A page may still pass both a rail and an aside, but the
+   company page passes only the aside (plan §4). The work column is the one
+   that grows, so the rails keep a fixed share and the
    layout folds to one column before either becomes unreadably narrow. */
 .record-zones {
   display: grid;
@@ -310,23 +357,6 @@
 .lead-detail {
   background: var(--accentLight);
   border: 1px solid var(--accentMed);
-}
-
-/* Strength meter bar — shared by StrengthCard (screens/strength.tsx) and
- * onboarding (screens/onboarding.tsx); onboarding.css no longer defines it. */
-.meterbar {
-  height: 8px;
-  background: var(--bgCard);
-  border-radius: var(--r-full);
-  overflow: hidden;
-  margin: 10px 0 8px;
-}
-.meterbar span {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--away));
-  border-radius: var(--r-full);
-  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .firmo {

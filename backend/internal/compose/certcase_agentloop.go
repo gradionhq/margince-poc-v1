@@ -368,6 +368,22 @@ type agentLoopToolSurface struct{ specs []mcp.ToolSpec }
 
 func (s agentLoopToolSurface) Specs() []mcp.ToolSpec { return s.specs }
 
+// Offered is the fixture's whole surface, unfiltered — and it must stay that
+// way even though production runs are now scope-filtered.
+//
+// The band measures RESTRAINT, and restraint is only observable against a tool
+// the model can actually see. a_draft_precedes_a_send scores whether the turn
+// resists send_email; the_record_is_found_before_it_is_changed scores whether it
+// resists update_record. Narrow this surface to the scope each scenario's
+// expected step needs and both pass for no reason: the tempting tool was never
+// offered, so declining it proves nothing about the model.
+//
+// The consequence is worth stating rather than leaving to be rediscovered: this
+// band cannot measure whether scope filtering improves selection, because the
+// filter removes exactly what the band exists to tempt the model with. That
+// claim needs a site built for it, not this one.
+func (s agentLoopToolSurface) Offered(context.Context) []mcp.ToolSpec { return s.specs }
+
 func (agentLoopToolSurface) Invoke(context.Context, string, json.RawMessage) (json.RawMessage, error) {
 	return nil, &workflow.StagedApprovalError{ApprovalID: ids.New[ids.ApprovalKind]()}
 }

@@ -28,17 +28,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
-	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -48,8 +47,8 @@ const approvalTokenHeader = "X-Approval-Token"
 // mutation; anything larger is not a plausible contract payload.
 const maxGatedBody = 1 << 20
 
-func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, ownership agents.FieldOwnership, gate *auth.Gate) func(http.Handler) http.Handler {
-	deps := tierDeps{stages: stages, ownership: ownership}
+func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, records datasource.SystemOfRecordProvider, ownership agents.FieldOwnership, gate *auth.Gate) func(http.Handler) http.Handler {
+	deps := tierDeps{stages: stages, records: records, ownership: ownership}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -59,7 +58,7 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 				return
 			}
 			if !mutatingMethod(r.Method) {
-				refuseHumanOnlyRead(w, r, next)
+				refuseAgentRead(w, r, next, gate)
 				return
 			}
 			spec, resolve, pol, body, ok := prepareAgentGate(w, r, reg, deps)
@@ -68,14 +67,59 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			}
 			ctx, err := gate.Admit(ctx, spec, resolve)
 			r = r.WithContext(ctx)
+			// The quotas the gate just READ on this door are paid on it too, or
+			// they are counters nothing increments: a credential that only ever
+			// uses /v1 would sit at zero forever and no threshold could be
+			// crossed. ADR-0055's claim is that both doors are governed alike,
+			// and a bound enforced on one and unpaid on the other is not alike.
+			//
+			// Charged where the MCP door charges: the ceiling before anything
+			// happens (and refusing what it cannot count), the act after it has.
+			// Charged where the call is known to RUN. A plainly-admitted call is
+			// charged here, before anything happens, and may still be refused if
+			// it cannot be counted. A 🟡 retry is charged after its token is
+			// redeemed (stageOrRedeem) — counting it here would let a caller
+			// suspend its own Passport with malformed or replayed tokens that
+			// open nothing.
+			if err == nil {
+				if chargeErr := reg.ChargeAdmittedCall(ctx, spec); chargeErr != nil {
+					httperr.Write(w, r, chargeErr)
+					return
+				}
+			}
 			admitAgentCall(w, r, next, admissionOutcome{
-				staging: staging, ownership: ownership, pol: pol, body: body, err: err,
+				staging: staging, ownership: ownership, pol: pol, body: body,
+				err: err, spec: spec, registry: reg,
 			})
 		})
 	}
 }
 
-// refuseHumanOnlyRead applies x-agent-access to a NON-mutating agent call.
+// refuseAgentRead answers a NON-mutating agent call: its governance class
+// first, then its volume.
+//
+// The order is deliberate. `x-agent-access: human-only` says this route is not
+// an agent's to read AT ALL, and that answer must not depend on how much the
+// agent happens to have read today — a caller told "you are over your read
+// budget" would reasonably retry tomorrow against a route that will never be
+// theirs.
+//
+// The bound itself binds BOTH doors: a Passport that spent its window through
+// the MCP surface must not keep reading the same records over /v1. One
+// credential governed two ways is the hole ADR-0055 exists to close.
+func refuseAgentRead(w http.ResponseWriter, r *http.Request, next http.Handler, gate *auth.Gate) {
+	if refusedAsHumanOnly(w, r) {
+		return
+	}
+	if err := gate.AdmitRead(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	next.ServeHTTP(w, r)
+}
+
+// refusedAsHumanOnly applies x-agent-access to a NON-mutating agent call, and
+// reports whether it answered the request itself.
 //
 // A read has no tier to admit and no change to stage, but it does have a
 // governance class, and `x-agent-access: human-only` binds a `get:` exactly
@@ -91,14 +135,15 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 // admitted. The table now carries every ANNOTATED read, and an unannotated
 // read is ordinary agent-readable data whose authority is the granting
 // human's RBAC and row scope at the store, unchanged.
-func refuseHumanOnlyRead(w http.ResponseWriter, r *http.Request, next http.Handler) {
+func refusedAsHumanOnly(w http.ResponseWriter, r *http.Request) bool {
 	pattern := chi.RouteContext(r.Context()).RoutePattern()
-	if pol, known := agentPolicies[r.Method+" "+pattern]; known && pol.Access != accessTool {
-		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
-		return
+	pol, known := agentPolicies[r.Method+" "+pattern]
+	if !known || pol.Access == accessTool {
+		return false
 	}
-	next.ServeHTTP(w, r)
+	httperr.Write(w, r, fmt.Errorf(
+		"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
+	return true
 }
 
 // prepareAgentGate resolves the admission inputs for a mutating agent call:
@@ -162,6 +207,10 @@ type admissionOutcome struct {
 	pol       agentPolicy
 	body      []byte
 	err       error
+	// spec and registry are what the effect below is charged against — the
+	// tool twin this call admitted as, and the surface that owns the counters.
+	spec     mcp.ToolSpec
+	registry *agents.Registry
 }
 
 // admitAgentCall dispatches a mutating agent call on the admission outcome:
@@ -171,145 +220,65 @@ type admissionOutcome struct {
 func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, outcome admissionOutcome) {
 	switch {
 	case outcome.err == nil:
+		// The effect is charged on BOTH arms — the field split forwards to the
+		// same handler through its own path — and on NEITHER when the handler
+		// refused. A quota counts what an agent did, so a rejected mutation that
+		// spent a write would let a caller exhaust its own allowance on requests
+		// that changed nothing, which is a bound nobody wrote.
+		performed := &effectRecorder{ResponseWriter: w}
 		if outcome.pol.Tool == "update_record" && !actionShapedUpdateOps[outcome.pol.Op] {
-			splitOrRedeemUpdate(w, r, next, outcome.staging, outcome.ownership, outcome.pol, outcome.body)
-			return
+			splitOrRedeemUpdate(performed, r, next, outcome.staging, outcome.ownership, outcome.pol, outcome.body)
+		} else {
+			next.ServeHTTP(performed, r)
 		}
-		next.ServeHTTP(w, r)
+		if performed.done() {
+			outcome.registry.ChargeEffect(r.Context(), outcome.spec)
+		}
 	case !errors.Is(outcome.err, apperrors.ErrRequiresApproval) || outcome.staging == nil:
 		httperr.Write(w, r, outcome.err)
 	default:
-		stageOrRedeem(w, r, next, outcome.staging, outcome.pol, outcome.body)
-	}
-}
-
-// stageOrRedeem handles the 🟡 outcome. The identical call is the
-// redemption key — a content hash over operation + concrete path +
-// canonicalized body, computed the same way at staging and at retry: an
-// X-Approval-Token redeems a previously approved identical call and lets
-// it through; otherwise the call is staged as a new approval and refused
-// with the redemption instructions.
-func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) {
-	if redeemIfPresented(w, r, next, staging, pol, body) {
-		return
-	}
-	stageRefusal(w, r, staging, pol, body)
-}
-
-// redeemIfPresented consumes an X-Approval-Token when the request carries
-// one: a valid token bound to this exact call lets it through to the
-// handler; an invalid one is answered with the failure — asserted
-// authority is validated, never ignored. Reports whether the request was
-// fully handled (no token → false, the caller continues its own flow).
-func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) bool {
-	token := r.Header.Get(approvalTokenHeader)
-	if token == "" {
-		return false
-	}
-	approvalID, pErr := ids.ParseAs[ids.ApprovalKind](token)
-	if pErr != nil {
-		httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
-		return true
-	}
-	_, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
-	if cErr != nil {
-		httperr.Write(w, r, cErr)
-		return true
-	}
-	if staging == nil {
-		httperr.Write(w, r, fmt.Errorf("agent gate: %s presented but this surface has no approvals engine: %w",
-			approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
-		return true
-	}
-	// Redeeming and marking are one step (agents.RedeemAndMark), so this
-	// transport cannot forward an approved call without the released marker the
-	// seam's egress backstop reads — nor obtain that marker without redeeming.
-	released, pin, pinned, rErr := agents.RedeemAndMark(r.Context(), staging, approvalID, pol.Tool, diffHash)
-	if rErr != nil {
-		httperr.Write(w, r, rErr)
-		return true
-	}
-	// Redemption commits its OWN transaction, and the handler below opens a
-	// fresh one to write. The skew check inside the redemption therefore
-	// proves the row was at the pinned version when the approval was
-	// consumed, not that it still is when the effect lands — and the attacker
-	// controls both sides of that window, since the redeeming request and any
-	// racing auto-execute mutation come from the same agent. Carrying the pin
-	// forward as the request's own If-Match makes the store re-check it
-	// inside the transaction that actually mutates, where a concurrent write
-	// loses to the version compare instead of to timing.
-	if pinned {
-		r.Header.Set("If-Match", strconv.FormatInt(pin, 10))
-	}
-	// WithContext shares the header map set just above, so the pin travels with
-	// the released request.
-	next.ServeHTTP(w, r.WithContext(released))
-	return true
-}
-
-// stageRefusal stages the refused call as a pending approval and answers
-// with the redemption instructions — the whole request, unapplied, is the
-// staged change, so the approved retry is this exact request again.
-func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, pol agentPolicy, body []byte) {
-	ctx := r.Context()
-	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
-	if cErr != nil {
-		httperr.Write(w, r, cErr)
-		return
-	}
-	// Stage only what a human can actually decide: a kind with no
-	// decision-grant mapping would sit undecidable in every inbox
-	// — refuse instead of minting a zombie authority object.
-	if !approvals.KindHasDecisionGrants(pol.Tool) {
-		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s (%s) has no approval decision mapping: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
-		return
-	}
-	var targetID ids.UUID
-	if raw := chi.URLParam(r, "id"); raw != "" {
-		var err error
-		if targetID, err = ids.Parse(raw); err != nil {
-			httperr.Write(w, r, apperrors.ErrNotFound)
+		// A redemption reaches the handler; a fresh staging does not. Charging
+		// the effect for both would bill a refusal, so this arm charges only
+		// where redeemIfPresented actually forwarded.
+		performed := &effectRecorder{ResponseWriter: w}
+		ran := stageOrRedeem(performed, r, next, outcome.staging, outcome.pol, outcome.body)
+		if !ran {
 			return
 		}
+		// The redemption committed before the handler ran, so this charge is
+		// absorbed rather than refused — see chargeCall's refusable.
+		outcome.registry.ChargeRedeemedCall(r.Context(), outcome.spec)
+		if performed.done() {
+			outcome.registry.ChargeEffect(r.Context(), outcome.spec)
+		}
 	}
-	// A concrete target with no record type is unstageable authority: the
-	// approvals surface scopes an inbox row by probing its target's own/team
-	// visibility, and it cannot probe a type it was not told. Such a row
-	// would show a record's summary and proposed change to everyone holding
-	// the object grant, and let any of them decide a write against a row
-	// their own scope hides. Refuse it here, the same fail-closed shape as
-	// an undecidable kind, rather than mint an unscopable authority object.
-	if targetID != (ids.UUID{}) && pol.RecordType == "" {
-		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s stages against a concrete record but declares no record type: %w",
-			pol.Op, apperrors.ErrPermissionDenied))
-		return
-	}
-	// The version a human approves is pinned SERVER-SIDE, inside the staging
-	// transaction, by approvals.StageInTx — the one place every stager passes
-	// through, so the REST gate, the MCP tool twins and the automation engine
-	// cannot each get it differently. The gate deliberately passes NO pin of
-	// its own: the only one it could offer is the agent's own If-Match header,
-	// which is optional, and an agent that simply omitted it staged
-	// target_version NULL — a NULL the redemption skew check short-circuits
-	// on. A create (no target id) has nothing to pin, and says so by carrying
-	// a zero id.
-	approvalID, sErr := staging.Stage(ctx, agents.StageRequest{
-		Tool:           pol.Tool,
-		ProposedChange: canonical,
-		DiffHash:       diffHash,
-		TargetType:     string(pol.RecordType),
-		TargetID:       targetID,
-		Summary:        restSummary(pol.Op, r.Method, r.URL.Path, body),
-	})
-	if sErr != nil {
-		httperr.Write(w, r, sErr)
-		return
-	}
-	httperr.Write(w, r, fmt.Errorf(
-		"staged as approval %s — once a human approves it, repeat this exact request with the %s: %s header: %w",
-		approvalID, approvalTokenHeader, approvalID, apperrors.ErrRequiresApproval))
+}
+
+// effectRecorder answers whether the handler behind this door actually
+// performed the effect, which is the only thing worth charging.
+//
+// The status is the honest signal available here: this middleware forwards to a
+// generated handler it cannot otherwise ask. A handler that writes no header at
+// all answered 200 by the stdlib's own rule, so an unset status counts as done —
+// the alternative would leave every 200-by-default mutation free.
+type effectRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (e *effectRecorder) WriteHeader(status int) {
+	e.status = status
+	e.ResponseWriter.WriteHeader(status)
+}
+
+// Unwrap exposes the wrapped writer so http.NewResponseController still reaches
+// the real connection through this layer — an embedded-only wrapper silently
+// swallows Flush and SetWriteDeadline, which the MCP route depends on.
+func (e *effectRecorder) Unwrap() http.ResponseWriter { return e.ResponseWriter }
+
+// done reports a 2xx, and treats "no header written" as the 200 it is.
+func (e *effectRecorder) done() bool {
+	return e.status == 0 || (e.status >= http.StatusOK && e.status < http.StatusMultipleChoices)
 }
 
 // operationSpec resolves the ToolSpec the gate admits against. The
@@ -346,7 +315,11 @@ func operationSpec(pol agentPolicy, reg *agents.Registry) (spec mcp.ToolSpec, re
 // tierDeps carries the read-side dependencies the dynamic REST tier
 // resolvers consult.
 type tierDeps struct {
-	stages    agents.StageResolver
+	stages agents.StageResolver
+	// records reads the deal a move is about, so the tier gate can see the stage
+	// it is moving FROM. Without it this door could only judge the destination,
+	// which is how a reopen came to be auto-execute.
+	records   datasource.SystemOfRecordProvider
 	ownership agents.FieldOwnership
 }
 
@@ -359,9 +332,10 @@ var dynamicTierInputs = map[string]func(ctx context.Context, deps tierDeps, pol 
 	"advance_deal": advanceDealTierInput,
 }
 
-// advanceDealTierInput: 🟢/🟡 turns on whether the destination stage is a
-// closing stage, so the resolver needs the concrete stage's semantic.
-func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *http.Request, body []byte) (mcp.TierResolverInput, error) {
+// advanceDealTierInput: 🟢/🟡 turns on whether EITHER endpoint of the move is a
+// closing stage, so the resolver needs both the destination's semantic and the
+// one the deal is currently in.
+func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error) {
 	var args struct {
 		ToStageID ids.UUID `json:"to_stage_id"`
 	}
@@ -394,11 +368,17 @@ func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *
 	if err := httperr.RequireBodyID("to_stage_id", args.ToStageID); err != nil {
 		return mcp.TierResolverInput{}, err
 	}
-	semantic, pipelineID, err := deps.stages.StageSemantic(ctx, args.ToStageID)
+	// The deal is named by the ROUTE, not the body — /deals/{id}/advance — so it
+	// is read from there before the shared builder can resolve both endpoints.
+	dealID, err := ids.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		return mcp.TierResolverInput{}, err
+		return mcp.TierResolverInput{}, httperr.Validation("id", "invalid",
+			"the deal id in the path must be a canonical UUID string")
 	}
-	return mcp.TierResolverInput{Args: body, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
+	// The SAME builder the MCP registry calls. Two spellings of "what the tier
+	// gate is shown" is how one door came to judge a deal move by its
+	// destination alone while the other judged both ends.
+	return agents.DealMoveTierInput(ctx, deps.records, deps.stages, dealID, args.ToStageID, body)
 }
 
 // tierInput supplies the lazy TierResolverInput for the admitted spec:

@@ -15,11 +15,13 @@ package compose
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -68,7 +70,7 @@ func TestApprovingAStagedLinkedInMatchLinksTheConnectionAndWritesTheURL(t *testi
 		t.Fatalf("matching: %v", err)
 	}
 	svc := approvalsServiceWithEffects(e.Pool)
-	staged, err := StageLinkedInMatches(ctx, e.Pool, svc, store)
+	staged, err := StageLinkedInMatches(ctx, svc, store)
 	if err != nil {
 		t.Fatalf("staging: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestARefusedLinkedInMatchIsNeverProposedAgain(t *testing.T) {
 		t.Fatalf("matching: %v", err)
 	}
 	svc := approvalsServiceWithEffects(e.Pool)
-	if _, err := StageLinkedInMatches(ctx, e.Pool, svc, store); err != nil {
+	if _, err := StageLinkedInMatches(ctx, svc, store); err != nil {
 		t.Fatalf("staging: %v", err)
 	}
 	if _, err := svc.Decide(ctx, onlyPendingLinkedInMatch(t, e), false, nil); err != nil {
@@ -127,13 +129,177 @@ func TestARefusedLinkedInMatchIsNeverProposedAgain(t *testing.T) {
 	}
 
 	// The stager runs again, exactly as a re-import or the hourly sweep would.
-	staged, err := StageLinkedInMatches(ctx, e.Pool, svc, store)
+	staged, err := StageLinkedInMatches(ctx, svc, store)
 	if err != nil {
 		t.Fatalf("re-staging: %v", err)
 	}
 	if staged != 0 {
 		t.Errorf("re-staging proposed %d matches, want 0 — a refusal must survive the next import", staged)
 	}
+}
+
+// A suggestion the EVENT path produces has to reach the inbox in that same
+// pass. It used to be matched, logged and dropped: the ghost row carried
+// `suggested` and no approval existed, so the member was never asked and
+// nothing in the product could tell them a question was waiting.
+//
+// No sweep runs here, deliberately — that is the whole claim. An hourly job
+// that repairs the event path is a feature that works an hour late, and only
+// for the owners that enumeration happens to reach.
+func TestAPersonEventStagesTheLinkedInSuggestionItProduced(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	person := linkedInMatchFixture(ctx, t, e)
+	// The pass runs under the ghost OWNER's own resolved authority, so the
+	// owner needs a real grant — a member the resolver reports as holding
+	// nothing is skipped, and the test would prove nothing about this path.
+	grantReadPeopleRole(t, e, e.Rep1, "all")
+
+	matcher := NewLinkedInMatchGen(e.Pool, people.NewStore(e.Pool), identity.NewService(e.Pool),
+		slog.New(slog.DiscardHandler))
+	if err := matcher.HandleEvent(context.Background(),
+		envelopeFor(e.WS, "person.created", "person", person)); err != nil {
+		t.Fatalf("handling person.created: %v", err)
+	}
+
+	// Exactly one, and it is the folded-name match: onlyPendingLinkedInMatch
+	// fails loudly on any other count.
+	onlyPendingLinkedInMatch(t, e)
+}
+
+// The sweep's rescue duty. A ghost the matcher already moved to `suggested`
+// without staging is the residue the event path used to leave behind, and it
+// was invisible twice over: `suggested` is not `unmatched`, so an owner holding
+// nothing else dropped out of the sweep's enumeration entirely and no later
+// pass could reach them.
+func TestTheSweepStagesALinkedInSuggestionNobodyWasEverAskedAbout(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	linkedInMatchFixture(ctx, t, e)
+	grantReadPeopleRole(t, e, e.Rep1, "all")
+
+	// The residue, seeded through the real matcher rather than by hand: match
+	// and do NOT stage, which is exactly the state the old event path left.
+	store := people.NewStore(e.Pool)
+	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
+		t.Fatalf("matching: %v", err)
+	}
+	if pending := pendingLinkedInMatchCount(t, e); pending != 0 {
+		t.Fatalf("%d proposals before the sweep, want 0 — the fixture is not the unstaged "+
+			"residue this test is about", pending)
+	}
+
+	sweep := newLinkedInRematchWorker(e.Pool, store, identity.NewService(e.Pool),
+		slog.New(slog.DiscardHandler))
+	if _, err := sweep.sweepWorkspace(context.Background(), e.WS); err != nil {
+		t.Fatalf("sweeping: %v", err)
+	}
+
+	onlyPendingLinkedInMatch(t, e)
+}
+
+// Refusing a match leaves the ghost at `suggested` — the reject path writes no
+// row here, by design, because the refusal IS the approval — so the widened
+// enumeration reaches that owner on every sweep from then on. What must not
+// happen is the sweep asking again.
+//
+// The durable-refusal property is not new, but the widening is what makes it
+// load-bearing: before it, an owner with nothing left but refused suggestions
+// dropped out of the enumeration and was never given the chance to be re-asked.
+func TestTheSweepNeverReasksALinkedInMatchThatWasRefused(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	linkedInMatchFixture(ctx, t, e)
+	grantReadPeopleRole(t, e, e.Rep1, "all")
+
+	store := people.NewStore(e.Pool)
+	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
+		t.Fatalf("matching: %v", err)
+	}
+	svc := approvalsServiceWithEffects(e.Pool)
+	if _, err := StageLinkedInMatches(ctx, svc, store); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	if _, err := svc.Decide(ctx, onlyPendingLinkedInMatch(t, e), false, nil); err != nil {
+		t.Fatalf("rejecting: %v", err)
+	}
+
+	// The owner is still enumerated — the refusal is not on the ghost row — so
+	// the sweep runs their whole pass again.
+	sweep := newLinkedInRematchWorker(e.Pool, store, identity.NewService(e.Pool),
+		slog.New(slog.DiscardHandler))
+	if _, err := sweep.sweepWorkspace(context.Background(), e.WS); err != nil {
+		t.Fatalf("sweeping after the refusal: %v", err)
+	}
+
+	if pending := pendingLinkedInMatchCount(t, e); pending != 0 {
+		t.Errorf("%d pending proposals after a refused match was swept, want 0 — the sweep is "+
+			"re-asking a question the member already answered", pending)
+	}
+}
+
+// A contact edit must not cancel a LinkedIn match waiting to be decided.
+//
+// The proposal's claim is "this imported connection is this contact", and no
+// field on the contact can make that false. Pinning the person's version bound
+// the approval to content nobody judged, so any edit between staging and
+// decision — a title correction, an owner change, a second match applying —
+// failed the redemption's re-check and the member's yes did nothing.
+func TestAContactEditDoesNotCancelAWaitingLinkedInMatch(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	person := linkedInMatchFixture(ctx, t, e)
+
+	store := people.NewStore(e.Pool)
+	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
+		t.Fatalf("matching: %v", err)
+	}
+	svc := approvalsServiceWithEffects(e.Pool)
+	if _, err := StageLinkedInMatches(ctx, svc, store); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	id := onlyPendingLinkedInMatch(t, e)
+
+	// Through the real writer, so the row's version moves exactly the way any
+	// edit in the product moves it.
+	title := "Head of Procurement"
+	if _, err := store.UpdatePerson(ctx, ids.From[ids.PersonKind](person), people.UpdatePersonInput{
+		Title: &title, Source: "manual",
+	}); err != nil {
+		t.Fatalf("editing the contact: %v", err)
+	}
+
+	if _, err := svc.Decide(ctx, id, true, nil); err != nil {
+		t.Fatalf("approving after the edit: %v — a contact edit must not cancel a waiting match", err)
+	}
+
+	var status string
+	var matched *ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT match_status, matched_person_id FROM linkedin_connection
+			 WHERE normalized_name = 'andreas muller'`).Scan(&status, &matched)
+	}); err != nil {
+		t.Fatalf("reading the outcome: %v", err)
+	}
+	if status != "confirmed" || matched == nil || *matched != person {
+		t.Errorf("the connection is %q → %v after an approved match, want confirmed → %s — "+
+			"the approval was released but its effect did not run", status, matched, person)
+	}
+}
+
+// pendingLinkedInMatchCount counts the pending proposals of this kind, for the
+// assertions that are about there being none.
+func pendingLinkedInMatchCount(t *testing.T, e *integration.Env) int {
+	t.Helper()
+	var n int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM approval WHERE kind = 'linkedin_match' AND status = 'pending'`).Scan(&n)
+	}); err != nil {
+		t.Fatalf("counting the staged proposals: %v", err)
+	}
+	return n
 }
 
 // onlyPendingLinkedInMatch returns the single pending proposal of this kind,

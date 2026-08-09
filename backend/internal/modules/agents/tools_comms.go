@@ -29,18 +29,18 @@ import (
 // paths; compose implements it over the one store both transports use.
 type Comms interface {
 	DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (subject, body string, err error)
-	SendEmail(ctx context.Context, anchor ids.UUID, in SendEmailArgs) (json.RawMessage, error)
+	SendEmail(ctx context.Context, anchor ids.UUID, in SendEmailArgs) (SendEmailResult, error)
 	// SendMessage replies on a captured channel conversation. It takes no
 	// addressee: the recipient is the person the anchor conversation is with,
 	// resolved server-side, so a reply can only reach the human who opened it.
-	SendMessage(ctx context.Context, anchor ids.UUID, in SendMessageArgs) (json.RawMessage, error)
+	SendMessage(ctx context.Context, anchor ids.UUID, in SendMessageArgs) (SendMessageResult, error)
 	// IsChannelKind reports whether an activity kind is a messaging-channel
 	// conversation send_message may reply on. StageInfo needs the exact
 	// answer activities.IsChannelKind gives — the same test the store's own
 	// SendMessage refuses on — but this module may not import activities
 	// directly (modules never import a sibling), so the seam carries it.
 	IsChannelKind(kind string) bool
-	Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (json.RawMessage, error)
+	Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (AvailabilityResult, error)
 	BookMeeting(ctx context.Context, in BookMeetingArgs) (json.RawMessage, error)
 }
 
@@ -112,7 +112,7 @@ func (t draftEmailTool) Spec() mcp.ToolSpec {
 			"activity_id":{"type":"string","format":"uuid","description":"The thread being replied to"},
 			"intent":{"type":"string","description":"What the reply should accomplish"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[DraftEmailResult](),
 	}
 }
 
@@ -128,8 +128,12 @@ func (t draftEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{
-		"subject": subject, "body": body, "in_reply_to_activity_id": args.ActivityID,
+	// The draft is composed from a captured thread, so its text carries that
+	// thread's content and its tier.
+	noteDerivedContent(ctx)
+	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
+	return json.Marshal(DraftEmailResult{
+		Subject: subject, Body: body, InReplyToActivityID: args.ActivityID,
 	})
 }
 
@@ -159,7 +163,7 @@ func (t sendEmailTool) Spec() mcp.ToolSpec {
 			"consent_purpose":{"type":"string","description":"Purpose key the recipients must have granted"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[SendEmailResult](),
 	}
 }
 
@@ -231,7 +235,8 @@ func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	return t.comms.SendEmail(ctx, args.ActivityID, args.SendEmailArgs)
+	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
+	return marshalResult(t.comms.SendEmail(ctx, args.ActivityID, args.SendEmailArgs))
 }
 
 // --- send_message (🟡: outbound + irreversible, the channel twin of send_email) ---
@@ -256,7 +261,7 @@ func (t sendMessageTool) Spec() mcp.ToolSpec {
 			"consent_purpose":{"type":"string","description":"Purpose key the recipient must have granted"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[SendMessageResult](),
 	}
 }
 
@@ -324,5 +329,6 @@ func (t sendMessageTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	return t.comms.SendMessage(ctx, args.ActivityID, args.SendMessageArgs)
+	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
+	return marshalResult(t.comms.SendMessage(ctx, args.ActivityID, args.SendMessageArgs))
 }

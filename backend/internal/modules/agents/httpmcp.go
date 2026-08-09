@@ -21,13 +21,11 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // mcpCallDeadline bounds one JSON-RPC exchange's response write. A dynamic
@@ -47,120 +45,6 @@ const mcpCallDeadline = 150 * time.Second
 // the classification (see compose/mcpedge.go).
 var ErrAuthUnavailable = errors.New("agents: the credential could not be verified")
 
-// sessionKey identifies one live MCP session. The session id ALONE is
-// deliberately not enough to act on (DESIGN §10.4): every request
-// re-authenticates via the Bearer passport, which is where authority
-// comes from, so the id itself is unvalidated. Pairing it with the
-// presenting passport means DELETE can only ever close a session that
-// passport itself opened — keying on the id alone would let any
-// authenticated agent close another connector's session by guessing or
-// replaying its value.
-type sessionKey struct {
-	passportID ids.UUID
-	sessionID  string
-}
-
-// The two caps that make the registry a BOUNDED structure. Without them
-// `initialize` (240/min per passport at the edge) grows it forever: nothing but
-// an exact-match DELETE ever removed an entry, a client that crashes or drops
-// its connection never sends one, and every refresh rotation brings a fresh
-// passport with a fresh allowance of its own. The symptom of the unbounded
-// version is an api whose memory climbs until it is restarted, with no metric
-// naming the cause.
-//
-// Per passport, because a client legitimately holds ONE session: the cap is
-// above one only so a client reconnecting before its DELETE lands is not
-// squeezed, and the OLDEST entry gives way rather than the newest being
-// refused — the newest is the session the client is actually using.
-//
-// Across the whole registry, because the passport dimension is otherwise
-// unbounded on its own. The per-passport cap is what keeps one credential from
-// evicting everyone else's sessions to reach the global one.
-const (
-	maxSessionsPerPassport = 8
-	maxSessions            = 4096
-)
-
-// sessionRegistry is in-process bookkeeping for open MCP sessions,
-// scoped to ONE handler instance rather than a package-level global —
-// a global would leak state between two handlers (or two tests) in the
-// same process.
-//
-// The value is the insertion SEQUENCE, which is what "evict the oldest" reads:
-// a counter rather than a timestamp, so eviction order is exact and needs no
-// clock to be deterministic in a test.
-type sessionRegistry struct {
-	mu       sync.Mutex
-	sessions map[sessionKey]uint64
-	inserted uint64
-}
-
-func newSessionRegistry() *sessionRegistry {
-	return &sessionRegistry{sessions: make(map[sessionKey]uint64)}
-}
-
-// register records a new session under the presenting passport, evicting
-// whatever the caps above require. An evicted entry only ever costs its owner a
-// 404 on a DELETE it may never send.
-func (r *sessionRegistry) register(passportID ids.UUID, sessionID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.evictForLocked(passportID)
-	r.inserted++
-	r.sessions[sessionKey{passportID, sessionID}] = r.inserted
-}
-
-// evictForLocked makes room for one more session under passportID: its own
-// oldest goes when that passport is at its cap, and otherwise the registry's
-// oldest goes when the whole map is at its. Both scans walk the map, which is
-// bounded by maxSessions by construction.
-func (r *sessionRegistry) evictForLocked(passportID ids.UUID) {
-	if r.evictOldestLocked(func(key sessionKey) bool { return key.passportID == passportID },
-		maxSessionsPerPassport) {
-		return
-	}
-	r.evictOldestLocked(func(sessionKey) bool { return true }, maxSessions)
-}
-
-// evictOldestLocked drops the lowest-sequence entry matching `counts` if at
-// least `limit` entries match it, and reports whether it evicted anything.
-func (r *sessionRegistry) evictOldestLocked(counts func(sessionKey) bool, limit int) bool {
-	matching := 0
-	var oldest sessionKey
-	oldestAt := uint64(0)
-	for key, at := range r.sessions {
-		if !counts(key) {
-			continue
-		}
-		matching++
-		if oldestAt == 0 || at < oldestAt {
-			oldest, oldestAt = key, at
-		}
-	}
-	if matching < limit {
-		return false
-	}
-	delete(r.sessions, oldest)
-	return true
-}
-
-// close removes the session sessionID owned by passportID. It reports
-// false, leaving the registry untouched, when no session exists under
-// that exact pair — including a sessionID that IS live but under a
-// different passport. Those two cases must read identically: telling
-// them apart would let a DELETE probe confirm another connector's
-// session id is currently open.
-func (r *sessionRegistry) close(passportID ids.UUID, sessionID string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	key := sessionKey{passportID, sessionID}
-	if _, ok := r.sessions[key]; !ok {
-		return false
-	}
-	delete(r.sessions, key)
-	return true
-}
-
 // ResourceMetadataChallenge builds the RFC 9728 WWW-Authenticate challenge a
 // 401 on this transport carries: the "Bearer" scheme name plus a pointer at
 // the protected-resource document. The pointer is ABSOLUTE on the request's
@@ -176,12 +60,18 @@ func ResourceMetadataChallenge(r *http.Request) string {
 	return `Bearer resource_metadata="` + httpserver.RequestOrigin(r) + `/.well-known/oauth-protected-resource", scope="read draft"` // NOSONAR: RFC 9728 challenge, not a secret
 }
 
-// writeRPCResponse writes one JSON-RPC response, framed per the client's
-// Accept header (DESIGN §5.3): `text/event-stream` gets a single `data:`
-// frame and then the stream closes — there is no ongoing push on this
+// writeRPCResponse writes one JSON-RPC response under status, framed per the
+// client's Accept header (DESIGN §5.3): `text/event-stream` gets a single
+// `data:` frame and then the stream closes — there is no ongoing push on this
 // path, only the one exchange the request asked for. Anything else,
 // including an absent Accept, gets the plain JSON body.
-func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse) {
+//
+// The status is a parameter because the modern framing pins one for several of
+// its answers — 400 for a malformed or mismatched request, 404 for a method
+// this server does not answer — and it is those statuses, together with a
+// recognized JSON-RPC error body, that let a dual-era client tell a modern
+// server from a legacy one.
+func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse, status int) {
 	body, err := json.Marshal(resp)
 	if err != nil {
 		// Every field of resp is a type this package constructs (rpcResponse,
@@ -197,21 +87,26 @@ func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse) 
 	}
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(status)
 		//craft:ignore swallowed-errors a failed write means the client hung up — there is no channel left to report on
 		_, _ = w.Write([]byte("data: " + string(body) + "\n\n"))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	//craft:ignore swallowed-errors a failed write of the JSON-RPC result means the client hung up
 	_, _ = w.Write(body)
 }
 
 // httpMCPHandler is the concrete type behind NewHTTPHandler's http.Handler
-// return value. It is unexported — callers outside this package see only
-// the interface — but a whitebox test in this package can reach `sessions`
-// directly to assert registry state DELETE alone cannot prove (a 404 looks
-// the same whether a session never existed or belongs to someone else; the
-// registry is the only place that distinction is visible).
+// return value. It is unexported — callers outside this package see only the
+// interface.
+//
+// It holds NO per-connection state, which is the whole of ADR-0092 §6: a call
+// can land on any api replica because there is nothing here for it to have
+// landed on before. What the in-process session registry used to hold was
+// bookkeeping plus an implicit volume bound, and the bound now lives in Redis
+// (platform/agentquota) where every replica reads the same number.
 type httpMCPHandler struct {
 	// server is the SAME dispatcher the stdio transport runs, built once:
 	// method dispatch, the tool surface and the scrubbed-error rules are
@@ -221,7 +116,6 @@ type httpMCPHandler struct {
 	server       *Dispatcher
 	authenticate func(*http.Request) (context.Context, error)
 	challenge    func(*http.Request) string
-	sessions     *sessionRegistry
 }
 
 // NewHTTPHandler serves MCP over HTTP. authenticate runs PER REQUEST —
@@ -236,13 +130,36 @@ type httpMCPHandler struct {
 // its cause, so the one place that cause survives is this logger. A nil one
 // falls back to slog.Default(), which in a process that never called
 // SetDefault means the record is written somewhere nobody is reading.
-func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), challenge func(*http.Request) string, name, version string, log *slog.Logger) http.Handler {
+func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), challenge func(*http.Request) string, name, version string, log *slog.Logger, opts ...HTTPOption) http.Handler {
+	server := NewDispatcher(registry, bindAuthenticated, name, version).WithLogger(log)
+	for _, opt := range opts {
+		opt(server)
+	}
 	return &httpMCPHandler{
-		server:       NewDispatcher(registry, bindAuthenticated, name, version).WithLogger(log),
+		server:       server,
 		authenticate: authenticate,
 		challenge:    challenge,
-		sessions:     newSessionRegistry(),
 	}
+}
+
+// HTTPOption configures the dispatcher behind the HTTP transport. What it
+// carries is composed by OTHER modules and injected at the composition edge,
+// so it is variadic rather than a positional parameter: a caller that mounts
+// no such module does not have to name one.
+type HTTPOption func(*Dispatcher)
+
+// WithResourceProvider publishes read-only documents beside the tool surface.
+func WithResourceProvider(provider mcp.ResourceProvider) HTTPOption {
+	return func(d *Dispatcher) { d.WithResources(provider) }
+}
+
+// WithTaskStore turns the io.modelcontextprotocol/tasks extension on: a staged
+// confirm-first call answers a durable handle to a client that declared it, and
+// the three task methods start being served. Without it the surface behaves
+// exactly as it did before — the extension is not advertised, and a 🟡 refusal
+// is the same sentence for every client.
+func WithTaskStore(tasks Tasks, approvals TaskApprovals) HTTPOption {
+	return func(d *Dispatcher) { d.WithTasks(tasks, approvals) }
 }
 
 // bindAuthenticated is the Binder the shared dispatcher gets on this
@@ -299,18 +216,30 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// this needs saying to the linter as well as to the reader.
 	r = r.WithContext(ctx) //nolint:contextcheck // ctx is derived from r.Context() inside the injected authenticate closure
 	if r.Method == http.MethodDelete {
-		h.teardownSession(w, r)
+		// NEITHER era has a session to tear down, and the answer is the same
+		// sentence for both. `Mcp-Session-Id` is optional in the handshake era
+		// and this server no longer mints one, so a legacy client has nothing
+		// to name here either — and telling it so beats a 404 it would read as
+		// "your session expired" and re-handshake over.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusMethodNotAllowed,
+			Code:   "method_not_allowed",
+			Detail: "This server establishes no session, so there is none to close.",
+		})
 		return
 	}
 	h.servePost(w, r)
 }
 
-// servePost handles the one JSON-RPC exchange a POST carries: parse,
-// negotiate the protocol version, dispatch through the shared stdio
-// handler, and — on a successful initialize — mint and register the
-// session this connection now owns.
+// servePost handles the one JSON-RPC exchange a POST carries: parse, decide
+// which framing the request is in, hold it to that framing's preconditions,
+// and dispatch.
+//
+// The era is decided HERE and nowhere else, and it travels down as a value.
+// Deciding it twice is how the two framings would start to disagree about a
+// request, and the framing decides how a call is parsed — never what it may
+// do, which is the registry's business either way.
 func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {
 		httperr.Write(w, r, &httperr.DetailedError{
@@ -322,36 +251,88 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 	}
 	var req rpcRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeRPCResponse(w, r, rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: -32700, Message: "parse error"}})
+		// The body is what normally decides the era, and this one does not
+		// decode, so the header is the only thing left that can say. A caller
+		// that named the modern revision gets the status that framing pins for
+		// a malformed request; anything else keeps the answer it always had.
+		status := http.StatusOK
+		if servesAsModern(declaredTransportVersion(r.Header)) {
+			status = http.StatusBadRequest
+		}
+		writeRPCResponse(w, r,
+			rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: codeParseError, Message: "parse error"}},
+			status)
 		return
 	}
-	// A present-and-unsupported MCP-Protocol-Version is refused with a
-	// plain 400 whose body is prose, NEVER a modern-era -32022
-	// UnsupportedProtocolVersionError: the spec has a dual-era client
-	// identify a legacy server by seeing a 4xx without a recognized
-	// modern error body, and only then fall back to initialize. A -32022
-	// body would read as a modern server rejecting a mismatched version,
-	// so the client would retry with a modern (handshake-free,
-	// _meta-carrying) request this server can never serve — turning a
-	// working fallback into a hard failure. initialize itself is exempt:
-	// negotiation for that call happens through its own request body,
-	// not this header, and older clients omit the header entirely until
-	// they have a negotiated version to send.
-	if v := r.Header.Get("MCP-Protocol-Version"); req.Method != methodInitialize && v != "" &&
-		!slices.Contains(supportedProtocolVersions, v) {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusBadRequest,
-			Code:   "unsupported_protocol_version",
-			Detail: "Unsupported MCP-Protocol-Version; this server supports: " +
-				strings.Join(supportedProtocolVersions, ", ") + ".",
-		})
+	// Before either era looks at it: a version header sent twice has two
+	// readings, and no path here acts on one. The answer is a JSON-RPC error
+	// rather than a plain 4xx so a modern client recognizes it as this server
+	// refusing rather than as a legacy server to fall back to.
+	if duplicatedVersionHeader(r.Header) {
+		writeRPCResponse(w, r, rpcResponse{
+			JSONRPC: jsonRPCVersion, ID: req.ID,
+			Error: &rpcError{
+				Code: codeHeaderMismatch,
+				Message: "header mismatch: " + headerProtocolVersion + " was sent more than once, so this " +
+					"server and an intermediary between us could read different versions from it",
+			},
+		}, http.StatusBadRequest)
+		return
+	}
+	fr, refusal := modernPrecheck(req.Params, declaredTransportVersion(r.Header))
+	if refusal == nil && fr.modern {
+		refusal = validateModernHeaders(r.Header, req, fr)
+	}
+	if refusal != nil {
+		// Every modern precondition failure is a 400 carrying a recognized
+		// JSON-RPC error, which is the pair a dual-era client reads: the status
+		// alone would send it back to the handshake, and the body alone would
+		// not be seen.
+		writeRPCResponse(w, r, rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID, Error: refusal},
+			http.StatusBadRequest)
+		return
+	}
+	if !fr.modern && !h.legacyVersionServed(w, r, req) {
 		return
 	}
 	if req.ID == nil {
-		// A notification gets no response by JSON-RPC rule.
+		// A notification gets no response by JSON-RPC rule — but it is judged
+		// by the same framing rules first, which is why this sits below them.
+		// The 2026-07-28 revision leaves a notification's header requirements
+		// undefined and defines no client-to-server notification over this
+		// transport at all, so no conforming client reaches here; holding one
+		// to the request rules is the conservative reading, and inventing a
+		// laxer path would be a second way in.
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
+	h.exchange(w, r, req, fr)
+}
+
+// legacyVersionServed refuses a handshake-era request that names a revision
+// outside the compatibility window, and reports whether the caller may
+// proceed.
+//
+// The refusal names every revision this server serves, in both eras, so the
+// client retries on one of them rather than guessing — which it can only do
+// because this server does answer the modern framing a dual-era client would
+// retry with. initialize is exempt: it negotiates through its own body, and a
+// client has no version to put in this header until initialize has answered
+// one.
+func (h *httpMCPHandler) legacyVersionServed(w http.ResponseWriter, r *http.Request, req rpcRequest) bool {
+	v := r.Header.Get(headerProtocolVersion)
+	if req.Method == methodInitialize || v == "" || slices.Contains(legacyProtocolVersions, v) {
+		return true
+	}
+	writeRPCResponse(w, r,
+		rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID, Error: unsupportedProtocolVersion(v)},
+		http.StatusBadRequest)
+	return false
+}
+
+// exchange dispatches one request and writes its answer under the status its
+// framing pins.
+func (h *httpMCPHandler) exchange(w http.ResponseWriter, r *http.Request, req rpcRequest, fr framing) {
 	// A dynamic tool call can block on a model call, which modules/ai
 	// budgets at 120s per request; the api's server-wide WriteTimeout is
 	// 30s. Extend the deadline for THIS route only — raising the server's
@@ -366,50 +347,17 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	resp := h.server.handle(ctx, req)
-	if req.Method == methodInitialize && resp.Error == nil {
-		h.mintSession(ctx, w)
+	ctx := r.Context()
+	resp := h.server.handle(ctx, req, fr)
+	status := http.StatusOK
+	if fr.modern {
+		status = modernStatus(resp)
 	}
-	writeRPCResponse(w, r, resp)
-}
-
-// mintSession registers a fresh session under the passport that just
-// initialized and returns its id as Mcp-Session-Id. The passport is what
-// "closes only your own" (§10.4) has to key on: the session id itself
-// carries no authority. actor.PassportID is the zero value for a human
-// call, which is fine — it just means every session-less human shares one
-// bucket in this registry, a case this transport (agent passports only)
-// does not reach in production.
-func (h *httpMCPHandler) mintSession(ctx context.Context, w http.ResponseWriter) {
-	actor, _ := principal.Actor(ctx)
-	sessionID := ids.NewV7().String()
-	h.sessions.register(actor.PassportID, sessionID)
-	w.Header().Set("Mcp-Session-Id", sessionID)
-}
-
-// teardownSession answers DELETE /mcp: it closes only the session the
-// PRESENTING passport opened. A missing header is a client error (400);
-// a session id that does not exist under this exact passport — whether it
-// never existed or belongs to someone else — answers 404, identically, so
-// a probe cannot tell the two apart.
-func (h *httpMCPHandler) teardownSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.Header.Get("Mcp-Session-Id")
-	if sessionID == "" {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusBadRequest,
-			Code:   "missing_session_id",
-			Detail: "Closing a session needs the Mcp-Session-Id header initialize returned.",
-		})
-		return
-	}
-	actor, _ := principal.Actor(r.Context())
-	if !h.sessions.close(actor.PassportID, sessionID) {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusNotFound,
-			Code:   "session_not_open",
-			Detail: "No session is open under this id for this passport.",
-		})
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	// NEITHER era is answered with an Mcp-Session-Id. A modern call carries its
+	// own state by construction; a handshake-era `initialize` used to mint one,
+	// and the id it minted was never authority — every request re-authenticates
+	// on its Bearer passport, and the volume the session implicitly bounded is
+	// now bounded per Passport in Redis (ADR-0092 §6). What the header cost was
+	// real: it pinned a conversation to the process that answered initialize.
+	writeRPCResponse(w, r, resp, status)
 }

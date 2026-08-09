@@ -49,7 +49,12 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT d.id, d.name, d.status, d.stage_id, s.name, d.amount_minor, d.currency,
-		       d.expected_close_date, d.created_at, d.last_activity_at, d.wait_until
+		       -- Read as text, then parsed below. pgx decodes a bare DATE into
+		       -- its own type and refuses the contract's Date wrapper, so the
+		       -- scan fails at RUNTIME on any deal that names a close date —
+		       -- and it 500s the whole company page, not just this card.
+		       to_char(d.expected_close_date, 'YYYY-MM-DD'),
+		       d.created_at, d.last_activity_at, d.wait_until
 		FROM deal d
 		LEFT JOIN stage s ON s.id = d.stage_id AND s.workspace_id = d.workspace_id
 		%s
@@ -67,9 +72,17 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 		var currency *string
 		var createdAt time.Time
 		var lastActivityAt, waitUntil *time.Time
+		var closeOn *string
 		if err := row.Scan(&id, &d.Name, &status, &stageIDPtr, &d.StageName, &amountMinor, &currency,
-			&d.ExpectedCloseDate, &createdAt, &lastActivityAt, &waitUntil); err != nil {
+			&closeOn, &createdAt, &lastActivityAt, &waitUntil); err != nil {
 			return d, err
+		}
+		if closeOn != nil {
+			parsed, err := time.Parse(time.DateOnly, *closeOn)
+			if err != nil {
+				return d, fmt.Errorf("reading the deal's expected close date: %w", err)
+			}
+			d.ExpectedCloseDate = &openapi_types.Date{Time: parsed}
 		}
 		d.DealId = openapi_types.UUID(id)
 		d.Status = crmcontracts.Organization360DealStatus(status)

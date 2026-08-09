@@ -22,16 +22,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -332,3 +336,341 @@ func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
 		t.Errorf("linked_person_id = %v, want the visible contact %v", step.LinkedPersonId, mine)
 	}
 }
+
+// "No meeting is booked" and "you cannot see the calendar" are different
+// sentences, and a page that renders them the same tells a rep to book a
+// meeting that already exists. The section proves it holds the distinction.
+func TestOrganization360NextMeetingSeparatesNoneFromWithheld(t *testing.T) {
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	granted := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
+
+	// Nothing booked, and the caller holds the activity grant: the answer is a
+	// fact about the account, so the section is present and null.
+	view, err := svc.Assemble(granted, ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.NextMeeting != nil {
+		t.Errorf("next_meeting = %+v, want absent — nothing is scheduled", view.NextMeeting)
+	}
+	if slices.Contains(view.SectionsOmitted, "next_meeting") {
+		t.Error("next_meeting was named as omitted while the caller holds the activity grant — that reads as 'hidden from you' for an account that simply has no meeting")
+	}
+
+	// A meeting in the past is not the next one. Seeded before the future meeting
+	// so an ordering that ignored occurred_at would return this row.
+	past := seedMeeting(t, owner, e.WS, "Kickoff, already held", org360Clock.Add(-48*time.Hour))
+	integration.LinkActivity(t, owner, e.WS, past, "organization", org)
+	future := seedMeeting(t, owner, e.WS, "Renewal review", org360Clock.Add(72*time.Hour))
+	integration.LinkActivity(t, owner, e.WS, future, "organization", org)
+
+	view, err = svc.Assemble(granted, ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble after seeding: %v", err)
+	}
+	if view.NextMeeting == nil {
+		t.Fatal("next_meeting = null with a meeting booked in three days")
+	}
+	if ids.UUID(view.NextMeeting.ActivityId) != future {
+		t.Errorf("next_meeting = %q, want the future one — a meeting's place in time is when it happens, not when it was entered",
+			view.NextMeeting.Subject)
+	}
+
+	// Without the activity grant the section is absent and NAMED, which is the
+	// other half of the distinction.
+	withheld := e.As(e.Rep2, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}},
+		RowScope: principal.RowScopeAll,
+	})
+	view, err = svc.Assemble(withheld, ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble without the activity grant: %v", err)
+	}
+	if view.NextMeeting != nil {
+		t.Error("next_meeting was served to a caller with no activity grant")
+	}
+	if !slices.Contains(view.SectionsOmitted, "next_meeting") {
+		t.Error("next_meeting was withheld without being named in sections_omitted, so the page cannot say why it is missing")
+	}
+}
+
+// The meeting is reachable through a visible contact, so the caller may see
+// that it exists. Who ELSE was in the room is a separate question, answered per
+// person — otherwise the composite becomes the side channel that hands out a
+// colleague's contacts.
+func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+
+	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
+	theirs := e.SeedPerson(t, "Another Team's Contact", &e.Rep3)
+	for _, person := range []ids.UUID{mine, theirs} {
+		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+	}
+
+	meeting := seedMeeting(t, owner, e.WS, "Renewal review", org360Clock.Add(24*time.Hour))
+	integration.LinkActivity(t, owner, e.WS, meeting, "person", mine)
+	for _, person := range []ids.UUID{mine, theirs} {
+		e.WsExec(t, `INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
+			VALUES ($1, $2, $3, 'attendee')`, e.WS, meeting, person)
+	}
+	// The visible contact ALSO holds a second role. uq_activity_participant is
+	// unique on (activity, role, person), so one person legitimately has several
+	// rows on one meeting — a captured mail makes its sender both `from` and
+	// `attendee`. Without this the fixture has one row per person and cannot
+	// tell a correct answer from one that lists somebody once per role.
+	e.WsExec(t, `INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
+		VALUES ($1, $2, $3, 'from')`, e.WS, meeting, mine)
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.NextMeeting == nil {
+		t.Fatal("next_meeting = null for a meeting reachable through a visible contact")
+	}
+	if len(view.NextMeeting.Participants) != 1 {
+		t.Fatalf("participants = %+v, want the one contact this caller can read, named once however many roles they hold",
+			view.NextMeeting.Participants)
+	}
+	if ids.UUID(view.NextMeeting.Participants[0].PersonId) != mine {
+		t.Errorf("participants named %q — a meeting visible through one contact must not disclose a colleague's",
+			view.NextMeeting.Participants[0].DisplayName)
+	}
+}
+
+// seedMeeting books one meeting at a chosen instant. SeedRow binds only the id
+// and the workspace, and a meeting's whole identity here is WHEN it is.
+func seedMeeting(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, at time.Time) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(), `
+		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'meeting', $3, $4, 'manual', 'human:x')`, id, ws, subject, at); err != nil {
+		t.Fatalf("seeding a meeting: %v", err)
+	}
+	return id
+}
+
+// "Nobody has tried" and "somebody tried and it went nowhere" are different
+// facts, and a page that renders them alike tells a rep an account is
+// unreachable when in truth nobody has picked up the phone.
+func TestOrganization360ContactRoutesSeparateUntriedFromCold(t *testing.T) {
+	e := integration.Setup(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+
+	reached := e.SeedPerson(t, "Reached Contact", &e.Rep1)
+	untried := e.SeedPerson(t, "Untried Contact", &e.Rep1)
+	for _, person := range []ids.UUID{reached, untried} {
+		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+	}
+	// One colleague has a real two-way exchange with the first contact. The
+	// second has none at all, which is the state under test.
+	e.WsExec(t, `INSERT INTO graph_interaction_edge
+			(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+		VALUES ($1, $2, $3, $4, 20, 10, 10)`,
+		e.WS, e.Rep1, reached, org360Clock.Add(-24*time.Hour))
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	byPerson := map[ids.UUID]*crmcontracts.Organization360ContactRoutes{}
+	for _, contact := range view.People.Data {
+		byPerson[ids.UUID(contact.PersonId)] = contact.Routes
+	}
+
+	got := byPerson[reached]
+	if got == nil || got.Untried {
+		t.Fatalf("routes for the reached contact = %+v, want a route and untried=false", got)
+	}
+	if len(got.Top) != 1 || ids.UUID(got.Top[0].UserId) != e.Rep1 {
+		t.Errorf("top = %+v, want the one colleague who actually exchanged messages", got.Top)
+	}
+	if got.Remainder != 0 {
+		t.Errorf("remainder = %d, want 0 — one colleague has an edge and none is hidden", got.Remainder)
+	}
+
+	none := byPerson[untried]
+	if none == nil || !none.Untried {
+		t.Fatalf("routes for the untried contact = %+v, want untried=true", none)
+	}
+	if len(none.Top) != 0 {
+		t.Errorf("top = %+v, want empty — nobody has exchanged a message with them", none.Top)
+	}
+}
+
+// A forty-person team is the case the contact-centred shape exists for: the row
+// names the few worth naming and counts the rest, rather than growing a column
+// per colleague.
+func TestOrganization360ContactRoutesNameThreeAndCountTheRest(t *testing.T) {
+	e := integration.Setup(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	contact := e.SeedPerson(t, "Popular Contact", &e.Rep1)
+	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
+
+	// Eight colleagues, each stronger than the last, so the ordering is not the
+	// insert order and a scan that returned "the first three" would be caught.
+	//
+	// Counts stay UNDER the frequency saturation point (20 interactions): above
+	// it every colleague scores the same and the ranking falls through to the
+	// tiebreak, which would make this test pass on an unordered read.
+	const colleagues = 8
+	for i := range colleagues {
+		user := ids.NewV7()
+		e.WsExec(t, `INSERT INTO app_user (id, workspace_id, email, display_name, status)
+			VALUES ($1, $2, $3, $4, 'active')`,
+			user, e.WS, fmt.Sprintf("colleague%d@acme.test", i), fmt.Sprintf("Colleague %d", i))
+		e.WsExec(t, `INSERT INTO graph_interaction_edge
+				(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+			VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+			e.WS, user, contact, org360Clock.Add(-24*time.Hour), (i+1)*2, i+1)
+	}
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(view.People.Data) != 1 {
+		t.Fatalf("contacts = %d, want the one seeded", len(view.People.Data))
+	}
+	routes := view.People.Data[0].Routes
+	if routes == nil {
+		t.Fatal("routes withheld from a caller holding the person grant")
+	}
+	if len(routes.Top) != 3 {
+		t.Fatalf("top = %d colleagues, want 3 — a row names the few worth naming", len(routes.Top))
+	}
+	if routes.Remainder != colleagues-3 {
+		t.Errorf("remainder = %d, want %d — a truncated list with no count reads as the whole list",
+			routes.Remainder, colleagues-3)
+	}
+	// Strongest first. The last-seeded colleague has the highest counts.
+	if routes.Top[0].DisplayName != "Colleague 7" {
+		t.Errorf("strongest route = %q, want Colleague 7 — the order is the projection, not the scan",
+			routes.Top[0].DisplayName)
+	}
+}
+
+// A route is read out of graph_interaction_edge, and an edge is derived from an
+// activity — which is why the graph surface demands activity:read before it
+// touches the same table. The people section must not become the way around
+// that grant.
+//
+// The routes go ABSENT rather than empty. An empty set is an answer — "nobody
+// can reach them" — and giving that answer to a caller who was not allowed to
+// ask is the same disclosure the gate exists to refuse, merely inverted.
+func TestOrganization360OmitsRoutesWithoutTheActivityGrant(t *testing.T) {
+	e := integration.Setup(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	person := e.SeedPerson(t, "Reached Contact", &e.Rep1)
+	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+	e.WsExec(t, `INSERT INTO graph_interaction_edge
+			(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+		VALUES ($1, $2, $3, $4, 20, 10, 10)`,
+		e.WS, e.Rep1, person, org360Clock.Add(-24*time.Hour))
+
+	// With the grant, the route is there — otherwise the case below could pass
+	// because the fixture produced no route at all.
+	full, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms),
+		ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble with the activity grant: %v", err)
+	}
+	if len(full.People.Data) == 0 || full.People.Data[0].Routes == nil {
+		t.Fatal("no route with the activity grant — the fixture proves nothing about withholding one")
+	}
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360NoActivityPerms),
+		ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble without the activity grant: %v", err)
+	}
+	if len(view.People.Data) == 0 {
+		t.Fatal("the people section is empty, so the routes claim below is vacuous")
+	}
+	for _, contact := range view.People.Data {
+		if contact.Routes != nil {
+			t.Errorf("contact %s carries routes %+v without activity:read", contact.PersonId, contact.Routes)
+		}
+	}
+}
+
+// A reader who may see people and companies but not activities.
+var org360NoActivityPerms = principal.Permissions{
+	RoleKeys: []string{"rep"},
+	Objects: map[string]principal.ObjectGrant{
+		"organization": {Read: true},
+		"person":       {Read: true},
+		"deal":         {Read: true},
+	},
+	RowScope: principal.RowScopeTeam,
+}
+
+// The state strip's pipeline figures, read from a real deal through the real
+// endpoint (FIN plan §4.2 / the KPI row).
+//
+// This exists because the unit test over the fold could not catch what broke:
+// the SQL read scans expected_close_date, and Postgres sends a bare DATE that
+// pgx will not decode into time.Time. Every 360 request 500'd the moment any
+// deal on the account carried a close date — invisible to a test that hands
+// the fold rows it built itself, and immediately visible on real data.
+func TestOrg360_StateStripPricesOpenDealsAndNamesTheirCloseDate(t *testing.T) {
+	e := integration.Setup(t)
+	pipeline, stage, _ := integration.DealFixture(t, e)
+	orgID := e.SeedOrg(t, "Priced Account", nil)
+	closeOn := time.Now().UTC().AddDate(0, 2, 0)
+
+	// Through the real writer, with the two fields the read has to survive: an
+	// amount in the workspace's own currency and an expected close date.
+	if _, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
+		Name: "Priced deal", PipelineID: pipeline, StageID: stage,
+		OrganizationID: ptrTo(ids.From[ids.OrganizationKind](orgID)),
+		AmountMinor:    ptrTo(int64(250000)), Currency: ptrTo("EUR"),
+		ExpectedClose: &closeOn, Source: "manual",
+	}); err != nil {
+		t.Fatalf("creating the deal: %v", err)
+	}
+
+	view, err := org360Service(e).Assemble(e.Admin(), ids.From[ids.OrganizationKind](orgID))
+	if err != nil {
+		t.Fatalf("assembling the 360: %v", err)
+	}
+
+	strip := view.StateStrip
+	if strip == nil || strip.Commercial == nil {
+		t.Fatal("no commercial reading on an account with an open deal")
+	}
+	if strip.Commercial.OpenCount != 1 {
+		t.Fatalf("open count = %d, want 1", strip.Commercial.OpenCount)
+	}
+	// An open deal in the base currency carries NO frozen FX rate — the rate
+	// freezes on close — so a figure read from amount_minor_base alone would
+	// be absent here. This is the case the page actually shows.
+	if strip.Commercial.PricedCount != 1 {
+		t.Fatalf("priced count = %d, want 1 — an open deal in the base currency needs no rate",
+			strip.Commercial.PricedCount)
+	}
+	if strip.Commercial.OpenPipelineMinorBase == nil ||
+		*strip.Commercial.OpenPipelineMinorBase != 250000 {
+		t.Fatalf("open pipeline = %v, want 250000", strip.Commercial.OpenPipelineMinorBase)
+	}
+	if strip.Commercial.NextCloseOn == nil {
+		t.Fatal("no expected close date, though the deal names one")
+	}
+}
+
+func ptrTo[T any](v T) *T { return &v }

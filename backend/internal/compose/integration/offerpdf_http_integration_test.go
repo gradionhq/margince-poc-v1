@@ -118,7 +118,7 @@ func TestOfferPdfHTTP_DownloadAfterRenderReturnsTheRenderedBytes(t *testing.T) {
 		t.Fatalf("building pdf download request: %v", err)
 	}
 	req.Header.Set("X-Workspace-Slug", e.Slug)
-	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody below; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("GET pdf: %v", err)
 	}

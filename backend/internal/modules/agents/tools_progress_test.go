@@ -32,6 +32,10 @@ func TestProgressDealResolverKeepsTheWonLostFloor(t *testing.T) {
 	if resolver == nil {
 		t.Fatal("progress_deal is TierDynamic and must carry a resolver")
 	}
+	// From an OPEN deal, so this reads the target's contribution alone. The rule
+	// is either-endpoint — dealreopen_test.go holds the other half, where the
+	// deal is already closed — and a case that left the source unset would be
+	// asking about an unreadable deal rather than about the target.
 	cases := map[string]mcp.RiskTier{
 		"open": mcp.TierAutoExecute,
 		"won":  mcp.TierConfirmationRequired,
@@ -39,7 +43,8 @@ func TestProgressDealResolverKeepsTheWonLostFloor(t *testing.T) {
 		"":     mcp.TierConfirmationRequired, // an unprovable semantic fails toward the gate
 	}
 	for semantic, want := range cases {
-		if got := resolver(mcp.TierResolverInput{TargetStageSemantic: semantic}); got != want {
+		in := mcp.TierResolverInput{SourceStageSemantic: "open", TargetStageSemantic: semantic}
+		if got := resolver(in); got != want {
 			t.Errorf("semantic %q resolves tier %v, want %v", semantic, got, want)
 		}
 	}
@@ -47,14 +52,28 @@ func TestProgressDealResolverKeepsTheWonLostFloor(t *testing.T) {
 
 func TestProgressDealResolverInputReadsTheStageSemantic(t *testing.T) {
 	pipeline := ids.NewV7()
-	tool := progressDeal{stages: fixedStages{semantic: "won", pipeline: pipeline}}
+	// The two endpoints resolve DIFFERENTLY, so a source semantic dropped to
+	// empty — the reopen defect this file's sibling is about — fails here
+	// instead of matching a target that happened to say the same thing.
+	current, target := ids.NewV7(), ids.NewV7()
+	tool := progressDeal{
+		p: &reopenProbeProvider{stageID: current},
+		stages: &reopenProbeStages{
+			semantics: map[ids.UUID]string{current: "open", target: "won"},
+			pipeline:  pipeline,
+		},
+	}
 	in, err := tool.ResolverInput(context.Background(),
-		json.RawMessage(`{"deal_id":"`+ids.NewV7().String()+`","to_stage_id":"`+ids.NewV7().String()+`"}`))
+		json.RawMessage(`{"deal_id":"`+ids.NewV7().String()+`","to_stage_id":"`+target.String()+`"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if in.TargetStageSemantic != "won" || in.PipelineID != pipeline.String() {
 		t.Fatalf("resolver input = %+v, want the configured semantic and pipeline", in)
+	}
+	if in.SourceStageSemantic != "open" {
+		t.Fatalf("resolver input = %+v, want the deal's own current stage — without it the "+
+			"resolver cannot tell a move from a reopen", in)
 	}
 }
 

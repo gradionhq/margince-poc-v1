@@ -77,7 +77,7 @@ func (t runReport) Spec() mcp.ToolSpec {
 				"as":{"type":"string","description":"Output column name for this aggregate"}},"additionalProperties":false},
 				"description":"Omit for the report's own default aggregates."}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[RunReportResult](),
 	}
 }
 
@@ -167,6 +167,7 @@ func (t runReport) Handle(ctx context.Context, in json.RawMessage) (json.RawMess
 	if err := decodeReportArgs(in, &args.Report, &args.Rest); err != nil {
 		return nil, err
 	}
+	noteDerivedContent(ctx)
 	return t.run(ctx, args.Report, args.Rest)
 }
 

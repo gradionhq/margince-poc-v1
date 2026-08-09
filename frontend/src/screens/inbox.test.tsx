@@ -190,9 +190,10 @@ describe("InboxScreen (B-EP09.12a)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     // By its LABEL, not its wire path: "proposed_lifecycle" is where the value
-    // lives in the payload, and a reader deciding a proposal is asked about the
-    // account's stage.
-    const stage = screen.getByRole("combobox", { name: "Stage" });
+    // lives in the payload, and a reader deciding a proposal is asked where the
+    // account stands. "Stage" was that label until it collided with a deal's
+    // stage, which is a different question about a different record.
+    const stage = screen.getByRole("combobox", { name: "Account lifecycle" });
     expect(
       screen.queryByRole("textbox", { name: "organization_id" }),
     ).toBeNull();

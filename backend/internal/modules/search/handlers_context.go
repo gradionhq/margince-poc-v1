@@ -5,6 +5,7 @@ package search
 
 import (
 	"net/http"
+	"strings"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -25,20 +26,22 @@ const (
 	contextMaxItemsDefault = 5
 )
 
-// isContextAnchor reports whether entityType names a record the graph
-// walk can anchor on — derived from the module's one entity table
-// (every searchable type except activity, which is a link rather than a
-// thing links hang off). That set is exactly the contract's path-param
-// enum {person, organization, deal, lead}, so the validation rule has no
-// parallel list to drift from.
-func isContextAnchor(entityType string) bool {
-	for i := range searchBranches {
-		if searchBranches[i].entity == entityType {
-			return !searchBranches[i].activityWalk
-		}
+// contextAnchorTypes renders the anchor vocabulary for the 422 message, so
+// the message cannot name a set the handler does not accept. Both are the
+// module's one entity table (knownEntity is the same derivation), which is
+// exactly the contract's path-param enum —
+// TestContextAnchorEnumMatchesTheSearchableEntities holds the two together.
+//
+// An ACTIVITY is among them. That does not overturn "an activity is a link,
+// not a thing links hang off": an event anchor is dereferenced to the records
+// it is about and the walk happens around one of THOSE (graphactivity.go).
+var contextAnchorTypes = func() string {
+	names := make([]string, 0, len(searchBranches))
+	for _, branch := range searchBranches {
+		names = append(names, branch.entity)
 	}
-	return false
-}
+	return strings.Join(names, ", ")
+}()
 
 // GetRecordContext shadows the generated 501 stub with the assembled
 // context graph walk (Retriever.AssembleContext): anchor profile, recent
@@ -50,9 +53,9 @@ func isContextAnchor(entityType string) bool {
 func (h Handlers) GetRecordContext(w http.ResponseWriter, r *http.Request,
 	entityType string, id crmcontracts.Id, params crmcontracts.GetRecordContextParams,
 ) {
-	if !isContextAnchor(entityType) {
+	if !knownEntity(entityType) {
 		httperr.Write(w, r, httperr.Validation("entity_type", "invalid_entity_type",
-			"entity_type must be one of person, organization, deal, lead"))
+			"entity_type must be one of "+contextAnchorTypes))
 		return
 	}
 	if params.MaxItems != nil && (*params.MaxItems < contextMaxItemsMin || *params.MaxItems > contextMaxItemsMax) {

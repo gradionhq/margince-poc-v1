@@ -424,7 +424,7 @@ func rawGet(t *testing.T, e *apptest.AppEnv, path string) string {
 	if err != nil {
 		t.Fatalf("building request: %v", err)
 	}
-	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by the deferred apptest.CloseBody on the next line; bodyclose only sees a Close in the same package, and the closer moved out with the fixture
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below; bodyclose only recognises a Close in the same package
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}

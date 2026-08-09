@@ -57,10 +57,11 @@ func TestAConnectorCompletesTheWholeHandshakeOnOneOrigin(t *testing.T) {
 		t.Fatalf("the exchange returned no access token: %v", exchanged)
 	}
 
-	// initialize settles the protocol revision and mints the session id every
-	// later request on this connection carries.
+	// initialize settles the protocol revision, and settles NOTHING else: since
+	// ADR-0092 §6 it mints no session, so every later request on this
+	// connection carries its credential and the revision and nothing more.
 	const requested = "2025-06-18"
-	initialized := raw(e.AppEnv, t, http.MethodPost, "/mcp",
+	initialized := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
 		`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"`+requested+
 			`","clientInfo":{"name":"conformance","version":"1"}}}`,
 		map[string]string{"Content-Type": "application/json", "Authorization": "Bearer " + token})
@@ -71,8 +72,9 @@ func TestAConnectorCompletesTheWholeHandshakeOnOneOrigin(t *testing.T) {
 	if negotiated != requested {
 		t.Fatalf("protocolVersion = %q, want the requested %q back", negotiated, requested)
 	}
-	if initialized.Header.Get("Mcp-Session-Id") == "" {
-		t.Fatal("initialize minted no Mcp-Session-Id, so the client holds no session to present or tear down")
+	if got := initialized.Header.Get("Mcp-Session-Id"); got != "" {
+		t.Fatalf("initialize returned Mcp-Session-Id %q; a client handed one pins this conversation to "+
+			"whichever replica answered, which is what ADR-0092 §6 removes", got)
 	}
 
 	// What the client can see, then what it can do — both on the revision

@@ -99,7 +99,7 @@ func (t relinkActivity) Spec() mcp.ToolSpec {
 			"replace_existing_of_type":{"type":"boolean","default":false,
 				"description":"Replace the existing link of the same entity_type (move) rather than adding one (associate)"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
 }
 
@@ -111,6 +111,8 @@ func (t relinkActivity) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if !relinkTargets[args.EntityType] {
 		return nil, &BadArgsError{Cause: fmt.Errorf("entity_type %q is not a link target", args.EntityType)}
 	}
+	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
+	noteEvidence(ctx, datasource.EntityType(args.EntityType), args.EntityID)
 	return t.relinker.RelinkActivity(ctx, args.ActivityID, args.EntityType, args.EntityID, args.ReplaceExistingOfType)
 }
 
@@ -135,7 +137,7 @@ func (t disqualifyLead) Spec() mcp.ToolSpec {
 			"lead_id":{"type":"string","format":"uuid","description":"The lead to disqualify"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
 }
 
@@ -162,6 +164,7 @@ func (t disqualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	noteEvidence(ctx, datasource.EntityLead, args.LeadID)
 	return t.disqualifier.DisqualifyLead(ctx, args.LeadID)
 }
 
@@ -203,7 +206,7 @@ func (t advanceProjectPhase) Spec() mcp.ToolSpec {
 			"if_version":{"type":"integer","description":"The version the caller read; the write is refused as skew if the project moved since"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
 }
 
@@ -234,6 +237,7 @@ func (t advanceProjectPhase) Handle(ctx context.Context, in json.RawMessage) (js
 	// approved call that named none — the version the human approved
 	// (pinForWrite). A version this tool read microseconds earlier would be
 	// compared against itself and could never detect skew: a pin in name only.
+	noteEvidence(ctx, datasource.EntityProject, args.ProjectID)
 	return t.advancer.AdvanceProjectPhase(ctx, args.ProjectID, args.ToPhase, args.Reason,
 		pinForWrite(ctx, args.IfVersion))
 }

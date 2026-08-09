@@ -67,7 +67,48 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 		Write(w, r, Validation("body", "malformed_json", "trailing content after the JSON value"))
 		return false
 	}
+	stashPresentFields(r, raw)
 	return true
+}
+
+// presentFieldsKey carries the decoded body's top-level keys, so a handler can
+// tell an explicit `null` from an absent field.
+type presentFieldsKey struct{}
+
+// stashPresentFields records which top-level keys the body actually carried.
+//
+// A sparse patch needs this and a decoded struct cannot supply it: a nullable
+// contract field decodes to a nil pointer whether the caller sent `null` or said
+// nothing, and those are opposite instructions — "clear this" against "leave it
+// alone". A handler that cannot tell them apart either refuses every clear or
+// performs one nobody asked for.
+//
+// Best-effort by design: a body that is not a JSON object records nothing, and
+// PresentField then answers "absent", which is the safe reading.
+func stashPresentFields(r *http.Request, raw json.RawMessage) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return
+	}
+	*r = *r.WithContext(context.WithValue(r.Context(), presentFieldsKey{}, fields))
+}
+
+// PresentField answers whether the request body carried this key, and the raw
+// value if it did. `present` false means the caller did not mention the field;
+// `present` true with a nil value means they sent an explicit null.
+func PresentField(r *http.Request, name string) (value json.RawMessage, present bool) {
+	fields, ok := r.Context().Value(presentFieldsKey{}).(map[string]json.RawMessage)
+	if !ok {
+		return nil, false
+	}
+	raw, found := fields[name]
+	if !found {
+		return nil, false
+	}
+	if string(raw) == "null" {
+		return nil, true
+	}
+	return raw, true
 }
 
 // bodyDecodeRefusal is the 422 for a body the decoder rejected. Everything

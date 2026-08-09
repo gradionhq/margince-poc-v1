@@ -31,8 +31,18 @@ import (
 // approvalsHandlersWithEffects wires the approvals HTTP surface with
 // every registered follow-on effect — the decision path and the effects
 // share one service so a released effect can redeem what it decides on.
-func approvalsHandlersWithEffects(pool *pgxpool.Pool) approvals.Handlers {
-	return approvals.NewHandlers(approvalsServiceWithEffects(pool))
+//
+// quota is the volume meter an approved step-up widens, and it is installed HERE
+// and nowhere else: this is the service the HTTP decision path runs on. The
+// other services built from approvalsServiceWithEffects are staging-only — a
+// nightly proposer, a rematch sweep — and none of them ever decides, so having
+// no releaser is the shape of what they do rather than a copy-paste omission.
+//
+// log is installed for the same reason and on the same service: a bundle member
+// whose effect fails AFTER its decision committed is reported to the client by
+// outcome alone, so this is the process that has to carry the cause.
+func approvalsHandlersWithEffects(pool *pgxpool.Pool, quota approvals.QuotaReleaser, log *slog.Logger) approvals.Handlers {
+	return approvals.NewHandlers(approvalsServiceWithEffects(pool).WithQuotaReleaser(quota).WithLogger(log))
 }
 
 // approvalsServiceWithEffects is the registration list itself, split from the

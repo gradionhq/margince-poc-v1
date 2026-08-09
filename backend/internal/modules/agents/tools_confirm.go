@@ -44,7 +44,7 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 			"id":{"type":"string","format":"uuid"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[ArchiveResult](),
 	}
 }
 
@@ -75,7 +75,8 @@ func (t archiveRecord) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{"archived": true, "record_type": ref.Type, "id": ref.ID})
+	noteEvidence(ctx, ref.Type, ref.ID)
+	return json.Marshal(ArchiveResult{Archived: true, RecordType: ref.Type, ID: ref.ID})
 }
 
 // --- promote_lead (🟡 write — graduates a lead into the clean core) ---
@@ -110,7 +111,7 @@ func (t promoteLead) Spec() mcp.ToolSpec {
 			"evidence_note":{"type":"string"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[PromoteLeadResult](),
 	}
 }
 
@@ -157,10 +158,8 @@ func (t promoteLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err != nil {
 		return nil, fmt.Errorf("crmagents: promotion landed but read-back failed: %w", err)
 	}
-	return json.Marshal(map[string]any{
-		"merged": merged,
-		"person": newWireRecord(rec),
-	})
+	noteEvidence(ctx, datasource.EntityLead, args.LeadID)
+	return json.Marshal(PromoteLeadResult{Merged: merged, Person: newWireRecord(ctx, rec)})
 }
 
 // --- merge_records (🟡 write — collapses two records into one) ---
@@ -202,7 +201,7 @@ func (t mergeRecords) Spec() mcp.ToolSpec {
 			"target_id":{"type":"string","format":"uuid","description":"The surviving record everything relinks to"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
+		OutputSchema: schemaFor[MergeRecordsResult](),
 	}
 }
 
@@ -262,9 +261,12 @@ func (t mergeRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{
-		"merged": true, "record_type": ref.Type, "survivor_id": ref.ID,
-	})
+	// BOTH records, not only the one that survived: the source is what was
+	// folded in, and an evidence list naming only the survivor describes half of
+	// what happened.
+	noteEvidence(ctx, ref.Type, ref.ID)
+	noteEvidence(ctx, datasource.EntityType(args.RecordType), args.SourceID)
+	return json.Marshal(MergeRecordsResult{Merged: true, RecordType: ref.Type, SurvivorID: ref.ID})
 }
 
 // recordLabel pulls a human-readable name out of a record's fields for

@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -37,6 +38,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -95,6 +97,7 @@ type Server struct {
 	org360Handlers
 	person360Handlers
 	orgBriefHandlers
+	orgDossierHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
 	// webhook.go), injected by WithGmailPush only when a subscription token
@@ -225,6 +228,24 @@ type Server struct {
 	// at all. WithOverlayMeter Rebinds this shared pointer to the live
 	// Redis-backed meter at boot.
 	overlayMeter *overlaybudget.Meter
+	// quotaMeter is the MCP-SESS-READS bound this role enforces on agent
+	// the five MCP-SESS-* counters, shared by everything that must agree about
+	// them: the admission gate that REFUSES on them, both doors' registries that
+	// CHARGE them, the approvals service that WIDENS one when a lender says
+	// continue, and the model path that charges the soft cost share.
+	//
+	// Always non-nil (newServer constructs it unconditionally, fail-closed
+	// with no Redis), and WithAgentQuota Rebinds this ONE pointer to the live
+	// Redis-backed meter at boot — so no option order can leave the gate
+	// enforcing a different counter from the one the registry pays into.
+	quotaMeter *agentquota.Meter
+	// retrievalEmbedder is this role's embed lane for REQUEST-TIME ranking —
+	// the same ModelPath.Embedder the background reindex and drift sweep use,
+	// bound here so the hybrid arm's vector half is available to a caller and
+	// not only to a job (#629). Nil in a role that resolved no model path, and
+	// nil is honest rather than broken: every surface that ranks says which
+	// lane ranked it.
+	retrievalEmbedder search.Embedder
 	// overlayBackfillLimit bounds the overlay initial mirror backfill per
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
@@ -242,6 +263,13 @@ type Server struct {
 	// peopleStore is shared by the 360 and the account brief: the brief reads
 	// the company's curated profile through it, under the caller's own gates.
 	peopleStore *people.Store
+
+	// orgDossierSvc and orgGrowthFitSvc are the company view's other two
+	// generated surfaces. They are held for WithGrowthFit's sake: rebinding one
+	// lane must not silently drop the other's handler, which is what building a
+	// fresh handler set from a half-remembered pair would do.
+	orgDossierSvc   *orgdossier.Service
+	orgGrowthFitSvc *orgdossier.GrowthFitService
 
 	// resetRuntime is the non-Postgres purge set POST /admin/reset-data runs —
 	// the job queue, the event bus, the cache-flush announcement — injected by
@@ -313,7 +341,6 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		peopleHandlers:     newPeopleHandlers(pool),
 		dealsHandlers:      dealsH,
 		activitiesHandlers: newActivitiesHandlers(pool),
-		approvalsHandlers:  approvalsHandlersWithEffects(pool),
 		searchHandlers:     search.NewHandlers(pool),
 		// Constructed, not merely embedded: the handler carries no nil-pool
 		// branch, so the zero value would panic on the first authenticated
@@ -361,7 +388,16 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// doc). Fail-closed until WithOverlayMeter Rebinds it with the live
 		// Redis client + config.
 		overlayMeter: failClosedOverlayMeter(),
+		// Fail-closed until WithAgentQuota Rebinds it: a role serving the agent
+		// surface with no Redis cannot tell whether an agent has passed its
+		// read bound, and answers that it has.
+		quotaMeter: agentquota.New(nil, agentquota.Limits{}, agentquota.DefaultWindow),
 	}
+	// After the literal, because the decision path takes the SAME meter pointer
+	// the gate and the registry take: a step-up refused against one counter and
+	// released into another would read, from the human's side, as an approval
+	// that did nothing.
+	srv.approvalsHandlers = approvalsHandlersWithEffects(pool, srv.quotaMeter, log)
 	srv.wireCaptureSettingsSurface(pool)
 	srv.wireExportSurface(pool, log)
 	srv.wireOnboardingSurface(pool)
@@ -391,8 +427,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// The closure captures s and reads s.vault LAZILY at request time, so
 	// rebuilding before WithKeyvault installs the vault is fine.
-	s.toolRegistry = registryWithGate(pool, auth.NewGate(identity.NewService(pool)),
-		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s})
+	// The gate and the registry take the SAME meter pointer: one refuses on the
+	// bound, the other pays into it, and a surface where those were two
+	// counters would step an agent up against a number nothing was charging.
+	s.toolRegistry = registryWithGate(pool,
+		auth.NewGate(identity.NewService(pool), auth.WithQuota(s.quotaMeter)),
+		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
+		s.retrievalEmbedder,
+		agents.WithQuotaCharger(s.quotaMeter), agents.WithCostShare(s.quotaMeter))
 }
 
 // signalStrength bridges people's §4 relationship-strength computation to

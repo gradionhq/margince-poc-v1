@@ -46,9 +46,15 @@ func (e echoTool) Handle(context.Context, json.RawMessage) (json.RawMessage, err
 // every fake in this package is registered to exercise something else.
 const describedForRegistration = "A stand-in tool, offered so the registry has something to admit."
 
+// testToolVersion is the stand-in result-contract version a fake tool carries,
+// for the same reason describedForRegistration exists: Register refuses a
+// version-less tool, because every result it seals reports one as
+// `schema_version`.
+const testToolVersion = "1.0.0-test"
+
 func objectSpec(name string, scope principal.Scope) mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: name, Title: name, Description: name + " does the thing the test needs it to do.",
+		Name: name, Title: name, Version: testToolVersion, Description: name + " does the thing the test needs it to do.",
 		RequiredScope: scope, Tier: mcp.TierAutoExecute,
 		InputSchema:  json.RawMessage(`{"type":"object"}`),
 		OutputSchema: json.RawMessage(`{"type":"object"}`),
@@ -77,9 +83,31 @@ func scopedAgentCtx(scopes ...principal.Scope) context.Context {
 	})
 }
 
+// callMap runs one tools/call and reads its result as the map every tool
+// answers with.
+//
+// The dispatcher's own return is `any` because a client that declared the Tasks
+// extension can be handed a task handle instead of a result. No test in this
+// suite declares it — they all run in the handshake framing, which cannot — so
+// every answer here is a plain result, and the assertion says so rather than
+// assuming it.
+func callMap(ctx context.Context, t *testing.T, s *Dispatcher, params string) map[string]any {
+	t.Helper()
+	// The raw answer is kept BEFORE the assertion: a two-value type assertion
+	// leaves the zero value of the asserted type when it fails, so %T on it
+	// would report map[string]interface{} for every failure and lose the one
+	// fact the message exists to carry.
+	answer := s.call(ctx, json.RawMessage(params), legacyFraming)
+	out, ok := answer.(map[string]any)
+	if !ok {
+		t.Fatalf("tools/call answered %T, not a tool result", answer)
+	}
+	return out
+}
+
 func callResult(t *testing.T, s *Dispatcher, name string) map[string]any {
 	t.Helper()
-	out := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"`+name+`","arguments":{}}`))
+	out := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"`+name+`","arguments":{}}`)
 	if out["isError"] == true {
 		t.Fatalf("%s returned an in-band error: %v", name, out)
 	}
@@ -106,8 +134,8 @@ func textBlock(t *testing.T, res map[string]any) string {
 // silently shrink the very set these walks claim to cover.
 type inertRetriever struct{}
 
-func (inertRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
-	return nil, nil
+func (inertRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
+	return retrieval.Result{}, nil
 }
 
 func (inertRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
@@ -135,13 +163,22 @@ func fullRegistry(t *testing.T) *Registry {
 		func(context.Context) ([]SlippingDeal, error) { return nil, nil },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", nil })
 	RegisterNetworkTools(r,
-		func(context.Context, ids.UUID) ([]KnownColleague, error) { return nil, nil },
+		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, nil },
 		func(context.Context, ids.UUID) (DealCoverageAnswer, error) { return DealCoverageAnswer{}, nil },
 		func(context.Context, ids.UUID) ([]IntroRoute, bool, error) { return nil, false, nil },
 		func(context.Context) (AtRiskReport, error) { return AtRiskReport{}, nil })
 	RegisterCommsTools(r, &recordingComms{}, &multiLinkProvider{})
 	RegisterLifecycleTools(r, nil, inertLifecycle{}, inertLifecycle{}, inertLifecycle{})
 	RegisterEnrichTool(r, nil, inertLifecycle{})
+	RegisterQueryTool(r, nil, func(context.Context, json.RawMessage) (QueryAnswer, error) {
+		return QueryAnswer{Coverage: CoverageCompleteExact}, nil
+	})
+	RegisterContextSearchTool(r, nil, inertRetriever{})
+	RegisterResolveTool(r, nil, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
+		return nil, nil
+	})
+	RegisterListTool(r, nil, probeVocabulary{})
+	RegisterBriefTool(r, briefOf(0))
 	return r
 }
 
@@ -188,22 +225,26 @@ func TestToolsCallReturnsStructuredContentBesideTheTextBlock(t *testing.T) {
 	if !ok {
 		t.Fatalf("structuredContent is %T, want the handler's own json.RawMessage", structured)
 	}
-	if string(raw) != out {
-		t.Errorf("structuredContent = %s, want the handler's bytes unchanged %s", raw, out)
+	// The handler's bytes ride inside the envelope every result now carries, and
+	// they ride there UNCHANGED — that is what makes structuredContent and the
+	// text block comparable, and it is why this reads the payload rather than
+	// re-encoding a decoded copy of it.
+	if got := string(payloadOf(t, raw)); got != out {
+		t.Errorf("structuredContent payload = %s, want the handler's bytes unchanged %s", got, out)
 	}
-	if got := textBlock(t, res); got != out {
-		t.Errorf("text block = %s, want the same serialized JSON %s", got, out)
+	if got := textBlock(t, res); got != string(raw) {
+		t.Errorf("text block = %s, want the same serialized result %s", got, raw)
 	}
 }
 
-// A tool that declares an object schema and then answers with something else
-// is this server's defect. The caller still gets the answer it can read, the
-// operator is told, and the member that would violate the advertised schema is
-// left off rather than sent.
+// A tool that declares an object shape and then answers with something else is
+// this server's defect. The caller still gets the answer it can read, the
+// operator is told which member parted company with the schema, and the member
+// that would violate the advertised schema is left off rather than sent.
 func TestNonObjectToolOutputIsReportedAndOmittedFromStructuredContent(t *testing.T) {
 	for _, tc := range []struct{ name, out, wantLogged string }{
-		{"answers_null", `null`, "returned JSON null"},
-		{"answers_array", `[{"id":1}]`, "did not return a JSON object"},
+		{"answers_null", `null`, "is null, which is not a value of the declared type"},
+		{"answers_array", `[{"id":1}]`, "result.data: declared an object"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var log strings.Builder
@@ -214,8 +255,11 @@ func TestNonObjectToolOutputIsReportedAndOmittedFromStructuredContent(t *testing
 			if _, present := res["structuredContent"]; present {
 				t.Errorf("structuredContent present for output %s — it cannot conform to the advertised object schema", tc.out)
 			}
-			if got := textBlock(t, res); got != tc.out {
-				t.Errorf("text block = %s, want the handler's answer %s — the caller still gets what it can read", got, tc.out)
+			// The caller still gets what it can read: the envelope is well formed
+			// whatever the handler put inside it, so the defect is confined to
+			// the payload rather than costing the answer its whole rendering.
+			if got := string(payloadOf(t, json.RawMessage(textBlock(t, res)))); got != tc.out {
+				t.Errorf("text block payload = %s, want the handler's answer %s — the caller still gets what it can read", got, tc.out)
 			}
 			if !strings.Contains(log.String(), tc.wantLogged) {
 				t.Errorf("operator log = %q, want it to name the defect (%q)", log.String(), tc.wantLogged)
@@ -232,7 +276,7 @@ func TestInitializeDoesNotClaimAListChangedItCannotSend(t *testing.T) {
 
 	resp := s.handle(context.Background(), rpcRequest{
 		JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodInitialize,
-	})
+	}, legacyFraming)
 
 	result, ok := resp.Result.(map[string]any)
 	if !ok {
@@ -269,7 +313,7 @@ func TestToolListCarriesTitleAndDerivedAnnotations(t *testing.T) {
 	ctx := scopedAgentCtx(principal.ScopeRead, principal.ScopeSend)
 
 	listed := map[string]map[string]any{}
-	for _, tool := range s.toolList(ctx) {
+	for _, tool := range s.toolList(ctx, legacyFraming) {
 		name, _ := tool[fieldName].(string)
 		listed[name] = tool
 	}
@@ -498,7 +542,7 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 	s := NewDispatcher(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(&strings.Builder{}, nil)))
 
-	res := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"no_such_tool","arguments":{}}`))
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"no_such_tool","arguments":{}}`)
 
 	if res["isError"] != true {
 		t.Fatalf("unknown tool did not produce an in-band error: %v", res)
@@ -519,10 +563,28 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 func TestTheWholeToolListEncodes(t *testing.T) {
 	s := NewDispatcher(fullRegistry(t), bindAuthenticated, "margince-crm", "test")
 
+	// The WIDEST response: the modern framing with the App extension declared,
+	// so a view's `_meta.ui` is inside the bytes this walk marshals. A listing
+	// rendered without it would leave the one member added most recently as the
+	// only part of the entry no encode check has ever seen.
 	listed := s.toolList(scopedAgentCtx(
-		principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite, principal.ScopeSend))
+		principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite, principal.ScopeSend),
+		framing{modern: true, apps: true})
 	if len(listed) == 0 {
 		t.Fatal("no tools listed — this walk would pass vacuously")
+	}
+	// And a view's `_meta` really is among the bytes below, rather than the
+	// comment above merely hoping so: if no listed tool carried one, the newest
+	// member of an entry would be the only part no encode check had ever seen.
+	metaSeen := false
+	for _, tool := range listed {
+		if _, carried := tool[fieldMeta]; carried {
+			metaSeen = true
+			break
+		}
+	}
+	if !metaSeen {
+		t.Fatal("no listed tool carries _meta, so this walk does not cover the view metadata it claims to")
 	}
 
 	// Per tool first: a single failing Marshal of the whole slice names no
@@ -573,3 +635,40 @@ var probeReportCatalog = []ReportCatalogEntry{{
 	Aggregates: []string{"amount_minor"},
 	Defaults:   "count as deals grouped by stage_id",
 }}
+
+// A result that misses its own declared schema is OUR defect, and the client
+// must not be handed structuredContent that violates what this server just
+// advertised. It still gets the whole answer in the text block — the omission
+// is a statement about the structured member, not a refusal to answer.
+func TestAResultThatMissesItsSchemaIsReportedAndLeftOutOfStructuredContent(t *testing.T) {
+	spec := objectSpec("misdeclared", principal.ScopeRead)
+	spec.OutputSchema = json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`)
+	var log strings.Builder
+	s := dispatchWith(t, echoTool{spec: spec, out: json.RawMessage(`{"count":"seven"}`)}, &log)
+
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"misdeclared","arguments":{}}`)
+	if _, structured := res["structuredContent"]; structured {
+		t.Error("a result violating its declared schema was served as structuredContent")
+	}
+	content, ok := res["content"].([]map[string]any)
+	if !ok || len(content) == 0 || !strings.Contains(content[0][fieldText].(string), "seven") {
+		t.Errorf("the caller lost the answer entirely: %#v", res)
+	}
+	if !strings.Contains(log.String(), "does not satisfy the schema") {
+		t.Errorf("the operator was not told which promise was broken: %s", log.String())
+	}
+}
+
+// And the other direction, so the check cannot pass by refusing everything: a
+// result that KEEPS its schema is served as structuredContent.
+func TestAConformingResultIsServedAsStructuredContent(t *testing.T) {
+	spec := objectSpec("conforming", principal.ScopeRead)
+	spec.OutputSchema = json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`)
+	var log strings.Builder
+	s := dispatchWith(t, echoTool{spec: spec, out: json.RawMessage(`{"count":7}`)}, &log)
+
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"conforming","arguments":{}}`)
+	if _, structured := res["structuredContent"]; !structured {
+		t.Errorf("a conforming result was withheld from structuredContent: %#v", res)
+	}
+}

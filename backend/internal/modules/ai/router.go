@@ -46,10 +46,13 @@ type routeMeta struct {
 // before the call, and every call lands in the meter. This is the one
 // place routing policy lives — callers never pick a model.
 type Router struct {
-	clients         map[Tier]model.Client
-	embedder        model.Client
-	profile         Profile
-	meter           usageStore
+	clients  map[Tier]model.Client
+	embedder model.Client
+	profile  Profile
+	meter    usageStore
+	// agentSpend is the per-Passport share of the workspace budget
+	// (MCP-SESS-COST). Nil in every role that serves no inbound agent.
+	agentSpend      AgentTokenSpender
 	budget          BudgetPolicy
 	stripper        model.SecretStripper
 	cache           *resultCache
@@ -311,6 +314,10 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	if err != nil {
 		return model.Embeddings{}, err
 	}
+	// The embed lane spends the workspace budget like any other call, so it
+	// spends the agent's share of it too. A retrieval-heavy agent whose
+	// embeddings were free would be the one shape this counter never sees.
+	r.spendAgentTokens(ctx, trace.TokensIn)
 	if err := r.meter.Record(ctx, Usage{Task: TaskEmbeddings, Tier: TierEmbedLane, TokensIn: trace.TokensIn}); err != nil {
 		return model.Embeddings{}, fmt.Errorf("ai: call served but metering failed: %w", err)
 	}

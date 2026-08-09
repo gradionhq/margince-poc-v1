@@ -8,7 +8,7 @@ package agents
 
 var createRecordShapes = map[string]string{
 	"person":       "{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, emails?: [{email: email, email_type?: \"work\"|\"personal\"|\"other\", is_primary?: boolean, position?: integer}], first_name?: string, full_name: string, last_name?: string, owner_id?: uuid, phones?: [{is_primary?: boolean, phone: string, phone_type?: \"work\"|\"mobile\"|\"home\"|\"other\", position?: integer}], social?: object, source?: string, title?: string}",
-	"organization": "{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, display_name: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, owner_id?: uuid, parent_org_id?: uuid, size_band?: \"1-10\"|\"11-50\"|\"51-200\"|\"201-500\"|\"501-1000\"|\"1001-5000\"|\"5000+\", source?: string}",
+	"organization": "{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, owner_id?: uuid, parent_org_id?: uuid, size_band?: \"1-10\"|\"11-50\"|\"51-200\"|\"201-500\"|\"501-1000\"|\"1001-5000\"|\"5000+\", source?: string}",
 	"deal":         "{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, name: string, organization_id?: uuid, owner_id?: uuid, pipeline_id: uuid, project_id?: uuid, source?: string, stage_id: uuid}",
 	"lead":         "{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, linkedin_url?: string, owner_id?: uuid, project_id?: uuid, source?: string, source_id?: string, source_system?: string, status?: \"new\"|\"working\"|\"promoted\"|\"disqualified\", title?: string}",
 	"activity":     "{assignee_id?: uuid, body?: string, direction?: \"inbound\"|\"outbound\", due_at?: rfc3339, duration_seconds?: integer, kind: \"email\"|\"call\"|\"meeting\"|\"note\"|\"task\"|\"whatsapp\"|\"telegram\", links?: [{entity_id: uuid, entity_type: \"person\"|\"organization\"|\"deal\"|\"lead\"}], meeting_status?: \"booked\"|\"held\"|\"no_show\"|\"canceled\", occurred_at?: rfc3339, raw?: object, remind_at?: rfc3339, source?: string, source_id?: string, source_system?: string, subject?: string}",
@@ -18,7 +18,7 @@ var createRecordShapes = map[string]string{
 
 var updateRecordShapes = map[string]string{
 	"person":       "{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, first_name?: string, full_name?: string, last_name?: string, owner_id?: uuid, social?: object, title?: string}",
-	"organization": "{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, display_name?: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, lifecycle?: \"unknown\"|\"target\"|\"prospect\"|\"opportunity\"|\"customer\"|\"former_customer\"|\"disqualified\", owner_id?: uuid, parent_org_id?: uuid, relationship_types?: [\"customer\"|\"partner\"|\"supplier\"|\"investor\"|\"portfolio_company\"|\"competitor\"|\"other\"], size_band?: \"1-10\"|\"11-50\"|\"51-200\"|\"201-500\"|\"501-1000\"|\"1001-5000\"|\"5000+\"}",
+	"organization": "{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name?: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, lifecycle?: \"unknown\"|\"target\"|\"prospect\"|\"opportunity\"|\"customer\"|\"former_customer\"|\"disqualified\", linkedin_url?: string, owner_id?: uuid, parent_org_id?: uuid, relationship_types?: [\"customer\"|\"partner\"|\"supplier\"|\"investor\"|\"portfolio_company\"|\"competitor\"|\"other\"], size_band?: \"1-10\"|\"11-50\"|\"51-200\"|\"201-500\"|\"501-1000\"|\"1001-5000\"|\"5000+\"}",
 	"deal":         "{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, forecast_category?: \"commit\"|\"best_case\"|\"pipeline\"|\"omitted\", fx_rate_date?: YYYY-MM-DD, fx_rate_to_base?: string, lost_reason?: string, name?: string, organization_id?: uuid, owner_id?: uuid, partner_org_id?: uuid, project_id?: uuid, status?: \"open\"|\"won\"|\"lost\", wait_until?: YYYY-MM-DD}",
 	"lead":         "{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, owner_id?: uuid, project_id?: uuid, score?: integer, score_override_reason?: string, status?: \"new\"|\"working\", title?: string}",
 	"activity":     "{assignee_id?: uuid, body?: string, due_at?: rfc3339, is_done?: boolean, occurred_at?: rfc3339, remind_at?: rfc3339, subject?: string}",
@@ -32,3 +32,46 @@ var updateRecordShapes = map[string]string{
 const activityKindEnum = `["email","call","meeting","note","task","whatsapp","telegram"]`
 
 const activityLinkEntityTypeEnum = `["person","organization","deal","lead"]`
+
+// listRecordFilters is the CONTRACT half of what list_records may be asked to
+// filter by, per record_type: each list operation's OWN declared query
+// parameters, read off crm.yaml rather than authored (A139).
+//
+// It is not the published vocabulary. A name here that no store can bind is
+// dropped at registration by bindableFilters — publishing it would run a list
+// unnarrowed while looking narrowed — and
+// TestOnlyAFilterBothTheContractAndAStoreCarryIsPublished holds that.
+var listRecordFilters = map[string][]listFilter{
+	"person": {
+		{Name: "owner_id", Type: "string"},
+		{Name: "tag", Type: "string"},
+	},
+	"organization": {
+		{Name: "domain", Type: "string"},
+		{Name: "lifecycle", Type: "string", Enum: []string{"unknown", "target", "prospect", "opportunity", "customer", "former_customer", "disqualified"}},
+		{Name: "owner_id", Type: "string"},
+		{Name: "relationship_type", Type: "string", Enum: []string{"customer", "partner", "supplier", "investor", "portfolio_company", "competitor", "other"}},
+	},
+	"deal": {
+		{Name: "organization_id", Type: "string"},
+		{Name: "owner_id", Type: "string"},
+		{Name: "partner_org_id", Type: "string"},
+		{Name: "partner_sourced", Type: "boolean"},
+		{Name: "pipeline_id", Type: "string"},
+		{Name: "project_id", Type: "string"},
+		{Name: "stage_id", Type: "string"},
+		{Name: "stalled", Type: "boolean"},
+		{Name: "status", Type: "string", Enum: []string{"open", "won", "lost"}},
+	},
+	"lead": {
+		{Name: "min_score", Type: "integer"},
+		{Name: "owner_id", Type: "string"},
+		{Name: "status", Type: "string", Enum: []string{"new", "working", "promoted", "disqualified"}},
+	},
+	"project": {
+		{Name: "key", Type: "string"},
+		{Name: "organization_id", Type: "string"},
+		{Name: "owner_id", Type: "string"},
+		{Name: "phase", Type: "string", Enum: []string{"initiative", "pursuing", "delivering", "closed"}},
+	},
+}

@@ -141,6 +141,10 @@ tags:
     description: Owner or team revenue quota targets for a period, with server-computed attainment (RD-WIRE-2/RD-WIRE-3).
   - name: Agents
     description: The governed agent tool surface — registry metadata for the operator UI.
+  - name: Provenance
+    description: >-
+      Where a generated claim came from. Every sentence these surfaces write carries the records
+      it was written from, and this is what a reader gets when they open one.
   - name: Overlay
     description: The HubSpot mirror overlay — incumbent connection, mirror sync health, budget, and the read→overlay flip.
 
@@ -577,7 +581,7 @@ paths:
       summary: List people (live by default; cursor-paginated).
       description: Default view excludes archived rows (`archived_at IS NULL`). Leads never appear here.
       x-mcp-tool:
-        verb: search_records
+        verb: list_records
         record_type: person
         tier: auto_execute
         scope: read
@@ -1005,7 +1009,7 @@ paths:
       tags: [Organizations]
       operationId: listOrganizations
       summary: List organizations (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: organization, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: organization, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1343,6 +1347,186 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OrganizationGraph' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/dossier:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationDossier
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: What this company IS — assembled from its own facts, every sentence citing one.
+      description: |
+        The dossier describes the COMPANY; the account brief describes our relationship
+        with it. They are deliberately not merged: a page mixing "they operate in Germany
+        and Austria" with "the economic buyer has not replied in eighteen days" gives a
+        reader no way to know which claims age in weeks and which in hours.
+
+        **Built from the factual sidecars only** — profile fields, extracted facts, and the
+        inventory of sources that were read (DOSS-AC-4). Deliberately not the assembled
+        account composite: a dossier that could see the pipeline would describe the
+        pipeline, and the separation from the brief would collapse on the first prompt
+        revision.
+
+        **Cached per reader.** Not an optimisation detail — a guarantee. A claim's evidence
+        labels name files and activities, those records are row-scoped per reader, and a
+        shared assembly would disclose that such a record EXISTS to a reader who cannot see
+        it. No stable signature summarizes a reader's scope over an open-ended cited set,
+        so the safe key is the reader (DOSS-AC-N-2).
+
+        **A sentence with no grounding record is never rendered**, and one citing a record
+        the assembler did not supply is dropped whole rather than shown with its citation
+        stripped (DOSS-AC-1/2).
+
+        With no model lane configured the dossier still answers, deterministically, from
+        the same facts; `generated_by` says which produced it (DOSS-AC-7).
+      responses:
+        '200':
+          description: The company dossier.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationDossier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Organizations]
+      operationId: refreshOrganizationDossier
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Reassemble the dossier now, past a fingerprint that still matches.
+      description: |
+        A stale fingerprint already rewrites before an ordinary read answers, so this is
+        for the reader who wants a rebuild anyway — after correcting a claim, or after a
+        fresh site read.
+
+        A refresh refused by the AI budget returns the CACHED assembly with its age
+        rather than an error: a reader who asked for fresher content and cannot have it
+        is better served by yesterday's dossier, labelled, than by a failure.
+      responses:
+        '200':
+          description: The reassembled dossier.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationDossier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/evidence/{entityType}/{entityId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: entityType
+        in: path
+        required: true
+        description: The kind of record a claim cited. The pair is the reference, not the id alone.
+        schema: { type: string, enum: [organization, fact, profile_field] }
+      - name: entityId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Organizations, Provenance]
+      operationId: getClaimEvidence
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: The receipt behind one cited record — where it came from, and what is missing.
+      description: |
+        DOSS-WIRE-3. A generated sentence carries the records it was written from; this is what a
+        reader gets when they open one.
+
+        **Keyed on the cited RECORD, under the company it belongs to.** The spec addresses this
+        as `/claims/{claimId}/evidence`, but nothing in this implementation mints a claim identity
+        — a sentence cites `(entity_type, entity_id)`, which is what the citation chip carries and
+        what the grounding filter checks. Raised upstream; the payload below is the spec's.
+
+        The organization in the path is not decoration: it is what the read is row-scoped through,
+        and a record that does not belong to it answers `404` exactly as one the reader may not
+        see does.
+
+        **Each `source_kind` owes its own identifying fields** (DOSS-PARAM-9), carried in
+        `identity`. A receipt that cannot fill one NAMES it in `gaps` rather than substituting a
+        plausible value — an empty string where a canonical URL belongs reads as "no URL", which
+        is a different claim from "we did not record one".
+
+        **`confidence` is absent for the `connector` and `human` kinds** (DOSS-AC-16). A connector
+        record and a person's assertion carry no model confidence, and printing one would
+        fabricate a number.
+
+        **A record the reader cannot see discloses neither its content nor its existence**: the
+        answer is `404`, never a redacted body (DOSS-AC-11).
+      responses:
+        '200':
+          description: The receipt behind the cited record.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClaimEvidence' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/growth-fit:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationGrowthFit
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: How well this company fits what we sell — banded, with both completeness counts.
+      description: |
+        The dossier says what this company IS; growth fit says what it is worth to US. The
+        two are separate surfaces because they are answerable from different evidence: the
+        dossier needs only the company's own facts, while a fit reads those against our own
+        offering, which is a second thing that can be missing or wrong.
+
+        **Cached per reader** (DOSS-DDL-2), for the dossier's reason and one of its own:
+        the assembly folds seat-dependent workspace context and makes recommendations.
+
+        **`data_completeness` reports BOTH counts.** "4 of 7 inputs present" and "4 of 40"
+        are different claims and must never render alike (DOSS-AC-12).
+
+        **Below the abstention floor the band is `unknown`** — with its completeness, the
+        missing inputs named, and a next data-gathering step. No numeric score is produced:
+        abstention is a valid answer and a better one than a fabricated number (DOSS-AC-12).
+
+        **With our own offering unconfirmed the band is capped at `moderate`**, and
+        `band_capped_reason` says why — a fit computed against a guess about ourselves is a
+        guess about them (DOSS-AC-13).
+      responses:
+        '200':
+          description: The reader's growth-fit assembly.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationGrowthFit' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Organizations]
+      operationId: refreshOrganizationGrowthFit
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Re-assemble the caller's growth fit now, past a fingerprint that still matches.
+      description: |
+        Rebuilds the CALLER's assembly only — never another reader's. As with the dossier,
+        a refresh the AI budget refuses returns the cached assembly with its age rather
+        than an error.
+      responses:
+        '200':
+          description: The re-assembled growth fit, or the cached one with its age.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationGrowthFit' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1780,7 +1964,7 @@ paths:
       tags: [Deals]
       operationId: listDeals
       summary: List deals (live by default; cursor-paginated). Supports Kanban-by-stage reads.
-      x-mcp-tool: { verb: search_records, record_type: deal, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: deal, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -2009,7 +2193,7 @@ paths:
       tags: [Projects]
       operationId: listProjects
       summary: List projects (live by default; cursor-paginated).
-      x-mcp-tool: { verb: search_records, record_type: project, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: project, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -2654,6 +2838,71 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /emails:
+    post:
+      tags: [Activities, AI]
+      operationId: sendAccountEmail
+      summary: Start a new email conversation from a record — 🟡 confirm-first / gated.
+      description: |
+        The account-started twin of `send_email` (ADR-0087/A132). "Write email" from a company,
+        a person or a deal is a NEW conversation: there is no prior message to anchor to, and
+        the product refuses to fabricate a placeholder activity to obtain one — that would put a
+        timeline entry on the record for a message nobody has sent yet.
+
+        This is the SAME send. Authorization order, the default-deny per-purpose consent gate,
+        deliverability derivation, message-identity minting and the single-transaction staging of
+        activity + delivery + job are the ones `send_email` runs; only the ORIGIN differs. The
+        message roots a fresh thread at its own newly minted identity, and `links` says which
+        records it belongs to instead of inheriting them from an anchor.
+
+        Two refusals are specific to naming your own addressees and your own links:
+
+        - every address in `to`/`cc` must belong to a person the sender can READ, or the send is
+          refused 422 `recipient_not_on_file` naming the address — a fix the composer can offer
+          ("attach this address to a contact"), rather than mail to a string nobody is
+          accountable for;
+        - every entry in `links` is row-scope probed, so a record the caller cannot see is
+          refused 404 exactly as reading it directly would be.
+
+        HUMAN-ONLY for now, and deliberately so. ADR-0087 §6 gives the agent surface this
+        operation at the same 🟡 tier as the reply, but a 🟡 agent call STAGES for approval, and a
+        staged row is only releasable when its kind maps onto a grantable object in approvals.
+        Registering the verb without that mapping would advertise a tool whose every call clears
+        admission and is then refused at staging — a governed verb no agent can reach and no human
+        can release. The composer surface ships first; the agent tool follows with its
+        decision-grant mapping, tool spec and staging test as one change.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendAccountEmailRequest' }
+      responses:
+        '202':
+          description: Accepted for send (queued); the resulting outbound activity is logged.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '403':
+          description: RBAC denied, or an agent principal presented a passport to a human-only operation.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: A named link target does not exist, or is outside the caller's row scope.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: 'Consent not granted for the send purpose (`code: consent_not_granted`) — suppressed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /activities/{id}/send-message:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -3187,7 +3436,7 @@ paths:
       operationId: listLeads
       summary: List leads (their OWN list, distinct from contacts; cursor-paginated).
       description: Leads are segregated by construction — they never appear in /people.
-      x-mcp-tool: { verb: search_records, record_type: lead, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_records, record_type: lead, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -5567,6 +5816,14 @@ paths:
           in: query
           schema: { type: string, format: uuid }
           description: The record the staged actions act on. Requires `target_entity_type`.
+        - name: bundle_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            Filter to the proposals ONE act staged together (see `Approval.bundle_id`) — today, a
+            website read's company facts plus the leads it published. Members the caller could not
+            decide are absent from this page exactly as they are absent from the unfiltered inbox,
+            so a bundle may report fewer members than it holds.
       responses:
         '200':
           description: A page of approval items.
@@ -5659,6 +5916,70 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---- Approval bundles: one act's proposals, decided together (D2/R7) -------
+  /approval-bundles/{bundle_id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/BundleId'
+    post:
+      tags: [Approvals]
+      operationId: approveApprovalBundle
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Approve every still-pending member of one bundle.
+      description: |
+        A bundle is the set of proposals ONE act staged together; it is a grouping, never a
+        second authority object. Each member is decided **on its own terms** — its own verdict,
+        audit row, `approval.decided` event and follow-on effect — so the record carries N
+        per-effect decisions rather than one decision covering N effects, and a member that has
+        expired, that somebody already answered, or whose follow-on change fails to land is
+        reported on its own instead of taking its siblings with it.
+
+        Members the caller could not decide individually are neither returned nor decided, and a
+        bundle with no such member is a `404` — the same existence-hiding a single approval gives.
+        Deciding is not all-or-nothing: `data[].outcome` reports each member.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalBundleDecisionRequest' }
+      responses:
+        '200':
+          description: The per-member result of the decision.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalBundleDecision' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /approval-bundles/{bundle_id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/BundleId'
+    post:
+      tags: [Approvals]
+      operationId: rejectApprovalBundle
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Reject every still-pending member of one bundle; no records change.
+      description: |
+        The rejecting half of `approveApprovalBundle`, with the same per-member semantics: a
+        rejection is a decision too, so it demands the same authority per member and is recorded
+        per member. Already-decided and expired members are reported, not overwritten.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalBundleDecisionRequest' }
+      responses:
+        '200':
+          description: The per-member result of the decision.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalBundleDecision' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ---- Per-purpose consent (A22/ADR-0011 — V1) ----
   /data-subject-requests:
@@ -5799,7 +6120,7 @@ paths:
       - name: entity_type
         in: path
         required: true
-        schema: { type: string, enum: [person, organization, deal, lead] }
+        schema: { type: string, enum: [person, organization, deal, lead, project, activity] }
       - $ref: '#/components/parameters/Id'
     get:
       tags: [Search]
@@ -5807,10 +6128,25 @@ paths:
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
       summary: Assembled context (related evidence) for one record.
-      description: >
+      description: |
         The fixed-depth context walk (anchor → neighborhood): recent touches, related people,
         open questions — each item provenance-stamped. Row-scoped; a record outside the caller's
         scope yields an empty picture, never another workspace's neighborhood.
+
+        An `activity` anchor — a captured meeting or message — is DEREFERENCED rather than
+        walked: the event names the records it is about, one of them becomes the subject, and
+        the walk above runs around that. Three further sections say what it chose.
+        `prepared_for` carries the single subject the walk used; `also_present` carries every
+        other record the event resolved to; `unresolved_attendees` carries the addresses on the
+        event that matched no record, as items whose `ref` is the EVENT — an attendee nobody
+        here holds a record for has no id of their own — and whose `summary` is the address and
+        the part they played. Subject precedence is deal, then project, then organization, then
+        person, then lead, taking a link before a participant within a tier and the organizer
+        before the attendees. `also_present` and `unresolved_attendees` are bounded by
+        `max_items` like every other section and are ordered so the cut keeps the most useful
+        first, so raise it to see the whole room. Each subject is object-RBAC checked and
+        visibility-probed on its own, so an event readable through one link never discloses a
+        record behind another.
       parameters:
         - name: max_items
           in: query
@@ -5823,6 +6159,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ContextResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
@@ -8088,9 +8425,20 @@ paths:
       tags: [Brief]
       operationId: getMorningBrief
       summary: The acting rep's latest Morning-Brief run (the on-open read-model re-read; never re-ranks).
-      # Read-only, REST-reachable under the same deal-read grant the brief rides
-      # on and scoped to the acting rep's own runs. The brief is a human home
-      # surface, not a datasource-seam entity — not offered as an agent tool.
+      # Agent-readable (A139): every input to the brief — the deals, their
+      # activities, the relationships behind them — is already agent-readable,
+      # so withholding the assembled answer while granting all of its parts is a
+      # distinction the surface cannot honestly explain. It stays scoped to the
+      # acting principal's own runs, and a passport carries the granting human's
+      # user id, so an agent reads the brief of the person it acts for. The
+      # queue's MARKS stay human-only below: they are how that person notices
+      # what the agent did.
+      #
+      # The tool charges one read per item against MCP-SESS-READS. Brief items
+      # are contract types rather than datasource records, so nothing charges
+      # for them by default, and a densely-joined brief metered per call would
+      # be the cheapest bulk read on the surface (A139).
+      x-mcp-tool: { verb: read_brief, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The latest brief run with its ranked queue.
@@ -8843,6 +9191,90 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/documents:
+    get:
+      tags: [Attachments]
+      operationId: listOrganizationDocuments
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Every document that rolls up to this account, pinned first (DOC-WIRE-1).
+      description: |
+        The account's library. A document reachable from a company may hang off a deal, a
+        person, an activity or the company itself, and each of those has its own
+        visibility.
+
+        **Every candidate is scoped through its own primary parent**, so a contract on a
+        deal the viewer cannot see does not appear AND does not contribute to the count.
+        Scoping at the parent rather than filtering afterwards is what keeps the count
+        honest: a total that includes invisible rows tells the viewer something about them.
+
+        Ordered pinned first, then newest.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: category
+          in: query
+          schema: { type: string, enum: [contract, offer, legal, email_attachment, other] }
+        - name: doc_state
+          in: query
+          schema: { type: string, enum: [draft, current, final, superseded] }
+        - name: pinned_only
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The account's documents.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttachmentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /attachments/{id}/metadata:
+    patch:
+      tags: [Attachments]
+      operationId: updateAttachmentMetadata
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
+      description: |
+        The bytes, the filename, the checksum and the scan state are NOT patchable here —
+        they are what arrived, and a surface that let a human edit them would make the
+        record a description of itself rather than of the file.
+
+        NOT version-guarded, and deliberately so: an attachment carries no version column,
+        so there is no value a client could have last seen and nothing a precondition could
+        compare against. Advertising `If-Match` here would name a guarantee this record
+        cannot give. Concurrent edits to a document's meaning are last-write-wins, and each
+        one is recorded in the audit trail.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAttachmentMetadataRequest' }
+      responses:
+        '200':
+          description: The document after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attachment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: >-
+            `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a
+            value outside the closed vocabulary.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /attachments/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -9396,6 +9828,136 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
 
 # =============================================================================
+  /organizations/{id}/profile-fields/{field}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/ProfileFieldKey'
+    patch:
+      tags: [Organizations]
+      operationId: updateOrganizationProfileField
+      summary: Correct a profile field — the canonical value changes, the machine's proposal survives.
+      description: |
+        DOSS-WIRE-4 / PO-AC-N-1. Where the field maps to a column on `organization`, THE COLUMN IS
+        WHAT CHANGES; the sidecar keeps the machine's proposal, excerpt, source URL and confidence in
+        history rather than overwriting them (PO-AC-N-2). A correction that changed only the sidecar
+        would be a lie about having been accepted. Provenance flips to `human` with the acting
+        principal and the timestamp; the whole thing commits as one mutation with its audit entry and
+        its outboxed event.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrganizationProfileFieldRequest' }
+      responses:
+        '200':
+          description: The corrected profile field.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfileField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/profile-fields/{field}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/ProfileFieldKey'
+    post:
+      tags: [Organizations]
+      operationId: confirmOrganizationProfileField
+      summary: Confirm a profile field without changing its value.
+      description: |
+        The same act as a correction, minus the value change (PO-AC-N-3): `verified_at` and
+        `verified_by` are stamped and the field moves from extracted to confirmed. Version-guarded
+        like the correction, so two readers confirming a field one of them has since corrected do not
+        silently overwrite each other.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The confirmed profile field.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfileField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/facts/{factKey}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/FactKey'
+    patch:
+      tags: [Organizations]
+      operationId: updateOrganizationFact
+      summary: Correct an extracted fact.
+      description: |
+        DOSS-WIRE-4. The correction path the fact store never had — without it the page can render a
+        "confirmed" state nothing is able to produce. Same guarantees as the profile-field
+        correction: canonical value first, machine proposal preserved in history, provenance flipped
+        to `human`, one transaction carrying the row, the audit entry and the event.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrganizationFactRequest' }
+      responses:
+        '200':
+          description: The corrected fact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationFact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/facts/{factKey}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/FactKey'
+    post:
+      tags: [Organizations]
+      operationId: confirmOrganizationFact
+      summary: Confirm an extracted fact without changing its value.
+      description: |
+        Stamps `verified_at` + `verified_by` and moves the fact from extracted to confirmed
+        (PO-AC-N-3). Version-guarded.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The confirmed fact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationFact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
 components:
 
   securitySchemes:
@@ -9426,6 +9988,23 @@ components:
 
   # --------------------------- shared parameters ----------------------------
   parameters:
+    ProfileFieldKey:
+      name: field
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history]
+      description: The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries.
+    FactKey:
+      name: factKey
+      in: path
+      required: true
+      schema: { type: string }
+      description: |
+        One fact's identity within its organization, spelled `<field>:<value_key>` (e.g.
+        `named_customer:acme-inc`). A fact is multi-valued, so `field` alone does not name a row and
+        `value_key` alone is only unique within a field.
     CaptureProvider:
       name: provider
       in: path
@@ -9443,6 +10022,15 @@ components:
       required: true
       schema: { type: string, format: uuid }
       description: Opaque resource id (UUID; ordering semantics are not exposed).
+    BundleId:
+      name: bundle_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: |
+        The act that staged a set of proposals together (`Approval.bundle_id`). It names a
+        grouping over approval rows, not a resource of its own — there is nothing to GET, and a
+        bundle exists exactly as long as some member points at it.
     VoiceProfileVersionNumber:
       name: profileVersion
       in: path
@@ -9686,6 +10274,25 @@ components:
 
   # ------------------------------- schemas ----------------------------------
   schemas:
+    UpdateOrganizationProfileFieldRequest:
+      type: object
+      description: 'A human correction. The canonical store changes; the machine''s proposal and its evidence survive in history (PO-AC-N-1/N-2).'
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          description: >-
+            The corrected value. Where this field maps to a column on `organization`,
+            the COLUMN is what changes — a correction the header ignores is not a
+            correction (PO-AC-N-1).
+
+    UpdateOrganizationFactRequest:
+      type: object
+      description: The correction path the fact store never had — without it the page can render a confirmed state nothing is able to produce.
+      required: [value]
+      properties:
+        value: { type: string, minLength: 1 }
 
     # ---- rates & costs (admin/ops-only effective-dated price sheets) ----
     RefreshAccepted:
@@ -9707,6 +10314,15 @@ components:
       type: object
       required: [data]
       properties:
+        base_currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          readOnly: true
+          description: >-
+            The workspace's base currency — every rate in `data` converts TO this
+            (AAD-PARAM-N-1, ADR-0085). Served from the workspace itself rather than
+            inferred from the first rate row, so a workspace that has entered no rates
+            can still state its own base.
         data: { type: array, items: { $ref: '#/components/schemas/FxRate' } }
     SetFxRateRequest:
       type: object
@@ -10981,6 +11597,14 @@ components:
       description: A company. Mirrors the `organization` table.
       required: [id, workspace_id, display_name, source, captured_by, created_at, updated_at]
       properties:
+        linkedin_url:
+          type: [string, 'null']
+          description: Canonical LinkedIn company URL (PO-DDL-N-2, ADR-0085). A validated column rather than a governed custom field, because it bears identity semantics — matching, dedupe, enrichment — a custom field cannot express. Unique among live rows.
+          pattern: '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
+        website_url:
+          type: [string, 'null']
+          readOnly: true
+          description: The company's readable website, DERIVED from its primary domain row. There is deliberately no website column — a second store for a fact organization_domain already owns is the duplication ADR-0085 closes. Not accepted on write.
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
         display_name: { type: string }
@@ -10993,6 +11617,14 @@ components:
             *which companies are we selling to* exclude it unless `include_anchor` is set, and it
             cannot be archived or merged. A caller that offers company actions should tell it apart.
         legal_name: { type: [string, 'null'] }
+        description:
+          type: [string, 'null']
+          maxLength: 500
+          description: >-
+            One human-written line saying what the company does, shown under the title on the
+            company page. A column rather than a governed custom field for the same reason
+            `linkedin_url` is one: it is part of what a company IS and every installation wants
+            it. Distinct from `industry` (a category) and from the dossier (agent-written prose).
         industry: { type: [string, 'null'] }
         size_band:
           type: [string, 'null']
@@ -11083,6 +11715,7 @@ components:
       properties:
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
+        description: { type: [string, 'null'], maxLength: 500, description: One human-written line saying what the company does. }
         industry: { type: [string, 'null'] }
         size_band: { type: [string, 'null'], enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'] }
         address: { $ref: '#/components/schemas/Address' }
@@ -11098,8 +11731,13 @@ components:
     UpdateOrganizationRequest:
       type: object
       properties:
+        linkedin_url:
+          type: [string, 'null']
+          description: Canonical LinkedIn company URL. Null clears it. website_url is derived and refused here.
+          pattern: '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
+        description: { type: [string, 'null'], maxLength: 500, description: 'One human-written line saying what the company does. Absent leaves it untouched; an empty string clears it, the same spelling every other nullable text field on this record uses.' }
         industry: { type: [string, 'null'] }
         size_band: { type: [string, 'null'], enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'] }
         address: { $ref: '#/components/schemas/Address' }
@@ -11179,6 +11817,200 @@ components:
               type: integer
               minimum: 0
               description: How many current contacts of this account the caller can see and the score was chosen from.
+
+    OrganizationDossier:
+      type: object
+      description: |
+        A factual description of one company, assembled from what the READER can see.
+        Every sentence carries the records it was written from, so the reader can open the
+        evidence rather than take the sentence on trust.
+      required: [organization_id, generated_at, generated_by, sections]
+      properties:
+        organization_id: { type: string, format: uuid }
+        generated_at: { type: string, format: date-time }
+        generated_by: { $ref: '#/components/schemas/WrittenBy' }
+        needs_refresh:
+          type: boolean
+          description: |
+            The newest contributing source was retrieved more than thirty days ago
+            (DOSS-PARAM-6). The content is still shown — a stale dossier is more useful
+            than none — with the staleness said out loud beside it.
+        sections:
+          type: array
+          description: |
+            A section with nothing to say is ABSENT rather than empty: a heading over
+            silence reads as a finding of nothing, which is a different claim. The compact
+            card renders `summary` only.
+          items: { $ref: '#/components/schemas/OrganizationDossierSection' }
+
+    OrganizationDossierSection:
+      type: object
+      required: [kind, sentences]
+      properties:
+        kind:
+          type: string
+          enum: [summary, products_services, markets, buying_center, differentiation, firmographics]
+          description: |
+            `summary` — what this company is, in a sentence or three.
+            `products_services` — what they sell.
+            `markets` — where and to whom.
+            `buying_center` — who decides.
+            `differentiation` — what they claim sets them apart.
+            `firmographics` — size, age, registration and the like.
+        sentences:
+          type: array
+          description: |
+            The same claim shape the account brief uses, deliberately: one claim
+            vocabulary and one grounding rule across every generated surface, so a reader
+            learns the distinction once and it holds everywhere.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+
+    ClaimEvidence:
+      type: object
+      description: |
+        The receipt behind one cited record (DOSS-WIRE-3). Each `source_kind` owes its own
+        identifying fields (DOSS-PARAM-9), carried in `identity`; a receipt that cannot fill one
+        names the gap in `gaps` rather than substituting a plausible value.
+      required: [entity_type, entity_id, source_kind, produced_by]
+      properties:
+        entity_type: { type: string, enum: [organization, fact, profile_field] }
+        entity_id: { type: string, format: uuid }
+        source_kind:
+          type: string
+          enum: [site_read, connector, human, migration, rule]
+          description: |
+            How this record came to exist.
+
+            `migration` is not in the spec's DOSS-PARAM-9 vocabulary, and is carried here because
+            migration 0099 makes it one of the four provenance values a stored value can have.
+            Reporting an imported row as a connector record or a person's assertion would be a
+            claim about where it came from that nobody made. Raised upstream.
+        identity:
+          type: object
+          additionalProperties: true
+          description: |
+            The identifying fields this kind owes — site read: the canonical URL it was read from;
+            connector: the provider and the external record; human: the actor and when; migration:
+            the import that carried it. What the reader needs to go and check the claim themselves.
+        label:
+          type: string
+          description: The field this record holds, in the reader's words — what the claim was about.
+        value: { type: string, description: The stored value the claim rests on. }
+        excerpt:
+          type: [string, 'null']
+          description: The verbatim span the value was read from. Null when the kind has no text.
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the source was read. Null when nothing recorded it.
+        last_verified_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            When a human last confirmed it. Deliberately distinct from `retrieved_at` — read and
+            confirmed are different claims, and collapsing them would let a machine re-read pass
+            for a person's approval.
+        confidence:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+          description: |
+            The model's confidence. ABSENT for the `connector`, `human` and `migration` kinds — none
+            of them carries a model confidence, and printing one would fabricate a number
+            (DOSS-AC-16).
+        produced_by:
+          type: string
+          description: What produced the value — an extraction lane, a connector, or a named human.
+        gaps:
+          type: array
+          description: |
+            Fields this kind owes that could not be filled, named rather than silently omitted. An
+            absent field and an unrecorded one look identical on the wire otherwise.
+          items: { type: string }
+
+    GrowthFitBand:
+      type: string
+      enum: [strong, moderate, weak, unknown]
+      description: |
+        How well this company fits what we sell (DOSS-PARAM-8).
+
+        `unknown` is the ABSTENTION, not a low score. It says the assembly did not have
+        enough to judge on, and it always arrives with its completeness counts and a named
+        next step. A reader must never have to guess whether `unknown` means "poor fit" or
+        "we could not tell" — those are opposite conclusions.
+
+    DataCompleteness:
+      type: object
+      description: |
+        How much of what the band needs is actually present — with BOTH counts. "4 of 9"
+        and "4 of 40" are different claims and must never render identically (DOSS-AC-12).
+      required: [present, expected]
+      properties:
+        present: { type: integer, description: Required inputs available and not stale. }
+        expected:
+          type: integer
+          description: |
+            Required inputs the assembly wanted. Never omitted and never implied — a
+            proportion without its denominator is not a completeness figure.
+        missing:
+          type: array
+          description: |
+            Which required inputs are missing, named in the reader's words. This is what
+            the "next data-gathering step" is built from, so it is never an opaque code.
+          items: { type: string }
+
+    OrganizationGrowthFit:
+      type: object
+      description: |
+        Cached per reader (DOSS-DDL-2), because it folds seat-dependent workspace context
+        and makes recommendations.
+
+        Every claim below carries the records it was written from, exactly like a dossier
+        sentence. The evidence is always TARGET-side: a factor drawn from our own offering
+        is labelled an `assessment` and still cites the other company's records, or it is
+        dropped. Our own profile is not a record this reader can open, and citing it would
+        invent a citation (DOSS-AC-6).
+      required: [organization_id, band, data_completeness, generated_at, generated_by]
+      properties:
+        organization_id: { type: string, format: uuid }
+        band: { $ref: '#/components/schemas/GrowthFitBand' }
+        band_capped_reason:
+          type: [string, 'null']
+          description: |
+            Why the band could not go higher — our own offering context being unconfirmed
+            caps it at `moderate` (DOSS-AC-13). Null when nothing capped it.
+        data_completeness: { $ref: '#/components/schemas/DataCompleteness' }
+        next_step:
+          type: [string, 'null']
+          description: |
+            The one named thing to do that would most improve this answer, or null when
+            nothing is holding it back.
+
+            When the band is `unknown` this is offered INSTEAD of a score and names the
+            missing inputs to go and find. When the band was capped it names the other
+            fix — confirming our own offering. Always a concrete action, never a
+            restatement that data is missing.
+        positive_factors:
+          type: array
+          description: What argues for this company being a fit.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+        negative_factors:
+          type: array
+          description: What argues against it.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+        whitespace:
+          type: array
+          description: What we sell that this company does not yet buy.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+        recommended_angle:
+          allOf: [{ $ref: '#/components/schemas/OrganizationBriefSentence' }]
+          description: The single suggested approach. A recommendation, and labelled as one.
+        objections:
+          type: array
+          description: What this company is likely to push back with, each with its evidence.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+        generated_at: { type: string, format: date-time }
+        generated_by: { $ref: '#/components/schemas/WrittenBy' }
 
     OrganizationBrief:
       type: object
@@ -11290,7 +12122,7 @@ components:
       description: One record a brief sentence was written from.
       required: [entity_type, entity_id]
       properties:
-        entity_type: { type: string, enum: [deal, activity, person, organization, fact] }
+        entity_type: { type: string, enum: [deal, activity, person, organization, fact, profile_field] }
         entity_id: { type: string, format: uuid }
 
     RecordViewAck:
@@ -11379,10 +12211,52 @@ components:
         commercial:
           type: [object, 'null']
           description: Null when the caller has no deal grant.
-          required: [open_count, stalled_count]
+          required: [open_count, stalled_count, priced_count, converted_count]
           properties:
             open_count: { type: integer, minimum: 0 }
             stalled_count: { type: integer, minimum: 0 }
+            open_pipeline_minor_base:
+              type: [integer, 'null']
+              description: >-
+                The open pipeline in the workspace's base currency, integer minor units. Null
+                when NO open deal carries a figure that can be converted — distinct from zero,
+                which would claim a priced pipeline worth nothing.
+            priced_count:
+              type: integer
+              minimum: 0
+              description: >-
+                How many of `open_count` contributed to the sum. A deal with no amount, and one
+                whose currency has no conversion rate on its date, both contribute nothing —
+                so a total below `open_count` covers PART of the pipeline, and the page says so
+                rather than showing a figure that is quietly short (plan §4.2: never a
+                cross-currency sum without its conversion source).
+            converted_count:
+              type: integer
+              minimum: 0
+              description: >-
+                How many of `priced_count` needed a currency conversion to enter the sum — the
+                rest were already in the base. Zero means the total is a same-currency sum and
+                no rate stands behind it.
+            fx_as_of:
+              type: [string, 'null']
+              format: date
+              description: >-
+                The OLDEST rate date among the converted deals: each freezes its rate on its own
+                issue date, so this is the furthest back any part of the figure reaches. §4.2
+                forbids a cross-currency sum without an explicit conversion source and as-of
+                date, and this is that date. Null when nothing needed converting.
+            base_currency:
+              type: [string, 'null']
+              description: >-
+                The ISO-4217 currency `open_pipeline_minor_base` is expressed in — the
+                workspace's base. Travels WITH the figure rather than being looked up
+                separately, because a converted sum rendered under a currency fetched from
+                somewhere else is exactly the unlabelled cross-currency total §4.2 forbids.
+                Null whenever the figure is.
+            next_close_on:
+              type: [string, 'null']
+              format: date
+              description: The nearest expected close date among the open deals; null when none names one.
         signal:
           type: [object, 'null']
           description: >-
@@ -11426,6 +12300,57 @@ components:
             Consent state keyed by purpose key — per purpose, never one boolean. A purpose
             the person has no row for reads `unknown`, which is default-deny for outbound,
             not "not applicable".
+        routes:
+          $ref: '#/components/schemas/Organization360ContactRoutes'
+
+    Organization360ContactRoutes:
+      type: object
+      description: |
+        Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
+
+        The company page answers this per CONTACT rather than as a contact x
+        every-colleague matrix: a forty-person sales team makes the matrix unreadable, and
+        the reader's question is never "show me all the pairs" but "who should make this
+        call". So each contact carries the few colleagues worth naming and a count of the
+        rest.
+
+        Only live members are named — recommending an intro from someone who has left is
+        advice nobody can take. Their historical messages still count on the timeline; the
+        person is gone, what happened is not.
+      required: [top, remainder, untried]
+      properties:
+        top:
+          type: array
+          maxItems: 3
+          description: The strongest routes, ordered by the per-colleague relationship projection.
+          items: { $ref: '#/components/schemas/Organization360Route' }
+        remainder:
+          type: integer
+          minimum: 0
+          description: How many further colleagues have a recorded exchange with this contact, beyond `top`.
+        untried:
+          type: boolean
+          description: >-
+            True when nobody on our side has a recorded exchange with this contact. NOT the
+            same claim as a cold relationship: "untried" says we never reached out, "cold"
+            says we did and it went nowhere, and a page that renders them alike tells a rep
+            an account is unreachable when nobody has tried.
+
+    Organization360Route:
+      type: object
+      description: One colleague who has actually exchanged messages with this contact.
+      required: [user_id, display_name, strength_bucket]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        strength_bucket:
+          type: string
+          enum: [strong, developing, cold]
+          description: The band, never the number — the score is a decayed count, and showing it invites a precision it does not have.
+        last_interaction_at:
+          type: [string, 'null']
+          format: date-time
+
 
     Organization360DealRole:
       type: object
@@ -11478,6 +12403,49 @@ components:
         assignee_id: { type: [string, 'null'], format: uuid }
         linked_deal_id: { type: [string, 'null'], format: uuid }
         linked_person_id: { type: [string, 'null'], format: uuid }
+
+    Organization360NextMeeting:
+      type: object
+      description: |
+        The next meeting with this account that has not happened yet, and who is in it.
+
+        It is a FACT, not a suggestion: a meeting is on the calendar or it is not, and the
+        page states which.
+
+        TWO REASONS THIS IS ABSENT, and `sections_omitted` is what tells them apart —
+        read it, never the field alone:
+
+          * absent AND named in `sections_omitted` — the caller has no activity grant.
+            A fact about the READER.
+          * absent and NOT named — the grant is held and nothing is scheduled. A fact
+            about the ACCOUNT, and the one a rep acts on.
+
+        A client that treats a missing field as "no meeting" tells someone with no
+        calendar access to book one that already exists.
+
+        Participants carry only the people this caller can already read. A meeting reachable
+        through a visible contact must not disclose the colleague's other attendees.
+      required: [activity_id, starts_at, subject, participants]
+      properties:
+        activity_id: { type: string, format: uuid }
+        starts_at: { type: string, format: date-time }
+        subject: { type: string }
+        linked_deal_id:
+          type: [string, 'null']
+          format: uuid
+          description: The deal this meeting is filed against, when the caller may read it.
+        participants:
+          type: array
+          description: The attendees on file, row-scoped. Empty is honest — a meeting can be booked before anyone is linked to it.
+          items: { $ref: '#/components/schemas/Organization360MeetingParticipant' }
+
+    Organization360MeetingParticipant:
+      type: object
+      description: One attendee of the next meeting, named only when the caller may read them.
+      required: [person_id, display_name]
+      properties:
+        person_id: { type: string, format: uuid }
+        display_name: { type: string }
 
     Organization360Suggestion:
       type: object
@@ -11600,6 +12568,8 @@ components:
             mailed a fortnight ago with no reply is not the same as one that just wrote to us.
         state_strip:
           $ref: '#/components/schemas/Organization360StateStrip'
+        next_meeting:
+          $ref: '#/components/schemas/Organization360NextMeeting'
         health:
           $ref: '#/components/schemas/Organization360Health'
         sections_omitted:
@@ -11607,7 +12577,7 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health]
+            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health, next_meeting]
         people:
           type: object
           required: [data, page]
@@ -12850,6 +13820,16 @@ components:
         entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
 
+    ActivityLinkInput:
+      type: object
+      description: |
+        One record an activity is filed under, as a caller supplies it. The read shape
+        (ActivityLink) carries the ids the server assigned; this carries only the target.
+      required: [entity_type, entity_id]
+      properties:
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
+        entity_id: { type: string, format: uuid }
+
     Activity:
       type: object
       description: |
@@ -12958,6 +13938,18 @@ components:
         data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
+    UpdateAttachmentMetadataRequest:
+      type: object
+      description: |
+        A sparse patch. An absent field is untouched; `title` and `supersedes_id` accept
+        null to clear, because clearing either is an edit a human makes deliberately.
+      properties:
+        category: { type: string, enum: [contract, offer, legal, email_attachment, other] }
+        title: { type: [string, 'null'] }
+        doc_state: { type: string, enum: [draft, current, final, superseded] }
+        pinned: { type: boolean }
+        supersedes_id: { type: [string, 'null'], format: uuid }
+
     Attachment:
       type: object
       description: |
@@ -12974,6 +13966,36 @@ components:
         content_type: { type: [string, 'null'] }
         byte_size: { type: [integer, 'null'], format: int64 }
         checksum: { type: [string, 'null'], description: 'sha256 of the bytes, for integrity/dedupe.' }
+        category:
+          type: string
+          enum: [contract, offer, legal, email_attachment, other]
+          description: What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+        title:
+          type: [string, 'null']
+          description: A display name distinct from the filename — what a reader looks for, rather than what arrived.
+        doc_state:
+          type: string
+          enum: [draft, current, final, superseded]
+          description: >-
+            ASSERTED, never inferred. A human or the producing source sets it. Nothing
+            derives currency from the newest upload date or a filename containing "final":
+            the most recent upload is very often a draft, and an inference would be a
+            confident wrong answer to the exact question this field exists to answer.
+        pinned:
+          type: boolean
+          description: Held at the top of the account's library. An assertion by a human, like the state.
+        supersedes_id:
+          type: [string, 'null']
+          format: uuid
+          description: The document this one replaces. Refused when it would close a cycle.
+        organization_id:
+          type: [string, 'null']
+          format: uuid
+          readOnly: true
+          description: >-
+            The account this file rolls up to — a READ PATH, not a second parent. Visibility
+            stays the primary parent's, and this is maintained on relink and merge so a file
+            follows the record it belongs to.
         scan_status:
           type: string
           enum: [scanning, clean, blocked]
@@ -13096,6 +14118,45 @@ components:
             The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
             The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
             `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+
+    SendAccountEmailRequest:
+      type: object
+      required: [subject, body, to, consent_purpose, links]
+      description: |
+        One account-started send. It is SendEmailRequest plus the `links` an anchor would
+        otherwise have supplied — the records this new conversation belongs to.
+      properties:
+        subject: { type: string }
+        body: { type: string, description: The (possibly edited) final body that is sent. }
+        to:
+          type: array
+          minItems: 1
+          description: |
+            At least one addressee. A send whose To: line is empty is refused 422 before
+            anything is staged — `cc` alone does not make a message addressed to anyone.
+          items: { type: string, format: email }
+        cc: { type: array, items: { type: string, format: email } }
+        draft_ref:
+          type: [string, 'null']
+          description: |
+            Opaque reference returned by the drafting operation, exactly as on `send_email`.
+            Omit for independently composed mail.
+        consent_purpose:
+          type: string
+          description: |
+            The consent purpose this send falls under. Default-deny per purpose (A22/ADR-0011):
+            suppressed 409 `consent_not_granted` unless every recipient has an active `granted`
+            `person_consent` for THIS purpose.
+        links:
+          type: array
+          minItems: 1
+          description: |
+            The records this conversation is filed under — the company it was started from, and
+            optionally the person and deal it concerns. At least one is required: a message
+            belonging to no record is one nobody will find again, which is the gap this
+            operation exists to close. Each target is row-scope probed, so an id the caller
+            cannot see is refused 404.
+          items: { $ref: '#/components/schemas/ActivityLinkInput' }
 
     SendMessageRequest:
       type: object
@@ -14286,12 +15347,15 @@ components:
       properties:
         type:
           type: string
-          enum: [person, organization, deal, lead, activity, user]
+          enum: [person, organization, deal, lead, project, activity, user]
           description: |
             `user` is a workspace MEMBER, not a record — it appears only in the
             `who_knows` section, where the item is a colleague who interacts with the
             anchor contact. It carries the member's display name as `summary` and
             routes nowhere: a client renders it as a name, not as a link to a record.
+
+            Every anchor type this endpoint accepts also appears here, because the
+            response echoes the anchor back as one of these refs.
         id:   { type: string, format: uuid }
     ContextEvidence:
       type: object
@@ -14625,6 +15689,27 @@ components:
       type: object
       required: [field, value, source, captured_by, updated_at]
       properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: >-
+            The stored row, so a dossier sentence written from this field can cite
+            something the reader can open. Without it a field-derived claim could only
+            cite the organization, which tells the reader where to look but not at what —
+            and the grounding filter drops a sentence whose citation it cannot resolve.
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
+        verified_at:
+          type: [string, 'null']
+          format: date-time
+          description: When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
+        verified_by:
+          type: [string, 'null']
+          readOnly: true
+          description: The human who confirmed the claim. Server-stamped, never accepted from a request body.
         field: { type: string, enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history] }
         value: { type: string }
         source: { type: string, enum: [human, site_read, connector, migration] }
@@ -14638,6 +15723,18 @@ components:
       type: object
       required: [id, category, field, value, value_key, source, captured_by, updated_at]
       properties:
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
+        verified_at:
+          type: [string, 'null']
+          format: date-time
+          description: When a human last confirmed this claim (PO-DDL-N-2). Paired with verified_by — a verification without an actor describes a confirmation nobody made.
+        verified_by:
+          type: [string, 'null']
+          readOnly: true
+          description: The human who confirmed the claim. Server-stamped, never accepted from a request body.
         id:
           type: string
           format: uuid
@@ -15205,6 +16302,19 @@ components:
         proposed_by: { type: string, description: 'agent:<id> / connector:<n> that staged this.' }
         on_behalf_of: { type: [string, 'null'], format: uuid }
         expires_at: { type: [string, 'null'], format: date-time, description: 'When the staged action expires unactioned (mirrors approval.requested.expires_at). After this it auto-transitions to status=expired and cannot be approved.' }
+        bundle_id:
+          type: [string, 'null']
+          format: uuid
+          description: |
+            The act that staged this proposal together with its siblings — today, a website read's
+            company facts and the leads it published. Null for a proposal staged on its own. It is a grouping id, not a foreign key: there is no
+            bundle entity, and every member keeps its own diff hash, version pin, expiry and
+            verdict (ADR-0036 — the staged row IS the authority object). Decide the whole set with
+            `POST /approval-bundles/{bundle_id}/approve|reject`, or any member on its own.
+
+            A proposal that is re-staged identically JOINS the row already pending and MOVES onto
+            the fresh act's bundle, so a bundle always holds exactly what its act proposed rather
+            than only the part of it that was new.
         target_entity_type: { type: [string, 'null'], description: Entity the effect mutates (for precondition re-validation). }
         target_entity_id: { type: [string, 'null'], format: uuid }
         target_version: { type: [integer, 'null'], description: 'The `version` of the target row when the diff was staged. On approve-execute the server RE-READS the row; if its current version ≠ target_version the execution is rejected with 409 ErrVersionSkew (the world changed since the human last saw the diff — re-stage). This closes the stage→approval race (ADR-0036).' }
@@ -15252,6 +16362,59 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Approval' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    ApprovalBundleDecisionRequest:
+      type: object
+      # Closed: the field a client is most likely to send here is `edited_payload`,
+      # which this route deliberately has no arm for — accepting and ignoring it
+      # would approve the agent's original payload while the human believed they
+      # had rewritten it. The handler refuses unknown fields; this makes the
+      # contract say the same thing to a generated client and a validator.
+      additionalProperties: false
+      description: |
+        Decide every still-pending member of one bundle. There is no `edited_payload` arm: an edit
+        is a judgment about ONE proposed change (it re-hashes that diff and re-pins its entity
+        refs, ADR-0036 §4), and there is no such thing as one edit spanning several. Edit a member
+        through `POST /approvals/{id}/approve`, then decide the rest here.
+      properties:
+        reason:
+          type: string
+          description: Recorded on every member this call decides — one stated reason for one decision.
+
+    ApprovalBundleDecision:
+      type: object
+      description: |
+        The per-member result of a bundle decision. Deciding a bundle is not all-or-nothing: the
+        members were always independent authorities, so one that expired, one someone else already
+        decided, and one whose follow-on effect failed each report for themselves while their
+        siblings decide normally.
+      required: [bundle_id, data]
+      properties:
+        bundle_id: { type: string, format: uuid }
+        data:
+          type: array
+          description: |
+            Every member of the bundle this caller could decide, in the state it is in AFTER the
+            decision. Members outside their authority are absent — the same existence-hiding the
+            inbox and a single approval read give — so this list may be shorter than the bundle.
+          items: { $ref: '#/components/schemas/ApprovalBundleMember' }
+
+    ApprovalBundleMember:
+      type: object
+      description: One member of a bundle, and what the bundle decision did to it.
+      required: [approval, outcome]
+      properties:
+        approval: { $ref: '#/components/schemas/Approval' }
+        outcome:
+          type: string
+          enum: [decided, already_decided, expired, effect_failed]
+          description: |
+            What THIS call did to the member. `decided` — the verdict was recorded now.
+            `already_decided` — it carried a verdict before this call, which is left standing
+            (the status says which). `expired` — it lapsed undecided and is no longer
+            approvable; re-propose instead. `effect_failed` — the verdict IS recorded and
+            audited, but the follow-on change did not land; the member reads approved and
+            unredeemed, and the server log carries the cause.
 
     # ---- Optimistic concurrency ----
     RowVersion:

@@ -47,17 +47,22 @@ type row struct {
 	DecidedAt      *time.Time
 	ConsumedAt     *time.Time
 	CreatedAt      time.Time
+	// BundleID is the act that staged this row together with its siblings, nil
+	// for one staged alone (bundle.go).
+	BundleID *ids.UUID
 }
 
 const columns = `id, kind, status, proposed_by, on_behalf_of, passport_id,
 	target_entity_type, target_entity_id, target_version, summary,
-	proposed_change, diff_hash, expires_at, decided_by, decided_at, consumed_at, created_at`
+	proposed_change, diff_hash, expires_at, decided_by, decided_at, consumed_at, created_at,
+	bundle_id`
 
 func scan(r pgx.Row) (row, error) {
 	var a row
 	err := r.Scan(&a.ID, &a.Kind, &a.Status, &a.ProposedBy, &a.OnBehalfOf, &a.PassportID,
 		&a.TargetType, &a.TargetID, &a.TargetVersion, &a.Summary,
-		&a.ProposedChange, &a.DiffHash, &a.ExpiresAt, &a.DecidedBy, &a.DecidedAt, &a.ConsumedAt, &a.CreatedAt)
+		&a.ProposedChange, &a.DiffHash, &a.ExpiresAt, &a.DecidedBy, &a.DecidedAt, &a.ConsumedAt, &a.CreatedAt,
+		&a.BundleID)
 	return a, err
 }
 
@@ -65,7 +70,7 @@ func scan(r pgx.Row) (row, error) {
 // reads as expired everywhere without a sweeper process.
 func (a row) effectiveStatus(now time.Time) string {
 	if a.Status == statusPending && now.After(a.ExpiresAt) {
-		return "expired"
+		return StatusExpired
 	}
 	return a.Status
 }
@@ -95,7 +100,12 @@ type ListInput struct {
 	Kind       *string
 	TargetType *string
 	TargetID   *ids.UUID
-	Limit      int
+	// BundleID narrows the read to the proposals ONE act staged together. It
+	// composes with the other filters rather than replacing them, and it does
+	// not relax the per-row decidability probe: a member the caller could not
+	// decide is as absent here as it is from the unfiltered inbox.
+	BundleID *ids.UUID
+	Limit    int
 	// Cursor continues a previous page: the opaque keyset token that page
 	// reported as next_cursor. Empty starts at the newest row.
 	Cursor string
@@ -143,54 +153,6 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]row, storekit.Page,
 		return nil, storekit.Page{}, err
 	}
 	return out, page, nil
-}
-
-// keysetStart is where a scan resumes: the (created_at, id) of the last row the
-// caller has already been shown. Nil starts at the newest row.
-type keysetStart struct {
-	createdAt time.Time
-	id        ids.ApprovalID
-}
-
-// after is the resume point that follows one row.
-func after(a row) *keysetStart { return &keysetStart{createdAt: a.CreatedAt, id: a.ID} }
-
-// startOf is where this read begins: the caller's token, or the newest row
-// when they sent none.
-func startOf(token string) (*keysetStart, error) {
-	if token == "" {
-		return nil, nil //nolint:nilnil // no token is not a resume point: the scan starts at the newest row, which is what a nil start means throughout this file
-	}
-	start, err := decodeStart(token)
-	if err != nil {
-		return nil, err
-	}
-	return &start, nil
-}
-
-// decodeStart reads ONE page token, which the caller has already established
-// is present — an absent token is not a resume point to decode, it is the
-// newest row, and the caller expresses that by not calling this.
-//
-// The token is client input, so one that does not decode is a client fault: it
-// travels as storekit's MalformedCursorError and the transport answers the same
-// 422 every other list endpoint answers a bad cursor with.
-//
-// A token that decodes to a ZERO resume point is that same fault, and has to be
-// caught HERE: storekit's decode is a JSON unmarshal, so an encoded `{}` parses
-// happily into an empty Cursor. Carried into the query it reads as "everything
-// before the beginning of time" — a successful, permanently empty page. A
-// client paging on that loses every row it had not yet seen and is told
-// nothing, which is the one outcome a page token must never produce.
-func decodeStart(token string) (keysetStart, error) {
-	c, err := storekit.DecodeCursor(token)
-	if err != nil {
-		return keysetStart{}, err
-	}
-	if c.CreatedAt.IsZero() || c.ID.IsZero() {
-		return keysetStart{}, &storekit.MalformedCursorError{}
-	}
-	return keysetStart{createdAt: c.CreatedAt, id: ids.From[ids.ApprovalKind](c.ID)}, nil
 }
 
 // scanInbox walks the whole table newest-first and filters each keyset batch
@@ -272,32 +234,6 @@ func listForTarget(ctx context.Context, tx pgx.Tx, p principal.Principal, in Lis
 	return rows, page, nil
 }
 
-// capPage cuts a filled-one-past result back to the display limit and derives
-// the page from ONE resume point, so has_more and next_cursor can never
-// disagree about whether there is a next page.
-//
-// scanned is the other reason there may be more: a read whose scan hit its own
-// cap has not seen the whole backlog either. It carries the row that scan
-// stopped on rather than a flag, because a page that returned nothing decidable
-// still has to hand back a token — otherwise a caller is told there is more and
-// given no way to reach it.
-func capPage(out []row, limit int, scanned *row) ([]row, storekit.Page) {
-	if len(out) > limit {
-		out = out[:limit]
-		return out, pageAfter(out[limit-1])
-	}
-	if scanned != nil {
-		return out, pageAfter(*scanned)
-	}
-	return out, storekit.Page{}
-}
-
-// pageAfter is the page a caller continues with: has_more, and the keyset token
-// the next request resumes from.
-func pageAfter(last row) storekit.Page {
-	return storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, last.ID.UUID)}
-}
-
 // approvalWhere is the ONE spelling of "which staged rows this read wants":
 // the caller's filters, plus the keyset cursor of the previous batch when the
 // scan is paging. Every read of the approval table renders its predicate here,
@@ -316,6 +252,9 @@ func approvalWhere(in ListInput, from *keysetStart, arg func(any) int) string {
 	}
 	if in.TargetID != nil {
 		terms = append(terms, fmt.Sprintf("target_entity_id = $%d", arg(*in.TargetID)))
+	}
+	if in.BundleID != nil {
+		terms = append(terms, fmt.Sprintf("bundle_id = $%d", arg(*in.BundleID)))
 	}
 	if from != nil {
 		terms = append(terms, fmt.Sprintf("(created_at, id) < ($%d, $%d)", arg(from.createdAt), arg(from.id)))

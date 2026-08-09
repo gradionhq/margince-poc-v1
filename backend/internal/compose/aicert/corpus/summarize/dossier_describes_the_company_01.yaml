@@ -1,0 +1,43 @@
+name: dossier_describes_the_company_not_the_relationship
+task: summarize
+site: org_dossier
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+fixture:
+  profile_fields:
+    - label: their_offer
+      field: offer_summary
+      value: Load-shifting and demand-response software for industrial sites
+    - label: their_icp
+      field: icp
+      value: Energy-intensive manufacturers running their own substations
+    - label: their_usp
+      field: usp
+      value: Settles against the grid operator's own meter data, so savings are auditable
+  facts:
+    - label: their_size
+      field: employee_range
+      value: "51-200"
+expect:
+  outcome: accepted
+  # The recorded fields a correct description has to be built on — not its
+  # wording. A dossier for this company that never says what they sell has not
+  # described them, and one that never says who they sell to has described half.
+  answer: [their_offer, their_icp]
+  bands:
+    # The dossier degrades to a floor that still describes the company from the
+    # same fields, one restated value per sentence. So a model that is
+    # unreliable here costs the reader prose, not information — a lower bar
+    # than growth fit, where the floor can only abstain.
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
+  rubric: >
+    Score whether every sentence restates something the summary actually says
+    and cites the row it came from. Penalise any sentence about OUR relationship
+    with this company — the pipeline, the last contact, whether they are a good
+    fit — because a different surface answers that and mixing the two is what
+    the separation exists to prevent. Penalise an inferred fact about their
+    revenue, their customers or their incumbent vendor: none is in the summary.
+    A dossier that reads as three plain sentences a person would say out loud
+    scores above one that reads as the field list it was built from.
