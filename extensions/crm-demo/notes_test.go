@@ -245,11 +245,11 @@ func TestRemoveNoteRejectsAnUnknownField(t *testing.T) {
 func TestRemoveNoteRefusesAnIDTheContractCouldNotHaveMeant(t *testing.T) {
 	for _, id := range []string{
 		"not-a-uuid",
-		"11111111111141118111111111111111",                 // unhyphenated
-		"{11111111-1111-4111-8111-111111111111}",           // braced
-		"11111111-1111-4111-8111-11111111111",              // one digit short
-		"11111111-1111-4111-8111-11111111111g",             // not hex
-		"urn:uuid:11111111-1111-4111-8111-111111111111",    // prefixed
+		"11111111111141118111111111111111",              // unhyphenated
+		"{11111111-1111-4111-8111-111111111111}",        // braced
+		"11111111-1111-4111-8111-11111111111",           // one digit short
+		"11111111-1111-4111-8111-11111111111g",          // not hex
+		"urn:uuid:11111111-1111-4111-8111-111111111111", // prefixed
 	} {
 		rt := newRuntime()
 		_, err := removeNote(context.Background(), rt, json.RawMessage(`{"id":"`+id+`"}`))
