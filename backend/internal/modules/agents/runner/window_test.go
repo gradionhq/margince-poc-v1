@@ -39,13 +39,22 @@ func TestTheTriggerReferenceIsNeverPrintedWithoutSayingWhatItIs(t *testing.T) {
 	if labelled := "Trigger: " + triggerRef + " (" + triggerProvenance + ")"; !strings.Contains(win.msgs[0].Content, labelled) {
 		t.Fatalf("the goal prompt does not carry the labelled trigger %q: %q", labelled, win.msgs[0].Content)
 	}
+	// EXACTLY one line carries the clause. Asserting "no grounding line carries
+	// it" would be the weaker property and, with one producer, a loop that cannot
+	// fail; counting catches both directions — the clause leaking onto the
+	// grounding refs, which are records, and a second producer appearing.
+	var labelled, named int
 	for _, line := range strings.Split(win.msgs[0].Content, "\n") {
-		if strings.Contains(line, triggerRef) && !strings.Contains(line, triggerProvenance) {
-			t.Fatalf("the trigger ref is printed with nothing saying what it is: %q", line)
+		if strings.Contains(line, triggerProvenance) {
+			labelled++
 		}
-		if strings.Contains(line, "Acme GmbH") && strings.Contains(line, triggerProvenance) {
-			t.Fatalf("a grounding ref is a record and must not be labelled as the trigger: %q", line)
+		if strings.Contains(line, triggerRef) {
+			named++
 		}
+	}
+	if labelled != 1 || named != 1 {
+		t.Fatalf("the goal prompt must name the trigger once and say what it is once, got %d/%d: %q",
+			named, labelled, win.msgs[0].Content)
 	}
 	if !strings.Contains(win.system, triggerProvenance) {
 		t.Fatalf("the system frame does not say where a record id comes from: %q", win.system)
