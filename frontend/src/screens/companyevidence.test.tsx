@@ -200,10 +200,16 @@ describe("the receipt is a drawer beside the claim, not a box over it", () => {
     expect(screen.queryByText(/AI extracted/)).toBeNull();
   });
 
-  // A person typed it. "AI extracted" would be false of it.
-  it("never marks a human-written claim", async () => {
-    show({ ...SITE_READ, source_kind: "human", produced_by: "human:u1" });
-    await screen.findByRole("dialog");
-    expect(screen.queryByText(/AI extracted/)).toBeNull();
-  });
+  // Only a site read is a model extraction. The other four are not, and the
+  // badge would be false of each: a person typed a human value, an older
+  // system holds a migration one, a connector value came out of an API
+  // verbatim, and a rule value was computed by code somebody wrote.
+  it.each(["human", "migration", "connector", "rule"] as const)(
+    "never marks a %s claim as AI extracted",
+    async (kind) => {
+      show({ ...SITE_READ, source_kind: kind, produced_by: "x" });
+      await screen.findByRole("dialog");
+      expect(screen.queryByText(/AI extracted/)).toBeNull();
+    },
+  );
 });

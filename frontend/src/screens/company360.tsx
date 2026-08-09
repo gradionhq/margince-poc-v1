@@ -1362,6 +1362,26 @@ export type CitedSibling = {
   entityId: string;
 };
 
+// The sentence's receipt-bearing citations, once each, in the order it cites
+// them. Mapped here at the one place that knows both shapes: the wire is
+// snake_case and the drawer's CitedRecord is not.
+function dedupeCited(evidence: readonly Cited[]): CitedSibling[] {
+  const seen = new Set<string>();
+  const out: CitedSibling[] = [];
+  for (const each of evidence) {
+    const key = `${each.entity_type}:${each.entity_id}`;
+    if (!RECEIPT_CITATIONS.has(each.entity_type) || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push({
+      entityType: each.entity_type as "fact" | "profile_field",
+      entityId: each.entity_id,
+    });
+  }
+  return out;
+}
+
 function Citations({
   evidence,
   onOpenRecord,
@@ -1384,12 +1404,10 @@ function Citations({
   // rebuilt in the drawer.
   // Mapped to the receipt's own shape here, at the one place that knows both:
   // the wire is snake_case and the drawer's CitedRecord is not.
-  const siblings = evidence
-    .filter((each) => RECEIPT_CITATIONS.has(each.entity_type))
-    .map((each) => ({
-      entityType: each.entity_type as "fact" | "profile_field",
-      entityId: each.entity_id,
-    }));
+  // Deduplicated, because the stepper finds its position by id: a sentence
+  // citing the same fact twice would leave `findIndex` returning the first
+  // occurrence forever, and Next would never move past it.
+  const siblings = dedupeCited(evidence);
   if (chips.length === 0) {
     return null;
   }

@@ -147,18 +147,19 @@ export function EvidenceModal({
   );
 }
 
-// "AI extracted · not yet confirmed", derived rather than stored: a claim
-// nothing but a machine has touched, that no person has since verified. The
-// PREDICATE is stated here rather than left implicit, because the badge makes
-// a claim about the claim and a reader deserves to know what earned it.
+// "AI extracted · not yet confirmed", derived rather than stored: a MODEL read
+// it out of something, and no person has verified it since. The predicate is
+// stated here rather than left implicit, because the badge makes a claim about
+// a claim and a reader deserves to know what earned it.
 //
-// `human` and `migration` sources are excluded: a person typed the first and
-// an older system holds the second, so "AI extracted" would be false of both.
+// `site_read` alone. The other four are not model extractions and the badge
+// would be false of each: a person typed a `human` value, an older system
+// holds a `migration` one, a `connector` value came out of an API verbatim,
+// and a `rule` value was computed by code somebody wrote. Calling any of them
+// AI-extracted is exactly the mislabelling this badge exists to prevent.
 function ExtractedMark({ receipt }: Readonly<{ receipt: Receipt }>) {
   const t = useT();
-  const machineWritten =
-    receipt.source_kind !== "human" && receipt.source_kind !== "migration";
-  if (!machineWritten || receipt.last_verified_at) {
+  if (receipt.source_kind !== "site_read" || receipt.last_verified_at) {
     return null;
   }
   return <Badge tone="ai">{t("co.evidence.extractedUnconfirmed")}</Badge>;
