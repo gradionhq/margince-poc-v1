@@ -275,6 +275,31 @@ func TestAPassportPastItsCeilingCannotKeepDrawingARecordedAnswer(t *testing.T) {
 	}
 }
 
+// A 🟡 tool that names no record — send_email answers an activity id and a
+// status — must not have its receipt withdrawn on the second poll for lost
+// access that never existed. Zero is a fact the execution recorded, not a
+// missing one.
+func TestAnAnswerThatNamedNoRecordsIsStillServedOnASecondPoll(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	store.tool.silent = true
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+
+	first := pollTask(t, s, task.ID)
+	if isToolError(t, first[fieldResult].(json.RawMessage)) {
+		t.Fatalf("the first poll refused its own fresh answer: %v", first)
+	}
+
+	again := pollTask(t, s, task.ID)
+
+	if again[fieldStatus] != string(TaskCompleted) {
+		t.Fatalf("status = %v, want completed", again[fieldStatus])
+	}
+	if isToolError(t, again[fieldResult].(json.RawMessage)) {
+		t.Errorf("a record-free receipt was withheld as though access had been lost:\n%s", again[fieldResult])
+	}
+}
+
 // A settlement can LOSE, and the row it loses to is somebody else's answer. It
 // is a read like any other: rendered() would hand its records over on the
 // strength of a call this request never made.

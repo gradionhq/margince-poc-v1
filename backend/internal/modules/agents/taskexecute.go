@@ -189,6 +189,21 @@ func (s *Dispatcher) serveRecorded(ctx context.Context, task Task) map[string]an
 	if task.ServedRecords == nil {
 		return taskWire(task, s.now())
 	}
+	// An answer that handed over NO records is served as it stands, and this is
+	// the one place the task door parts from the idempotency door on purpose.
+	//
+	// That door refuses an evidence-free envelope because it cannot tell "this
+	// answer carried no records" from "this answer's evidence is missing", and
+	// serving on a parse-shaped doubt is what its gate exists to stop. Here the
+	// count is a POSITIVE fact recorded at execution time by the same pass that
+	// collects the evidence: zero means nothing left through the seam, so there
+	// is nothing to re-prove and nothing to re-charge. It is reachable —
+	// send_email answers an activity id and a status, naming no record — and
+	// refusing it would tell an agent its receipt was withdrawn for lost access
+	// that never existed.
+	if *task.ServedRecords == 0 {
+		return taskWire(s.rendered(task), s.now())
+	}
 	proven, err := s.registry.ServeRecorded(ctx, task.Tool, task.Result, *task.ServedRecords)
 	if err != nil {
 		// WHY it could not be served decides what the agent should do, and the

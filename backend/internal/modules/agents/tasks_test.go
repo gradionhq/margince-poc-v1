@@ -427,6 +427,9 @@ type stagingTool struct {
 	// target is the record the tool stages against and later names as the
 	// evidence for its answer — one record, so the two agree.
 	target ids.UUID
+	// silent makes it answer WITHOUT naming a record, the way send_email does:
+	// an activity id and a status, no record read through the seam.
+	silent bool
 }
 
 func (t *stagingTool) Spec() mcp.ToolSpec {
@@ -442,6 +445,9 @@ func (t *stagingTool) Spec() mcp.ToolSpec {
 func (t *stagingTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	t.calls++
 	t.lastArgs = in
+	if t.silent {
+		return json.RawMessage(`{"ok":true}`), nil
+	}
 	// It NAMES the record it acted on, as every mutating tool on this surface
 	// does. That evidence is what a later poll re-proves the caller may still
 	// see — a fake that skipped it would exercise a document the replay gate
