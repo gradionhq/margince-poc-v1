@@ -3945,7 +3945,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                entity_type: "person" | "organization" | "deal" | "lead";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
             };
@@ -3953,7 +3953,24 @@ export interface paths {
         };
         /**
          * Assembled context (related evidence) for one record.
-         * @description The fixed-depth context walk (anchor → neighborhood): recent touches, related people, open questions — each item provenance-stamped. Row-scoped; a record outside the caller's scope yields an empty picture, never another workspace's neighborhood.
+         * @description The fixed-depth context walk (anchor → neighborhood): recent touches, related people,
+         *     open questions — each item provenance-stamped. Row-scoped; a record outside the caller's
+         *     scope yields an empty picture, never another workspace's neighborhood.
+         *
+         *     An `activity` anchor — a captured meeting or message — is DEREFERENCED rather than
+         *     walked: the event names the records it is about, one of them becomes the subject, and
+         *     the walk above runs around that. Three further sections say what it chose.
+         *     `prepared_for` carries the single subject the walk used; `also_present` carries every
+         *     other record the event resolved to; `unresolved_attendees` carries the addresses on the
+         *     event that matched no record, as items whose `ref` is the EVENT — an attendee nobody
+         *     here holds a record for has no id of their own — and whose `summary` is the address and
+         *     the part they played. Subject precedence is deal, then project, then organization, then
+         *     person, then lead, taking a link before a participant within a tier and the organizer
+         *     before the attendees. `also_present` and `unresolved_attendees` are bounded by
+         *     `max_items` like every other section and are ordered so the cut keeps the most useful
+         *     first, so raise it to see the whole room. Each subject is object-RBAC checked and
+         *     visibility-probed on its own, so an event readable through one link never discloses a
+         *     record behind another.
          */
         get: operations["getRecordContext"];
         put?: never;
@@ -10937,9 +10954,12 @@ export interface components {
              *     `who_knows` section, where the item is a colleague who interacts with the
              *     anchor contact. It carries the member's display name as `summary` and
              *     routes nowhere: a client renders it as a name, not as a link to a record.
+             *
+             *     Every anchor type this endpoint accepts also appears here, because the
+             *     response echoes the anchor back as one of these refs.
              * @enum {string}
              */
-            type: "person" | "organization" | "deal" | "lead" | "activity" | "user";
+            type: "person" | "organization" | "deal" | "lead" | "project" | "activity" | "user";
             /** Format: uuid */
             id: string;
         };
@@ -20898,7 +20918,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                entity_type: "person" | "organization" | "deal" | "lead";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
             };
@@ -20916,6 +20936,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };

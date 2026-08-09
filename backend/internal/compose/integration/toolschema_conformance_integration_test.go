@@ -128,6 +128,11 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		{"resolve_entities", `{"candidates":[{"kind":"organization","emails":["nobody@nowhere.example"]}]}`},
 		{"catch_me_up_on", `{"record_type":"deal","record_id":"` + deal.String() + `"}`},
 		{"prep_for_meeting", `{"record_type":"deal","record_id":"` + deal.String() + `"}`},
+		// An ACTIVITY anchor takes the other road through the walk — the event
+		// is dereferenced to the records it names and the prep is built around
+		// one of them — so it reaches sections a record anchor never emits, and
+		// its answer still has to keep the shape this server advertises.
+		{"prep_for_meeting", `{"record_type":"activity","record_id":"` + activity.String() + `"}`},
 		{"whats_slipping_this_week", `{}`},
 		{"at_risk_relationships", `{}`},
 		{"who_knows", `{"person_id":"` + person.String() + `"}`},

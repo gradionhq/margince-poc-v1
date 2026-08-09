@@ -6120,7 +6120,7 @@ paths:
       - name: entity_type
         in: path
         required: true
-        schema: { type: string, enum: [person, organization, deal, lead] }
+        schema: { type: string, enum: [person, organization, deal, lead, project, activity] }
       - $ref: '#/components/parameters/Id'
     get:
       tags: [Search]
@@ -6128,10 +6128,25 @@ paths:
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
       summary: Assembled context (related evidence) for one record.
-      description: >
+      description: |
         The fixed-depth context walk (anchor → neighborhood): recent touches, related people,
         open questions — each item provenance-stamped. Row-scoped; a record outside the caller's
         scope yields an empty picture, never another workspace's neighborhood.
+
+        An `activity` anchor — a captured meeting or message — is DEREFERENCED rather than
+        walked: the event names the records it is about, one of them becomes the subject, and
+        the walk above runs around that. Three further sections say what it chose.
+        `prepared_for` carries the single subject the walk used; `also_present` carries every
+        other record the event resolved to; `unresolved_attendees` carries the addresses on the
+        event that matched no record, as items whose `ref` is the EVENT — an attendee nobody
+        here holds a record for has no id of their own — and whose `summary` is the address and
+        the part they played. Subject precedence is deal, then project, then organization, then
+        person, then lead, taking a link before a participant within a tier and the organizer
+        before the attendees. `also_present` and `unresolved_attendees` are bounded by
+        `max_items` like every other section and are ordered so the cut keeps the most useful
+        first, so raise it to see the whole room. Each subject is object-RBAC checked and
+        visibility-probed on its own, so an event readable through one link never discloses a
+        record behind another.
       parameters:
         - name: max_items
           in: query
@@ -6144,6 +6159,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ContextResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
@@ -15279,12 +15295,15 @@ components:
       properties:
         type:
           type: string
-          enum: [person, organization, deal, lead, activity, user]
+          enum: [person, organization, deal, lead, project, activity, user]
           description: |
             `user` is a workspace MEMBER, not a record — it appears only in the
             `who_knows` section, where the item is a colleague who interacts with the
             anchor contact. It carries the member's display name as `summary` and
             routes nowhere: a client renders it as a name, not as a link to a record.
+
+            Every anchor type this endpoint accepts also appears here, because the
+            response echoes the anchor back as one of these refs.
         id:   { type: string, format: uuid }
     ContextEvidence:
       type: object
