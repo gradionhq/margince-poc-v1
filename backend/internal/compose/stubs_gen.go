@@ -467,6 +467,10 @@ func (stubs) GetMorningDigest(w nethttp.ResponseWriter, r *nethttp.Request, para
 	httperr.NotImplemented(w, r, "GetMorningDigest")
 }
 
+func (stubs) SendAccountEmail(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.SendAccountEmailParams) {
+	httperr.NotImplemented(w, r, "SendAccountEmail")
+}
+
 func (stubs) EmbedReindexStart(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "EmbedReindexStart")
 }
