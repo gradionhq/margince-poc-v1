@@ -745,7 +745,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - name: Boot the dev stack and migrate
         run: make db-up && make migrate
       # The deployment configuration (A107/ADR-0061): the api bootstraps the
@@ -820,7 +820,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       # Go, in the FRONTEND job (ADR-0069). `make check-fe` now covers both SPA
       # lanes, and the composed one needs build/composition/frontend/ — which
       # only gen-composition can produce. There is no Node-only shortcut: the
@@ -887,7 +887,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - name: Install deps and the Playwright Chromium browser
         working-directory: frontend
         # --ignore-scripts (githubactions:S6505): no lifecycle scripts run at
