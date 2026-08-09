@@ -641,3 +641,42 @@
     font-size: var(--fs-caption);
   }
 }
+
+/* The finance card. The three figures read across, because a reader compares
+   them — invoiced against open against overdue — rather than reading them one
+   at a time. */
+.fin-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.fin-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.fin-value {
+  font-weight: 600;
+  font-size: 15px;
+}
+/* Overdue money is the one reading on this card that is bad news simply by
+   being present. */
+.fin-value-danger {
+  color: var(--danger);
+}
+.fin-behaviour {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.fin-table {
+  font-size: 12.5px;
+}
+.fin-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
