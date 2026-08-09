@@ -207,6 +207,33 @@
 .modal-wide {
   width: min(720px, calc(100vw - 40px));
 }
+/* On a phone a dialog is a full-screen sheet (plan §10.3). The 40px inset that
+ * frames it on a desktop wastes the only two dimensions a phone is short of,
+ * and the evidence drawer and the composer are both content a rep reads and
+ * types into rather than glances at.
+ *
+ * The close control stays visible because the sheet scrolls INSIDE itself —
+ * the header does not scroll away with the body. */
+@media (max-width: 720px) {
+  .modal,
+  .modal-wide {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: var(--space-4);
+  }
+  /* The actions sit at the foot of the sheet rather than after the content,
+     so a long form does not bury its own confirm button. */
+  .modal .actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--bgElevated);
+    padding-top: var(--space-3);
+  }
+}
+
 .modal .actions {
   display: flex;
   justify-content: flex-end;

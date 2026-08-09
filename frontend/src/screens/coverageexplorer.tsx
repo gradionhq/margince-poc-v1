@@ -181,11 +181,22 @@ function CoverageGrid({
             <tr key={contact.person_id}>
               <th scope="row">{contact.full_name}</th>
               {shown.map((id) => {
-                const band = colleagues
-                  .find((colleague) => colleague.id === id)
-                  ?.bands.get(contact.person_id);
+                const colleague = colleagues.find((c) => c.id === id);
+                const band = colleague?.bands.get(contact.person_id);
                 return (
-                  <td key={id}>
+                  // The column header travels with the cell twice over: as
+                  // data-label, which the narrow layout renders as visible
+                  // text, and as an aria-label, which carries the same fact to
+                  // a screen reader. The CSS turns rows into cards at 720px,
+                  // and display:block strips the table roles a screen reader
+                  // would otherwise navigate by — so each cell has to be
+                  // self-describing rather than relying on a header row that
+                  // no longer exists in the accessibility tree.
+                  <td
+                    key={id}
+                    data-label={colleague?.label}
+                    aria-label={colleague?.label}
+                  >
                     {/* No band is UNTRIED, not zero. The cell says so in words
                         rather than leaving a blank a reader has to interpret. */}
                     {band ? (
