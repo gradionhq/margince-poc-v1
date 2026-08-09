@@ -33,11 +33,11 @@ func TestTheTriggerReferenceIsNeverPrintedWithoutSayingWhatItIs(t *testing.T) {
 		},
 	}, nil, nil)
 
-	// Assert the line EXISTS before asserting what it carries: a loop over lines
-	// that never matches is a test that passes by finding nothing, and dropping
-	// the Trigger line entirely would satisfy the property below vacuously.
-	if !strings.Contains(win.msgs[0].Content, triggerRef) {
-		t.Fatalf("the goal prompt does not name the trigger at all: %q", win.msgs[0].Content)
+	// Assert the whole line BEFORE the property below, which is a loop: a loop
+	// over lines that never matches passes by finding nothing, so dropping the
+	// trigger line — or renaming what introduces it — would satisfy it vacuously.
+	if labelled := "Trigger: " + triggerRef + " (" + triggerProvenance + ")"; !strings.Contains(win.msgs[0].Content, labelled) {
+		t.Fatalf("the goal prompt does not carry the labelled trigger %q: %q", labelled, win.msgs[0].Content)
 	}
 	for _, line := range strings.Split(win.msgs[0].Content, "\n") {
 		if strings.Contains(line, triggerRef) && !strings.Contains(line, triggerProvenance) {
