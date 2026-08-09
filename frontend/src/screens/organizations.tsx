@@ -2009,6 +2009,7 @@ function CompanyPage({
         <CompanyBusinessGrid
           org={org}
           view={view}
+          failed={failed}
           readOnly={Boolean(org.archived_at)}
         />
       )}
@@ -2191,6 +2192,10 @@ function CompanyOverviewStack({
   );
 }
 
+// The loading grid's cell heights, so the skeletons occupy roughly what the
+// cards will and the page does not jump when the read lands.
+const GRID_SKELETON_HEIGHTS = [96, 96, 64, 96, 64, 32];
+
 // The business cards, as the grid that replaced the right column.
 //
 // It belongs to the RECORD rather than to the overview: a reader who switches
@@ -2199,15 +2204,41 @@ function CompanyOverviewStack({
 function CompanyBusinessGrid({
   org,
   view,
+  failed,
   readOnly,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
+  // The composite read failed, as distinct from still being in flight. With no
+  // view the cards cannot tell the two apart on their own, and they say
+  // opposite things: one is "we could not load this", the other is "not yet".
+  failed: boolean;
   // An archived company takes no new deals, tags or list rows, so it shows no
   // verb that would only be refused.
   readOnly: boolean;
 }>) {
   const t = useT();
+  // Still in flight. The cards are handed no view either way, and a card with
+  // no view reports "could not be loaded" — which, before the answer has
+  // arrived, is a claim about a read that has not finished. Skeletons hold the
+  // cells until it does.
+  if (!view && !failed) {
+    return (
+      <aside className="co-grid" aria-label={t("record.business")}>
+        {GRID_SKELETON_HEIGHTS.map((height, index) => (
+          <section
+            // The placeholders are positional and interchangeable; there is no
+            // record behind one to key it by.
+            // biome-ignore lint/suspicious/noArrayIndexKey: placeholder cells have no identity of their own
+            key={index}
+            className="card co-card"
+          >
+            <Skeleton width="100%" height={height} />
+          </section>
+        ))}
+      </aside>
+    );
+  }
   return (
     // An <aside>, still: these are the same business cards the right column
     // held, and moving them into the flow changed where they sit, not what

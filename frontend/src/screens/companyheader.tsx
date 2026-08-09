@@ -463,7 +463,13 @@ export function CompanyDescription({ org }: Readonly<{ org: Organization }>) {
   }
   return (
     <p className="co-description">
+      {/* Keyed by the record, so navigating to another company while the line
+          is open REMOUNTS the control rather than re-pointing it. Without the
+          key the draft typed for company A survives, and pressing Save then
+          writes it to company B with nothing on screen saying so — the same
+          trap the composer is keyed against. */}
       <InlineText
+        key={org.id}
         label={t("co.description.label")}
         value={value}
         placeholder={t("co.description.placeholder")}
@@ -487,7 +493,13 @@ const COMPANY_DESCRIPTION_MAX = 500;
 // links and none of them said which was which.
 export function CompanyChips({ org }: Readonly<{ org: Organization }>) {
   const t = useT();
-  const website = org.website_url;
+  // `website_url` is derived server-side from the primary domain row, and an
+  // overlay-mirrored company carries the domain without it. Falling back to
+  // the row keeps the chip on those records rather than silently dropping the
+  // one identifying fact the reader had before.
+  const primaryDomain = (org.domains ?? []).find((d) => d.is_primary)?.domain;
+  const website =
+    org.website_url ?? (primaryDomain ? `https://${primaryDomain}` : undefined);
   const location = [org.address?.city, org.address?.country]
     .filter(Boolean)
     .join(", ");
