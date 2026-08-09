@@ -135,16 +135,39 @@ is offered *instead of a score when the band is unknown*, but its own worked
 example also names one when the band was merely capped — this build follows
 the example.
 
-Still unbuilt beyond that: PR 5 (documents), PR 6 (attachments, `ADR-0086`),
-PR 8 (account-started email, `ADR-0087`), PR 9/10 (finance, `ADR-0083`). Each
-needs a backend capability built from scratch.
+**Since shipped, and NOT to be rebuilt.** PR #602 merged PR 5 and the outbound
+half of PR 6 together with the slices above. Check the tree before planning any
+of it again — a session on 2026-08-09 lost an hour re-scoping PR 5 from a stale
+local checkout of `main` that predated #602:
 
-`make check`, `make craft-static`, `check-fe` and the integration lane (0
-skips) are green. Nothing is pushed: this work stays in the worktree until it
-is tested locally.
+- **PR 5 — documents.** Migration `0195_document_metadata` (DOC-DDL-1: category,
+  title, doc_state, pinned, supersedes_id, the organization/deal/project/activity
+  roll-up columns, the provider identity pair and `declared_type`, plus the
+  partial unique index and the account index). Wire: `listOrganizationDocuments`
+  (DOC-WIRE-1) and `updateAttachmentMetadata` (DOC-WIRE-2). Store:
+  `activities/documents.go`. Frontend: `companydocuments.tsx`.
+- **PR 6, outbound half.** Migration `0196_outbound_attachments` (DOC-DDL-2,
+  `comms_outbound_attachment` — the immutable snapshot of what a sent message
+  carried) and the attachment-carriage gate in the comms dispatcher.
 
-**Next**, in plan order: PR 5 (documents), then PR 6/8 (attachments,
-account-started email) and PR 9/10 (finance) against their ADRs.
+Two deviations from the chapter, both deliberate and both visible in the
+contract: DOC-WIRE-3's `pinAttachment`/`unpinAttachment` are folded into
+`updateAttachmentMetadata` as a sparse `pinned` field rather than shipping as
+two more operations, and that patch is NOT version-guarded because `attachment`
+carries no version column — the contract says so in its own description rather
+than advertising a precondition the row cannot honour.
+
+**Still unbuilt:** the INBOUND half of PR 6 (MIME parts through the capture
+sink — bounds DOC-PARAM-3/4/5, filename sanitization, sniffed-over-declared
+content type, idempotency on the provider's message-and-part identity), PR 8
+(account-started email, `ADR-0087`), and PR 9/10 (finance, `ADR-0083`).
+`connector.NormalizedRecord` carries no parts today, and `mailmap.extractText`
+skips every `*mail.AttachmentHeader` part silently — that is the starting point.
+
+Known gap, filed rather than fixed: **issue #663** — an object written before a
+transaction that then fails is never reclaimed, and Art. 17 erasure cannot reach
+it because erasure finds bytes through the attachment row. It predates the
+capture work and affects the human upload path too (DOC-AC-9).
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 
