@@ -16180,6 +16180,12 @@ components:
 
     ApprovalBundleDecisionRequest:
       type: object
+      # Closed: the field a client is most likely to send here is `edited_payload`,
+      # which this route deliberately has no arm for — accepting and ignoring it
+      # would approve the agent's original payload while the human believed they
+      # had rewritten it. The handler refuses unknown fields; this makes the
+      # contract say the same thing to a generated client and a validator.
+      additionalProperties: false
       description: |
         Decide every still-pending member of one bundle. There is no `edited_payload` arm: an edit
         is a judgment about ONE proposed change (it re-hashes that diff and re-pins its entity

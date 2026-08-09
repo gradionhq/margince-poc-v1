@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -423,25 +425,27 @@ func TestABundleTooLargeToDecideIsRefusedAndStillHiddenFromOutsiders(t *testing.
 	}
 }
 
-// waitForRowLockWaiter blocks until some backend in THIS database is waiting on
-// a lock — the bundle decision reaching the member a competing decision holds.
+// waitForRowLockWaiter blocks until something is waiting on a lock THIS TEST's
+// competing transaction holds.
 //
-// The scope comes from the WAITING BACKEND (pg_stat_activity.datname), not from
-// pg_locks.database: a row-lock wait is a `transactionid` lock, and those carry
-// a NULL database, so joining pg_database drops exactly the waiter this probe
-// exists to see. Scoped at all because pg_locks is cluster-wide and the
-// integration lane runs a dozen packages against one server, where an unrelated
-// package's waiter would satisfy a global probe and the run would sail past the
-// interleaving it claims to exercise.
-func waitForRowLockWaiter(t *testing.T, e *stagingEnv, done <-chan struct{}) {
+// It asks pg_blocking_pids rather than "is anyone in this database waiting":
+// the integration lane runs a dozen packages against one server, so a waiter
+// belonging to another package would satisfy the looser question, the competing
+// transaction would commit before the decision ever reached the contested row,
+// and the run would sail past the interleaving it claims to exercise — passing
+// having proved nothing, which is the one outcome a race test must not produce.
+// Blocked-BY-this-connection is exact: nothing else in the lane can satisfy it.
+//
+// blocker is the backend id of the transaction holding the row, read from the
+// connection it runs on.
+func waitForRowLockWaiter(t *testing.T, e *stagingEnv, blocker int, done <-chan struct{}) {
 	t.Helper()
 	const maxProbes = 20_000
 	for probe := 0; probe < maxProbes; probe++ {
 		var waiting bool
 		if err := e.owner.QueryRow(context.Background(),
-			`SELECT EXISTS (SELECT 1 FROM pg_locks l
-			   JOIN pg_stat_activity a ON a.pid = l.pid
-			  WHERE NOT l.granted AND a.datname = current_database())`).Scan(&waiting); err != nil {
+			`SELECT EXISTS (SELECT 1 FROM pg_stat_activity a
+			  WHERE $1 = ANY (pg_blocking_pids(a.pid)))`, blocker).Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
 		if waiting {
@@ -449,11 +453,22 @@ func waitForRowLockWaiter(t *testing.T, e *stagingEnv, done <-chan struct{}) {
 		}
 		select {
 		case <-done:
-			t.Fatal("the bundle decision finished without ever blocking on the contested member — it never reached the row the competing decision was holding, so this run proved nothing")
+			t.Fatal("the bundle decision finished without ever blocking on the contested member — it never reached the row the competing transaction was holding, so this run proved nothing")
 		default:
 		}
 	}
-	t.Fatalf("no backend waited on a lock in this database within %d probes", maxProbes)
+	t.Fatalf("nothing waited on backend %d within %d probes — the decision never reached the row it should have blocked on", blocker, maxProbes)
+}
+
+// backendPID is the server-side backend id of the transaction on tx, which is
+// what pg_blocking_pids names when something waits on a row it holds.
+func backendPID(t *testing.T, tx pgx.Tx) int {
+	t.Helper()
+	var pid int
+	if err := tx.QueryRow(context.Background(), `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+		t.Fatalf("reading the competing transaction's backend id: %v", err)
+	}
+	return pid
 }
 
 // The race the pre-check cannot answer: a member is pending when the bundle
@@ -497,7 +512,7 @@ func TestABundleMemberDecidedMidFlightIsAbsorbedRatherThanFailingTheBundle(t *te
 		defer close(done)
 		members, decideErr = e.svc.DecideBundle(ctx, bundle, true, nil)
 	}()
-	waitForRowLockWaiter(t, e, done)
+	waitForRowLockWaiter(t, e, backendPID(t, competing), done)
 
 	if _, err := competing.Exec(bg,
 		`UPDATE approval SET status = 'rejected', decided_by = $2, decided_at = now() WHERE id = $1`,
@@ -609,7 +624,7 @@ func TestABundleWhoseTargetLeavesMidFlightDecidesNothingAtAll(t *testing.T) {
 		defer close(done)
 		_, decideErr = e.svc.DecideBundle(ctx, bundle, true, nil)
 	}()
-	waitForRowLockWaiter(t, e, done)
+	waitForRowLockWaiter(t, e, backendPID(t, competing), done)
 
 	if _, err := competing.Exec(bg,
 		`UPDATE organization SET archived_at = now() WHERE id = $1`, org); err != nil {
@@ -712,7 +727,7 @@ func TestABundleDoesNotDecideAMemberThatMovedToAnotherBundleMidFlight(t *testing
 		defer close(done)
 		_, decideErr = e.svc.DecideBundle(ctx, leaving, true, nil)
 	}()
-	waitForRowLockWaiter(t, e, done)
+	waitForRowLockWaiter(t, e, backendPID(t, competing), done)
 
 	if _, err := competing.Exec(bg,
 		`UPDATE approval SET bundle_id = $2 WHERE id = $1`, member, arriving); err != nil {
@@ -731,5 +746,76 @@ func TestABundleDoesNotDecideAMemberThatMovedToAnotherBundleMidFlight(t *testing
 	}
 	if bundle := e.bundleOf(t, member); bundle == nil || *bundle != arriving {
 		t.Errorf("the moved member sits in %v, want the fresh act's %s", bundle, arriving)
+	}
+}
+
+// A proposal settled while a re-proposal is joining it must not be re-pointed at
+// the fresh act: a decided row moved into a new bundle carries somebody's
+// finished decision into a question that was never asked, and the act that made
+// the move ends up with no live member at all.
+//
+// The join and the move are one act under the row lock, so the re-proposal
+// re-reads the row after the verdict commits, finds nothing live to join, and
+// creates the member it meant to.
+func TestAProposalDecidedWhileARePropositionJoinsItIsNotRebundled(t *testing.T) {
+	e := setupStaging(t)
+	ctx := e.asHumanWith(decidesEverything())
+	org := e.organization(t)
+	settled, fresh := ids.NewV7(), ids.NewV7()
+	original := e.stageInto(ctx, t, settled, org, kindSiteLead, "lead-anna")
+
+	bg := context.Background()
+	deciding, err := e.owner.Begin(bg)
+	if err != nil {
+		t.Fatalf("opening the competing decision: %v", err)
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = deciding.Rollback(bg) }()
+	if _, err := deciding.Exec(bg,
+		`UPDATE approval SET status = 'rejected', decided_by = $2, decided_at = now() WHERE id = $1`,
+		original, e.rep); err != nil {
+		t.Fatalf("recording the competing verdict: %v", err)
+	}
+
+	type staged struct {
+		id  ids.ApprovalID
+		err error
+	}
+	done := make(chan staged, 1)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		id, err := e.svc.Stage(ctx, StageInput{
+			Kind:           kindSiteLead,
+			ProposedChange: []byte(`{"organization_id":"` + org.String() + `","note":"lead-anna"}`),
+			DiffHash:       "lead-anna",
+			TargetType:     tableOrganization,
+			TargetID:       org,
+			Summary:        "Re-proposed while the first was being decided",
+			JoinPending:    true,
+			BundleID:       fresh,
+		})
+		done <- staged{id: id, err: err}
+	}()
+	waitForRowLockWaiter(t, e, backendPID(t, deciding), finished)
+	if err := deciding.Commit(bg); err != nil {
+		t.Fatalf("committing the verdict: %v", err)
+	}
+
+	restaged := <-done
+	if restaged.err != nil {
+		t.Fatalf("re-proposing over a settled proposal: %v", restaged.err)
+	}
+	if restaged.id == original {
+		t.Fatal("the re-proposal joined a proposal that had just been decided")
+	}
+	if status := e.statusOf(t, original); status != approvalStatusRejected {
+		t.Errorf("the settled proposal is %s, want the verdict to stand", status)
+	}
+	if bundle := e.bundleOf(t, original); bundle == nil || *bundle != settled {
+		t.Errorf("the settled proposal moved to %v — a finished decision was carried into a fresh act", bundle)
+	}
+	if bundle := e.bundleOf(t, restaged.id); bundle == nil || *bundle != fresh {
+		t.Errorf("the new member sits in %v, want the fresh act's %s", bundle, fresh)
 	}
 }

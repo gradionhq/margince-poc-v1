@@ -204,10 +204,17 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 	// against the zero uuid matches nothing at all: the join never joins, the
 	// supersede never supersedes, and the declined memory never remembers. Every
 	// one of those fails SILENTLY, as a control that quietly does nothing.
+	// FOR UPDATE, so finding the row and re-pointing it below are one act. The
+	// identity lock above serializes STAGERS, and a decision takes neither — so
+	// without it a human can settle this proposal in the gap, and the join then
+	// hands back a decided row while rebundleJoinedInTx moves that settled
+	// history into the fresh act's bundle. Under the lock the predicate is
+	// re-evaluated, so a settled row is simply not found and the re-proposal
+	// creates the live member it meant to.
 	err := tx.QueryRow(ctx, `SELECT id FROM approval
 			WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3 AND diff_hash = $4
 			  AND status = 'pending' AND expires_at > now()
-			ORDER BY created_at DESC LIMIT 1`, wsID, in.Kind, nullUUID(in.TargetID), in.DiffHash).Scan(&id)
+			ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, wsID, in.Kind, nullUUID(in.TargetID), in.DiffHash).Scan(&id)
 	switch {
 	case err == nil:
 		if err := s.rebundleJoinedInTx(ctx, tx, in, id); err != nil {
@@ -240,8 +247,13 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 //
 // Moving the row costs nothing it was carrying: the diff hash, the version pin,
 // the expiry and the pending verdict are all untouched, and the emptied bundle
-// was only ever a grouping over rows that are still in the inbox. It is audited
-// because a proposal a human may have open changed which question it belongs to.
+// was only ever a grouping over rows that are still in the inbox.
+//
+// Audited but deliberately event-free, for the reason supersedePendingInTx
+// states below: the closed event catalog (contract-first, P3) defines no
+// approval-rebundled type, and the inbox is pull-based — every surface reads
+// bundle_id off the row itself, so there is no consumer holding a membership a
+// missing event could leave stale. The audit row carries the move.
 //
 // A staging with NO bundle never clears one: an unbundled act joining a bundled
 // proposal has no claim to orphan it from the act that did group it.
