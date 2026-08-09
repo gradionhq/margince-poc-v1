@@ -37,15 +37,33 @@ type Resource struct {
 	// careful not to be. A human's authority is their RBAC, not a scope, so
 	// the filter applies to agents alone.
 	RequiredScope principal.Scope
+	// UI is non-nil on an interactive view, and nil on every ordinary
+	// document. What it declares is what the host's sandbox will admit, so it
+	// travels with the document rather than with the tool that names it. See
+	// ResourceUI.
+	UI *ResourceUI
 }
 
-// ResourceContents is one resources/read result. Text only: every document
-// this surface publishes is a UTF-8 payload (JSON today), and a binary
-// member would be a shape no provider here can fill.
+// ResourceContents is one resources/read result. Text only: every document this
+// surface publishes is a UTF-8 payload — JSON for the query vocabulary, HTML for
+// an interactive view — and a binary member would be a shape no provider here can
+// fill.
 type ResourceContents struct {
 	URI      string
 	MIMEType string
 	Text     string
+	// UI is the sandbox declaration for THIS document, non-nil on an
+	// interactive view and nil on everything else.
+	//
+	// IT IS REPEATED HERE RATHER THAN LOOKED UP, and that is the whole point.
+	// The catalogue and the read are two answers, and a composed surface can
+	// make them disagree: with two providers publishing one URI, a catalogue
+	// walk picks the first ADVERTISER while a read picks the first that SERVES
+	// — so a policy taken from the catalogue could label one provider's bytes
+	// with another provider's rules. Carrying it on the contents means the
+	// provider that produced the document also states what may be done with
+	// it, which is one reading of one value rather than two that agree today.
+	UI *ResourceUI
 }
 
 // ResourceProvider publishes documents beside the tool surface. Both methods

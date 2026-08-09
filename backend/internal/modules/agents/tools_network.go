@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -177,6 +178,11 @@ func (t whoKnowsTool) Spec() mcp.ToolSpec {
 			"person_id":{"type":"string","format":"uuid","description":"The contact to ask about"}},
 			"required":["person_id"],"additionalProperties":false}`),
 		OutputSchema: schemaFor[WhoKnowsAnswer](),
+		// The view renders this tool's own answer as a ranked list. What it buys
+		// over the text is the band and the interaction count side by side —
+		// including the case the seam is careful about, where a colleague has an
+		// absent strength rather than a zero one.
+		UI: &mcp.ToolUI{ResourceURI: apps.RelationshipMapURI},
 	}
 }
 

@@ -94,6 +94,10 @@ func (r *Registry) Register(t mcp.Tool) {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: " + err.Error())
 	}
+	if err := assertViewDeclaration(spec); err != nil {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: " + err.Error())
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, dup := r.tools[spec.Name]; dup {
