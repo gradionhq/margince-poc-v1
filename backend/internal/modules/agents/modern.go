@@ -144,6 +144,12 @@ type framing struct {
 	// client that did not declare it on the call would be handing back a handle
 	// the client cannot poll, which the specification forbids in those words.
 	tasks bool
+	// apps reports whether THIS request declared the App extension, and is a
+	// property of the request for the same reason tasks is. A request that did
+	// not declare it is served no `_meta.ui` at all: the member tells a host
+	// there is a document to prefetch and sandbox, and a host that cannot enter
+	// the negotiation has nowhere to put it.
+	apps bool
 }
 
 // legacyFraming is the handshake era, named rather than spelled as a zero
@@ -258,6 +264,7 @@ func modernPreconditions(meta modernMeta) (framing, *rpcError) {
 		return fr, missingModernField(metaClientCapabilities, "an object")
 	}
 	fr.tasks = declaresTasks(meta.capabilities)
+	fr.apps = declaresUI(meta.capabilities)
 	if !servesAsModern(fr.version) {
 		return fr, unsupportedProtocolVersion(fr.version)
 	}

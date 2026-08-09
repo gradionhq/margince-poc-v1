@@ -1,0 +1,171 @@
+/* SPDX-License-Identifier: BUSL-1.1
+   SPDX-FileCopyrightText: 2026 Gradion
+
+   The shared look for every view. Inlined into each document, because a
+   stylesheet fetched from anywhere would be an origin this view has declared it
+   does not reach.
+
+   No web font: a font is a network request, and the sandbox admits none. The
+   stack below is what the host's own platform already has, which is also what
+   makes a view look like part of the surface it is embedded in rather than a
+   page pasted into one. */
+
+:root {
+  --bg: #ffffff;
+  --fg: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #1d4ed8;
+  --warm: #047857;
+  --cool: #b45309;
+  /* Dark enough to read: the band names are TEXT, and a "none" band is exactly
+     the case a rep has to be able to see. #9ca3af on this ground is ~2.5:1,
+     under the 4.5:1 normal text needs. */
+  --cold: #5b6472;
+}
+
+/* The host may state a theme, and may equally state nothing and leave the
+   platform preference as the only signal. Both are answered, and the explicit
+   one wins in either direction — a view told "light" inside a dark host is being
+   told something deliberate. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0b1120;
+    --fg: #e5e7eb;
+    --muted: #9ca3af;
+    --line: #1f2937;
+    --accent: #93b4fd;
+    --warm: #34d399;
+    --cool: #fbbf24;
+    /* 5.5:1 on this ground. #6b7280 was 3.9:1 — under AA for text, and the
+       "none" band is text a rep specifically needs to read. */
+    --cold: #818b9c;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0b1120;
+  --fg: #e5e7eb;
+  --muted: #9ca3af;
+  --line: #1f2937;
+  --accent: #93b4fd;
+  --warm: #34d399;
+  --cool: #fbbf24;
+  /* Matches the media-query block above; see the note there. */
+  --cold: #818b9c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+  /* An explicit background: the host paints its own ground behind this frame,
+     so a transparent body would borrow whatever is behind it and disagree with
+     the foreground colour set here. */
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.meta {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.rank {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.name {
+  font-weight: 600;
+  /* A record's own text, which is customer data of arbitrary length. It wraps
+     rather than escaping its row. */
+  overflow-wrap: anywhere;
+}
+
+.score {
+  margin-left: auto;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.factors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.factor {
+  font-variant-numeric: tabular-nums;
+}
+
+.state {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.band-high {
+  color: var(--warm);
+  font-weight: 600;
+}
+
+.band-medium {
+  color: var(--cool);
+  font-weight: 600;
+}
+
+.band-low,
+.band-none {
+  color: var(--cold);
+}
+
+/* The empty answer, which is a real answer on both of these views: a queue with
+   nothing in it, a contact nobody has spoken to. Saying so is the difference
+   between an answered question and a view that looks broken. */
+.empty {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Wide content scrolls inside its own box; the page itself never scrolls
+   sideways inside a host's frame. */
+.scroll {
+  overflow-x: auto;
+}

@@ -355,6 +355,16 @@ func (r *Registry) Spec(name string) (mcp.ToolSpec, bool) {
 func copySchemas(spec mcp.ToolSpec) mcp.ToolSpec {
 	spec.InputSchema = bytes.Clone(spec.InputSchema)
 	spec.OutputSchema = bytes.Clone(spec.OutputSchema)
+	// The view declaration, for the SAME reason and one field over: it is a
+	// pointer to a struct holding a slice, so a tool that kept a reference to
+	// what it registered could rewrite the URI a host is told to fetch — and the
+	// audience it is told to offer the tool to — for every later request, from
+	// outside the lock and after the boot-time gate that validated it.
+	if spec.UI != nil {
+		ui := *spec.UI
+		ui.Visibility = append([]string(nil), ui.Visibility...)
+		spec.UI = &ui
+	}
 	return spec
 }
 

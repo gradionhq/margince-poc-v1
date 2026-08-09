@@ -98,7 +98,15 @@ func DescribeForClient(spec mcp.ToolSpec) string {
 // toolList reads Registry.Offered rather than filtering Specs itself, so the
 // external catalog and the one a Surface-B run is shown are the same function
 // and not two that agree today.
-func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
+//
+// It takes the FRAMING because one member of a tool's entry is negotiated:
+// `_meta.ui` is offered only to a request that declared the App extension, and
+// only where this server actually serves views. That is the rule the Tasks
+// extension already rides, for the same reason — advertising an extension to a
+// client that cannot enter its negotiation offers a capability the client has no
+// way to use, and here one whose whole point is that the HOST prefetch and
+// sandbox a document it was told about.
+func (s *Dispatcher) toolList(ctx context.Context, fr framing) []map[string]any {
 	specs := s.registry.Offered(ctx)
 	tools := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
@@ -127,6 +135,16 @@ func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 		}
 		if spec.OutputSchema != nil {
 			tool["outputSchema"] = spec.OutputSchema
+		}
+		// The view, offered only where BOTH halves are real: this request
+		// declared the extension, and this server serves the documents. Either
+		// missing and the member is absent rather than empty — a client reads
+		// `_meta.ui` as "there is a view to fetch", so an entry pointing at a
+		// document this deployment does not publish is worse than none.
+		if s.appsOffered(fr) {
+			if ui := toolUIMeta(spec); ui != nil {
+				tool[fieldMeta] = map[string]any{metaUIKey: ui}
+			}
 		}
 		tools = append(tools, tool)
 	}
