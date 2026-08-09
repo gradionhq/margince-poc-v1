@@ -94,6 +94,28 @@ describe("comparing the colleagues a reader chooses", () => {
     expect(screen.getByText("Untried")).toBeTruthy();
   });
 
+  // §10.3: a table becomes structured cards before horizontal scrolling is the
+  // only option. The narrow layout is CSS, but it can only work if every cell
+  // carries the column header that says whose relationship it describes —
+  // otherwise the meaning scrolls off the top with the header row.
+  it("carries each column's colleague on the cell, so a narrow layout can label it", async () => {
+    stubGraph();
+    show(<CoverageExplorer orgId="o-1" contacts={CONTACTS} />);
+    await open();
+    await screen.findByText("Sam Silent");
+
+    // Queried from the document: the explorer opens in a dialog, which the
+    // design system renders outside the caller's container.
+    const labels = Array.from(document.querySelectorAll("td[data-label]")).map(
+      (cell) => cell.getAttribute("data-label"),
+    );
+    expect(labels.length).toBeGreaterThan(0);
+    // Every cell, not merely some: one unlabelled cell is one a phone reader
+    // cannot attribute to anybody.
+    expect(labels.every(Boolean)).toBe(true);
+    expect(labels).toContain("Mira");
+  });
+
   it("offers only colleagues who have actually reached this account", async () => {
     stubGraph();
     show(<CoverageExplorer orgId="o-1" contacts={CONTACTS} />);

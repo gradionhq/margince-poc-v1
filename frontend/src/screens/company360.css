@@ -407,3 +407,74 @@
   margin-top: var(--space-3);
   color: var(--textMeta);
 }
+
+/* ---- The coverage grid on a narrow screen (plan §10.3) ----------------------
+ *
+ * One column per colleague reads well on a desktop and not at all on a phone:
+ * the row runs off the side, and the header that says WHOSE relationship each
+ * cell describes scrolls away from the cell itself. §10.3 says a table becomes
+ * structured cards before horizontal scrolling is the only option.
+ *
+ * Each row becomes a card, each cell a labelled line. The label comes from the
+ * cell's own data-label, set from the column header, so the two cannot drift.
+ */
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.coverage-scroll {
+  overflow-x: auto;
+}
+
+@media (max-width: 720px) {
+  .coverage-scroll {
+    overflow-x: visible;
+  }
+  /* display:block strips the table roles a screen reader navigates by, so the
+   * markup below sets role="list"/"listitem" at this width to match what the
+   * cards actually are. Leaving the roles implicit would announce a table
+   * whose rows and columns no longer exist.
+   *
+   * The header row carries no content once each cell labels itself, and would
+   * otherwise be announced before every card. */
+  .coverage-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .coverage-table,
+  .coverage-table tbody,
+  .coverage-table tr,
+  .coverage-table th,
+  .coverage-table td {
+    display: block;
+  }
+  .coverage-table tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  /* The contact's name heads its own card. */
+  .coverage-table tbody th[scope="row"] {
+    font-weight: 600;
+    padding: 0 0 var(--space-2);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: var(--space-2);
+  }
+  .coverage-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1) 0;
+  }
+  .coverage-table td::before {
+    content: attr(data-label);
+    color: var(--textSecondary);
+    font-size: var(--fs-caption);
+  }
+}
