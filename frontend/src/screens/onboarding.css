@@ -633,8 +633,7 @@
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
-/* .meterbar lives in design-system/composed.css — shared with StrengthCard
- * (screens/strength.tsx), which has no onboarding.css import of its own. */
+/* .meterbar is the Meter primitive's sheet, design-system/readings.css. */
 .regmix {
   display: flex;
   gap: 14px;
