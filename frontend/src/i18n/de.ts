@@ -717,6 +717,7 @@ export const de = {
   "co.growthFit.whitespace": "Was sie bei dir noch nicht kaufen",
   "co.growthFit.objections": "Womit sie voraussichtlich dagegenhalten",
   "co.growthFit.angle": "Vorgeschlagener Ansatz",
+  "co.writeEmail": "E-Mail schreiben",
   "co.dossier.title": "Was diese Firma ist",
   "co.dossier.unavailable":
     "Diese Beschreibung ließ sich nicht lesen. An der Firma hat sich nichts geändert.",

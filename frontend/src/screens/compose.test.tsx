@@ -1618,3 +1618,93 @@ describe("TimelineActions", () => {
     );
   });
 });
+
+// An account-started send is the SAME send with a different origin (ADR-0087
+// §1): no anchor, a fresh thread, and the records it is filed under named
+// explicitly. These three cases fix that the composer picks the right door —
+// the reply path and the account path are one component, and the thing most
+// easily broken by a refactor is which endpoint it reaches for.
+describe("ComposeModal started from an account", () => {
+  it("sends through POST /emails, filed under the record it started from", async () => {
+    const onClose = vi.fn();
+    const sent = stubRoutes({
+      "POST /emails": () => jsonResponse(activity202, 202),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        open
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const req = sent.find((r) => r.key === "POST /emails");
+    expect(req?.body).toEqual({
+      subject: "Hi there",
+      body: "Body content",
+      to: ["a@x.com"],
+      consent_purpose: "transactional",
+      // Without a link the message belongs to no record and nobody finds it
+      // again, which is the gap this origin exists to close.
+      links: [{ entity_type: "organization", entity_id: "org-1" }],
+    });
+    // ADR-0055 holds on this origin too: the human's click is the approval.
+    expect(req?.headers.get("X-Approval-Token")).toBeNull();
+  });
+
+  it("never reaches the anchored reply endpoint", async () => {
+    const sent = stubRoutes({
+      "POST /emails": () => jsonResponse(activity202, 202),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(sent.some((r) => r.key === "POST /emails")).toBe(true),
+    );
+    // A fabricated anchor is exactly what ADR-0087 forbids, and a send that
+    // reached the reply path without one would 404 on a made-up id.
+    expect(sent.some((r) => r.key.includes("send-email"))).toBe(false);
+  });
+
+  // The grounded account-started draft is ADR-0087 §3 and is not built. Saying
+  // so is honest; drafting against some nearby activity would ground the mail
+  // in a conversation the rep never chose.
+  it("reports drafting unavailable rather than drafting off a stranger's thread", async () => {
+    const sent = stubRoutes({});
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    expect(sent.some((r) => r.key.includes("draft-email"))).toBe(false);
+    expect(screen.getByPlaceholderText("Body")).toHaveProperty("value", "");
+    // Silence would read as a broken button. The rep is told drafting is off
+    // and that writing it themselves still works — and Send stays reachable,
+    // because an undraftable message is not an unsendable one.
+    expect(await screen.findByText(/AI drafting is unavailable/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+  });
+});
