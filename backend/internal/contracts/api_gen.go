@@ -15703,7 +15703,7 @@ type UpdateOrganizationRequest struct {
 	// Address Structured postal address.
 	Address *Address `json:"address,omitempty"`
 
-	// Description One human-written line saying what the company does. Null clears it.
+	// Description One human-written line saying what the company does. Absent leaves it untouched; an empty string clears it, the same spelling every other nullable text field on this record uses.
 	Description *string `json:"description,omitempty"`
 	DisplayName *string `json:"display_name,omitempty"`
 

@@ -7629,7 +7629,7 @@ export interface components {
             linkedin_url?: string | null;
             display_name?: string;
             legal_name?: string | null;
-            /** @description One human-written line saying what the company does. Null clears it. */
+            /** @description One human-written line saying what the company does. Absent leaves it untouched; an empty string clears it, the same spelling every other nullable text field on this record uses. */
             description?: string | null;
             industry?: string | null;
             /** @enum {string|null} */
