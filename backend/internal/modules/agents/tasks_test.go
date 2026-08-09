@@ -1,0 +1,705 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package agents
+
+// What the io.modelcontextprotocol/tasks extension obliges this server to do,
+// and the two properties that make handing an agent a durable handle safe: the
+// handle is worthless without the passport it was minted for, and nothing at
+// all happens between polls.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
+)
+
+// The extension's identifier and the codes around it, spelled as the
+// specification writes them rather than read off the constants the code uses. A
+// test that reads the same constant proves only self-consistency — and a typo
+// in the extension key would read every client as unable to hold a handle,
+// which looks exactly like a client that declared nothing.
+func TestTheTasksExtensionTokensAreSpelledAsTheSpecificationWritesThem(t *testing.T) {
+	if extensionTasks != "io.modelcontextprotocol/tasks" {
+		t.Errorf("extension = %q, want io.modelcontextprotocol/tasks", extensionTasks)
+	}
+	for _, tc := range []struct{ got, want string }{
+		{methodTasksGet, "tasks/get"},
+		{methodTasksUpdate, "tasks/update"},
+		{methodTasksCancel, "tasks/cancel"},
+		{resultTypeTask, "task"},
+		{string(TaskWorking), "working"},
+		{string(TaskCompleted), "completed"},
+		{string(TaskFailed), "failed"},
+		{string(TaskCancelled), "cancelled"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("token = %q, want the protocol's own spelling %q", tc.got, tc.want)
+		}
+	}
+	// -32021 is the CORE specification's code for a missing client capability.
+	// The Tasks extension's own text says -32003, which the core spec places in
+	// the legacy sub-range new implementations must not allocate in — so this
+	// assertion is the decision, not a transcription.
+	if codeMissingClientCapability != -32021 {
+		t.Errorf("MissingRequiredClientCapability = %d, want -32021 (the core specification's table); "+
+			"-32003 is the extension's stale carry-over from the 2025-11-25 draft", codeMissingClientCapability)
+	}
+}
+
+// A staged confirm-first call answers a HANDLE to a client that declared the
+// extension, and the same refusal as always to one that did not. The second
+// half is the specification's MUST NOT, and it is what keeps every existing
+// client — and the certification band, which is one — seeing byte-identical
+// behaviour.
+func TestOnlyADeclaringClientIsHandedATaskForAStagedCall(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		fr       framing
+		wantTask bool
+	}{
+		{"a declaring modern client", framing{modern: true, version: modernProtocolVersion, tasks: true}, true},
+		{"a modern client that declared nothing", framing{modern: true, version: modernProtocolVersion}, false},
+		{"a handshake-era client", legacyFraming, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, store := stagingDispatcher(t)
+			out := s.call(agentCtx(), json.RawMessage(`{"name":"send_it","arguments":{}}`), tc.fr)
+			handle, minted := out.(createTaskResult)
+			if minted != tc.wantTask {
+				t.Fatalf("answered %T, want task=%v", out, tc.wantTask)
+			}
+			if !tc.wantTask {
+				refusal, ok := out.(map[string]any)
+				if !ok || refusal["isError"] != true {
+					t.Fatalf("a non-declaring client must get the ordinary refusal, got %v", out)
+				}
+				if len(store.created) != 0 {
+					t.Errorf("a task was created for a client that cannot poll it")
+				}
+				return
+			}
+			if handle[fieldStatus] != string(TaskWorking) {
+				t.Errorf("status = %v, want working", handle[fieldStatus])
+			}
+			if handle[fieldPollInterval] != taskPollIntervalMs {
+				t.Errorf("pollIntervalMs = %v, want %d", handle[fieldPollInterval], taskPollIntervalMs)
+			}
+			if handle.resultType() != resultTypeTask {
+				t.Errorf("resultType = %q, want %q", handle.resultType(), resultTypeTask)
+			}
+		})
+	}
+}
+
+// A refusal that reached no human has nothing to poll. The step-up is the case
+// that matters: it stages a question too, but releasing it widens a counter
+// rather than performing the call, so a task completing on release would report
+// an effect that never happened.
+func TestOnlyAStagedConfirmFirstRefusalBecomesATask(t *testing.T) {
+	staged := ids.From[ids.ApprovalKind](ids.NewV7())
+	for _, tc := range []struct {
+		name    string
+		refusal error
+	}{
+		{"a plain permission refusal", apperrors.ErrPermissionDenied},
+		{"a quota step-up a human was asked about", &StepUpStagedError{ApprovalID: staged}},
+		{"a confirm-first refusal that never staged", apperrors.ErrRequiresApproval},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, store := stagingDispatcher(t)
+			if _, minted := s.mintTask(agentCtx(), taskCapableFraming(), "send_it", tc.refusal); minted {
+				t.Fatalf("%v became a task; only a staged confirm-first call may", tc.refusal)
+			}
+			if len(store.created) != 0 {
+				t.Errorf("a task row was created for %v", tc.refusal)
+			}
+		})
+	}
+}
+
+// The three methods belong to the extension, so a request that did not declare
+// it is asking for a method that — for that caller — does not exist.
+func TestTheTaskMethodsRefuseAClientThatDeclaredNoExtension(t *testing.T) {
+	s, _ := stagingDispatcher(t)
+	for _, method := range []string{methodTasksGet, methodTasksUpdate, methodTasksCancel} {
+		resp := s.dispatch(agentCtx(), rpcRequest{
+			JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: method,
+			Params: json.RawMessage(`{"taskId":"` + ids.NewV7().String() + `"}`),
+		}, framing{modern: true, version: modernProtocolVersion})
+		if resp.Error == nil || resp.Error.Code != codeMissingClientCapability {
+			t.Fatalf("%s answered %+v, want -32021", method, resp.Error)
+		}
+		if resp.Error.Data == nil || resp.Error.Data.RequiredCapabilities == nil {
+			t.Fatalf("%s refusal named no requiredCapabilities, so a client cannot learn the fix", method)
+		}
+		if _, named := resp.Error.Data.RequiredCapabilities.Extensions[extensionTasks]; !named {
+			t.Errorf("%s refusal did not name %q", method, extensionTasks)
+		}
+	}
+}
+
+// In the handshake era the methods genuinely do not exist: the capability that
+// admits them is a per-request member that era cannot carry.
+func TestTheTaskMethodsDoNotExistInTheHandshakeEra(t *testing.T) {
+	s, _ := stagingDispatcher(t)
+	for _, method := range []string{methodTasksGet, methodTasksUpdate, methodTasksCancel} {
+		resp := s.dispatch(agentCtx(), rpcRequest{
+			JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: method,
+			Params: json.RawMessage(`{"taskId":"` + ids.NewV7().String() + `"}`),
+		}, legacyFraming)
+		if resp.Error == nil || resp.Error.Code != codeMethodNotFound {
+			t.Errorf("%s in the legacy framing answered %+v, want -32601", method, resp.Error)
+		}
+	}
+}
+
+// A task nobody here minted, and a task id that is not one at all, are the same
+// fact from a caller's side: no task is being named. Answering them differently
+// would let a caller tell a real id it does not own from a typo.
+func TestAnUnknownTaskAndAMalformedOneGetTheSameAnswer(t *testing.T) {
+	s, _ := stagingDispatcher(t)
+	for _, params := range []string{
+		`{"taskId":"` + ids.NewV7().String() + `"}`,
+		`{"taskId":"not-a-uuid"}`,
+		`{"taskId":""}`,
+	} {
+		resp := s.dispatch(agentCtx(), rpcRequest{
+			JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodTasksGet,
+			Params: json.RawMessage(params),
+		}, taskCapableFraming())
+		if resp.Error == nil || resp.Error.Code != codeInvalidParams {
+			t.Errorf("%s answered %+v, want -32602", params, resp.Error)
+		}
+	}
+}
+
+// The status machine: each thing a human can do to the staged proposal maps to
+// exactly one task state, and `rejected` is the one that reads backwards —
+// a person declining is a RESULT the surface returned, not a protocol fault.
+func TestEachApprovalOutcomeMapsToItsOwnTaskState(t *testing.T) {
+	for _, tc := range []struct {
+		decision   ApprovalDecision
+		wantStatus TaskStatus
+		wantError  bool
+	}{
+		{ApprovalPending, TaskWorking, false},
+		{ApprovalRejected, TaskCompleted, true},
+		{ApprovalExpired, TaskCancelled, false},
+		{ApprovalApproved, TaskCompleted, false},
+	} {
+		t.Run(string(tc.decision), func(t *testing.T) {
+			s, store := stagingDispatcher(t)
+			task := mintOne(t, s, store)
+			store.approvals.decision = tc.decision
+
+			wire := pollTask(t, s, task.ID)
+			if wire[fieldStatus] != string(tc.wantStatus) {
+				t.Fatalf("status = %v, want %v", wire[fieldStatus], tc.wantStatus)
+			}
+			if tc.wantStatus == TaskCompleted {
+				result, ok := wire[fieldResult].(json.RawMessage)
+				if !ok {
+					t.Fatalf("a completed task carried no result: %v", wire)
+				}
+				if isToolError(t, result) != tc.wantError {
+					t.Errorf("result isError = %v, want %v", !tc.wantError, tc.wantError)
+				}
+			}
+			if tc.wantStatus.terminal() && wire[fieldPollInterval] != nil {
+				t.Errorf("a terminal task invited another poll: %v", wire)
+			}
+		})
+	}
+}
+
+// The effect happens ONCE, and the second poll is answered from what the first
+// one recorded rather than by running anything again. This is the property a
+// stored result exists for: redemption is single-use, so a re-run could not
+// succeed even if it were attempted.
+func TestPollingACompletedTaskTwiceRunsTheCallOnce(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+
+	first := pollTask(t, s, task.ID)
+	second := pollTask(t, s, task.ID)
+
+	if store.tool.calls != 1 {
+		t.Fatalf("the released call ran %d times, want exactly 1", store.tool.calls)
+	}
+	if first[fieldStatus] != string(TaskCompleted) || second[fieldStatus] != string(TaskCompleted) {
+		t.Fatalf("statuses = %v / %v, want completed twice", first[fieldStatus], second[fieldStatus])
+	}
+	if string(first[fieldResult].(json.RawMessage)) != string(second[fieldResult].(json.RawMessage)) {
+		t.Errorf("the second poll answered a different result:\n%s\n%s", first[fieldResult], second[fieldResult])
+	}
+}
+
+// What is executed is what the PERSON released, not what the agent proposed. A
+// human may edit a staged proposal before approving it, which rewrites both the
+// payload and the hash that opens it — so a task replaying its original
+// arguments would perform the wrong change and be refused for saying so.
+func TestTheReleasedCallCarriesTheHumansEditedPayload(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+	store.approvals.change = json.RawMessage(`{"body":"what the human wrote"}`)
+
+	pollTask(t, s, task.ID)
+
+	var seen map[string]any
+	if err := json.Unmarshal(store.tool.lastArgs, &seen); err != nil {
+		t.Fatalf("the released call's arguments did not decode: %v", err)
+	}
+	if seen["body"] != "what the human wrote" {
+		t.Errorf("the call carried %v, want the human's edited payload", seen["body"])
+	}
+}
+
+// The approval id is the surface's own argument, so a payload that carried one
+// has no say over which approval the released call redeems.
+func TestAReleasedCallRedeemsTheTasksOwnApproval(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+	store.approvals.change = json.RawMessage(`{"approval_id":"` + ids.From[ids.ApprovalKind](ids.NewV7()).String() + `"}`)
+
+	pollTask(t, s, task.ID)
+
+	if len(store.approvals.redeemed) != 1 {
+		t.Fatalf("redeemed %d approvals, want exactly 1", len(store.approvals.redeemed))
+	}
+	if store.approvals.redeemed[0] != task.ApprovalID {
+		t.Errorf("redeemed %s, want the task's own approval %s — a payload naming another "+
+			"approval must not choose which one the released call spends",
+			store.approvals.redeemed[0], task.ApprovalID)
+	}
+}
+
+// A poll that loses the claim runs nothing and says `working`, which is true.
+func TestOnlyOneOfTwoSimultaneousPollsRunsTheCall(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.dispatch(agentCtx(), rpcRequest{
+				JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodTasksGet,
+				Params: json.RawMessage(`{"taskId":"` + task.ID.String() + `"}`),
+			}, taskCapableFraming())
+		}()
+	}
+	wg.Wait()
+
+	if store.tool.calls != 1 {
+		t.Errorf("the released call ran %d times under two concurrent polls, want 1", store.tool.calls)
+	}
+}
+
+// A claim taken from somebody who never settled is the interrupted case: an
+// earlier execution died and its effect may or may not have committed. Running
+// again would risk a second act on one human yes, so the task fails and says it
+// does not know.
+func TestATaskReclaimedAfterAnUnsettledExecutionFailsWithoutRunning(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+	store.reclaimed = true
+
+	wire := pollTask(t, s, task.ID)
+
+	if wire[fieldStatus] != string(TaskFailed) {
+		t.Fatalf("status = %v, want failed", wire[fieldStatus])
+	}
+	if store.tool.calls != 0 {
+		t.Errorf("the released call ran %d times after an interrupted attempt, want 0", store.tool.calls)
+	}
+	if wire[fieldError] == nil {
+		t.Error("a failed task carried no error, so a client learns nothing about why")
+	}
+}
+
+// Cancelling withdraws the proposal. Leaving it in the inbox would leave a
+// decision that can no longer take effect and that nobody can retract.
+func TestCancellingATaskWithdrawsTheProposalBehindIt(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+
+	resp := s.dispatch(agentCtx(), rpcRequest{
+		JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodTasksCancel,
+		Params: json.RawMessage(`{"taskId":"` + task.ID.String() + `"}`),
+	}, taskCapableFraming())
+	if resp.Error != nil {
+		t.Fatalf("tasks/cancel answered %+v", resp.Error)
+	}
+	if store.approvals.withdrawn != task.ApprovalID {
+		t.Errorf("withdrew %s, want the task's own approval %s", store.approvals.withdrawn, task.ApprovalID)
+	}
+	if got := store.tasks[task.ID].Status; got != TaskCancelled {
+		t.Errorf("status = %v, want cancelled", got)
+	}
+}
+
+// Cancellation is cooperative, and a terminal state is immutable. A cancel that
+// rewrote a recorded answer would break the one promise a terminal state makes.
+func TestCancellingASettledTaskLeavesItsAnswerAlone(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+	pollTask(t, s, task.ID)
+
+	s.dispatch(agentCtx(), rpcRequest{
+		JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodTasksCancel,
+		Params: json.RawMessage(`{"taskId":"` + task.ID.String() + `"}`),
+	}, taskCapableFraming())
+
+	if got := store.tasks[task.ID].Status; got != TaskCompleted {
+		t.Errorf("status = %v, want the completed answer left alone", got)
+	}
+	if !store.approvals.withdrawn.IsZero() {
+		t.Error("cancelling a settled task withdrew an approval that had already been decided")
+	}
+}
+
+// tasks/update is served because the specification requires the method to
+// exist, and it acknowledges emptily because this server raises no
+// inputRequests — a confirm-first decision is a person visiting Margince, not a
+// round trip back through the agent's client.
+func TestUpdatingATaskIsAnEmptyAcknowledgement(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+
+	resp := s.dispatch(agentCtx(), rpcRequest{
+		JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodTasksUpdate,
+		Params: json.RawMessage(`{"taskId":"` + task.ID.String() + `","inputResponses":{"nobody-asked":{}}}`),
+	}, taskCapableFraming())
+	if resp.Error != nil {
+		t.Fatalf("tasks/update answered %+v", resp.Error)
+	}
+	body, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("marshalling the ack: %v", err)
+	}
+	if string(body) != `{}` {
+		t.Errorf("ack = %s, want an empty result", body)
+	}
+	if got := store.tasks[task.ID].Status; got != TaskWorking {
+		t.Errorf("an update moved the task to %v; it decides nothing", got)
+	}
+}
+
+// The extension is advertised where it can be acted on and nowhere else: an
+// extension is negotiated per request, in a member the handshake era has no
+// place for, so offering it there would offer a negotiation that era cannot
+// enter.
+func TestTheExtensionIsAdvertisedToTheEraThatCanDeclareIt(t *testing.T) {
+	s, _ := stagingDispatcher(t)
+	modern, ok := s.capabilities(true)["extensions"].(map[string]any)
+	if !ok {
+		t.Fatal("server/discover advertised no extensions, so no client can know to declare one")
+	}
+	if _, named := modern[extensionTasks]; !named {
+		t.Errorf("extensions = %v, want %q", modern, extensionTasks)
+	}
+	if _, offered := s.capabilities(false)["extensions"]; offered {
+		t.Error("initialize advertised an extension the handshake era cannot declare")
+	}
+
+	// And not at all without a store behind it: a client that saw it advertised
+	// would be entitled to expect a handle.
+	bare := NewDispatcher(NewRegistry(nil, auth.NewGate(fullSeatAuthority{})), bindAuthenticated, "margince-crm", "test")
+	if _, offered := bare.capabilities(true)["extensions"]; offered {
+		t.Error("a server with no task store advertised the extension anyway")
+	}
+}
+
+// The discriminator belongs to the extension, and the specification forbids it
+// anywhere else. Only one type can answer it, which is what makes that true by
+// construction rather than by review.
+func TestOnlyATaskHandleClaimsTheTaskResultType(t *testing.T) {
+	if got := modernResultTypeOf(createTaskResult{}); got != resultTypeTask {
+		t.Errorf("a task handle's resultType = %q, want %q", got, resultTypeTask)
+	}
+	for _, result := range []any{
+		map[string]any{"tools": []any{}},
+		map[string]json.RawMessage{},
+		nil,
+	} {
+		if got := modernResultTypeOf(result); got != resultTypeComplete {
+			t.Errorf("%T claimed resultType %q, want %q", result, got, resultTypeComplete)
+		}
+	}
+}
+
+// The three methods mirror their taskId into Mcp-Name, which the specification
+// requires so an intermediary can route a poll without parsing the body.
+func TestTheTaskMethodsMirrorTheirTaskID(t *testing.T) {
+	id := ids.NewV7().String()
+	for _, method := range []string{methodTasksGet, methodTasksUpdate, methodTasksCancel} {
+		read, named := modernNamedMethods[method]
+		if !named {
+			t.Fatalf("%s mirrors no name, so a gateway routing on Mcp-Name is unchecked", method)
+		}
+		if got := read(json.RawMessage(`{"taskId":"` + id + `"}`)); got != id {
+			t.Errorf("%s read %q from its body, want %q", method, got, id)
+		}
+	}
+}
+
+// The freshness a handle reports tracks the decision it waits on, and never
+// runs backwards past it.
+func TestATasksFreshnessTracksTheDecisionItWaitsOn(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	task := Task{Status: TaskWorking, ExpiresAt: now.Add(90 * time.Second), CreatedAt: now, UpdatedAt: now}
+	if got := taskWire(task, now)[fieldTTLMs]; got != int64(90_000) {
+		t.Errorf("ttlMs = %v, want 90000", got)
+	}
+	expired := taskWire(Task{Status: TaskWorking, ExpiresAt: now.Add(-time.Hour)}, now)
+	if got := expired[fieldTTLMs]; got != int64(0) {
+		t.Errorf("ttlMs = %v for a lapsed window, want 0 — a negative freshness is not actionable", got)
+	}
+}
+
+// ---- harness ----
+
+// stagingTool is a confirm-first tool the gate always sends to a human, and
+// which records the call it is eventually asked to perform.
+type stagingTool struct {
+	calls    int
+	lastArgs json.RawMessage
+}
+
+func (t *stagingTool) Spec() mcp.ToolSpec {
+	return mcp.ToolSpec{
+		Name: "send_it", Title: "send_it", Version: testToolVersion,
+		Description:   "send_it does the thing the test needs it to do.",
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
+		InputSchema:  json.RawMessage(`{"type":"object"}`),
+		OutputSchema: json.RawMessage(`{"type":"object"}`),
+	}
+}
+
+func (t *stagingTool) Handle(_ context.Context, in json.RawMessage) (json.RawMessage, error) {
+	t.calls++
+	t.lastArgs = in
+	return json.RawMessage(`{"ok":true}`), nil
+}
+
+// StageInfo makes the tool stageable, which is what turns its refusal into
+// something a handle can point at.
+func (t *stagingTool) StageInfo(context.Context, json.RawMessage) (StageInfo, error) {
+	return StageInfo{TargetType: "deal", TargetID: ids.NewV7(), Summary: "send it"}, nil
+}
+
+// fakeApprovals is the staging, polling and redemption seam in one object, so a
+// test can move the human's decision and watch what the poll does about it.
+type fakeApprovals struct {
+	mu        sync.Mutex
+	staged    ids.ApprovalID
+	decision  ApprovalDecision
+	change    json.RawMessage
+	withdrawn ids.ApprovalID
+	redeemed  []ids.ApprovalID
+}
+
+func (a *fakeApprovals) Stage(_ context.Context, in StageRequest) (ids.ApprovalID, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.staged = ids.From[ids.ApprovalKind](ids.NewV7())
+	if a.change == nil {
+		a.change = in.ProposedChange
+	}
+	return a.staged, nil
+}
+
+func (a *fakeApprovals) StageQuotaRelease(context.Context, QuotaReleaseRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, errors.New("no step-up in this fixture")
+}
+
+func (a *fakeApprovals) Redeem(_ context.Context, id ids.ApprovalID, _, _ string) (int64, bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.redeemed = append(a.redeemed, id)
+	return 0, false, nil
+}
+
+func (a *fakeApprovals) State(context.Context, ids.ApprovalID) (ApprovalState, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	decision := a.decision
+	if decision == "" {
+		decision = ApprovalPending
+	}
+	return ApprovalState{Decided: decision, ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (a *fakeApprovals) ProposedChange(context.Context, ids.ApprovalID) (json.RawMessage, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.change, nil
+}
+
+func (a *fakeApprovals) Withdraw(_ context.Context, id ids.ApprovalID) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.withdrawn = id
+	return nil
+}
+
+// fakeTasks is an in-memory task store with the ONE behaviour the durable one
+// must have: a claim is won by exactly one caller, and a terminal state is
+// never rewritten.
+type fakeTasks struct {
+	mu        sync.Mutex
+	tasks     map[ids.UUID]Task
+	created   []NewTask
+	claimed   map[ids.UUID]bool
+	reclaimed bool
+	approvals *fakeApprovals
+	tool      *stagingTool
+}
+
+func (f *fakeTasks) Create(_ context.Context, in NewTask) (Task, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.created = append(f.created, in)
+	task := Task{
+		ID: ids.NewV7(), ApprovalID: in.ApprovalID, Tool: in.Tool, Status: TaskWorking,
+		StatusMessage: in.StatusMessage, ExpiresAt: in.ExpiresAt,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	f.tasks[task.ID] = task
+	return task, nil
+}
+
+func (f *fakeTasks) Load(_ context.Context, id ids.UUID) (Task, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	task, ok := f.tasks[id]
+	if !ok {
+		return Task{}, apperrors.ErrNotFound
+	}
+	return task, nil
+}
+
+func (f *fakeTasks) Claim(_ context.Context, id ids.UUID, _ time.Duration) (TaskClaim, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.claimed[id] || f.tasks[id].Status != TaskWorking {
+		return TaskClaim{}, nil
+	}
+	f.claimed[id] = true
+	return TaskClaim{Won: true, Reclaimed: f.reclaimed}, nil
+}
+
+func (f *fakeTasks) Settle(_ context.Context, id ids.UUID, s Settlement) (Task, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	task, ok := f.tasks[id]
+	if !ok {
+		return Task{}, apperrors.ErrNotFound
+	}
+	if task.Status.terminal() {
+		return task, nil
+	}
+	task.Status, task.StatusMessage = s.Status, s.StatusMessage
+	task.Result, task.Error = s.Result, s.Error
+	task.UpdatedAt = time.Now()
+	f.tasks[id] = task
+	return task, nil
+}
+
+// stagingDispatcher is a server whose one tool always needs a human, wired to
+// the fakes above.
+func stagingDispatcher(t *testing.T) (*Dispatcher, *fakeTasks) {
+	t.Helper()
+	approvals := &fakeApprovals{}
+	tool := &stagingTool{}
+	store := &fakeTasks{
+		tasks: map[ids.UUID]Task{}, claimed: map[ids.UUID]bool{},
+		approvals: approvals, tool: tool,
+	}
+	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+	registry.Register(tool)
+	s := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test").
+		WithLogger(discardLog()).WithTasks(store, approvals)
+	return s, store
+}
+
+func taskCapableFraming() framing {
+	return framing{modern: true, version: modernProtocolVersion, tasks: true}
+}
+
+// mintOne stages a call and returns the handle's task.
+func mintOne(t *testing.T, s *Dispatcher, store *fakeTasks) Task {
+	t.Helper()
+	out := s.call(agentCtx(), json.RawMessage(`{"name":"send_it","arguments":{"body":"what the agent proposed"}}`),
+		taskCapableFraming())
+	handle, minted := out.(createTaskResult)
+	if !minted {
+		t.Fatalf("the staged call answered %T, not a task handle", out)
+	}
+	id, err := ids.Parse(handle[fieldTaskID].(string))
+	if err != nil {
+		t.Fatalf("the handle's taskId did not parse: %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.tasks[id]
+}
+
+// pollTask runs one tasks/get and returns the rendered task.
+func pollTask(t *testing.T, s *Dispatcher, id ids.UUID) map[string]any {
+	t.Helper()
+	resp := s.dispatch(agentCtx(), rpcRequest{
+		JSONRPC: jsonRPCVersion, ID: json.RawMessage(`1`), Method: methodTasksGet,
+		Params: json.RawMessage(`{"taskId":"` + id.String() + `"}`),
+	}, taskCapableFraming())
+	if resp.Error != nil {
+		t.Fatalf("tasks/get answered %d %q", resp.Error.Code, resp.Error.Message)
+	}
+	wire, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("tasks/get answered %T, not a task", resp.Result)
+	}
+	return wire
+}
+
+// isToolError reports whether a stored tool result refused.
+func isToolError(t *testing.T, result json.RawMessage) bool {
+	t.Helper()
+	var decoded map[string]any
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatalf("the stored result did not decode: %v", err)
+	}
+	return decoded["isError"] == true
+}
+
+// The staged approval id travels from the refusal into the handle, which is the
+// binding every later poll resolves.
+func TestAHandlePointsAtTheApprovalItsCallStaged(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	if task.ApprovalID != store.approvals.staged {
+		t.Errorf("the handle points at %s, want the staged approval %s", task.ApprovalID, store.approvals.staged)
+	}
+	var staged *workflow.StagedApprovalError
+	if !errors.As(&workflow.StagedApprovalError{ApprovalID: store.approvals.staged}, &staged) {
+		t.Fatal("the staged refusal type stopped matching errors.As, which is how mintTask recognises it")
+	}
+}

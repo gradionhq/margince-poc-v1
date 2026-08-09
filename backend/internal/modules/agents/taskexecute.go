@@ -1,0 +1,231 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package agents
+
+// What a poll actually does, which is where this extension earns its keep.
+//
+// A tasks/get is an authenticated request, so when it finds the approval
+// released it performs the effect THERE — under the polling passport, through
+// the same Registry.Invoke the agent's own retry would take. Admission, object
+// RBAC, row scope, the version pin, the volume counters and the retry claim all
+// apply because it is the same path, not because this file re-checks them.
+//
+// Nothing runs between requests, and that is what makes the two obligations
+// this track owes structural rather than defended: a cancelled task cannot have
+// writes still landing, because no writer exists outside a request; and a
+// passport that has been revoked never reaches here, because the transport
+// answers its poll with a 401 before dispatch is entered.
+//
+// WHAT IS EXECUTED IS THE APPROVAL'S PAYLOAD, NOT THE AGENT'S. A human may edit
+// a staged proposal before releasing it (ADR-0036 §4), and doing so rewrites
+// both proposed_change and diff_hash — "the original hash no longer opens
+// anything", in the approvals module's own words. Replaying the arguments the
+// agent sent would therefore perform what the agent asked for rather than what
+// the person allowed, and would fail redemption for saying so.
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// advance answers a tasks/get: it reports the task, and moves it if the
+// decision it waits on has landed.
+func (s *Dispatcher) advance(ctx context.Context, task Task) map[string]any {
+	if task.Status.terminal() {
+		return taskWire(task, s.now())
+	}
+	state, err := s.taskApprovals.State(ctx, task.ApprovalID)
+	if err != nil {
+		// The decision could not be read, which is not the same as there being
+		// no decision — so the task keeps saying `working`, which is the answer
+		// that costs a client one more poll rather than a wrong terminal state.
+		s.log.Error("mcp: reading a task's approval state failed",
+			"task", task.ID, "approval", task.ApprovalID, "err", err)
+		return taskWire(task, s.now())
+	}
+	switch state.Decided {
+	case ApprovalPending:
+		return taskWire(task, s.now())
+	case ApprovalApproved:
+		return s.runReleased(ctx, task)
+	case ApprovalRejected:
+		// A person said no. That is a RESULT — the surface answered the call —
+		// so it completes with an isError result rather than failing, which the
+		// specification reserves for a protocol fault.
+		return s.settle(ctx, task, Settlement{
+			Status:        TaskCompleted,
+			StatusMessage: taskRejectedMessage,
+			Result:        mustMarshalToolError(taskRejectedMessage),
+		})
+	case ApprovalExpired:
+		return s.settle(ctx, task, Settlement{Status: TaskCancelled, StatusMessage: taskExpiredMessage})
+	default:
+		s.log.Error("mcp: unknown approval decision on a task", "task", task.ID, "decision", state.Decided)
+		return taskWire(task, s.now())
+	}
+}
+
+// runReleased performs the approved call, once.
+//
+// The claim decides which of three things this poll is. A poll that loses the
+// claim executes nothing and says `working`, which is true. A poll that WINS a
+// claim somebody already held is the interrupted case: a previous execution
+// took the task and never recorded an outcome, so its effect may or may not
+// have committed — and since the approval is single-use, running again would
+// either be refused or, worse, perform a second act on one human yes.
+func (s *Dispatcher) runReleased(ctx context.Context, task Task) map[string]any {
+	claim, err := s.tasks.Claim(ctx, task.ID, taskClaimLease)
+	if err != nil {
+		s.log.Error("mcp: claiming a task for execution failed", "task", task.ID, "err", err)
+		return taskWire(task, s.now())
+	}
+	if !claim.Won {
+		return taskWire(task, s.now())
+	}
+	if claim.Reclaimed {
+		s.log.Error("mcp: a task was re-claimed after an execution that recorded no outcome",
+			"task", task.ID, "approval", task.ApprovalID)
+		return s.settle(ctx, task, Settlement{
+			Status:        TaskFailed,
+			StatusMessage: taskInterruptedMessage,
+			Error:         mustMarshalRPCError(codeInternalError, taskInterruptedMessage),
+		})
+	}
+	return s.settle(ctx, task, s.invokeReleased(ctx, task))
+}
+
+// invokeReleased runs the released call and turns its outcome into a
+// settlement.
+//
+// EVERY outcome of the call itself is `completed`, refusals included: the tool
+// surface answered, and the specification is explicit that a result carrying
+// isError belongs to a completed task. That covers the two refusals a released
+// call most often meets — the fifteen-minute redemption window having closed,
+// and the target row having changed since the person saw it — and both of them
+// reach the agent as the same actionable sentence a direct retry would get.
+//
+// `failed` is kept for the one case where no call was made at all.
+func (s *Dispatcher) invokeReleased(ctx context.Context, task Task) Settlement {
+	args, err := releasedArgs(ctx, s.taskApprovals, task.ApprovalID)
+	if err != nil {
+		// The staged payload could not be rebuilt into a call. Nothing ran, and
+		// nothing the agent can do changes that, so it is a fault rather than a
+		// refusal.
+		s.log.Error("mcp: rebuilding a released call failed",
+			"task", task.ID, "approval", task.ApprovalID, "err", err)
+		const message = "The approved change could not be turned back into a call, so nothing was done. " +
+			"Report this to the workspace admin rather than retrying."
+		return Settlement{
+			Status:        TaskFailed,
+			StatusMessage: message,
+			Error:         mustMarshalRPCError(codeInternalError, message),
+		}
+	}
+	out, err := s.registry.Invoke(ctx, task.Tool, args)
+	if err != nil {
+		explained := s.explain(task.Tool, err)
+		return Settlement{Status: TaskCompleted, StatusMessage: explained, Result: mustMarshalToolError(explained)}
+	}
+	result, marshalErr := json.Marshal(s.result(task.Tool, out))
+	if marshalErr != nil {
+		// The call COMMITTED and its answer cannot be rendered. Saying so beats
+		// both alternatives: reporting a failure would tell the agent nothing
+		// happened, and re-running is impossible on a spent approval.
+		s.log.Error("mcp: rendering a completed task's result failed", "task", task.ID, "err", marshalErr)
+		const message = "This was approved and carried out, but its result could not be rendered here. " +
+			"Do not repeat the call; read the record to see what it says."
+		return Settlement{Status: TaskCompleted, StatusMessage: message, Result: mustMarshalToolError(message)}
+	}
+	return Settlement{Status: TaskCompleted, StatusMessage: taskCompletedMessage, Result: result}
+}
+
+// settle records a terminal state and answers the task as settled.
+//
+// A settlement that cannot be WRITTEN is still answered, and the asymmetry is
+// deliberate: the effect has already happened, so this poll is the one chance
+// to tell its caller the truth. What the unrecorded row costs is a later poll,
+// which finds the claim held and no outcome and reports the interrupted answer
+// — honest about not knowing rather than confidently wrong.
+func (s *Dispatcher) settle(ctx context.Context, task Task, settlement Settlement) map[string]any {
+	settled, err := s.tasks.Settle(ctx, task.ID, settlement)
+	if err != nil {
+		s.log.Error("mcp: settling a task failed", "task", task.ID, "status", settlement.Status, "err", err)
+		task.Status = settlement.Status
+		task.StatusMessage = settlement.StatusMessage
+		task.Result, task.Error = settlement.Result, settlement.Error
+		task.UpdatedAt = s.now()
+		return taskWire(task, s.now())
+	}
+	return taskWire(settled, s.now())
+}
+
+// releasedArgs rebuilds the call a human released: the approval's CURRENT
+// proposed change, plus the approval id that redeems it.
+//
+// The payload is read fresh rather than remembered on the task, because an
+// edited approval carries a different one under a different hash — and a call
+// built from what the agent originally sent would both perform the wrong change
+// and be refused for it.
+//
+// approval_id is SET, never merged: it is a member the surface owns, so a
+// payload that somehow carried one has no say over which approval this call
+// redeems.
+func releasedArgs(ctx context.Context, approvals TaskApprovals, approvalID ids.ApprovalID) (json.RawMessage, error) {
+	change, err := approvals.ProposedChange(ctx, approvalID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the approved change: %w", err)
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(change, &members); err != nil {
+		return nil, fmt.Errorf("the approved change is not a JSON object: %w", err)
+	}
+	if members == nil {
+		// A literal JSON null decodes into a nil map without error, and would
+		// reach Invoke as an argument-less call.
+		return nil, fmt.Errorf("the approved change is a JSON null, not an object")
+	}
+	id, err := json.Marshal(approvalID.String())
+	if err != nil {
+		return nil, fmt.Errorf("encoding the approval id: %w", err)
+	}
+	members[approvalIDArg] = id
+	return json.Marshal(members)
+}
+
+// mustMarshalToolError renders a refusal as the tool result a completed task
+// carries. The input is this package's own prose, so the encode cannot fail on
+// any value reachable here; if it somehow did, an empty result would be a
+// completed task that says nothing, and this says something.
+func mustMarshalToolError(message string) json.RawMessage {
+	raw, err := json.Marshal(toolError(message))
+	if err != nil {
+		return json.RawMessage(`{"isError":true,"content":[]}`)
+	}
+	return raw
+}
+
+// mustMarshalRPCError renders the JSON-RPC error a failed task carries, in the
+// wire shape a client already parses errors in.
+func mustMarshalRPCError(code int, message string) json.RawMessage {
+	raw, err := json.Marshal(rpcError{Code: code, Message: message})
+	if err != nil {
+		return json.RawMessage(`{"code":-32603,"message":"internal error"}`)
+	}
+	return raw
+}
+
+// clock is the dispatcher's own reading of now, injectable so the freshness a
+// task reports can be proven rather than slept through.
+type clock func() time.Time
+
+func (s *Dispatcher) now() time.Time {
+	if s.clock == nil {
+		return time.Now()
+	}
+	return s.clock()
+}

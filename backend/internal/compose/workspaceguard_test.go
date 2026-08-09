@@ -148,6 +148,9 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 		SignalScanWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&signalScanWorkspaceWorker{}).Work(ctx, &river.Job[SignalScanWorkspaceArgs]{})
 		},
+		AgentTaskRetentionWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
+			return (&agentTaskRetentionWorkspaceWorker{}).Work(ctx, &river.Job[AgentTaskRetentionWorkspaceArgs]{})
+		},
 		AgentSchedulerWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&agentSchedulerWorkspaceWorker{}).Work(ctx, &river.Job[AgentSchedulerWorkspaceArgs]{})
 		},

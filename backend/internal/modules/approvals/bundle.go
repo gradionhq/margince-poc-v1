@@ -197,7 +197,7 @@ func (s *Service) decideMemberInTx(ctx context.Context, tx pgx.Tx, p principal.P
 // which is nothing. Expiry is its own outcome because it is not a decision
 // anybody made: an expired proposal is re-proposed, never approved.
 func outcomeOf(status string) BundleOutcome {
-	if status == "expired" {
+	if status == StatusExpired {
 		return BundleExpired
 	}
 	return BundleAlreadyDecided

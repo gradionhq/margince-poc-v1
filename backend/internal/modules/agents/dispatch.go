@@ -105,6 +105,18 @@ type Dispatcher struct {
 	// nothing behind it sends a client to a resources/read that can only
 	// fail.
 	resources mcp.ResourceProvider
+	// tasks is the durable half of the io.modelcontextprotocol/tasks extension.
+	// Nil is a composition that never hands out a handle, and the three task
+	// methods answer -32601 there rather than a not-found for an id no client
+	// can be holding.
+	tasks Tasks
+	// taskApprovals is the decision this surface polls on behalf of a handle.
+	// It arrives WITH the store, because neither half of the extension is
+	// usable without the other.
+	taskApprovals TaskApprovals
+	// clock is this dispatcher's reading of now, used for the freshness a task
+	// reports. Injected so that can be proven rather than slept through.
+	clock clock
 	// log receives the true cause of failures the tool client only sees
 	// generically — the client is an untrusted agent, so infrastructure
 	// detail (DSNs, hosts, wrap chains) stays server-side.
@@ -124,6 +136,19 @@ func (s *Dispatcher) WithResources(provider mcp.ResourceProvider) *Dispatcher {
 	s.resources = provider
 	return s
 }
+
+// WithTasks wires the durable task store, which is what turns the Tasks
+// extension on for this server: without it the capability is not advertised and
+// a staged 🟡 call answers the same refusal it always did.
+func (s *Dispatcher) WithTasks(tasks Tasks, approvals TaskApprovals) *Dispatcher {
+	s.tasks, s.taskApprovals = tasks, approvals
+	return s
+}
+
+// tasksServed reports whether this server can answer the extension at all. Both
+// halves or neither: a store with no way to read decisions would hand out
+// handles that never move.
+func (s *Dispatcher) tasksServed() bool { return s.tasks != nil && s.taskApprovals != nil }
 
 // WithLogger routes server-side diagnostics to log. They are kept away from
 // the tool client on purpose: it is an untrusted agent, so the true cause of a
@@ -153,12 +178,24 @@ type rpcError struct {
 }
 
 // rpcErrorData is every structured member a JSON-RPC error on this surface can
-// carry. There is exactly one producer today — the UnsupportedProtocolVersion
-// refusal, whose whole point is that a client can read `supported` and retry —
-// and naming the shape keeps the next one from being an open map.
+// carry. Both producers exist for the same reason — a client can read the
+// member and fix the request rather than display it — and naming the shape
+// keeps the next one from being an open map.
 type rpcErrorData struct {
 	Supported []string `json:"supported,omitempty"`
 	Requested string   `json:"requested,omitempty"`
+	//nolint:tagliatelle // requiredCapabilities is the specification's own member name
+	RequiredCapabilities *requiredCapabilities `json:"requiredCapabilities,omitempty"`
+}
+
+// requiredCapabilities is the declaration a MissingRequiredClientCapability
+// refusal asks for, rendered in the shape the client would send it back in.
+//
+// The empty struct as the map's value is the extension capability's own type:
+// the specification defines it as an object with no members, so `{}` is the
+// declaration and anything richer would be inventing a setting.
+type requiredCapabilities struct {
+	Extensions map[string]struct{} `json:"extensions,omitempty"`
 }
 
 type rpcResponse struct {
@@ -189,7 +226,7 @@ func (s *Dispatcher) dispatch(ctx context.Context, req rpcRequest, fr framing) r
 	case methodToolsList:
 		resp.Result = map[string]any{"tools": s.toolList(ctx)}
 	case methodToolsCall:
-		resp.Result = s.call(ctx, req.Params)
+		resp.Result = s.call(ctx, req.Params, fr)
 	case methodResourcesList:
 		// Answered even with no provider wired: claude.ai calls this right
 		// after initialize regardless, and an unadvertised capability
@@ -208,6 +245,15 @@ func (s *Dispatcher) dispatch(ctx context.Context, req rpcRequest, fr framing) r
 		resp.Result = map[string]any{"resourceTemplates": []any{}}
 	case methodPromptsList:
 		resp.Result = map[string]any{"prompts": []any{}}
+	case methodTasksGet, methodTasksUpdate, methodTasksCancel:
+		// Modern-only, and not through eraOwned because these need the request
+		// context: they authenticate, read and can execute. In the handshake era
+		// the method genuinely does not exist — the capability that admits it is
+		// a per-request `_meta` member that era cannot carry.
+		if !fr.modern {
+			return methodNotFound(req)
+		}
+		return s.taskMethod(ctx, req, fr)
 	default:
 		return methodNotFound(req)
 	}
@@ -281,26 +327,39 @@ func (s *Dispatcher) initialize(rawParams json.RawMessage) (map[string]any, *rpc
 	}
 	return map[string]any{
 		"protocolVersion": negotiateLegacyVersion(params.ProtocolVersion),
-		"capabilities":    s.capabilities(),
+		"capabilities":    s.capabilities(false),
 		"serverInfo":      s.identity(),
 	}, nil
 }
 
-// capabilities is what this server claims it can do, answered identically to
-// both eras — initialize reports it to a handshake client and server/discover
-// to a modern one, and two spellings of one claim is how a client ends up
-// told different things by the same server.
+// capabilities is what this server claims it can do — initialize reports it to
+// a handshake client and server/discover to a modern one, and the FEATURE
+// entries are identical in both, because two spellings of one claim is how a
+// client ends up told different things by the same server.
 //
-// listChanged is FALSE on both entries because this server has no way to send
-// the notification: notifications/*/list_changed travels on a stream this
-// transport does not open. Both surfaces really do change — each is filtered
-// per caller — so the claim would promise a message that can never arrive.
-func (s *Dispatcher) capabilities() map[string]any {
+// The EXTENSIONS entry is the one thing only one era carries, and not as a
+// variant of the same claim. An extension is negotiated per request, in a
+// `_meta` member the handshake era has no place for, so advertising one to a
+// legacy client would offer a negotiation it cannot enter — the same reason
+// ping is answered in one era only.
+//
+// listChanged is FALSE on both feature entries because this server has no way
+// to send the notification: notifications/*/list_changed travels on a stream
+// this transport does not open. Both surfaces really do change — each is
+// filtered per caller — so the claim would promise a message that can never
+// arrive.
+func (s *Dispatcher) capabilities(modern bool) map[string]any {
 	capabilities := map[string]any{"tools": map[string]any{"listChanged": false}}
 	if s.resources != nil {
 		// subscribe is FALSE for the same reason, and separately: a
 		// per-caller document has no shared state to subscribe to.
 		capabilities["resources"] = map[string]any{"listChanged": false, "subscribe": false}
+	}
+	if modern && s.tasksServed() {
+		// Advertised only where it is real. Without a task store this server
+		// never hands out a handle, and a client that saw the extension
+		// advertised would be entitled to expect one.
+		capabilities["extensions"] = map[string]any{extensionTasks: map[string]any{}}
 	}
 	return capabilities
 }
@@ -311,7 +370,11 @@ func (s *Dispatcher) identity() map[string]any {
 	return map[string]any{fieldName: s.name, "version": s.version}
 }
 
-func (s *Dispatcher) call(ctx context.Context, params json.RawMessage) map[string]any {
+// call answers tools/call. Its return is `any` rather than a result map because
+// a confirm-first call has TWO shapes: the refusal every client understands,
+// and — for a client that declared the Tasks extension on this request — a task
+// handle it can poll until the person decides.
+func (s *Dispatcher) call(ctx context.Context, params json.RawMessage, fr framing) any {
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -335,6 +398,9 @@ func (s *Dispatcher) call(ctx context.Context, params json.RawMessage) map[strin
 	}
 	out, err := s.registry.Invoke(callCtx, p.Name, p.Arguments)
 	if err != nil {
+		if handle, minted := s.mintTask(callCtx, fr, p.Name, err); minted {
+			return handle
+		}
 		return toolError(s.explain(p.Name, err))
 	}
 	return s.result(p.Name, out)
