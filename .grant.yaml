@@ -9,11 +9,11 @@ verbose: false # Enable verbose output (default: false)
 # Unlicense (maintainer decision). BUSL-1.1 is Margince's own source license.
 #
 # PostgreSQL is the license of github.com/jackc/pgerrcode, which the pgx family
-# brings in and #654 first surfaced here. It is OSI-approved and permissive —
-# the same "do what you like, keep the notice, no warranty" shape as BSD-2-Clause
-# and ISC above, which is why it belongs in this list rather than in
-# ignore-packages: this dependency IS linked into the shipped product, and the
-# ignore list is for things that only ever run in CI.
+# brings in. It is OSI-approved and permissive — the same "do what you like,
+# keep the notice, no warranty" shape as BSD-2-Clause and ISC above, which is
+# why it belongs in this list rather than in ignore-packages: this dependency IS
+# linked into the shipped product, and the ignore list is for things that only
+# ever run in CI.
 allow:
   - Apache-2.0
   - MIT

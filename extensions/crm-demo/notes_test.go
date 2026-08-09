@@ -83,7 +83,7 @@ func TestListNotesAnswersAnEmptyArrayRatherThanNull(t *testing.T) {
 // make the list the one operation of the three that accepts whatever it is
 // sent, while its published schema says the opposite.
 func TestListNotesHoldsItsDeclaredEmptyObject(t *testing.T) {
-	for _, in := range []string{`{"limit":10}`, `{"Notes":1}`} {
+	for _, in := range []string{`{"limit":10}`, `{"Notes":1}`, `null`, `{} {}`} {
 		rt := newRuntime()
 		_, err := listNotes(context.Background(), rt, json.RawMessage(in))
 		if err == nil {
@@ -166,6 +166,15 @@ func TestAddNoteRefusesWhatItCannotStoreHonestly(t *testing.T) {
 		// the first. A closed schema has to be closed byte for byte.
 		{"a case-variant of a declared field", `{"Body":"typo"}`, "matched byte for byte"},
 		{"a declared field and a case-variant of it", `{"body":"first","BODY":"second"}`, "matched byte for byte"},
+		// A map collapses these two into one entry, so a check written over an
+		// unmarshalled map sees nothing while encoding/json keeps the LAST —
+		// which is a way to put a value past a reviewer reading the first.
+		{"the same field twice", `{"body":"first","body":"second"}`, "appears twice"},
+		// `null` unmarshals into a struct as a no-op, so an operation whose
+		// schema requires an object would act on the zero value.
+		{"a null document", `null`, "a JSON object is required"},
+		// encoding/json decodes ONE value and stops.
+		{"a second JSON value", `{"body":"x"} {"body":"y"}`, "second JSON value"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

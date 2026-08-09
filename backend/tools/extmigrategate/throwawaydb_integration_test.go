@@ -56,6 +56,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"syscall"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -145,44 +146,73 @@ func runSuite(m *testing.M) (code int, err error) {
 // forever, each holding a full migrated schema, on a cluster shared by the
 // whole integration lane.
 //
-// Zero backends is the liveness test, and DROP without FORCE is the second
-// half of it: another shard of this same lane is a legitimate concurrent owner
-// of its own pid-named database, and the pair means such a database is left
-// alone even if it goes idle between the query and the drop. `mine` is skipped
-// because the caller has just dropped it WITH (FORCE), which is right for this
-// process's own name and wrong for anyone else's.
+// A LIVE PID is the liveness test, and zero backends is only the second half of
+// it. Backends alone are not enough and the difference is not theoretical: a
+// concurrent shard of this same lane owns its own pid-named database and holds
+// a connection only while a test is using one — `admin(t)` closes in
+// t.Cleanup — so a healthy peer has real zero-backend windows between tests,
+// and reaping one there would fail its run for nothing it did. The pid in the
+// name is the owner's, this cluster is the one that runner's processes share,
+// and a process that no longer exists cannot come back; that is the fact worth
+// keying on. Both are required, so a pid reused by an unrelated process still
+// protects nothing that is actually in use.
+//
+// `mine` is skipped because the caller has just dropped it WITH (FORCE), which
+// is right for this process's own name and wrong for anyone else's.
 func reapAbandonedDatabases(ctx context.Context, admin *pgx.Conn, mine string) error {
 	rows, err := admin.Query(ctx, `
-		SELECT quote_ident(d.datname)
+		SELECT quote_ident(d.datname), substring(d.datname from '[0-9]+$')::int
 		  FROM pg_database d
-		 WHERE d.datname LIKE 'margince\_extgate\_test\_%'
+		 WHERE d.datname ~ '^margince_extgate_test_[0-9]+$'
 		   AND d.datname <> $1
 		   AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.datname = d.datname)`, mine)
 	if err != nil {
 		return fmt.Errorf("looking for abandoned throwaway databases: %w", err)
 	}
-	var abandoned []string
+	type throwaway struct {
+		quoted string
+		pid    int
+	}
+	var abandoned []throwaway
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var db throwaway
+		if err := rows.Scan(&db.quoted, &db.pid); err != nil {
 			rows.Close()
 			return fmt.Errorf("looking for abandoned throwaway databases: %w", err)
 		}
-		abandoned = append(abandoned, name)
+		abandoned = append(abandoned, db)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("looking for abandoned throwaway databases: %w", err)
 	}
-	for _, name := range abandoned {
+	for _, db := range abandoned {
+		if ownerAlive(db.pid) {
+			continue
+		}
 		// Not fatal: a database that acquired a backend between the query and
 		// here belongs to somebody, and refusing to run this suite over
 		// somebody else's housekeeping would be the wrong trade.
-		if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+name); err != nil {
-			fmt.Fprintf(os.Stderr, "extmigrategate tests: leaving %s in place: %v\n", name, err)
+		if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+db.quoted); err != nil {
+			fmt.Fprintf(os.Stderr, "extmigrategate tests: leaving %s in place: %v\n", db.quoted, err)
 		}
 	}
 	return nil
+}
+
+// ownerAlive reports whether the process that named this database still exists.
+// Signal 0 delivers nothing and only asks the question. An unparseable pid
+// answers "alive", which is the safe direction: a name this function cannot
+// read is one it must not act on.
+func ownerAlive(pid int) bool {
+	if pid <= 0 {
+		return true
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // migrateVanilla brings the throwaway database to head over the core and

@@ -62,9 +62,17 @@ func relationsInExt(ctx context.Context, conn *pgx.Conn) ([]relation, error) {
 // clean-down assertion.
 //
 // The kinds enumerated are the schema-scoped catalogs that carry an owner
-// column. Cluster-scoped ones (a foreign-data wrapper, a language, a tablespace)
-// are absent because a role holding neither superuser nor CREATEDB cannot make
-// one; if that premise ever changes, they belong here too.
+// column, plus one that is not schema-scoped at all. Cluster-scoped objects
+// (a foreign-data wrapper, a language, a tablespace) are absent because a role
+// holding neither superuser nor CREATEDB cannot make one; if that premise ever
+// changes, they belong here too.
+//
+// The exception is a USER MAPPING, which is here precisely because the role
+// cannot create the thing it hangs off. A mapping needs USAGE on a foreign
+// server, which an OPERATOR may have granted to PUBLIC on a cluster this gate
+// knows nothing about — so it is a capability the unit did not have to mint to
+// hold, it survives DROP OWNED BY's reach in the same way, and it is a live
+// credential at a remote system. Nothing else in this gate would see it.
 func ownedObjects(ctx context.Context, conn *pgx.Conn, role string, includeExt bool) ([]string, error) {
 	// pg_toast is always excluded: a table's TOAST relation is owned by the
 	// table's owner and disappears with it, so reporting it would name an
@@ -119,6 +127,10 @@ func ownedObjects(ctx context.Context, conn *pgx.Conn, role string, includeExt b
 		SELECT 'text search configuration', n.nspname || '.' || tc.cfgname
 		  FROM pg_ts_config tc JOIN pg_namespace n ON n.oid = tc.cfgnamespace
 		 WHERE tc.cfgowner = to_regrole($1::text)
+		UNION ALL
+		SELECT 'user mapping', 'on foreign server ' || quote_ident(s.srvname)
+		  FROM pg_user_mapping m JOIN pg_foreign_server s ON s.oid = m.umserver
+		 WHERE m.umuser = to_regrole($1::text)
 		UNION ALL
 		SELECT 'schema', n.nspname
 		  FROM pg_namespace n WHERE n.nspowner = to_regrole($1::text)

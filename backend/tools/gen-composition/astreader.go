@@ -134,27 +134,34 @@ type unitReader struct {
 // migrationEmbedVars collects the package-level vars whose //go:embed
 // directive names the migrations layer.
 //
-// The directive is read from the declaration's doc comment because that is
-// where the go:embed contract puts it: the compiler binds the pattern to the
-// var immediately below it, so the same association read here is the one that
-// will hold at build time. A pattern is accepted when its first path element
-// is the migrations layer — `migrations`, `migrations/*.sql`, and
-// `all:migrations` all embed the directory this gate is about.
+// The directive is read from a doc comment because that is where the go:embed
+// contract puts it: the compiler binds the pattern to the var immediately
+// below it, so the same association read here is the one that holds at build
+// time. It is read from TWO places, because go/ast puts it in two:
+// `var (\n //go:embed migrations\n sql embed.FS\n)` hangs it on the SPEC,
+// and the ungrouped `//go:embed migrations\nvar sql embed.FS` hangs it on the
+// DECL. Reading only the second rejected the grouped form, which is ordinary
+// valid Go.
+//
+// The decl's own doc is consulted only for an UNGROUPED declaration. A comment
+// above `var (` binds to no spec in Go, so treating it as one would accept a
+// directive the compiler ignores — and mark every var in the group.
 func migrationEmbedVars(pkgs map[string]*ast.Package) map[string]bool {
 	embeds := map[string]bool{}
 	for _, pkg := range pkgs {
 		for _, f := range pkg.Files {
 			for _, decl := range f.Decls {
 				d, ok := decl.(*ast.GenDecl)
-				if !ok || d.Tok != token.VAR || d.Doc == nil {
+				if !ok || d.Tok != token.VAR {
 					continue
 				}
-				if !embedsMigrations(d.Doc) {
-					continue
-				}
+				grouped := d.Lparen.IsValid()
 				for _, spec := range d.Specs {
 					v, ok := spec.(*ast.ValueSpec)
 					if !ok {
+						continue
+					}
+					if !embedsMigrations(v.Doc) && (grouped || !embedsMigrations(d.Doc)) {
 						continue
 					}
 					for _, name := range v.Names {
@@ -167,13 +174,33 @@ func migrationEmbedVars(pkgs map[string]*ast.Package) map[string]bool {
 	return embeds
 }
 
+// embedsMigrations reports whether a doc comment carries a //go:embed
+// directive covering the migrations layer.
+//
+// It is stricter about the DIRECTIVE and looser about the PATTERN than the
+// obvious prefix test, and both directions are the compiler's rule rather than
+// a preference:
+//
+//   - Go requires whitespace after `//go:embed`. `//go:embedmigrations` is an
+//     ordinary comment, so the FS beneath it stays EMPTY and the unit's
+//     migrations are silently never applied — which is precisely the defect
+//     this gate exists to catch, and accepting the typo waved it through.
+//   - A pattern may be a quoted Go string literal, so `//go:embed "migrations"`
+//     is valid and embeds the same directory. Comparing the raw token refused
+//     it for a spelling difference.
 func embedsMigrations(doc *ast.CommentGroup) bool {
+	if doc == nil {
+		return false
+	}
 	for _, c := range doc.List {
-		directive, ok := strings.CutPrefix(c.Text, "//go:embed")
-		if !ok {
+		rest, ok := strings.CutPrefix(c.Text, "//go:embed")
+		if !ok || rest == "" || (rest[0] != ' ' && rest[0] != '\t') {
 			continue
 		}
-		for _, pattern := range strings.Fields(directive) {
+		for _, pattern := range strings.Fields(rest) {
+			if unquoted, err := strconv.Unquote(pattern); err == nil {
+				pattern = unquoted
+			}
 			// `all:` is the only prefix go:embed defines, and it changes which
 			// files inside the directory are taken, not which directory.
 			pattern = strings.TrimPrefix(pattern, "all:")

@@ -110,6 +110,13 @@ func TestVerbValidateRefusals(t *testing.T) {
 		"a tool verb outside the grammar":       func(v *Verb) { v.Tool = "Demo-Sync" },
 		"no tool verb":                          func(v *Verb) { v.Tool = "" },
 		"no version":                            func(v *Verb) { v.Version = "" },
+		// The version is rendered like the title and the description — the
+		// composer emits it as the tool's `schema_version` — so it is held to
+		// the same three rules, and each has its own row for the same reason
+		// the title's do: emptiness is the one fault an author notices anyway.
+		"a framed version":                      func(v *Verb) { v.Version = " 1.0.0 " },
+		"a non-printable version":               func(v *Verb) { v.Version = "1.0.0\n0" },
+		"a version that is not valid UTF-8":     func(v *Verb) { v.Version = "1.0.0\xff" },
 		"a blank title":                         func(v *Verb) { v.Title = "   " },
 		"a framed title":                        func(v *Verb) { v.Title = " Sync " },
 		"a non-printable title":                 func(v *Verb) { v.Title = "Sync\tit" },

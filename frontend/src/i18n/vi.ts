@@ -152,9 +152,12 @@ export const vi = {
   "extDemo.notes.empty": "Chưa có ghi chú nào.",
   "extDemo.notes.noGrant":
     "Bạn không có quyền đọc ghi chú của tiện ích mở rộng này.",
-  "extDemo.signing.storeFailed": "Khóa chưa được lưu. Không có gì thay đổi.",
-  "extDemo.notes.addFailed": "Ghi chú chưa được thêm. Không có gì thay đổi.",
-  "extDemo.notes.removeFailed": "Ghi chú chưa được xóa. Không có gì thay đổi.",
+  "extDemo.signing.storeFailed":
+    "Lưu khóa thất bại. Chưa rõ khóa đã được lưu hay chưa — hãy kiểm tra trạng thái ở trên trước khi dán lại.",
+  "extDemo.notes.addFailed":
+    "Thêm ghi chú thất bại. Chưa rõ ghi chú đã được lưu hay chưa — hãy kiểm tra danh sách bên dưới trước khi thêm lại.",
+  "extDemo.notes.removeFailed":
+    "Xóa ghi chú thất bại. Hãy kiểm tra danh sách bên dưới.",
 
   "search.title": "Tìm kiếm",
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",

@@ -383,11 +383,32 @@ func jsonSchema(where string, node *yaml.Node) (json.RawMessage, error) {
 	return encoded, nil
 }
 
-// findRef walks a schema node for a `$ref` key at any depth, returning the
-// path to the first one it finds so the refusal names a position rather than a
-// document. The path is written the way a reader would say it out loud —
-// `.properties.deal.$ref`, `[0].$ref` — because the point of naming it is that
-// the author can go to the line.
+// schemaDataKeywords hold INSTANCE data, not subschemas. A `$ref` under any of
+// them is a property of the example or the default value being described — a
+// perfectly ordinary object member that happens to be spelled `$ref` — and
+// refusing it would refuse a schema that references nothing.
+var schemaDataKeywords = map[string]bool{
+	"example": true, "examples": true, "default": true, "const": true, "enum": true,
+}
+
+// namedSubschemaKeywords hold subschemas keyed by an AUTHOR-CHOSEN name. The
+// level below them is a set of names, so `properties.$ref` is a property called
+// `$ref` and not a reference; the level below THAT is a schema again.
+var namedSubschemaKeywords = map[string]bool{
+	"properties": true, "patternProperties": true, "$defs": true, "definitions": true,
+}
+
+// findRef walks a SCHEMA node for a `$ref` at any depth, returning the path to
+// the first one so the refusal names a position rather than a document. The
+// path is written the way a reader would say it out loud —
+// `.properties.deal.$ref`, `.allOf[0].$ref` — because the point of naming it is
+// that the author can go to the line.
+//
+// It is a schema walk rather than a document walk, and the distinction is what
+// keeps it from refusing correct fragments: a bare recursive search for the key
+// `$ref` also finds a PROPERTY named `$ref` and a `$ref` member inside an
+// `example`, neither of which is a reference to anything. The two keyword sets
+// above are what tell those apart.
 func findRef(node *yaml.Node, path string) (string, bool) {
 	if node == nil {
 		return "", false
@@ -395,12 +416,22 @@ func findRef(node *yaml.Node, path string) (string, bool) {
 	switch node.Kind {
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			key := node.Content[i].Value
-			if key == "$ref" {
+			key, value := node.Content[i].Value, node.Content[i+1]
+			switch {
+			case key == "$ref":
 				return path + ".$ref", true
-			}
-			if found, ok := findRef(node.Content[i+1], path+"."+key); ok {
-				return found, true
+			case schemaDataKeywords[key]:
+				continue
+			case namedSubschemaKeywords[key] && value.Kind == yaml.MappingNode:
+				for j := 0; j+1 < len(value.Content); j += 2 {
+					if found, ok := findRef(value.Content[j+1], path+"."+key+"."+value.Content[j].Value); ok {
+						return found, true
+					}
+				}
+			default:
+				if found, ok := findRef(value, path+"."+key); ok {
+					return found, true
+				}
 			}
 		}
 	case yaml.SequenceNode:

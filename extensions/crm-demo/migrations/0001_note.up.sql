@@ -35,16 +35,6 @@ CREATE TABLE ext.ext_crm_demo_note (
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 
--- The one index, and it earns its place twice. The table is cross-tenant, so
--- every read the policy admits still has to FIND the workspace's rows among
--- every other workspace's; leading on workspace_id is what turns the list into
--- a range scan, and trailing on created_at DESC is the order listNotes asks
--- for, so the sort comes free. The leading column is also what the workspace
--- cascade needs: without an index beginning with the referencing column,
--- deleting a workspace sequentially scans this table once per row it removes.
-CREATE INDEX ext_crm_demo_note_workspace_created
-    ON ext.ext_crm_demo_note (workspace_id, created_at DESC);
-
 -- ENABLE and FORCE, both, and FORCE is the load-bearing one HERE rather than a
 -- belt-and-braces habit: the owner at runtime is margince_owner (see the header),
 -- and ENABLE alone exempts a table's owner from its own policies. Without FORCE

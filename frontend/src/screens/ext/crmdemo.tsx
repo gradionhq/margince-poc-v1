@@ -140,12 +140,18 @@ function SigningCard() {
         throwProblem(error);
       }
     },
-    onSuccess: async () => {
-      setKey("");
-      await queryClient.invalidateQueries({
+    // onSettled, not onSuccess: a request that failed did not necessarily fail
+    // to STORE. A response lost on the way back leaves the key committed while
+    // the client sees an error, so the one thing this screen must not do is
+    // assert a rollback it cannot know about — it re-reads the status instead,
+    // and the failure copy says the outcome is open. The input is cleared only
+    // on success, because a key the operator may still need to re-paste must
+    // not vanish under a failure.
+    onSuccess: () => setKey(""),
+    onSettled: () =>
+      queryClient.invalidateQueries({
         queryKey: ["ext", "crm-demo", "signing-key"],
-      });
-    },
+      }),
   });
 
   const sign = useMutation({
@@ -324,10 +330,12 @@ function NotesCard() {
         throwProblem(error);
       }
     },
-    onSuccess: async () => {
-      setBody("");
-      await invalidate();
-    },
+    // Same posture as the signing card's store: the list is re-read whichever
+    // way the request ended, because a lost response can leave the note
+    // written, and the copy tells the reader to look rather than claiming the
+    // write was undone.
+    onSuccess: () => setBody(""),
+    onSettled: invalidate,
   });
 
   const remove = useMutation({
@@ -339,7 +347,7 @@ function NotesCard() {
         throwProblem(error);
       }
     },
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 
   if (!canRead) {

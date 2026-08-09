@@ -122,6 +122,13 @@ func collectUnitTables(name, dir string) (tableNames []string, present bool, err
 	if err != nil {
 		return nil, false, err
 	}
+	// The layer EXISTS, and that is the whole question `present` answers. It is
+	// deliberately not "an .up.sql was found": a layer holding only a .down.sql
+	// is an incomplete pair, and keying presence on the up half would let such a
+	// unit omit the Migrations field, which in turn is what makes the migration
+	// gate skip it — so the broken pair would be validated by nothing, on the
+	// strength of being broken. Present here, refused there.
+	present = true
 	namespace, err := extension.Name(name).Namespace()
 	if err != nil {
 		return nil, false, fmt.Errorf("extensions/%s: %w", name, err)
@@ -148,7 +155,6 @@ func collectUnitTables(name, dir string) (tableNames []string, present bool, err
 		if !strings.HasSuffix(e.Name(), ".up.sql") {
 			continue
 		}
-		present = true
 		sqlBytes, err := os.ReadFile(filepath.Join(layer, e.Name()))
 		if err != nil {
 			return nil, false, err

@@ -185,6 +185,7 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			pathItem: strings.Replace(yogiOperation, "                  quote: {type: string}", "                  quote: {$ref: '#/components/schemas/Thing'}", 1),
 			wantErr:  "$ref at .properties.quote.$ref",
 		},
+
 		"a tool verb outside the grammar": {
 			pathItem: strings.Replace(yogiOperation, "verb: u_quote", "verb: U-Quote", 1),
 			wantErr:  "not a valid verb",
@@ -209,6 +210,30 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			_, err := verbsInContract("crm.yaml", oneUnit(), contractWith(tc.pathItem))
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestASchemaThatMerelySPELLS$refIsNotAReference: the two shapes a
+// key-anywhere search cannot tell from a reference, and refused.
+//
+// A schema declaring a PROPERTY called `$ref` describes an object with a member
+// of that name — the level under `properties` is a set of author-chosen names,
+// not a schema. And a `$ref` inside an `example` is instance data: it is part
+// of the value being illustrated, not a pointer to a document. Neither needs
+// resolving, so neither may be refused.
+func TestASchemaThatMerelySpellsRefIsNotAReference(t *testing.T) {
+	for name, pathItem := range map[string]string{
+		"a property named $ref": strings.Replace(yogiOperation,
+			"                  quote: {type: string}", "                  $ref: {type: string}", 1),
+		"a $ref inside an example": strings.Replace(yogiOperation,
+			"                  quote: {type: string}",
+			"                  quote: {type: string}\n                example: {$ref: yes}", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := verbsInContract("crm.yaml", oneUnit(), contractWith(pathItem)); err != nil {
+				t.Fatalf("a schema referencing nothing was refused: %v", err)
 			}
 		})
 	}

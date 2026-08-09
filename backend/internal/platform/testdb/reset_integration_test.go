@@ -227,6 +227,54 @@ func TestResetDropsLeakedCustomFieldColumns(t *testing.T) {
 	}
 }
 
+// TestResetLeavesAnExtensionsOwnCfColumnAlone is the other side of the sweep
+// above, and it is a rule about WHOSE schema the prefix belongs to.
+//
+// `cf_` is reserved in PUBLIC, where customfields is the sole sanctioned
+// ALTER-TABLE chokepoint and therefore every such column is a leaked custom
+// field. It is reserved nowhere else. A unit that declares `cf_stage` on its own
+// table in ext has declared an ordinary column of its own migration, and a reset
+// that dropped it would leave the installed schema altered behind the test —
+// with every later test in the run reading a table that no longer matches the
+// migration that made it.
+func TestResetLeavesAnExtensionsOwnCfColumnAlone(t *testing.T) {
+	ctx := context.Background()
+	owner := ownerConn(t)
+	// Named like a unit's table, because the reset's table set is what decides
+	// which relations it visits at all — a probe outside that set would pass
+	// for the wrong reason.
+	for _, statement := range []string{
+		`CREATE TABLE ext.ext_resetprobe_thing (
+			id uuid PRIMARY KEY,
+			workspace_id uuid NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+			cf_stage text)`,
+	} {
+		if _, err := owner.Exec(ctx, statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(), `DROP TABLE IF EXISTS ext.ext_resetprobe_thing`); err != nil {
+			t.Errorf("removing the probe table: %v", err)
+		}
+	})
+
+	if err := Reset(ctx, owner); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	var present int
+	if err := owner.QueryRow(ctx, `
+		SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = 'ext' AND table_name = 'ext_resetprobe_thing' AND column_name = 'cf_stage'`,
+	).Scan(&present); err != nil {
+		t.Fatalf("looking for the unit's own column: %v", err)
+	}
+	if present != 1 {
+		t.Error("Reset dropped an extension's own cf_-named column — the prefix is reserved in public, not in ext, " +
+			"and a reset that alters an installed unit's schema leaves every later test reading a table its migration did not make")
+	}
+}
+
 // DELETE alone would leave a bulk-seeded table's dead tuples in place, and the
 // whole lane pays for that afterwards: the perf suite seeds tens of thousands of
 // rows, and every later test's scans and ALTER TABLEs would drag the corpse

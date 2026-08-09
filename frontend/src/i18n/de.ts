@@ -145,11 +145,11 @@ export const de = {
   "extDemo.notes.noGrant":
     "Sie haben keinen Lesezugriff auf die Notizen dieser Erweiterung.",
   "extDemo.signing.storeFailed":
-    "Der Schlüssel wurde nicht hinterlegt. Es wurde nichts geändert.",
+    "Das Hinterlegen des Schlüssels ist fehlgeschlagen. Ob er gespeichert wurde, ist offen — prüfen Sie den Status oben, bevor Sie ihn erneut einfügen.",
   "extDemo.notes.addFailed":
-    "Die Notiz wurde nicht hinzugefügt. Es wurde nichts geändert.",
+    "Das Hinzufügen der Notiz ist fehlgeschlagen. Ob sie gespeichert wurde, ist offen — prüfen Sie die Liste unten, bevor Sie sie erneut hinzufügen.",
   "extDemo.notes.removeFailed":
-    "Die Notiz wurde nicht entfernt. Es wurde nichts geändert.",
+    "Das Entfernen der Notiz ist fehlgeschlagen. Prüfen Sie die Liste unten.",
 
   "search.title": "Suche",
   "search.placeholder":

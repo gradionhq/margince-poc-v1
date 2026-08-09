@@ -371,6 +371,36 @@ func TestMigrationsMustEmbedTheLayerThatShipped(t *testing.T) {
 			t.Fatalf("a unit embedding its own migrations layer must derive: %v", err)
 		}
 	})
+
+	// go/ast hangs the directive on the SPEC inside `var ( … )` and on the DECL
+	// outside it. Both are ordinary Go and both must be read, or the gate
+	// refuses a unit for how it grouped a declaration.
+	t.Run("embeds the layer from inside a var group", func(t *testing.T) {
+		if err := derive(t, unitSource("\t\"embed\"\n",
+			"var (\n\t//go:embed migrations\n\tsql embed.FS\n)", "\t\tMigrations: sql,\n")); err != nil {
+			t.Fatalf("a grouped var declaration must derive: %v", err)
+		}
+	})
+
+	// A pattern may be a quoted Go string literal.
+	t.Run("embeds the layer through a quoted pattern", func(t *testing.T) {
+		if err := derive(t, unitSource("\t\"embed\"\n",
+			"//go:embed \"migrations\"\nvar sql embed.FS", "\t\tMigrations: sql,\n")); err != nil {
+			t.Fatalf("a quoted embed pattern must derive: %v", err)
+		}
+	})
+
+	// And the typo that looks like the real thing: Go requires whitespace after
+	// the directive, so this is an ordinary comment and the FS below it stays
+	// EMPTY — the unit's migrations are then applied by nothing, which is the
+	// whole defect this gate is for.
+	t.Run("a directive with no separator", func(t *testing.T) {
+		err := derive(t, unitSource("\t\"embed\"\n",
+			"//go:embedmigrations\nvar sql embed.FS", "\t\tMigrations: sql,\n"))
+		if err == nil || !strings.Contains(err.Error(), "//go:embed directive covers migrations/") {
+			t.Fatalf("err = %v, want the wrong-embed refusal", err)
+		}
+	})
 }
 
 // toolUnitSource is a unit declaring one governed tool with the given

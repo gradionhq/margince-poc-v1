@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"time"
@@ -174,15 +175,15 @@ func removeNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (
 // with additionalProperties: false and nothing between the client and this
 // function enforces it: a caller sending `bdy` would otherwise write an empty
 // note and be told it succeeded.
-// It is NOT sufficient on its own, which is why the canonical-key pass runs
-// first: encoding/json matches field names case-insensitively, so `BODY` and
-// `bOdY` both satisfy DisallowUnknownFields and both set Body. A closed schema
-// that admits three spellings of a key is not closed — and the spelling that
-// wins between two case-variants in one document is whichever comes last, which
-// is a way to change a mutation's value past a reviewer reading the first one.
+//
+// It is NOT sufficient on its own, which is why checkArgumentObject runs first.
+// encoding/json matches field names case-INSENSITIVELY, tolerates a repeated
+// member, accepts `null` where an object is declared, and stops reading after
+// the first value. Each of those admits a document the published schema does
+// not, and three of the four decide which value a mutation stores.
 func decode[T any](in json.RawMessage) (T, error) {
 	var out T
-	if err := rejectNonCanonicalKeys[T](in); err != nil {
+	if err := checkArgumentObject[T](in); err != nil {
 		return out, err
 	}
 	dec := json.NewDecoder(strings.NewReader(string(in)))
@@ -190,29 +191,63 @@ func decode[T any](in json.RawMessage) (T, error) {
 	if err := dec.Decode(&out); err != nil {
 		return out, fmt.Errorf("crm-demo: the arguments are not the declared shape: %w", err)
 	}
+	// EOF after the first value. encoding/json decodes ONE value and stops, so
+	// `{} {"body":"x"}` reads as the empty object and the rest is discarded —
+	// two documents where the contract declares one, with the operation acting
+	// on whichever the decoder happened to reach first.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return out, errors.New("crm-demo: the arguments carry a second JSON value — the contract declares one object")
+	}
 	return out, nil
 }
 
-// rejectNonCanonicalKeys refuses a top-level key that is not byte-for-byte one
-// of T's declared JSON names. It answers nothing about nested objects, and
-// needs to answer nothing: every request schema this unit declares is flat.
+// checkArgumentObject holds the two things encoding/json will not: that the
+// document IS an object, and that every member name is byte-for-byte one T
+// declares, appearing once.
 //
-// An empty or whitespace-only document is left to the decoder, so "no body at
-// all" keeps reading as the decoder's error rather than becoming this one's.
-func rejectNonCanonicalKeys[T any](in json.RawMessage) error {
+// It scans tokens rather than unmarshalling into a map, and that is the whole
+// reason it exists rather than being three lines: a map COLLAPSES duplicates,
+// so `{"body":"first","body":"second"}` arrives as one entry and the check sees
+// nothing while encoding/json quietly keeps the last — a way to put one value
+// past a reviewer reading the first. The scan sees both.
+func checkArgumentObject[T any](in json.RawMessage) error {
 	if len(bytes.TrimSpace(in)) == 0 {
+		// Left to the decoder: "no arguments at all" is its error to give, and
+		// it words it better than a key check can.
 		return nil
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(in, &raw); err != nil {
-		// Not an object, or not JSON: the decoder below says so better than a
-		// key check can, and says it about the shape rather than about a key.
-		return nil
+	dec := json.NewDecoder(bytes.NewReader(in))
+	open, err := dec.Token()
+	if err != nil {
+		return nil // not JSON; the decoder below says so about the shape
 	}
-	declared := declaredJSONNames[T]()
-	for key := range raw {
-		if !declared[key] {
+	// `null` is a valid JSON document and unmarshals into a struct as a no-op,
+	// so an operation whose schema requires an object would accept it and act
+	// on the zero value.
+	if delim, ok := open.(json.Delim); !ok || delim != '{' {
+		return errors.New("crm-demo: the arguments are not the declared shape: a JSON object is required")
+	}
+	declared, seen := declaredJSONNames[T](), map[string]bool{}
+	for dec.More() {
+		token, err := dec.Token()
+		if err != nil {
+			return nil // malformed; again the decoder's message, not this one's
+		}
+		key, ok := token.(string)
+		if !ok {
+			return nil
+		}
+		switch {
+		case !declared[key]:
 			return fmt.Errorf("crm-demo: the arguments are not the declared shape: unknown field %q — a declared name is matched byte for byte, so a case-variant of one is not one of them", key)
+		case seen[key]:
+			return fmt.Errorf("crm-demo: the arguments are not the declared shape: field %q appears twice — which copy wins is a decoder's choice, not the contract's", key)
+		}
+		seen[key] = true
+		// The value, whatever it is, so the next token read is the next KEY.
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return nil
 		}
 	}
 	return nil

@@ -124,6 +124,7 @@ func TestMigrationsAreEmbedded(t *testing.T) {
 	if want := []string{
 		"0001_note.down.sql", "0001_note.up.sql",
 		"0002_note_kind.down.sql", "0002_note_kind.up.sql",
+		"0003_note_workspace_index.down.sql", "0003_note_workspace_index.up.sql",
 	}; !slices.Equal(names, want) {
 		t.Fatalf("embedded migrations = %v, want %v — a pair missing from the EMBED is a pair nothing applies, however present it is on disk", names, want)
 	}
