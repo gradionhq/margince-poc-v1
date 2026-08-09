@@ -1250,6 +1250,44 @@ describe("company view — the KPI row never invents a figure", () => {
     ).toBeTruthy();
   });
 
+  // Two cards saying "in conversation" in different words is one card's worth
+  // of information taking two of the four slots. On a live account the health
+  // card reports the BALANCE of the exchange, which the engagement card does
+  // not answer: they write and we do not reply, and we write into silence,
+  // are both recent and are opposite problems.
+  it("reports who is carrying a live relationship, not that it is live", async () => {
+    stub(
+      view({
+        health: { days_since_last_inbound: 0, reply_balance: 0.86 },
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: {
+            state: "active",
+            last_inbound_at: "2026-08-08T10:00:00Z",
+          },
+          commercial: {
+            open_count: 1,
+            stalled_count: 0,
+            priced_count: 1,
+            converted_count: 0,
+            open_pipeline_minor_base: 100000,
+            base_currency: "EUR",
+          },
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // 86% of the exchange is theirs: they are asking more than we answer.
+    expect(within(strip).getByText("One-sided")).toBeTruthy();
+    expect(
+      within(strip).getByText(/86% of the exchange is theirs/),
+    ).toBeTruthy();
+  });
+
   it("says an empty pipeline is empty, not unpriced", async () => {
     stub(view({ state_strip: commercial({ open_count: 0 }) }));
     renderCompany();

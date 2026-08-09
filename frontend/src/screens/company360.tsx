@@ -2005,8 +2005,14 @@ function CloseDateStat({
 }
 
 // Health as a STATUS with its reason, never a 0-100 verdict (§4.2). The card
-// below the fold decomposes it; this says which way it points and why, in one
-// line, so the row is readable without scrolling to the explanation.
+// below the fold decomposes it; this says which way it points and why.
+//
+// It reports the BALANCE of the exchange rather than its recency, because the
+// engagement card beside it already answers "whose move is it" — two cards
+// saying "in conversation" in different words is one card's worth of
+// information taking two of the four slots. A relationship where they write
+// and we do not answer, and one where we write into silence, are both
+// "in conversation" by recency and are opposite problems.
 function HealthStat({
   health,
   t,
@@ -2024,19 +2030,38 @@ function HealthStat({
       />
     );
   }
+  if (days > HEALTH_QUIET_DAYS) {
+    return (
+      <StatCard
+        label={t("co.strip.health")}
+        value={t("co.strip.healthQuiet")}
+        tone="warn"
+        detail={t("co.health.sinceInbound", { days })}
+      />
+    );
+  }
+  // A live relationship: say who is carrying it. Below a third of the
+  // exchange coming from them is us talking to ourselves, whatever the dates
+  // say; above two thirds they are asking more than we are answering.
+  const share = health.reply_balance;
+  if (share == null) {
+    return (
+      <StatCard
+        label={t("co.strip.health")}
+        value={t("co.strip.healthActive")}
+      />
+    );
+  }
+  const percent = Math.round(share * 100);
+  const oneSided = share < 0.34 || share > 0.66;
   return (
     <StatCard
       label={t("co.strip.health")}
       value={
-        days <= HEALTH_QUIET_DAYS
-          ? t("co.strip.healthActive")
-          : t("co.strip.healthQuiet")
+        oneSided ? t("co.strip.healthOneSided") : t("co.strip.healthBalanced")
       }
-      // Only the quiet side is toned. A healthy relationship is the ordinary
-      // case and needs no colour; the design system has no positive tone, and
-      // inventing one would make every calm account shout.
-      tone={days <= HEALTH_QUIET_DAYS ? undefined : "warn"}
-      detail={t("co.health.sinceInbound", { days })}
+      tone={oneSided ? "warn" : undefined}
+      detail={t("co.strip.replyShare", { percent })}
     />
   );
 }
