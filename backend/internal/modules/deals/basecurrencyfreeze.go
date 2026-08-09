@@ -27,10 +27,16 @@ import (
 // deals would let a workspace that has sent offers and closed nothing change
 // its base and silently restate every one of them.
 //
+// A mirrored INVOICE freezes on its issue date (FIN-PARAM-7/DM-FX-4), and that
+// figure was on a document the customer has already been sent and may have
+// already paid. It is the least restatable of the three: the other two are our
+// own records of our own intent, while an issued invoice is a fact about money
+// that moved.
+//
 // TestTheBaseCurrencyGuardCountsEveryFrozenRate derives this list from the
 // migrations, so a future table carrying the column fails that test rather than
 // quietly widening the hole.
-var frozenRateTables = []string{"deal", "offer"}
+var frozenRateTables = []string{"deal", "offer", "finance_invoice"}
 
 // BaseCurrencyFrozen reports whether the installation's base currency has
 // stopped being changeable, and says why.

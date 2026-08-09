@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- [Open — account-started outbound and the finance mirror (2026-08-09)](#open--account-started-outbound-and-the-finance-mirror-2026-08-09)
 - [Open — the settings mirror is a dual-write on ADR-0091's critical path](#open--the-settings-mirror-is-a-dual-write-on-adr-0091s-critical-path)
 - [Pick up here — ADR-0091 (A136): retiring the workspace tenant boundary](#pick-up-here--adr-0091-a136-retiring-the-workspace-tenant-boundary)
 - [Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)](#open--two-follow-ups-left-by-adr-0082a127-the-own-company-and-internal-mail)
@@ -42,6 +43,33 @@ needs the whole file to start a session.
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Open — account-started outbound and the finance mirror (2026-08-09)
+
+ADR-0083/A128 and ADR-0087/A132 were ratified by the founder on 2026-08-09; the
+spec-side status change is `margince-foundation#1267`. The other five ADRs
+authored 2026-08-06 (A129, A130, A131, A133, A134) are still PROPOSED.
+
+**Account-started outbound (ADR-0087) — PR #685.** The send takes an origin
+(from an activity, or from an account) instead of an anchor id, so "Write email"
+from a company opens a composer without fabricating a placeholder activity.
+There is still exactly one send. `POST /v1/emails` carries the account-started
+surface; an address belonging to no person the sender can read refuses 422
+`recipient_not_on_file` and names the address.
+
+Left open: the operation is **human-only**. ADR-0087 §6's agent tool needs a
+decision-grant mapping before the verb can honestly be advertised — issue #688
+carries the four fitness tests that are its acceptance criteria. The
+account-started DRAFT (§3: grounded, fenced, auto-starting, writing nothing) is
+not built.
+
+**Finance mirror (ADR-0083) — PR #689.** The five tables only:
+`finance_connection`, `finance_external_customer`, `finance_customer_link`,
+`finance_invoice`, `finance_payment`. Migration 0202. No read path, no
+connector, no UI, no formulas — FIN-FORM-1..6 and FIN-AC-1..16 are almost all
+still open. `finance_invoice` joined `frozenRateTables` in deals, because an
+invoice freezes its FX rate on issue date and a base-currency change would
+restate money that already moved.
 
 ## Open — the settings mirror is a dual-write on ADR-0091's critical path
 
