@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
@@ -30,7 +31,12 @@ const SITE_READ: Receipt = {
   confidence: 0.9,
 };
 
-function show(receipt: unknown) {
+function show(
+  receipt: unknown,
+  // The stepper the citing card supplies. Absent by default, which is the
+  // ordinary case: a card with no ordering to give passes none.
+  onStep?: (direction: -1 | 1) => void,
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(
@@ -52,6 +58,7 @@ function show(receipt: unknown) {
           orgId="o-1"
           cited={{ entityType: "profile_field", entityId: "p-1" }}
           onClose={() => {}}
+          onStep={onStep}
         />
       </LocaleProvider>
     </QueryClientProvider>,
@@ -146,4 +153,63 @@ describe("where a cited value came from", () => {
       await screen.findByText(/This receipt could not be read/),
     ).toBeTruthy();
   });
+});
+
+describe("the receipt is a drawer beside the claim, not a box over it", () => {
+  // The reader is comparing the receipt against the sentence that cited it.
+  // A centred dialog covers that sentence; the drawer leaves it on screen.
+  it("opens right-anchored", async () => {
+    show(SITE_READ);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.classList.contains("modal-drawer")).toBe(true);
+  });
+
+  // Prev/next walks the list the CITING CARD owns. A card that offered no
+  // ordering gets no arrows, rather than arrows that step somewhere the
+  // reader cannot predict.
+  it("offers no stepping when the card gave it no order", async () => {
+    show(SITE_READ);
+    await screen.findByRole("dialog");
+    expect(screen.queryByRole("button", { name: "Next claim" })).toBeNull();
+  });
+
+  it("steps forward and back when the card gave it one", async () => {
+    const steps: number[] = [];
+    show(SITE_READ, (direction) => steps.push(direction));
+    await screen.findByRole("dialog");
+
+    await userEvent.click(screen.getByRole("button", { name: "Next claim" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Previous claim" }),
+    );
+    expect(steps).toEqual([1, -1]);
+  });
+
+  // The badge is DERIVED: a machine wrote it and no person has verified it
+  // since. Not stored, so the predicate has to be right here.
+  it("marks a machine-written claim nobody has confirmed", async () => {
+    show(SITE_READ);
+    expect(
+      await screen.findByText("AI extracted · not yet confirmed"),
+    ).toBeTruthy();
+  });
+
+  it("drops the mark once a person has verified it", async () => {
+    show({ ...SITE_READ, last_verified_at: "2026-08-05T09:00:00Z" });
+    await screen.findByRole("dialog");
+    expect(screen.queryByText(/AI extracted/)).toBeNull();
+  });
+
+  // Only a site read is a model extraction. The other four are not, and the
+  // badge would be false of each: a person typed a human value, an older
+  // system holds a migration one, a connector value came out of an API
+  // verbatim, and a rule value was computed by code somebody wrote.
+  it.each(["human", "migration", "connector", "rule"] as const)(
+    "never marks a %s claim as AI extracted",
+    async (kind) => {
+      show({ ...SITE_READ, source_kind: kind, produced_by: "x" });
+      await screen.findByRole("dialog");
+      expect(screen.queryByText(/AI extracted/)).toBeNull();
+    },
+  );
 });

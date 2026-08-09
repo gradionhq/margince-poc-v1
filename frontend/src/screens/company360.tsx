@@ -1352,18 +1352,62 @@ export function citationChips(
  * clickable element that does nothing teaches the reader that citations do not
  * work, which costs more than the click it saves.
  */
+// The citation kinds that open a RECEIPT rather than a record page. Only these
+// can be stepped through, because only these render in the drawer.
+const RECEIPT_CITATIONS = new Set(["fact", "profile_field"]);
+
+// One steppable citation, in the receipt's own shape.
+export type CitedSibling = {
+  entityType: "fact" | "profile_field";
+  entityId: string;
+};
+
+// The sentence's receipt-bearing citations, once each, in the order it cites
+// them. Mapped here at the one place that knows both shapes: the wire is
+// snake_case and the drawer's CitedRecord is not.
+function dedupeCited(evidence: readonly Cited[]): CitedSibling[] {
+  const seen = new Set<string>();
+  const out: CitedSibling[] = [];
+  for (const each of evidence) {
+    const key = `${each.entity_type}:${each.entity_id}`;
+    if (!RECEIPT_CITATIONS.has(each.entity_type) || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push({
+      entityType: each.entity_type as "fact" | "profile_field",
+      entityId: each.entity_id,
+    });
+  }
+  return out;
+}
+
 function Citations({
   evidence,
   onOpenRecord,
 }: Readonly<{
   evidence: readonly Cited[];
-  onOpenRecord?: (entityType: string, entityId: string) => void;
+  onOpenRecord?: (
+    entityType: string,
+    entityId: string,
+    siblings?: readonly CitedSibling[],
+  ) => void;
 }>) {
   const t = useT();
   const chips = citationChips(
     evidence,
     (entityType) => Boolean(onOpenRecord) && ROUTABLE_CITATIONS.has(entityType),
   );
+  // THIS sentence's citations, in the order it cites them, so the receipt's
+  // prev/next walks the sentence the reader is actually looking at. The order
+  // belongs to the sentence, which is why it is passed from here rather than
+  // rebuilt in the drawer.
+  // Mapped to the receipt's own shape here, at the one place that knows both:
+  // the wire is snake_case and the drawer's CitedRecord is not.
+  // Deduplicated, because the stepper finds its position by id: a sentence
+  // citing the same fact twice would leave `findIndex` returning the first
+  // occurrence forever, and Next would never move past it.
+  const siblings = dedupeCited(evidence);
   if (chips.length === 0) {
     return null;
   }
@@ -1375,7 +1419,9 @@ function Citations({
             key={`${chip.entityType}:${chip.entityId}`}
             type="button"
             className="co-brief-cite"
-            onClick={() => onOpenRecord?.(chip.entityType, chip.entityId)}
+            onClick={() =>
+              onOpenRecord?.(chip.entityType, chip.entityId, siblings)
+            }
           >
             {t(`co.brief.cite.${chip.entityType}`)}
           </button>

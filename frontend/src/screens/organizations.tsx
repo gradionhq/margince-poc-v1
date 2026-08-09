@@ -1834,6 +1834,55 @@ function useChronologySlots({
 // overview, so they stay mounted whichever tab is open and the reader keeps
 // the firmographics and the business context while reading the partner form
 // or the change history.
+// The receipt drawer's state: which claim is open, and the ordered list it
+// steps through.
+//
+// The ORDER belongs to the card that offered the chip, not to the drawer. A
+// reader who clicked the third citation in a sentence expects "next" to mean
+// the fourth citation in THAT sentence — a drawer that built its own order
+// would step somewhere they cannot predict. A card with no ordering to give
+// passes none, and the drawer draws no arrows rather than guessing one.
+function useCitedReceipt() {
+  const [cited, setCited] = useState<CitedRecord | null>(null);
+  const [list, setList] = useState<readonly CitedRecord[]>([]);
+  const open = (
+    entityType: string,
+    entityId: string,
+    siblings?: readonly CitedRecord[],
+  ) => {
+    if (citationOpensRecord(entityType)) {
+      openCitation(entityType, entityId);
+      return;
+    }
+    if (citationHasReceipt(entityType)) {
+      setCited({ entityType, entityId });
+      setList(siblings ?? []);
+    }
+  };
+  // Wrapping at each end: a reader walking a sentence's citations should not
+  // hit a dead stop and have to close the drawer to reach the first one again.
+  const step = (direction: -1 | 1) => {
+    if (!cited) {
+      return;
+    }
+    const at = list.findIndex(
+      (each) =>
+        each.entityType === cited.entityType &&
+        each.entityId === cited.entityId,
+    );
+    if (at < 0) {
+      return;
+    }
+    setCited(list[(at + direction + list.length) % list.length]);
+  };
+  return {
+    cited,
+    open,
+    close: () => setCited(null),
+    step: list.length > 1 ? step : undefined,
+  };
+}
+
 function CompanyPage({
   org,
   view,
@@ -1870,18 +1919,7 @@ function CompanyPage({
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
-  // The receipt the reader asked to see, if any. Held by the PAGE rather than
-  // by one panel, so two cited chips cannot open two receipts over each other.
-  const [cited, setCited] = useState<CitedRecord | null>(null);
-  const openCitedRecord = (entityType: string, entityId: string) => {
-    if (citationOpensRecord(entityType)) {
-      openCitation(entityType, entityId);
-      return;
-    }
-    if (citationHasReceipt(entityType)) {
-      setCited({ entityType, entityId });
-    }
-  };
+  const receipt = useCitedReceipt();
   // A task written or completed from this page changes the account's timeline,
   // its next steps (both read from the 360) and the standing work queue.
   const taskUpdate = useTaskUpdate(taskWriteKeys("organization", org.id));
@@ -1998,7 +2036,7 @@ function CompanyPage({
           onOpenTask={openTask}
           onCompose={setReplyToActivityId}
           onLogTask={() => setTaskFormOpen(true)}
-          onOpenRecord={openCitedRecord}
+          onOpenRecord={receipt.open}
         />
       )}
       {/* The business grid belongs to the RECORD, not to the overview: a
@@ -2063,11 +2101,12 @@ function CompanyPage({
           onClose={() => setDecisionsOpen(false)}
         />
       )}
-      {cited && (
+      {receipt.cited && (
         <EvidenceModal
           orgId={org.id}
-          cited={cited}
-          onClose={() => setCited(null)}
+          cited={receipt.cited}
+          onClose={receipt.close}
+          onStep={receipt.step}
         />
       )}
       {/* The reference material a reader opens when the cards above are not
