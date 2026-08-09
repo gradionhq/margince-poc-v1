@@ -322,17 +322,30 @@ type DraftResult =
 // the reasons as surely as an emptied body does — and held OUT of ComposeModal
 // because that component already carries the send, the consent gate, the
 // refusal vocabulary and the voice-rejection flow.
-function useAccountGrounding(personId?: string) {
+function useAccountGrounding(
+  personId: string | undefined,
+  onGroundingChanged: () => void,
+) {
   const [recipientId, setRecipientId] = useState(personId ?? "");
   const [dealId, setDealId] = useState("");
   const [reasoning, setReasoning] = useState<
     components["schemas"]["AccountDraftReason"][]
   >([]);
+  // Changing who the draft is to, or which deal it is about, retires the draft
+  // that was written for the previous pair. Leaving it would show a message
+  // addressed to B carrying A's words, A's disclosure and A's reasons — and
+  // re-drafting could not repair it, because the fill never clobbers a
+  // non-empty field.
+  const reground = (apply: (next: string) => void) => (next: string) => {
+    apply(next);
+    setReasoning([]);
+    onGroundingChanged();
+  };
   return {
     recipientId,
-    setRecipientId,
+    setRecipientId: reground(setRecipientId),
     dealId,
-    setDealId,
+    setDealId: reground(setDealId),
     reasoning,
     setReasoning,
   };
@@ -1060,7 +1073,24 @@ export function ComposeModal({
   // the form stays usable: the model / mailer simply isn't configured (501).
   const [draftUnavailable, setDraftUnavailable] = useState(false);
   const [sendUnavailable, setSendUnavailable] = useState(false);
-  const account = useAccountGrounding(personId);
+  // Retiring the previous pair's draft is the composer's job, not the
+  // grounding hook's: the body, the recipients, the reference and the
+  // disclosure all live here.
+  //
+  // Only DRAFTED text is cleared. `draftRef` and `provenance` are set only by
+  // the fill, so their presence is what says the words on screen came from a
+  // draft rather than from the rep — and a rep who typed their own message
+  // and then picked a different contact must not lose it.
+  const account = useAccountGrounding(personId, () => {
+    if (!provenance && !draftRef) {
+      return;
+    }
+    setBody("");
+    setSubject("");
+    setTo([]);
+    setDraftRef(null);
+    setProvenance(null);
+  });
   // Whether this composer can ground a draft in an account: an account-started
   // message on a company page, over mail. A channel reply resolves its
   // recipient server-side and has no draft endpoint at all.
