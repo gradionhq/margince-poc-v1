@@ -32,8 +32,8 @@
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "bae5cd8a6ee72b09faaf8aa0fe44290fd9f8183ace2501225051b21885634710",
-      "digest": "sha256:af4392afde7fdea86bd5f8faa1ebd5d5008679de162d3522c9b6ea7934c887b9"
+      "fragment_hash": "de56a9603bee26071537bead12292ff3fdd0a41281b4f8deab0ee380838fa706",
+      "digest": "sha256:d5ff6430e40341be60d21b525a1170f101a4e860cc52f1dfa451053593791130"
     },
     {
       "id": "tool/demo_list_notes",
@@ -48,8 +48,8 @@
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "779da46d5372a2d6911da51b0e0eddba09066be0124fbb76a233f9c77bb6a282",
-      "digest": "sha256:ff4e1f2a108a05f2047461a3b86efff3c5b8ba65e7ac9b33e2e10dd035ca5114"
+      "fragment_hash": "c3688502bcac40e186945b633bd7756ee4cef1f01f1a45b78e411b5398620a64",
+      "digest": "sha256:20a0d24138f4e33cd571b3768d1c5ba68c2881b4494638c0f67e9d583a85af9e"
     },
     {
       "id": "tool/demo_remove_note",
@@ -64,8 +64,8 @@
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "8a5420efeb58e74279b0b1071f32c7e5837681bbf563c07d17d9af1198e595fd",
-      "digest": "sha256:0b4bc211c9fca3af32f24efb798df346702e5107b2ab3d212a024f0de8426f4e"
+      "fragment_hash": "bd7fe38c73e9877dc6e597884f51c341a3cb34c08c7192f4c8b0667c5244bce6",
+      "digest": "sha256:b2aa5b8bd499de26e6e05f74be4b171e36cbb72b269a43b8221003cbe7dc4730"
     },
     {
       "id": "tool/demo_sign_payload",
