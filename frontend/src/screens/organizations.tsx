@@ -72,9 +72,10 @@ import { type CitedRecord, EvidenceModal } from "./companyevidence";
 import { GrowthFitPanel } from "./companygrowthfit";
 import {
   CompanyActionBadges,
+  CompanyChips,
+  CompanyDescription,
   CompanyPrimaryActions,
   CompanyPulse,
-  companySubtitle,
 } from "./companyheader";
 import { TodayOnThisAccount } from "./companytoday";
 import { ComposeModal, TimelineActions } from "./compose";
@@ -1559,9 +1560,6 @@ function CompanyRecord({
   );
 }
 
-// companySubtitle is the meta line under the name: what this company is,
-// in the words the record already holds. Absent facts are absent, never
-// guessed — the same evidence-or-omit rule the firmographics card follows.
 function useAccountChronology({
   orgId,
   filter,
@@ -1871,6 +1869,18 @@ function CompanyPage({
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
+  // The receipt the reader asked to see, if any. Held by the PAGE rather than
+  // by one panel, so two cited chips cannot open two receipts over each other.
+  const [cited, setCited] = useState<CitedRecord | null>(null);
+  const openCitedRecord = (entityType: string, entityId: string) => {
+    if (citationOpensRecord(entityType)) {
+      openCitation(entityType, entityId);
+      return;
+    }
+    if (citationHasReceipt(entityType)) {
+      setCited({ entityType, entityId });
+    }
+  };
   // A task written or completed from this page changes the account's timeline,
   // its next steps (both read from the 360) and the standing work queue.
   const taskUpdate = useTaskUpdate(taskWriteKeys("organization", org.id));
@@ -1894,7 +1904,15 @@ function CompanyPage({
     <RecordView
       name={org.display_name}
       avatarSrc={org.logo_url}
-      subtitle={companySubtitle(org)}
+      // The description a person wrote, then the row of attribute chips
+      // (mockup State D). It replaces a dot-joined string of the same five
+      // values, in which the two that were links did not read as links.
+      subtitle={
+        <>
+          <CompanyDescription org={org} />
+          <CompanyChips org={org} />
+        </>
+      }
       zone={RECORD_ZONE}
       badges={
         <CompanyActionBadges
@@ -1918,22 +1936,14 @@ function CompanyPage({
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
       actions={<CompanyPrimaryActions org={org} />}
-      // ONE context column, not two. The plan (§4) says the page is a header,
-      // a primary work column and a secondary truth/context column, and not to
-      // preserve a three-column layout if it pushes the daily-action surface
-      // down. A left rail of five folded disclosures took a third of the width
-      // to say nothing until opened, and squeezed the account's own story into
-      // the middle 5/11ths. Those disclosures now sit under the business
-      // context on the right, in the order a rep reaches for them.
-      aside={businessRail({
-        org,
-        view,
-        overlay,
-        failed,
-        readOnly: Boolean(org.archived_at),
-        onOpenHistory: showChanges,
-        t,
-      })}
+      // NO rail and NO aside: the page is a header, a full-width work column
+      // and a grid of cards inside it (mockup State D). A context column beside
+      // the grid would be a third place to look for facts the grid already
+      // carries, and it is the space the composer drawer opens into — the
+      // mockups never show both.
+      //
+      // Everything the right rail used to hold moved into that grid or onto a
+      // tab. Nothing was dropped; see CompanyOverviewStack.
       // The chronology is the account's story and belongs to the overview.
       // The Partner tab is a form, so it does not repeat it under itself.
       {...slots}
@@ -1987,6 +1997,19 @@ function CompanyPage({
           onOpenTask={openTask}
           onCompose={setReplyToActivityId}
           onLogTask={() => setTaskFormOpen(true)}
+          onOpenRecord={openCitedRecord}
+        />
+      )}
+      {/* The business grid belongs to the RECORD, not to the overview: a
+          reader who switches to Partner and back must not pay for every query
+          behind these cards a second time, and the page must not re-flow under
+          them on the way. It renders on every tab for that reason, below
+          whatever the tab itself put up. */}
+      {!overlay && (
+        <CompanyBusinessGrid
+          org={org}
+          view={view}
+          readOnly={Boolean(org.archived_at)}
         />
       )}
       {/* The composer, anchored on the message a draft_reply suggestion named.
@@ -2038,6 +2061,24 @@ function CompanyPage({
           onClose={() => setDecisionsOpen(false)}
         />
       )}
+      {cited && (
+        <EvidenceModal
+          orgId={org.id}
+          cited={cited}
+          onClose={() => setCited(null)}
+        />
+      )}
+      {/* The reference material a reader opens when the cards above are not
+          enough: the profile, how the account is filed, its facts, its
+          relationships and the one-off tools.
+          It belongs to the RECORD rather than to a tab, and it renders in
+          every state of the 360, because none of it comes from the 360 — each
+          card runs its own read, and a failed composite must not take the
+          company's profile and files with it. Overlay is the one exception:
+          the page has already refused once there. */}
+      {!overlay && (
+        <ReferenceDisclosures org={org} onOpenHistory={showChanges} t={t} />
+      )}
       {/* The audit spine, opened from the header's overflow menu. It belongs
           to the RECORD, not to a tab, so it opens over whichever tab is up. */}
       <Modal
@@ -2075,6 +2116,7 @@ function CompanyOverviewStack({
   onOpenTask,
   onCompose,
   onLogTask,
+  onOpenRecord,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
@@ -2085,37 +2127,31 @@ function CompanyOverviewStack({
   onOpenTask: (step: { activity_id: string }) => void;
   onCompose: (activityId: string) => void;
   onLogTask: () => void;
+  // Where a cited chip leads. Owned by the page, because the grid below this
+  // stack cites the same records and two owners would mean two receipts open
+  // over each other.
+  onOpenRecord: (entityType: string, entityId: string) => void;
 }>) {
-  // The receipt the reader asked to see, if any. Held here rather than in each
-  // panel so two panels cannot open two of them over each other.
-  const [cited, setCited] = useState<CitedRecord | null>(null);
-  const openCited = (entityType: string, entityId: string) => {
-    if (citationOpensRecord(entityType)) {
-      openCitation(entityType, entityId);
-      return;
-    }
-    if (citationHasReceipt(entityType)) {
-      setCited({ entityType, entityId });
-    }
-  };
   return (
     <>
+      {/* Full width, and first: what needs a person today, before anything
+          that merely reports state (mockup State D). */}
       <TodayOnThisAccount
         view={view}
         loading={loading}
         failed={failed}
         onPrepareMeeting={onCompose}
       />
-      {/* Then the brief: what this account looks like right now, before the
-          cards that report it field by field. It absorbed the standalone
-          "since your last visit" block, because two cards each claiming to
-          say what the state is made the reader arbitrate between them. */}
+      {/* Then what the account looks like right now, in its own words and
+          ours. These three read the same evidence and cite it the same way, so
+          they lead the overview together — the grid of business cards below
+          them belongs to the record and renders on every tab. */}
       {view && (
         <AccountBrief
           orgId={org.id}
           view={view}
           enabled={!overlay}
-          onOpenRecord={openCited}
+          onOpenRecord={onOpenRecord}
           onPerform={(action) =>
             performSuggestion(action, {
               compose: onCompose,
@@ -2124,36 +2160,19 @@ function CompanyOverviewStack({
           }
         />
       )}
-      {/* Then what the company IS, from its own recorded facts. It sits after
-          the brief because the brief is about US and them; this is about them
-          alone, and it ages in weeks where the brief ages in hours. */}
       <DossierPanel
         orgId={org.id}
         enabled={!overlay}
-        onOpenRecord={openCited}
+        onOpenRecord={onOpenRecord}
       />
-      {/* Then what they are WORTH to us. It sits after the brief and before
-          the next steps because that is the order the questions arrive in:
-          what this account looks like, what it is worth, what to do about it.
-          It is the one panel that reads our own offering as well as theirs. */}
       <GrowthFitPanel
         orgId={org.id}
         enabled={!overlay}
-        onOpenRecord={openCited}
+        onOpenRecord={onOpenRecord}
       />
-      {/* Asking sits UNDER the account's own story: it is the tool for when
-          the page did not already answer the question. It lives in this stack
-          rather than beside it so its answers cite through the same handler
-          the brief and the dossier do — one receipt at a time, and no chip
-          that is clickable in one panel and flat in the next. */}
-      <AssistantPanel orgId={org.id} enabled onOpenRecord={openCited} />
-      {cited && (
-        <EvidenceModal
-          orgId={org.id}
-          cited={cited}
-          onClose={() => setCited(null)}
-        />
-      )}
+      {/* The open commitments in full, then the tool for when the page did not
+          answer the question. Neither is a card about the account — one is a
+          work list and one is a prompt — so neither belongs in the grid. */}
       {view && (
         <NextSteps
           view={view}
@@ -2167,7 +2186,61 @@ function CompanyOverviewStack({
           )}
         />
       )}
+      <AssistantPanel orgId={org.id} enabled onOpenRecord={onOpenRecord} />
     </>
+  );
+}
+
+// The business cards, as the grid that replaced the right column.
+//
+// It belongs to the RECORD rather than to the overview: a reader who switches
+// to Partner and back must not pay for every query behind these cards a second
+// time, and the page must not re-flow under them on the way back.
+function CompanyBusinessGrid({
+  org,
+  view,
+  readOnly,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  // An archived company takes no new deals, tags or list rows, so it shows no
+  // verb that would only be refused.
+  readOnly: boolean;
+}>) {
+  const t = useT();
+  return (
+    // An <aside>, still: these are the same business cards the right column
+    // held, and moving them into the flow changed where they sit, not what
+    // they are. Keeping the landmark means a reader who navigated the old page
+    // by landmark can navigate this one the same way.
+    <aside className="co-grid" aria-label={t("record.business")}>
+      {/* The commercial picture. */}
+      <DealsCard
+        view={view}
+        actions={
+          readOnly ? undefined : (
+            <NewDealAction orgId={org.id} orgName={org.display_name} />
+          )
+        }
+      />
+      <HealthCard health={view?.health} />
+      <SignalsCard orgId={org.id} />
+      {/* Who carries the account, and the paperwork behind it. */}
+      <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
+      <CompanyDocumentsCard orgId={org.id} />
+      {/* How the account is FILED. It stays folded — this is our own
+          bookkeeping rather than anything about the company — but it stays in
+          the business grid, because tags and lists are governed sections of
+          the 360 like the cards above them, and a withheld half has to say so
+          where the reader is looking for it. */}
+      <Disclosure summary={t("co.tags.title")}>
+        <TagsCard
+          view={view}
+          tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
+          listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
+        />
+      </Disclosure>
+    </aside>
   );
 }
 
@@ -2228,122 +2301,12 @@ function openCitation(entityType: string, entityId: string) {
   }
 }
 
-// businessRail is the right column. A failed composite read must not simply
-// remove it: an account page with no people, no deals and no signals reads
-// as an account with none of those, which is the one thing the page does not
-// know. The rail stays and each card says it could not be loaded — except in
-// overlay mode, where the single page-level refusal already covers it.
-function businessRail({
-  org,
-  view,
-  overlay,
-  failed,
-  readOnly,
-  onOpenHistory,
-  t,
-}: Readonly<{
-  org: Organization;
-  view?: Organization360View;
-  overlay: boolean;
-  failed: boolean;
-  // An archived company takes no new deals, tags or list rows, so it shows no
-  // verb that would only be refused.
-  readOnly: boolean;
-  // Where an evidence mark leads: the record's change history, on its own tab.
-  onOpenHistory: () => void;
-  // Passed rather than read: this assembles a tree, it is not a component,
-  // so it has no hook context of its own.
-  t: ReturnType<typeof useT>;
-}>): ReactNode {
-  if (overlay) {
-    return undefined;
-  }
-  if (view) {
-    return (
-      <>
-        {/* Who and what, in the order a rep about to reach out asks for them.
-            The connections graph and the filing metadata fold away: the graph
-            re-lists the people directly above it, and lists and tags are how
-            the account is filed rather than anything about the account. */}
-        {/* Roles are a write, so the card offers them on the same terms as
-            every other verb on this page: never on an archived record. */}
-        <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
-        <DealsCard
-          view={view}
-          // The verb sits under the list it changes: a rep who has just read
-          // "no open deal on this account" is one click from opening one,
-          // rather than leaving for the board to re-find this company there.
-          actions={
-            readOnly ? undefined : (
-              <NewDealAction orgId={org.id} orgName={org.display_name} />
-            )
-          }
-        />
-        {/* How the relationship stands, in parts — the decomposition that
-            replaced the header's 0-100 score. */}
-        <HealthCard health={view?.health} />
-        <SignalsCard orgId={org.id} />
-        {/* Connections is deliberately not here. It listed the account owner
-            and the same employees the People card already names, against two
-            different strength scales and a bare "2" nobody could read — the
-            page's own answer to a question no reader had asked. The graph read
-            stays (connections.tsx, GET /organizations/{id}/graph): it returns
-            as a per-contact "find a route in", which is the question that IS
-            worth asking, and only where a route actually exists. */}
-        <Disclosure summary={t("co.tags.title")}>
-          <TagsCard
-            view={view}
-            tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
-            listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
-          />
-        </Disclosure>
-        <ReferenceDisclosures org={org} onOpenHistory={onOpenHistory} t={t} />
-      </>
-    );
-  }
-  if (!failed) {
-    // Still loading. The rail must occupy its column NOW: RecordView picks its
-    // grid template from which zones are present, so a rail that arrives with
-    // the read re-columns the page under the reader — the whole middle column
-    // and everything above it shift the moment the 360 lands.
-    return (
-      <>
-        <section className="card co-card">
-          <Skeleton width="100%" height={96} />
-        </section>
-        <section className="card co-card">
-          <Skeleton width="100%" height={96} />
-        </section>
-        <section className="card co-card">
-          <Skeleton width="100%" height={64} />
-        </section>
-        <ReferenceDisclosures org={org} onOpenHistory={onOpenHistory} t={t} />
-      </>
-    );
-  }
-  // The read failed, so the cards get NO payload and say so themselves.
-  // Handing them a fabricated empty one would mean inventing an as_of the
-  // page does not have, and would be indistinguishable from a real answer
-  // one refactor later.
-  return (
-    <>
-      <PeopleCard />
-      <DealsCard />
-      <SignalsCard orgId={org.id} />
-      <TagsCard />
-      <ReferenceDisclosures org={org} onOpenHistory={onOpenHistory} t={t} />
-    </>
-  );
-}
-
 // The reference material a reader opens when the summary above is not enough.
 //
-// It renders in EVERY branch, because none of it comes from the 360: each card
-// runs its own read. It used to occupy a whole column of its own, folded shut —
-// a third of the page's width saying nothing until clicked, while the account's
-// own story ran in the middle 5/11ths (plan §4). Moving it here is a layout
-// change and must not become an availability change: a failed 360 hides what
-// the 360 answered, not the company's profile, its documents or its files.
+// It renders whatever state the 360 is in, because none of it comes from the
+// 360: each card runs its own read. That is the rule to keep as the layout
+// moves — a failed composite read hides what the 360 answered, not the
+// company's profile, its facts or its relationships.
 function ReferenceDisclosures({
   org,
   onOpenHistory,
@@ -2358,9 +2321,9 @@ function ReferenceDisclosures({
       <Disclosure summary={t("co.profile.title")}>
         <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
       </Disclosure>
-      <Disclosure summary={t("docs.title")}>
-        <CompanyDocumentsCard orgId={org.id} />
-      </Disclosure>
+      {/* Documents are deliberately NOT here: they are a card of their own in
+          the grid now, and a reader given the same list in two places has two
+          lists to reconcile. */}
       <Disclosure summary={t("co.evidence.title")}>
         <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
       </Disclosure>

@@ -13,6 +13,67 @@
   padding: 12px 14px;
 }
 
+/* The overview's card grid (mockup State D). Three columns on a wide screen,
+   two when the page loses its third, one on a phone — the same two thresholds
+   RecordView's own zones fold at (design-system/composed.css), so the page
+   never re-columns at a width the shell around it does not.
+
+   `auto-fit` with a minimum rather than a fixed count: a card narrower than
+   ~300px stops being able to hold a two-column table or a labelled figure, and
+   below that the row should become shorter, not tighter. */
+.co-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+  margin-bottom: var(--space-4);
+}
+/* A card in the grid owns its cell's full height, so a row of three does not
+   leave two of them floating against a taller neighbour. */
+.co-grid > .card {
+  margin-bottom: 0;
+  height: 100%;
+}
+/* A folded disclosure in the grid takes the same chrome as the cards beside
+   it. Without it the summary row sits in the cell as bare text and reads as a
+   card that failed to render rather than as one that is closed. The padding
+   is .co-card's, inherited rather than restated so the two cannot drift. */
+.co-grid > .disclosure {
+  height: 100%;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+}
+.co-grid > .disclosure > .disclosure-summary,
+.co-grid > .disclosure > .disclosure-body {
+  padding-inline: var(--space-3);
+}
+.co-grid > .disclosure > .disclosure-summary {
+  padding-block: var(--space-3);
+}
+/* Below the grid's own minimum there is one column, and a card that tries to
+   keep a fixed width there overflows the page rather than the cell. */
+@media (max-width: 720px) {
+  .co-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The header's description line and its row of attribute chips. */
+.co-description {
+  margin: 0 0 var(--space-2);
+  color: var(--textMeta);
+  font-size: 13.5px;
+}
+.co-chiprow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
 .co-list {
   list-style: none;
   display: flex;
@@ -75,6 +136,24 @@
   font-size: 12.5px;
   color: var(--textMeta);
   font-style: italic;
+}
+
+/* A failed section keeps its retry on the same line as the reason, so the
+   sentence and the way out of it read as one thing. */
+.co-failed {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+/* Stale values are SHOWN, with the caveat above them rather than below: a
+   caveat under a figure arrives after the reader has already taken it as
+   current. The warn tone marks it as a caveat and not as prose. */
+.co-stale {
+  margin-bottom: var(--space-2);
+  font-size: 12.5px;
+  color: var(--warn);
 }
 
 .co-callout {

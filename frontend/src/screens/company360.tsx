@@ -253,13 +253,32 @@ export function omitted(view: Organization360, section: Section): boolean {
  * empty is the only one that may say "there is none", because it is the only
  * one that knows. Rendering the other three as empty states a fact the page
  * does not have — the rep reads "no open deals" and stops looking.
+ *
+ * The §7 matrix adds four more, each of which would otherwise be drawn as one
+ * of the above and lose what makes it different:
+ *
+ *   unsupported — this MODE cannot serve the section (an overlay-only
+ *                 installation and a native composite section). Distinct from
+ *                 unavailable: nothing is broken and retrying changes nothing.
+ *   failed      — the read failed and can be retried. `onRetry` is what makes
+ *                 it a different state from unavailable rather than a
+ *                 differently-worded one.
+ *   stale       — the last known value, with when it was last true. It is
+ *                 shown rather than withheld, because a figure from this
+ *                 morning beats a blank, but never without its `as of`.
+ *   partial     — some of the rows, with the count that is missing and a way
+ *                 to the full list. Never a silent truncation.
  */
 export type SectionState =
   | "ready"
   | "empty"
   | "withheld"
   | "unavailable"
-  | "loading";
+  | "loading"
+  | "unsupported"
+  | "failed"
+  | "stale"
+  | "partial";
 
 /**
  * sectionState classifies one 360 section. `present` is whether the payload
@@ -289,6 +308,23 @@ export function sectionState(
 }
 
 /**
+ * SectionDetail is what the four §7 states need in order to say something a
+ * reader can act on rather than a differently-worded "not here".
+ */
+export type SectionDetail = {
+  // `failed` without a retry is `unavailable` with extra words.
+  onRetry?: () => void;
+  // Already formatted by the caller: this tier holds no locale or zone.
+  staleAsOf?: string;
+  // How many rows the caller is NOT seeing. A truncation nobody states reads
+  // as the whole list.
+  remaining?: number;
+  // Which mode limitation this is, in the caller's words. The generic
+  // sentence is the floor, not the target.
+  unsupportedReason?: string;
+};
+
+/**
  * SectionPart renders ONE section's body in whichever of the four states it
  * is in. A card with two independently-governed sections renders two of
  * these, so neither half's state can speak for the other.
@@ -302,11 +338,16 @@ export function SectionPart({
   label,
   state,
   emptyLabel,
+  detail,
   children,
 }: Readonly<{
   label?: string;
   state: SectionState;
   emptyLabel: string;
+  // What the four §7 states need in order to be honest. Each is read by
+  // exactly one state and ignored by the rest; a state whose detail is absent
+  // still renders, one sentence shorter.
+  detail?: SectionDetail;
   children: ReactNode;
 }>) {
   const t = useT();
@@ -321,6 +362,43 @@ export function SectionPart({
         <p className="co-restricted">{t("co.section.unavailable")}</p>
       )}
       {state === "loading" && <Skeleton width="100%" height={32} />}
+      {state === "unsupported" && (
+        <p className="co-restricted">
+          {detail?.unsupportedReason ?? t("co.section.unsupported")}
+        </p>
+      )}
+      {state === "failed" && (
+        <div className="co-failed">
+          <p className="co-restricted">{t("co.section.failed")}</p>
+          {detail?.onRetry && (
+            <Button small onClick={detail.onRetry}>
+              {t("co.section.retry")}
+            </Button>
+          )}
+        </div>
+      )}
+      {/* The value first, then when it was last true. Reversing them buries
+          the caveat under the figure a reader has already taken as current. */}
+      {state === "stale" && (
+        <>
+          <p className="co-stale">
+            {detail?.staleAsOf
+              ? t("co.section.staleAsOf", { when: detail.staleAsOf })
+              : t("co.section.stale")}
+          </p>
+          {children}
+        </>
+      )}
+      {state === "partial" && (
+        <>
+          {children}
+          <p className="co-empty">
+            {detail?.remaining
+              ? t("co.section.partialCount", { count: detail.remaining })
+              : t("co.section.partial")}
+          </p>
+        </>
+      )}
     </>
   );
   if (!label) {
@@ -346,6 +424,7 @@ export function SectionCard({
   title,
   state,
   emptyLabel,
+  detail,
   footer,
   actions,
   children,
@@ -353,6 +432,7 @@ export function SectionCard({
   title: string;
   state: SectionState;
   emptyLabel: string;
+  detail?: SectionDetail;
   footer?: ReactNode;
   // Verbs that CHANGE this section, under everything that describes it.
   //
@@ -364,11 +444,18 @@ export function SectionCard({
   actions?: ReactNode;
   children: ReactNode;
 }>) {
-  const present = state === "ready" || state === "empty";
+  // `stale` and `partial` both carry real rows, so the footer figures and the
+  // verbs that change the section belong with them — a truncated deal list is
+  // still a deal list you can add to.
+  const present =
+    state === "ready" ||
+    state === "empty" ||
+    state === "stale" ||
+    state === "partial";
   return (
     <section className="card co-card">
       <SectionHeader title={title} />
-      <SectionPart state={state} emptyLabel={emptyLabel}>
+      <SectionPart state={state} emptyLabel={emptyLabel} detail={detail}>
         {children}
       </SectionPart>
       {present && footer}
@@ -1858,26 +1945,42 @@ export function StateStrip({
     return null;
   }
   const types = strip.account.relationship_types ?? [];
-  const customer =
-    strip.account.lifecycle === "customer" ||
-    strip.account.lifecycle === "former_customer";
+  // A CURRENT customer only. A former one has invoices in its past, but "do
+  // they pay us, and on time?" is not the question their page is opened with,
+  // and leading with a money reading on an account that has stopped buying
+  // reads as though the relationship were still running.
+  const customer = strip.account.lifecycle === "customer";
   return (
     <section className="co-strip" aria-label={t("co.strip.title")}>
+      {/* Four cards is the cap (§4.2). On a CUSTOMER the two money readings
+          lead, because "do they pay us, and on time?" is the question a
+          customer page is opened with — on everyone else there is no such
+          question and the account's own state leads instead. */}
+      {/* Where the account stands holds the first slot on every page. It is
+          the one reading that is true of every company, and a page that leads
+          with money on some accounts and with state on others gives the reader
+          no fixed place to look. */}
       <StatCard
         label={t("co.strip.account")}
         value={lifecycleLabel(strip.account.lifecycle)}
         detail={types.length > 0 ? relationshipLabels(types) : undefined}
       />
-      {/* Four cards is the cap (§4.2). The account card always holds the
-          first slot; the signal, when one is open, takes the engagement slot
-          rather than adding a fifth — the worst thing standing open is the
-          more urgent reading of the two. */}
-      <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
+      {/* On a customer the second slot is money — "do they pay us?" is the
+          question their page is opened with, and it is the slot the mockup's
+          State D gives to net invoiced. On everyone else there are no invoices
+          to ask about and the question is when the next deal lands. */}
+      {customer ? (
+        <FinanceStat reading="netInvoiced" t={t} />
+      ) : (
+        <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
+      )}
       {customer ? (
         <HealthStat health={view?.health} t={t} />
       ) : (
         <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
       )}
+      {/* The signal, when one is open, takes the last slot rather than adding
+          a fifth — the worst thing standing open is the more urgent reading. */}
       {strip.signal ? (
         <StatCard
           label={t("co.strip.signal")}
@@ -1889,6 +1992,36 @@ export function StateStrip({
         <EngagementStat engagement={strip.engagement} locale={locale} t={t} />
       )}
     </section>
+  );
+}
+
+/**
+ * The two finance slots a customer's KPI row carries, in the honest-unknown
+ * state (mockup State B).
+ *
+ * No finance source is connected to this installation yet — the ingestion
+ * module lands separately — so the value is a dash and the detail line says
+ * what would make it a number. It is NOT €0 and NOT "pays on time": both are
+ * conclusions about the customer drawn from the absence of a connector, which
+ * is the one thing §6 State B forbids outright.
+ *
+ * The slot is rendered rather than omitted on purpose. A customer page that
+ * simply has no money reading tells a reader nothing is missing; this one
+ * tells them what to connect.
+ */
+function FinanceStat({
+  reading,
+  t,
+}: Readonly<{
+  reading: "netInvoiced" | "openInvoices";
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <StatCard
+      label={t(`co.strip.${reading}`)}
+      value={t("co.strip.financeUnknown")}
+      detail={t("co.strip.connectFinance")}
+    />
   );
 }
 
