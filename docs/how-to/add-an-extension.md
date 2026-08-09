@@ -148,10 +148,29 @@ What the surface will and will not serve:
   two outbound caps are refused above. It is the cap a caller's passport must hold, so declare the one
   the act actually spends.
 
-Validate arguments by decoding into a strict typed struct (`Decoder.DisallowUnknownFields`); the declared
-input schema is client-facing documentation, not a validator. Note the known gap: a handler cannot yet
-return a *classified* caller-error, so a malformed argument currently surfaces as a 500 on the REST route
-— tracked as **#657**.
+**Validate arguments yourself — the declared input schema is client-facing documentation, and nothing
+on this seam checks a request body against it before your handler runs.** Copy
+`extensions/crm-demo/notes.go`'s `decode`; do not write your own from
+`Decoder.DisallowUnknownFields` alone, which this guide used to recommend and which leaves four holes
+that each let a document the published schema forbids decide what your handler stores:
+
+| What encoding/json does | What the contract says |
+|---|---|
+| matches field names **case-insensitively**, so `BODY` sets `Body` | `additionalProperties: false` |
+| accepts a **repeated** member and keeps the last | one member, once |
+| accepts `null` and leaves the struct zeroed | an object is required |
+| decodes **one value and stops**, discarding the rest | one document |
+
+Two of those decide *which value* a mutation writes, past a reviewer reading the first one. And
+validate anything the database will cast: an id declared as a bare string reaches PostgreSQL's `::uuid`
+and answers 500, so declare the shape (`format: uuid` plus a pattern) **and** check it before the
+transaction. Count characters with `utf8.RuneCountInString`, never `len` — JSON Schema's `maxLength`
+counts characters, so a byte count refuses text in any non-ASCII script at a length the schema you
+published says will fit.
+
+Note the known gap: a handler cannot yet return a *classified* caller-error, so a refusal surfaces as a
+500 on the REST route — tracked as **#657**. That is the reason to refuse in your own code, where the
+message is at least yours, rather than letting the database do it.
 
 ## Publish an HTTP surface and its governed tools
 
@@ -177,9 +196,20 @@ Copy `extensions/crm-demo/api/crm.yaml`. The rules that will otherwise bite:
 - **`x-rbac-object` / `x-rbac-action`** declare the object grant the caller must hold. The object is
   registered into the RBAC vocabulary `/me` serves and must be named `ext_<name>_*`. Declare both or
   neither.
+- **Schemas are inline — no `$ref`, at any depth.** The composer does not resolve references, and the
+  request/response schemas it reads are emitted verbatim as the MCP tool's input and output schemas: a
+  client has no document to resolve a reference against, so an unresolved one would be advertised to a
+  model as the argument shape. A property *named* `$ref`, and a `$ref` inside `example`, `default`,
+  `const` or `enum`, are instance data rather than references and are fine.
 - **The 200 body is your own schema.** The agent path wraps results in a governed envelope; the REST
   route unwraps it, so what a client receives is exactly what your `responses.200` declares. Do not
-  declare the envelope.
+  declare the envelope — the registry wraps your schema for the agent surface too, so declaring it
+  would describe the wrapper to a model as if it were the answer.
+- **A fragment adds nodes; it never redefines one.** Two units may not target one JSONPath, a target
+  must land under `$.paths`, `$.components.schemas`, `$.kinds` or `$.tasks`, and the node added
+  directly under one of those must be a **mapping** — a scalar at `$.paths['/ext/u/thing']` publishes a
+  path item that is a string. A YAML alias anywhere in an `update` is refused: it resolves inside your
+  fragment, and the merged document has no anchor to match it.
 
 ## Own tables — `migrations/`
 
@@ -198,18 +228,27 @@ func New() extension.Extension {
 }
 ```
 
-> ### ⚠️ The single most dangerous mistake available in this guide
+> ### ⚠️ The field is what runs — and the generator now holds you to it
 >
-> **A unit that ships `migrations/` but does not set the `Migrations` field passes every gate green.**
-> `make check-ext-migrations` and the identifier-collision check both read the **on-disk directory**, so
-> your SQL is validated, blessed and reported as correct — while `cmd/migrate` applies the SQL out of the
-> **embedded filesystem**, which is empty. `make check` is green, the migrate step says "schema is at
-> head", and your table is never created. The unit then fails at its first query, in production, with an
-> undefined-table error.
+> The directory and the field are **two different facts**. `make check-ext-migrations` and the
+> identifier-collision check read the **on-disk directory**; `cmd/migrate` applies the **embedded
+> filesystem**. A unit that shipped the SQL and forgot the field used to have its SQL validated,
+> blessed and reported as correct while an empty FS was applied — `make check` green, the migrate step
+> saying "schema is at head", and the table never created. It failed at its first query, in
+> production, with an undefined-table error. It happened once on this tier.
 >
-> This has already happened once on this tier. If you add a `migrations/` directory, add the `//go:embed`
-> line and the `Migrations:` field **in the same commit**, and confirm with `make migrate` +
-> `\dt ext.*` that your table actually exists.
+> **`gen-composition` refuses that now**, in three shapes:
+>
+> - a unit that ships `migrations/` and declares no `Migrations` field;
+> - a `Migrations` field that does not name a package-level var;
+> - a var whose `//go:embed` directive does not cover `migrations/` — including
+>   `//go:embedmigrations`, which is missing the separator Go requires and so is an ordinary comment
+>   leaving the FS **empty**, and including a directive pointed at some other layer.
+>
+> What it does **not** prove is that the bytes reaching `cmd/migrate` are the bytes the gate applied:
+> an embed may cover more than `migrations/`, and an `fs.FS` assembled at run time is beyond a static
+> reader. So still add the `//go:embed` line and the `Migrations:` field **in the same commit**, and
+> confirm with `make migrate` + `\dt ext.*` that your table exists.
 
 What the SQL must do, enforced by `make check-ext-migrations` (which applies your migrations as a minted
 restricted role against a throwaway database and re-reads the catalog):
@@ -220,11 +259,25 @@ restricted role against a throwaway database and re-reads the catalog):
 - `ENABLE` **and** `FORCE ROW LEVEL SECURITY`, with exactly one permissive policy keyed on
   `current_setting('app.workspace_id', true)` in both `USING` and `WITH CHECK`. `FORCE` is not optional:
   the runtime owner is `margince_owner`, and `ENABLE` alone exempts a table's owner from its own policies.
-- `GRANT SELECT, INSERT, UPDATE, DELETE ... TO margince_app` (never `TRUNCATE` — it ignores the policy).
-- Touch nothing in `public`.
+- `GRANT SELECT, INSERT, UPDATE, DELETE ... TO margince_app` — **exactly those four**, on every tenant
+  table. Not more: `TRUNCATE` empties every workspace's rows without consulting the policy's `USING`
+  clause, and `REFERENCES` and `TRIGGER` are refused too. Not fewer, and not none: the gate used to ask
+  only "nothing outside the list", which granting *nothing* satisfies perfectly — and the table then
+  answers `permission denied` at the first handler call, having passed every check.
+- Touch nothing in `public`. The one core dependency a unit may take is the `workspace(id)` foreign key
+  above; the gate grants `REFERENCES` on that column alone and refuses a role that can point anywhere
+  else, because a foreign key onto a core table takes a lock on core writes and can refuse a core
+  delete forever after.
 
-**A new migration is a new file.** `dbmigrate` keys on the version, so editing an already-applied
-`0001` never re-runs — the change silently does not happen.
+**A new migration is a new file — including for an index.** `dbmigrate` keys on the version, so a line
+added to an already-applied `0001` runs on exactly the installations that did not need it (a fresh one)
+and never on the ones that do. `extensions/crm-demo/migrations/0003_note_workspace_index.up.sql` is the
+worked example: the index it adds belongs to the table `0001` created, and it is still its own file.
+
+**Index the tenant column.** A unit's table is cross-tenant, so every read the policy admits still has
+to find this workspace's rows among every other workspace's — and, less obviously, deleting one
+workspace sequentially scans the whole table once per row it removes unless an index *begins* with the
+referencing column. `(workspace_id, <your list order>)` covers both.
 
 ## Own secrets
 
@@ -247,6 +300,18 @@ Declare **two kinds** in `api/jobs.yaml`: a cadenced `dispatcher` that fans out 
 `workspace` child (`<dispatcher>_ws`) that does one tenant's work. A single kind that both ticks and
 carries a tenant is refused — it has no honest answer for whose data the tick touched. Use
 `queue: default`; `queues` is not a container a fragment may extend.
+
+Which half declares what is a rule, not a convention, and the composer refuses the other spellings:
+
+- **`role` is `dispatcher` or `workspace`, exactly.** A mistyped third value used to match neither
+  arm of the pairing and quietly *un-declare* the kind: no registration, no manifest entry, no error.
+- **Governance is the dispatcher's.** `tier` and `scope` go on the dispatcher and nowhere else — the
+  pair resolves as one governed job, so a second copy on the child is a line an author writes, a
+  reviewer reads, an operator resolves against, and the runtime never applies.
+- **`cadence` is the dispatcher's; `max_attempts` is the child's.** A cadence on a workspace kind and
+  an attempt cap on a dispatcher are both refused; a dispatcher's retry *is* its next tick.
+- **Both halves share one queue**, and the child's kind is the dispatcher's name plus `_ws` — a
+  workspace kind no dispatcher fans out to is a worker no clock ever reaches.
 
 ```go
 Jobs: []extension.Job{{Name: "heartbeat", Handle: heartbeat}},
