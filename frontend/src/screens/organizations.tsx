@@ -67,6 +67,9 @@ import {
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
 import { CompanyDocumentsCard } from "./companydocuments";
+import { DossierPanel } from "./companydossier";
+import { type CitedRecord, EvidenceModal } from "./companyevidence";
+import { GrowthFitPanel } from "./companygrowthfit";
 import {
   CompanyActionBadges,
   CompanyPrimaryActions,
@@ -2043,9 +2046,6 @@ function CompanyPage({
           page did not already answer the question. It belongs to the account
           rather than to its history, so it stays on the overview instead of
           following the chronology onto its own tab. */}
-      {tab === "overview" && (
-        <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
-      )}
       {tab === "people" && (
         <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
@@ -2114,6 +2114,18 @@ function CompanyOverviewStack({
   onCompose: (activityId: string) => void;
   onLogTask: () => void;
 }>) {
+  // The receipt the reader asked to see, if any. Held here rather than in each
+  // panel so two panels cannot open two of them over each other.
+  const [cited, setCited] = useState<CitedRecord | null>(null);
+  const openCited = (entityType: string, entityId: string) => {
+    if (citationOpensRecord(entityType)) {
+      openCitation(entityType, entityId);
+      return;
+    }
+    if (citationHasReceipt(entityType)) {
+      setCited({ entityType, entityId });
+    }
+  };
   return (
     <>
       <TodayOnThisAccount
@@ -2131,13 +2143,43 @@ function CompanyOverviewStack({
           orgId={org.id}
           view={view}
           enabled={!overlay}
-          onOpenRecord={openCitation}
+          onOpenRecord={openCited}
           onPerform={(action) =>
             performSuggestion(action, {
               compose: onCompose,
               logTask: onLogTask,
             })
           }
+        />
+      )}
+      {/* Then what the company IS, from its own recorded facts. It sits after
+          the brief because the brief is about US and them; this is about them
+          alone, and it ages in weeks where the brief ages in hours. */}
+      <DossierPanel
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={openCited}
+      />
+      {/* Then what they are WORTH to us. It sits after the brief and before
+          the next steps because that is the order the questions arrive in:
+          what this account looks like, what it is worth, what to do about it.
+          It is the one panel that reads our own offering as well as theirs. */}
+      <GrowthFitPanel
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={openCited}
+      />
+      {/* Asking sits UNDER the account's own story: it is the tool for when
+          the page did not already answer the question. It lives in this stack
+          rather than beside it so its answers cite through the same handler
+          the brief and the dossier do — one receipt at a time, and no chip
+          that is clickable in one panel and flat in the next. */}
+      <AssistantPanel orgId={org.id} enabled onOpenRecord={openCited} />
+      {cited && (
+        <EvidenceModal
+          orgId={org.id}
+          cited={cited}
+          onClose={() => setCited(null)}
         />
       )}
       {view && (
@@ -2188,6 +2230,23 @@ function performSuggestion(
 // prepared answers and the suggestions all cite the same records, so they
 // share one route — a second copy would drift and send one card's reader to
 // the wrong screen.
+// A citation goes to one of two places. A deal or a person has a screen of its
+// own; a fact or a profile field has no screen, but it does have a receipt —
+// where the value came from and what could not be recorded about it — which is
+// what the reader wanted when they clicked the chip.
+function citationOpensRecord(entityType: string): boolean {
+  return entityType === "deal" || entityType === "person";
+}
+
+// The kinds a receipt can be written for. Narrowing HERE rather than asserting
+// at the fetch is what keeps the modal's contract honest: a kind that grows a
+// receipt upstream fails to compile until this decision learns about it.
+function citationHasReceipt(
+  entityType: string,
+): entityType is CitedRecord["entityType"] {
+  return entityType === "fact" || entityType === "profile_field";
+}
+
 function openCitation(entityType: string, entityId: string) {
   if (entityType === "deal") {
     navigate({ screen: "deals", id: entityId });

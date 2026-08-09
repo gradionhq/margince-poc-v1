@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -241,19 +242,25 @@ func readProfileFieldWire(
 ) (crmcontracts.CompanyProfileField, error) {
 	var (
 		pf           crmcontracts.CompanyProfileField
+		rowID        ids.UUID
 		fieldV, srcV string
 	)
 	err := tx.QueryRow(ctx, `
-		SELECT field, value, source, captured_by, evidence_snippet, source_url, confidence,
+		SELECT id, field, value, source, captured_by, evidence_snippet, source_url, confidence,
 		       retrieved_at, verified_at, verified_by, updated_at
 		  FROM organization_profile_field
 		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3`,
 		workspaceID(ctx), orgID, field,
-	).Scan(&fieldV, &pf.Value, &srcV, &pf.CapturedBy, &pf.EvidenceSnippet, &pf.SourceUrl,
+	).Scan(&rowID, &fieldV, &pf.Value, &srcV, &pf.CapturedBy, &pf.EvidenceSnippet, &pf.SourceUrl,
 		&pf.Confidence, &pf.RetrievedAt, &pf.VerifiedAt, &pf.VerifiedBy, &pf.UpdatedAt)
 	if err != nil {
 		return pf, fmt.Errorf("re-read organization profile field: %w", err)
 	}
+	// The row's own identity, on the write path as on the read path: a client
+	// that just corrected a value holds the record a later sentence will cite,
+	// and a response without it forces a second list read to find the id.
+	id := openapi_types.UUID(rowID)
+	pf.Id = &id
 	pf.Field = crmcontracts.CompanyProfileFieldField(fieldV)
 	pf.Source = crmcontracts.CompanyProfileFieldSource(srcV)
 	return pf, nil

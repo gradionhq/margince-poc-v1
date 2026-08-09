@@ -257,6 +257,8 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"deal.project_id":                      "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
 	"lead.project_id":                      "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
 	"suggestion_dismissal.organization_id": "gated: auth.EnsureVisible in org360.Service.DismissSuggestion, inside the same transaction as the insert — dismissing advice about an account the caller cannot read would confirm it exists",
+	"org_dossier.organization_id":          "gated: the dossier is assembled only after orgdossier.Service.Get runs the caller's OWN sidecar reads, and people.ListOrganizationProfileFields opens with auth.Require + ensureOrgReadable — a company the caller cannot read has no dossier written for it, and the row is keyed on that same caller",
+	"org_growth_fit.organization_id":       "gated: same path as org_dossier — the assessment is written only after the caller's own gated sidecar reads succeed, and the row is keyed on that caller",
 	"org_brief.organization_id":            "gated: the brief is written only after orgbrief.Service.Get runs the caller's own org360 Assemble, whose GetOrganizationTx does auth.Require + auth.EnsureVisible — an account the caller cannot read has no brief written for it, and the row is keyed on that same caller",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
