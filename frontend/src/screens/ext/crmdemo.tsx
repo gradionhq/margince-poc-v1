@@ -50,6 +50,18 @@ import { QueryStates, throwProblem } from "../common";
 /** The RBAC object the unit's record operations gate on. */
 const NOTE_OBJECT = "ext_crm_demo_note";
 
+/**
+ * The RBAC object the unit's three SECRETS operations gate on — a second
+ * object, not the notes one.
+ *
+ * The distinction is the point: a role that may add a note has no business
+ * rotating the installation's signing key, and one object for both would make
+ * that a single grant. Until the UAT re-run found it (R1) these operations
+ * declared no object at all, so any authenticated seat — read-only included —
+ * could replace the key on both the screen and the agent path.
+ */
+const SIGNING_KEY_OBJECT = "ext_crm_demo_signing_key";
+
 /** One poll interval for the heartbeat, in milliseconds. */
 const HEARTBEAT_POLL_MS = 15_000;
 
@@ -66,8 +78,14 @@ export function CrmDemoScreen() {
 
 // ── secrets ──────────────────────────────────────────────────────────────────
 
-function useSigningKeyStatus() {
+/**
+ * `enabled` is the caller's `read` grant, not a convenience: without it an
+ * ungranted seat fires a request the server answers 403, and the card would
+ * render a failed query where the honest answer is "you were not granted this".
+ */
+function useSigningKeyStatus(enabled: boolean) {
   return useQuery({
+    enabled,
     queryKey: ["ext", "crm-demo", "signing-key"],
     queryFn: async () => {
       const { data, error, response } = await api.POST(
@@ -93,7 +111,13 @@ function useSigningKeyStatus() {
 function SigningCard() {
   const t = useT();
   const queryClient = useQueryClient();
-  const status = useSigningKeyStatus();
+  // BEFORE the query hook's data is used, and deliberately not folded together:
+  // `read` decides whether this card has anything to say (status and signing
+  // both need it), while `update` decides only whether the key can be REPLACED.
+  // A seat that may verify a signature must still see the card.
+  const canRead = useCan(SIGNING_KEY_OBJECT, "read");
+  const canStore = useCanWrite(SIGNING_KEY_OBJECT, "update");
+  const status = useSigningKeyStatus(canRead);
   const [key, setKey] = useState("");
   const [payload, setPayload] = useState("");
   const [signature, setSignature] = useState("");
@@ -129,6 +153,13 @@ function SigningCard() {
     onSuccess: (data) => setSignature(`${data.algorithm} ${data.signature}`),
   });
 
+  if (!canRead) {
+    return (
+      <Card>
+        <EmptyState>{t("extDemo.signing.noGrant")}</EmptyState>
+      </Card>
+    );
+  }
   return (
     <Card>
       <SectionHeader
@@ -142,22 +173,26 @@ function SigningCard() {
           <Badge tone="warn">{t("extDemo.signing.notConnected")}</Badge>
         )}
       </p>
-      <Field label={t("extDemo.signing.keyLabel")}>
-        {(control) => (
-          <TextInput
-            {...control}
-            type="password"
-            value={key}
-            onChange={(event) => setKey(event.target.value)}
-          />
-        )}
-      </Field>
-      <Button
-        disabled={key.trim() === "" || store.isPending}
-        onClick={() => store.mutate(key)}
-      >
-        {t("extDemo.signing.store")}
-      </Button>
+      {canStore ? (
+        <>
+          <Field label={t("extDemo.signing.keyLabel")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                type="password"
+                value={key}
+                onChange={(event) => setKey(event.target.value)}
+              />
+            )}
+          </Field>
+          <Button
+            disabled={key.trim() === "" || store.isPending}
+            onClick={() => store.mutate(key)}
+          >
+            {t("extDemo.signing.store")}
+          </Button>
+        </>
+      ) : null}
       <Field label={t("extDemo.signing.payloadLabel")}>
         {(control) => (
           <TextInput

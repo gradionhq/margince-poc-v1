@@ -143,6 +143,8 @@ export const vi = {
   "extDemo.signing.sign": "Ký",
   "extDemo.signing.signFailed":
     "Không có gì được ký. Hãy lưu khóa ký trước đã.",
+  "extDemo.signing.noGrant":
+    "Bạn không có quyền truy cập khóa ký của tiện ích mở rộng này.",
   "extDemo.notes.title": "Ghi chú",
   "extDemo.notes.bodyLabel": "Ghi chú mới",
   "extDemo.notes.add": "Thêm",

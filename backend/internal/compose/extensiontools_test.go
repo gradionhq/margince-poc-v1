@@ -49,6 +49,22 @@ const unitToolDescription = "A stand-in unit tool, described so the composition 
 // spell inside an extension.Tool literal is spelled here instead, because that
 // is where a unit author now spells it.
 func unitVerb(unit, tool string, tier extension.Tier, scope extension.Scope) extension.Verb {
+	v := unitVerbBare(unit, tool, tier, scope)
+	// A MUTATING declaration always carries an RBAC object now — Verb.Validate
+	// refuses one that does not (a governed write nobody can withhold was R1).
+	// Filling it HERE rather than at thirty call sites keeps each test's subject
+	// its own; the refusal itself is pinned in pkg/extension's Validate tests,
+	// and a test that needs the objectless shape uses unitVerbBare.
+	if scope == extension.ScopeWrite || scope == extension.ScopeDraft {
+		v.RbacObject = extension.NamespacePrefix + strings.ReplaceAll(unit, "-", "_") + "_record"
+		v.RbacAction = extension.RbacUpdate
+	}
+	return v
+}
+
+// unitVerbBare is the same declaration with NO RBAC pair, whatever the scope —
+// for the tests whose subject is the refusal itself.
+func unitVerbBare(unit, tool string, tier extension.Tier, scope extension.Scope) extension.Verb {
 	return extension.Verb{
 		Unit:           extension.Name(unit),
 		Contract:       "crm.yaml",

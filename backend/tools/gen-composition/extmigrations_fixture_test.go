@@ -16,6 +16,8 @@ package main
 // line number sends them looking for a string that is not there.
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,16 +75,34 @@ func TestNegativeMigrationFixturesFailGenerationWithPosition(t *testing.T) {
 // readable at once.
 func TestTheNamespaceWallFixtureDeclaresTheSameKeyAsCrmDemo(t *testing.T) {
 	const key = `{Key: "signing", Scope: extension.SecretScopeWorkspace}`
-	for _, source := range []string{
-		filepath.Join(fixtureRoot, "crm-nosy", "crmnosy.go"),
-		filepath.Join("..", "..", "..", "extensions", "crm-demo", "crmdemo.go"),
+	for _, source := range []struct {
+		path string
+		// removable marks a file that a legitimate operation deletes. The
+		// FIXTURE is part of the repository and its absence is a defect; the
+		// installed UNIT is one `git rm -r extensions/crm-demo` away, which is
+		// the documented removal recipe. A t.Fatal on the second made removal a
+		// THREE-place operation — delete the unit, delete its core screen, and
+		// edit this test — and the third place is one nobody would find until
+		// `make check` failed in a package about migrations. Removing a unit
+		// must not require editing the core's tests.
+		removable bool
+	}{
+		{path: filepath.Join(fixtureRoot, "crm-nosy", "crmnosy.go")},
+		{path: filepath.Join("..", "..", "..", "extensions", "crm-demo", "crmdemo.go"), removable: true},
 	} {
-		raw, err := os.ReadFile(source) // #nosec G304 -- a fixed path inside the repository under test
+		raw, err := os.ReadFile(source.path) // #nosec G304 -- a fixed path inside the repository under test
+		if errors.Is(err, fs.ErrNotExist) && source.removable {
+			// The pairing is vacuous rather than violated: with crm-demo gone
+			// there is no second declaration to agree with, and the run-time
+			// demonstration it guards does not compose either.
+			t.Logf("%s is absent — this installation removed the unit, so there is no pair to hold", source.path)
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(string(raw), key) {
-			t.Errorf("%s no longer declares %s — the namespace-wall demonstration would then compare two different key names and pass vacuously", source, key)
+			t.Errorf("%s no longer declares %s — the namespace-wall demonstration would then compare two different key names and pass vacuously", source.path, key)
 		}
 	}
 }

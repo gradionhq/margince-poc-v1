@@ -135,6 +135,8 @@ export const de = {
   "extDemo.signing.sign": "Signieren",
   "extDemo.signing.signFailed":
     "Es wurde nichts signiert. Hinterlegen Sie zuerst einen Signaturschlüssel.",
+  "extDemo.signing.noGrant":
+    "Sie haben keinen Zugriff auf den Signaturschlüssel dieser Erweiterung.",
   "extDemo.notes.title": "Notizen",
   "extDemo.notes.bodyLabel": "Neue Notiz",
   "extDemo.notes.add": "Hinzufügen",

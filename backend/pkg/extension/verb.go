@@ -242,6 +242,38 @@ func (v Verb) validateGovernance() error {
 	if v.RbacAction != "" {
 		return fmt.Errorf("operation %s declares RBAC action %q but no object — an action names a verb ON something, and there is nothing here for a role document to grant", v.OperationID, string(v.RbacAction))
 	}
+	// A MUTATING operation must name something a role document can withhold.
+	//
+	// This rule exists because its absence shipped. The object/action pair above
+	// is enforced when an object is DECLARED, and nothing required one — so "a
+	// governed operation that changes installation state under no RBAC object"
+	// was expressible, and the first unit to use the secrets surface expressed
+	// it: crm-demo's store-signing-key declared neither, the object check in the
+	// serving adapter therefore never ran, and the operation was admitted on
+	// scope ∧ seat ∧ tier ∧ quota alone. For a cookie-session human that is any
+	// authenticated seat. A read-only user replaced the installation's signing
+	// key, on the REST route and through the agent, and every signature after it
+	// was made with the key they chose. Found by the tier's UAT re-run (R1).
+	//
+	// Scope is what this can key on and it is the honest signal: `write` and
+	// `draft` are the two Passport classes that persist something. `read` is
+	// exempt because a read that owns no records has nothing to gate — that is
+	// yogi, de and crm-hello, and refusing them would be refusing the common
+	// case. The outbound classes never reach here on a served tool (the adapter
+	// refuses them outright), and a handler-LESS declaration is held to the same
+	// rule on purpose: it is published, a client can generate a call from it, and
+	// it is one commit away from having behavior.
+	//
+	// Refused at DECLARATION, so it fails at generation with the operation named
+	// rather than at the boot of whoever composed the unit — and refused here
+	// rather than in the serving adapter, so a contract-only verb is covered too.
+	if v.RequestedScope == ScopeWrite || v.RequestedScope == ScopeDraft {
+		return fmt.Errorf("operation %s requests the %q scope but declares no RBAC object — an operation that "+
+			"changes this installation's state must name something a role document can withhold, or it is "+
+			"admitted on scope, seat, tier and quota alone (i.e. any authenticated seat). "+
+			"Declare x-rbac-object (ext_%s_<object>) and x-rbac-action",
+			v.OperationID, string(v.RequestedScope), strings.ReplaceAll(string(v.Unit), "-", "_"))
+	}
 	return nil
 }
 

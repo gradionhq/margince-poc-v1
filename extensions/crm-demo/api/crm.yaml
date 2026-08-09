@@ -180,6 +180,24 @@ actions:
         operationId: crmDemoStoreSigningKey
         summary: Store this workspace's demo signing key.
         tags: [Extensions]
+        # A SECOND object, not ext_crm_demo_note. A role that may add a note has
+        # no business rotating the installation's credential, and one object for
+        # both would make that a single grant. Nothing requires an RBAC object to
+        # be a table — the object is what a role document grants, and this unit
+        # holds two governable things.
+        x-rbac-object: ext_crm_demo_signing_key
+        # UPDATE, not create. There is exactly ONE signing key per workspace: the
+        # slot always exists conceptually and this operation SETS it, first store
+        # and rotation alike. `create` would be the wrong grant twice over — it
+        # would read as "may add a key" when what it means is "may replace the
+        # one in use", and a role granted create-but-not-update would still be
+        # able to overwrite, which is the whole risk.
+        #
+        # Absent before: with no object declared, extensionTool.Handle's check
+        # never ran and this operation was admitted on scope ∧ seat ∧ tier ∧
+        # quota alone — i.e. any authenticated seat, read-only included, on both
+        # the REST and the agent path. Found by the UAT re-run (R1).
+        x-rbac-action: update
         x-mcp-tool:
           verb: demo_store_signing_key
           version: 1.0.0
@@ -222,6 +240,12 @@ actions:
         operationId: crmDemoSigningKeyStatus
         summary: Report whether a demo signing key is stored.
         tags: [Extensions]
+        # Same object as the store, read verb: whether the installation holds a
+        # credential is a fact about the credential, so it is gated by the thing
+        # it is a fact about rather than left ungated because it is only a
+        # boolean.
+        x-rbac-object: ext_crm_demo_signing_key
+        x-rbac-action: read
         x-mcp-tool:
           verb: demo_signing_key_status
           version: 1.0.0
@@ -260,6 +284,15 @@ actions:
         operationId: crmDemoSignPayload
         summary: HMAC-sign a payload with the stored demo signing key.
         tags: [Extensions]
+        # READ, and the honest caveat is that the four-verb vocabulary has no
+        # better word. Signing USES the key and does not change it, so of
+        # create/read/update/delete it is a read — but "may use the credential"
+        # is a stronger grant than "may see that one exists", and here both are
+        # spelled `read` on one object. Split them only when a role genuinely
+        # needs one without the other; declaring a second object to express a
+        # distinction nobody grants would be governance theatre.
+        x-rbac-object: ext_crm_demo_signing_key
+        x-rbac-action: read
         x-mcp-tool:
           verb: demo_sign_payload
           version: 1.0.0

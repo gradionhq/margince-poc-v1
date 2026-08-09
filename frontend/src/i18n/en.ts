@@ -139,6 +139,8 @@ export const en = {
   "extDemo.signing.sign": "Sign",
   "extDemo.signing.signFailed":
     "Nothing was signed. Store a signing key first.",
+  "extDemo.signing.noGrant":
+    "You do not hold access to this extension's signing key.",
   "extDemo.notes.title": "Notes",
   "extDemo.notes.bodyLabel": "New note",
   "extDemo.notes.add": "Add",

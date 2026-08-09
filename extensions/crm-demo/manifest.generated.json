@@ -80,8 +80,8 @@
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "1507e30ecad377b46aa2a09249dd361bbbce78109248ac5699434b7d89c10bc0",
-      "digest": "sha256:e5f7387bb29c7bc656708edad691da969fd3b0ae319c64f13845ac13fe9271fc"
+      "fragment_hash": "8b20a1a2c85e5eda4ae6db7f3461f91d41ad817bb2e41af0c51c99f8a276a484",
+      "digest": "sha256:bfb27ea11157509b16d229d61ab2c4119ec2eaee12e53dc092a10d009f839192"
     },
     {
       "id": "tool/demo_signing_key_status",
@@ -96,8 +96,8 @@
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "891b8ba2b7474b051f97c8c242de3e08bdaa640b5378c7bb462de420a4ec8d7f",
-      "digest": "sha256:26bace7d78cb160c2503d2cd32675cd91887d53fbde79d3f5fdde518ddc1358a"
+      "fragment_hash": "2022f4164f6c4376495b1ba30945319e6627096039891850a5491c8c494b9c2e",
+      "digest": "sha256:dabf352c7a94aa99674b736792d22c67ef111c76a10e3f1e10330b9fcd6c2ef7"
     },
     {
       "id": "tool/demo_store_signing_key",
@@ -112,8 +112,8 @@
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "2b360ccf501114b77c1dfaaf6e2ffefac2c9ea565f1de73228aff16c2a30c159",
-      "digest": "sha256:eabe69fd486c2a97dc92b49961352822b7d0412e1fac12a45c18dff97ff9fff2"
+      "fragment_hash": "253be2900bccea1e32d3dd2cfcac55710c3bfa12374facad7964091573def900",
+      "digest": "sha256:850742667a34109d729ef49d3b045f129b0aee24ffff9c38b23b1890ad5389cf"
     }
   ],
   "secrets": [

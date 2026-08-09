@@ -12,6 +12,11 @@ import (
 
 // wellFormed is the declaration every case below mutates one field of, so a
 // failure names the field rather than the whole value.
+// wellFormed is a WRITE-scoped declaration and therefore carries an RBAC
+// object: a mutating operation that names nothing a role document can withhold
+// is refused (see Verb.Validate), so an objectless one would not be well formed.
+// The read-scoped, objectless shape is asserted separately below — it is the
+// other legitimate case, not this one with a field dropped.
 func wellFormed() Verb {
 	return Verb{
 		Unit:           "crm-demo",
@@ -25,6 +30,8 @@ func wellFormed() Verb {
 		Version:        "1.0.0",
 		Tier:           TierAutoExecute,
 		RequestedScope: ScopeWrite,
+		RbacObject:     "ext_crm_demo_widget",
+		RbacAction:     RbacUpdate,
 		InputSchema:    json.RawMessage(`{"type":"object"}`),
 		OutputSchema:   json.RawMessage(`{"type":"object"}`),
 	}
@@ -41,6 +48,11 @@ func TestVerbValidateAcceptsAWellFormedDeclaration(t *testing.T) {
 	minimal := wellFormed()
 	minimal.Title, minimal.Description = "", ""
 	minimal.InputSchema, minimal.OutputSchema = nil, nil
+	// Read-scoped and objectless, because THAT is the minimal legitimate
+	// declaration: the RBAC pair is optional only for an operation that changes
+	// nothing.
+	minimal.RequestedScope = ScopeRead
+	minimal.RbacObject, minimal.RbacAction = "", ""
 	if err := minimal.Validate(); err != nil {
 		t.Fatalf("a minimal declaration must validate: %v", err)
 	}
@@ -50,6 +62,25 @@ func TestVerbValidateAcceptsAWellFormedDeclaration(t *testing.T) {
 	gated.RbacAction = RbacRead
 	if err := gated.Validate(); err != nil {
 		t.Fatalf("a namespaced RBAC object must validate: %v", err)
+	}
+	// A mutating operation is required to name an object (see Validate), so the
+	// accepted shape has to be pinned too — otherwise the refusal could be
+	// tightened into "no extension may write" and every test would still pass.
+	for _, scope := range []Scope{ScopeWrite, ScopeDraft} {
+		mutating := wellFormed()
+		mutating.RequestedScope = scope
+		mutating.RbacObject, mutating.RbacAction = "ext_crm_demo_widget", RbacUpdate
+		if err := mutating.Validate(); err != nil {
+			t.Fatalf("a %s operation naming an object must validate: %v", string(scope), err)
+		}
+	}
+	// And a READ operation still needs none: yogi, de and crm-hello own no
+	// records, and requiring an object of them would refuse the common case.
+	readOnly := wellFormed()
+	readOnly.RequestedScope = ScopeRead
+	readOnly.RbacObject, readOnly.RbacAction = "", ""
+	if err := readOnly.Validate(); err != nil {
+		t.Fatalf("a read operation owning no records must validate: %v", err)
 	}
 }
 
@@ -104,8 +135,20 @@ func TestVerbValidateRefusals(t *testing.T) {
 		"an object with an action outside the four": func(v *Verb) {
 			v.RbacObject, v.RbacAction = "ext_crm_demo_widget", "list"
 		},
+		// Read-scoped on purpose: with a mutating scope this would be refused by
+		// the mutating-needs-an-object rule instead, and the case would stop
+		// testing the rule it is named for.
 		"an action with no object": func(v *Verb) {
-			v.RbacObject, v.RbacAction = "", RbacRead
+			v.RequestedScope, v.RbacObject, v.RbacAction = ScopeRead, "", RbacRead
+		},
+		// The class R1 shipped: an operation that CHANGES state under no object
+		// at all. Both mutating scopes, because a rule that covered only `write`
+		// would leave `draft` — which also persists — expressible.
+		"a write-scoped operation with no object": func(v *Verb) {
+			v.RequestedScope, v.RbacObject, v.RbacAction = ScopeWrite, "", ""
+		},
+		"a draft-scoped operation with no object": func(v *Verb) {
+			v.RequestedScope, v.RbacObject, v.RbacAction = ScopeDraft, "", ""
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -187,7 +230,12 @@ func TestServedPathPutsTheBasePathBackExactlyOnce(t *testing.T) {
 		t.Fatalf("ServedPath() = %q carries the base path other than exactly once", v.ServedPath())
 	}
 	// The conversion is total over every route the grammar admits, so no
-	// caller ever has to decide whether to prepend.
+	// caller ever has to decide whether to prepend. The RBAC pair is dropped
+	// (and the scope with it) because this loop re-homes the verb to other
+	// units: an object is namespaced to ITS unit, so carrying crm-demo's along
+	// would fail on a rule this test is not about.
+	v.RequestedScope = ScopeRead
+	v.RbacObject, v.RbacAction = "", ""
 	for unit, route := range map[Name]string{"a": "/ext/a/b", "a-b": "/ext/a-b/c_d", "deep": "/ext/deep/b/c/d"} {
 		v.Unit = unit
 		v.Route = route
