@@ -334,7 +334,7 @@ func (a approvalsAdapter) State(ctx context.Context, approvalID ids.ApprovalID) 
 		// approval unperformed forever.
 		return agents.ApprovalState{}, fmt.Errorf("compose: unknown approval status %q", state.Status)
 	}
-	return agents.ApprovalState{Decided: decided, ExpiresAt: state.ExpiresAt}, nil
+	return agents.ApprovalState{Decided: decided, ExpiresAt: state.ExpiresAt, Consumed: state.Consumed}, nil
 }
 
 // approvalDecisions maps the approvals module's status vocabulary onto the tool
@@ -356,7 +356,10 @@ func (a approvalsAdapter) ProposedChange(ctx context.Context, approvalID ids.App
 }
 
 // Withdraw retracts the proposal behind a cancelled task, so no decision is
-// left in a person's inbox that could no longer take effect.
-func (a approvalsAdapter) Withdraw(ctx context.Context, approvalID ids.ApprovalID) error {
+// left in a person's inbox that could no longer take effect. It reports whether
+// there was still an offer to take: a proposal a human already decided is
+// untouched, and a task that claimed otherwise would say the decision was gone
+// while it sat live in the inbox.
+func (a approvalsAdapter) Withdraw(ctx context.Context, approvalID ids.ApprovalID) (bool, error) {
 	return a.svc.Withdraw(ctx, approvalID, "the agent cancelled the task waiting on this decision")
 }

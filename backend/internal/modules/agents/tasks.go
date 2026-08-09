@@ -79,6 +79,18 @@ type Task struct {
 	// say after its first said "completed".
 	Result json.RawMessage
 	Error  json.RawMessage
+	// ServedRecords is how many records the recorded result hands over, and it
+	// is what tells a later poll WHICH KIND of document it is holding.
+	//
+	// Set (including zero) means Result is a tool ENVELOPE that handed records
+	// over: every later poll must re-prove the caller may still see them and
+	// re-charge what the first call cost, exactly as an idempotency replay does.
+	// Nil means there is nothing to re-prove — a refusal, a rejection, a
+	// cancellation — and the stored bytes are served as they stand.
+	//
+	// Nil is the ABSENCE of the fact rather than a sentinel count, because a
+	// count of zero is a real answer that still needs proving.
+	ServedRecords *int
 	// ExpiresAt is when this server stops answering for the task. It tracks the
 	// approval's own window rather than a constant: a handle that outlived the
 	// decision it points at would poll forever against something nobody can
@@ -118,6 +130,10 @@ type Settlement struct {
 	StatusMessage string
 	Result        json.RawMessage
 	Error         json.RawMessage
+	// ServedRecords carries the same distinction Task.ServedRecords does, and
+	// is set by exactly one branch: the one that recorded a successful call's
+	// envelope. Everything else leaves it nil.
+	ServedRecords *int
 }
 
 // Tasks is the durable half of the extension, implemented by compose.
@@ -150,6 +166,16 @@ type Tasks interface {
 	// specification makes a terminal state immutable, and the honest place to
 	// enforce that is the one write that could break it.
 	Settle(ctx context.Context, id ids.UUID, s Settlement) (Task, error)
+	// Cancel settles a task that NOTHING IS EXECUTING, and reports whether it
+	// did. It is a separate write from Settle because it carries the one guard
+	// Settle must not have: a claimed task is being executed right now, and
+	// marking it cancelled would tell its caller nothing happened while the
+	// effect was committing.
+	//
+	// Losing is not a failure. Cancellation is cooperative, and the
+	// specification permits a task to reach a terminal state other than
+	// cancelled — the poll holding the claim will finish it.
+	Cancel(ctx context.Context, id ids.UUID, message string) (cancelled bool, err error)
 }
 
 // TaskApprovals is what POLLING a decision needs, as distinct from staging or
@@ -177,10 +203,14 @@ type TaskApprovals interface {
 	// ever be noticed.
 	ProposedChange(ctx context.Context, approvalID ids.ApprovalID) (json.RawMessage, error)
 	// Withdraw takes a live pending proposal off the inbox, so a cancelled task
-	// leaves behind no decision that could no longer take effect. Withdrawing an
-	// already-decided approval changes nothing and is not an error: the caller
-	// asked for the proposal to be gone, and it is.
-	Withdraw(ctx context.Context, approvalID ids.ApprovalID) error
+	// leaves behind no decision that could no longer take effect.
+	//
+	// retracted reports whether there was still an offer to take. It is FALSE
+	// for an approval a human already decided, which is not an error — what a
+	// person answered is not the agent's to take back — but it is a different
+	// fact, and a task that reported "withdrawn" either way would say the
+	// proposal was gone while it sat approved in the inbox.
+	Withdraw(ctx context.Context, approvalID ids.ApprovalID) (retracted bool, err error)
 }
 
 // ApprovalState is the live decision state of a staged approval, read through
@@ -190,6 +220,16 @@ type ApprovalState struct {
 	// and expired are NOT the same answer: a pending approval is still worth
 	// waiting on, and an expired one never will be.
 	Decided ApprovalDecision
+	// Consumed reports that the single-use authority has already been spent.
+	//
+	// It is read from the approval rather than inferred from the task's own
+	// claim, because the two answer different questions and a poll that asked
+	// only the claim would get this wrong: an agent may redeem the same approval
+	// through an ordinary retry, which leaves the task with no claim and the
+	// approval spent. Reading only the claim then calls that an unexecuted
+	// approval, invokes, is refused as already-redeemed, and records a refusal
+	// for an effect that in fact succeeded.
+	Consumed bool
 	// ExpiresAt is the window the task's own ttlMs is derived from.
 	ExpiresAt time.Time
 }
@@ -222,6 +262,12 @@ const (
 	taskExpiredMessage = "Nobody decided this before the approval window closed, so it will never take " +
 		"effect. Nothing was changed. Ask the user whether to propose it again."
 	taskCancelledMessage = "This task was cancelled and its pending approval withdrawn. Nothing was changed."
+	// taskCancelledLateMessage is the same cancellation over an approval a
+	// person had ALREADY decided. Saying "withdrawn" there would claim a
+	// retraction that did not happen — the decision stands, and only the
+	// agent's handle to it is gone.
+	taskCancelledLateMessage = "This task was cancelled. A person had already decided the approval behind it, " +
+		"so that decision stands and was not withdrawn — nothing was carried out through this task."
 	taskCompletedMessage = "A person approved this and it has now been carried out."
 	// taskInterruptedMessage is the one answer this surface cannot make
 	// definite, so it says exactly that. It is reached when the approval was
@@ -229,6 +275,14 @@ const (
 	// earlier poll that died after redeeming, or the agent redeeming the same
 	// approval through a direct call. Guessing either way would be a lie, and
 	// re-running would risk a second effect from one human yes.
+	// taskWithheldMessage is what a completed task answers when the records its
+	// recorded result hands over can no longer be read by this caller — the
+	// access was narrowed, the row was archived, or an erasure reached it. The
+	// EFFECT still happened; only the document is withheld, and saying both is
+	// what stops an agent redoing work that already landed.
+	taskWithheldMessage = "This was approved and carried out, but its result can no longer be shown to " +
+		"this agent — the records it named are no longer readable under the current access. Do not repeat " +
+		"the call; ask the user to check the record."
 	taskInterruptedMessage = "The approval for this call was consumed by an attempt that recorded no result, " +
 		"so whether the effect was carried out is not known here. Do not repeat the call — read the record, " +
 		"or the workspace audit log, to see what committed."
@@ -240,6 +294,14 @@ const (
 const taskPollIntervalMs = 5000
 
 // taskClaimLease is how long one execution may hold a task before another poll
-// may take it. It is well past any tool's own wall clock, so it is reached only
-// by a process that died rather than by one still working.
-const taskClaimLease = 2 * time.Minute
+// may take it.
+//
+// It must outlast the longest an exchange can legitimately live, and that is
+// not a guess: mcpCallDeadline bounds one JSON-RPC exchange at 150 seconds, so
+// a two-minute lease would let a second poll declare a first one dead while it
+// was still inside its own handler — reclaiming the task, settling it `failed`,
+// and then watching the original execution commit against an answer that says
+// it did not. The multiple leaves room for a handler that is slow rather than
+// gone, so reaching this can only mean the process holding it is not coming
+// back.
+const taskClaimLease = 4 * mcpCallDeadline

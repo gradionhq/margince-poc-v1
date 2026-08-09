@@ -45,7 +45,7 @@ func toolTasks(pool *pgxpool.Pool) agentTasks { return agentTasks{pool: pool} }
 // taskColumns is the projection every read shares, so three queries cannot
 // disagree about what a task is.
 const taskColumns = `id, approval_id, tool, status, COALESCE(status_message, ''), result, error,
-	expires_at, created_at, updated_at`
+	served_records, expires_at, created_at, updated_at`
 
 // taskPassport answers the passport a task method is acting under.
 //
@@ -165,10 +165,11 @@ func (t agentTasks) Settle(ctx context.Context, id ids.UUID, s agents.Settlement
 	err = database.WithWorkspaceTx(ctx, t.pool, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			UPDATE agent_task SET status = $3, status_message = NULLIF($4, ''),
-				result = $5, error = $6, updated_at = now()
+				result = $5, error = $6, served_records = $7, updated_at = now()
 			WHERE id = $1 AND passport_id = $2 AND status = 'working'
 			RETURNING `+taskColumns,
-			id, passport, string(s.Status), s.StatusMessage, nullableJSON(s.Result), nullableJSON(s.Error))
+			id, passport, string(s.Status), s.StatusMessage,
+			nullableJSON(s.Result), nullableJSON(s.Error), s.ServedRecords)
 		if scanErr := scanTask(row, &task); !errors.Is(scanErr, pgx.ErrNoRows) {
 			return scanErr
 		}
@@ -187,16 +188,45 @@ func (t agentTasks) Settle(ctx context.Context, id ids.UUID, s agents.Settlement
 	return task, nil
 }
 
+// Cancel settles a task NOTHING IS EXECUTING.
+//
+// `claimed_at IS NULL` is the whole guard, and it is what a status check alone
+// could not give: a claimed task is inside its released call right now, and
+// marking it cancelled would discard that call's own settlement and tell the
+// client nothing happened while the effect was committing. Losing this race is
+// reported, not raised — cancellation is cooperative, and the poll holding the
+// claim will settle the task itself.
+func (t agentTasks) Cancel(ctx context.Context, id ids.UUID, message string) (bool, error) {
+	passport, err := taskPassport(ctx, "cancelling")
+	if err != nil {
+		return false, err
+	}
+	var cancelled bool
+	err = database.WithWorkspaceTx(ctx, t.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			WITH taken AS (
+				UPDATE agent_task SET status = 'cancelled', status_message = NULLIF($3, ''), updated_at = now()
+				WHERE id = $1 AND passport_id = $2 AND status = 'working' AND claimed_at IS NULL
+				RETURNING id
+			)
+			SELECT EXISTS (SELECT 1 FROM taken)`, id, passport, message).Scan(&cancelled)
+	})
+	if err != nil {
+		return false, fmt.Errorf("compose: cancelling an MCP task: %w", err)
+	}
+	return cancelled, nil
+}
+
 // nullableJSON writes an absent payload as SQL NULL rather than as the two
 // bytes `null`, which the terminal-payload CHECK reads as a value that is
 // present. A cancelled task carrying `result = 'null'::jsonb` would fail the
 // constraint, and it would fail it at the moment a human's cancellation was
 // being recorded.
-func nullableJSON(raw json.RawMessage) any {
+func nullableJSON(raw json.RawMessage) []byte {
 	if len(raw) == 0 {
 		return nil
 	}
-	return []byte(raw)
+	return raw
 }
 
 func scanTask(row pgx.Row, into *agents.Task) error {
@@ -207,7 +237,7 @@ func scanTask(row pgx.Row, into *agents.Task) error {
 		failure    []byte
 	)
 	if err := row.Scan(&into.ID, &approvalID, &into.Tool, &status, &into.StatusMessage,
-		&result, &failure, &into.ExpiresAt, &into.CreatedAt, &into.UpdatedAt); err != nil {
+		&result, &failure, &into.ServedRecords, &into.ExpiresAt, &into.CreatedAt, &into.UpdatedAt); err != nil {
 		return err
 	}
 	into.ApprovalID = ids.From[ids.ApprovalKind](approvalID)

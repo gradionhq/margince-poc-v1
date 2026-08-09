@@ -37,7 +37,7 @@ import (
 // decision it waits on has landed.
 func (s *Dispatcher) advance(ctx context.Context, task Task) map[string]any {
 	if task.Status.terminal() {
-		return taskWire(task, s.now())
+		return s.serveRecorded(ctx, task)
 	}
 	state, err := s.taskApprovals.State(ctx, task.ApprovalID)
 	if err != nil {
@@ -52,6 +52,19 @@ func (s *Dispatcher) advance(ctx context.Context, task Task) map[string]any {
 	case ApprovalPending:
 		return taskWire(task, s.now())
 	case ApprovalApproved:
+		if state.Consumed {
+			// Spent by something other than this task — an ordinary retry
+			// carrying the same approval_id, or a poll that died after redeeming.
+			// Either way the effect may already have landed, and one human yes
+			// must not become two acts.
+			s.log.Warn("mcp: a task's approval was consumed outside it",
+				"task", task.ID, "approval", task.ApprovalID)
+			return s.settle(ctx, task, Settlement{
+				Status:        TaskFailed,
+				StatusMessage: taskInterruptedMessage,
+				Error:         mustMarshalRPCError(codeInternalError, taskInterruptedMessage),
+			})
+		}
 		return s.runReleased(ctx, task)
 	case ApprovalRejected:
 		// A person said no. That is a RESULT — the surface answered the call —
@@ -126,22 +139,56 @@ func (s *Dispatcher) invokeReleased(ctx context.Context, task Task) Settlement {
 			Error:         mustMarshalRPCError(codeInternalError, message),
 		}
 	}
-	out, err := s.registry.Invoke(ctx, task.Tool, args)
+	out, records, err := s.registry.InvokeServing(ctx, task.Tool, args)
 	if err != nil {
+		// A refusal hands over no records, so it carries no ServedRecords and
+		// every later poll may serve it as it stands.
 		explained := s.explain(task.Tool, err)
 		return Settlement{Status: TaskCompleted, StatusMessage: explained, Result: mustMarshalToolError(explained)}
 	}
-	result, marshalErr := json.Marshal(s.result(task.Tool, out))
-	if marshalErr != nil {
-		// The call COMMITTED and its answer cannot be rendered. Saying so beats
-		// both alternatives: reporting a failure would tell the agent nothing
-		// happened, and re-running is impossible on a spent approval.
-		s.log.Error("mcp: rendering a completed task's result failed", "task", task.ID, "err", marshalErr)
-		const message = "This was approved and carried out, but its result could not be rendered here. " +
-			"Do not repeat the call; read the record to see what it says."
-		return Settlement{Status: TaskCompleted, StatusMessage: message, Result: mustMarshalToolError(message)}
+	// The ENVELOPE is what is stored, not the rendered result. It is the document
+	// that names the records this answer handed over, and naming them is what
+	// lets a later poll re-prove the caller may still see them — the same
+	// evidence an idempotency replay walks. Rendering happens at serve time.
+	return Settlement{
+		Status:        TaskCompleted,
+		StatusMessage: taskCompletedMessage,
+		Result:        out,
+		ServedRecords: &records,
 	}
-	return Settlement{Status: TaskCompleted, StatusMessage: taskCompletedMessage, Result: result}
+}
+
+// serveRecorded answers a task that has already settled.
+//
+// A RECORDED ANSWER IS A RECEIPT THAT OUTLIVES THE AUTHORITY IT WAS PRODUCED
+// UNDER, and this is the second door onto one — the idempotency claim was the
+// first. Handing the bytes back unchecked would keep paying out records to a
+// caller whose grant, seat or row scope has since been pulled, and would keep
+// serving pre-erasure names out of a snapshot every live read now refuses. It
+// would also be the cheapest bulk read on the surface: free, and repeatable for
+// the life of the handle.
+//
+// So a stored ENVELOPE is re-proven and re-charged through the registry's own
+// replay gate before it is rendered. A stored refusal is not: it names no
+// records, so there is nothing to re-prove and nothing to bill.
+func (s *Dispatcher) serveRecorded(ctx context.Context, task Task) map[string]any {
+	if task.ServedRecords == nil {
+		return taskWire(task, s.now())
+	}
+	proven, err := s.registry.ServeRecorded(ctx, task.Tool, task.Result, *task.ServedRecords)
+	if err != nil {
+		// The same existence-hiding answer a live read of an unreadable record
+		// gives. The task itself is left alone: it really did complete, and a
+		// caller whose access is restored may read it again.
+		s.log.Warn("mcp: a completed task's recorded answer is no longer readable by its caller",
+			"task", task.ID, "tool", task.Tool, "err", err)
+		withheld := task
+		withheld.ServedRecords = nil
+		withheld.Result = mustMarshalToolError(taskWithheldMessage)
+		return taskWire(withheld, s.now())
+	}
+	task.Result = proven
+	return taskWire(s.rendered(task), s.now())
 }
 
 // settle records a terminal state and answers the task as settled.
@@ -155,13 +202,39 @@ func (s *Dispatcher) settle(ctx context.Context, task Task, settlement Settlemen
 	settled, err := s.tasks.Settle(ctx, task.ID, settlement)
 	if err != nil {
 		s.log.Error("mcp: settling a task failed", "task", task.ID, "status", settlement.Status, "err", err)
-		task.Status = settlement.Status
-		task.StatusMessage = settlement.StatusMessage
-		task.Result, task.Error = settlement.Result, settlement.Error
-		task.UpdatedAt = s.now()
-		return taskWire(task, s.now())
+		settled = task
+		settled.Status = settlement.Status
+		settled.StatusMessage = settlement.StatusMessage
+		settled.Result, settled.Error = settlement.Result, settlement.Error
+		settled.ServedRecords = settlement.ServedRecords
+		settled.UpdatedAt = s.now()
 	}
-	return taskWire(settled, s.now())
+	return taskWire(s.rendered(settled), s.now())
+}
+
+// rendered turns a task whose Result is a stored ENVELOPE into one whose Result
+// is the tool result a client reads.
+//
+// It is the fresh half of the pair serveRecorded completes. This one neither
+// re-proves nor re-charges, and both omissions are the point: the call has just
+// run under this very request, so its records were proven by the handler's own
+// row scope and charged by runAndSeal. Charging again here would bill a caller
+// twice for one answer.
+func (s *Dispatcher) rendered(task Task) Task {
+	if task.ServedRecords == nil {
+		return task
+	}
+	out, err := json.Marshal(s.result(task.Tool, task.Result))
+	if err != nil {
+		// The effect COMMITTED and its answer cannot be rendered. Saying that
+		// beats both alternatives: reporting a failure would tell the agent
+		// nothing happened, and re-running is impossible on a spent approval.
+		s.log.Error("mcp: rendering a task's result failed", "task", task.ID, "err", err)
+		task.Result = mustMarshalToolError(taskWithheldMessage)
+		return task
+	}
+	task.Result = out
+	return task
 }
 
 // releasedArgs rebuilds the call a human released: the approval's CURRENT
@@ -219,13 +292,10 @@ func mustMarshalRPCError(code int, message string) json.RawMessage {
 	return raw
 }
 
-// clock is the dispatcher's own reading of now, injectable so the freshness a
-// task reports can be proven rather than slept through.
-type clock func() time.Time
-
-func (s *Dispatcher) now() time.Time {
-	if s.clock == nil {
-		return time.Now()
-	}
-	return s.clock()
-}
+// now is this dispatcher's reading of the wall clock, used only for the
+// freshness a rendered task reports.
+//
+// It is NOT injectable, and deliberately so: the computation a test needs to
+// pin is taskWire's, which already takes `now` as a parameter and is asserted
+// against a fixed one. A second seam here would be a field nothing sets.
+func (s *Dispatcher) now() time.Time { return time.Now() }

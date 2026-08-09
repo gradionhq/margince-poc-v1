@@ -68,6 +68,8 @@ type resultTyped interface{ resultType() string }
 // modernResultTypeOf answers the discriminator one result claims for itself.
 // Everything is "complete" unless it says otherwise, so a handler that has
 // nothing to declare declares nothing and still gets the required member.
+//
+//craft:ignore naked-any it reads rpcResponse.Result, which every handler on this surface fills with its own shape — the whole point is to ask an unknown result what it is
 func modernResultTypeOf(result any) string {
 	if typed, ok := result.(resultTyped); ok {
 		return typed.resultType()

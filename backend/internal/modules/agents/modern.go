@@ -58,12 +58,11 @@ const (
 // emitted with the meaning the spec gives it — and never invented here.
 //
 // codeMissingClientCapability is -32021 on the CORE specification's authority,
-// not the Tasks extension's. That extension's own text says -32003, which is a
-// code from the -32000..-32019 sub-range the core spec calls legacy and tells
-// new implementations not to allocate in or use — for a condition the core spec
-// has already named at -32021. It reads as a carry-over from the 2025-11-25
-// tasks draft; this server emits the code the normative table defines, and the
-// discrepancy is raised upstream rather than absorbed.
+// which governs the codes every extension shares. The Tasks extension's own
+// text says -32003 — a code from the -32000..-32019 sub-range the core spec
+// calls legacy, tells new implementations not to allocate in, and asks
+// receivers to assume no meaning for. The same condition already has a
+// specified code, so the two cannot both be emitted and the shared table wins.
 const (
 	codeHeaderMismatch             = -32020
 	codeMissingClientCapability    = -32021

@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
@@ -246,6 +247,37 @@ func TestPollingACompletedTaskTwiceRunsTheCallOnce(t *testing.T) {
 	}
 }
 
+// A recorded answer is a receipt that outlives the authority it was produced
+// under. When the caller can no longer read the records it names, the document
+// is withheld — the same rule the idempotency replay keeps, and the reason both
+// doors share one gate.
+func TestACompletedTasksResultIsWithheldOnceItsRecordsAreNoLongerReadable(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+
+	first := pollTask(t, s, task.ID)
+	if isToolError(t, first[fieldResult].(json.RawMessage)) {
+		t.Fatalf("the first poll refused its own fresh answer: %v", first)
+	}
+
+	// The record moves out of this caller's reach — reassigned, archived, or
+	// erased. Nothing about the task row changes.
+	store.records.hide(store.tool.target)
+
+	again := pollTask(t, s, task.ID)
+	if again[fieldStatus] != string(TaskCompleted) {
+		t.Fatalf("status = %v, want the task to stay completed — the effect did happen", again[fieldStatus])
+	}
+	if !isToolError(t, again[fieldResult].(json.RawMessage)) {
+		t.Errorf("the recorded record was served again after the caller lost access to it:\n%s",
+			again[fieldResult])
+	}
+	if store.tool.calls != 1 {
+		t.Errorf("the released call ran %d times, want 1", store.tool.calls)
+	}
+}
+
 // What is executed is what the PERSON released, not what the agent proposed. A
 // human may edit a staged proposal before approving it, which rewrites both the
 // payload and the hash that opens it — so a task replaying its original
@@ -284,6 +316,42 @@ func TestAReleasedCallRedeemsTheTasksOwnApproval(t *testing.T) {
 		t.Errorf("redeemed %s, want the task's own approval %s — a payload naming another "+
 			"approval must not choose which one the released call spends",
 			store.approvals.redeemed[0], task.ApprovalID)
+	}
+}
+
+// An approval spent OUTSIDE this task — an ordinary retry carrying the same
+// approval_id, or a poll that died after redeeming — is not an unexecuted one.
+// Reading only the task's own claim would call it unexecuted, invoke, be
+// refused as already-redeemed, and record a refusal for an effect that in fact
+// succeeded.
+func TestAnApprovalSpentOutsideTheTaskIsNotReExecuted(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+	store.approvals.consumed = true
+
+	wire := pollTask(t, s, task.ID)
+
+	if wire[fieldStatus] != string(TaskFailed) {
+		t.Fatalf("status = %v (%v), want failed — the outcome is unknown, not a refusal",
+			wire[fieldStatus], wire[fieldStatusMessage])
+	}
+	if store.tool.calls != 0 {
+		t.Errorf("the released call ran %d times against a spent approval, want 0", store.tool.calls)
+	}
+	if len(store.approvals.redeemed) != 0 {
+		t.Errorf("the task tried to redeem an approval already consumed elsewhere")
+	}
+}
+
+// The claim lease must outlast the longest exchange the transport allows, or a
+// poll still inside its own handler is declared dead by the next one — which
+// then settles the task `failed` while the first execution goes on to commit.
+func TestTheClaimLeaseOutlastsTheLongestExchange(t *testing.T) {
+	if taskClaimLease <= mcpCallDeadline {
+		t.Fatalf("claim lease %s does not outlast the %s exchange deadline: a live executor "+
+			"would be reclaimed and its task settled failed while it was still running",
+			taskClaimLease, mcpCallDeadline)
 	}
 }
 
@@ -461,6 +529,49 @@ func TestTheTaskMethodsMirrorTheirTaskID(t *testing.T) {
 	}
 }
 
+// `ttlMs` means two different things in one JSON namespace — a task's freshness
+// in taskWire, a cache hint in finishModern — and they share an object only if
+// some method both answers a task AND carries a cache hint. Nothing states that
+// they cannot, so this does: the disjointness is a property, not a coincidence
+// of today's closed set.
+func TestNoMethodCarriesBothATaskAndACacheHint(t *testing.T) {
+	for _, method := range []string{methodToolsCall, methodTasksGet, methodTasksUpdate, methodTasksCancel} {
+		if _, hinted := modernCacheHint(method); hinted {
+			t.Errorf("%s carries a cache hint AND can answer a task; both write %q into one result, "+
+				"so one would silently overwrite the other", method, fieldTTLMs)
+		}
+	}
+}
+
+// The wire members are asserted as LITERALS, for the reason this file's first
+// test gives about the method names: reading the constant the renderer writes
+// proves only that this server agrees with itself, and a typo in one of these
+// ships a task no client can read.
+func TestTheWireTaskMembersAreSpelledAsTheSpecificationWritesThem(t *testing.T) {
+	for _, tc := range []struct{ got, want string }{
+		{fieldTaskID, "taskId"},
+		{fieldStatus, "status"},
+		{fieldStatusMessage, "statusMessage"},
+		{fieldCreatedAt, "createdAt"},
+		{fieldLastUpdatedAt, "lastUpdatedAt"},
+		{fieldPollInterval, "pollIntervalMs"},
+		{fieldTTLMs, "ttlMs"},
+		{fieldResult, "result"},
+		{fieldError, "error"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("wire member = %q, want the protocol's own spelling %q", tc.got, tc.want)
+		}
+	}
+	// And they are the members a rendered task actually carries.
+	wire := taskWire(Task{Status: TaskWorking, StatusMessage: "waiting"}, time.Now())
+	for _, member := range []string{"taskId", "status", "statusMessage", "createdAt", "lastUpdatedAt", "ttlMs"} {
+		if _, present := wire[member]; !present {
+			t.Errorf("a rendered working task carries no %q", member)
+		}
+	}
+}
+
 // The freshness a handle reports tracks the decision it waits on, and never
 // runs backwards past it.
 func TestATasksFreshnessTracksTheDecisionItWaitsOn(t *testing.T) {
@@ -482,6 +593,9 @@ func TestATasksFreshnessTracksTheDecisionItWaitsOn(t *testing.T) {
 type stagingTool struct {
 	calls    int
 	lastArgs json.RawMessage
+	// target is the record the tool stages against and later names as the
+	// evidence for its answer — one record, so the two agree.
+	target ids.UUID
 }
 
 func (t *stagingTool) Spec() mcp.ToolSpec {
@@ -494,16 +608,24 @@ func (t *stagingTool) Spec() mcp.ToolSpec {
 	}
 }
 
-func (t *stagingTool) Handle(_ context.Context, in json.RawMessage) (json.RawMessage, error) {
+func (t *stagingTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	t.calls++
 	t.lastArgs = in
+	// It NAMES the record it acted on, as every mutating tool on this surface
+	// does. That evidence is what a later poll re-proves the caller may still
+	// see — a fake that skipped it would exercise a document the replay gate
+	// refuses, and would prove nothing about the path a real tool takes.
+	noteRecord(ctx, datasource.Record{
+		Ref:       datasource.EntityRef{Type: datasource.EntityDeal, ID: t.target},
+		Freshness: datasource.FreshnessInfo{Authoritative: true},
+	})
 	return json.RawMessage(`{"ok":true}`), nil
 }
 
 // StageInfo makes the tool stageable, which is what turns its refusal into
 // something a handle can point at.
 func (t *stagingTool) StageInfo(context.Context, json.RawMessage) (StageInfo, error) {
-	return StageInfo{TargetType: "deal", TargetID: ids.NewV7(), Summary: "send it"}, nil
+	return StageInfo{TargetType: "deal", TargetID: t.target, Summary: "send it"}, nil
 }
 
 // fakeApprovals is the staging, polling and redemption seam in one object, so a
@@ -513,6 +635,7 @@ type fakeApprovals struct {
 	staged    ids.ApprovalID
 	decision  ApprovalDecision
 	change    json.RawMessage
+	consumed  bool
 	withdrawn ids.ApprovalID
 	redeemed  []ids.ApprovalID
 }
@@ -545,7 +668,7 @@ func (a *fakeApprovals) State(context.Context, ids.ApprovalID) (ApprovalState, e
 	if decision == "" {
 		decision = ApprovalPending
 	}
-	return ApprovalState{Decided: decision, ExpiresAt: time.Now().Add(time.Hour)}, nil
+	return ApprovalState{Decided: decision, Consumed: a.consumed, ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
 func (a *fakeApprovals) ProposedChange(context.Context, ids.ApprovalID) (json.RawMessage, error) {
@@ -554,11 +677,13 @@ func (a *fakeApprovals) ProposedChange(context.Context, ids.ApprovalID) (json.Ra
 	return a.change, nil
 }
 
-func (a *fakeApprovals) Withdraw(_ context.Context, id ids.ApprovalID) error {
+func (a *fakeApprovals) Withdraw(_ context.Context, id ids.ApprovalID) (bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.withdrawn = id
-	return nil
+	// A withdrawal only ever takes a PENDING proposal off the inbox, exactly as
+	// WithdrawInTx does — so a decided one reports that nothing was retracted.
+	return a.decision == "" || a.decision == ApprovalPending, nil
 }
 
 // fakeTasks is an in-memory task store with the ONE behaviour the durable one
@@ -572,6 +697,30 @@ type fakeTasks struct {
 	reclaimed bool
 	approvals *fakeApprovals
 	tool      *stagingTool
+	records   *recordReader
+}
+
+// recordReader is the live re-read a recorded answer is proven against. Taking
+// a record out of `visible` is how a test narrows the caller's access after the
+// answer was produced.
+type recordReader struct {
+	mu      sync.Mutex
+	visible map[ids.UUID]bool
+}
+
+func (r *recordReader) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.visible[ref.ID] {
+		return datasource.Record{}, apperrors.ErrNotFound
+	}
+	return datasource.Record{Ref: ref, Freshness: datasource.FreshnessInfo{Authoritative: true}}, nil
+}
+
+func (r *recordReader) hide(id ids.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.visible, id)
 }
 
 func (f *fakeTasks) Create(_ context.Context, in NewTask) (Task, error) {
@@ -619,9 +768,25 @@ func (f *fakeTasks) Settle(_ context.Context, id ids.UUID, s Settlement) (Task, 
 	}
 	task.Status, task.StatusMessage = s.Status, s.StatusMessage
 	task.Result, task.Error = s.Result, s.Error
+	task.ServedRecords = s.ServedRecords
 	task.UpdatedAt = time.Now()
 	f.tasks[id] = task
 	return task, nil
+}
+
+// Cancel mirrors the store's one guard: a claimed task is executing, and
+// cancelling it would discard that execution's own settlement.
+func (f *fakeTasks) Cancel(_ context.Context, id ids.UUID, message string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	task, ok := f.tasks[id]
+	if !ok || task.Status != TaskWorking || f.claimed[id] {
+		return false, nil
+	}
+	task.Status, task.StatusMessage = TaskCancelled, message
+	task.UpdatedAt = time.Now()
+	f.tasks[id] = task
+	return true, nil
 }
 
 // stagingDispatcher is a server whose one tool always needs a human, wired to
@@ -629,15 +794,21 @@ func (f *fakeTasks) Settle(_ context.Context, id ids.UUID, s Settlement) (Task, 
 func stagingDispatcher(t *testing.T) (*Dispatcher, *fakeTasks) {
 	t.Helper()
 	approvals := &fakeApprovals{}
-	tool := &stagingTool{}
+	tool := &stagingTool{target: ids.NewV7()}
 	store := &fakeTasks{
 		tasks: map[ids.UUID]Task{}, claimed: map[ids.UUID]bool{},
 		approvals: approvals, tool: tool,
 	}
-	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+	// The replay reader is what a later poll re-proves the recorded answer
+	// through. Without one every recorded document is withheld — fail-closed,
+	// and the reason a composition that forgets it loses replay rather than its
+	// gate.
+	reader := &recordReader{visible: map[ids.UUID]bool{tool.target: true}}
+	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}), WithReplayReader(reader))
 	registry.Register(tool)
 	s := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test").
 		WithLogger(discardLog()).WithTasks(store, approvals)
+	store.records = reader
 	return s, store
 }
 

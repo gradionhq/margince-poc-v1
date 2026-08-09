@@ -114,9 +114,6 @@ type Dispatcher struct {
 	// It arrives WITH the store, because neither half of the extension is
 	// usable without the other.
 	taskApprovals TaskApprovals
-	// clock is this dispatcher's reading of now, used for the freshness a task
-	// reports. Injected so that can be proven rather than slept through.
-	clock clock
 	// log receives the true cause of failures the tool client only sees
 	// generically — the client is an untrusted agent, so infrastructure
 	// detail (DSNs, hosts, wrap chains) stays server-side.
@@ -374,6 +371,8 @@ func (s *Dispatcher) identity() map[string]any {
 // a confirm-first call has TWO shapes: the refusal every client understands,
 // and — for a client that declared the Tasks extension on this request — a task
 // handle it can poll until the person decides.
+//
+//craft:ignore naked-any the protocol makes this result polymorphic (CallToolResult or CreateTaskResult) and the framing tells them apart by TYPE — a named wrapper here would be a naked any wearing a hat, and collapsing both into one map would make resultType a member two components read differently
 func (s *Dispatcher) call(ctx context.Context, params json.RawMessage, fr framing) any {
 	var p struct {
 		Name      string          `json:"name"`

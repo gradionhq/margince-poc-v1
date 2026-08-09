@@ -42,8 +42,10 @@ const (
 // type that answers it.
 const resultTypeTask = "task"
 
-// The members of the wire Task, spelled once so the three renderings below
-// cannot drift from each other.
+// The members of the wire Task. taskWire is the one place that writes them;
+// they are named rather than inlined so a reader can see the whole shape at
+// once, and so the test that holds each to the specification's own spelling has
+// something to hold.
 const (
 	fieldTaskID        = "taskId"
 	fieldStatus        = "status"
@@ -119,7 +121,11 @@ func (s *Dispatcher) answerTaskMethod(ctx context.Context, resp rpcResponse, met
 	case methodTasksGet:
 		resp.Result = s.advance(ctx, task)
 	case methodTasksCancel:
-		resp.Result = s.cancelTask(ctx, task)
+		if result, rpcErr := s.cancelTask(ctx, task); rpcErr != nil {
+			resp.Error = rpcErr
+		} else {
+			resp.Result = result
+		}
 	case methodTasksUpdate:
 		// An empty acknowledgement, which is the whole of it. This server never
 		// raises an inputRequest — a 🟡 decision is a person visiting Margince,
@@ -189,37 +195,54 @@ func unknownTaskError() *rpcError {
 	}
 }
 
-// cancelTask withdraws the pending approval behind a task and settles it.
+// cancelTask retracts the proposal behind a task and settles the handle.
 //
 // Withdrawing is the point rather than a side effect. Cancelling the handle and
 // leaving the staging in a person's inbox would leave a decision that can no
 // longer take effect and that nobody can retract — the same zombie authority
 // object refuseStagingElsewhere declines to mint.
 //
-// A task already terminal is answered untouched. The specification makes
-// cancellation cooperative and permits a terminal state other than cancelled,
-// and rewriting a settled answer would break the one promise a terminal state
-// makes.
-func (s *Dispatcher) cancelTask(ctx context.Context, task Task) map[string]any {
+// THE ORDER IS LOAD-BEARING, and it is safe for a reason worth stating: a
+// withdrawal only ever touches a PENDING approval, and an executing poll only
+// ever holds an APPROVED one. So retracting first cannot disturb an execution
+// in flight — against an approved proposal it is a no-op that reports exactly
+// that.
+//
+// Cancel then competes with those executors for the same row, and losing is not
+// a failure. The specification makes cancellation cooperative and permits a
+// task to reach a terminal state other than cancelled; a poll already inside
+// the released call will finish it, and the client learns that by polling. What
+// this must never do is mark a task cancelled while its effect is committing,
+// which is why the store's Cancel refuses a claimed row instead of this
+// function reading the status and hoping.
+//
+// A task already terminal is answered untouched, for the same reason.
+func (s *Dispatcher) cancelTask(ctx context.Context, task Task) (map[string]any, *rpcError) {
 	if task.Status.terminal() {
-		return map[string]any{}
+		return map[string]any{}, nil
 	}
-	if err := s.taskApprovals.Withdraw(ctx, task.ApprovalID); err != nil {
-		// The ack is empty either way, so a failure here would be invisible to
-		// the client and must not be invisible to us: leaving the task working
-		// keeps it honest — the staging is still live, and the next poll will
-		// say so.
+	retracted, err := s.taskApprovals.Withdraw(ctx, task.ApprovalID)
+	if err != nil {
+		// Answered as an error rather than acked. An empty ack would tell the
+		// client its cancellation succeeded while the proposal stayed live in a
+		// person's inbox — and the client would stop polling the very task that
+		// could still act.
 		s.log.Error("mcp: withdrawing a cancelled task's approval failed",
 			"task", task.ID, "approval", task.ApprovalID, "err", err)
-		return map[string]any{}
+		return nil, &rpcError{
+			Code: codeInternalError,
+			Message: "the approval behind this task could not be withdrawn, so it was not cancelled: " +
+				"try again, or ask the user to decide it in Margince",
+		}
 	}
-	if _, err := s.tasks.Settle(ctx, task.ID, Settlement{
-		Status:        TaskCancelled,
-		StatusMessage: taskCancelledMessage,
-	}); err != nil {
+	message := taskCancelledMessage
+	if !retracted {
+		message = taskCancelledLateMessage
+	}
+	if _, err := s.tasks.Cancel(ctx, task.ID, message); err != nil {
 		s.log.Error("mcp: settling a cancelled task failed", "task", task.ID, "err", err)
 	}
-	return map[string]any{}
+	return map[string]any{}, nil
 }
 
 // mintTask turns a staged 🟡 refusal into a handle the caller can poll, and

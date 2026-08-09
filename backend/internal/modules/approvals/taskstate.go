@@ -62,8 +62,18 @@ type TaskState struct {
 	// expired here exactly as it does on every other surface. A poll told
 	// "pending" about a dead proposal would wait forever.
 	Status string
-	// ExpiresAt is the window the handle's own freshness is derived from.
+	// ExpiresAt is the last moment this proposal can still be ACTED on, which
+	// is not always the staging deadline.
+	//
+	// A pending row's own expires_at is when the offer lapses; but a human who
+	// approves one second before that still leaves a decision redeemable for
+	// RedemptionWindow afterwards. A handle that expired at the staging
+	// deadline would refuse itself while its approval was live, stranding an
+	// effect the person had already released — so the answer is the later of
+	// the two, per status.
 	ExpiresAt time.Time
+	// Consumed reports that the single-use authority has already been spent.
+	Consumed bool
 }
 
 // TaskState answers whether this agent's own proposal has been decided, and how
@@ -71,12 +81,34 @@ type TaskState struct {
 func (s *Service) TaskState(ctx context.Context, id ids.ApprovalID) (TaskState, error) {
 	var state TaskState
 	err := s.readOwnProposal(ctx, id, func(a row) {
-		state = TaskState{Status: a.effectiveStatus(s.now()), ExpiresAt: a.ExpiresAt}
+		status := a.effectiveStatus(s.now())
+		state = TaskState{Status: status, ExpiresAt: actionableUntil(a, status), Consumed: a.ConsumedAt != nil}
 	})
 	if err != nil {
 		return TaskState{}, err
 	}
 	return state, nil
+}
+
+// actionableUntil answers the last moment this proposal can still be acted on.
+//
+// A DECIDED row is bounded by its own decision: the yes is spendable for
+// RedemptionWindow after decided_at and worthless afterwards. A row still
+// awaiting a decision is bounded by the latest either could happen — somebody
+// may approve it in its final second, and the redemption window runs from
+// there — so the honest deadline for a handle to it is the staging window plus
+// that one.
+//
+// Nothing here extends what a redemption will ACCEPT. validateRedemption is the
+// authority; this only stops a handle from expiring before it.
+func actionableUntil(a row, status string) time.Time {
+	if a.DecidedAt != nil {
+		return a.DecidedAt.Add(RedemptionWindow)
+	}
+	if status == StatusExpired {
+		return a.ExpiresAt
+	}
+	return a.ExpiresAt.Add(RedemptionWindow)
 }
 
 // ProposedChange answers the payload a redemption of this agent's own proposal
@@ -99,26 +131,27 @@ func (s *Service) ProposedChange(ctx context.Context, id ids.ApprovalID) (json.R
 // Withdraw retracts this agent's own live proposal on its own transaction — the
 // wrapper WithdrawInTx has lacked, for callers that hold none.
 //
-// It reports nothing about whether the offer was still live to take. A caller
-// that only wants the proposal GONE is served identically by either outcome,
-// and one that needs to act on the retraction should use WithdrawInTx inside
-// the transaction where that decision matters.
-func (s *Service) Withdraw(ctx context.Context, id ids.ApprovalID, reason string) error {
+// retracted reports whether there was still an offer to take. It is FALSE for
+// an approval a human already decided — what a person answered is not the
+// agent's to take back — and a caller that reported "withdrawn" either way
+// would tell its user the proposal was gone while it sat decided in the inbox.
+func (s *Service) Withdraw(ctx context.Context, id ids.ApprovalID, reason string) (retracted bool, err error) {
 	passport, err := stagingPassport(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := ownProposal(ctx, tx, id, passport); err != nil {
 			return err
 		}
-		_, err := s.WithdrawInTx(ctx, tx, id, reason)
-		return err
+		var wErr error
+		retracted, wErr = s.WithdrawInTx(ctx, tx, id, reason)
+		return wErr
 	})
 	if err != nil {
-		return fmt.Errorf("crmapprovals: withdrawing approval: %w", err)
+		return false, fmt.Errorf("crmapprovals: withdrawing approval: %w", err)
 	}
-	return nil
+	return retracted, nil
 }
 
 // readOwnProposal runs read over the calling passport's own staged proposal.

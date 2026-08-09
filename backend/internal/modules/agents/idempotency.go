@@ -288,27 +288,44 @@ func (r *Registry) releaseUnrunKey(ctx context.Context, spec mcp.ToolSpec, res r
 // that record would give — a distinct "you could see this yesterday" would be
 // the oracle row scope exists to close.
 func (r *Registry) replay(ctx context.Context, spec mcp.ToolSpec, claim Claim) (json.RawMessage, error) {
-	evidence, err := replayEvidence(claim.Result)
+	return r.ServeRecorded(ctx, spec.Name, claim.Result, claim.Records)
+}
+
+// ServeRecorded answers a stored envelope to the caller AS THEY ARE NOW: it
+// re-proves every record the document names and re-charges what the original
+// call cost, then hands the bytes back unchanged.
+//
+// It exists because there are now TWO surfaces holding a recorded answer — the
+// idempotency claim, and an MCP task whose completed result a client may poll
+// for the life of its handle — and both are receipts that outlive the authority
+// they were produced under. One gate, called twice: a second implementation
+// would be a second answer to "may this caller still see this", and the two
+// would drift the first time either moved.
+//
+// The refusal is ErrNotFound, the existence-hiding answer a live read would
+// give. The count is the ORIGINAL call's, never derived from the evidence list
+// — see chargeReplay for why that arithmetic would make a repeat cheaper than
+// the call.
+func (r *Registry) ServeRecorded(ctx context.Context, tool string, recorded json.RawMessage, records int) (json.RawMessage, error) {
+	spec, ok := r.Spec(tool)
+	if !ok {
+		// A tool that has left the surface cannot have its answer re-proven
+		// against the schema and counters it was produced under.
+		return nil, apperrors.ErrNotFound
+	}
+	evidence, err := replayEvidence(recorded)
 	if err != nil {
-		// The recorded bytes are not an envelope this surface can read, so it
-		// cannot show the caller may still see what is in them. Fail closed:
-		// serving a document on the strength of a parse failure is exactly what
-		// this check exists to prevent.
-		slog.ErrorContext(ctx, "a recorded tool result could not be read back as an envelope; refusing the replay",
-			"tool", spec.Name, "err", err)
+		slog.ErrorContext(ctx, "a recorded tool result could not be read back as an envelope; withholding it",
+			"tool", tool, "err", err)
 		return nil, apperrors.ErrNotFound
 	}
 	if err := r.ensureReplayVisible(ctx, evidence); err != nil {
 		return nil, err
 	}
-	// Charged BEFORE the result goes back, for the reason a fresh answer is:
-	// records this surface cannot count are records it does not hand over. A
-	// replay that skipped the charge would be the cheapest bulk read on the
-	// surface — free, and repeatable for the life of the window.
-	if err := r.chargeReplay(ctx, spec, claim.Records); err != nil {
+	if err := r.chargeReplay(ctx, spec, records); err != nil {
 		return nil, err
 	}
-	return claim.Result, nil
+	return recorded, nil
 }
 
 // ensureReplayVisible re-reads every record the recorded answer names, through

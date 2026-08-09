@@ -40,6 +40,20 @@ CREATE TABLE agent_task (
   result         jsonb NULL,
   error          jsonb NULL,
 
+  -- How many records the recorded result handed over, and — by being present at
+  -- all — WHICH KIND of document `result` holds.
+  --
+  -- NOT NULL means result is a tool ENVELOPE that handed records over: every
+  -- later poll must re-prove the caller may still see them and re-charge what
+  -- the first call cost, exactly as an idempotency replay does. A receipt that
+  -- outlives the authority it was produced under is not a free read.
+  --
+  -- NULL means there is nothing to re-prove — a refusal, a rejection, a
+  -- cancellation — and the stored bytes are served as they stand. It is the
+  -- absence of the fact, not a sentinel count: zero records is a real answer
+  -- that still needs proving.
+  served_records integer NULL,
+
   -- Set while one poll is executing the released call, so two simultaneous
   -- polls cannot both run it. A claim older than the executor's lease may be
   -- taken again; that retry is safe because redemption is single-use, and the
@@ -54,6 +68,9 @@ CREATE TABLE agent_task (
 
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now(),
+
+  -- Only a stored result can have handed records over.
+  CONSTRAINT agent_task_served_records CHECK (served_records IS NULL OR result IS NOT NULL),
 
   -- A completed task with no result is a task whose second poll has nothing to
   -- say after its first said "completed". Asserted here rather than trusted to

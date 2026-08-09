@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -90,16 +91,26 @@ func TestAConfirmFirstCallBecomesATaskAndCompletesOnce(t *testing.T) {
 		t.Error("a terminal task invited another poll")
 	}
 
-	// And the second poll is answered from what the first recorded. Nothing
-	// runs again — which matters because it could not: redemption is
-	// single-use, so a re-run would fail and a client would see a completed
-	// task turn into a refusal.
+	// The second poll runs NOTHING — the effect is not repeated — but it does
+	// not simply hand the bytes back either. A recorded answer is a receipt that
+	// outlives the authority it was produced under, so every later poll re-reads
+	// the records it names, exactly as an idempotency replay does.
+	//
+	// Here that re-read REFUSES, and it is the honest outcome rather than a
+	// defect: disqualify_lead archives the very lead its answer names, so the
+	// document cannot be re-proven against a live read. It is the same trade
+	// archive_record makes (TestAnArchivesReceiptIsRefusedAndItsEffectStillHappensOnce)
+	// — the effect happened once, which is the promise; the receipt is what the
+	// caller gives up. The task stays `completed` so nobody re-runs it.
 	again := pollTask(t, e, bearer, taskID)
 	if again["status"] != "completed" {
-		t.Fatalf("the second poll reported %v, want the recorded completed answer", again["status"])
+		t.Fatalf("the second poll reported %v, want the task to stay completed", again["status"])
 	}
-	if !sameJSON(t, completed["result"], again["result"]) {
-		t.Errorf("the second poll answered a different result:\n%v\n%v", completed["result"], again["result"])
+	if !isToolErrorResult(t, again["result"]) {
+		t.Errorf("the archived lead was served again from the recorded answer:\n%v", again["result"])
+	}
+	if disqualifiedCount(t, e.AppEnv) != 1 {
+		t.Error("the released effect landed more than once")
 	}
 	if staged := stagedApprovalCount(t, e.AppEnv); staged != 1 {
 		t.Errorf("%d approvals were staged across the whole flow, want exactly 1", staged)
@@ -239,6 +250,124 @@ func TestTheExtensionIsAdvertisedAndItsMethodsRequireIt(t *testing.T) {
 	}
 }
 
+// The claim in agenttasks.go is the whole single-execution argument, and the
+// unit suite proves only that the dispatcher honours its verdict — the SQL that
+// produces it is exercised nowhere else. Two polls fired at one approved task
+// must land one effect.
+func TestTwoSimultaneousPollsRunTheReleasedCallOnce(t *testing.T) {
+	e := setupConnector(t)
+	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	leadID := createDisqualifiableLead(t, e.AppEnv)
+
+	created := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,
+			"name":"disqualify_lead","arguments":{"lead_id":%q}}}`, tasksMeta, leadID),
+		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
+	taskID, _ := created["taskId"].(string)
+	approveStagedCall(t, e.AppEnv)
+
+	var wg sync.WaitGroup
+	statuses := make([]string, 2)
+	for i := range statuses {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			answered := pollTask(t, e, bearer, taskID)
+			statuses[i], _ = answered["status"].(string)
+		}()
+	}
+	wg.Wait()
+
+	// Exactly one redemption, which is what "one human yes, one act" means in
+	// the table rather than in the dispatcher.
+	var consumed int
+	if err := e.AppEnv.Owner.QueryRow(t.Context(),
+		`SELECT count(*) FROM approval WHERE consumed_at IS NOT NULL`).Scan(&consumed); err != nil {
+		t.Fatalf("counting redemptions: %v", err)
+	}
+	if consumed != 1 {
+		t.Fatalf("%d approvals were redeemed by two concurrent polls, want 1", consumed)
+	}
+	if !disqualified(t, e.AppEnv, leadID) {
+		t.Fatal("neither poll performed the released effect")
+	}
+	// The loser reports the truth: still working, or the completed answer the
+	// winner recorded. Never a second execution.
+	for _, status := range statuses {
+		if status != "working" && status != "completed" {
+			t.Errorf("a concurrent poll reported %q, want working or completed", status)
+		}
+	}
+}
+
+// A claim nobody settled is the interrupted case: an earlier execution died and
+// its effect may or may not have committed. Running again would risk a second
+// act on one human yes, so the task fails and says it does not know.
+func TestATaskWhoseExecutionLeftNoOutcomeFailsRatherThanRunningAgain(t *testing.T) {
+	e := setupConnector(t)
+	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	leadID := createDisqualifiableLead(t, e.AppEnv)
+
+	created := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,
+			"name":"disqualify_lead","arguments":{"lead_id":%q}}}`, tasksMeta, leadID),
+		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
+	taskID, _ := created["taskId"].(string)
+	approveStagedCall(t, e.AppEnv)
+
+	// A claim taken by a process that then died, back-dated past the executor's
+	// lease so the next poll may take it again.
+	if _, err := e.Owner.Exec(t.Context(),
+		`UPDATE agent_task SET claimed_at = now() - interval '1 hour' WHERE id = $1`, taskID); err != nil {
+		t.Fatalf("simulating an interrupted execution: %v", err)
+	}
+
+	answered := pollTask(t, e, bearer, taskID)
+	if answered["status"] != "failed" {
+		t.Fatalf("status = %v (%v), want failed", answered["status"], answered["statusMessage"])
+	}
+	if answered["error"] == nil {
+		t.Error("a failed task carried no error, so a client learns nothing about why")
+	}
+	if disqualified(t, e.AppEnv, leadID) {
+		t.Fatal("the re-claimed task ran the released call a second time")
+	}
+	var consumed int
+	if err := e.AppEnv.Owner.QueryRow(t.Context(),
+		`SELECT count(*) FROM approval WHERE consumed_at IS NOT NULL`).Scan(&consumed); err != nil {
+		t.Fatalf("counting redemptions: %v", err)
+	}
+	if consumed != 0 {
+		t.Errorf("%d approvals were redeemed by a task that should not have run", consumed)
+	}
+}
+
+// Re-issuing the same 🟡 call — exactly what the pre-task refusal trained agents
+// to do — stages a fresh proposal and answers a fresh handle. Neither collides
+// with the first, which is what the one-task-per-approval index is for.
+func TestRepeatingAStagedCallAnswersItsOwnHandle(t *testing.T) {
+	e := setupConnector(t)
+	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	leadID := createDisqualifiableLead(t, e.AppEnv)
+
+	call := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,
+		"name":"disqualify_lead","arguments":{"lead_id":%q}}}`, tasksMeta, leadID)
+	first := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp", call,
+		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
+	second := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp", call,
+		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
+
+	if second["resultType"] != "task" {
+		t.Fatalf("the repeated call answered %v, want a handle of its own", second["resultType"])
+	}
+	if first["taskId"] == second["taskId"] {
+		t.Errorf("both calls answered one handle (%v); each staged its own proposal", first["taskId"])
+	}
+	if staged := stagedApprovalCount(t, e.AppEnv); staged != 2 {
+		t.Errorf("%d proposals staged for two calls, want 2", staged)
+	}
+}
+
 // ---- helpers ----
 
 // createDisqualifiableLead makes a lead the 🟡 tool has something to act on.
@@ -326,17 +455,25 @@ func rpcErrorOf(t *testing.T, body string) (int, string) {
 	return envelope.Error.Code, envelope.Error.Message
 }
 
-// sameJSON compares two decoded results by their re-encoded bytes, so a
-// difference anywhere inside is caught rather than just at the top level.
-func sameJSON(t *testing.T, a, b any) bool {
+// isToolErrorResult reports whether a task's stored result is a refusal.
+//
+//craft:ignore naked-any a JSON-RPC result member is an open object by the protocol, exactly as rpcResult's own waiver says — asserting on one means holding it untyped
+func isToolErrorResult(t *testing.T, result any) bool {
 	t.Helper()
-	left, err := json.Marshal(a)
-	if err != nil {
-		t.Fatalf("re-encoding a result: %v", err)
+	decoded, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("a task result decoded as %T, not an object", result)
 	}
-	right, err := json.Marshal(b)
-	if err != nil {
-		t.Fatalf("re-encoding a result: %v", err)
+	return decoded["isError"] == true
+}
+
+// disqualifiedCount is how many leads the released effect actually reached.
+func disqualifiedCount(t *testing.T, e *apptest.AppEnv) int {
+	t.Helper()
+	var n int
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT count(*) FROM lead WHERE status = 'disqualified'`).Scan(&n); err != nil {
+		t.Fatalf("counting disqualified leads: %v", err)
 	}
-	return string(left) == string(right)
+	return n
 }
