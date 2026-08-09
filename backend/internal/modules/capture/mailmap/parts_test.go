@@ -253,3 +253,48 @@ func TestAMessageWithNoFilesReportsNeitherFilesNorDrops(t *testing.T) {
 		t.Errorf("parts = %v, drops = %v, want neither", parts, drops)
 	}
 }
+
+// Several mail clients send PDFs and images as Content-Disposition: inline.
+// Reading only declared attachments loses them, and the sender chose how to
+// render the file, not whether we keep it.
+func TestAFileSentInlineIsStillAFile(t *testing.T) {
+	var b bytes.Buffer
+	b.WriteString("From: her@example.com\r\nTo: me@ours.example\r\n")
+	b.WriteString("Message-ID: <m5@example.com>\r\n")
+	b.WriteString("Content-Type: multipart/mixed; boundary=B\r\n\r\n")
+	b.WriteString("--B\r\nContent-Type: text/plain\r\n\r\nSee below.\r\n")
+	b.WriteString("--B\r\nContent-Type: application/pdf\r\n")
+	b.WriteString("Content-Disposition: inline; filename=\"quote.pdf\"\r\n\r\n")
+	b.WriteString("%PDF-1.4 quote\r\n")
+	b.WriteString("--B--\r\n")
+
+	parts, drops := parseParts(t, b.Bytes())
+
+	if len(parts) != 1 {
+		t.Fatalf("read %d files, want the inline one that carried a name", len(parts))
+	}
+	if parts[0].Filename != "quote.pdf" {
+		t.Errorf("filename = %q, want quote.pdf", parts[0].Filename)
+	}
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+}
+
+// An inline part with NO name is body content, not a file. Treating it as one
+// would file every HTML alternative in the account's document library.
+func TestAnUnnamedInlinePartIsBodyNotAFile(t *testing.T) {
+	var b bytes.Buffer
+	b.WriteString("From: her@example.com\r\nTo: me@ours.example\r\n")
+	b.WriteString("Message-ID: <m6@example.com>\r\n")
+	b.WriteString("Content-Type: multipart/alternative; boundary=B\r\n\r\n")
+	b.WriteString("--B\r\nContent-Type: text/plain\r\n\r\nPlain body.\r\n")
+	b.WriteString("--B\r\nContent-Type: text/html\r\n\r\n<p>Rich body.</p>\r\n")
+	b.WriteString("--B--\r\n")
+
+	parts, drops := parseParts(t, b.Bytes())
+
+	if len(parts) != 0 || len(drops) != 0 {
+		t.Errorf("parts = %v, drops = %v — an alternative body is not an attachment", parts, drops)
+	}
+}

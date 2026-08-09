@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package compose
 
 // A captured message's files, over a real database and a real object store.
 //
@@ -19,12 +19,12 @@ package integration
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -38,7 +38,7 @@ import (
 // the per-user mail connector principal the sync loop mints.
 func captureWorkspace(t *testing.T) (context.Context, *pgxpool.Pool, string) {
 	t.Helper()
-	pool := SchemaPool(t)
+	pool := integration.SchemaPool(t)
 	ws := ids.NewV7()
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx,
@@ -297,54 +297,13 @@ func TestARefusedFileLeavesAnObservableReason(t *testing.T) {
 	}
 }
 
-// fileKeeper is the same join compose makes: capture drives the transaction,
-// the timeline store owns the attachment table. Spelled here rather than
-// reaching for the compose adapter, which this module may not import.
-type fileKeeperAdapter struct{ store *activities.Store }
-
+// fileKeeper is the join PRODUCTION makes — the compose adapter itself, not a
+// copy of it. Copying it was the whole defect: every case below passed while
+// the real wiring was free to rot, because nothing under test was the thing
+// that ships.
 func fileKeeper(pool *pgxpool.Pool, blob blobstore.Store) capture.FileKeeper {
-	return fileKeeperAdapter{store: activities.NewStore(pool).WithBlobstore(blob)}
+	return capturedFileKeeper{store: activities.NewStore(pool).WithBlobstore(blob)}
 }
-
-func (k fileKeeperAdapter) Stage(
-	ctx context.Context, files []capture.CapturedFile,
-) ([]capture.StagedFile, error) {
-	owned := make([]activities.CapturedFile, 0, len(files))
-	for _, file := range files {
-		owned = append(owned, activities.CapturedFile{
-			PartID: file.PartID, Filename: file.Filename,
-			ContentType: file.ContentType, DeclaredType: file.DeclaredType, Body: file.Body,
-		})
-	}
-	staged, err := k.store.StageCapturedFiles(ctx, owned)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]capture.StagedFile, 0, len(staged))
-	for _, file := range staged {
-		out = append(out, file)
-	}
-	return out, nil
-}
-
-func (k fileKeeperAdapter) Record(
-	ctx context.Context, tx pgx.Tx, activityID ids.ActivityID,
-	from capture.FileSource, staged []capture.StagedFile,
-) error {
-	owned := make([]activities.StagedFile, 0, len(staged))
-	for _, file := range staged {
-		typed, ok := file.(activities.StagedFile)
-		if !ok {
-			return errNotStagedHere
-		}
-		owned = append(owned, typed)
-	}
-	return k.store.RecordCapturedFiles(ctx, tx, activityID, activities.CapturedFileSource{
-		System: from.System, MessageID: from.MessageID, CapturedBy: from.CapturedBy,
-	}, owned)
-}
-
-var errNotStagedHere = errors.New("a captured file was staged by something else")
 
 // activityOf reads the activity a captured file hangs off, so a duplicate can
 // be written against the same parent the real one has.
