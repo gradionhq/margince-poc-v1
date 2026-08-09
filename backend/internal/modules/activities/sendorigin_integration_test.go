@@ -26,6 +26,20 @@ import (
 
 // seedOrganization writes a company as the table owner — the record a rep
 // opens when they press "Write email", which the send path did not create.
+//
+// Written directly rather than through the organization writer, which this
+// module may not import (a module never imports a sibling). What is under
+// test is the SEND, and the only property of this row the send path reads is
+// whether the caller's row scope reaches it — owner_id and workspace_id,
+// both set here exactly as the writer sets them. Nothing downstream reads a
+// field the writer would have derived, so a hand-inserted row and a written
+// one are indistinguishable to everything this file asserts.
+//
+// The moment a case here depends on what the organization writer DOES —
+// its validation, its audit row, its event — the case belongs in a compose
+// integration test with the real wiring, not in a widened fixture.
+// messageidentity_absorb_integration_test.go seeds the same way for the same
+// reason.
 func (e *sendEnv) seedOrganization(t *testing.T) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()

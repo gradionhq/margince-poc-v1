@@ -15064,9 +15064,12 @@ type SendAccountEmailRequest struct {
 	// belonging to no record is one nobody will find again, which is the gap this
 	// operation exists to close. Each target is row-scope probed, so an id the caller
 	// cannot see is refused 404.
-	Links   []ActivityLinkInput   `json:"links"`
-	Subject string                `json:"subject"`
-	To      []openapi_types.Email `json:"to"`
+	Links   []ActivityLinkInput `json:"links"`
+	Subject string              `json:"subject"`
+
+	// To At least one addressee. A send whose To: line is empty is refused 422 before
+	// anything is staged — `cc` alone does not make a message addressed to anyone.
+	To []openapi_types.Email `json:"to"`
 }
 
 // SendEmailRequest defines model for SendEmailRequest.

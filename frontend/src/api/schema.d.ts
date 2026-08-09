@@ -9787,6 +9787,10 @@ export interface components {
             subject: string;
             /** @description The (possibly edited) final body that is sent. */
             body: string;
+            /**
+             * @description At least one addressee. A send whose To: line is empty is refused 422 before
+             *     anything is staged — `cc` alone does not make a message addressed to anyone.
+             */
             to: string[];
             cc?: string[];
             /**
