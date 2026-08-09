@@ -214,6 +214,15 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 
 	var sent crmcontracts.Activity
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// An account-started send names its own addressees, so each must
+		// belong to someone this sender can read (ADR-0087 §2). It runs
+		// AFTER the consent gate: the gate is the recipients' own answer
+		// about being written to at all, and a caller must not learn that a
+		// stranger withheld consent by watching which of two refusals a
+		// typed address produces.
+		if err := s.resolveRecipients(ctx, tx, origin, in.Recipients); err != nil {
+			return err
+		}
 		chain, err := origin.threading(ctx, tx, messageID)
 		if err != nil {
 			return err

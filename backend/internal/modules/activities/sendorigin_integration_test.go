@@ -14,7 +14,10 @@ package activities
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -39,6 +42,26 @@ func accountOrigin(org ids.UUID) SendOrigin {
 	return FromAccount([]ActivityLinkInput{{EntityType: "organization", EntityID: org}})
 }
 
+// knownRecipients answers that every address sendInput carries is on file —
+// the ordinary case, so a test about threading or links is not also a test
+// about address resolution.
+type knownRecipients struct{}
+
+func (knownRecipients) VisibleAddresses(_ context.Context, _ pgx.Tx, addresses []string) (map[string]bool, error) {
+	visible := make(map[string]bool, len(addresses))
+	for _, addr := range addresses {
+		visible[strings.ToLower(strings.TrimSpace(addr))] = true
+	}
+	return visible, nil
+}
+
+// accountStore is the send path wired the way compose wires it for an
+// account-started send: the recipient directory is not optional there, so a
+// test that omitted it would be testing a surface no deployment runs.
+func (e *sendEnv) accountStore() *Store {
+	return e.store(stubUnsubscribeLinker{}).WithRecipientDirectory(knownRecipients{})
+}
+
 // The whole point of the origin: a message with no anchor still sends, and
 // the timeline row it leaves behind is filed under the company it was
 // started from rather than under nothing.
@@ -47,7 +70,7 @@ func TestAnAccountStartedSendFilesItselfOnTheRecordItWasStartedFrom(t *testing.T
 	org := e.seedOrganization(t)
 	stager := &recordingStager{}
 
-	sent, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+	sent, err := e.accountStore().SendEmail(
 		e.as(principal.RowScopeAll), accountOrigin(org), sendInput("transactional"), stubConsentGate{}, stager)
 	if err != nil {
 		t.Fatalf("account-started SendEmail: %v", err)
@@ -73,7 +96,7 @@ func TestAnAccountStartedSendRootsAFreshThreadAtItsOwnIdentity(t *testing.T) {
 	org := e.seedOrganization(t)
 	stager := &recordingStager{}
 
-	sent, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+	sent, err := e.accountStore().SendEmail(
 		e.as(principal.RowScopeAll), accountOrigin(org), sendInput("transactional"), stubConsentGate{}, stager)
 	if err != nil {
 		t.Fatalf("account-started SendEmail: %v", err)
@@ -103,7 +126,7 @@ func TestAnAccountStartedSendRefusesALinkTheCallerCannotSee(t *testing.T) {
 	// can reach — the shape a guessed or cross-tenant identifier takes.
 	unseen := ids.NewV7()
 
-	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+	_, err := e.accountStore().SendEmail(
 		e.as(principal.RowScopeAll), accountOrigin(unseen), sendInput("transactional"), stubConsentGate{}, stager)
 
 	if !errors.Is(err, apperrors.ErrNotFound) {
@@ -142,7 +165,7 @@ func TestAnAccountStartedSendRefusesOnAuthorizationBeforeConsentAnswers(t *testi
 	org := e.seedOrganization(t)
 	gate := &countingConsentGate{}
 
-	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+	_, err := e.accountStore().SendEmail(
 		e.readOnly(), accountOrigin(org), sendInput("transactional"), gate, &recordingStager{})
 
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
@@ -151,6 +174,101 @@ func TestAnAccountStartedSendRefusesOnAuthorizationBeforeConsentAnswers(t *testi
 	if gate.calls != 0 {
 		t.Fatalf("the consent gate answered %d times for a caller who may not send; authorization must refuse first", gate.calls)
 	}
+}
+
+// An account-started send names its own addressees, so a typed address that
+// belongs to nobody on file is the caller's to fix — and the refusal has to
+// say WHICH address, or the composer cannot offer the fix.
+func TestAnAccountStartedSendNamesTheAddressThatIsNotOnFile(t *testing.T) {
+	e := setupSend(t)
+	org := e.seedOrganization(t)
+	stager := &recordingStager{}
+	// buyer@example.test resolves; boss@example.test does not.
+	directory := partialRecipients{known: map[string]bool{"buyer@example.test": true}}
+
+	_, err := e.store(stubUnsubscribeLinker{}).WithRecipientDirectory(directory).SendEmail(
+		e.as(principal.RowScopeAll), accountOrigin(org), sendInput("transactional"), stubConsentGate{}, stager)
+
+	var unresolved *UnresolvedRecipientError
+	if !errors.As(err, &unresolved) {
+		t.Fatalf("send to an address on no contact = %v, want UnresolvedRecipientError", err)
+	}
+	if unresolved.Address != "boss@example.test" {
+		t.Fatalf("refusal names %q, want the address that failed to resolve", unresolved.Address)
+	}
+	field, code, _ := unresolved.FieldFault()
+	if field != "to" || code != "recipient_not_on_file" {
+		t.Fatalf("FieldFault() = (%q, %q), want (\"to\", \"recipient_not_on_file\")", field, code)
+	}
+	if len(stager.staged) != 0 {
+		t.Fatalf("a refused send staged %d deliveries, want none", len(stager.staged))
+	}
+}
+
+// A REPLY's addressees come from a conversation the workspace already
+// captured, so refusing them would block answering mail the product itself
+// put on the timeline. The directory must not be consulted there at all.
+func TestAReplyDoesNotRequireItsAddressesToBeOnFile(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	directory := &countingRecipients{}
+
+	if _, err := e.store(stubUnsubscribeLinker{}).WithRecipientDirectory(directory).SendEmail(
+		e.as(principal.RowScopeAll), FromActivity(anchor), sendInput("transactional"),
+		stubConsentGate{}, &recordingStager{}); err != nil {
+		t.Fatalf("reply SendEmail: %v", err)
+	}
+
+	if directory.calls != 0 {
+		t.Fatalf("the reply path resolved addresses %d times; a captured conversation's addressees are evidence, not a lookup", directory.calls)
+	}
+}
+
+// A surface wired without a directory must refuse an account-started send
+// rather than mail an address it never resolved — the same fail-closed rule
+// the consent gate and the delivery stager follow.
+func TestAnAccountStartedSendRefusesWithNoRecipientDirectoryWired(t *testing.T) {
+	e := setupSend(t)
+	org := e.seedOrganization(t)
+	stager := &recordingStager{}
+
+	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+		e.as(principal.RowScopeAll), accountOrigin(org), sendInput("transactional"), stubConsentGate{}, stager)
+
+	var unwired *NoRecipientDirectoryError
+	if !errors.As(err, &unwired) {
+		t.Fatalf("account-started send with no directory = %v, want NoRecipientDirectoryError", err)
+	}
+	if len(stager.staged) != 0 {
+		t.Fatalf("a refused send staged %d deliveries, want none", len(stager.staged))
+	}
+}
+
+// partialRecipients knows some addresses and not others — the state a
+// composer is in when a rep types an address nobody has filed yet.
+type partialRecipients struct{ known map[string]bool }
+
+func (d partialRecipients) VisibleAddresses(_ context.Context, _ pgx.Tx, addresses []string) (map[string]bool, error) {
+	visible := make(map[string]bool, len(addresses))
+	for _, addr := range addresses {
+		normalized := strings.ToLower(strings.TrimSpace(addr))
+		if d.known[normalized] {
+			visible[normalized] = true
+		}
+	}
+	return visible, nil
+}
+
+// countingRecipients resolves everything and counts being asked, so a test
+// can assert the reply path never REACHED it.
+type countingRecipients struct {
+	knownRecipients
+	calls int
+}
+
+func (d *countingRecipients) VisibleAddresses(ctx context.Context, tx pgx.Tx, addresses []string) (map[string]bool, error) {
+	d.calls++
+	return d.knownRecipients.VisibleAddresses(ctx, tx, addresses)
 }
 
 // countingConsentGate grants every request and counts being asked, so a

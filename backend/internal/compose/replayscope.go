@@ -137,6 +137,12 @@ var replayableOperations = map[string]replayTarget{
 	"PATCH /v1/activities/{id}":           {object: tableActivity, table: tableActivity, idPath: "id"},
 	"POST /v1/activities/{id}/relink":     {object: tableActivity, table: tableActivity, idPath: "id"},
 	"POST /v1/activities/{id}/send-email": {object: tableActivity, table: tableActivity, idPath: "id"},
+	// The account-started send answers with the outbound activity it wrote,
+	// so its replay is gated on that activity exactly as the reply's is. The
+	// route carries no id of its own — the origin is in the body — which is
+	// why the target is resolved from the RESPONSE's id rather than a path
+	// parameter.
+	"POST /v1/emails": {object: tableActivity, table: tableActivity, idPath: "id"},
 	// The channel reply answers with the outbound activity it wrote, so its
 	// replay is gated on that activity exactly as the mail send's is. It matters
 	// more here, not less: a channel send is irreversible with no provider-side
