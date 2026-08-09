@@ -16,7 +16,7 @@
 -- and owned by margince_owner exactly as every core table is. Do not read the
 -- gate's restriction as a production DDL boundary: what isolates this table in
 -- production is the FORCE row level security and the workspace-bound policy
--- declared below, not its ownership. backend/migrations/core/0198_ext_schema
+-- declared below, not its ownership. backend/migrations/core/0200_ext_schema
 -- states the same thing at the schema, and issue #628 tracks minting the
 -- per-unit runtime role that would make ownership mean something here.
 --

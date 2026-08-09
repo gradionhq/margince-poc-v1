@@ -418,7 +418,7 @@ func TestEnsureSchemaRecordsASaneBaseline(t *testing.T) {
 
 // TestResetEmptiesAnExtensionTable is the ext half of the reset's scope, and it
 // has to seed its own table because the tree ships no extension with migrations
-// yet: 0198 creates the ext SCHEMA, and a unit's tables arrive with the unit.
+// yet: 0200 creates the ext SCHEMA, and a unit's tables arrive with the unit.
 //
 // That absence is exactly the hazard. While ext is empty every assertion above
 // passes whether or not the reset looks there, so the omission would be found by
