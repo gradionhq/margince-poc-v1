@@ -19,6 +19,7 @@ Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
+- [Company record page V2 — the mockups, shipped 2026-08-10](#company-record-page-v2--the-mockups-shipped-2026-08-10)
 - [Company record page V2 — what shipped 2026-08-09, and what §4 still owes](#company-record-page-v2--what-shipped-2026-08-09-and-what-4-still-owes)
 - [Open — account-started outbound and the finance mirror (2026-08-09)](#open--account-started-outbound-and-the-finance-mirror-2026-08-09)
 - [Open — the settings mirror is a dual-write on ADR-0091's critical path](#open--the-settings-mirror-is-a-dual-write-on-adr-0091s-critical-path)
@@ -81,6 +82,39 @@ every task and needs its own certification pass.
 
 [#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
 [#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
+
+## Company record page V2 — the mockups, shipped 2026-08-10
+
+Thirteen PRs (#741–#765) taking the page from the 2026-08-09 spine to the four
+checked-in mockups. Batman mode: local gate + one Codex pass per branch,
+`--admin` merge.
+
+| PR | What a user gets |
+|---|---|
+| #741 | `Modal placement="right"`, plus `Meter` / `Sparkline` / `Chip` in the design system |
+| #745 | `organization.description` — the one line under the title, editable in place (core 0203) |
+| #747 | **State D's shape**: header chip row, the rail replaced by a card grid, four new `SectionCard` states |
+| #749 | "Today on this account" as five grounded tiles with their selection rules written down |
+| #750 | `POST /organizations/{id}/draft-email` — grounded, fenced, structured reasoning, no record writes |
+| #755 | The composer as a right drawer that drafts from the account and shows what from |
+| #757 | `GET /organizations/{id}/finance-summary` + the `finance` RBAC object (core 0204) |
+| #759 | The offline accounting provider and a sync that writes only what changed |
+| #761 | The finance card, in the six states the money can be in |
+| #762 | The evidence receipt as a drawer, with a derived "AI extracted" badge and claim stepping |
+| #764 | The commercial card — open opportunities and the last offer |
+| #765 | The coverage line, with only the counts the page can total |
+
+**What was deliberately not built**, each recorded rather than faked: the
+contract and renewal blocks (#767 — no record stores either), the health
+Adoption dimension (nothing measures it), and the mockup's "connected
+colleagues" count (routes are capped at three per contact, so the sum would
+report a bigger team than exists). All three are raised upstream as ADR-0095
+(margince-foundation #1270).
+
+**Open from this arc:** #760 (the finance sync has no job wired, so a
+connection never syncs itself), #746 (overlay writes drop three columns), #751
+(the account draft rides `draft_reply`'s company context), #766
+(`missingRoles` counts role types across deals, not gaps per deal).
 
 ## Company record page V2 — what shipped 2026-08-09, and what §4 still owes
 
