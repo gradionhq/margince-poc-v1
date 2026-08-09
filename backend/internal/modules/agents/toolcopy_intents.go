@@ -8,11 +8,12 @@ package agents
 // the report engine. See toolcopy.go for what each field answers.
 
 var catchMeUpOnCopy = toolCopy{
-	Purpose: "Answer \"what has been going on with this?\" for one person, account, deal, lead " +
-		"or project: the recent activity and the related records, assembled into one picture " +
-		"with the evidence each part rests on.",
+	Purpose: "Answer \"what has been going on with this?\" for one person, account, deal, lead, " +
+		"project or captured meeting: the recent activity and the related records, assembled " +
+		"into one picture with the evidence each part rests on.",
 	Limits: "It is built around ONE record you name, and everything it reports carries a source; " +
-		"what cannot be evidenced is absent rather than inferred.",
+		"what cannot be evidenced is absent rather than inferred. Name a meeting and it resolves " +
+		"the record that meeting is about, then builds the picture around that.",
 	Instead: "Use prep_for_meeting when the goal is a meeting about to happen, read_record when " +
 		"you only need the record's own stored fields, and search_records when you do not yet " +
 		"know which record you mean.",
@@ -22,14 +23,17 @@ var catchMeUpOnCopy = toolCopy{
 
 var prepForMeetingCopy = toolCopy{
 	Purpose: "Get ready for a specific meeting: the same assembled picture as a catch-up, plus " +
-		"the open items pulled out as the things to raise.",
-	Limits: "It is built around the record the meeting is about, not around a calendar entry, " +
-		"and it does not read the invitation or the attendee list.",
+		"the open items pulled out as the things to raise. Name the captured calendar event " +
+		"itself when you have one, and it works out which account, deal or person the meeting " +
+		"is about before it prepares.",
+	Limits: "Given an event it prepares against the ONE record that meeting is most about and " +
+		"names the rest alongside, including any attendee address it holds no record for; given " +
+		"a record it prepares against that record. Everything it reports carries a source.",
 	Instead: "Use catch_me_up_on when there is no meeting and the question is simply what has " +
 		"been happening, and check_availability when the goal is finding a time rather than " +
 		"preparing for one.",
 	Retain: "The focus list names the open items by record_id; those are what to act on after " +
-		"the meeting.",
+		"the meeting. prepared_for names the record the prep was built around.",
 }
 
 var whatsSlippingCopy = toolCopy{

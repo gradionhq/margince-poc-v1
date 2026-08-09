@@ -2305,6 +2305,7 @@ const (
 	ContextEntityRefTypeLead         ContextEntityRefType = "lead"
 	ContextEntityRefTypeOrganization ContextEntityRefType = "organization"
 	ContextEntityRefTypePerson       ContextEntityRefType = "person"
+	ContextEntityRefTypeProject      ContextEntityRefType = "project"
 	ContextEntityRefTypeUser         ContextEntityRefType = "user"
 )
 
@@ -2320,6 +2321,8 @@ func (e ContextEntityRefType) Valid() bool {
 	case ContextEntityRefTypeOrganization:
 		return true
 	case ContextEntityRefTypePerson:
+		return true
+	case ContextEntityRefTypeProject:
 		return true
 	case ContextEntityRefTypeUser:
 		return true
@@ -10633,6 +10636,9 @@ type ContextEntityRef struct {
 	// `who_knows` section, where the item is a colleague who interacts with the
 	// anchor contact. It carries the member's display name as `summary` and
 	// routes nowhere: a client renders it as a name, not as a link to a record.
+	//
+	// Every anchor type this endpoint accepts also appears here, because the
+	// response echoes the anchor back as one of these refs.
 	Type ContextEntityRefType `json:"type"`
 }
 
@@ -10640,6 +10646,9 @@ type ContextEntityRef struct {
 // `who_knows` section, where the item is a colleague who interacts with the
 // anchor contact. It carries the member's display name as `summary` and
 // routes nowhere: a client renders it as a name, not as a link to a record.
+//
+// Every anchor type this endpoint accepts also appears here, because the
+// response echoes the anchor back as one of these refs.
 type ContextEntityRefType string
 
 // ContextEvidence defines model for ContextEvidence.
