@@ -211,7 +211,7 @@ func TestCallScrubsBindFailures(t *testing.T) {
 		return nil, cause
 	}, "t", "0").WithLogger(slog.New(slog.NewTextHandler(&logBuf, nil)))
 
-	out := srv.call(context.Background(), []byte(`{"name":"list_pipelines","arguments":{}}`))
+	out := callMap(context.Background(), t, srv, `{"name":"list_pipelines","arguments":{}}`)
 	if out["isError"] != true {
 		t.Fatalf("bind failure did not produce an in-band tool error: %v", out)
 	}

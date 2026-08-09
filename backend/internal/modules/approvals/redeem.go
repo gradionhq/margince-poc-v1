@@ -21,6 +21,12 @@ import (
 // judgment about the world NOW, not standing authority.
 const redemptionTTL = 15 * time.Minute
 
+// RedemptionWindow is redemptionTTL for callers that must not outlive it —
+// a durable handle to a decision has to stay answerable for exactly as long as
+// the decision can still be acted on, and one that expired sooner would strand
+// an approval a human had already granted.
+const RedemptionWindow = redemptionTTL
+
 // Redeem consumes one approved staging for exactly the call it was staged
 // for: same tool, same diff_hash, same passport, and the target row still
 // at the version the human saw. Single-use is enforced by the conditional

@@ -53,21 +53,34 @@ const (
 	codeInternalError  = -32603
 )
 
-// The two codes the MODERN framing adds. -32020..-32099 is the sub-range the
+// The three codes the MODERN framing adds. -32020..-32099 is the sub-range the
 // specification reserves for itself, so a code from it may only ever be
 // emitted with the meaning the spec gives it — and never invented here.
+//
+// codeMissingClientCapability is -32021 on the CORE specification's authority,
+// which governs the codes every extension shares. The Tasks extension's own
+// text says -32003 — a code from the -32000..-32019 sub-range the core spec
+// calls legacy, tells new implementations not to allocate in, and asks
+// receivers to assume no meaning for. The same condition already has a
+// specified code, so the two cannot both be emitted and the shared table wins.
 const (
 	codeHeaderMismatch             = -32020
+	codeMissingClientCapability    = -32021
 	codeUnsupportedProtocolVersion = -32022
 )
 
 // The members a modern result carries.
 const (
-	// fieldResultType is required on every modern result. This server answers
-	// only "complete": the other value, "input_required", belongs to a
-	// multi-round-trip call, and no tool here asks its caller for input —
-	// a 🟡 tool stages through the approvals engine, which is a Margince
-	// surface a human visits, not a round trip to the agent's client.
+	// fieldResultType is required on every modern result, and this server
+	// answers two of its values. "complete" is the default and covers every
+	// method; "task" is the Tasks extension's discriminator, answered only by
+	// createTaskResult (tasksdispatch.go) — which is how the specification's
+	// "MUST NOT set resultType to task on other result types" is kept.
+	//
+	// "input_required" is never answered. It belongs to a multi-round-trip call,
+	// and no tool here asks its caller for input — a 🟡 tool stages through the
+	// approvals engine, which is a Margince surface a human visits, not a round
+	// trip to the agent's client.
 	fieldResultType    = "resultType"
 	resultTypeComplete = "complete"
 	fieldMeta          = "_meta"
@@ -124,6 +137,13 @@ type framing struct {
 	// meaningful only in the modern framing, where the version is a property
 	// of the call; a legacy call's version belongs to its session.
 	version string
+	// tasks reports whether THIS request declared the Tasks extension. It is a
+	// property of the request for the same reason version is: the era
+	// establishes no session, so what the last request could handle says
+	// nothing about what this one can. A server that answered a task to a
+	// client that did not declare it on the call would be handing back a handle
+	// the client cannot poll, which the specification forbids in those words.
+	tasks bool
 }
 
 // legacyFraming is the handshake era, named rather than spelled as a zero
@@ -216,10 +236,13 @@ func modernPrecheck(params json.RawMessage, transportVersion string) (framing, *
 // does not serve is a refusal that names what it does serve (-32022) so the
 // client can retry rather than guess.
 //
-// -32021 MissingRequiredClientCapability is deliberately never emitted. No
-// tool on this surface needs sampling, elicitation or roots, so there is no
-// capability whose absence could stop a call; a server that demanded one it
-// never uses would refuse callers for nothing.
+// -32021 MissingRequiredClientCapability is never emitted from HERE, and the
+// reason is narrower than it looks. No TOOL on this surface needs sampling,
+// elicitation or roots, so no capability's absence can stop a tools/call, and a
+// server that demanded one it never uses would refuse callers for nothing. The
+// tasks methods are the exception and raise it themselves: their whole contract
+// is the extension, so a request that did not declare it is asking for a method
+// that, for that caller, does not exist.
 func modernPreconditions(meta modernMeta) (framing, *rpcError) {
 	fr := framing{modern: true}
 	version, malformed := declaredVersion(meta.version)
@@ -234,6 +257,7 @@ func modernPreconditions(meta modernMeta) (framing, *rpcError) {
 	if !isJSONObject(meta.capabilities) {
 		return fr, missingModernField(metaClientCapabilities, "an object")
 	}
+	fr.tasks = declaresTasks(meta.capabilities)
 	if !servesAsModern(fr.version) {
 		return fr, unsupportedProtocolVersion(fr.version)
 	}
@@ -323,7 +347,7 @@ func boundedEcho(value string) string {
 func (s *Dispatcher) discover() map[string]any {
 	return map[string]any{
 		"supportedVersions": supportedProtocolVersions(),
-		"capabilities":      s.capabilities(),
+		"capabilities":      s.capabilities(true),
 		// Guidance for the model on the other side of the client, kept to what
 		// is true of every tool: the per-tool text is DescribeForClient's, and
 		// a second description of the governance here would be a second answer
@@ -354,7 +378,7 @@ func (s *Dispatcher) finishModern(resp rpcResponse, method string) rpcResponse {
 		return resp
 	}
 	members := map[string]any{
-		fieldResultType: resultTypeComplete,
+		fieldResultType: modernResultTypeOf(resp.Result),
 		fieldMeta:       map[string]any{metaServerInfo: s.identity()},
 	}
 	if hint, ok := modernCacheHint(method); ok {
