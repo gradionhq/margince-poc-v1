@@ -317,3 +317,49 @@ func (a approvalsAdapter) StageQuotaRelease(ctx context.Context, in agents.Quota
 func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) (int64, bool, error) {
 	return a.svc.Redeem(ctx, approvalID, tool, diffHash)
 }
+
+// State answers a polling MCP task whether a human has decided yet. The
+// module's effective status is passed through rather than re-derived: a pending
+// row past its window is expired on every other surface, and a poll told
+// "pending" about a dead proposal would wait forever.
+func (a approvalsAdapter) State(ctx context.Context, approvalID ids.ApprovalID) (agents.ApprovalState, error) {
+	state, err := a.svc.TaskState(ctx, approvalID)
+	if err != nil {
+		return agents.ApprovalState{}, err
+	}
+	decided, ok := approvalDecisions[state.Status]
+	if !ok {
+		// A status this adapter has no word for must not be guessed at: the
+		// safe-looking guess is "pending", and it would leave a released
+		// approval unperformed forever.
+		return agents.ApprovalState{}, fmt.Errorf("compose: unknown approval status %q", state.Status)
+	}
+	return agents.ApprovalState{Decided: decided, ExpiresAt: state.ExpiresAt, Consumed: state.Consumed}, nil
+}
+
+// approvalDecisions maps the approvals module's status vocabulary onto the tool
+// surface's. They are the same four words today, and the map exists so they are
+// not required to STAY the same by coincidence — a rename on either side lands
+// on the unknown-status refusal above rather than silently reading as pending.
+var approvalDecisions = map[string]agents.ApprovalDecision{
+	approvals.StatusPending:  agents.ApprovalPending,
+	approvals.StatusApproved: agents.ApprovalApproved,
+	approvals.StatusRejected: agents.ApprovalRejected,
+	approvals.StatusExpired:  agents.ApprovalExpired,
+}
+
+// ProposedChange answers what a redemption would perform — the human's edit
+// where there was one. See agents.Approvals for why an executor must read this
+// rather than replay what it staged.
+func (a approvalsAdapter) ProposedChange(ctx context.Context, approvalID ids.ApprovalID) (json.RawMessage, error) {
+	return a.svc.ProposedChange(ctx, approvalID)
+}
+
+// Withdraw retracts the proposal behind a cancelled task, so no decision is
+// left in a person's inbox that could no longer take effect. It reports whether
+// there was still an offer to take: a proposal a human already decided is
+// untouched, and a task that claimed otherwise would say the decision was gone
+// while it sat live in the inbox.
+func (a approvalsAdapter) Withdraw(ctx context.Context, approvalID ids.ApprovalID) (bool, error) {
+	return a.svc.Withdraw(ctx, approvalID, "the agent cancelled the task waiting on this decision")
+}

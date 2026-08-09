@@ -153,6 +153,15 @@ func WithResourceProvider(provider mcp.ResourceProvider) HTTPOption {
 	return func(d *Dispatcher) { d.WithResources(provider) }
 }
 
+// WithTaskStore turns the io.modelcontextprotocol/tasks extension on: a staged
+// confirm-first call answers a durable handle to a client that declared it, and
+// the three task methods start being served. Without it the surface behaves
+// exactly as it did before — the extension is not advertised, and a 🟡 refusal
+// is the same sentence for every client.
+func WithTaskStore(tasks Tasks, approvals TaskApprovals) HTTPOption {
+	return func(d *Dispatcher) { d.WithTasks(tasks, approvals) }
+}
+
 // bindAuthenticated is the Binder the shared dispatcher gets on this
 // transport: the edge already authenticated THIS request and the context it
 // produced is the one dispatch runs on, so there is nothing left to bind. The

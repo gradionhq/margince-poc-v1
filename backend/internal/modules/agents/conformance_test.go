@@ -83,9 +83,31 @@ func scopedAgentCtx(scopes ...principal.Scope) context.Context {
 	})
 }
 
+// callMap runs one tools/call and reads its result as the map every tool
+// answers with.
+//
+// The dispatcher's own return is `any` because a client that declared the Tasks
+// extension can be handed a task handle instead of a result. No test in this
+// suite declares it — they all run in the handshake framing, which cannot — so
+// every answer here is a plain result, and the assertion says so rather than
+// assuming it.
+func callMap(ctx context.Context, t *testing.T, s *Dispatcher, params string) map[string]any {
+	t.Helper()
+	// The raw answer is kept BEFORE the assertion: a two-value type assertion
+	// leaves the zero value of the asserted type when it fails, so %T on it
+	// would report map[string]interface{} for every failure and lose the one
+	// fact the message exists to carry.
+	answer := s.call(ctx, json.RawMessage(params), legacyFraming)
+	out, ok := answer.(map[string]any)
+	if !ok {
+		t.Fatalf("tools/call answered %T, not a tool result", answer)
+	}
+	return out
+}
+
 func callResult(t *testing.T, s *Dispatcher, name string) map[string]any {
 	t.Helper()
-	out := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"`+name+`","arguments":{}}`))
+	out := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"`+name+`","arguments":{}}`)
 	if out["isError"] == true {
 		t.Fatalf("%s returned an in-band error: %v", name, out)
 	}
@@ -520,7 +542,7 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 	s := NewDispatcher(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(&strings.Builder{}, nil)))
 
-	res := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"no_such_tool","arguments":{}}`))
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"no_such_tool","arguments":{}}`)
 
 	if res["isError"] != true {
 		t.Fatalf("unknown tool did not produce an in-band error: %v", res)
@@ -606,7 +628,7 @@ func TestAResultThatMissesItsSchemaIsReportedAndLeftOutOfStructuredContent(t *te
 	var log strings.Builder
 	s := dispatchWith(t, echoTool{spec: spec, out: json.RawMessage(`{"count":"seven"}`)}, &log)
 
-	res := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"misdeclared","arguments":{}}`))
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"misdeclared","arguments":{}}`)
 	if _, structured := res["structuredContent"]; structured {
 		t.Error("a result violating its declared schema was served as structuredContent")
 	}
@@ -627,7 +649,7 @@ func TestAConformingResultIsServedAsStructuredContent(t *testing.T) {
 	var log strings.Builder
 	s := dispatchWith(t, echoTool{spec: spec, out: json.RawMessage(`{"count":7}`)}, &log)
 
-	res := s.call(scopedAgentCtx(principal.ScopeRead), json.RawMessage(`{"name":"conforming","arguments":{}}`))
+	res := callMap(scopedAgentCtx(principal.ScopeRead), t, s, `{"name":"conforming","arguments":{}}`)
 	if _, structured := res["structuredContent"]; !structured {
 		t.Errorf("a conforming result was withheld from structuredContent: %#v", res)
 	}

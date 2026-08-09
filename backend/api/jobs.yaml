@@ -660,6 +660,36 @@ kinds:
       loses all of it and starts over. The cap has to clear the refold of the
       longest-history tenant, and the daily cadence leaves the room to do it.
 
+  agent_task_retention:
+    role: dispatcher
+    go_type: AgentTaskRetentionArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 1h
+    fans_out_to: agent_task_retention_workspace
+    fan_out_unit: workspace
+    reason: >-
+      Hourly, and for the same reason the idempotency sweep is: a completed MCP
+      task stores the verbatim tool result its execution produced, which for most
+      of the confirm-first set is a whole record read-back. Past the task's own
+      expiry no surface can read it back, so a daily pass would leave a day of
+      expired personal data sitting past its purpose.
+
+  agent_task_retention_workspace:
+    role: workspace
+    go_type: AgentTaskRetentionWorkspaceArgs
+    queue: default
+    timeout: 5m
+    max_attempts: 3
+    opts_owner: fan_out
+    args:
+      Workspace: id
+    reason: >-
+      An indexed delete of one tenant's MCP tasks past their own expires_at —
+      database-only, and hourly, so a pass never faces more than an hour's
+      arrivals once an installation has caught up.
+
   idempotency_retention:
     role: dispatcher
     go_type: IdempotencyRetentionArgs

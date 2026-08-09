@@ -42,6 +42,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -108,7 +109,16 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slo
 		// validates against (queryseam.go), which is what makes "what this
 		// document advertises" and "what a plan can be answered from" the same
 		// sentence rather than two that have to be kept in step.
-		agents.WithResourceProvider(search.NewQuerySchemaResource(queryVocabulary(pool))))
+		agents.WithResourceProvider(search.NewQuerySchemaResource(queryVocabulary(pool))),
+		// The Tasks extension, which is why a confirm-first call no longer dead-ends
+		// for a client that can hold a handle. The store is composed here for the
+		// same reason the claim store is: agent_task rows are this transport's own
+		// operational state, and modules/agents owns no SQL.
+		// A plain service, like every other staging-side construction here: the
+		// per-kind effects belong to the DECIDE path, and a task neither decides
+		// nor triggers one. What it does is read a decision and then take the
+		// ordinary redemption route through Registry.Invoke.
+		agents.WithTaskStore(toolTasks(pool), approvalsAdapter{svc: approvals.NewService(pool)}))
 }
 
 // mcpAuthenticate binds one request to its agent principal. It runs on EVERY

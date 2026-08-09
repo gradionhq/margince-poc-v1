@@ -70,7 +70,7 @@ func scan(r pgx.Row) (row, error) {
 // reads as expired everywhere without a sweeper process.
 func (a row) effectiveStatus(now time.Time) string {
 	if a.Status == statusPending && now.After(a.ExpiresAt) {
-		return "expired"
+		return StatusExpired
 	}
 	return a.Status
 }
