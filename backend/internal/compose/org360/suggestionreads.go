@@ -235,8 +235,14 @@ func openPipeline(
 		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until,
 		       (SELECT count(*) FROM deal_stage_history h
 		         WHERE h.deal_id = d.id AND h.from_stage_id IS DISTINCT FROM h.to_stage_id),
-		       d.amount_minor, d.amount_minor_base, d.expected_close_date,
-		       d.currency, d.fx_rate_date,
+		       d.amount_minor, d.amount_minor_base,
+		       -- Cast both DATE columns to timestamps: pgx decodes a bare date
+		       -- (OID 1082) into its own Date type, not into time.Time, and the
+		       -- scan below fails at runtime rather than at compile time. Only
+		       -- a read against real rows finds that, which is why it is spelled
+		       -- here rather than left to the driver.
+		       d.expected_close_date::timestamptz,
+		       d.currency, d.fx_rate_date::timestamptz,
 		       (SELECT base_currency FROM workspace WHERE id = d.workspace_id)
 		FROM deal d
 		%s
