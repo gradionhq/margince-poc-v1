@@ -48,6 +48,20 @@ if [ -z "$root" ]; then exit 0; fi   # not a git repo → nothing to review
 # checkout and .git/worktrees/<name>/ in a linked worktree, where $root/.git
 # is a file, not a writable directory.
 gitdir="$(git -C "$root" rev-parse --absolute-git-dir)"
+
+# Opt-out for a session that reviews and lands its work INSIDE the turn: by the
+# time this hook fires there is no open PR left to review, so holding the stop
+# only re-runs the craft gate over code that has already merged. The flag is
+# per-worktree and untracked, and it EXPIRES after 24h so a session that dies
+# before clearing it cannot silently disable review for every later session in
+# this checkout. Nothing creates it automatically — a human or a session acting
+# on a human's instruction does, and clears it when done.
+review_off="$gitdir/margince-finish-review.off"
+if [ -f "$review_off" ] && [ -n "$(find "$review_off" -mmin -1440 2>/dev/null)" ]; then
+	echo "finish-review: opt-out flag present (expires 24h after touch) — skipping"
+	exit 0
+fi
+
 state_file="$gitdir/margince-finish-review.state"
 # Rounds live apart from the phase state, one line per branch — see below.
 rounds_file="$gitdir/margince-finish-review.rounds"
