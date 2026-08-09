@@ -600,6 +600,19 @@ export const en = {
   // suggestion means. "Whose move" is the question the 0-100 score was
   // mistaken for.
   "co.strip.title": "Where this account stands",
+  "co.strip.convertedAsOf": "{count} converted, rates from {date}",
+  "co.strip.noOpenDeals": "No open deals",
+  "co.strip.pipeline": "Open pipeline",
+  "co.strip.unpriced": "No convertible amount on these deals",
+  "co.strip.pricedPartly": "{priced} of {total} deals priced",
+  "co.strip.expectedClose": "Expected close",
+  "co.strip.health": "Relationship",
+  "co.strip.healthOneSided": "One-sided",
+  "co.strip.healthBalanced": "Balanced exchange",
+  "co.strip.replyShare": "{percent}% of the exchange is theirs",
+  "co.strip.healthActive": "In conversation",
+  "co.strip.healthQuiet": "Gone quiet",
+  "co.strip.noInboundEver": "They have never written",
   "co.strip.account": "Stage",
   "co.strip.engagement": "Whose move",
   "co.strip.commercial": "Open work",
@@ -747,6 +760,7 @@ export const en = {
   "co.growthFit.whitespace": "What they do not buy from you yet",
   "co.growthFit.objections": "What they are likely to push back with",
   "co.growthFit.angle": "Suggested approach",
+  "co.writeEmail": "Write email",
   "co.dossier.title": "What this company is",
   "co.dossier.unavailable":
     "This description could not be read. Nothing about the company has changed.",

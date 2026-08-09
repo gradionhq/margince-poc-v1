@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
@@ -25,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -74,6 +76,15 @@ type CaptureConfig struct {
 	// a capture). Nil falls back to the default logger — the site_lead accept
 	// path composes a Sink without a deployment config at all.
 	Logger *slog.Logger
+	// Blob is the object store a captured message's files are written to. Nil
+	// is a role that keeps no files: the messages still land, and their
+	// attachments do not — an unconfigured store must not cost correspondence.
+	//
+	// Held as the STORE rather than as a built keeper so that whoever sets this
+	// last still wins: an option that assigns this whole struct cannot silently
+	// drop a separately-assigned keeper, which is a failure with no error and
+	// no missing file to notice.
+	Blob blobstore.Store
 }
 
 // logger is the configured logger, or the process default.
@@ -147,6 +158,11 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		log:    cfg.logger(),
 	}
 	return capture.NewSink(pool).
+		// The files a captured message carried, written by the module that owns
+		// the attachment table. Built here, from the store, so every role that
+		// composes a sink gets the same one — the worker runs mail capture and
+		// never sees the api's options.
+		WithFileKeeper(capturedFileKeeper{store: activities.NewStore(pool).WithBlobstore(cfg.Blob)}).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe

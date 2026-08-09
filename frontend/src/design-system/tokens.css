@@ -127,6 +127,12 @@
   --space-4: 16px;
   --space-6: 24px;
 
+  /* How far a page-level sticky element must stay clear of the bottom of a
+   * phone viewport: the app's navigation is fixed there (shell.css, inset 8px)
+   * and anything that ignored it would render underneath the nav. Named rather
+   * than repeated so the two cannot drift apart. */
+  --phoneNavClearance: 64px;
+
   --f-display: "Outfit", system-ui, sans-serif;
   --f-body: "DM Sans", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, monospace;

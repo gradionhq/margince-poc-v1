@@ -16,7 +16,7 @@ import {
 import { Select } from "../design-system/select";
 import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
-import { useLocale, useT } from "../i18n";
+import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
 import "./company360.css";
@@ -1833,6 +1833,15 @@ const ENGAGEMENT_TONE: Partial<
  * from that would state a business conclusion the page has no basis for — the
  * one a rep would act on.
  */
+// The compact KPI row (plan §4.2): at most four cards, and WHICH four depends
+// on where the account stands. A customer is asked about money and health; a
+// prospect is asked about pipeline, timing and fit. Showing one set to both
+// makes half of them noise.
+//
+// What it must never render is the harder half of the rule, and every omission
+// below is one of its bullets: no €0 when the figure is unavailable, no
+// cross-currency sum without its conversion source, and nothing called
+// "revenue" that is only a count of open deals.
 export function StateStrip({
   view,
   lifecycleLabel,
@@ -1848,11 +1857,10 @@ export function StateStrip({
   if (!strip) {
     return null;
   }
-  const engagement = strip.engagement;
-  const commercial = strip.commercial;
   const types = strip.account.relationship_types ?? [];
-  const when = (at?: string | null) =>
-    at ? formatDate(at, locale, RECORD_ZONE) : undefined;
+  const customer =
+    strip.account.lifecycle === "customer" ||
+    strip.account.lifecycle === "former_customer";
   return (
     <section className="co-strip" aria-label={t("co.strip.title")}>
       <StatCard
@@ -1860,44 +1868,238 @@ export function StateStrip({
         value={lifecycleLabel(strip.account.lifecycle)}
         detail={types.length > 0 ? relationshipLabels(types) : undefined}
       />
-      {engagement && (
-        <StatCard
-          label={t("co.strip.engagement")}
-          value={t(ENGAGEMENT_LABELS[engagement.state])}
-          tone={ENGAGEMENT_TONE[engagement.state]}
-          detail={
-            engagement.last_inbound_at || engagement.last_outbound_at
-              ? t("co.strip.lastBoth", {
-                  inbound:
-                    when(engagement.last_inbound_at) ?? t("co.strip.never"),
-                  outbound:
-                    when(engagement.last_outbound_at) ?? t("co.strip.never"),
-                })
-              : undefined
-          }
-        />
+      {/* Four cards is the cap (§4.2). The account card always holds the
+          first slot; the signal, when one is open, takes the engagement slot
+          rather than adding a fifth — the worst thing standing open is the
+          more urgent reading of the two. */}
+      <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
+      {customer ? (
+        <HealthStat health={view?.health} t={t} />
+      ) : (
+        <CloseDateStat commercial={strip.commercial} locale={locale} t={t} />
       )}
-      {strip.signal && (
+      {strip.signal ? (
         <StatCard
           label={t("co.strip.signal")}
           value={signalKindLabel(strip.signal.kind, t)}
           tone={signalTone(strip.signal.severity)}
           detail={strip.signal.summary}
         />
-      )}
-      {commercial && (
-        <StatCard
-          label={t("co.strip.commercial")}
-          value={t("co.strip.openDeals", { count: commercial.open_count })}
-          tone={commercial.stalled_count > 0 ? "warn" : undefined}
-          detail={
-            commercial.stalled_count > 0
-              ? t("co.strip.stalled", { count: commercial.stalled_count })
-              : undefined
-          }
-        />
+      ) : (
+        <EngagementStat engagement={strip.engagement} locale={locale} t={t} />
       )}
     </section>
+  );
+}
+
+type StripCommercial = NonNullable<
+  NonNullable<Organization360["state_strip"]>["commercial"]
+>;
+
+// Open pipeline, labelled as exactly what it is: the sum of open deals, never
+// "potential" and never "revenue" (§4.2). Absent when nothing on the account
+// carries a convertible figure — a €0 there would claim a priced pipeline
+// worth nothing, where the truth is the page cannot price it.
+function PipelineCard({
+  commercial,
+  locale,
+  t,
+}: Readonly<{
+  commercial?: StripCommercial | null;
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (!commercial) {
+    return null;
+  }
+  // No open deals is not an unpriced pipeline. Saying "no convertible amount"
+  // about an account that has nothing open reports a data problem where the
+  // truth is simply that nothing is running.
+  if (commercial.open_count === 0) {
+    return (
+      <StatCard
+        label={t("co.strip.pipeline")}
+        value={t("co.strip.noOpenDeals")}
+      />
+    );
+  }
+  const { open_pipeline_minor_base: value, base_currency: currency } =
+    commercial;
+  const stalled =
+    commercial.stalled_count > 0
+      ? t("co.strip.stalled", { count: commercial.stalled_count })
+      : undefined;
+  if (value == null || !currency) {
+    // Open deals with no priceable figure still say how many there are: the
+    // count is a fact, the money is not. The unpriced note is never dropped
+    // for the stalled one — a reader who is told only "1 stalled" has no way
+    // to know the pipeline was never priced at all.
+    return (
+      <StatCard
+        label={t("co.strip.pipeline")}
+        value={t("co.strip.openDeals", { count: commercial.open_count })}
+        detail={join(t("co.strip.unpriced"), stalled)}
+        tone={stalled ? "warn" : undefined}
+      />
+    );
+  }
+  // Everything qualifying this figure travels WITH it. §4.2 forbids a
+  // cross-currency sum without an explicit conversion source and as-of date,
+  // and forbids a total that silently covers only part of the pipeline — so a
+  // partial total names its share, and a converted one names the oldest rate
+  // date standing behind it.
+  const partial = commercial.priced_count < commercial.open_count;
+  const converted =
+    commercial.converted_count > 0 && commercial.fx_as_of
+      ? t("co.strip.convertedAsOf", {
+          count: commercial.converted_count,
+          date: formatDate(commercial.fx_as_of, locale, RECORD_ZONE),
+        })
+      : undefined;
+  return (
+    <StatCard
+      label={t("co.strip.pipeline")}
+      value={formatMoney(value, currency, locale)}
+      tone={stalled ? "warn" : undefined}
+      detail={join(
+        partial
+          ? t("co.strip.pricedPartly", {
+              priced: commercial.priced_count,
+              total: commercial.open_count,
+            })
+          : t("co.strip.openDeals", { count: commercial.open_count }),
+        converted,
+        stalled,
+      )}
+    />
+  );
+}
+
+// One detail line from the parts that apply. A card has room for one, and
+// dropping a part because another is present is how a qualification goes
+// missing exactly when it matters.
+function join(...parts: (string | undefined)[]): string {
+  return parts.filter(Boolean).join(" · ");
+}
+
+// When the next open deal is expected to close. A prospect's page is asked
+// "when?", and the answer is a date on a record rather than an assessment.
+function CloseDateStat({
+  commercial,
+  locale,
+  t,
+}: Readonly<{
+  commercial?: StripCommercial | null;
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (!commercial?.next_close_on) {
+    return null;
+  }
+  return (
+    <StatCard
+      label={t("co.strip.expectedClose")}
+      value={formatDate(commercial.next_close_on, locale, RECORD_ZONE)}
+    />
+  );
+}
+
+// Health as a STATUS with its reason, never a 0-100 verdict (§4.2). The card
+// below the fold decomposes it; this says which way it points and why.
+//
+// It reports the BALANCE of the exchange rather than its recency, because the
+// engagement card beside it already answers "whose move is it" — two cards
+// saying "in conversation" in different words is one card's worth of
+// information taking two of the four slots. A relationship where they write
+// and we do not answer, and one where we write into silence, are both
+// "in conversation" by recency and are opposite problems.
+function HealthStat({
+  health,
+  t,
+}: Readonly<{ health?: Health; t: ReturnType<typeof useT> }>) {
+  if (!health) {
+    return null;
+  }
+  const days = health.days_since_last_inbound;
+  if (days == null) {
+    return (
+      <StatCard
+        label={t("co.strip.health")}
+        value={t("co.strip.noInboundEver")}
+        tone="warn"
+      />
+    );
+  }
+  if (days > HEALTH_QUIET_DAYS) {
+    return (
+      <StatCard
+        label={t("co.strip.health")}
+        value={t("co.strip.healthQuiet")}
+        tone="warn"
+        detail={t("co.health.sinceInbound", { days })}
+      />
+    );
+  }
+  // A live relationship: say who is carrying it. Below a third of the
+  // exchange coming from them is us talking to ourselves, whatever the dates
+  // say; above two thirds they are asking more than we are answering.
+  const share = health.reply_balance;
+  if (share == null) {
+    return (
+      <StatCard
+        label={t("co.strip.health")}
+        value={t("co.strip.healthActive")}
+      />
+    );
+  }
+  const percent = Math.round(share * 100);
+  const oneSided = share < 0.34 || share > 0.66;
+  return (
+    <StatCard
+      label={t("co.strip.health")}
+      value={
+        oneSided ? t("co.strip.healthOneSided") : t("co.strip.healthBalanced")
+      }
+      tone={oneSided ? "warn" : undefined}
+      detail={t("co.strip.replyShare", { percent })}
+    />
+  );
+}
+
+// The threshold that separates a live conversation from a quiet one. It names
+// a number the strip states rather than one the reader must infer from a date,
+// and it is deliberately the same span the dormant engagement state uses.
+const HEALTH_QUIET_DAYS = 30;
+
+function EngagementStat({
+  engagement,
+  locale,
+  t,
+}: Readonly<{
+  engagement?: NonNullable<Organization360["state_strip"]>["engagement"];
+  locale: Locale;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (!engagement) {
+    return null;
+  }
+  const when = (at?: string | null) =>
+    at ? formatDate(at, locale, RECORD_ZONE) : undefined;
+  return (
+    <StatCard
+      label={t("co.strip.engagement")}
+      value={t(ENGAGEMENT_LABELS[engagement.state])}
+      tone={ENGAGEMENT_TONE[engagement.state]}
+      detail={
+        engagement.last_inbound_at || engagement.last_outbound_at
+          ? t("co.strip.lastBoth", {
+              inbound: when(engagement.last_inbound_at) ?? t("co.strip.never"),
+              outbound:
+                when(engagement.last_outbound_at) ?? t("co.strip.never"),
+            })
+          : undefined
+      }
+    />
   );
 }
 

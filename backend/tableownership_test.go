@@ -242,8 +242,12 @@ var tableOwners = map[string]string{
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)
 	"idempotency_key": "internal/compose",
-	"brief_run":       "internal/compose/briefs",
-	"brief_item":      "internal/compose/briefs",
+	// The MCP Tasks handle, beside the claim above and owned for the same
+	// reason: it is transport-owned operational state, not a domain record, and
+	// modules/agents declares the seam while owning no SQL.
+	"agent_task": "internal/compose",
+	"brief_run":  "internal/compose/briefs",
+	"brief_item": "internal/compose/briefs",
 	// The company view's per-user visit baseline: view state, not a record
 	// fact, so it is written without an audit row — the saved-view ruling.
 	// The person view acknowledges visits into the SAME table (one baseline

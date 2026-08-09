@@ -599,6 +599,19 @@ export const de = {
   // Die drei Aussagen, mit denen die Übersicht beginnt, und was das
   // Ausführen eines Vorschlags bedeutet.
   "co.strip.title": "Wo dieser Account steht",
+  "co.strip.convertedAsOf": "{count} umgerechnet, Kurse vom {date}",
+  "co.strip.noOpenDeals": "Keine offenen Deals",
+  "co.strip.pipeline": "Offene Pipeline",
+  "co.strip.unpriced": "Keine umrechenbaren Beträge hinterlegt",
+  "co.strip.pricedPartly": "{priced} von {total} Deals mit Betrag",
+  "co.strip.expectedClose": "Erwarteter Abschluss",
+  "co.strip.health": "Beziehung",
+  "co.strip.healthOneSided": "Einseitig",
+  "co.strip.healthBalanced": "Ausgeglichener Austausch",
+  "co.strip.replyShare": "{percent}% des Austauschs kommt von ihnen",
+  "co.strip.healthActive": "Im Gespräch",
+  "co.strip.healthQuiet": "Still geworden",
+  "co.strip.noInboundEver": "Sie haben nie geschrieben",
   "co.strip.account": "Phase",
   "co.strip.engagement": "Wer am Zug ist",
   "co.strip.commercial": "Offene Arbeit",
@@ -744,6 +757,7 @@ export const de = {
   "co.growthFit.whitespace": "Was sie bei dir noch nicht kaufen",
   "co.growthFit.objections": "Womit sie voraussichtlich dagegenhalten",
   "co.growthFit.angle": "Vorgeschlagener Ansatz",
+  "co.writeEmail": "E-Mail schreiben",
   "co.dossier.title": "Was diese Firma ist",
   "co.dossier.unavailable":
     "Diese Beschreibung ließ sich nicht lesen. An der Firma hat sich nichts geändert.",

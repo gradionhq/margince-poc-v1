@@ -595,6 +595,19 @@ export const vi = {
   // suggestion means. "Whose move" is the question the 0-100 score was
   // mistaken for.
   "co.strip.title": "Tình hình tài khoản này",
+  "co.strip.convertedAsOf": "{count} đã quy đổi, tỷ giá từ {date}",
+  "co.strip.noOpenDeals": "Không có thương vụ mở",
+  "co.strip.pipeline": "Pipeline đang mở",
+  "co.strip.unpriced": "Không có giá trị quy đổi được",
+  "co.strip.pricedPartly": "{priced}/{total} thương vụ có giá trị",
+  "co.strip.expectedClose": "Dự kiến chốt",
+  "co.strip.health": "Quan hệ",
+  "co.strip.healthOneSided": "Một chiều",
+  "co.strip.healthBalanced": "Trao đổi cân bằng",
+  "co.strip.replyShare": "{percent}% cuộc trao đổi là từ họ",
+  "co.strip.healthActive": "Đang trao đổi",
+  "co.strip.healthQuiet": "Đã lặng",
+  "co.strip.noInboundEver": "Họ chưa từng liên hệ",
   "co.strip.account": "Giai đoạn",
   "co.strip.engagement": "Đến lượt ai",
   "co.strip.commercial": "Việc đang mở",
@@ -742,6 +755,7 @@ export const vi = {
   "co.growthFit.whitespace": "Những thứ họ chưa mua của bạn",
   "co.growthFit.objections": "Những điều họ có thể phản đối",
   "co.growthFit.angle": "Hướng tiếp cận đề xuất",
+  "co.writeEmail": "Viết email",
   "co.dossier.title": "Công ty này là gì",
   "co.dossier.unavailable":
     "Không đọc được mô tả này. Thông tin công ty không thay đổi.",

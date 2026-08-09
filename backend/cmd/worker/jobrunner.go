@@ -61,6 +61,12 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	if verr != nil {
 		return nil, fmt.Errorf("worker: keyvault: %w", verr)
 	}
+	// THIS is the role that pulls mailboxes, so the object store a captured
+	// file is written to has to reach the config the sync registry and the job
+	// lanes are built from. Wired in the api role alone, every inbound
+	// attachment would be dropped in production while every test that composes
+	// an api server passed.
+	cfg.captureConfig.Blob = lanes.blob
 	captureReg := compose.CaptureSyncRegistry(pool, vault, compose.GmailConfig{
 		ClientID:     cfg.gmailClientID,
 		ClientSecret: cfg.gmailClientSecret,

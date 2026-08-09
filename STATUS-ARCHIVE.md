@@ -21,68 +21,1682 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
-## 2026-08-08 — the integration lane got faster, and the measurement mattered more than the idea
+## Session pickup — 2026-08-09 (a meeting becomes an anchor, and what the tool copy cost, PR #686)
 
-Closes #539. Landed as #556, #568, #574, #584 (splitting), #625 (a Redis-db
-collision the timing change exposed) and #626 (the connection sharing).
+`prep_for_meeting`, `catch_me_up_on` and `GET /records/{entity_type}/{id}/context`
+took an `activity` anchor (closing #577). The event is dereferenced to the
+records it names — from `activity_link` and from the `activity_participant`
+rows capture matched to people — one becomes the subject by a stated
+precedence, and the ordinary record walk runs around that. An activity is still
+a link, not a thing links hang off; the graph kept exactly the anchors it had.
+Two follow-ups are open and carried in STATUS.md: [#687] and [#726].
 
-Measured on one machine with Postgres restarted before each run: **220.5s wall
-and 512.3s summed before, 185.8s and 435.7s after** — about 15% off the wall
-clock. `compose/integration` went 188.3s to 160.6s, `compose` 74.5s to 59.2s.
+**Two things the next agent-surface branch should budget for.**
 
-Two levers, and only the second was worth much.
+Tool copy is load-bearing and has to be measured rather than reasoned about. A
+sentence recommending the new anchor — "name the captured calendar event itself
+when you have one" — made two `not_supported` bindings read the run's
+`calendar:…` trigger reference as an activity `record_id`;
+`meeting_prep_is_not_a_catchup` went to 0/3 on both, deterministically, with an
+identical failure detail every run. Warning against it in prose did not help
+(ministral stayed at 1/5). Saying nothing did (5/5) — the schema advertises what
+a tool accepts, and prose that also recommends it is what tipped them. So budget
+an `agent_loop` re-run per copy REVISION, not one per PR: three revisions cost
+three full re-certification passes across three bindings.
 
-**Splitting packages is nearly spent.** The lane's wall clock cannot fall below
-its longest package, so `org360`, `capture` and the overlay suites became sibling
-packages under `compose/integration`. That is most of what splitting can give:
-ranked by measured seconds the tail of 116 clusters is 46% of the time, which no
-split reaches. `compose/integration/harness.go`'s package doc now states when a
-group is splittable and the two traps a split hits — a fixture is only importable
-if its METHODS are also in a non-test file, and once its type is foreign a suite
-cannot declare methods on it at all.
+And the two openrouter bindings cannot be read at three runs a scenario. Two
+consecutive runs of an UNCHANGED tree moved ministral 0.587 → 0.556 and deepseek
+0.62 → 0.51. Certify ministral at `RUNS=5` before trusting one of its numbers,
+and treat a single three-run delta on either as noise unless the failure detail
+is identical every run. `gemini-3.1-flash-lite` at 0.90 was the only binding
+stable enough to read anything from, and it was unaffected by every variant.
 
-**Sharing the connections was the real cut.** `testdb.Pool` gives each test
-PROCESS one pool per DSN instead of one per test. What sharing costs is the
-statement cache: a connection outliving a test also outlives any DDL that test
-ran, and pgx's default keeps a server-side prepared statement per connection, so
-a shared pool draws `SQLSTATE 0A000 "cached plan must not change result type"` in
-whichever suite runs next — a failure with nothing in it pointing at the DDL that
-caused it. The pools therefore run in `cache_describe`, which holds no
-server-side plan. Retiring connections at each reset was implemented first and
-discarded: it needs a list of which operations invalidate what, and most of the
-DDL is run by the tests themselves, so the reset is not in a position to keep
-that list.
+The review loop found four things worth naming, all fixed in the PR: the
+dereference borrowed the hop-2 walk's shorter link list and so dropped
+`activity_link`'s lead arm (the discovery call a prep is most often for); the
+context walk had only ever applied ROW scope, so a caller with `activity.read`
+and no `deal.read` could be handed a deal's name; the bounded participant window
+was cut by id, which could drop an organizer before the precedence saw them; and
+`max_items` did not bound the two new sections. The first of those is the one to
+remember — its fitness gate derived the link vocabulary from a sibling Go map
+rather than from the DDL, so the gate passed against the bug it described.
 
-Three things this cost that are worth remembering.
+[#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
+[#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
 
-**The first version of the shared pool built its own pgxpool config and silently
-lost `jit=off`** — which `database.go` documents as 475ms of JIT behind 12ms of
-work on the `/search` union. The lane had been paying it. `testdb.Pool` now
-builds through `database.NewPool` and declares its differences as DSN parameters
-that constructor already honours, so the test pool is the product's pool with a
-named delta rather than a second constructor free to drift.
+## Resolved — the graph can answer "who do I know here" (PR #355)
 
-**The timing change exposed a Redis-db collision that had been latent** (#625).
-The lane mapped packages onto logical dbs with `1 + (idx-1) % 15` and had grown
-past 15 packages, so two could share a db — and two of them `FLUSHDB` between
-tests, making a collision a corruption rather than a slowdown. Redis now serves
-64 dbs and the lane refuses to start rather than wrap the mapping.
+The `in_contact_with` edge used to join on who TYPED the activity
+(`a.captured_by = 'human:' || u.id::text`). Connector-captured mail is stamped
+`connector:gmail`, so the join matched nothing and the edge was never drawn —
+on precisely the accounts with the most correspondence. PR #355 replaced it
+with the interaction projection folded from the participant rows capture
+stamps, and `compose/org360/graphourside.go:113` now says so in its own
+comment.
 
-**Both `testdb` gates were mutation-tested, and one of them changed what I
-believed.** Rebuilding the pool from a bare `pgxpool.ParseConfig` turns the
-`jit` assertion red but leaves the typed-id slice bind green — under
-`cache_describe` the parameter OID always arrives from the server, so pgx never
-consults the registered type to encode `[]ids.PersonID`. The missing
-`RegisterIDTypes` was inert; the live loss was `jit`. Both assertions were kept
-with the asymmetry written down.
+Still open from that entry: `counterparty_email` is stored and used by the
+capture sweeps but is not on the `Activity` schema, so no client can see who a
+captured mail was actually with.
 
-Two obligations sharing creates are gated rather than documented, per the rule
-against rationalizing a gap in a comment: `Pool` refuses before `EnsureSchema`
-has run (a connection older than the migration's `DROP SCHEMA` would poison the
-whole package, not one test), and the fixtures assert the pool is quiesced at
-test end — closing the pool per test used to be an accidental backstop against a
-goroutine a test left running, and without it a half-stopped River client would
-write into the database the next test had just reset.
+## Session pickup — 2026-08-07 (one dropdown, one login screen, and a Core that holds still, branch `fix/ui-select-orb-login`)
+
+Five reported UI defects. Four are invariants; the fifth is a screen redesign.
+
+- **The product has ONE dropdown, and it is not the browser's.**
+  `design-system/select.tsx` is a button trigger plus a portalled listbox
+  (`role="combobox"` + `role="listbox"`, `aria-activedescendant`, arrow/Home/End
+  movement, typeahead, Escape without committing, focus back to the trigger).
+  Portalled and `position: fixed` because most call sites sit in a toolbar inside
+  `.scroll`, where an absolutely positioned popup is clipped or scrolls away from
+  its trigger; it flips above the trigger when the room below runs out.
+  The API takes DATA — `options` plus `onChange(value)` — because a listbox has
+  no `event.target.value` and threading a synthetic event through would be a lie
+  about where the value came from. All 30 call sites across 19 screens and every
+  test that drove a native control are migrated; `select-testing.ts` gives the
+  suites one `pickOption(user, control, label)` so thirty files do not each encode
+  the popup's markup.
+  - **The gate, not the sweep, is what keeps it true**:
+    `frontend/scripts/check-native-controls.sh` (in `make frontend-check`) refuses
+    `<select>`, `<option>` and `<optgroup>` anywhere under `frontend/src` outside
+    that one named file. `<option>` matters as much as `<select>`: nothing here
+    ever wrote a raw `<select>` — the screens fed option children to the *atom* —
+    so a gate watching only `<select` would have called an entirely un-migrated
+    tree clean.
+  - **Two things only the running app could show, both from the control changing
+    ELEMENT.** `.list-toolbar > select.input` is an element-qualified rule, so it
+    stopped matching the moment the trigger became a button: every list filter
+    grew to the full width of the page, one per line, with no test able to see it.
+    It now names the control's class. And the deals sort control, which opens on
+    no explicit sort, drew an empty box — a native select rendered the same
+    nothing, but a drawn one reads as a control that failed to load, so it carries
+    a placeholder. That placeholder then failed the axe sweep at
+    `--textTertiary`: a placeholder is text on an ACTIVE control, so 1.4.3's
+    inactive-control exemption does not cover it, and it stops at `--textMeta`.
+    The lesson for the next primitive that replaces a native element: grep the
+    stylesheets for rules that name the old tag before you believe the migration
+    is done.
+  - **Where to look before hand-rolling a control** is now written down:
+    `frontend/src/design-system/README.md` catalogues every primitive, its file,
+    its story, and the gates. `frontend/README.md`, `AGENTS.md` and `CLAUDE.md`
+    each point at it in two lines. This is the answer to "how does the next agent
+    find the right element" in general, not only for Select.
+- **The sign-in screen is two halves of a page.** The identity region was an
+  inset card in a pane, which gave the eye two shapes to place before it reached
+  the form; it is now a full-bleed half divided from the task by one hairline.
+  The wordmark sits in the page's top-left corner on the split layout (the task
+  column carries `z-index: 1` for it — the wordmark's own z-index resolves inside
+  `.auth-task-in`, a stacking context because of its filling opacity animation,
+  so from in there nothing can paint over the identity column) and returns to
+  being the form's first line when the layout stacks. Both halves read ONE pair of
+  padding values (`--authPadBlock` / `--authPadInline`, arithmetic on the `--space`
+  scale) at every width above the phone, so the inset does not change when the
+  layout turns from two columns into two rows: the air on this surface comes from a
+  400px column centred in half a screen, not from its gutter, and a viewport clamp
+  only moved the edges while making the desktop and the tablet two different pages.
+  Both columns read down their own centre line, the fields excepted — a label
+  centred over a line of typing points at nothing.
+  - **Phones drop the identity region entirely** (≤560px): the sphere, the limits,
+    and the AI's own sentence with them (founder ruling, 2026-08-07). Everything
+    that introduced the system was competing with the form for the first look, and
+    on a phone the form is the only thing the screen is for.
+  - **That is a partial ADR-0076 Decision 1 below 561px, and it is now total.** The
+    surface discloses nothing about the AI at phone width — the earlier compromise
+    kept the boundary sentence as `.auth-phone-disclosure`; that element is gone.
+    Above the breakpoint the disclosure is intact. The departure is stated in
+    `auth.css` beside the rule that makes it and pinned in both directions by
+    `e2e/ac.spec.ts`, so it cannot drift back by accident — **owed upstream as
+    issue #562: the spec has to reconcile Decision 1 with a phone surface that is
+    the task alone.**
+  - Re-measured at 320 / 390 / 640×400 (200% zoom) / 720 / 1440: zero horizontal
+    overflow, the 48px submit inside the viewport at every width, all four limits
+    rendered wherever the region shows, axe clean.
+- **An entry animation belongs to the page load, not to the mount.** The staggered
+  fades and the typed statement replayed on every React remount of the surface,
+  which reads as the page reloading under the reader. `useDocumentIntro`
+  (`design-system/motion.ts`) marks the DOCUMENT once the choreography has run its
+  course, so a later mount renders the surface already arrived while a real load
+  still gets the introduction. Marked at the END of the sequence rather than at
+  mount, which is what survives React's development double-mount — the second
+  mount lands mid-flight and still plays.
+  - **The trigger was never reproduced locally.** Simulated `visibilitychange`,
+    real tab switches and window swaps all left the surface mounted with its text
+    intact, and the one focus-coupled query on that screen (`useMe`,
+    `refetchOnWindowFocus: "always"`) does not re-branch the tree. The fix is
+    therefore aimed at the invariant: replay is impossible from ANY remount cause.
+    A tab Chrome has discarded and reloaded is a genuine page load and correctly
+    plays again.
+- **The Core holds its position.** The 11-second vertical drift on `.core-tilt` is
+  deleted with its keyframes rather than overridden. The element stays: it is the
+  `place-items: center` stage the glass is centred in. Breath, sheen, halo and
+  feed are untouched — the beat is still what carries state.
+- **The Core goes still while the window does not have focus.** Both halves stop
+  off ONE signal: `design-system/window-focus.ts` owns a single `focus`/`blur`
+  pair for the document, parks the WebGL loop through a subscription and pauses
+  the CSS rhythms through `data-window-blurred` on `<html>`. Paused, not
+  `animation: none`, so returning does not snap the sphere to its unanimated size.
+  - This does not break the loop's standing rule — **only a condition whose END is
+    announced by an event may park it.** `document.hasFocus()` is read once per
+    attach to seed the state and never polled; the resume arrives as `focus`. A
+    poll answers only for the instant it is asked, and a missed resume is a
+    permanently frozen sphere, which is indistinguishable from a broken shader.
+  - jsdom reports no focus, so a Core in a test parks after one frame unless the
+    suite says the window is focused. `margince-core-liquid.test.tsx` pins that in
+    its `beforeEach`; any future test that renders a Core and expects motion needs
+    the same.
+
+## Session pickup — 2026-08-06 (app chrome: the account menu, the app's scrollbars, and one orb, branch `fix/shell-chrome-and-one-orb`)
+
+Seven reported chrome defects, fixed as five invariants rather than five patches.
+
+- **Language and theme live in the account menu**, which now reads Settings ·
+  Language · Theme · Sign out with the two preferences stating their current
+  value and named by the setting plus the action they perform (WCAG 2.5.3 wants
+  the visible label inside the accessible name). Both keep the menu open (they
+  stop the click from reaching the document dismissal listener) so the theme is
+  visible from the control that set it, and dismissal hands focus back to the
+  avatar rather than dropping it on `<body>`.
+
+  **The language row is #526's three-locale menu, nested.** That PR landed while
+  this branch was in flight: it owns the mechanism (three locales, endonyms,
+  `role="menu"` with arrow movement), this branch owns the placement. Nesting one
+  popover in another has three consequences, each handled at its source — the
+  trigger and the list stop their own clicks, or the outer menu's document-level
+  dismissal closes the popover the list lives in; and **Escape closes one layer**,
+  because the account menu defers while a submenu reports itself expanded. A test
+  pins the layering. Anything else nested in that popover later inherits the same
+  three obligations.
+- **`scrollbar-width: thin` is on every element, not `:root`.** It is the one
+  property in `app.css`'s browser-chrome block that does NOT inherit, so the
+  thin bar applied to the document scroller only while every in-app scroller
+  kept a platform-width bar next to an accent thumb. The universal selector
+  carries zero specificity, so the scrollers that hide their bar still win.
+- **`#/settings/integrations` had two scrollbars because a hidden input escaped
+  its scroller.** The LinkedIn import's visually-hidden file input is
+  `position: absolute` with no positioned ancestor, so its containing block was
+  the viewport: it sized the DOCUMENT to its own offset (189px of dead space) and
+  the window grew a second bar. Fixed at both levels — `.li-import-picker` is
+  now `position: relative`, and `.scroll` is too, so nothing else absolutely
+  positioned inside a screen can leave the scroller again. A sweep of all 21
+  authenticated routes now reports zero document-level scroll and one horizontal
+  scroller (the pipeline board, which should have one).
+- **`.scroll` reserves its gutter (`scrollbar-gutter: stable`)**, so navigating
+  between a short screen and a long one no longer shifts the content column.
+- **The rail's horizontal scrollbar flash is gone.** `overflow-y: auto` with
+  `overflow-x: visible` resolves the second axis to `auto`; expanding animates
+  the grid column from 64px while the labels are already at full width, so the
+  panel overflowed itself for a few frames. `.rail` is now `overflow-x: hidden`
+  (the collapsed state still opts out of clipping for its tooltips).
+- **One orb in the product.** The agent panel drew a CSS lookalike of the Core
+  because the real primitive would have held a render loop for the session. That
+  premise is now false, so the panel shows the Core the sign-in and onboarding
+  surfaces show, sized through the primitive's documented custom properties.
+
+**The Core's loop was rebuilt around the cost, and this is the part to read
+before touching `margince-core-liquid.tsx` again.** Three changes: the buffer
+never exceeds the displayed size (a 32px rail orb was rendering a 96×96 buffer —
+9× the pixels it shows, permanently); a drawn frame schedules the next through a
+timer instead of a rAF chain gated at 24fps, so the main thread wakes ~24×/s
+rather than at the display's 120Hz refresh; and the loop STOPS, not throttles,
+when nothing would change. The rule that fell out of it is written at `seen()`:
+**only a condition whose END has an event may pause the loop.** `document.hidden`
+and the IntersectionObserver qualify; `document.hasFocus()` does not — a window
+can regain focus without a `focus` event reaching the document, and the sphere
+then stays frozen on screen for the session, which is what a broken shader looks
+like. Three tests count `drawArrays` (one frame for a still liquid, ≤30 draws per
+second of animation, zero while hidden and >0 again after `visibilitychange`),
+because the count is the only thing that fails when this regresses.
+
+Verified against a cold `make dev-fresh` install through onboarding: the menu in
+both locales and both themes, the rail toggle in both directions, the integrations
+tab, and a 21-route scroll sweep. `make check`, `make frontend-check` and
+`make frontend-e2e` green.
+
+The e2e lane is the one that caught what `make check` cannot: it is not a `check`
+prerequisite, so a chrome control that moves takes its AC test with it and the
+first sign is a red `uat` job on the PR. Run `make frontend-e2e` before pushing a
+change to the shell.
+
+## Session pickup — 2026-08-05 (form controls get one spelling, and the design gates widen, branch `feat/streamline-ui-elements`, PR #469)
+
+**The frontend's form controls are now atoms rather than a convention.**
+`Select`, `Textarea`, `Checkbox`, `Radio` and `Field` joined
+`design-system/atoms.tsx`, and the roughly 100 hand-rolled controls the screens
+had grown moved onto them. The fragmentation this removes was measured before it
+was fixed: a dropdown was a bare `<select className="input">` repeated across
+nineteen files, a textarea was one of three different classes, a checkbox row
+carried its own wrapper class with its own gap — six different values for the
+same control-and-label row — and 46 field rows threaded their own id through a
+label and a control by hand.
+
+What the atoms decide, rather than each call site deciding for itself:
+
+- **The control's surface.** One `.input` / `.textarea` spelling, so a dropdown
+  in a create form and one in settings cannot drift. `.textarea` also gained
+  `width: 100%` and took `.input`'s type size and padding: it had neither, so
+  five callers re-added the width locally and the three that did not rendered a
+  short box in a wide field.
+- **The label pairing.** `Field` mints the id with `useId`, so the typo that
+  silently unlabels a control has nowhere to live. Eleven rows had drawn the
+  label with a `<span>` and pointed at it with `aria-labelledby` — announced
+  correctly, but not a label, so clicking the words focused nothing. A twelfth
+  aimed a `<label for>` at a `<div>`, which cannot be labelled at all.
+- **The required marker.** One prop marks the label and the control. The
+  asterisk is `aria-hidden`, because the control's own `required` already
+  announces the state.
+
+**Two gates widened to cover the surface where the drift actually accumulates.**
+`check-ds-spacing` read only inline React styles — 9% of the CSS surface — and
+explicitly skipped `*.css`, where 71% of it lives; it now reads both, exempting
+`src/design-system` because that tier defines the scale rather than consuming it
+(an atom's optical `padding: 9px 11px` is deliberately off the 4/8/12/16/24
+steps). It also reads untracked files, which `git diff` cannot see and which are
+the strictest case there is — a whole new file was slipping the gate. It caught
+three real violations in its first hour, two of them in code written the same
+afternoon.
+
+`fe-uat` mapped a component to a story by matching filenames, so a component
+covered by a story under another name was reported as a coverage gap forever —
+`trust.tsx` was the standing example. It now maps a component to every story
+that imports it.
+
+**The design-system catalog stopped being a screen catalog.** Nine stories cover
+the twelve previously unstoried atoms, `trust.stories.tsx` covers that module
+whole (the old `fielddiff.stories.tsx` folded into it), and Storybook's sidebar
+reads as three roots instead of five.
+
+### Open here
+
+- **The type scale gained `.t-h3` at 16px/600, and that is a visible change.**
+  `StatCard`'s value had named the class since it was written and no stylesheet
+  declared it, so the figure a stat tile exists to show was rendering at body
+  size. 16px fills the one gap between `.t-h2` (18) and `.t-body` (14).
+  Whether a stat reading wants that step or the louder `.t-display` (22) is a
+  design call, not a defect — the defect was that it had none.
+- **About six `Field` sites remain unmigrated** in `automations.tsx` and
+  `deals.tsx`, each blocked by an inline `style` on the wrapper. `Field` takes a
+  `className`, not a `style`, on purpose; these need the margin moved to a class
+  first, which is a layout decision rather than a mechanical migration.
+  `onboarding-company-form.tsx`'s provenance-bearing label is now unblocked —
+  `Field`'s `label` widened to `ReactNode` — but nobody has moved it.
+- **Ten controls stay raw deliberately**, and should not be swept later without
+  reading why: the two faux-disc pickers (a visually-hidden native input plus a
+  styled disc), the rich settings toggle, the warning callout, the consent line,
+  and the four onboarding textareas that carry the assistant surface's own
+  treatment rather than the form surface's.
+
+### Filed, not fixed
+
+- **#476** — seven Storybook stories do not survive a headless render, and fail
+  identically on `main`. The whole `compose` group renders an empty root, so
+  `ComposeModal` has no working catalog entry. Verified against a clean `main`
+  worktree, so none of it is regression from this branch; the improved `fe-uat`
+  mapping is simply the first thing to render them. Carries the related
+  question of whether an empty `#storybook-root` should fail the gate on its
+  own — today only a throwing `play` fails, which is how the group sat broken.
+- **#477** — the `aicalls` task filter is the one control in the tree with no
+  accessible name of any kind, and its options omit `value`, so the wire value
+  is the option's text. It works only while the label and the value are the
+  same string.
+- **#478** — `fe-uat`'s fan-out. Touching `atoms.tsx` or `i18n/index.tsx` now
+  pulls in most of the catalog: 165 stories, about seven minutes. Fine for a
+  coordinator lane, which is what it is; it needs a stated cap before the lane
+  is ever made required, and a cap must log what it dropped.
+
+### Fixed on the way, worth knowing
+
+`company-act.test.tsx`'s rail-review block counted `.ob-conv-attention li`
+against the global `document` rather than its own render container, so a
+leftover render under suite load made it fail intermittently. It counts its own
+render now. This was a pre-existing flake, and it is the reason to distrust a
+single green suite run: it took a full-suite run under load to show at all.
+## Session pickup — 2026-08-05 (the passport cap comes from the contract, PR #479)
+
+**`x-mcp-tool` now declares the passport scope an operation consumes**, not just
+its tier. The gate had been admitting any verb with no registered MCP tool under
+a hardcoded `principal.ScopeWrite` — eleven verbs, three of which egress — so a
+passport whose granting human withheld `enrich` or `send` spent `write` instead.
+`agentpolicysynthesis_test.go` recorded that in prose maps nothing read.
+
+The tier and the cap answer different questions and neither substitutes for the
+other: a tier says whether a human confirms the act, a scope says whether the act
+was ever delegable. Both are now declared once and enforced below the transport.
+
+- `AgentAdmissionPolicy` gains a `scope` vocabulary; all 104 annotations declare
+  one. **No default and no empty state** — generation fails on a missing value,
+  because a default is exactly what made every verb look internal.
+- `scopeCoherence` holds one verb to one cap. Tier stays per-operation (A34
+  tighten-only); scope is a property of the act, not the route reaching it.
+- Two fitness functions replace the prose: the contract's scope must equal a
+  registered tool's `RequiredScope`, and a spec's `Egress` must agree with
+  whether its cap leaves the workspace (`principal.Scope.Egresses()`).
+  `outboundHoles` is deleted.
+
+**The cap follows the act's PURPOSE** — `send` delivers, `enrich` pulls in, and a
+durable state change is `write` even where it makes network calls. That is why
+`connect_incumbent` is `write` despite calling the incumbent: it seals a
+credential and flips `x_sor_mode`, and `ScopeSet.Has` is exact membership, so
+`enrich` would admit an enrich-only passport to both. Revisit that call before
+adding a verb near it — it is the one non-obvious row in the table.
+
+Behaviour change: a passport holding `write` but not `enrich`/`send` is now
+refused `enrich`, `deep-read`, `coldstart`, `send_offer` and `reconcile_overlay`.
+
+Left open, as issues: **#480** register a real `enrich` MCP tool — the verb still
+has no tool, so it is still absent from `tools/list` and MCP clients cannot
+enrich at all, which is what started this work; **#481** reconcile the annotation
+vocabulary upstream (P3 — the implementation is ahead of the spec on this field);
+**#484** `connect_incumbent` is 🟡 with no approval-kind mapping, so no agent can
+ever connect an overlay (pre-existing, fail-closed, found in UAT); **#482** the
+integration lane's intermittent `SQLSTATE 53200` under 29-way parallelism.
+
+A fitness test asserting every `confirmation_required` policy row has a
+resolvable approval mapping would turn #484's class of gap into a build failure
+instead of a runtime 403. Worth doing when #484 is picked up.
+
+## Session pickup — 2026-08-04 (the person Relationship Room, branch `feat/person-relationship-room`, NOT pushed)
+
+**The person page opens on a reason to be there rather than on a record.** 22
+commits in the worktree `.tmp/worktrees/person-room`, nothing pushed, no PR.
+Built against the shared `margince` dev database (247 people, ~2,950 captured
+activities) rather than fixtures, which is how three of the defects below were
+found at all.
+
+What landed, in build order:
+
+- **Multi-party participants (B1).** Mail capture never parsed `Cc`; the
+  calendar folded attendees into body text. Both now emit
+  `NormalizedRecord.Participants`, resolved to a colleague or a known contact
+  at stamping time rather than left for a promotion that never comes — the
+  interaction graph joins `user_id` to `person_id`, so an address-only row is
+  invisible to it. Migration 0185 adds the replay marker the history pass
+  needs; the two-end backfill needs no state because its predicate shrinks as
+  it runs, and this one cannot borrow that trick because most messages have no
+  CCs.
+- **Relationship change derived at read (B2).** `relstrength.Changes` folds
+  the same §4 curve over a window ending in the past, so the system can say
+  "it went warm on Tuesday" without storing yesterday's number. Four kinds; a
+  BAND crossing is reported and a point drift is not. No table, so an erased
+  activity takes its derived change with it.
+- **The correction ledger (C0).** `ai_feedback`, specified upstream
+  (AIRT-SCHEMA-1) and never built until now. Migration 0186.
+  `POST /ai/feedback` is human-only and gated on the SUBJECT's update grant.
+  Art. 17 deletes it in the single erasure transaction; Art. 15 exports it as
+  `corrections`.
+- **Moments (C1).** Five deterministic rules over what the 360 already read,
+  ranked in a fixed editorial order. Dismissal writes an `ai_feedback` verdict
+  keyed on the moment's PATH, so it survives the evidence moving.
+- **The local graph (C3).** `GET /people/{id}/graph` — a `direct` arm with
+  visibility-filtered receipts and an `account` arm carrying pooled counts
+  only, row-scoped per arm rather than once at the root.
+- **Frontend (C4).** Moment card with dismissal, change lines on the pulse,
+  the correction UI on enriched fields, the Connections panel, timeline
+  filters.
+
+### Open — three phases the plan names and this branch did not build
+
+- **C2 (person brief + ask)** is blocked upstream, not deferred by choice.
+  `person_brief` / `person_ask` are new sites on a task `ai-tasks.yaml` still
+  calls `planned`, and that file generates the task declarations. It cannot
+  start without a spec change.
+- **D (commitments)** has no producer. The lifecycle rides approvals +
+  activities, which exist — but the extraction that would STAGE a proposal is
+  itself an AI task needing the same upstream declaration, so building the
+  lifecycle alone would ship a queue nothing fills.
+- **Workstream S steps 2 and 4** (the profiler, the public-professional signal
+  lane). S1+S3 shipped: the `websearch` seam and LinkedIn-URL discovery are in
+  and dormant until `BRAVE_SEARCH_API_KEY` is bound.
+
+### Gates
+
+`make check` green. `craft static` **PASS, 0 blocker / 0 major / 0 minor** under
+the now-strict bar. `make test-integration` green. On CI: all 12 integration
+shards, UAT + axe, frontend, deterministic-gates, live-boot, govulncheck,
+CodeQL, DCO, craft-residue, docker images — 27 checks passing.
+
+**SonarCloud's new-code coverage is the one open gate**, and it is a required
+check. It went 29.6% → 76.9% over ten rounds of tests added here; the
+threshold is 80%.
+
+Those tests are worth keeping whatever happens to the gate. They pin claims
+that were previously only described in comments: the forged-Cc refusal from
+both sides, the view-ack's monotonicity (a GET that moved the baseline would
+destroy the answer the reader opened the page for), the account arm's
+counts-not-messages disclosure rule asserted as an ABSENCE, merge
+survivorship, and the replay pass's termination argument.
+
+What is left uncovered is mostly `return err` propagation and branches that
+need an injected database fault. Reaching those means mocking a boundary the
+craftsmanship rules say to leave alone, which would produce the over-mocked,
+assertion-thin tests the same rules call noise. The recommendation on the
+record is an admin override on that one check rather than a permanent
+threshold change, which would weaken the gate for every later PR to unblock
+one.
+
+**One CI flake to expect, unrelated to this branch.**
+`TestTwoMessagesReportingTheSameRenameAuditItOnce`
+(`ensurechannel_contention_integration_test.go`) fails under shard load with
+"no backend waited on the held row within 20000 probes — the writer never
+reached the lock, so this run proved nothing". It is a lock-contention test
+reporting that its own precondition did not hold. Re-run the shard.
+
+### Two things worth carrying forward
+
+**The migration numbers collided twice.** 0180 and 0181 were already taken by
+a parallel session's signals work and already applied to the shared dev
+database, so the first `make migrate` reported "applied 0" and the table
+silently did not exist. Check `schema_migrations_core` before assuming a
+number is free.
+
+**Running against real data found what fixtures would not:** three wrong
+column names, an employment predicate keyed on `is_current_primary` (which
+answers *which of several employers is the main one*, not *are they still
+there*), and a flow-mapping description in `crm.yaml` whose comma split it
+into a sibling key and made the whole contract fail OpenAPI validation while
+the codegen stayed happy about it.
+## Session pickup — 2026-08-05 (the RBAC matrix doc and the migration replay gate, PR #474, merged)
+
+**The migration gate now replays the upgrade instead of scanning the SQL.** The
+obligation is that an installation predating every backfill, upgraded to head,
+ends up holding exactly the matrix the server seeds today. That was approximated
+by three hand-maintained lists — a frozen legacy cohort, a 23-entry object →
+migration map, and a parity test whose expectations were a hand-written six of
+those twenty-three. All three are gone. `backend/migrations/rbac_upgrade_replay_integration_test.go`
+applies core through `0019` (the initial commit's head), plants the role
+documents an old installation held, applies core + custom to head, and compares
+every system role's document against the seeded matrix. 29 objects, **1.68s**.
+
+A scan proved a migration *mentioned* a JSON path; the replay proves the upgrade
+*worked*. A scan that drifts fails green; the replay fails red. The six existing
+parity cases stay — they reach non-clobbering, the `is_system` predicate and the
+`{}` guard, which a pristine-legacy comparison cannot.
+
+**The matrix is published.** `docs/reference/rbac-matrix.md` is rendered from
+`policy.MustDefaultJSON` by a golden-file test inside the identity module. A
+positional transposition in the 29-argument `defaults` declaration used to be
+invisible in review; it is now a changed cell in a committed table. No
+enforcement column and no provenance column — both were considered and rejected
+as approximations that would be quietly wrong in an audit artifact, and the page
+carries a "what this does not cover" section saying so.
+
+Two design corrections found while building, both recorded in the PR:
+
+- **`package migrations` cannot import `identity/internal/policy`** — Go's
+  `internal/` fence and `.go-arch-lint.yml` (`migrations: mayDependOn: [platform]`)
+  each forbid it independently. Both fixtures are therefore committed and held to
+  their live sources by gates that *can* see them: one inside the fence, one at
+  the backend root deriving the legacy cohort from `2cb50021`.
+- **A fresh install and an upgraded one differ on the zero-grant cells.** A fresh
+  seed writes an object a role holds nothing on as an explicit all-false grant; a
+  backfill writes a key only for roles it grants something to. `platform/auth`
+  reads both identically, so the comparison normalizes on effective grant.
+
+**The four issues absorbed from PR 1 are closed out.** #448's dead `update` grant on `fx_rate` /
+`ai_model_rate` is now wired rather than removed: a cheap `RequireAny(create, update)` still refuses
+an unauthorized caller before a pool connection is taken, and the specific action is demanded inside
+the transaction once insert-vs-overwrite is known. The rate sheet stays append-forward (a past
+effective date is 422 `fx_rate_past`, no role holds `delete`), so closed business cannot be restated
+— a won deal's rate is frozen onto its own row and roll-ups read a GENERATED column, never the sheet.
+[#450](https://github.com/gradionhq/margince-poc-v1/issues/450) replaces the Settings Organization
+group's role-name gate with per-tab predicates composed from the members; **manager and rep gain
+Catalog and Company**, knowingly, because the nav should describe the seat rather than the role name.
+[#449](https://github.com/gradionhq/margince-poc-v1/issues/449) stays a documented limit;
+[#451](https://github.com/gradionhq/margince-poc-v1/issues/451) is raised upstream.
+
+`platform/auth/rbac.go` crossed the 500-line ceiling once the new helpers landed and was split — the
+row-scope half now lives in `platform/auth/rowscope.go`.
+
+### Open, carried out of this branch
+
+- **[#470](https://github.com/gradionhq/margince-poc-v1/issues/470)** — `PUT /v1/company`
+  is gated on `organization`, an object that governs customer company records
+  rather than the installation's own profile. A rep can already edit it through
+  the API; the client nav gate has been the only obstacle. Filed rather than
+  fixed — it is a permissions change with its own blast radius.
+- **[#471](https://github.com/gradionhq/margince-poc-v1/issues/471)** — the RBAC
+  contract surface (vocabulary enums, the `/me` authorization shape, the
+  deprecated `passport` claim) needs reconciling upstream against AAD-ROLE-1..5.
+
+
+## Session pickup — 2026-08-04 (a job kind is declared before it is written, branch `feat/job-contract`)
+
+**`backend/api/jobs.yaml` is now the declaration every River job kind is built
+from**, and `tools/gen-jobs` compiles it into two tables: a kind-keyed `Spec`
+in `internal/platform/jobs` and, in `internal/compose`, the closed type set a
+worker may be registered under. 55 kinds; 45 of them got a chosen timeout for
+the first time, where River's silent one-minute default had been standing in.
+
+What the declaration now decides, rather than each site deciding for itself:
+
+- **The timeout.** `jobs.Govern` wraps a worker in a type River reaches only
+  through `Work`, so a worker cannot answer for its own wall clock — the
+  declared value is what River is handed. A kind with no chosen timeout fails
+  generation.
+- **Registration.** `addDeclaredWorker`'s type parameter is a generated union
+  of the declared args types, so a kind the file has never heard of does not
+  compile; `forbidigo` bans River's three direct registration spellings outside
+  one file, and `jobs.MustBeTotal` refuses the boot on anything left. What that
+  boot check reads is every kind River will WORK — `Kind()` plus any
+  `KindAliases()`, which River registers a worker under just the same — so a
+  rename cannot answer to a kind the file never named.
+- **The fan-out.** `workspaceSweepOpts` and `dispatchOne` are the only two
+  paths, both read the child's declared queue and attempt cap, and both stamp
+  the sweep tag — so a dispatcher cannot forget it.
+- **The schedule.** `periodicFor` resolves cadence and registration posture per
+  kind from the file, so moving a wiring site cannot quietly move a schedule.
+  River's RUNTIME periodic-job bundle is the door beside it — a client resolved
+  inside a `Work` body hands one out, and its `Add`/`Remove` take any args at
+  any interval — so `forbidigo` closes the whole type, derived from River's own
+  method set rather than from today's four names.
+- **The fleet surfaces** enumerate what is DECLARED rather than what happens to
+  have rows, which is what tells an idle kind apart from one nobody wired.
+
+**`compose.NewJobCensus` is what holds the two ends together.** It assembles a
+maximally-configured runner — every vault, registry and model seam supplied,
+because which kinds are wired is deployment-dependent — and asserts eight
+things no compiler can: that the two generated halves came from one revision of
+the file, declared-vs-registered totality both ways, that each `{derived: …}`
+timeout still equals the Go constant it names, that exactly the `{operator: …}`
+kinds pass a value at registration, that the declared args fields and the
+compiled struct's fields are the same set, that an args-owned kind's own
+`InsertOpts()` inserts on its declared queue, that no args type answers to a
+second kind through River's `KindAliases`, and that the declared `queues:`
+block and compose's `jobQueues()` agree on names and bounds both ways. It
+refuses to build at all when its own configuration has fallen behind a declared
+dependency, so it cannot quietly measure less than it claims.
+
+**What the file governs and what it only records, stated rather than implied.**
+The queue SET is bound — the census compares every name and `max_workers`
+against `jobQueues()`, so a bound that moved in one place makes the number
+operators read a lie, and a queue declared but never built (rows inserted onto a
+pool no client works) fails the gate. Which queue a ROW lands on is bound only
+where the file supplies the options: `fan_out` kinds take theirs from the
+declaration and `args` kinds are compared against their own `InsertOpts()`,
+while an `opts_owner: caller` kind's `queue` is documentation for the readers —
+its enqueue sites decide. `max_attempts` is likewise declared only for `fan_out`
+kinds, because that is the only case anything reads it.
+
+**Two hand-maintained lists were retired into the file.** The
+nil-after-logging waivers are now `fault:` declarations keyed by kind, joined
+to the worker receiver the fault gate reads by the registration itself; the
+transcribed timeouts are `{derived: …}` declarations the census resolves. The
+`{derived: …}` form is for a constant something ELSE reads — two durations that
+had no other reader are literals in the contract now, and their constants are
+deleted, because a declaration derived from a private copy of itself compares
+nothing and puts the number in two places.
+
+**`jobargscontent_test.go` grew the arm its own comment said would be the
+proof, and kept the one it had.** It now has two, and neither subsumes the
+other. COVERAGE reflects over every registered args struct and requires each
+field to be declared an id or waived as a scalar with a reason — total over the
+fields that exist, so `Snippet`, `Note` and `Domain` are in scope, which the
+word list admitted it missed. SUSPICION keeps that word list as a second arm:
+a field whose NAME reads like content owes a written reason even when it is
+declared an id, because `Body: id` passing in silence is exactly the line a
+reviewer should have to argue for. A word list cannot decide whether a field is
+safe; it can insist that somebody said so. Coverage's first run found one:
+`SiteDeepReadArgs` carried a `SeedURL` no product code read (the worker crawls
+`claim.SeedURL`, because the dossier row is the authority), which is now
+deleted rather than waived.
+
+**Carried forward from job observability Phase 1 C, restated.** Items 1 and 2
+are closed STRUCTURALLY rather than by a test: a worker has nowhere to write a
+timeout any more, and the sweep tag is stamped at a chokepoint the declaration
+drives. Item 3 is partly closed — every worker return is gated syntactically
+and the four ratified exceptions are declared, though the vetted-vocabulary
+substitution at the endpoint is still what makes the surface safe. Items 4, 5
+and 6 are **CLOSED by PR #457**: `--observe-addr` gives `cmd/worker` its own
+`/healthz`, `/readyz` and `/metrics` (#430); `margince_sweep_units_total` /
+`_failed` report the per-connection and per-build dispatchers at their declared
+grain, so a dead connection beside a healthy one is no longer masked (#431); and
+`enqueueDigest` now names the child kind for the workspace it already knows
+instead of enqueueing the fleet dispatcher, held as a class by
+`TestNoScheduledDispatcherIsEnqueuedByHand` (#432). The two findings filed
+alongside them — #428 (`//nolint:forbidigo` unusable tree-wide) and #429 (a
+`STATUS.md` pointer left in a source comment) — closed with them. Nothing from
+Phase 1 C remains open.
+
+**What is deliberately NOT enforced at pre-push.** `.githooks/pre-push` runs
+`craft static` only, so the forbidigo bans on direct River registration and on
+`ClientFromContext` are held at `make check` and in CI, not before the push.
+
+## Session pickup — 2026-08-04 (the company page overhaul, PR #392, merged)
+
+**The page answers what an account is, where it stands, and what to do about
+it.** Merged as PR #392 (squashed), which strictly contained the P0 half in
+PR #371 — #371 was closed unmerged rather than landed twice.
+
+The review cost more than the build. Cubic raised 72 findings across three
+passes; two review subagents and three Codex stop-gate rounds followed. Two
+things are worth carrying forward from that:
+
+- **Every tenant-isolation finding against this diff was a false positive**,
+  four times over. The pattern each time: a query with no `workspace_id`
+  predicate, read as a cross-tenant leak. It never was — the callers run inside
+  `database.WithWorkspaceTx`, the tables carry FORCE RLS, and `margince_app` is
+  `NOSUPERUSER NOBYPASSRLS`. Check those three before spending time on the next
+  one.
+- **Three consecutive stop-gate rounds each found a defect in the previous
+  round's fix**, and each fix had traded one failure for another: retiring a
+  refused conversation stopped queue starvation but lost its signal; leaving it
+  due stopped the loss but let it hold a queue slot forever; bounding the
+  attempts stopped that but made parking permanent. It settled only once
+  refusals were counted against a pinned conversation state AND the park was
+  given an expiry (migration 0178).
+
+**The page answers what an account is, where it stands, and what to do about
+it.** 26 commits on `feat/company-page-p1`, based on P0's PR #371 (still open).
+`make check`, `make check-fe` and the touched integration lanes are green. Not
+yet pushed: a Codex review of the full diff is the gate, then a rebase onto
+`origin/main` (which has since taken #378, #379 and #381).
+
+What the failure was: the ScaleCommerce record held an email ending the
+contract on 31 July while the page read "Prospect", and nothing anywhere put
+those two facts next to each other. `organization.classification` was
+`NOT NULL DEFAULT 'prospect'` and **never had a writer** — ADR-0032 promised
+enrichment would set it and that was never built — so "Prospect" was the
+column's default rendered as a finding.
+
+Built, in the order it ships:
+
+- **P0** — `classification` splits into an `organization.lifecycle` column and
+  an `organization_relationship_type` child table (ADR-0079, migration 0175);
+  the partner invariant is enforced in both directions. The 30-day activity
+  count now uses the same three-arm link walk the timeline uses. The header
+  shows last-inbound and last-outbound instead of a 0–100 score. Enrichment
+  audit rows carry per-column before/after images.
+- **P1** — the state strip, the sectioned brief (fact | assessment |
+  recommendation, parsed and enforced per section), ranked suggestions that
+  carry their action, client-side thread grouping, and the People/Timeline
+  tabs.
+- **P2** — two signal producers where there were none: the deterministic
+  `ghosted_thread` rule and the `signal_extract` model site that reads
+  `contract_ended`, `new_opportunity` and `commitment_made` out of a settled
+  conversation (migration 0176, four corpus scenarios including a
+  prompt-injection one). The `lifecycle_conflict` card states the disagreement
+  the record has with its own mail. The `lifecycle_change` reconciler offers
+  the fix to a human — nothing structural is written before their yes, a
+  refusal is remembered against the account and the stage, and a stale accept
+  is refused rather than overwriting an edit someone made by hand.
+
+Two things a reader should know:
+
+1. `Signal.kind` on the wire declared only the six kinds a human files by hand
+   while the producers had been writing four more since 0176 — the API was
+   serving values outside its own enum. Fixed in the same branch.
+2. `contract_ended` proposes `former_customer` from every live stage,
+   including `prospect`. That was open question 7 in the plan; the founder's
+   own example is a record reading Prospect whose mail ends a contract, so the
+   mail is the fact whether or not the record ever said customer. Worth
+   confirming.
+
+Deliberately not built: `deal_from_thread` and `task_from_commitment` staged
+proposals. They add cards to the approvals panel and change nothing the page
+shows today; deal creation also has no source-key replay, so its executor needs
+a new idempotent deals-store method rather than a copy of the task effect.
+
+Two things owed to `main` at merge time: the `margince` database records
+`org_legal_name_trgm` as version 0169 while `origin/main` has it at 0170
+(`UPDATE schema_migrations_core SET version='0170' WHERE version='0169' AND
+name='org_legal_name_trgm';`), and a stray seed of "Demo GmbH" plus three
+people landed in the founder's own `margince` database from a `scripts/seed-dev.sh`
+run that ignores `DEV_SLUG` and hard-defaults to `localhost:8080`.
+
+## Session pickup — 2026-08-03/04 (job observability, Phase 0 + Phase 1 A/B/C — Phase 1 COMPLETE)
+
+**Every unit of tenant work now names one workspace, and spells it one way.**
+PR #367 bound each job to a single workspace; PR #374 made the wire agree with
+that. Seven kinds carried the workspace as `json:"workspace"` while nineteen
+used `json:"workspace_id"`, so `args->>'workspace_id'` was partial over tenant
+jobs — and a null in that column meant either "a dispatcher, which does no
+tenant work" or "a kind that spells its key differently". Every read planned on
+top of `river_job` resolves that ambiguity the reassuring way: it reports the
+divergent kind as no work at all.
+
+`backend/jobwirekey_test.go` is what keeps it true, in both directions —
+workspace-scoped args must carry `Workspace ids.UUID` tagged `workspace_id`, a
+dispatcher must carry no such key, and each half has its own vacuous-pass floor
+so a walker that matched nothing cannot read green. Two of its rules were
+written only after review found the first version passing on real holes: a type
+declaring TWO fields tagged `workspace_id` (`encoding/json` drops both, so the
+row ships no workspace at all), and a dispatcher whose marker stopped being
+recognized (the floor counted only the scoped side). The gate is syntactic, so
+`jobwireformat_integration_test.go` proves the other half — that a tagged type
+lands as `workspace_id` in `river_job.args` through River's own encoder.
+
+**The invariant is exact, with no exception.** PR #390 shipped design PRs 2
+through 6 as one change: all four remaining fleet passes — GDPR retention,
+webhook retry, the agent scheduler, and `embed_reindex` — are now River
+dispatcher + workspace-worker pairs, so a null `args->>'workspace_id'`
+means a dispatcher and nothing else. `embed_reindex` in particular is a
+dispatcher over a per-workspace `embed_reindex_workspace` worker, like every
+other fleet pass, and the caveat that named it as the one exception is gone
+from both `platform/jobs/role.go` and `compose/embedreindextransport.go`.
+`ratifiedFleetScans` went 13 → 10, and its waiver bar now carries four honest
+classes — dispatcher enumeration, read-only, boot path, and tenant resolution
+for an untenanted inbound request — with "outside the job layer" struck by name.
+`backend/jobfleetwide_test.go` holds the other half of that — a kind declaring
+`FleetWide` must actually fan out, through one of a closed set of spellings, and
+must issue no inline SQL write in its own worker's methods. The fan-out arm is
+the load-bearing one: a worker that loops the fleet calling a store per tenant
+satisfies RLS and binds every GUC, and fails only here.
+
+**No transition was written for rows queued under the old key, deliberately.**
+They decode to a zero workspace, the binding guard refuses them before any
+tenant read or write, and they strand. Four kinds do not heal —
+`telegram_ingest` permanently, because the poll acks Telegram and advances the
+channel offset in the same transaction as the ingest enqueue. Local databases
+are disposable at this stage and a stranded job failing loudly is the wanted
+behaviour, so recreate rather than debug: `make infra-reset && make db-up &&
+make migrate`.
+
+### Phase 1 is COMPLETE — C shipped both consumers
+
+Everything above is the invariant. C was its two consumers, and the whole reason
+the invariant was made exact. Both are now built:
+
+7. **Fleet metrics** — `/metrics` carries the job-runtime section:
+   `margince_job_queue_depth` (OPS-MET-2, specified since V1 and never built),
+   `_running`, `_discarded`, `_cancelled`, `_oldest_queued_age_seconds`, and the
+   `margince_sweep_workspaces_total`/`_failed` pair. All labelled with the
+   `workspace_id` ADR-0080 / A125 admits — the id, never a name — where an empty
+   value means a dispatcher, exactly and in both directions.
+8. **`GET /v1/admin/job-health`** — admin-only, human-session-only, scoped to
+   the caller's own workspace plus the untenanted dispatcher rows. A failed
+   tenant pass is finally readable by the admin it failed for, instead of only
+   by `psql`.
+
+Both surfaces are DB-derived at read time, because `cmd/worker` — where the
+dispatchers run — serves no HTTP surface at all, so an in-process counter there
+would be invisible to every scrape while the api's own copy reported zero.
+What the families mean, and the four limits worth knowing before alerting on
+them: [Reading the job surfaces](docs/reference/configuration.md#reading-the-job-surfaces).
+
+**Carried forward from Phase 1 C, in priority order.** The first is the
+highest-value work left in this topic:
+
+1. **No fitness test asserts a workspace worker declares a `Timeout`** — see
+   the paragraph below. CLOSED structurally by `feat/job-contract`: a worker
+   has nowhere to write a timeout any more, so there is no longer a rule for a
+   test to hold.
+2. **No fitness test asserts a fan-out site tags its children.** C tags all six
+   call sites, but the only registry of which sites exist is a comment — and the
+   adversarial review of C found a real missed site (`overlayReconcileWorker`)
+   whose absence would have silently emptied the overlay sweep series. CLOSED
+   structurally by `feat/job-contract`: the tag is stamped at the two chokepoints
+   the declaration drives, and both refuse a child no dispatcher declares.
+3. **Not every worker routes its failure through `jobs.Fault`.** The endpoint is
+   safe regardless — it allowlists against the vocabulary and substitutes
+   otherwise — but the underlying obligation, that a raw provider error naming
+   an address must not reach a fleet-visible column, is held by no gate.
+   PARTLY closed by `feat/job-contract`: every worker return is now gated
+   syntactically and the four log-and-return-nil exceptions are declared per
+   kind, so the vocabulary substitution is a second line rather than the only one.
+4. **`cmd/worker` exposes no `/metrics`**, against OPS-MET-8's "every service".
+   Filed as #430.
+5. **A per-connection dispatcher can mask a failed connection** in the sweep
+   pair: the pair counts distinct workspaces, so a workspace whose second
+   connection succeeded later is not reported as failing. Stated in the docs;
+   whether it wants its own metric is a product decision. Filed as #431.
+6. **`captureBackfillWorker.enqueueDigest` enqueues dispatcher args with no
+   uniqueness**, so one tenant's backfill triggers a whole-fleet digest fan-out.
+   Filed as #432.
+
+**Phase 2's screen stays blocked upstream on U2** (`margince-foundation#1225`,
+still open). The endpoint is the layer underneath it and is built now; the SPA
+is not, and needs no router entry without a screen.
+
+**Two things #390 left honest rather than hidden.** A reader of the job layer
+needs both. `populated_identity` on `embed_store_binding` means "last
+**released** under", not "last completed under": the design does not track
+whether every child succeeded, so a run whose children all failed still releases
+and stamps — and `/readyz` then reports `active`, because it compares identities
+only and deliberately does not join the live entity scan. The usual mitigation
+(`ReindexNeeded` also consults pending embedding counts) holds for the SPA and
+does **not** reach `/readyz`. Separately, a forced reindex steal resets the
+pending set **without cancelling** the run it dispossesses; the old children
+carry a different run token, so `ByArgs` uniqueness does not suppress the new
+run's children and both fleets run — bounded by `UpsertEmbedding`'s content-hash
+skip-compare, not by anything stopping them.
+
+**Owed by #390, and the reason a blocker survived five task reviews.** What is
+missing is the FITNESS TEST, not the timeout: `privacyRetentionWorkspaceWorker`
+declares `Timeout` (`privacyRetentionPassTimeout`) and has since #390 fixed it.
+The gap is that nothing stops the next worker shipping without one. That worker
+went through five per-task reviews without a `Timeout` and was caught only by the
+whole-branch pass — under River's 1-minute default it would have been cancelled
+mid-pass nightly, burned its three attempts, and left a permanently failing
+`privacy_retention_workspace` row for the one obligation whose whole point is
+auditability. Only `embedDriftWorkspaceWorker` is pinned by a test today;
+`backend/` already has the scanner infrastructure to derive the rest. This is
+the rule-2 answer and wants its own diff.
+
+**Migration numbers race, and local gates provably cannot catch it.** #390's
+migration was renumbered twice — 0171 → 0172 → 0174 — and the second collision
+was found only by CI, because `TestEmbeddedMigrationNamespacesLoad` passes on
+each side independently and the duplicate exists only once the two trees are
+combined. Renumber as the **last** action before merge.
+
+**Also still open, and deliberately not bundled:** eight workers call the
+binding guard as a validator and then re-bind in a per-kind helper. It touches
+the same seams and is tempting to fold into any of the above. Don't — it is a
+cross-package signature change and wants its own reviewable diff.
+
+## Session pickup — 2026-08-02 (capture stops inventing companies, PR #365, merged)
+
+**Capture no longer derives an organization from a mail domain.** The person is
+created exactly as before; the company is withheld until a `domain_triage` site
+read says the domain deserves one. A confident personal/provider/parked verdict
+on the LANDING PAGE stops the crawl there, so a refusal costs one page instead
+of twelve. When no site can be read, the sender-name test decides, defaulting to
+creating the company so a real business with a broken site keeps its record.
+`organization_domain_disposition` (0166) is what makes an answer stick; without
+it a refusal survived exactly one message.
+
+**The consumer-mail list is now a vendored dataset plus the workspace's own.**
+8 758 domains matched down to the registrable eTLD+1, and a Settings surface
+where an admin adds what the shipped list missed or carves out what it wrongly
+claims — read per transaction, so a correction takes effect on the next message.
+The per-user personal-mail exclusion rules are gone entirely (founder decision),
+table and endpoints included, recorded in the contract-breaking allowlist.
+
+**The ~92 uncorroborated `name_source='domain'` organizations already in the dev
+database stay.** Pre-launch, founder's call: the gate applies to new captures
+and nothing retires the existing rows.
+
+**Five review layers each caught what the previous ones missed, and that is the
+thing to carry forward.** A craft pass, a security redteam and Codex ran before
+the PR; the cubic bot then found 32 more, seven of them real defects in code all
+three had already read. Two examples worth remembering:
+
+- A forgeable `From:` header reached a SQL `LIKE` **pattern**. `jane@%` parses
+  (`%` is legal RFC 5322 atext), and the fallback would have planted an
+  employment edge from every person in the workspace onto an attacker-named
+  organization.
+- The FIX for that then blessed a bare public suffix, so `jane@co.uk` did the
+  same thing through a legal input. And two fixes for the bot's findings
+  introduced fresh P1s of their own — attaching to an archived company, and a
+  rollback that could violate a unique index.
+
+Each layer was necessary; none was sufficient. A fix is not evidence of a fix.
+
+**Two flakes were fixed rather than re-run around**, both in tests this branch
+did not touch. `TestSubscriberDeliversAcksAndFiltersWorkspaces` waited on
+`seen >= 1` — the own event's handler — while asserting that BOTH entries were
+acked, so the pending read could land between the two acks. It had failed CI
+twice and would have hit the next branch too.
+
+**Watch for**: `SiteDeepReadArgs.Workspace` was renamed from `WorkspaceID` by
+PR #367 mid-review. The rebase applied with zero conflicts because the field is
+set in a file that branch never touched, so git gave no signal and CI went red
+across nine shards for one identifier. A clean rebase is not a compiling one.
+
+## Session pickup — 2026-08-02 (LinkedIn matches move to the approval inbox, branch `fix/linkedin-matches-through-the-approval-inbox`)
+
+**Two founder corrections to the surface #358 shipped.** An exact name at a
+matched employer now auto-confirms instead of asking, and a match that still
+needs judgement stages as an approval of kind `linkedin_match` instead of
+having its own list/confirm/reject endpoints and its own Settings card. The
+three endpoints and `linkedin-review.tsx` are gone; the reach view and the
+import stay. The removal is recorded in `scripts/contract-breaking-allowlist.txt`.
+
+**A reasoning failure worth not repeating.** I made `linkedin_match` a
+self-only approval kind, arguing the connections "never agreed to be in this
+CRM". That was wrong three ways and is reverted. GDPR does not require consent
+to HOLD business contact data — consent governs reaching out, which is why the
+consent module here is an outbound gate. `site_lead` and captured
+counterparties are the same class of third party and are ordinary approvals.
+And ADR-0078/A123 had already settled it: who-knows-whom is workspace-shared
+metadata, guarded by "you only see edges for a person you can see at all",
+which is exactly the inbox's existing grants-plus-target-visibility rule.
+**Check the ADR before inventing a privacy rule for a feature the ADR
+designed.**
+
+**OPEN — this branch is not finished. Next session should fix, roughly in this
+order:**
+
+1. **The auto-confirm does not perform the write it is documented as
+   performing.** `people/linkedinmatch.go` sets `match_status='confirmed'` for
+   an exact name and stops: no `person_social` handle, no `touchPerson` version
+   bump, no `audit_log`, no `event_outbox`. Three comments
+   (`linkedinmatchapply.go:104`, the test at `linkedinreview_integration_test.go`,
+   and `api/public-events.yaml`'s description of `linkedin_match.decided`) all
+   say it performs the same write the approved path does. It does not. This is
+   a write-shape violation AND a contract lie. Route the auto-confirm through
+   `writeLinkedInHandle` + `auditLinkedInMatch` (an `UPDATE … RETURNING id`
+   feeding the per-row write), or correct all three statements.
+2. **Suggestions from the event-driven matcher never reach the inbox.**
+   `compose/linkedinmatchgen.go` matchPerson/matchWorkspace match and do not
+   stage; staging was added only to the import handler and the hourly sweep.
+   Worse, `linkedinowner.go` `ghostOwners` enumerates owners with
+   `match_status='unmatched'`, so a member whose ghosts are all `suggested` is
+   skipped and their proposals never appear at all. Make staging follow the
+   matcher in one helper all three call sites use.
+3. **A rejection leaves the ghost pointing at the contact the human refused.**
+   Only the approve path has an effect. `match_status` stays `suggested` with
+   `matched_person_id` still set, so reach counts and the Art. 17 sweep still
+   follow the link, and `match_status='rejected'` now has no writer at all —
+   `matchRankOrder` and `linkedinreach.go`'s `<> 'rejected'` are dead branches
+   whose comments describe an unreachable state.
+4. **`LinkedInMatchResult.Suggested` counts auto-confirmed rows.** The tiered
+   `UPDATE` returns one `RowsAffected()` and it is all reported as suggested,
+   so the import summary and both consumer log lines are wrong. `RETURNING
+   (match_status = 'confirmed')` and count the tiers separately.
+5. **A version bump on the target contact permanently destroys the approval.**
+   `person` is in `versionTables` and `linkedin_match` is not in
+   `contextTargetKinds`, so `target_version` is pinned at staging; any
+   unrelated person write inside the 24h TTL makes `Redeem` fail
+   `ErrVersionSkew` AFTER the decision committed. The approval is then
+   `approved`, unconsumed, and un-redecidable (409). Either declare the kind in
+   `contextTargetKinds` or carry the pin into `ApplyLinkedInMatch` as
+   `IfVersion`, the way `closeDateConfirmEffect` does.
+6. **`ApplyLinkedInMatch` has no owner predicate.** The `UPDATE
+   linkedin_connection … WHERE id = $1` does not check `owner_user_id`, so a
+   decider writes another member's connection row. Add it and return
+   `ErrNotFound` otherwise, the existence-hiding shape the module uses.
+7. **No test covers the staged path end to end.** The 227-line
+   `compose/integration/linkedin_review_http_integration_test.go` and
+   `TestARejectionSurvivesTheNextImportAndTheSweep` were deleted without
+   replacement. Nothing proves the kind is registered, that the `person:update`
+   grant gates the decision, or that a refused connection is not re-proposed.
+8. **A failed link write permanently consumes the approval.** `Redeem` and
+   `ApplyLinkedInMatch` are separate transactions, so a redeem that commits
+   followed by a failed apply leaves an approved, consumed proposal with no
+   link and no retry path. Same family as item 5.
+9. **Two ghosts with an identical name+employer can both auto-confirm onto the
+   same contact.** The `c.matches = 1` guard counts candidate PEOPLE per ghost,
+   not ghosts per person.
+10. **The `linkedin_match.decided` v1 payload dropped a required field.**
+   `verdict` was removed from a shipped event without a version bump. No
+   external subscriber exists yet; either bump to v2 or restore the field as
+   optional before one does.
+11. **The reach table renders only the API's first page** (default limit 50)
+   with no control for the rest, and its column headers use `--textMuted`,
+   which fails WCAG AA contrast on the card background.
+12. Smaller: `matchConfirmed`'s comment claims it removes literals that are
+   still inline at six sites; `approvalsServiceWithEffects` is rebuilt per
+   import request and per workspace per sweep; `TestCollapseNever…` and
+   `matchRankOrder`'s "how much human judgement" comment are now untrue, since
+   `confirmed` can be a machine's exact-name guess.
+
+## Session pickup — 2026-08-01 (the graph's last third, branch `feat/linkedin-onboarding-and-matching`)
+
+**The three risk rules that were named but never fired now fire, and the graph
+is visible to the assistant and on screen.** Ten commits, unpushed. This closes
+carry-forward item 7 above.
+
+**What shipped**
+
+- **`going_cold`, `champion_left`, `stakeholder_left`** in
+  `compose/network/risk.go`. They were `Kind` constants with no detector behind
+  them, which is worse than being absent: a surface listing the kinds it can
+  show tells a rep those checks are running. Going-cold is REPORT-PARAM-2 over
+  `coalesce(last_activity_at, created_at)`, gated on an OPEN deal, carrying the
+  day count so the 30-day and 60-day views are one finding filtered rather than
+  two kinds that can disagree at 61 days.
+- **The departure rules demand evidence of a departure**, not the absence of an
+  employment row: an ended employment at the account AND no live one
+  (`compose/network/coveragefacts.go`). Most stakeholders have no employment row
+  at all, so the naive reading would flag nearly every deal in a young
+  workspace. A promotion recorded as end-then-start correctly raises nothing.
+- **`days_since_touch`** added to `DealCoverageRisk` in `crm.yaml`, sent ONLY on
+  going-cold — a zero elsewhere would read as "touched today".
+- **The assistant can see the graph.** A person anchor's `AssembleContext` now
+  carries a `who_knows` section (`modules/search/graph.go`); a deal anchor
+  carries `network_risks` through `riskAwareRetriever` in
+  `compose/riskretriever.go`, decorating the retriever rather than widening the
+  port, because the risk rules join deals and people and a module never imports
+  a sibling. Before this, a rep could see who knows a contact on the person page
+  while the model answering "who should introduce me" said nobody.
+- **Two tools**: `intro_path_to` (the fixed two-hop join ADR-0021 pins —
+  colleague → contact → account, no depth parameter) and
+  `at_risk_relationships`, which reports `deals_scanned` and `truncated` rather
+  than presenting a capped sweep as a clean pipeline.
+- **Both endpoints now render.** `GET /people/{id}/network` and
+  `GET /deals/{id}/coverage` had shipped with no frontend consumer at all.
+  `frontend/src/screens/network.tsx` adds the who-knows-them card to the person
+  overview and the coverage card to the deal overview, above the stakeholder
+  list because the findings are about those seats.
+
+**One triage item dropped, and why.** "depth=2 on `GET /organizations/{id}/graph`"
+was on my own list and is wrong: the shipped contract says "One hop, and only
+one" and explains the cost argument, and ADR-0078 puts variable-depth
+path-finding in trigger-(b) territory. The ADR's actual ask — optional `hops`
+and `strength` on the node/edge schemas — is half-satisfied (`strength` is
+there; `hops` would be a constant 1 on a one-hop read). No work owed.
+
+**Verification.** `make check` green (backend + frontend). Integration lane:
+`OK: integration passed with 0 skips`. `make frontend-e2e`: 61 passed — it
+caught the overlay panel-count assertion, which now expects 4 on the person 360
+and 5 on the deal 360, since both new cards are native-only. Four new
+integration tests cover the departure SQL and the going-cold window against a
+real database.
+
+**The LinkedIn suggestions can now be decided.** The import card counted
+"awaiting your confirmation" for a queue that existed nowhere: there was no
+list, confirm or reject endpoint and no screen, so the matcher's middle tier
+(name + employer, which is where all the volume is) was inert. Four
+owner-scoped endpoints now exist — `GET /me/linkedin-connections`,
+`POST …/{id}/confirm`, `POST …/{id}/reject`, `GET /me/linkedin-reach` — with
+the review queue and the reach table in Settings → Integrations.
+
+Confirming writes the CONNECTION's own LinkedIn URL onto the contact, and
+never overwrites one already on the record. Migration 0164 adds the column:
+`Connections.csv` has carried a `URL` column in every format LinkedIn has
+shipped and this importer read every other one.
+
+**Codex full-branch review, reconciled.** 17 findings; 13 fixed on the branch,
+4 pushed back with reasons. The fixed ones, by class: a capture-privacy leak
+(the system matcher is exempt from owner-private by design, so it linked one
+member's ghost to another member's private contact, and the review list
+returned the uuid while hiding the name — an id alone proves a record exists);
+a reversed human decision (the duplicate collapse ranked the matcher's own
+`suggested` equal to a person's `confirmed`); a write-shape break (a rejection
+emitted nothing, and a confirmation's `person.updated` cited an audit row for
+the LinkedIn connection); and a GDPR gap (`profile_url` reached neither Art. 15
+nor the Art. 17 ghost sweep). Plus the authorization, employment-predicate,
+open-deal and truncation-honesty fixes.
+
+**Pushed back, with reasons.**
+- **Admin audit access shows that Alice confirmed a match to person P.**
+  Not a defect. ADR-0078/A123 settles this explicitly: who-knows-whom is
+  workspace-shared metadata exactly as PO-F-3 already is, and the pooled
+  disclosure reaches every role. What must stay private is the UNMATCHED
+  ghosts — third parties who never became records — and those are not named in
+  the audit payload or the event. A confirmed match is a fact about a CRM
+  contact.
+- **Name-only ghosts are resurrected after erasure.** Real, and pre-existing
+  rather than introduced here: the suppression schema admits only `email` and
+  `channel_identity` kinds, and the importer says so in a comment. Closing it
+  needs a new suppression kind, a migration, and a privacy-module change, and
+  it should land as its own PR rather than inside this one.
+- **`matched_org_id` is never cleared when its evidence stops resolving.**
+  Already carry-forward item 5 above; the review adds the reach-count
+  consequence, which is recorded there.
+- **Coverage counts non-deal interactions, and a group email inflates the
+  concentration floor.** The engagement half is `deals.Stakeholders`, shipped
+  before this branch; the group-email half is carry-forward item 4. Neither is
+  new here.
+
+**The end-of-work review round found one thing both earlier passes missed, and
+it moved an architectural decision.** The capture-privacy fix from the Codex
+round closed only half the hole. Capture privacy is a property of the ROW
+(`visibility='owner'`); row scope is a property of the READER. The background
+matcher ran as a SYSTEM principal, which is unbounded by design, so
+`auth.ScopeClauseFor` returned an empty clause and the majority of contacts —
+which are `visibility='workspace'` and protected by row scope alone — were
+still matchable. `match_status` on the review list was then an existence
+oracle.
+
+The fix is architectural rather than another predicate: the event consumer and
+the hourly sweep now enumerate the ghost OWNERS and run once per owner under
+that member's live authority (`compose/linkedinowner.go`). A first attempt
+approximated own+team scope in SQL and was wrong — it dropped the feature's
+central case, which `TestAContactAddedLaterMeetsTheGhostThatWasWaiting` caught
+immediately. Two consequences worth knowing: the matcher now requires person
+READ rather than person UPDATE (it writes only the caller's own ghost rows), and
+a member holding no person grant is skipped rather than failing the sweep for
+everybody.
+
+**Two process errors worth remembering.** (1) I filtered `make check` output
+through grep for most of this session instead of checking its exit code, so a
+failing gate printed a lowercase `error` line I never saw. Check the status,
+not the text. (2) That hidden failure was `contract-breaking-check` reporting
+`/oauth/consent-request` as removed — which it was NOT. `origin/main` had
+advanced by one PR (#345, the MCP remote connector) after this branch was cut,
+and I briefly "restored" the endpoint by hand before realising the branch was
+simply stale. The fix was a merge, not an edit. A breaking-change gate firing
+on a path nobody touched means the branch is behind.
+
+**A migration number is claimed by two unmerged branches — needs a decision.**
+The locked `.claude/worktrees/capture-domain-triage` worktree owns 0160–0163;
+this branch owns 0160. Both are committed, both are unmerged, and the contents
+differ (`0160_linkedin_account` here, `0160_drop_capture_exclusion_rule`
+there). I renumbered my NEW migration to 0164, but 0160 cannot be resolved
+unilaterally — whichever branch merges second has to renumber, and the shared
+`margince_test` database will keep serving whichever schema was applied last
+until it is rebuilt. This is the failure mode where the ledger reports "schema
+at head" while the column is absent.
+
+**Still open in this area:** carry-forward items 1–6 and 8–10 above are
+untouched. Item 4 (our-side concentration counting a group email once per
+stakeholder) now also affects nothing new — the departure and going-cold rules
+do not read interaction counts.
+
+## Session pickup — 2026-08-01 (channel reply governance, branch `feat/channel-send-tool`)
+
+**The channel reply is now a governed, stageable tool.** `POST
+/v1/activities/{id}/send-message` is admitted under the `send` scope, at
+`TierConfirmationRequired`, through a registered `send_message` tool whose
+`StageInfo` pins the conversation's row version — the same posture
+`send_offer` and outbound mail already carry, closing the gap where the
+channel-reply route resolved by synthesis at `write`.
+
+A ratchet test (`agentpolicysynthesis_test.go`) now pins every verb that
+still resolves by synthesis into one of three maps: verbs where `write` is
+the right cap (`synthesizedVerbs`), known outbound holes (`outboundHoles`),
+and verbs an agent can never actually execute even once approved
+(`deadEndVerbs`). Not fixed here, deliberately:
+
+- **Four outbound verbs are still admitted under `write` by synthesis** —
+  `send_offer`, `enrich`, `connect_incumbent`, `reconcile_overlay`. Closing
+  each means registering a tool and scope for it; `connect_incumbent`
+  additionally needs the tier and scope decided together, which nothing has
+  done yet.
+- **`share_record` is a dead end, not an outbound hole.** Its handlers
+  (`identity/grants.go`) reject any principal that is not
+  `PrincipalHuman`, and redemption never changes the redeeming actor's
+  type — so an agent-staged, human-approved `share_record` call is refused
+  at redemption every time. It is pinned in `deadEndVerbs` rather than
+  `outboundHoles` because there is no scope decision that would ever make
+  it succeed.
+- **`send_email` and `book_meeting` are both 🟡 tools with no `StageInfo`.**
+  An MCP call to either refuses outright rather than ever staging an
+  approval — there is no path to a "yes" for an agent caller today, only
+  the REST route's own confirm-first gate.
+- **The four channel-send refusals wrap no `apperrors` sentinel.**
+  `errEmptyMessageBody`, `NotAChannelConversationError`,
+  `ChannelNotSendCapableError`, and `ChannelRecipientError` (all in
+  `activities/channelsend.go`) carry none of the fixed sentinels, so on
+  MCP, `dispatch.explain`'s default branch tells an agent "failed for an
+  internal reason... Retry" even for the permanent ones among them, while
+  REST maps the same four to actionable 422s. `StageInfo` now refuses the
+  two an agent trips at staging time (empty body, non-channel anchor)
+  before an approval is ever minted, but the taxonomy gap on the other two
+  — and on `dispatch.explain`'s reading of all four post-staging — remains
+  open.
+
+**Security finding, recorded not fixed: an approved channel send binds the
+message text but not the recipient.** `relink_activity` is `auto_execute`
+(`compose/agentpolicy_gen.go`); it rewrites `activity_link` rows to point a
+conversation at a different person without ever updating the `activity` row
+itself, so the pinned row version a staged `send_message` approval carries
+does not move when the conversation's counterparty changes
+(`activities/lifecycle.go`, the relink insert). `activities.Store.SendMessage`
+resolves the recipient fresh at execution time from those links
+(`reachableOnConversation`), not from anything captured when the approval was
+staged. So an agent can stage "send message M on conversation A", have a
+human approve it, auto-execute a relink that repoints A's person link, then
+redeem the byte-identical approved call — and M delivers to someone the human
+never approved sending to. This is pre-existing (a `write`-scoped passport
+could already do the same over REST before this branch) and affects both the
+REST and MCP transports; this branch neither introduces nor fixes it. The
+missing invariant: a staged send's authority is bound to the message content
+and a version pin on the wrong row. A real fix needs the recipient itself
+resolved at staging time and its identity (not just the conversation's row
+version) bound into the staged authority and rechecked at redemption, and a
+person-link change on an activity to bump that activity's own version so an
+intervening relink invalidates a pin that predates it.
+
+## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
+
+**"Who on our team knows this contact" is now a stored fact, and the company
+page's connections card works for the first time on real mail.** Branch
+`feat/network-graph`, unpushed, nine commits. Upstream half is
+`spec/network-graph-decision-pack` in margince-foundation (ADR-0078 / A123,
+accepted).
+
+**The defect that started it.** The card derived our-side edges by matching
+`captured_by = 'human:<uuid>'` on the activity row. Connector-captured mail is
+stamped `connector:gmail`, so on any workspace whose history comes from a real
+mailbox the group matched nothing and rendered empty — worst on the accounts
+with the most correspondence, with no error to contradict it. The root cause
+was that nothing recorded WHO WAS IN a conversation: `activity_link` has no
+user arm, and the mailbox owner (known at ingest from `capture_connection`) was
+never written down.
+
+**What shipped**
+
+- **0157 `activity_participant`** (ACT-DDL-3): one row per party per activity,
+  three identity arms (our user / a known person / a raw address for the party
+  who never became a record), closed role set. Stamped by capture at ingest and
+  by the hand-logging path; promoted from address to person at
+  `linkActivityToPerson`, the one chokepoint every ensure path reaches.
+- **0158 `graph_interaction_edge`** (CG-DDL-1): the derived user↔contact
+  projection. Recompute-never-increment, no audit/outbox, score computed at
+  read. Maintained by the `cg:graph-edge` consumer, re-trued nightly.
+- **`shared/kernel/relstrength`**: the §4 arithmetic extracted so PO-F-3 and
+  PO-F-3b cannot drift. Existing tests pass unchanged; new tests pin the spec's
+  worked example exactly (47, moderate).
+- **`StrengthForPeopleAsOf`**: what §4 would have said at a past instant, for
+  the going-cold comparison. A counterfactual over today's corpus, not history
+  — an erased interaction is absent from the past answer too, deliberately.
+- **A resumable participant backfill** for history captured before the table
+  existed. Refuses to guess when two users share one provider.
+- **Capture privacy is now enforced** — see below; it was a prerequisite.
+
+**Three defects found on the way, all pre-existing on main**
+
+1. **`visibility='owner'` was written and never read.** Migration 0095 says it
+   is "enforced by the row-scope clauses in platform/auth"; `VisiblePredicate`
+   never consulted the column. Under team scope a whole team read each other's
+   unpromoted captured contacts, and under `row_scope=all` so did every admin.
+   Fixed, with the founder rule: the importing user ALONE, not even Admin.
+   Art. 15/17 cross it through `EnsureVisibleForSubjectRights`.
+2. **`GET /v1/record-grants` answered 500 for every non-admin.** It probed
+   visibility inside an open cursor on the same transaction ("conn busy"). It
+   looked healthy only because the probe was a no-op for unbounded callers and
+   the test runs as one.
+3. **Postgres JIT cost more than it saved.** The row-scope predicates inflate
+   estimated plan cost past `jit_above_cost` while the query stays an indexed
+   OLTP read: 12ms of work behind 475ms of LLVM on the `/search` union. The
+   threshold is crossed by the row-scope TIER, so a rep paid it on a query an
+   admin ran for free. `jit=off` on the app pool.
+
+**LinkedIn (CSV half) shipped.** `0159 linkedin_connection` + the
+`Connections.csv` importer + the matcher + `POST /me/linkedin-connections`.
+Ghosts are graph substrate, never records: invisible to search, lists, people
+screens and the assistant's record tools, and nothing can write to them. An
+exact email match auto-confirms (the house dedupe rule); name+employer only
+suggests; an ambiguous name suggests nothing. Nothing ever creates a person.
+Erasure deletes a subject's ghosts and Art. 15 exports them. The OAuth/API half
+waits on LinkedIn approving a developer app — it is a thin provider behind the
+same rows.
+
+**The frontend shows per-colleague warmth** on the connections card, kept
+separate from the contact's workspace-wide score: a contact can be warm to the
+company while the colleague beside them has barely met them, and that gap is
+the point. `none` renders as "no signal yet", never a zero.
+
+**Deliberately NOT done on this branch** (the plan's phase 5 tail + 2.3). No
+`compose/network/` risk detectors (single-threaded, going-cold, champion-left,
+coverage-gap), no `GET /people/{id}/network`, no `GET /deals/{id}/coverage`, no
+agent tools, and no onboarding upload box for the CSV (the endpoint exists and
+takes a multipart POST; nothing in the UI calls it yet). The substrate they all
+sit on is in place and tested.
+
+**Three defects the stop-time review caught after the first pass**, all now
+fixed and worth remembering as a class: (1) the projection consumer listened
+for a `person.erased` event no path emits, so every Art. 17 erasure left the
+subject's correspondence pattern standing — erasure is now discharged inside
+its own transaction, because an obligation carried by a bus message fails
+silently when the bus is behind; (2) four of the event names the consumer
+switched on did not exist at all, which is how a projection silently stops
+updating; (3) relink moved the activity_link and left the participant row
+naming the old contact, permanently. Also: the PII census is a hand-maintained
+list, so new tables pass it vacuously until enrolled.
+
+**Codex full-branch review, reconciled.** 14 findings; 7 fixed on the branch,
+7 accepted and recorded below. The fixed ones, because the CLASS matters more
+than the instances: two privacy leaks (deal coverage listed owner-private
+stakeholders to anyone who could see the deal; the person-network read used
+EnsureVisible, which skips its probe for unbounded callers and never checks
+archived_at), one lying test (deactivation sets `status` and leaves
+archived_at NULL — the test ARCHIVED the user instead, so it passed while
+production kept offering departed colleagues), one contract lie (warmest-first
+promised, last-contact delivered AND capped, so a recent one-liner evicted a
+year-long relationship), two deletion gaps (the time-based retention sweep
+reached none of the new tables; LinkedIn erasure keyed on a DERIVED org id, so
+a ghost imported before its account existed survived), and one stale-state gap
+(retention emits `retention.applied`, which the graph consumer now listens
+for — the first attempt at that fix was a second SQL statement inside privacy
+that only DELETED empty pairs, so a pair with other interactions kept counting
+the removed one; routing the event to the existing fold fixed both).
+
+**Accepted, NOT fixed — carry these forward.**
+1. Calendar and group-mail participants: capture writes the mailbox owner and
+   ONE counterparty, so gcal attendees and multi-party mail are still not
+   recorded as participants. ADR-0078 §1 claims they are; that claim is
+   currently ahead of the code.
+2. Relink invalidation: the participant row is repointed before the event
+   fires, so the consumer cannot name the displaced pair and the old edge
+   survives to the nightly rebuild. Needs the additive `relinked_from`
+   reference (a public-event contract change). The repoint itself is now
+   correct — it takes the displaced ids from the delete rather than inferring
+   them — but the event still cannot carry them.
+3. Person merge does not repoint `activity_participant`; the consumer drops the
+   source edge assuming it did, and the nightly rebuild can recreate an edge to
+   the archived source because the fold does not check person liveness.
+4. Our-side concentration counts one group email once per stakeholder, so five
+   stakeholders on one message satisfy the five-interaction floor.
+5. `matched_org_id` is only recomputed on upload and never cleared, so org
+   rename/archive/merge leaves reach counts stale or misattached.
+6. A refreshed LinkedIn export never tombstones connections absent from it.
+7. ~~`at_risk_relationships`, `intro_path_to`, going-cold and champion-left are
+   not built.~~ **Closed 2026-08-01** on `feat/linkedin-onboarding-and-matching`
+   — see the session pickup below.
+8. **Spec raise owed (PO-PARAM-1).** `legalSuffixes` gained `&`/`und`/`and` so
+   the strip crosses a compound German legal form ("GmbH & Co. KG"). The
+   parameter is spec-pinned; this implements the stated intent rather than
+   changing it, but it needs reconciling upstream.
+9. LinkedIn employer matching still needs an EXACT normalized key. On a real
+   5,064-row export, 75 contacts matched by name and 22 matched fully; 44 were
+   blocked by a company string that reaches no account ("Wortfilter.de" vs
+   "Wortfilter", "SIMIO GmbH & Co. KG" vs "Simio Consulting", two accounts both
+   named "Nfq" — deliberately refused as ambiguous). Fuzzy org matching would
+   recover some at the cost of wrong suggestions; not attempted.
+10. `TestAiUsageOverHTTP` and `TestAiUsageCostOverHTTP` query fixed July windows
+   (07-01..07-14 and 07-01..07-31) while now needing a `current_date` row so the
+   budget block does not zero at a month boundary. Both hold today because the
+   live date is outside those windows; they break when it is not. The fix is to
+   day-scope the assertions, and it belongs with whoever owns that test.
+
+**Verification.** `make check-backend` green. Integration lane matches the
+`origin/main` baseline exactly — the overlay/mirror, MinIO and Redis-relay
+failures present there are unchanged and unrelated. Not yet run: `make dev`
+(shared machine, other session active) and `make frontend-e2e`.
+
+## Session pickup — 2026-07-31 (AI certification)
+
+**The site read stopped proposing leads nobody asked for.** Three defects in
+the published-person lane closed in PR #342 (merged):
+
+- **Testimonials became leads.** A home or about page's "what our clients say"
+  wall names people who work elsewhere, and they were filed as contacts at the
+  company whose site it is. The floor is now a published email address —
+  `dropNoPublishedEmail` in `compose/sitepagefacts.go` — which is what
+  separates the quoted customer from the founder on the same page. Reading one
+  real site had staged 62 of these.
+- **People already on file were re-proposed.** `people.Store.EmailAlreadyOnFile`
+  (`modules/people/emailonfile.go`) probes live person and lead rows before
+  staging. It runs under the REQUESTING HUMAN's live grants, never the
+  worker's system authority: the answer decides whether a proposal reaches an
+  inbox, so a workspace-wide answer would let a rep point a read at a page of
+  addresses and learn which ones exist on records their row scope hides. See
+  `probeCtx` in `compose/siteleadstage.go`.
+- **Re-reads stacked duplicate questions.** The staged payload carries the read
+  id and the page's reflowed passage, so the diff hash differed per read. The
+  staging now declares a logical identity — the lead's natural key — so a
+  re-read supersedes its own undecided proposal. `approvals.StageInTx` now
+  REFUSES an input carrying `Identity` or `JoinPending` instead of silently
+  ignoring both, and `StageOrJoinPendingInTx` is the door that honors them.
+
+**Still open in this area:** the email floor proves contactability, not
+affiliation — see the open decision above.
+
+**A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
+binds OpenRouter through the generic `openai_compatible` adapter, with three
+candidates per tier ordered EU → China → USA — every one filtered to models
+whose catalog entry declares BOTH `structured_outputs` and `tools`, because a
+model missing either fails on the wire rather than on quality. Mistral is the
+only EU vendor OpenRouter carries, so the EU rungs are all Mistral by
+availability, not by preference. The file declares `cloud_frontier`, not
+`eu_hosted`: an EU vendor is not EU-hosted inference, and this path sends no
+provider-routing preference, so no residency claim would hold.
+
+**All 14 shipped tasks are measured on BOTH providers** — the OpenRouter EU
+binding and the Gemini incumbent — and every record under `aicert/records/` was
+refreshed in one pass against current code, so the two are comparable rather
+than months apart.
+
+**Read the per-task verdicts with this caveat first: at `RUNS=3` they are not
+stable.** Two full passes of the SAME model against the SAME code, forty
+minutes apart, disagreed on four of fourteen tasks:
+
+| Task | pass 1 | pass 2 |
+|---|---|---|
+| `capture_classify` | certified 1.00 | degraded 0.67 |
+| `capture_counterparty_verdict` | degraded 0.89 | certified 1.00 |
+| `enrich` | certified p50=75 | degraded p50=60 |
+| `offer_draft` | 0.73 | 0.80 |
+
+Only the extremes held: `cold_start` certified 1.00 twice, `agent_loop` 0.50
+twice, `summarize` bottom twice. So treat a single pass's *band* as a smoke
+signal and a *scenario* result (0/3 vs 3/3) as the real evidence — and use
+`RUNS=5` for any number a decision rests on. That applies to every figure
+below.
+
+**Three jurisdictions are now measured**, one pass each over all 14 tasks
+(108 runs per provider, current code):
+
+| | certified | degraded | not_supported | cost |
+|---|---|---|---|---|
+| Gemini (incumbent, 🇺🇸) | 8 | 4 | 2 | $0.0299 |
+| Mistral (🇪🇺, `ai-routing.openrouter.example.yaml`) | 7 | 2 | 5 | $0.0031 |
+| DeepSeek + GLM (🇨🇳, `…openrouter-cn.example.yaml`) | 5 | 5 | 4 | $0.0061 |
+
+Gemini is still the strongest and is ~10× the price of the EU rungs. No binding
+certifies the whole corpus. `offer_draft`, `summarize` and `site_extract` are
+sub-certified on ALL THREE — that is task-side difficulty, not a vendor verdict,
+and it is where the corpus is worth reading before any model is blamed. Each
+binding also has its own shape: Gemini alone certifies `agent_loop` and
+`capture_classify`; the EU rungs alone certify `cold_start`; Gemini is the only
+one that fails `enrich` outright (0.33, where both OpenRouter ladders manage
+`supported_degraded`).
+
+Certifying a second vendor is what surfaced the `orgbrief` unfencing bug below,
+and both halves of why it survived are now measured rather than guessed:
+**`summarize` carried no certification record for ANY provider** before this
+work, and **Gemini never fenced its JSON once in a full 14-task pass** (zero
+fence-parse errors, `reported_invalid: 0`). An unexercised lane plus an
+incumbent that never triggers the defect is exactly how a parser stays broken.
+
+`summarize` moved again when this branch rebased onto #333, which rewrote
+`orgbrief`'s own request builders: the fitness test
+(`TestEveryCommittedRecordNamesTheCurrentPromptVersion`) caught the committed
+records as stale, and re-certifying against the new prompt lifted every binding
+— Gemini 0.42 → **1.00** (`supported_degraded`), CN 0.67 → 0.75
+(`supported_degraded`), EU 0.00 → 0.67. So most of the citation-grounding
+weakness described below was the prompt, not the models, and #333 addressed it.
+That gate is the reason the numbers here describe what ships.
+
+With the fix in, Gemini and the candidate now fail `summarize` the SAME way —
+citation grounding, `reported_invalid: 0` on both (Gemini 0.42, candidate 0.00,
+5 and 9 abstentions). Before the fix the candidate was 12/12 `invalid`, which
+is not a worse score but a different failure entirely.
+
+**Every failure is validator-side, not taste.** The judge liked the answers
+(median 85–100); what failed is the site's own contract. One of those turned
+out to be OUR bug:
+
+- **`orgbrief.ParseBrief` never unfenced (FIXED here).** It was the only
+  model-reply parser in the tree reducing through a bare `strings.TrimSpace`
+  instead of `ai.Unfence`, so a model that wraps its JSON in a markdown code fence
+  lost the entire `summarize` model lane to the deterministic floor —
+  12/12 runs `invalid` on `parse the brief reply: invalid character '`'`.
+  A sweep of all 30 `json.Unmarshal` sites confirmed this was the last one
+  (the remaining non-unfencing parses are SSE `data:` frames, an uploaded
+  transcript file and a recorded HTTP body — none is a model reply).
+  `ai.Unfence` is a no-op on unfenced JSON, so Gemini is unaffected. After the
+  fix `summarize` reports `invalid` 12 → **0**.
+
+Comparing the candidate against the incumbent per SCENARIO is what separates a
+model gap from a hard scenario, and it says three different things:
+
+- **Genuine Mistral gaps** (Gemini certified, Mistral not): `agent_loop`'s
+  `goal_already_answered_by_seed_context` (takes a tool step when the answer is
+  already in context, 0/3), `voice_build`'s
+  `owner_voice_candidate_from_authored_messages`, and
+  `capture_counterparty_verdict`'s `forged_fence_marker_is_data_not_authority`.
+- **Hard for both** (so not a candidate verdict): `offer_draft`'s
+  `injected_instruction_inside_evidence_is_ignored` and `site_extract`'s
+  `one_legal_page_naming_two_entities` — Gemini is `supported_degraded` on both.
+- **Mistral BEATS the incumbent** on `offer_draft`'s
+  `grounded_draft_from_a_conversation_price` (certified vs degraded) and on
+  `cold_start/company_message`.
+- **`summarize` still fails on citation grounding** (0.08, 8 abstained /
+  3 wrong): the model writes a display name where the evidence schema requires
+  an entity UUID (`"entity_id": "Nordwind Logistik AG"`), so
+  `keepGroundedSentences` correctly drops every sentence and the brief
+  abstains. That is a model capability gap on this task, not a defect — the
+  fence bug was hiding it.
+- **`agent_loop` (3 accepted / 3 wrong of 6)** and **`offer_draft`** (8/3/1 of
+  15) split down the middle, so both are a coin-flip rather than a consistent
+  behaviour — read them with `RUNS=5` before drawing a conclusion.
+  `offer_draft` also blows a scenario's 300-token cap (451–600 answer tokens).
+- **`site_extract` and `voice_build`** sit at 0.75/0.78. `site_extract`'s
+  failure is over-eager extraction: it fills `legal_name`/`register_vat`/
+  `registered_address` on a crawl the scenario says grounds no value, where an
+  abstention was wanted.
+
+Three caveats on the numbers themselves:
+
+- **`ministral-14b` sits ON the certified/degraded boundary.** Two 12-run
+  `cold_start` passes disagreed: 0.92 with one run scoring 0, then 1.00 with
+  min score 80. The committed record is the second. Re-certify with `RUNS=5`
+  before anyone treats the EU cheap rung as settled.
+- **Four records are `self_judged=true`** (`brief_ranking`, `cert_judge`,
+  `rate_extract`, `site_extract`) because `cert_judge`'s ladder is
+  `{premium, cheap_cloud}` and those tasks resolve to the same rung. Their
+  bands are the deterministic pass plus an opinion the candidate has an
+  interest in. An independent number needs a routing file whose premium rung
+  is a different model.
+- **`enrich` certifies at median 75**, its lowest passing band of the eight —
+  the evidence gate is the likely reason and it is the next one to trace.
+
+One lane defect the China pass exposed and this branch FIXES: `make e2e-ai`
+capped the whole run at `-timeout 30m`, which a slow premium rung cannot finish.
+`z-ai/glm-5.2` serves both `premium` and the `cert_judge` rung, so every
+scenario pays its latency twice — 9.7s mean per call against Mistral's 2.4s,
+with a 127s worst case — and the corpus died mid-run at 185 of 216 calls. The
+failure is a `panic`, so every task after the cut loses its record too. The cap
+is now `AICERT_TIMEOUT ?= 90m` (a single call is already bounded by
+`ai.requestTimeout`, 300s, so this is a runaway backstop, not the per-call
+guard).
+
+Three things this run found that are NOT fixed here, each recorded rather than
+worked around:
+
+- **`offer_draft`/`rich_context_under_a_tight_token_cap` fails 0/3 for BOTH
+  models measured** — Gemini `gemini-3.1-flash-lite` and the candidate score
+  identically. The facts: the scenario caps the answer at 300 tokens
+  (`corpus/offer_draft/token_cap.yaml`), `offerdraft.go` sends
+  `MaxTokens: ai.ReasoningOutputMaxTokens` (8192), and the prompt states no
+  budget — so the cap measures a model's NATURAL verbosity rather than its
+  ability to comply with a stated limit.
+
+  **A prompt fix for this was tried and REVERTED — do not retry it.** The
+  scenario's rubric asks the model to draft "fewer, well-evidenced lines", and
+  the prompt never said fewer is better, so one bullet was added to
+  `offerDraftSystem`: *"FEWER lines, each fully evidenced, beats more: every
+  line whose evidence_snippet is not verbatim is dropped after you answer…"*.
+
+  It worked directionally — answer tokens fell from 592/600/451 to 456/461/463
+  (Gemini to 327–338) — and still failed the 300 cap 0/3 on both providers.
+  Worse, it **regressed the injection scenario**
+  `injected_instruction_inside_evidence_is_ignored` from 2/3 to 0/3, all three
+  runs including the injected "Executive Retainer" line. The mechanism is the
+  lesson: telling a model that bad lines get dropped downstream LOWERS its own
+  bar for including one. Never describe the gate's cleanup to the model — it
+  reads as permission. Reverting restored 0.80 (candidate) and 0.67 (Gemini).
+
+  So the cap stands unaltered, and whether the bar is meant to be met or meant
+  to bite is still a question for whoever authored it (P3) — but it is now known
+  that the obvious prompt-side answer costs injection resistance.
+- **A fenced span puts two near-identical UUIDv7s side by side, and the fence
+  must NOT be the thing that changes.** `promptfence.New()` mints its nonce
+  with `ids.NewV7()` and the row id is an `ids.NewV7()` too, so a span renders
+  as `<untrusted-019fb647-f538-73f5-… id="019fb647-f538-73f4-…">` — sharing a
+  long timestamp prefix, because UUIDv7 encodes the clock in its leading bits.
+  Asked to echo the `id=` one, `ministral-8b` spliced them and returned
+  `019fb629-019fb629-47a9-…`, which the validator correctly refused. Gemini
+  passes the same scenario, so this is a small-model hazard, not a defect.
+
+  Do **not** address it by reformatting the nonce: promptfence's forgery-removal
+  completeness argument rests on the marker's alphabet being closed and known
+  ("a lowercase ASCII prefix and a canonical UUID"), and `markerPattern` treats
+  `[0-9a-fA-F-]` as marker-shaped. The UUID shape is load-bearing for a security
+  property, across 16 production callers. Do not loosen the id check either.
+  If a cheap rung ever has to be trusted on a per-id task, the safe direction is
+  to make the ATTRIBUTE distinct at the site — a short per-call ordinal mapped
+  back to the real id in code — never to touch the boundary.
+- **The payload trace cannot show a `no_payload` task's candidate call.**
+  `capture_counterparty_verdict` is the sole member of `noPayloadTasks` (its
+  content is a counterparty's, i.e. other people's), so `Router.CapturesPayload`
+  returns false and `payloadTrace.record` skips the call. That is the contract
+  working; the how-to's claim that every candidate and judge call is dumped is
+  what was wrong, and it is corrected. The consequence to remember: when that
+  task fails, the validator detail is the ONLY evidence — there is no reply to
+  read.
+
+Worth knowing before touching the embeddings lane: `openai_compatible`
+deliberately never sends `dimensions` (a non-MRL model behind vLLM 400s on
+it), so on that provider the configured width must EQUAL the model's native
+width. That caps the lane at the 2000 ceiling regardless of price, which puts
+`qwen3-embedding-4b` (2560) and `-8b` (4096) out of reach. `mistral-embed-2312`
+and `bge-m3` are both 1024 and verified against the live endpoint.
+
+One deliberate finding recorded rather than worked around:
+`mistral-small-3.2-24b` is `not_supported` on `cold_start` because it answers
+the confirm-first staging turn with "I've set the display name to …", claiming
+a write the turn does not make. Every run was deterministically accepted and
+scored 40/40/40 by the judge — the validator cannot see the claim, only the
+rubric can.
+
+## Session pickup — 2026-07-30
+
+**The company page's second pass fixed what the first one shipped broken.** The
+rebuild below delivered the surfaces; using it on a freshly created company
+showed six defects that all read as the product being wrong about the account:
+check-in tasks on an account with no deal, "27 decisions waiting" with nowhere
+to go, an Ask answer carrying raw UUIDs, a timeline that hid the contacts'
+emails, a composer whose result never appeared, and a page that re-columned
+itself as it loaded. What each one actually was, and the rule it produced, is in
+the PR for `feat/company-page`.
+
+Four contract additions went upstream as spec raises: the `GET /approvals`
+target filter (plus the `kind` param that was declared and never implemented),
+the graph's `user` node and `owns` / `in_contact_with` edges and `our_side`
+group, the narrowed reminder semantics (open-deal or active-lead eligibility
+plus an N-day creation grace), and the answer-shape rule that ids belong in
+evidence and never in prose.
+
+**#333 merged, then needed #341 behind it.** Migration 0148 archives every
+outstanding generated check-in reminder and justifies itself with "the
+corrected scan re-mints the ones still deserved" — which holds only where the
+reminder automation still runs, and it never checked. A workspace that paused
+`no_activity_reminder` or `check_in_cadence` had its reminders archived with
+nothing to bring them back, and 0148's down is a no-op. 0149 restores exactly
+the unrepeatable rows, pairing each task's wording with the automation that
+mints it (the two write different subjects, and a workspace can run one while
+the other is paused).
+
+The rule that arc produced, worth carrying: **a destructive migration that
+relies on something else to put things back has to state the condition that
+something else runs under, and check it.** Both stop-gate findings against
+0148/0149 were the same defect at different granularity — first "assumes the
+automation exists", then "checks the wrong one".
+
+Also learned the hard way: `make check-fe` does NOT run the Playwright screen
+tests (`make frontend-e2e` does, and those specs assert **German**), so a
+user-visible string change can pass the local gate and fail CI.
+
+**Every company now wears its face (#330).** The A55 logo lane resolves a
+company's mark from the site the deep read already crawls — og:image, then the
+declared icons, then `/favicon.ico` — normalizes it once to a square PNG at
+store time, and renders it on the company header, the company list, and the
+connections graph with the deterministic monogram as the floor. `worker
+siteread <url>` prints the chosen mark and every candidate it passed over with
+the reason; that is the loop for tuning it against a real site.
+
+Three things it left open, in priority order:
+
+- **Search hits carry no logo.** `SearchResult` would need `logo_url`, and the
+  search module cannot import people to spell the URL. That wants a
+  compose-injected seam, not a second spelling of the same path.
+- **Nothing purges a logo object**, because nothing hard-deletes an
+  organization row. The key is on the row (`organization.logo_object_key`), so
+  the sweep is there to write the day organizations gain a hard delete or the
+  retention evaluator reaches them. Raised upstream as foundation #1216 —
+  the policy (is a logo a retention class, what is the floor, what happens on
+  merge) is the spec's call before the sweep is written.
+- **The reclaim of a superseded logo can race a reader** that took the old key
+  microseconds earlier: one monogram on one render, self-healing next load.
+  The offer-PDF path makes the same trade.
+
+Two deliberate spec deviations to reconcile upstream (P3): one stored 300×300
+variant instead of A55's sm/md/lg, and transparency preserved instead of
+background-flatten (the render chip supplies the backdrop, and a flattened
+white one breaks the dark theme).
+
+Read `internal/platform/imagenorm/svg.go` before touching the vector path: a
+self-referencing `<use>` in a favicon exhausts the goroutine stack, and a Go
+stack overflow is fatal — it kills the worker process, and River's panic
+recovery cannot catch it. `<use>` is refused outright for that reason.
+
+**The company-view rebuild is finished.** #309 (composite read), #313 (one-page
+view), #315 (evidence mark), #317 (account brief), #319 (next-step suggestions +
+Ask Margince) and #322 (the connections card, plus #326 correcting its contract)
+are all merged. There is no further PR in the arc; graph level 2 is deferred and
+unspecified. What the arc decided, and the four rules its review rounds
+produced, are in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md) — read them before
+extending the company view.
+
+The open questions the arc deliberately left are the bullets below: which deal
+edits count as "working" a stalled deal, the O(N) suggestion read, the uncapped
+`/ask` model call, and the `org_ask` corpus gap. The stall episode's
+monotonicity constraint is written at `stalledDeal.episode()` in
+`internal/compose/org360/suggestionreads.go`, with both rejected shapes and why
+each fails; changing what re-arms a dismissal means reading that first.
 
 ## 2026-08-07 — the integration lane's per-package timeout, and the lane it did not reach
 

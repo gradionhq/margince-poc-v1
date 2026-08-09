@@ -32,19 +32,16 @@ services:
     # once (16 in CI), each against its own clone of THIS instance, and each
     # resets between tests by emptying every table in public + ext inside ONE
     # transaction — deliberately one, so a reset is atomic (see
-    # backend/internal/platform/testdb/reset.go). Locking a ~620-relation schema
-    # costs ~630 locks, and an atomic whole-schema reset cannot cost less. So the
-    # lane's floor is roughly
+    # backend/internal/platform/testdb/reset.go). A lock is taken per RELATION,
+    # every table AND every index, so a ~620-table schema costs well over a
+    # thousand, and an atomic whole-schema reset cannot cost less. Against the
+    # stock default's 64 × 100 = 6,400 slots the lane is simply over budget, and
+    # the shortfall is what made three unrelated suites fail on 53200 in one CI
+    # shard.
     #
-    #     16 concurrent × ~650 locks ≈ 10,400 slots
-    #
-    # against the stock default's 64 × 100 = 6,400. The default is simply below
-    # what this lane asks for, and the shortfall is what made three unrelated
-    # suites fail on 53200 in one CI shard.
-    #
-    # 256 × 100 = 25,600 slots — ~2.5× the current floor, so schema growth and a
-    # higher INTEGRATION_JOBS do not immediately re-cross it. The cost is shared
-    # memory reserved at boot, a few MB at this size.
+    # 512 × 100 = 51,200 slots, so schema growth and a higher INTEGRATION_JOBS do
+    # not immediately re-cross it. Slots are a few hundred bytes each: this costs
+    # single-digit megabytes of shared memory reserved at boot.
     #
     # This is headroom, NOT the fix. The fix is that no single transaction holds
     # the whole schema: EnsureSchema's `DROP SCHEMA public CASCADE` was one
@@ -55,7 +52,7 @@ services:
     command:
       - postgres
       - -c
-      - max_locks_per_transaction=256
+      - max_locks_per_transaction=512
     environment:
       POSTGRES_USER: margince_owner
       POSTGRES_PASSWORD: dev

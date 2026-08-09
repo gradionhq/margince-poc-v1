@@ -2838,6 +2838,71 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /emails:
+    post:
+      tags: [Activities, AI]
+      operationId: sendAccountEmail
+      summary: Start a new email conversation from a record — 🟡 confirm-first / gated.
+      description: |
+        The account-started twin of `send_email` (ADR-0087/A132). "Write email" from a company,
+        a person or a deal is a NEW conversation: there is no prior message to anchor to, and
+        the product refuses to fabricate a placeholder activity to obtain one — that would put a
+        timeline entry on the record for a message nobody has sent yet.
+
+        This is the SAME send. Authorization order, the default-deny per-purpose consent gate,
+        deliverability derivation, message-identity minting and the single-transaction staging of
+        activity + delivery + job are the ones `send_email` runs; only the ORIGIN differs. The
+        message roots a fresh thread at its own newly minted identity, and `links` says which
+        records it belongs to instead of inheriting them from an anchor.
+
+        Two refusals are specific to naming your own addressees and your own links:
+
+        - every address in `to`/`cc` must belong to a person the sender can READ, or the send is
+          refused 422 `recipient_not_on_file` naming the address — a fix the composer can offer
+          ("attach this address to a contact"), rather than mail to a string nobody is
+          accountable for;
+        - every entry in `links` is row-scope probed, so a record the caller cannot see is
+          refused 404 exactly as reading it directly would be.
+
+        HUMAN-ONLY for now, and deliberately so. ADR-0087 §6 gives the agent surface this
+        operation at the same 🟡 tier as the reply, but a 🟡 agent call STAGES for approval, and a
+        staged row is only releasable when its kind maps onto a grantable object in approvals.
+        Registering the verb without that mapping would advertise a tool whose every call clears
+        admission and is then refused at staging — a governed verb no agent can reach and no human
+        can release. The composer surface ships first; the agent tool follows with its
+        decision-grant mapping, tool spec and staging test as one change.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendAccountEmailRequest' }
+      responses:
+        '202':
+          description: Accepted for send (queued); the resulting outbound activity is logged.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '403':
+          description: RBAC denied, or an agent principal presented a passport to a human-only operation.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: A named link target does not exist, or is outside the caller's row scope.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: 'Consent not granted for the send purpose (`code: consent_not_granted`) — suppressed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /activities/{id}/send-message:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -6055,7 +6120,7 @@ paths:
       - name: entity_type
         in: path
         required: true
-        schema: { type: string, enum: [person, organization, deal, lead] }
+        schema: { type: string, enum: [person, organization, deal, lead, project, activity] }
       - $ref: '#/components/parameters/Id'
     get:
       tags: [Search]
@@ -6063,10 +6128,25 @@ paths:
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
       summary: Assembled context (related evidence) for one record.
-      description: >
+      description: |
         The fixed-depth context walk (anchor → neighborhood): recent touches, related people,
         open questions — each item provenance-stamped. Row-scoped; a record outside the caller's
         scope yields an empty picture, never another workspace's neighborhood.
+
+        An `activity` anchor — a captured meeting or message — is DEREFERENCED rather than
+        walked: the event names the records it is about, one of them becomes the subject, and
+        the walk above runs around that. Three further sections say what it chose.
+        `prepared_for` carries the single subject the walk used; `also_present` carries every
+        other record the event resolved to; `unresolved_attendees` carries the addresses on the
+        event that matched no record, as items whose `ref` is the EVENT — an attendee nobody
+        here holds a record for has no id of their own — and whose `summary` is the address and
+        the part they played. Subject precedence is deal, then project, then organization, then
+        person, then lead, taking a link before a participant within a tier and the organizer
+        before the attendees. `also_present` and `unresolved_attendees` are bounded by
+        `max_items` like every other section and are ordered so the cut keeps the most useful
+        first, so raise it to see the whole room. Each subject is object-RBAC checked and
+        visibility-probed on its own, so an event readable through one link never discloses a
+        record behind another.
       parameters:
         - name: max_items
           in: query
@@ -6079,6 +6159,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ContextResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
@@ -12120,10 +12201,52 @@ components:
         commercial:
           type: [object, 'null']
           description: Null when the caller has no deal grant.
-          required: [open_count, stalled_count]
+          required: [open_count, stalled_count, priced_count, converted_count]
           properties:
             open_count: { type: integer, minimum: 0 }
             stalled_count: { type: integer, minimum: 0 }
+            open_pipeline_minor_base:
+              type: [integer, 'null']
+              description: >-
+                The open pipeline in the workspace's base currency, integer minor units. Null
+                when NO open deal carries a figure that can be converted — distinct from zero,
+                which would claim a priced pipeline worth nothing.
+            priced_count:
+              type: integer
+              minimum: 0
+              description: >-
+                How many of `open_count` contributed to the sum. A deal with no amount, and one
+                whose currency has no conversion rate on its date, both contribute nothing —
+                so a total below `open_count` covers PART of the pipeline, and the page says so
+                rather than showing a figure that is quietly short (plan §4.2: never a
+                cross-currency sum without its conversion source).
+            converted_count:
+              type: integer
+              minimum: 0
+              description: >-
+                How many of `priced_count` needed a currency conversion to enter the sum — the
+                rest were already in the base. Zero means the total is a same-currency sum and
+                no rate stands behind it.
+            fx_as_of:
+              type: [string, 'null']
+              format: date
+              description: >-
+                The OLDEST rate date among the converted deals: each freezes its rate on its own
+                issue date, so this is the furthest back any part of the figure reaches. §4.2
+                forbids a cross-currency sum without an explicit conversion source and as-of
+                date, and this is that date. Null when nothing needed converting.
+            base_currency:
+              type: [string, 'null']
+              description: >-
+                The ISO-4217 currency `open_pipeline_minor_base` is expressed in — the
+                workspace's base. Travels WITH the figure rather than being looked up
+                separately, because a converted sum rendered under a currency fetched from
+                somewhere else is exactly the unlabelled cross-currency total §4.2 forbids.
+                Null whenever the figure is.
+            next_close_on:
+              type: [string, 'null']
+              format: date
+              description: The nearest expected close date among the open deals; null when none names one.
         signal:
           type: [object, 'null']
           description: >-
@@ -13687,6 +13810,16 @@ components:
         entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
 
+    ActivityLinkInput:
+      type: object
+      description: |
+        One record an activity is filed under, as a caller supplies it. The read shape
+        (ActivityLink) carries the ids the server assigned; this carries only the target.
+      required: [entity_type, entity_id]
+      properties:
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
+        entity_id: { type: string, format: uuid }
+
     Activity:
       type: object
       description: |
@@ -13975,6 +14108,45 @@ components:
             The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
             The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
             `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+
+    SendAccountEmailRequest:
+      type: object
+      required: [subject, body, to, consent_purpose, links]
+      description: |
+        One account-started send. It is SendEmailRequest plus the `links` an anchor would
+        otherwise have supplied — the records this new conversation belongs to.
+      properties:
+        subject: { type: string }
+        body: { type: string, description: The (possibly edited) final body that is sent. }
+        to:
+          type: array
+          minItems: 1
+          description: |
+            At least one addressee. A send whose To: line is empty is refused 422 before
+            anything is staged — `cc` alone does not make a message addressed to anyone.
+          items: { type: string, format: email }
+        cc: { type: array, items: { type: string, format: email } }
+        draft_ref:
+          type: [string, 'null']
+          description: |
+            Opaque reference returned by the drafting operation, exactly as on `send_email`.
+            Omit for independently composed mail.
+        consent_purpose:
+          type: string
+          description: |
+            The consent purpose this send falls under. Default-deny per purpose (A22/ADR-0011):
+            suppressed 409 `consent_not_granted` unless every recipient has an active `granted`
+            `person_consent` for THIS purpose.
+        links:
+          type: array
+          minItems: 1
+          description: |
+            The records this conversation is filed under — the company it was started from, and
+            optionally the person and deal it concerns. At least one is required: a message
+            belonging to no record is one nobody will find again, which is the gap this
+            operation exists to close. Each target is row-scope probed, so an id the caller
+            cannot see is refused 404.
+          items: { $ref: '#/components/schemas/ActivityLinkInput' }
 
     SendMessageRequest:
       type: object
@@ -15165,12 +15337,15 @@ components:
       properties:
         type:
           type: string
-          enum: [person, organization, deal, lead, activity, user]
+          enum: [person, organization, deal, lead, project, activity, user]
           description: |
             `user` is a workspace MEMBER, not a record — it appears only in the
             `who_knows` section, where the item is a colleague who interacts with the
             anchor contact. It carries the member's display name as `summary` and
             routes nowhere: a client renders it as a name, not as a link to a record.
+
+            Every anchor type this endpoint accepts also appears here, because the
+            response echoes the anchor back as one of these refs.
         id:   { type: string, format: uuid }
     ContextEvidence:
       type: object

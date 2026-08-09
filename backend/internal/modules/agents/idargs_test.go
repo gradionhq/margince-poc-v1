@@ -316,7 +316,7 @@ func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
 		allProps, _ := uuidProps(t, name, tool.Spec().InputSchema)
 		for _, prop := range allProps {
 			probed++
-			res := s.call(ctx, malformedCall(t, tool.Spec(), prop))
+			res := callMap(ctx, t, s, string(malformedCall(t, tool.Spec(), prop)))
 			if res["isError"] != true {
 				t.Errorf("%s accepted %q as a UUID", name, prop)
 				continue

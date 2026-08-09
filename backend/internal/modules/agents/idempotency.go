@@ -129,12 +129,12 @@ func WithReplayReader(reader ReplayReader) RegistryOption {
 // `send_email` — the exact call whose response was lost, and the most
 // irreversible act on this surface — dies on the consumed approval and never
 // reaches the result the first attempt recorded.
-func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved) (fresh bool, out json.RawMessage, err error) {
+func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved) (fresh bool, out json.RawMessage, records int, err error) {
 	if res.RetryKey == "" {
-		return true, nil, nil
+		return true, nil, 0, nil
 	}
 	if err := r.refuseUnkeyableCall(spec); err != nil {
-		return false, nil, err
+		return false, nil, 0, err
 	}
 	claim, err := r.claims.Claim(ctx, spec.Name, res.RetryKey, res.DiffHash)
 	if err != nil {
@@ -143,22 +143,22 @@ func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved
 		// promise the retry then discovers was never kept.
 		slog.ErrorContext(ctx, "the idempotency claim failed; refusing the call rather than running it unprotected",
 			"tool", spec.Name, "err", err)
-		return false, nil, fmt.Errorf(
+		return false, nil, 0, fmt.Errorf(
 			"%s could not be made safe to retry just now, so it was not run; retry the identical call: %w",
 			spec.Name, apperrors.ErrConflict)
 	}
 	switch claim.State {
 	case ClaimFresh:
-		return true, nil, nil
+		return true, nil, 0, nil
 	case ClaimReplay:
 		out, err := r.replay(ctx, spec, claim)
-		return false, out, err
+		return false, out, claim.Records, err
 	case ClaimInFlight:
-		return false, nil, fmt.Errorf(
+		return false, nil, 0, fmt.Errorf(
 			"an earlier %s call with this idempotency_key has not finished yet; wait for it rather than "+
 				"repeating it: %w", spec.Name, apperrors.ErrConflict)
 	case ClaimMismatch:
-		return false, nil, fmt.Errorf(
+		return false, nil, 0, fmt.Errorf(
 			"this idempotency_key was already used for a DIFFERENT %s call; send a new key to make this "+
 				"call, or repeat the original arguments to read its result: %w", spec.Name, apperrors.ErrConflict)
 	case ClaimFailed:
@@ -166,14 +166,14 @@ func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved
 		// attempt reached the tool, so whether it took effect is exactly what
 		// this surface does not know — and a fresh key here would be a second
 		// attempt at something that may already have happened.
-		return false, nil, fmt.Errorf(
+		return false, nil, 0, fmt.Errorf(
 			"an earlier %s call with this idempotency_key failed after it had already started, so it may or "+
 				"may not have taken effect (%s); check the record before retrying under a NEW key: %w",
 			spec.Name, claim.Reason, apperrors.ErrConflict)
 	default:
 		// A state this switch does not know cannot be resolved into "safe to
 		// run", so it is refused rather than guessed at.
-		return false, nil, fmt.Errorf("crmagents: unknown idempotency claim state %d: %w", claim.State, apperrors.ErrConflict)
+		return false, nil, 0, fmt.Errorf("crmagents: unknown idempotency claim state %d: %w", claim.State, apperrors.ErrConflict)
 	}
 }
 
@@ -288,27 +288,52 @@ func (r *Registry) releaseUnrunKey(ctx context.Context, spec mcp.ToolSpec, res r
 // that record would give — a distinct "you could see this yesterday" would be
 // the oracle row scope exists to close.
 func (r *Registry) replay(ctx context.Context, spec mcp.ToolSpec, claim Claim) (json.RawMessage, error) {
-	evidence, err := replayEvidence(claim.Result)
+	return r.ServeRecorded(ctx, spec.Name, claim.Result, claim.Records)
+}
+
+// ServeRecorded answers a stored envelope to the caller AS THEY ARE NOW: it
+// re-proves every record the document names and re-charges what the original
+// call cost, then hands the bytes back unchanged.
+//
+// It exists because there are now TWO surfaces holding a recorded answer — the
+// idempotency claim, and an MCP task whose completed result a client may poll
+// for the life of its handle — and both are receipts that outlive the authority
+// they were produced under. One gate, called twice: a second implementation
+// would be a second answer to "may this caller still see this", and the two
+// would drift the first time either moved.
+//
+// The refusal is ErrNotFound, the existence-hiding answer a live read would
+// give. The count is the ORIGINAL call's, never derived from the evidence list
+// — see chargeReplay for why that arithmetic would make a repeat cheaper than
+// the call.
+func (r *Registry) ServeRecorded(ctx context.Context, tool string, recorded json.RawMessage, records int) (json.RawMessage, error) {
+	spec, ok := r.Spec(tool)
+	if !ok {
+		// A tool that has left the surface cannot have its answer re-proven
+		// against the schema and counters it was produced under.
+		return nil, apperrors.ErrNotFound
+	}
+	// The ceilings first, because they are the one term of admission nothing
+	// downstream re-asks. The record re-read below applies object RBAC and row
+	// scope, and the transport re-authenticates the passport — but a caller past
+	// its volume ceiling is refused for every verb, and handing back a stored
+	// document is a verb. Both doors onto a receipt take this.
+	if err := r.gate.AdmitReplay(ctx, spec); err != nil {
+		return nil, err
+	}
+	evidence, err := replayEvidence(recorded)
 	if err != nil {
-		// The recorded bytes are not an envelope this surface can read, so it
-		// cannot show the caller may still see what is in them. Fail closed:
-		// serving a document on the strength of a parse failure is exactly what
-		// this check exists to prevent.
-		slog.ErrorContext(ctx, "a recorded tool result could not be read back as an envelope; refusing the replay",
-			"tool", spec.Name, "err", err)
+		slog.ErrorContext(ctx, "a recorded tool result could not be read back as an envelope; withholding it",
+			"tool", tool, "err", err)
 		return nil, apperrors.ErrNotFound
 	}
 	if err := r.ensureReplayVisible(ctx, evidence); err != nil {
 		return nil, err
 	}
-	// Charged BEFORE the result goes back, for the reason a fresh answer is:
-	// records this surface cannot count are records it does not hand over. A
-	// replay that skipped the charge would be the cheapest bulk read on the
-	// surface — free, and repeatable for the life of the window.
-	if err := r.chargeReplay(ctx, spec, claim.Records); err != nil {
+	if err := r.chargeReplay(ctx, spec, records); err != nil {
 		return nil, err
 	}
-	return claim.Result, nil
+	return recorded, nil
 }
 
 // ensureReplayVisible re-reads every record the recorded answer names, through

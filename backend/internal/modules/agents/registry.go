@@ -103,6 +103,18 @@ var _ mcp.Registry = (*Registry)(nil)
 // (idempotency.go): the claim is taken AFTER admission, so a caller the gate
 // turns away never occupies a key, and the effect is what the claim protects.
 func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) (json.RawMessage, error) {
+	out, _, err := r.InvokeServing(ctx, name, in)
+	return out, err
+}
+
+// InvokeServing is Invoke, plus the number of records the answer handed over.
+//
+// The count exists for exactly one caller: a surface that RECORDS the answer
+// and may serve it again later. What an answer cost is what its replay costs,
+// and only the frame that ran the tool can see it — deriving it afterwards from
+// the envelope's evidence would undercount every answer that hands over more
+// than it can name, making a repeat cheaper than the call.
+func (r *Registry) InvokeServing(ctx context.Context, name string, in json.RawMessage) (json.RawMessage, int, error) {
 	// The REGISTERED spec, not a fresh Spec() call. The two are the same for a
 	// tool whose spec is a literal, and every tool here is — but the registered
 	// one is what tools/list advertised and what the argument constraints were
@@ -114,12 +126,12 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	spec := r.specs[name]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, &UnknownToolError{Name: name}
+		return nil, 0, &UnknownToolError{Name: name}
 	}
 
 	res, err := splitReserved(in)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	args := res.Args
 
@@ -132,12 +144,12 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	// staging too, and spends the same yes.
 	if askedOfAHuman(err) {
 		if argErr := r.requireDeclaredArgs(name, args); argErr != nil {
-			return nil, argErr
+			return nil, 0, argErr
 		}
 	}
 	ctx = admitted
 	if stepUp := releasableQuotaRefusal(err); stepUp != nil {
-		return nil, r.stageStepUp(ctx, stepUp)
+		return nil, 0, r.stageStepUp(ctx, stepUp)
 	}
 	// The call ceiling is charged where the call is known to RUN, and only
 	// there. A refusal, a staged 🟡, and a token that fails redemption all
@@ -152,7 +164,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	// there instead, the same asymmetry a committed write takes.
 	if err == nil && res.ApprovalID.IsZero() {
 		if chargeErr := r.chargeCall(ctx, spec, nothingHasHappenedYet); chargeErr != nil {
-			return nil, chargeErr
+			return nil, 0, chargeErr
 		}
 	}
 	switch {
@@ -163,12 +175,12 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	case err == nil, !res.ApprovalID.IsZero() && errors.Is(err, apperrors.ErrRequiresApproval) && r.approvals != nil:
 		return r.runClaimed(ctx, t, spec, res)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
-		return nil, err
+		return nil, 0, err
 	default:
 		// Staged, and deliberately BEFORE any claim: a call that did not run
 		// must not leave a key held, and the retry that redeems the approval is
 		// the same call under the same key.
-		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, res.DiffHash, err)
+		return nil, 0, r.stageRefusedCall(ctx, t, spec.Name, args, res.DiffHash, err)
 	}
 }
 
@@ -190,15 +202,20 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 // approved call reaches its recorded result instead of dying on the single-use
 // approval it already spent. Redemption comes second, so a refused redemption
 // gives the key straight back — nothing ran.
-func (r *Registry) runClaimed(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, error) {
-	fresh, answered, err := r.claimFor(ctx, spec, res)
+func (r *Registry) runClaimed(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, int, error) {
+	fresh, answered, records, err := r.claimFor(ctx, spec, res)
 	if !fresh {
-		return answered, err
+		// A replay hands over the records the ORIGINAL call was charged for, and
+		// claimFor has already re-proven and re-charged them. The COUNT still
+		// travels: a task settled from a replayed answer must record what that
+		// answer costs, or its own later polls would re-prove the evidence and
+		// charge nothing for it.
+		return answered, records, err
 	}
 	redeemed, err := r.redeemPresented(ctx, spec, res)
 	if err != nil {
 		r.releaseUnrunKey(ctx, spec, res)
-		return nil, err
+		return nil, 0, err
 	}
 	return r.handle(redeemed, t, spec, res)
 }
@@ -229,10 +246,10 @@ func (r *Registry) redeemPresented(ctx context.Context, spec mcp.ToolSpec, res r
 // handle runs an admitted call, seals its answer, and records what a claimed
 // retry key produced — this is the one place that knows both that the tool RAN
 // and what it answered with.
-func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, error) {
+func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, int, error) {
 	sealed, records, err := r.runAndSeal(ctx, t, spec, res.Args)
 	r.settleRun(ctx, spec, res, sealed, records, err)
-	return sealed, err
+	return sealed, records, err
 }
 
 // runAndSeal is the call itself: run, seal, charge. It answers the record count

@@ -35,6 +35,7 @@ import (
 	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -618,3 +619,58 @@ var org360NoActivityPerms = principal.Permissions{
 	},
 	RowScope: principal.RowScopeTeam,
 }
+
+// The state strip's pipeline figures, read from a real deal through the real
+// endpoint (FIN plan §4.2 / the KPI row).
+//
+// This exists because the unit test over the fold could not catch what broke:
+// the SQL read scans expected_close_date, and Postgres sends a bare DATE that
+// pgx will not decode into time.Time. Every 360 request 500'd the moment any
+// deal on the account carried a close date — invisible to a test that hands
+// the fold rows it built itself, and immediately visible on real data.
+func TestOrg360_StateStripPricesOpenDealsAndNamesTheirCloseDate(t *testing.T) {
+	e := integration.Setup(t)
+	pipeline, stage, _ := integration.DealFixture(t, e)
+	orgID := e.SeedOrg(t, "Priced Account", nil)
+	closeOn := time.Now().UTC().AddDate(0, 2, 0)
+
+	// Through the real writer, with the two fields the read has to survive: an
+	// amount in the workspace's own currency and an expected close date.
+	if _, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
+		Name: "Priced deal", PipelineID: pipeline, StageID: stage,
+		OrganizationID: ptrTo(ids.From[ids.OrganizationKind](orgID)),
+		AmountMinor:    ptrTo(int64(250000)), Currency: ptrTo("EUR"),
+		ExpectedClose: &closeOn, Source: "manual",
+	}); err != nil {
+		t.Fatalf("creating the deal: %v", err)
+	}
+
+	view, err := org360Service(e).Assemble(e.Admin(), ids.From[ids.OrganizationKind](orgID))
+	if err != nil {
+		t.Fatalf("assembling the 360: %v", err)
+	}
+
+	strip := view.StateStrip
+	if strip == nil || strip.Commercial == nil {
+		t.Fatal("no commercial reading on an account with an open deal")
+	}
+	if strip.Commercial.OpenCount != 1 {
+		t.Fatalf("open count = %d, want 1", strip.Commercial.OpenCount)
+	}
+	// An open deal in the base currency carries NO frozen FX rate — the rate
+	// freezes on close — so a figure read from amount_minor_base alone would
+	// be absent here. This is the case the page actually shows.
+	if strip.Commercial.PricedCount != 1 {
+		t.Fatalf("priced count = %d, want 1 — an open deal in the base currency needs no rate",
+			strip.Commercial.PricedCount)
+	}
+	if strip.Commercial.OpenPipelineMinorBase == nil ||
+		*strip.Commercial.OpenPipelineMinorBase != 250000 {
+		t.Fatalf("open pipeline = %v, want 250000", strip.Commercial.OpenPipelineMinorBase)
+	}
+	if strip.Commercial.NextCloseOn == nil {
+		t.Fatal("no expected close date, though the deal names one")
+	}
+}
+
+func ptrTo[T any](v T) *T { return &v }

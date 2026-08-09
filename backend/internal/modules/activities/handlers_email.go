@@ -59,6 +59,14 @@ func (h Handlers) WithSendAuthority(authority SendAuthority) Handlers {
 	return h
 }
 
+// WithRecipientDirectory returns handlers whose account-started sends resolve
+// every typed address to a person the sender can read, so a rep is told which
+// address is not on file instead of mailing someone the record cannot name.
+func (h Handlers) WithRecipientDirectory(dir RecipientDirectory) Handlers {
+	h.store = h.store.WithRecipientDirectory(dir)
+	return h
+}
+
 // WithEmailDrafter returns handlers whose draft endpoint uses the injected
 // compose path. Drafting only proposes text; the send endpoint remains a
 // separate consent-gated operation.
@@ -160,47 +168,86 @@ func DeterministicEmailDraft(topic, intent string) (subject, body string) {
 	return subject, b.String()
 }
 
+// SendAccountEmail starts a NEW conversation from a record rather than
+// answering one. It differs from SendEmail in exactly two places — the origin
+// it builds and the links that origin carries — and shares the send itself,
+// so the consent gate, deliverability and the staging transaction cannot
+// drift between the two surfaces (ADR-0087 §1).
+func (h Handlers) SendAccountEmail(w http.ResponseWriter, r *http.Request, _ crmcontracts.SendAccountEmailParams) {
+	var req crmcontracts.SendAccountEmailRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	links := make([]ActivityLinkInput, 0, len(req.Links))
+	for _, l := range req.Links {
+		links = append(links, ActivityLinkInput{EntityType: string(l.EntityType), EntityID: ids.UUID(l.EntityId)})
+	}
+	if len(links) == 0 {
+		// A message filed under nothing is one nobody finds again, which is
+		// the gap this operation exists to close. The contract says minItems,
+		// and nothing in this stack validates a request against the schema.
+		writeStoreErr(w, r, &RequiredFieldError{Field: "links"})
+		return
+	}
+
+	sent, err := h.store.SendEmail(r.Context(), FromAccount(links), sendInputFrom(
+		req.To, req.Cc, req.Subject, req.Body, req.ConsentPurpose, req.DraftRef,
+	), h.consent, h.delivery)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusAccepted, sent)
+}
+
+// sendInputFrom builds the send's input from the fields both mail surfaces
+// carry. One spelling, because the merged consent list is a rule rather than
+// a convenience: consent is owed to every addressee, so Recipients is To+Cc
+// and Cc is a subset of it. A second hand-rolled copy would eventually merge
+// one of them differently and mail somebody the gate never asked about.
+func sendInputFrom(to []openapi_types.Email, cc *[]openapi_types.Email, subject, body, purpose string, draftRef *string) SendEmailInput {
+	var ccAddresses []string
+	if cc != nil {
+		ccAddresses = make([]string, 0, len(*cc))
+		for _, addr := range *cc {
+			ccAddresses = append(ccAddresses, string(addr))
+		}
+	}
+	recipients := make([]string, 0, len(to)+len(ccAddresses))
+	for _, addr := range to {
+		recipients = append(recipients, string(addr))
+	}
+	recipients = append(recipients, ccAddresses...)
+
+	ref := ""
+	if draftRef != nil {
+		ref = *draftRef
+	}
+	return SendEmailInput{
+		Recipients:     recipients,
+		Cc:             ccAddresses,
+		Subject:        subject,
+		Body:           body,
+		ConsentPurpose: purpose,
+		DraftRef:       ref,
+	}
+}
+
+// SendEmail answers an existing conversation: the activity in the path is the
+// anchor whose threading chain the reply continues and whose record links it
+// inherits. Its account-started twin above shares everything after the origin.
 func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SendEmailParams) {
 	var req crmcontracts.SendEmailRequest
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	// Recipients is the merged addressee list the consent gate answers on;
-	// cc travels separately so the delivery can render a To: and a Cc: line
-	// that address each person once.
-	var cc []string
-	if req.Cc != nil {
-		cc = make([]string, 0, len(*req.Cc))
-		for _, addr := range *req.Cc {
-			cc = append(cc, string(addr))
-		}
-	}
-	recipients := make([]string, 0, len(req.To)+len(cc))
-	for _, addr := range req.To {
-		recipients = append(recipients, string(addr))
-	}
-	recipients = append(recipients, cc...)
-
-	// The contract field is nullable, and its absence is the ordinary case:
-	// mail composed without a served draft resolves no learning signal, which
-	// the empty string says to the send path.
-	draftRef := ""
-	if req.DraftRef != nil {
-		draftRef = *req.DraftRef
-	}
-
 	// Deliverability — the RFC 8058 header and the visible footer — is
 	// derived by the store, on the message, where the MCP send tool reaches
 	// it too. It belongs on the mail, not on this response to the API
 	// caller, who is not the recipient and has nothing to unsubscribe from.
-	sent, err := h.store.SendEmail(r.Context(), pathID[ids.ActivityKind](id), SendEmailInput{
-		Recipients:     recipients,
-		Cc:             cc,
-		Subject:        req.Subject,
-		Body:           req.Body,
-		ConsentPurpose: req.ConsentPurpose,
-		DraftRef:       draftRef,
-	}, h.consent, h.delivery)
+	sent, err := h.store.SendEmail(r.Context(), FromActivity(pathID[ids.ActivityKind](id)), sendInputFrom(
+		req.To, req.Cc, req.Subject, req.Body, req.ConsentPurpose, req.DraftRef,
+	), h.consent, h.delivery)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

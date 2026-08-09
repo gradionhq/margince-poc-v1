@@ -297,7 +297,7 @@ func TestSendEmailStampsTheUnbracketedMessageIDAsTheSourceKey(t *testing.T) {
 	stager := &recordingStager{}
 
 	sent, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager)
+		e.as(principal.RowScopeAll), FromActivity(anchor), sendInput("transactional"), stubConsentGate{}, stager)
 	if err != nil {
 		t.Fatalf("SendEmail: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestSendEmailStampsTheThreadKeyFromTheAnchor(t *testing.T) {
 	stager := &recordingStager{}
 
 	sent, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager)
+		e.as(principal.RowScopeAll), FromActivity(anchor), sendInput("transactional"), stubConsentGate{}, stager)
 	if err != nil {
 		t.Fatalf("SendEmail: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestSendEmailThreadsAnAnchorThatHasAKeyButNoMessageIdentity(t *testing.T) {
 	stager := &recordingStager{}
 
 	if _, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager); err != nil {
+		e.as(principal.RowScopeAll), FromActivity(anchor), sendInput("transactional"), stubConsentGate{}, stager); err != nil {
 		t.Fatalf("SendEmail: %v", err)
 	}
 
@@ -407,7 +407,7 @@ func TestSendEmailRecordsTheOutboundCorrespondenceEvidence(t *testing.T) {
 	in.Recipients = []string{"Buyer@Example.test", "boss@example.test"}
 	in.Cc = []string{"boss@example.test"}
 	sent, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeAll), anchor, in, stubConsentGate{}, stager)
+		e.as(principal.RowScopeAll), FromActivity(anchor), in, stubConsentGate{}, stager)
 	if err != nil {
 		t.Fatalf("SendEmail: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestSendEmailWithoutAnchorContextRootsANewThread(t *testing.T) {
 	stager := &recordingStager{}
 
 	sent, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager)
+		e.as(principal.RowScopeAll), FromActivity(anchor), sendInput("transactional"), stubConsentGate{}, stager)
 	if err != nil {
 		t.Fatalf("SendEmail: %v", err)
 	}

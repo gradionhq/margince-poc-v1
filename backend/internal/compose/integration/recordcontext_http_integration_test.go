@@ -17,6 +17,7 @@ package integration
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -67,6 +68,45 @@ func seedPersonWithActivity(t *testing.T, e *apptest.AppEnv) string {
 	return person.ID
 }
 
+// seedMeetingLinkedTo logs a meeting against one person through the real HTTP
+// write path, then adds the party the write path cannot express: an attendee
+// address capture matched to nobody. Only the connectors write
+// activity_participant rows, so a suite that needs one writes it as they do.
+func seedMeetingLinkedTo(t *testing.T, e *apptest.AppEnv, personID string) string {
+	t.Helper()
+	var meeting struct {
+		ID string `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/activities", apptest.AnyMap{
+		"kind": "meeting", "subject": "Renewal review",
+		"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": personID}},
+	}, nil, &meeting); status != http.StatusCreated {
+		t.Fatalf("log meeting → %d", status)
+	}
+	var wsID string
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
+		t.Fatalf("reading the workspace: %v", err)
+	}
+	if _, err := e.Owner.Exec(t.Context(), `
+		INSERT INTO activity_participant (workspace_id, activity_id, role, address)
+		VALUES ($1, $2, 'attendee', 'nobody@example.test')`, wsID, meeting.ID); err != nil {
+		t.Fatalf("seeding the unmatched attendee: %v", err)
+	}
+	return meeting.ID
+}
+
+// sectionWire returns one named section's items, and nil when the walk emitted
+// no such section.
+func sectionWire(got contextResponseWire, name string) []contextItemWire {
+	for _, section := range got.Sections {
+		if section.Name == name {
+			return section.Items
+		}
+	}
+	return nil
+}
+
 func TestGetRecordContextReturnsAnchorAndIsRowScoped(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.BootstrapWorkspace(t)
@@ -96,6 +136,37 @@ func TestGetRecordContextReturnsAnchorAndIsRowScoped(t *testing.T) {
 		var problem fieldHistoryProblem
 		status := e.Call(t, "GET", "/v1/records/bogus/"+pid+"/context", nil, nil, &problem)
 		assertFieldHistoryValidation422(t, status, problem, "entity_type", "invalid_entity_type")
+	})
+
+	// An activity is a valid anchor and is DEREFERENCED: the event names the
+	// records it is about, and the prep is built around one of them. The wire
+	// mapping has to carry the three sections that say which — this is the
+	// HTTP half; the precedence and the row-scope refusals have their own
+	// suite (activitycontext_integration_test.go).
+	t.Run("200 activity anchor preps against the record it names", func(t *testing.T) {
+		aid := seedMeetingLinkedTo(t, e, pid)
+		var got contextResponseWire
+		status := e.Call(t, "GET", "/v1/records/activity/"+aid+"/context", nil, nil, &got)
+		if status != http.StatusOK {
+			t.Fatalf("activity context status = %d, want 200", status)
+		}
+		if got.Anchor.Type != "activity" || got.Anchor.ID != aid {
+			t.Fatalf("anchor = %+v, want activity/%s", got.Anchor, aid)
+		}
+		prepared := sectionWire(got, "prepared_for")
+		if len(prepared) != 1 || prepared[0].Ref.Type != "person" || prepared[0].Ref.ID != pid {
+			t.Fatalf("prepared_for = %+v, want the one person the meeting names", prepared)
+		}
+		unresolved := sectionWire(got, "unresolved_attendees")
+		if len(unresolved) != 1 || unresolved[0].Summary == nil ||
+			!strings.Contains(*unresolved[0].Summary, "nobody@example.test") {
+			t.Fatalf("unresolved_attendees = %+v, want the address that matched no record", unresolved)
+		}
+		// The item has no record of its own to point at, so it points at the
+		// event the address came from.
+		if unresolved[0].Ref.Type != "activity" || unresolved[0].Ref.ID != aid {
+			t.Fatalf("an unresolved attendee's ref = %+v, want the event %s", unresolved[0].Ref, aid)
+		}
 	})
 
 	// The contract bounds max_items to [1, 25]; a value outside that range

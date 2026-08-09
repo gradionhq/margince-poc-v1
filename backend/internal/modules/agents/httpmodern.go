@@ -58,9 +58,18 @@ type mirroredName func(json.RawMessage) string
 // also names prompts/get; this server has no prompts and answers that -32601,
 // and demanding a header for a method that does not exist would refuse the
 // caller for the wrong reason.
+// The three task methods mirror their taskId, which the Tasks extension makes
+// a MUST for a different reason than the two above: an intermediary routing on
+// Mcp-Name can send a poll to the instance holding that task's state. This
+// server holds it in Postgres, so any replica can answer — but the header is
+// still required of the client, and a server that skipped the comparison would
+// let a gateway route on one task while it read another.
 var modernNamedMethods = map[string]mirroredName{
 	methodToolsCall:     calledToolName,
 	methodResourcesRead: readResourceURI,
+	methodTasksGet:      taskIDName,
+	methodTasksUpdate:   taskIDName,
+	methodTasksCancel:   taskIDName,
 }
 
 // calledToolName reads the tool a tools/call body invokes, through the same
