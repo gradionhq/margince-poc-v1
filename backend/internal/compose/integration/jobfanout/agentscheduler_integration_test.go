@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package jobfanout
 
 // The Surface-B agent scheduler is one job row per live tenant. Its failure
 // mode is the opposite of the sweeps beside it: a tenant whose occurrence
@@ -20,6 +20,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/jobtest"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -150,8 +152,8 @@ func assertOccurrencesSeeded(t *testing.T, owner *pgx.Conn, ws ids.UUID, now tim
 // the same to every workspace behind it.
 func TestAgentSchedulerReportsTheWorkspaceWhoseSchedulingFailed(t *testing.T) {
 	re := setupRunner(t)
-	owner := OwnerConn(t)
-	healthy := seedExtraWorkspace(t, owner, "scheduler-healthy", false)
+	owner := integration.OwnerConn(t)
+	healthy := integration.SeedExtraWorkspace(t, owner, "scheduler-healthy", false)
 
 	const trigger = "morning_brief:fleet-isolation"
 	// Both tenants get real due work, seeded before the fault is armed: the
@@ -194,9 +196,9 @@ func TestAgentSchedulerReportsTheWorkspaceWhoseSchedulingFailed(t *testing.T) {
 // writes fail is the only row that fails.
 func TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
 	re := setupRunner(t)
-	owner := OwnerConn(t)
-	healthy := seedExtraWorkspace(t, owner, "scheduler-healthy", false)
-	archived := seedExtraWorkspace(t, owner, "scheduler-archived", true)
+	owner := integration.OwnerConn(t)
+	healthy := integration.SeedExtraWorkspace(t, owner, "scheduler-healthy", false)
+	archived := integration.SeedExtraWorkspace(t, owner, "scheduler-archived", true)
 
 	const trigger = "morning_brief:fanout"
 	seedDueRunnerJob(t, owner, re.wsID, trigger)
@@ -207,7 +209,7 @@ func TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(
 	failRunnerJobWritesFor(t, owner, re.wsID)
 
 	now := afterEveryDueHour()
-	_, completed, failed := startTestJobRunner(t, re.pool, compose.JobRunnerConfig{
+	_, completed, failed := jobtest.StartTestJobRunner(t, re.pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -218,7 +220,7 @@ func TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.AgentSchedulerWorkspaceArgs{}.Kind()
-	outcomes := awaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
+	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
 
 	if _, fannedOut := outcomes[healthy.String()]; !fannedOut {
 		t.Errorf("no scheduling pass ran for workspace %s — a tenant the fan-out skipped gets no brief and no at-risk sweep, and no row records that it did not", healthy)
@@ -257,17 +259,17 @@ func TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(
 // a dispatcher wired to a constant instead of the operator's --runner-interval
 // looks identical at boot and then never runs again — every workspace's due
 // occurrences unseeded from that moment on, with every gate green. Two
-// dispatches less than dispatchGapBound apart can only happen if a cadence far
+// dispatches less than jobtest.DispatchGapBound apart can only happen if a cadence far
 // shorter than that flag's own default is what River is scheduling on.
 func TestAgentSchedulerDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	re := setupRunner(t)
 
-	_, completed, _ := startTestJobRunner(t, re.pool, compose.JobRunnerConfig{
+	_, completed, _ := jobtest.StartTestJobRunner(t, re.pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		AgentScheduler: compose.AgentSchedulerConfig{
-			Interval: dispatchInterval, Service: re.svc,
+			Interval: jobtest.DispatchInterval, Service: re.svc,
 		},
 	})
 	// Generous compared with the gap bound: a run this slow is a sick machine,
@@ -275,10 +277,10 @@ func TestAgentSchedulerDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.AgentSchedulerArgs{}.Kind()
-	first, second := awaitTwoDispatchArrivals(waitCtx, t, completed, kind)
-	if gap := second.Sub(first); gap > dispatchGapBound {
+	first, second := jobtest.AwaitTwoDispatchArrivals(waitCtx, t, completed, kind)
+	if gap := second.Sub(first); gap > jobtest.DispatchGapBound {
 		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured %s interval but some larger constant, and --runner-interval's own 30s default is the one that would look exactly like this",
-			kind, gap, dispatchGapBound, dispatchInterval)
+			kind, gap, jobtest.DispatchGapBound, jobtest.DispatchInterval)
 	}
 }
 
@@ -292,7 +294,7 @@ func TestAgentSchedulerDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 func TestAgentSchedulerWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(t *testing.T) {
 	re := setupRunner(t)
 
-	jobRunner, completed, _ := startTestJobRunner(t, re.pool, compose.JobRunnerConfig{
+	jobRunner, completed, _ := jobtest.StartTestJobRunner(t, re.pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -312,7 +314,7 @@ func TestAgentSchedulerWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(
 	// half of the claim: a queued row is still worked with no schedule present.
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	awaitKindsCompleted(waitCtx, t, completed,
+	jobtest.AwaitKindsCompleted(waitCtx, t, completed,
 		compose.CloseDateSweepArgs{}.Kind(), compose.AgentSchedulerWorkspaceArgs{}.Kind())
 
 	var dispatched int

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package jobfanout
 
 // The GDPR retention pass is one job row per tenant. A workspace whose pass
 // fails must say so — a retention pass that failed and reported success leaves
@@ -20,22 +20,12 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/jobtest"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// retentionPassCtx is the scope the retention workspace worker binds before it
-// calls the engine: the tenant, the system actor, and a fresh correlation id.
-// The engine writes an audit row and an outbox event per record it retires, so
-// a suite that bound only the workspace would be exercising a pass whose
-// provenance production never has.
-func retentionPassCtx(ws ids.UUID) context.Context {
-	ctx := principal.WithWorkspaceID(context.Background(), ws)
-	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
-	return principal.WithCorrelationID(ctx, ids.NewV7())
-}
 
 // seedRetentionTenant plants the lead/unconverted anonymize policy and one
 // over-age unconverted lead in ws, through the owner connection so a workspace
@@ -47,7 +37,7 @@ func seedRetentionTenant(t *testing.T, owner *pgx.Conn, ws ids.UUID) ids.UUID {
 		VALUES ($1, 'lead', 'unconverted', 365, 'anonymize')`, ws); err != nil {
 		t.Fatalf("seeding the retention policy for %s: %v", ws, err)
 	}
-	return SeedRow(t, owner, `
+	return integration.SeedRow(t, owner, `
 		INSERT INTO lead (id, workspace_id, full_name, status, source, captured_by, created_at)
 		VALUES ($1, $2, 'Over-age Lead', 'new', 'manual', 'human:x', now() - interval '400 days')`, ws)
 }
@@ -117,23 +107,23 @@ func leadName(t *testing.T, owner *pgx.Conn, lead ids.UUID) string {
 // an error. A pass that reported success is indistinguishable from a pass that
 // had nothing to do — and what it hides is subject data kept past its policy.
 func TestRetentionReportsTheWorkspaceWhosePassFailed(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	victim := seedExtraWorkspace(t, owner, "victim", false)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	victim := integration.SeedExtraWorkspace(t, owner, "victim", false)
 	victimLead := seedRetentionTenant(t, owner, victim)
 	healthyLead := seedRetentionTenant(t, owner, e.WS)
 	failLeadWritesFor(t, owner, victim)
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.DiscardHandler))
 
-	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateWorkspace(integration.RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("the healthy tenant's pass: %v", err)
 	}
 	if got := leadName(t, owner, healthyLead); got != "Anonymized Lead" {
 		t.Fatalf("the healthy tenant's over-age lead is %q, want the anonymized tombstone — a pass that acted on nothing would make the assertion below vacuous", got)
 	}
 
-	err := svc.EvaluateWorkspace(retentionPassCtx(victim))
+	err := svc.EvaluateWorkspace(integration.RetentionPassCtx(victim))
 	if got := leadName(t, owner, victimLead); got != "Over-age Lead" {
 		t.Fatalf("the fault injection did not hold: the victim's lead is %q, so its pass never failed", got)
 	}
@@ -145,9 +135,9 @@ func TestRetentionReportsTheWorkspaceWhosePassFailed(t *testing.T) {
 // startRetentionRunner boots a job runner whose retention dispatcher ticks on
 // the given interval, and returns it with the shared fan-out harness's
 // completion and failure channels.
-func startRetentionRunner(t *testing.T, e *Env, interval time.Duration) (*jobs.Runner, <-chan *river.Event, <-chan *river.Event) {
+func startRetentionRunner(t *testing.T, e *integration.Env, interval time.Duration) (*jobs.Runner, <-chan *river.Event, <-chan *river.Event) {
 	t.Helper()
-	return startTestJobRunner(t, e.Pool, compose.JobRunnerConfig{
+	return jobtest.StartTestJobRunner(t, e.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -161,11 +151,11 @@ func startRetentionRunner(t *testing.T, e *Env, interval time.Duration) (*jobs.R
 // subject data inside it — each row names its own tenant on the wire, and the
 // tenant whose pass failed is the only row that fails.
 func TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
-	e := Setup(t)
-	ApplyRiverSchema(t)
-	owner := OwnerConn(t)
-	victim := seedExtraWorkspace(t, owner, "victim", false)
-	archived := seedExtraWorkspace(t, owner, "archived", true)
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
+	owner := integration.OwnerConn(t)
+	victim := integration.SeedExtraWorkspace(t, owner, "victim", false)
+	archived := integration.SeedExtraWorkspace(t, owner, "archived", true)
 	victimLead := seedRetentionTenant(t, owner, victim)
 	healthyLead := seedRetentionTenant(t, owner, e.WS)
 	failLeadWritesFor(t, owner, victim)
@@ -174,7 +164,7 @@ func TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant(t 
 	_, completed, failed := startRetentionRunner(t, e, time.Hour)
 	waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	outcomes := awaitWorkspaceJobOutcomes(waitCtx, t, completed, failed,
+	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed,
 		compose.PrivacyRetentionWorkspaceArgs{}.Kind(), 3)
 
 	for _, ws := range []ids.UUID{e.WS, victim, archived} {
@@ -226,22 +216,22 @@ func TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant(t 
 // is, so a dispatcher wired to a constant instead of the operator's
 // --retention-interval looks identical at boot and then never runs again — a
 // dead storage-limitation obligation with every gate green. Two dispatches less
-// than dispatchGapBound apart can only happen if a cadence far shorter than any
+// than jobtest.DispatchGapBound apart can only happen if a cadence far shorter than any
 // constant in reach is what River is scheduling on.
 func TestPrivacyRetentionDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
-	e := Setup(t)
-	ApplyRiverSchema(t)
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
 
-	_, completed, _ := startRetentionRunner(t, e, dispatchInterval)
+	_, completed, _ := startRetentionRunner(t, e, jobtest.DispatchInterval)
 	// Generous compared with the gap bound: a run this slow is a sick machine,
 	// and the assertion that decides the outcome is the gap below, not this.
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.PrivacyRetentionArgs{}.Kind()
-	first, second := awaitTwoDispatchArrivals(waitCtx, t, completed, kind)
-	if gap := second.Sub(first); gap > dispatchGapBound {
+	first, second := jobtest.AwaitTwoDispatchArrivals(waitCtx, t, completed, kind)
+	if gap := second.Sub(first); gap > jobtest.DispatchGapBound {
 		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured %s interval but some larger constant, and the gmail_sync dispatcher's declared 30s scan is the one that would look exactly like this",
-			kind, gap, dispatchGapBound, dispatchInterval)
+			kind, gap, jobtest.DispatchGapBound, jobtest.DispatchInterval)
 	}
 }
 
@@ -254,8 +244,8 @@ func TestPrivacyRetentionDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 // Registering no schedule is the honest reading; the WORKERS still register,
 // so a row an earlier boot queued is still worked rather than stranded.
 func TestPrivacyRetentionWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(t *testing.T) {
-	e := Setup(t)
-	ApplyRiverSchema(t)
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
 
 	runner, completed, _ := startRetentionRunner(t, e, 0)
 	if err := runner.Enqueue(context.Background(),
@@ -272,7 +262,7 @@ func TestPrivacyRetentionWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRo
 	// half of the claim: a queued row is still worked with no schedule present.
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	awaitKindsCompleted(waitCtx, t, completed,
+	jobtest.AwaitKindsCompleted(waitCtx, t, completed,
 		compose.CloseDateSweepArgs{}.Kind(), compose.PrivacyRetentionWorkspaceArgs{}.Kind())
 
 	var dispatched int

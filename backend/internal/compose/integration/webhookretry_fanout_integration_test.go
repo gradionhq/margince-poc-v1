@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration/jobtest"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -149,7 +150,7 @@ func parkDueDeliveryIn(t *testing.T, we *webhookEnv, owner *pgx.Conn, ws ids.UUI
 func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 	we := setupWebhooks(t)
 	owner := OwnerConn(t)
-	healthy := seedExtraWorkspace(t, owner, "healthy", false)
+	healthy := SeedExtraWorkspace(t, owner, "healthy", false)
 
 	rcv := newReceiver(t, http.StatusInternalServerError) // endpoint is down
 	now := time.Now().UTC()
@@ -202,8 +203,8 @@ func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
 	we := setupWebhooks(t)
 	owner := OwnerConn(t)
-	healthy := seedExtraWorkspace(t, owner, "healthy", false)
-	archived := seedExtraWorkspace(t, owner, "archived", true)
+	healthy := SeedExtraWorkspace(t, owner, "healthy", false)
+	archived := SeedExtraWorkspace(t, owner, "archived", true)
 
 	rcv := newReceiver(t, http.StatusInternalServerError)
 	now := time.Now().UTC()
@@ -218,7 +219,7 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	// tenant as green — the exact outcome this test denies.
 	failDueScansFor(t, owner, we.wsID)
 
-	_, completed, failed := startTestJobRunner(t, we.pool, compose.JobRunnerConfig{
+	_, completed, failed := jobtest.StartTestJobRunner(t, we.pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -229,7 +230,7 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.WebhookRetryWorkspaceArgs{}.Kind()
-	outcomes := awaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
+	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
 
 	if _, fannedOut := outcomes[healthy.String()]; !fannedOut {
 		t.Errorf("no retry sweep ran for workspace %s — a tenant the fan-out skipped keeps its deliveries parked and no row records that it did", healthy)
@@ -261,19 +262,19 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 // a dispatcher wired to a constant instead of the operator's
 // --webhook-retry-interval looks identical at boot and then never runs again —
 // every parked delivery in the fleet stranded, with every gate green. Two
-// dispatches less than dispatchGapBound apart can only happen if a cadence far
+// dispatches less than jobtest.DispatchGapBound apart can only happen if a cadence far
 // shorter than that flag's own default is what River is scheduling on.
 func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	we := setupWebhooks(t)
 	now := time.Now().UTC()
 	rcv := newReceiver(t, http.StatusInternalServerError)
 
-	_, completed, _ := startTestJobRunner(t, we.pool, compose.JobRunnerConfig{
+	_, completed, _ := jobtest.StartTestJobRunner(t, we.pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		WebhookRetry: compose.WebhookRetryConfig{
-			Interval: dispatchInterval, Deliverer: newTestDeliverer(we, &now, rcv.server.Client()),
+			Interval: jobtest.DispatchInterval, Deliverer: newTestDeliverer(we, &now, rcv.server.Client()),
 		},
 	})
 	// Generous compared with the gap bound: a run this slow is a sick machine,
@@ -281,10 +282,10 @@ func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.WebhookRetryArgs{}.Kind()
-	first, second := awaitTwoDispatchArrivals(waitCtx, t, completed, kind)
-	if gap := second.Sub(first); gap > dispatchGapBound {
+	first, second := jobtest.AwaitTwoDispatchArrivals(waitCtx, t, completed, kind)
+	if gap := second.Sub(first); gap > jobtest.DispatchGapBound {
 		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured %s interval but some larger constant, and --webhook-retry-interval's own 30s default is the one that would look exactly like this",
-			kind, gap, dispatchGapBound, dispatchInterval)
+			kind, gap, jobtest.DispatchGapBound, jobtest.DispatchInterval)
 	}
 }
 
@@ -301,7 +302,7 @@ func TestWebhookRetryWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(t 
 	rcv := newReceiver(t, http.StatusInternalServerError)
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 
-	runner, completed, _ := startTestJobRunner(t, we.pool, compose.JobRunnerConfig{
+	runner, completed, _ := jobtest.StartTestJobRunner(t, we.pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
@@ -321,7 +322,7 @@ func TestWebhookRetryWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(t 
 	// half of the claim: a queued row is still worked with no schedule present.
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	awaitKindsCompleted(waitCtx, t, completed,
+	jobtest.AwaitKindsCompleted(waitCtx, t, completed,
 		compose.CloseDateSweepArgs{}.Kind(), compose.WebhookRetryWorkspaceArgs{}.Kind())
 
 	var dispatched int
