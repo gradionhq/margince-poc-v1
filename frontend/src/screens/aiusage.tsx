@@ -125,9 +125,12 @@ export function AiUsageCard() {
                 }}
               >
                 <div style={{ flex: 1 }}>
+                  {/* pct, not the raw token pair: a workspace with no monthly
+                      budget configured reads as fully spent (pct is 100 above),
+                      and the bar must say what the caption beside it says. */}
                   <Meter
-                    value={data.budget.spent_tokens}
-                    max={data.budget.monthly_tokens}
+                    value={pct}
+                    max={100}
                     label={t("aiusage.budgetMeter")}
                   />
                   <p className="sub">
