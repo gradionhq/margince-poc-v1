@@ -34,7 +34,7 @@ type capturedFileKeeper struct {
 var _ capture.FileKeeper = capturedFileKeeper{}
 
 func (k capturedFileKeeper) Stage(
-	ctx context.Context, workspace ids.WorkspaceID, files []capture.CapturedFile,
+	ctx context.Context, files []capture.CapturedFile,
 ) ([]capture.StagedFile, error) {
 	owned := make([]activities.CapturedFile, 0, len(files))
 	for _, file := range files {
@@ -46,7 +46,7 @@ func (k capturedFileKeeper) Stage(
 			Body:         file.Body,
 		})
 	}
-	staged, err := k.store.StageCapturedFiles(ctx, workspace, owned)
+	staged, err := k.store.StageCapturedFiles(ctx, owned)
 	if err != nil {
 		return nil, err
 	}
@@ -65,11 +65,12 @@ func (k capturedFileKeeper) Record(
 ) error {
 	owned := make([]activities.StagedFile, 0, len(staged))
 	for _, file := range staged {
-		// Every element came out of Stage above, so this holds by construction.
-		// A value from anywhere else is a wiring error and must not be written
-		// as a silently skipped file.
 		typed, ok := file.(activities.StagedFile)
 		if !ok {
+			// The marker is satisfied by exactly one type today, so this cannot
+			// happen through this adapter — but a silently skipped file is the
+			// one outcome that must never be possible on a path whose promise
+			// is that what arrived is what is stored.
 			return errStagedFileNotOurs
 		}
 		owned = append(owned, typed)

@@ -18,6 +18,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -28,9 +29,12 @@ import (
 // exhaust storage: a message beyond them is captured with the parts that fit,
 // and what did not fit is reported rather than dropped in silence (DOC-AC-12).
 const (
-	maxParts        = 20
-	maxPartBytes    = 25 << 20
-	maxMessageBytes = 50 << 20
+	maxParts = 20
+	// maxPartsExamined is the hard ceiling on parts LOOKED AT, well above any
+	// real message and far below what a crafted one can hold.
+	maxPartsExamined = 200
+	maxPartBytes     = 25 << 20
+	maxMessageBytes  = 50 << 20
 )
 
 // sniffLen is what http.DetectContentType actually reads. Reading exactly that
@@ -56,12 +60,12 @@ type Part struct {
 	Body         []byte
 }
 
-// PartDrop names one file that did not survive the bounds. It carries no
-// filename: it is written to the capture breadcrumb, which records the natural
-// key and the reason and nothing a sender wrote.
+// PartDrop is how many files one bound refused, and why. Counted rather than
+// listed: the number of refusals is the sender's choice, so a record per
+// refusal would let them size our own log.
 type PartDrop struct {
-	Ordinal int
-	Reason  string
+	Reason string
+	Count  int
 }
 
 // The reasons a part can fail to make it. Each is observable on the capture
@@ -72,19 +76,82 @@ const (
 	DropPartTooLarge   = "part_too_large"
 	DropMessageTooBig  = "message_bytes_exceeded"
 	DropUnreadablePart = "part_unreadable"
+	// DropWalkTruncated names files we know we did not reach: the MIME walk
+	// failed structurally and everything after that point is unread. The count
+	// is unknowable, which is exactly why it is reported.
+	DropWalkTruncated = "message_walk_truncated"
 )
 
 // collector accumulates the files a single message carried while the body walk
 // runs, so the message is read once rather than twice.
 type collector struct {
 	parts   []Part
-	drops   []PartDrop
-	seen    int
+	dropped map[string]int
 	budget  int
 	ordinal int
 }
 
-func newCollector() *collector { return &collector{budget: maxMessageBytes} }
+func newCollector() *collector {
+	return &collector{budget: maxMessageBytes, dropped: map[string]int{}}
+}
+
+// drop tallies one refusal. Bounded by construction: there are five reasons, so
+// there are at most five tallies however many parts a message contains.
+func (c *collector) drop(reason string) { c.dropped[reason]++ }
+
+// drops renders the tallies in a stable order, so the same message always
+// reports the same way.
+func (c *collector) drops() []PartDrop {
+	out := make([]PartDrop, 0, len(c.dropped))
+	for _, reason := range []string{
+		DropTooManyParts, DropPartTooLarge, DropMessageTooBig,
+		DropUnreadablePart, DropWalkTruncated,
+	} {
+		if count := c.dropped[reason]; count > 0 {
+			out = append(out, PartDrop{Reason: reason, Count: count})
+		}
+	}
+	return out
+}
+
+// exhausted reports that the walk has seen more parts than any real message
+// carries and must stop.
+//
+// The per-part bounds decide what is KEPT; this decides what is even looked at.
+// Without it a sender chooses how long we walk: parts cost 25 bytes each on the
+// wire, so a single message within the adapters' own size limits contains
+// millions of them, and merely counting those is work an unauthenticated sender
+// got us to do.
+func (c *collector) exhausted() bool { return c.ordinal >= maxPartsExamined }
+
+// inlineFilename reads the name an inline part gave itself, from either place a
+// client may put it: the Content-Disposition filename parameter, or the older
+// Content-Type name parameter. Empty means the part named nothing and is body
+// text rather than a file.
+func inlineFilename(header *mail.InlineHeader) string {
+	if _, params, err := header.ContentDisposition(); err == nil {
+		if name := strings.TrimSpace(params["filename"]); name != "" {
+			return name
+		}
+	}
+	if _, params, err := header.ContentType(); err == nil {
+		if name := strings.TrimSpace(params["name"]); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// takeInline reads a part the sender rendered inline but named — a file by any
+// measure. It shares every bound and every rule with a declared attachment;
+// only the header type differs.
+func (c *collector) takeInline(header *mail.InlineHeader, name string, body io.Reader) {
+	declared, _, err := header.ContentType()
+	if err != nil {
+		declared = ""
+	}
+	c.admit(name, declared, body)
+}
 
 // take reads one attachment part, or records why it could not.
 //
@@ -92,10 +159,36 @@ func newCollector() *collector { return &collector{budget: maxMessageBytes} }
 // or not it survives — see Part.Ordinal for why that matters more than it
 // looks.
 func (c *collector) take(header *mail.AttachmentHeader, body io.Reader) {
+	declared, err := "", error(nil)
+	if declared, _, err = header.ContentType(); err != nil {
+		// A malformed Content-Type is no claim at all, which the sniff answers
+		// on its own.
+		declared = ""
+	}
+	filename, err := header.Filename()
+	if err != nil {
+		// An undecodable name is no name. SafeFilename supplies one from the
+		// ordinal, which is the only thing about this file we can vouch for.
+		filename = ""
+	}
+	c.admit(filename, declared, body)
+}
+
+// truncated records that the walk ended before the message did, so files we
+// never reached are reported rather than silently absent.
+func (c *collector) truncated() { c.drop(DropWalkTruncated) }
+
+// admit applies every bound to one candidate file and keeps it or says why not.
+func (c *collector) admit(filename, declared string, body io.Reader) {
 	c.ordinal++
 	ordinal := c.ordinal
-	if c.seen >= maxParts {
-		c.drops = append(c.drops, PartDrop{Ordinal: ordinal, Reason: DropTooManyParts})
+	// Counted over every attachment part the message CONTAINS, not over the
+	// ones that fit. Counting survivors would let a sender past the cap with
+	// oversized parts: each is refused without advancing the count, so the next
+	// one is still admitted, and a message of a thousand 25 MB parts is read in
+	// full — a cap that costs more to enforce than to ignore.
+	if ordinal > maxParts {
+		c.drop(DropTooManyParts)
 		return
 	}
 	// Read one byte past the per-file cap so a file sitting exactly on it is
@@ -103,33 +196,22 @@ func (c *collector) take(header *mail.AttachmentHeader, body io.Reader) {
 	// body to find out which.
 	content, err := io.ReadAll(io.LimitReader(body, maxPartBytes+1))
 	if err != nil {
-		c.drops = append(c.drops, PartDrop{Ordinal: ordinal, Reason: DropUnreadablePart})
+		c.drop(DropUnreadablePart)
 		return
 	}
 	if len(content) > maxPartBytes {
-		c.drops = append(c.drops, PartDrop{Ordinal: ordinal, Reason: DropPartTooLarge})
+		c.drop(DropPartTooLarge)
 		return
 	}
 	if len(content) > c.budget {
 		// The message's total allowance is spent. Everything after this is
 		// refused for the same reason, which is why the budget is not restored.
 		c.budget = 0
-		c.drops = append(c.drops, PartDrop{Ordinal: ordinal, Reason: DropMessageTooBig})
+		c.drop(DropMessageTooBig)
 		return
 	}
 	c.budget -= len(content)
-	c.seen++
 
-	declared, _, err := header.ContentType()
-	if err != nil {
-		// A malformed Content-Type is no claim at all, which the sniff below
-		// answers on its own.
-		declared = ""
-	}
-	filename, err := header.Filename()
-	if err != nil {
-		filename = ""
-	}
 	sniffed := sniff(content)
 	c.parts = append(c.parts, Part{
 		Ordinal:      ordinal,
@@ -203,10 +285,12 @@ func SafeFilename(name string, ordinal int) string {
 	if cleaned == "" {
 		// Named by position rather than left blank: a reader needs something to
 		// point at, and the ordinal is the one true thing we know about it.
-		return "attachment-" + itoa(ordinal)
+		return "attachment-" + strconv.Itoa(ordinal)
 	}
 	if len(cleaned) > maxFilenameLen {
-		cleaned = truncate(cleaned, maxFilenameLen)
+		// truncate appends an ellipsis, so it is given room for one: the stated
+		// ceiling is what the column and every list that renders it must hold.
+		cleaned = truncate(cleaned, maxFilenameLen-len("…"))
 	}
 	return cleaned
 }
@@ -214,15 +298,3 @@ func SafeFilename(name string, ordinal int) string {
 // maxFilenameLen keeps a pathological name out of the column and out of every
 // list that renders it. It is generous enough that no real filename hits it.
 const maxFilenameLen = 200
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
-}

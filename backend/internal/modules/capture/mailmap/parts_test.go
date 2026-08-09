@@ -88,13 +88,40 @@ func TestBeyondTheCapTheExtraFilesAreRefusedAndSaidSo(t *testing.T) {
 	if len(parts) != maxParts {
 		t.Errorf("kept %d files, want the cap of %d", len(parts), maxParts)
 	}
-	if len(drops) != 3 {
-		t.Fatalf("reported %d drops, want the 3 that did not fit", len(drops))
+	if len(drops) != 1 || drops[0].Reason != DropTooManyParts {
+		t.Fatalf("drops = %v, want one %q tally", drops, DropTooManyParts)
 	}
+	if drops[0].Count != 3 {
+		t.Errorf("counted %d refused files, want the 3 that did not fit", drops[0].Count)
+	}
+}
+
+// One breadcrumb per REASON, however many files were refused. Every part past
+// the cap costs 25 bytes on the wire, so one message within any adapter's size
+// limit holds hundreds of thousands of them — and a record per refusal would
+// let an unauthenticated sender decide how many rows our own log writes, inside
+// the transaction that captures their message.
+func TestAFloodOfPartsIsOneTallyAndABoundedWalk(t *testing.T) {
+	bodies := make([]string, maxPartsExamined*3)
+	for i := range bodies {
+		bodies[i] = ""
+	}
+	parts, drops := parseParts(t, multipart(t, bodies...))
+
+	if len(parts) > maxParts {
+		t.Errorf("kept %d files, want no more than the cap of %d", len(parts), maxParts)
+	}
+	if len(drops) > 2 {
+		t.Errorf("wrote %d breadcrumbs for one message, want one per reason: %v", len(drops), drops)
+	}
+	var truncated bool
 	for _, drop := range drops {
-		if drop.Reason != DropTooManyParts {
-			t.Errorf("drop reason = %q, want %q", drop.Reason, DropTooManyParts)
+		if drop.Reason == DropWalkTruncated {
+			truncated = true
 		}
+	}
+	if !truncated {
+		t.Errorf("drops = %v, want the walk to stop and say so rather than count every part", drops)
 	}
 }
 
@@ -108,12 +135,9 @@ func TestADroppedFileDoesNotRenumberTheOnesThatSurvived(t *testing.T) {
 	if len(parts) != 2 || len(drops) != 1 {
 		t.Fatalf("kept %d and dropped %d, want 2 and 1", len(parts), len(drops))
 	}
-	if drops[0].Ordinal != 2 {
-		t.Errorf("the oversized file reported ordinal %d, want 2", drops[0].Ordinal)
-	}
-	if parts[1].Ordinal != 3 {
-		t.Errorf("the surviving third file took ordinal %d, want 3 — a drop must not renumber",
-			parts[1].Ordinal)
+	if parts[0].Ordinal != 1 || parts[1].Ordinal != 3 {
+		t.Errorf("surviving ordinals = %d, %d, want 1 and 3 — a drop must not renumber",
+			parts[0].Ordinal, parts[1].Ordinal)
 	}
 }
 
@@ -125,8 +149,8 @@ func TestAnOversizedFileIsRefusedAndTheMessageStillLands(t *testing.T) {
 	if len(parts) != 1 || string(parts[0].Body) != "small" {
 		t.Fatalf("kept %d files, want only the one within the per-file cap", len(parts))
 	}
-	if len(drops) != 1 || drops[0].Reason != DropPartTooLarge {
-		t.Errorf("drops = %v, want one %q", drops, DropPartTooLarge)
+	if len(drops) != 1 || drops[0].Reason != DropPartTooLarge || drops[0].Count != 1 {
+		t.Errorf("drops = %v, want one %q counting 1", drops, DropPartTooLarge)
 	}
 }
 

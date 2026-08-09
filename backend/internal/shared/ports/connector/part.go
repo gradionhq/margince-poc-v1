@@ -30,10 +30,16 @@ type Part struct {
 	Body         []byte
 }
 
-// PartDrop is one file that did not survive the inbound bounds. It names no
-// filename on purpose: it is written to an operational breadcrumb, which
-// records the reason and the natural key and nothing a sender wrote.
+// PartDrop is how many files one bound refused, and why.
+//
+// A COUNT rather than a row per file, because the count is attacker-chosen: a
+// single message can contain hundreds of thousands of empty parts, and one
+// breadcrumb each would let a sender decide how many rows our own audit trail
+// writes. The reason is the fact worth keeping; the tally is the scale.
+//
+// It names no filename on purpose — it reaches an operational log, and a sender
+// writes the filename.
 type PartDrop struct {
-	Ordinal int
-	Reason  string
+	Reason string
+	Count  int
 }

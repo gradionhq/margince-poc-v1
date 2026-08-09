@@ -21,8 +21,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -33,7 +34,10 @@ const actionPartsDropped = "capture_parts_dropped"
 
 // fieldPartOrdinal names WHICH part was refused, so two drops on one message
 // are two distinguishable facts rather than one line repeated.
-const fieldPartOrdinal = "part_ordinal"
+// fieldDroppedParts is HOW MANY files one bound refused. A count rather than a
+// row each: the number of refusals is the sender's choice, and one breadcrumb
+// per refused part would let an inbound message size our own log.
+const fieldDroppedParts = "dropped_parts"
 
 // FileKeeper is the timeline module's attachment writer, injected at
 // composition so capture never imports it.
@@ -43,7 +47,7 @@ const fieldPartOrdinal = "part_ordinal"
 // only the row can join the capture transaction.
 type FileKeeper interface {
 	// Stage writes each file's bytes to object storage.
-	Stage(ctx context.Context, workspace ids.WorkspaceID, files []CapturedFile) ([]StagedFile, error)
+	Stage(ctx context.Context, files []CapturedFile) ([]StagedFile, error)
 	// Record writes the rows, inside the transaction that captured the message.
 	Record(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID,
 		from FileSource, staged []StagedFile) error
@@ -59,9 +63,18 @@ type CapturedFile struct {
 	Body         []byte
 }
 
-// StagedFile is one file whose bytes are already durable. Opaque here: capture
-// carries it from Stage to Record and never reads inside it.
-type StagedFile any
+// StagedFile is one file whose bytes are already durable.
+//
+// A marker interface rather than `any`: capture must not read inside the value,
+// and this way the COMPILER says so. Only the owning module can satisfy it, so
+// there is no runtime assertion and no unreachable branch for a value that
+// could not have come from anywhere else.
+type StagedFile interface {
+	// StagedFile reports that this value came from the module that owns the
+	// attachment table. It carries nothing: the point is that capture can hold
+	// the value and cannot open it.
+	StagedFile()
+}
 
 // FileSource is the provenance every file from one message shares.
 type FileSource struct {
@@ -89,8 +102,18 @@ func (s *Sink) stageParts(ctx context.Context, rec connector.NormalizedRecord) (
 			Body:         part.Body,
 		})
 	}
-	workspace := ids.From[ids.WorkspaceKind](storekit.MustWorkspace(ctx))
-	staged, err := s.files.Stage(ctx, workspace, files)
+	// Proven, never assumed. Every other write here is covered by
+	// current_setting('app.workspace_id') with deny-on-unset, but an object
+	// store has no policy to fall back on: an unbound context would write real
+	// attachment bytes under the zero workspace, outside any tenant's reach and
+	// outside erasure's.
+	workspace, ok := principal.WorkspaceID(ctx)
+	if !ok || workspace == (ids.UUID{}) {
+		return nil, fmt.Errorf(
+			"capture: a message's files cannot be stored without a bound workspace: %w",
+			apperrors.ErrPermissionDenied)
+	}
+	staged, err := s.files.Stage(ctx, files)
 	if err != nil {
 		return nil, fmt.Errorf("capture: storing the files a message carried: %w", err)
 	}
@@ -129,7 +152,7 @@ func partIdentity(ordinal int) string {
 func (s *Sink) logPartDrops(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord) error {
 	for _, drop := range rec.PartDrops {
 		if err := s.logBreadcrumbTx(ctx, tx, actionPartsDropped, rec, drop.Reason,
-			map[string]any{fieldPartOrdinal: drop.Ordinal}); err != nil {
+			map[string]any{fieldDroppedParts: drop.Count}); err != nil {
 			return err
 		}
 	}

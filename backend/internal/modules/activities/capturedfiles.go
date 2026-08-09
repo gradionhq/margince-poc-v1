@@ -26,14 +26,21 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// capturedFileStoreTimeout bounds one message's whole set of puts. Generous
+// against a healthy store carrying the 50 MB a message may hold, short enough
+// that a sick one cannot hold a database transaction indefinitely.
+const capturedFileStoreTimeout = 2 * time.Minute
 
 // CapturedFile is one file that arrived with a message, already bounded,
 // renamed safely and typed by its bytes.
@@ -60,13 +67,18 @@ type StagedFile struct {
 	checksum string
 }
 
+// StagedFile satisfies capture's marker, so a staged file crosses the seam as
+// an opaque value: capture holds it from one call to the next and has no way to
+// read what is inside.
+func (StagedFile) StagedFile() {}
+
 // StageCapturedFiles writes each file's bytes to object storage.
 //
 // A deployment with no blob seam keeps the MESSAGE and no files rather than
 // failing the capture: correspondence is what the timeline exists for, and
 // refusing it over an unconfigured store would lose a real exchange.
 func (s *Store) StageCapturedFiles(
-	ctx context.Context, workspace ids.WorkspaceID, files []CapturedFile,
+	ctx context.Context, files []CapturedFile,
 ) ([]StagedFile, error) {
 	// Gated even though it writes no row: this is where a caller turns bytes it
 	// supplied into durable objects, and an entry point that trusts its caller
@@ -79,6 +91,17 @@ func (s *Store) StageCapturedFiles(
 	if len(files) == 0 || s.blob == nil {
 		return nil, nil
 	}
+	// Derived here, never accepted from the caller. This is a byte write the
+	// row-level policy cannot reach, so the one value deciding which tenant's
+	// prefix it lands under comes from the bound context, as it does for a
+	// human upload.
+	workspace := workspaceID(ctx)
+	// Bounded, because the caller holds a transaction open across this and the
+	// SENDER chose how many bytes there are. A stalled object store would
+	// otherwise pin a pool connection for as long as it liked, and a few
+	// concurrent captures would take the pool with it.
+	ctx, cancel := context.WithTimeout(ctx, capturedFileStoreTimeout)
+	defer cancel()
 	staged := make([]StagedFile, 0, len(files))
 	for _, file := range files {
 		id := ids.NewV7()
@@ -141,7 +164,7 @@ func insertCapturedAttachment(
 	ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, account *ids.UUID,
 	from CapturedFileSource, file StagedFile,
 ) error {
-	_, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO attachment (
 			id, workspace_id, entity_type, entity_id, filename, content_type,
 			byte_size, storage_key, checksum, source, captured_by,
@@ -155,11 +178,40 @@ func insertCapturedAttachment(
 		  WHERE external_source_id IS NOT NULL DO NOTHING`,
 		file.id, activityID, file.file.Filename, nullIfEmpty(file.file.ContentType),
 		len(file.file.Body), file.key, file.checksum, from.System, from.CapturedBy,
-		account, from.MessageID, file.file.PartID, nullIfEmpty(file.file.DeclaredType))
+		account, providerMessageKey(from), file.file.PartID, nullIfEmpty(file.file.DeclaredType))
 	if err != nil {
 		return fmt.Errorf("record a captured file: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		// The conflict arm: this file is already recorded, so there is no new
+		// fact to audit. Auditing anyway would report a second arrival of a
+		// file that arrived once.
+		return nil
+	}
+	// Every mutation leaves an audit row. The image is metadata only — never
+	// the bytes and never anything a sender wrote beyond the name we already
+	// sanitized — matching how a captured activity is audited (ADR-0072/A118).
+	if _, err := storekit.Audit(ctx, tx, "create", "attachment", file.id, nil, map[string]any{
+		"entity_type":   "activity",
+		"entity_id":     activityID.String(),
+		"category":      "email_attachment",
+		"byte_size":     len(file.file.Body),
+		"source_system": from.System,
+	}); err != nil {
+		return fmt.Errorf("audit a captured file: %w", err)
+	}
 	return nil
+}
+
+// providerMessageKey is the stored message identity, and it names the SYSTEM
+// as well as the message.
+//
+// A bare Message-ID is not unique across adapters: the same mailbox pulled by
+// both imap and gmail yields the same id, and the unique index on this column
+// would then let the second adapter's file collide with the first and be
+// dropped by ON CONFLICT — a file lost, silently, to a deployment choice.
+func providerMessageKey(from CapturedFileSource) string {
+	return from.System + ":" + from.MessageID
 }
 
 // accountForCapturedActivity resolves the account roll-up for a captured file.

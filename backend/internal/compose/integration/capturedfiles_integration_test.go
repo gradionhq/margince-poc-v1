@@ -125,7 +125,7 @@ func filesFor(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sourceID st
 			       byte_size, external_part_id, external_source_id, organization_id::text
 			  FROM attachment
 			 WHERE external_source_id = $1
-			 ORDER BY external_part_id`, sourceID)
+			 ORDER BY external_part_id`, "imap:"+sourceID)
 		if err != nil {
 			return err
 		}
@@ -171,6 +171,12 @@ func TestACapturedMessagesFileBecomesAnAttachment(t *testing.T) {
 	}
 	if got.declaredType == nil || *got.declaredType != "application/octet-stream" {
 		t.Errorf("declared_type = %v, want the sender's disagreeing claim kept", got.declaredType)
+	}
+	// The stored identity NAMES THE ADAPTER. A bare Message-ID is not unique
+	// across adapters, so the same mailbox pulled by two of them would collide
+	// on the unique index and the second file would be dropped in silence.
+	if got.sourceID == nil || *got.sourceID != "imap:msg-with-file-"+tag {
+		t.Errorf("external_source_id = %v, want the adapter named alongside the message", got.sourceID)
 	}
 	// And the bytes are actually there. A row pointing at an object that was
 	// never written is exactly the failure the blob-before-row order exists to
@@ -222,15 +228,16 @@ func TestTheDatabaseRefusesASecondRowForTheSameProviderPart(t *testing.T) {
 		t.Fatalf("stored %d files, want 1 before the duplicate is attempted", len(stored))
 	}
 
-	// The same (message, part) identity, inserted as a concurrent pull would.
+	// The same (message, part) identity, written as a concurrent pull would.
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO attachment (
 				workspace_id, entity_type, entity_id, filename, storage_key,
 				source, captured_by, external_source_id, external_part_id)
-			SELECT workspace_id, entity_type, entity_id, filename, storage_key || '-again',
-			       source, captured_by, external_source_id, external_part_id
-			  FROM attachment WHERE external_source_id = $1`, "msg-racing-pulls-"+tag)
+			VALUES (current_setting('app.workspace_id')::uuid, 'activity', $1, 'contract.pdf',
+			        'some/other/key', 'imap', 'connector:imap', $2, $3)`,
+			activityOf(ctx, t, pool, "imap:msg-racing-pulls-"+tag),
+			"imap:msg-racing-pulls-"+tag, *stored[0].partID)
 		return err
 	})
 	if err == nil {
@@ -268,7 +275,7 @@ func TestARefusedFileLeavesAnObservableReason(t *testing.T) {
 	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blobstore.NewMemory()))
 
 	rec := mailRecord("msg-dropped-file-" + tag)
-	rec.PartDrops = []connector.PartDrop{{Ordinal: 2, Reason: "part_too_large"}}
+	rec.PartDrops = []connector.PartDrop{{Reason: "part_too_large", Count: 3}}
 	if _, err := sink.Upsert(ctx, rec); err != nil {
 		t.Fatalf("capture: %v", err)
 	}
@@ -283,8 +290,10 @@ func TestARefusedFileLeavesAnObservableReason(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("read the drop breadcrumb: %v", err)
 	}
+	// ONE breadcrumb for three refused files. The tally is what makes an
+	// inbound message unable to size our own log.
 	if logged != 1 {
-		t.Errorf("found %d drop breadcrumbs, want 1 — a refused file must not be silent", logged)
+		t.Errorf("found %d drop breadcrumbs, want 1 — one per reason, whatever the count", logged)
 	}
 }
 
@@ -298,7 +307,7 @@ func fileKeeper(pool *pgxpool.Pool, blob blobstore.Store) capture.FileKeeper {
 }
 
 func (k fileKeeperAdapter) Stage(
-	ctx context.Context, workspace ids.WorkspaceID, files []capture.CapturedFile,
+	ctx context.Context, files []capture.CapturedFile,
 ) ([]capture.StagedFile, error) {
 	owned := make([]activities.CapturedFile, 0, len(files))
 	for _, file := range files {
@@ -307,7 +316,7 @@ func (k fileKeeperAdapter) Stage(
 			ContentType: file.ContentType, DeclaredType: file.DeclaredType, Body: file.Body,
 		})
 	}
-	staged, err := k.store.StageCapturedFiles(ctx, workspace, owned)
+	staged, err := k.store.StageCapturedFiles(ctx, owned)
 	if err != nil {
 		return nil, err
 	}
@@ -336,3 +345,18 @@ func (k fileKeeperAdapter) Record(
 }
 
 var errNotStagedHere = errors.New("a captured file was staged by something else")
+
+// activityOf reads the activity a captured file hangs off, so a duplicate can
+// be written against the same parent the real one has.
+func activityOf(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sourceKey string) ids.UUID {
+	t.Helper()
+	var id ids.UUID
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT entity_id FROM attachment WHERE external_source_id = $1 LIMIT 1`,
+			sourceKey).Scan(&id)
+	}); err != nil {
+		t.Fatalf("read the captured file's activity: %v", err)
+	}
+	return id
+}

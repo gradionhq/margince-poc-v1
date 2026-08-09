@@ -13,6 +13,7 @@ package mailmap
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -343,10 +344,22 @@ func extractText(reader *mail.Reader) (string, []Part, []PartDrop) {
 	var plain, html string
 	files := newCollector()
 	for {
+		if files.exhausted() {
+			// Past any real message. Everything beyond is unread and reported
+			// as such rather than walked, because walking it is the work an
+			// unauthenticated sender was trying to buy.
+			files.truncated()
+			break
+		}
 		part, err := reader.NextPart()
 		if err != nil {
-			// io.EOF (and any structural read error) ends the walk; whatever
-			// text and files were already collected stand.
+			if !errors.Is(err, io.EOF) {
+				// A structural failure ends the walk, so any file after this
+				// point is lost. Recorded rather than passed over: a message
+				// whose files went missing must not read like one that carried
+				// none (DOC-AC-12).
+				files.truncated()
+			}
 			break
 		}
 		if attached, ok := part.Header.(*mail.AttachmentHeader); ok {
@@ -361,6 +374,14 @@ func extractText(reader *mail.Reader) (string, []Part, []PartDrop) {
 		if err != nil {
 			continue
 		}
+		// An INLINE part with a filename is a file. Several mail clients send
+		// PDFs and images that way as a matter of course, and reading only
+		// Content-Disposition: attachment loses them with nothing recorded —
+		// the sender chose how to render it, not whether we keep it.
+		if name := inlineFilename(inline); name != "" {
+			files.takeInline(inline, name, part.Body)
+			continue
+		}
 		content, err := io.ReadAll(part.Body)
 		if err != nil {
 			continue
@@ -372,7 +393,7 @@ func extractText(reader *mail.Reader) (string, []Part, []PartDrop) {
 			html = string(content)
 		}
 	}
-	return bodyText(plain, html), files.parts, files.drops
+	return bodyText(plain, html), files.parts, files.drops()
 }
 
 func bodyText(plain, html string) string {
@@ -448,7 +469,7 @@ func (m Message) recordDrops() []connector.PartDrop {
 	}
 	out := make([]connector.PartDrop, 0, len(m.partDrops))
 	for _, drop := range m.partDrops {
-		out = append(out, connector.PartDrop{Ordinal: drop.Ordinal, Reason: drop.Reason})
+		out = append(out, connector.PartDrop{Reason: drop.Reason, Count: drop.Count})
 	}
 	return out
 }

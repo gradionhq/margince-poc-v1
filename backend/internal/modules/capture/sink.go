@@ -120,13 +120,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	// produced no rows, and returning ErrSkip from inside the callback would
 	// roll that proof back along with everything else (ADR-0082 §1).
 	var internalOnly bool
-	// The bytes land BEFORE the transaction that records them — see sinkparts.go
-	// for why that order and not the other one.
-	staged, err := s.stageParts(ctx, rec)
-	if err != nil {
-		return datasource.EntityRef{}, err
-	}
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// A channel record's account id IS personal data, and THIS transaction is
 		// the one that makes it durable — so the erasure is excluded here, under
 		// the account's own lock, and not only at the ingress edge that admitted
@@ -156,7 +150,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		switch fields := rec.Fields.(type) {
 		case ActivityFields:
 			var err error
-			ref, activityCreated, decision, err = s.captureActivity(ctx, tx, rec, fields, staged)
+			ref, activityCreated, decision, err = s.captureActivity(ctx, tx, rec, fields)
 			return err
 		case LeadFields:
 			var err error
@@ -232,7 +226,7 @@ func storeRawCapture(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRec
 
 // captureActivity lands one activity: upsert on the natural key, links,
 // audit and event only when the row is new — a replay writes nothing.
-func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields, staged []StagedFile) (datasource.EntityRef, bool, counterpartyDecision, error) {
+func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, bool, counterpartyDecision, error) {
 	// One clock read for the whole capture. A provider payload carrying no
 	// timestamp falls back to now(), and THREE things downstream ask for that
 	// answer — the activity row, its audit image, and the reply fact — so asking
@@ -254,6 +248,18 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	// The files, after the links: the account roll-up a captured file carries is
 	// read from the activity's own organization link, which does not exist until
 	// the line above has run.
+	//
+	// Staged HERE, inside the transaction and only once the message is known to
+	// be new. The bytes still land before the row that points at them — the put
+	// is not transactional — but two things now cannot happen. Colleague mail
+	// the internal gate drops never has its files written at all, which it did
+	// when staging ran ahead of that gate. And a replayed message writes no
+	// second copy: every pull minted fresh keys and then skipped the insert, so
+	// a routine backfill left an unreferenced object per attachment per pass.
+	staged, err := s.stageParts(ctx, rec)
+	if err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
 	if err := s.recordParts(ctx, tx, id, rec, staged); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
