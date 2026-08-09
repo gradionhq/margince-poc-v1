@@ -12272,18 +12272,27 @@ components:
         overdue:
           allOf: [{ $ref: '#/components/schemas/Money' }]
           description: The share of the open balance already past its due date.
-        median_days_to_pay:
+        median_days_after_due:
           type: [integer, 'null']
           description: >-
-            The median days between issue and settlement over the window
-            (FIN-FORM-3). Absent when too few invoices have settled to say — a
-            median of one invoice is an anecdote.
+            The median days between an invoice's DUE date and its settlement over
+            the window (FIN-FORM-3) — how late they pay, not how long they take.
+            Negative reads as early. Deliberately not issue-to-settlement: an
+            invoice paid on the last day of 30-day terms is punctual, and a figure
+            that called it "30 days to pay" would read as slow.
+
+            Absent when too few invoices have settled to say — a median of one
+            invoice is an anecdote, not a payment habit.
         payment_behaviour:
           type: array
           description: >-
-            Days-late per settled invoice, oldest first, for the sparkline. Empty when
-            nothing settled inside the window; never padded with zeroes, because a
-            zero here reads as "paid exactly on time".
+            Days-late per settled invoice, oldest first, for the sparkline. Never
+            padded with zeroes, because a zero here reads as "paid exactly on
+            time".
+
+            Absent under the same sample floor the median observes: a shape drawn
+            from one invoice would state a payment habit the number beside it
+            refuses to.
           items: { type: integer }
         recent_invoices:
           type: array

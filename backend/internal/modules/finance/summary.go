@@ -23,6 +23,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -47,7 +48,16 @@ func (s *Store) SummaryFor(
 		// The account itself is row-scoped, and a finance grant is not a
 		// licence to learn that an organization exists: an account the caller
 		// cannot see answers 404 before any figure is read.
+		//
+		// EnsureVisible alone is not enough. Under row_scope=all it skips the
+		// query entirely — correctly, since everything is visible — so an id
+		// naming no organization would come back as a summary of the
+		// workspace's provider rather than a 404. The existence probe is what
+		// makes a made-up id answer the same way a hidden one does.
 		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
+			return err
+		}
+		if err := organizationExists(ctx, tx, orgID); err != nil {
 			return err
 		}
 		conn, connected, err := readConnection(ctx, tx)
@@ -61,7 +71,7 @@ func (s *Store) SummaryFor(
 		}
 		out.Provider = &conn.provider
 		out.LastSyncedAt = conn.lastSuccessAt
-		linked, err := organizationIsLinked(ctx, tx, orgID)
+		linked, err := organizationIsLinked(ctx, tx, orgID, conn.id)
 		if err != nil {
 			return err
 		}
@@ -73,7 +83,13 @@ func (s *Store) SummaryFor(
 			return nil
 		}
 		out.State = connectionState(conn, s.now())
-		return s.fillFigures(ctx, tx, orgID, &out)
+		if out.State == crmcontracts.FinanceSummaryStateSyncing {
+			// The first pass has not finished, so any total would be the sum of
+			// however much has landed so far — a smaller number wearing the
+			// label of the whole one. The state is the answer until it does.
+			return nil
+		}
+		return s.fillFigures(ctx, tx, orgID, conn, &out)
 	})
 	if err != nil {
 		return crmcontracts.OrganizationFinanceSummary{}, err
@@ -84,6 +100,7 @@ func (s *Store) SummaryFor(
 // connection is the installation's accounting source, reduced to what the
 // summary reads.
 type connection struct {
+	id            ids.UUID
 	provider      string
 	status        string
 	lastSuccessAt *time.Time
@@ -98,11 +115,11 @@ type connection struct {
 // `no_connection` renders it.
 func readConnection(ctx context.Context, tx pgx.Tx) (conn connection, found bool, err error) {
 	err = tx.QueryRow(ctx, `
-		SELECT provider, status, last_success_at
+		SELECT id, provider, status, last_success_at
 		  FROM finance_connection
 		 WHERE archived_at IS NULL AND status <> 'disconnected'
 		 ORDER BY created_at DESC
-		 LIMIT 1`).Scan(&conn.provider, &conn.status, &conn.lastSuccessAt)
+		 LIMIT 1`).Scan(&conn.id, &conn.provider, &conn.status, &conn.lastSuccessAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return connection{}, false, nil
 	}
@@ -117,16 +134,40 @@ func readConnection(ctx context.Context, tx pgx.Tx) (conn connection, found bool
 // inferred from a name match — FIN-AC-7's unmapped state exists because
 // guessing which customer is which company is how money lands on the wrong
 // account.
-func organizationIsLinked(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (bool, error) {
+// Scoped to the LIVE connection: rows from a source that was disconnected and
+// replaced stay in the mirror, and mixing them into the current source's
+// totals would report money the connected system has never heard of.
+func organizationIsLinked(
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, connectionID ids.UUID,
+) (bool, error) {
 	var exists bool
 	err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM finance_customer_link
-			 WHERE organization_id = $1 AND archived_at IS NULL)`, orgID).Scan(&exists)
+			 WHERE organization_id = $1 AND connection_id = $2
+			   AND archived_at IS NULL)`, orgID, connectionID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("read the customer link: %w", err)
 	}
 	return exists, nil
+}
+
+// organizationExists answers the id that names nobody with the same 404 a
+// hidden account gets. Existence-hiding cuts both ways: a caller must not be
+// able to tell "no such account" from "not yours".
+func organizationExists(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) error {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM organization WHERE id = $1 AND archived_at IS NULL)`,
+		orgID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("read the account: %w", err)
+	}
+	if !exists {
+		return apperrors.ErrNotFound
+	}
+	return nil
 }
 
 // connectionState reads the connection's own health into the card's
@@ -157,10 +198,10 @@ func connectionState(conn connection, now time.Time) crmcontracts.FinanceSummary
 // conversion rate withholds the whole total rather than reporting the sum of
 // the rows that happened to convert.
 func (s *Store) fillFigures(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, conn connection,
 	out *crmcontracts.OrganizationFinanceSummary,
 ) error {
-	invoices, currency, err := readInvoices(ctx, tx, orgID)
+	invoices, currency, err := readInvoices(ctx, tx, orgID, conn.id)
 	if err != nil {
 		return err
 	}
@@ -181,13 +222,17 @@ func (s *Store) fillFigures(
 	// Below the sample floor the answer is "not enough settled invoices to
 	// say" — which is why it is a flag on the formula rather than a zero, and
 	// why the figure is left absent here rather than reported as 0 days.
+	// Both readings ride the SAME sample floor. Below it the answer is "not
+	// enough settled invoices to say", and a sparkline drawn from one invoice
+	// is a payment-behaviour claim made from an anecdote — the picture would
+	// state what the number refuses to.
 	timeliness := TimelinessOver(invoices, now)
 	if !timeliness.InsufficientSample {
 		median := timeliness.MedianDaysLate
-		out.MedianDaysToPay = &median
+		out.MedianDaysAfterDue = &median
+		out.PaymentBehaviour = paymentBehaviour(invoices, now)
 	}
-	out.PaymentBehaviour = paymentBehaviour(invoices, now)
-	return s.fillRecent(ctx, tx, orgID, out)
+	return s.fillRecent(ctx, tx, orgID, conn.id, out)
 }
 
 // paymentBehaviour is the sparkline's series: days late per settled invoice,
@@ -220,16 +265,16 @@ func money(minor int64, currency string) *crmcontracts.Money {
 // there are more. A capped list that stays silent about the cap reads as the
 // whole ledger.
 func (s *Store) fillRecent(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, connectionID ids.UUID,
 	out *crmcontracts.OrganizationFinanceSummary,
 ) error {
 	rows, err := tx.Query(ctx, `
 		SELECT id, number, issued_at, due_at, fully_paid_at, status, currency,
 		       gross_minor, open_minor
 		  FROM finance_invoice
-		 WHERE organization_id = $1 AND archived_at IS NULL
+		 WHERE organization_id = $1 AND connection_id = $2 AND archived_at IS NULL
 		 ORDER BY issued_at DESC, id DESC
-		 LIMIT $2`, orgID, recentInvoiceLimit+1)
+		 LIMIT $3`, orgID, connectionID, recentInvoiceLimit+1)
 	if err != nil {
 		return fmt.Errorf("read recent invoices: %w", err)
 	}
@@ -315,16 +360,27 @@ func scanRecentInvoice(rows pgx.Rows, now time.Time) (crmcontracts.FinanceInvoic
 // is wired through, a summary with no single currency reports no money figure
 // rather than a sum wearing the wrong symbol.
 func readInvoices(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, connectionID ids.UUID,
 ) ([]Invoice, string, error) {
+	// The amounts are converted HERE, at each invoice's own frozen rate
+	// (FIN-PARAM-7/DM-FX-4), because the formulas' fields are base-currency by
+	// contract. An invoice with no rate keeps its issued amounts and is marked
+	// — the formulas refuse the whole figure on one of those (FIN-AC-6), which
+	// they can only do if the row reaches them.
+	//
+	// Rounded to the nearest minor unit rather than truncated: consistently
+	// rounding down turns a hundred invoices into a total that is quietly
+	// short.
 	rows, err := tx.Query(ctx, `
 		SELECT status, issued_at, due_at, fully_paid_at, currency,
-		       net_minor, credited_minor, open_minor,
+		       round(net_minor * coalesce(fx_rate_to_base, 1))::bigint,
+		       round(credited_minor * coalesce(fx_rate_to_base, 1))::bigint,
+		       round(open_minor * coalesce(fx_rate_to_base, 1))::bigint,
 		       credits_invoice_id IS NOT NULL, disputed_at IS NOT NULL,
 		       fx_rate_to_base IS NULL
 		  FROM finance_invoice
-		 WHERE organization_id = $1 AND archived_at IS NULL
-		 ORDER BY issued_at ASC, id ASC`, orgID)
+		 WHERE organization_id = $1 AND connection_id = $2 AND archived_at IS NULL
+		 ORDER BY issued_at ASC, id ASC`, orgID, connectionID)
 	if err != nil {
 		return nil, "", fmt.Errorf("read invoices: %w", err)
 	}

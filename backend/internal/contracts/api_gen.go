@@ -13463,8 +13463,9 @@ type OrganizationFinanceSummary struct {
 	// LastSyncedAt When the last successful sync finished. Null when none has.
 	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
 
-	// MedianDaysToPay The median days between issue and settlement over the window (FIN-FORM-3). Absent when too few invoices have settled to say — a median of one invoice is an anecdote.
-	MedianDaysToPay *int `json:"median_days_to_pay,omitempty"`
+	// MedianDaysAfterDue The median days between an invoice's DUE date and its settlement over the window (FIN-FORM-3) — how late they pay, not how long they take. Negative reads as early. Deliberately not issue-to-settlement: an invoice paid on the last day of 30-day terms is punctual, and a figure that called it "30 days to pay" would read as slow.
+	// Absent when too few invoices have settled to say — a median of one invoice is an anecdote, not a payment habit.
+	MedianDaysAfterDue *int `json:"median_days_after_due,omitempty"`
 
 	// NetInvoiced Issued minus credited over the last 365 days (FIN-FORM-1). Named "net invoiced" rather than "revenue": the source supports issued amounts, not a ledger revenue figure, and calling one the other is the kind of small wrong label a reader plans against.
 	NetInvoiced *Money `json:"net_invoiced,omitempty"`
@@ -13476,7 +13477,8 @@ type OrganizationFinanceSummary struct {
 	// Overdue The share of the open balance already past its due date.
 	Overdue *Money `json:"overdue,omitempty"`
 
-	// PaymentBehaviour Days-late per settled invoice, oldest first, for the sparkline. Empty when nothing settled inside the window; never padded with zeroes, because a zero here reads as "paid exactly on time".
+	// PaymentBehaviour Days-late per settled invoice, oldest first, for the sparkline. Never padded with zeroes, because a zero here reads as "paid exactly on time".
+	// Absent under the same sample floor the median observes: a shape drawn from one invoice would state a payment habit the number beside it refuses to.
 	PaymentBehaviour *[]int `json:"payment_behaviour,omitempty"`
 
 	// Provider Which accounting source this came from, in the source's own words ("offline_demo"). Rendered as a label beside the figures so a reader knows what they are looking at; absent when nothing is connected.
