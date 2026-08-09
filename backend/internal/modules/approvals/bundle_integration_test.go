@@ -425,6 +425,33 @@ func TestABundleTooLargeToDecideIsRefusedAndStillHiddenFromOutsiders(t *testing.
 	}
 }
 
+// competingTx opens the OTHER side of a race: a transaction this test drives by
+// hand, to hold a row or commit a verdict while the code under test runs.
+//
+// It binds app.workspace_id even though the owner connection is RLS-exempt
+// wherever this suite runs today. The binding is what keeps that from being
+// load-bearing: FORCE row-level security does not reach a superuser or a
+// BYPASSRLS role, so an unbound write here works on every machine that has one
+// and filters to zero rows on any that does not — and a race probe that quietly
+// writes nothing is a test that passes having proved the opposite of what it
+// says.
+func (e *stagingEnv) competingTx(t *testing.T) pgx.Tx {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := e.owner.Begin(ctx)
+	if err != nil {
+		t.Fatalf("opening the competing transaction: %v", err)
+	}
+	t.Cleanup(func() {
+		//craft:ignore swallowed-errors a rollback after the test's own Commit is a designed no-op; the Commit itself is asserted
+		_ = tx.Rollback(context.Background())
+	})
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, e.ws.String()); err != nil {
+		t.Fatalf("binding the competing transaction to the workspace: %v", err)
+	}
+	return tx
+}
+
 // waitForRowLockWaiter blocks until something is waiting on a lock THIS TEST's
 // competing transaction holds.
 //
@@ -490,15 +517,7 @@ func TestABundleMemberDecidedMidFlightIsAbsorbedRatherThanFailingTheBundle(t *te
 	contested := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-bruno")
 
 	bg := context.Background()
-	competing, err := e.owner.Begin(bg)
-	if err != nil {
-		t.Fatalf("opening the competing decision: %v", err)
-	}
-	// Released whatever happens: a held lock outlives a failing assertion, and
-	// the blocked decision would otherwise keep a pool connection until the
-	// package's own teardown gave up on it.
-	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
-	defer func() { _ = competing.Rollback(bg) }()
+	competing := e.competingTx(t)
 	var locked ids.ApprovalID
 	if err := competing.QueryRow(bg,
 		`SELECT id FROM approval WHERE id = $1 FOR UPDATE`, contested).Scan(&locked); err != nil {
@@ -606,12 +625,7 @@ func TestABundleWhoseTargetLeavesMidFlightDecidesNothingAtAll(t *testing.T) {
 	second := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-bruno")
 
 	bg := context.Background()
-	competing, err := e.owner.Begin(bg)
-	if err != nil {
-		t.Fatalf("opening the competing writer: %v", err)
-	}
-	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
-	defer func() { _ = competing.Rollback(bg) }()
+	competing := e.competingTx(t)
 	var locked ids.ApprovalID
 	if err := competing.QueryRow(bg,
 		`SELECT id FROM approval WHERE id = $1 FOR UPDATE`, second).Scan(&locked); err != nil {
@@ -709,12 +723,7 @@ func TestABundleDoesNotDecideAMemberThatMovedToAnotherBundleMidFlight(t *testing
 	member := e.stageInto(ctx, t, leaving, org, kindSiteLead, "lead-anna")
 
 	bg := context.Background()
-	competing, err := e.owner.Begin(bg)
-	if err != nil {
-		t.Fatalf("opening the competing re-proposal: %v", err)
-	}
-	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
-	defer func() { _ = competing.Rollback(bg) }()
+	competing := e.competingTx(t)
 	var locked ids.ApprovalID
 	if err := competing.QueryRow(bg,
 		`SELECT id FROM approval WHERE id = $1 FOR UPDATE`, member).Scan(&locked); err != nil {
@@ -765,12 +774,7 @@ func TestAProposalDecidedWhileARePropositionJoinsItIsNotRebundled(t *testing.T) 
 	original := e.stageInto(ctx, t, settled, org, kindSiteLead, "lead-anna")
 
 	bg := context.Background()
-	deciding, err := e.owner.Begin(bg)
-	if err != nil {
-		t.Fatalf("opening the competing decision: %v", err)
-	}
-	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
-	defer func() { _ = deciding.Rollback(bg) }()
+	deciding := e.competingTx(t)
 	if _, err := deciding.Exec(bg,
 		`UPDATE approval SET status = 'rejected', decided_by = $2, decided_at = now() WHERE id = $1`,
 		original, e.rep); err != nil {
