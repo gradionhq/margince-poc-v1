@@ -158,6 +158,30 @@ func TestExtensionJobsRefusesTheShapesAFragmentMustNotPublish(t *testing.T) {
 			kinds: strings.Replace(wellFormedPair, "cadence: 6h", "cadence: soon", 1),
 			want:  "invalid duration",
 		},
+		{
+			// A misspelling must not be able to un-declare a job: both role
+			// comparisons in the pairing are `!= X → skip`, so an unknown value
+			// falls out of each and leaves the kind registered by nothing.
+			name:  "a role outside the vocabulary",
+			kinds: strings.Replace(wellFormedPair, "role: dispatcher", "role: dispatchr", 1),
+			want:  `declares role "dispatchr"`,
+		},
+		{
+			// The child's apparent parent is another WORKSPACE kind, so the
+			// suffix-stripped lookup finds an entry and the claim check passed
+			// — while the dispatcher loop, which only visits dispatchers, never
+			// enqueued it.
+			name:  "a workspace child hanging off a workspace kind",
+			kinds: wellFormedPair + strings.ReplaceAll(wellFormedPair[strings.Index(wellFormedPair, "  ext_demo_refresh_ws:"):], "ext_demo_refresh_ws", "ext_demo_refresh_ws_ws"),
+			want:  "no dispatcher fans out to",
+		},
+		{
+			// Governance is the dispatcher's, and the pair folds into one
+			// declaration — a second copy on the child is read by nobody.
+			name:  "governance declared twice",
+			kinds: wellFormedPair + "    tier: auto_execute\n    scope: read\n",
+			want:  "declares tier/scope",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := extensionJobs(demoUnits(), jobsContract(tc.kinds))

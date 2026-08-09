@@ -145,6 +145,15 @@ func extensionKindEntries(kinds *yaml.Node, owners map[string]string) ([]namedEx
 		if err != nil {
 			return nil, fmt.Errorf("kind %s: %w", kind, err)
 		}
+		// The role vocabulary is closed HERE, where the entry is read, and not
+		// left to the two role comparisons in pairExtensionKinds. Those are
+		// written as `!= dispatcher → skip` and `!= workspace → skip`, so a
+		// mistyped `role: dispatchr` is not refused by either — it falls out of
+		// both loops and the kind vanishes: no registration, no manifest entry,
+		// no error. A misspelling must not be able to un-declare a job.
+		if def.Role != extRoleDispatcher && def.Role != extRoleWorkspace {
+			return nil, fmt.Errorf("kind %s declares role %q — an extension job kind is %q or %q, and any other value would leave the kind declared by the contract and registered by nothing", kind, def.Role, extRoleDispatcher, extRoleWorkspace)
+		}
 		out = append(out, namedExtKind{kind: kind, unit: unit, def: def})
 	}
 	return out, nil
@@ -203,7 +212,14 @@ func pairExtensionKinds(entries []namedExtKind, queues []string) ([]extension.Jo
 		if e.def.Role != extRoleWorkspace {
 			continue
 		}
-		if _, ok := byKind[strings.TrimSuffix(e.kind, extension.JobKindSuffix)]; !ok || !strings.HasSuffix(e.kind, extension.JobKindSuffix) {
+		// The parent must exist AND be a dispatcher. Existence alone is not the
+		// question the loop above answers: `a_ws` and `a_ws_ws` are both
+		// workspace kinds, and the second one's suffix-stripped name resolves
+		// to the first — so it looks claimed here while the dispatcher loop,
+		// which only ever visits dispatchers, never enqueued it. The result is
+		// a kind the contract declares, the manifest omits and nothing works.
+		parent, ok := byKind[strings.TrimSuffix(e.kind, extension.JobKindSuffix)]
+		if !ok || !strings.HasSuffix(e.kind, extension.JobKindSuffix) || parent.def.Role != extRoleDispatcher {
 			return nil, fmt.Errorf("kind %s is a workspace kind that no dispatcher fans out to — name it <dispatcher>%s and declare the dispatcher, or delete it", e.kind, extension.JobKindSuffix)
 		}
 	}
@@ -246,6 +262,16 @@ func declarationFrom(dispatcher, child namedExtKind, queues []string) (extension
 	}
 	if dispatcher.def.MaxAttempts != 0 {
 		return fail("declares max_attempts — the attempt cap is the CHILD's, and a dispatcher's retry is its own next tick")
+	}
+	// Governance is the DISPATCHER's, and the child declaring any is refused
+	// rather than ignored. The pair folds into one JobDeclaration carrying one
+	// tier and one scope, both read from the dispatcher — so a child spelling
+	// `tier: confirmation_required` beside a dispatcher's `auto_execute` is not
+	// a narrower child, it is a line an author wrote, a reviewer read, an
+	// operator resolved against, and the runtime never applied. Silently
+	// discarding a governance field is the one silence this seam cannot afford.
+	if child.def.Tier != "" || child.def.Scope != "" {
+		return extension.JobDeclaration{}, fmt.Errorf("kind %s declares tier/scope — a job's governance is declared once, on its dispatcher (%s), and the pair resolves as one; a second copy here would be read by nobody", child.kind, dispatcher.kind)
 	}
 	// One queue for the pair. Two would let a dispatcher tick on a pool whose
 	// bound has nothing to do with the one its children compete for, which is

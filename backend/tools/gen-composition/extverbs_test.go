@@ -177,6 +177,14 @@ func TestExtensionVerbRefusals(t *testing.T) {
 			pathItem: strings.Replace(yogiOperation, "              schema:\n                type: object\n                properties:\n                  quote: {type: string}", "              schema: {$ref: '#/components/schemas/Thing'}", 1),
 			wantErr:  "does not resolve references",
 		},
+		// The nested one is the shape a real fragment is likelier to have, and
+		// the root-only check passed it: the emitted literal is what an MCP
+		// client hands a model, and it has no document to resolve a property's
+		// reference against.
+		"a $ref nested inside a property": {
+			pathItem: strings.Replace(yogiOperation, "                  quote: {type: string}", "                  quote: {$ref: '#/components/schemas/Thing'}", 1),
+			wantErr:  "$ref at .properties.quote.$ref",
+		},
 		"a tool verb outside the grammar": {
 			pathItem: strings.Replace(yogiOperation, "verb: u_quote", "verb: U-Quote", 1),
 			wantErr:  "not a valid verb",

@@ -14,7 +14,9 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"slices"
 	"sort"
@@ -39,8 +41,27 @@ func mergeContract(base []byte, frags []contractFragment) ([]byte, error) {
 	if len(frags) == 0 {
 		return base, nil
 	}
+	// Decoded through a decoder rather than yaml.Unmarshal, and the second
+	// Decode is the point of it: unmarshalling a multi-document stream into one
+	// Node keeps the FIRST document and discards the rest without a word. The
+	// zero-fragment path above returns the base bytes untouched, so a
+	// multi-document base contract would publish in full on a vanilla tree and
+	// silently lose every route and kind after the `---` the moment any unit
+	// composed — a difference that shows up as a missing endpoint, not as an
+	// error. Refused instead: this merge has no defined meaning over a stream.
+	dec := yaml.NewDecoder(bytes.NewReader(base))
 	var doc yaml.Node
-	if err := yaml.Unmarshal(base, &doc); err != nil {
+	if err := dec.Decode(&doc); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("the base contract is empty, so it is not a YAML mapping to extend")
+		}
+		return nil, fmt.Errorf("parsing the base contract: %w", err)
+	}
+	var second yaml.Node
+	switch err := dec.Decode(&second); {
+	case err == nil:
+		return nil, fmt.Errorf("the base contract is a multi-document YAML stream — this merge applies fragments to ONE document, and would publish only the first while the rest vanished from the composed contract")
+	case !errors.Is(err, io.EOF):
 		return nil, fmt.Errorf("parsing the base contract: %w", err)
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
@@ -81,6 +102,9 @@ func mergeContract(base []byte, frags []contractFragment) ([]byte, error) {
 				return nil, fmt.Errorf("%s: %w", f.Source, err)
 			}
 			if err := checkOwnership(f.Unit, steps, owners); err != nil {
+				return nil, fmt.Errorf("%s: target %s: %w", f.Source, a.Target, err)
+			}
+			if err := checkUpdateShape(steps, &a.Update); err != nil {
 				return nil, fmt.Errorf("%s: target %s: %w", f.Source, a.Target, err)
 			}
 			if err := addNode(root, steps, a.Update); err != nil {
@@ -343,6 +367,66 @@ func addNode(root *yaml.Node, steps []string, update yaml.Node) error {
 		&update,
 	)
 	return nil
+}
+
+// checkUpdateShape refuses an `update` node whose SHAPE cannot be what its
+// target position means, before it is spliced into the published contract.
+//
+// Everything else in this file decides WHERE a fragment may write; this decides
+// what may be written there, which the merge otherwise never asks. An `update`
+// that exists satisfies the overlay grammar whatever it holds, so
+// `$.paths['/v1/ext/u/thing']: update: "yes"` composes cleanly today and
+// publishes a path item that is a string — refused by nothing here, and
+// discovered downstream as a parse failure in a type generator or, worse, as a
+// route that quietly is not in the docs.
+//
+// Two rules, both about shapes that have no meaning rather than shapes someone
+// might dislike:
+//
+//   - A node added DIRECTLY under an ownership container must be a mapping. A
+//     path item, a schema, a job kind and a task are each a mapping in their
+//     contract; a scalar or a sequence in that position is not a poorer version
+//     of one, it is not one. Deeper targets are unconstrained — a fragment
+//     reaching inside its own node may legitimately add a scalar or a list.
+//   - No alias anywhere in the subtree. An alias resolves against the document
+//     it was PARSED in, which is the fragment; re-encoded into the merged
+//     document it emits a `*name` whose anchor is not there, so the composed
+//     contract does not parse at all.
+func checkUpdateShape(steps []string, update *yaml.Node) error {
+	if container, ok := ownershipContainerFor(steps); ok && len(steps) == len(container)+1 {
+		if update.Kind != yaml.MappingNode {
+			return fmt.Errorf("the update is %s, and a node added under $.%s must be a mapping — this one would be published as-is", nodeKindName(update.Kind), strings.Join(container, "."))
+		}
+	}
+	return rejectAliases(update)
+}
+
+func rejectAliases(node *yaml.Node) error {
+	if node.Kind == yaml.AliasNode {
+		return fmt.Errorf("the update carries a YAML alias (*%s) — an alias resolves inside the fragment it was written in, and the merged contract has no such anchor to resolve it against", node.Value)
+	}
+	for _, child := range node.Content {
+		if err := rejectAliases(child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nodeKindName(kind yaml.Kind) string {
+	switch kind {
+	case yaml.ScalarNode:
+		return "a scalar"
+	case yaml.SequenceNode:
+		return "a sequence"
+	case yaml.MappingNode:
+		return "a mapping"
+	case yaml.AliasNode:
+		return "an alias"
+	case yaml.DocumentNode:
+		return "a document"
+	}
+	return "empty"
 }
 
 // mappingValue returns the value node for key, or nil when the mapping does

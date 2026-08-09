@@ -360,8 +360,15 @@ func responseSchema(responses *yaml.Node) (json.RawMessage, error) {
 }
 
 func jsonSchema(where string, node *yaml.Node) (json.RawMessage, error) {
-	if yamlChild(node, "$ref") != nil {
-		return nil, fmt.Errorf("%s schema is a $ref — declare an extension operation's schema inline; this generator does not resolve references, and an unresolved one would be advertised to a model as the argument shape", where)
+	// Recursive, not a check on the root. The emitted literal IS the standalone
+	// schema an MCP client hands a model, so a `$ref` anywhere inside it — one
+	// property, one array's items, one branch of a oneOf — arrives as an
+	// argument shape nothing can resolve: the client has no document to resolve
+	// it against, and this generator does not walk references to inline it. The
+	// root-only check refused the obvious spelling and passed every nested one,
+	// which is the shape a real fragment is more likely to have.
+	if path, found := findRef(node, ""); found {
+		return nil, fmt.Errorf("%s schema declares a $ref at %s — declare an extension operation's schema inline; this generator does not resolve references, and an unresolved one would be advertised to a model as the argument shape", where, path)
 	}
 	var doc any
 	if err := node.Decode(&doc); err != nil {
@@ -374,6 +381,36 @@ func jsonSchema(where string, node *yaml.Node) (json.RawMessage, error) {
 		return nil, fmt.Errorf("%s schema is not expressible as JSON: %w", where, err)
 	}
 	return encoded, nil
+}
+
+// findRef walks a schema node for a `$ref` key at any depth, returning the
+// path to the first one it finds so the refusal names a position rather than a
+// document. The path is written the way a reader would say it out loud —
+// `.properties.deal.$ref`, `[0].$ref` — because the point of naming it is that
+// the author can go to the line.
+func findRef(node *yaml.Node, path string) (string, bool) {
+	if node == nil {
+		return "", false
+	}
+	switch node.Kind {
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i].Value
+			if key == "$ref" {
+				return path + ".$ref", true
+			}
+			if found, ok := findRef(node.Content[i+1], path+"."+key); ok {
+				return found, true
+			}
+		}
+	case yaml.SequenceNode:
+		for i, child := range node.Content {
+			if found, ok := findRef(child, fmt.Sprintf("%s[%d]", path, i)); ok {
+				return found, true
+			}
+		}
+	}
+	return "", false
 }
 
 // yamlChild returns a mapping's value for key, or nil. It tolerates a nil

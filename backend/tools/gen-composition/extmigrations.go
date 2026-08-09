@@ -137,6 +137,12 @@ func collectUnitTables(name, dir string) (tableNames []string, present bool, err
 		if !strings.HasSuffix(e.Name(), ".sql") {
 			return nil, false, fmt.Errorf("extensions/%s: %s/%s is not a .sql file — the migrations layer holds NNNN_name.up.sql / .down.sql pairs and nothing else", name, migrationsLayer, e.Name())
 		}
+		// Same reason as the api layer's: os.ReadFile on a FIFO blocks until
+		// something writes, so a non-regular entry hangs composition rather
+		// than failing it.
+		if !e.Type().IsRegular() {
+			return nil, false, fmt.Errorf("extensions/%s: %s/%s is not a regular file — this composer will not read a migration through a link, a device or a pipe", name, migrationsLayer, e.Name())
+		}
 		// Only the up half creates tables; the down half drops them, and
 		// scanning it would double-count every name.
 		if !strings.HasSuffix(e.Name(), ".up.sql") {

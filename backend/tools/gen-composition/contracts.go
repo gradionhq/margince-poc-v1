@@ -101,6 +101,14 @@ func collectUnitFragments(name, dir string) (map[string]contractFragment, error)
 		if e.IsDir() {
 			return nil, fmt.Errorf("extensions/%s: %s/%s is a directory — the api layer is a flat set of overlay documents, one per core contract", name, apiLayer, e.Name())
 		}
+		// Checked BEFORE os.ReadFile, because the failure mode of a
+		// non-regular file is not a bad read, it is no read: opening a FIFO
+		// blocks until something writes to it, so composition would hang here
+		// with no output rather than refuse. The tree digest would reject the
+		// entry, but only after this loop has already tried to read it.
+		if !e.Type().IsRegular() {
+			return nil, fmt.Errorf("extensions/%s: %s/%s is not a regular file — the api layer holds overlay documents, and this composer will not read through a link, a device or a pipe", name, apiLayer, e.Name())
+		}
 		if !slices.Contains(composedContractBases, e.Name()) {
 			return nil, fmt.Errorf("extensions/%s: %s/%s does not name a core contract — an overlay file is named after the contract it extends (%s)",
 				name, apiLayer, e.Name(), strings.Join(composedContractBases, ", "))

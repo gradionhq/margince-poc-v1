@@ -579,17 +579,82 @@ func TestOverlayDocumentCompleteness(t *testing.T) {
 	}
 }
 
+// The merge decides WHERE a fragment may write; these are the two rules about
+// WHAT may be written there. Both describe shapes with no meaning at the target
+// rather than shapes someone might dislike, and without them each composes
+// cleanly and publishes something no reader of the contract can use.
+func TestMergeRefusesAnUpdateItsTargetCannotMean(t *testing.T) {
+	base := "openapi: 3.1.0\npaths: {}\ncomponents:\n  schemas: {}\n"
+	frag := func(target string, update yaml.Node) []contractFragment {
+		return []contractFragment{{
+			Unit:    "u",
+			Source:  "extensions/u/api/crm.yaml",
+			Actions: []overlayAction{{Target: target, Update: update}},
+		}}
+	}
+	scalar := yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "yes"}
+
+	t.Run("a scalar where a path item belongs", func(t *testing.T) {
+		_, err := mergeContract([]byte(base), frag("$.paths['/ext/u/x']", scalar))
+		if err == nil || !strings.Contains(err.Error(), "must be a mapping") {
+			t.Fatalf("err = %v, want the shape refusal", err)
+		}
+	})
+
+	t.Run("a sequence where a schema belongs", func(t *testing.T) {
+		_, err := mergeContract([]byte(base), frag("$.components.schemas.Thing",
+			yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}))
+		if err == nil || !strings.Contains(err.Error(), "must be a mapping") {
+			t.Fatalf("err = %v, want the shape refusal", err)
+		}
+	})
+
+	// An alias resolves inside the fragment it was parsed in. Re-encoded into
+	// the merged document it emits a `*name` with no anchor to match, so the
+	// composed contract does not parse at all — a fragment that composed
+	// "successfully" into a broken published document.
+	t.Run("an alias inside the update", func(t *testing.T) {
+		update := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "post"},
+			{Kind: yaml.AliasNode, Value: "elsewhere"},
+		}}
+		_, err := mergeContract([]byte(base), frag("$.paths['/ext/u/x']", update))
+		if err == nil || !strings.Contains(err.Error(), "YAML alias") {
+			t.Fatalf("err = %v, want the alias refusal", err)
+		}
+	})
+
+	// And the shape rule stops at the container's own children: a fragment
+	// reaching inside a node it declared may legitimately add a scalar.
+	t.Run("a scalar deeper inside the unit's own node", func(t *testing.T) {
+		frags := []contractFragment{{
+			Unit:   "u",
+			Source: "extensions/u/api/crm.yaml",
+			Actions: []overlayAction{
+				{Target: "$.components.schemas.Thing", Update: yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}},
+				{Target: "$.components.schemas.Thing.type", Update: scalar},
+			},
+		}}
+		if _, err := mergeContract([]byte(base), frags); err != nil {
+			t.Fatalf("a scalar inside the unit's own node must compose: %v", err)
+		}
+	})
+}
+
 // mergeContract's two structural refusals about the BASE. Neither can happen
 // with today's four contracts; both are here because the composer must fail
 // with a sentence rather than a nil dereference if one ever does.
 func TestMergeRefusesABaseItCannotExtend(t *testing.T) {
+	// The update is a MAPPING, which is what a path item is: a scalar there is
+	// refused by checkUpdateShape before the base is ever reached, and this
+	// test is about the base.
 	frag := func(target string) []contractFragment {
 		return []contractFragment{{
 			Unit:   "u",
 			Source: "extensions/u/api/crm.yaml",
 			Actions: []overlayAction{{
 				Target: target,
-				Update: yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "y"},
+				Update: yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"},
 			}},
 		}}
 	}
@@ -597,6 +662,10 @@ func TestMergeRefusesABaseItCannotExtend(t *testing.T) {
 		"a sequence document":       {"- one\n- two\n", "$.paths['/ext/u/x']", "not a YAML mapping"},
 		"an empty document":         {"", "$.paths['/ext/u/x']", "not a YAML mapping"},
 		"a non-mapping parent node": {"paths: a string\n", "$.paths['/ext/u/x']", "is not a mapping"},
+		// A stream, which yaml.Unmarshal would have truncated to its first
+		// document while composing cleanly — every route after the `---` gone
+		// from the composed contract and from nothing else.
+		"a multi-document stream": {"paths: {}\n---\nkinds: {}\n", "$.paths['/ext/u/x']", "multi-document YAML stream"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := mergeContract([]byte(tc.base), frag(tc.target)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {

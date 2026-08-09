@@ -47,5 +47,7 @@ actions:
       # Small on purpose, like every other fan-out child's: the real retry
       # cadence is the dispatcher's next tick, a minute away.
       max_attempts: 3
-      tier: auto_execute
-      scope: write
+      # No tier and no scope, and their absence is the rule rather than an
+      # omission: the pair resolves as ONE governed job, so its governance is
+      # declared once, on the dispatcher above. A copy here would be a line
+      # the composer discards — and the composer now refuses it instead.
