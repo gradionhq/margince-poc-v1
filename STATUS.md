@@ -598,6 +598,66 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-09 (approval bundles: one act's proposals become one question, PR #660, merged `e5354e15`)
+
+A website deep read stages a company-facts proposal plus one lead per person
+the team page published — five to ten approval rows that reached the inbox as
+unrelated questions, grouped only by a `proposal_ids` list on the dossier that
+no inbox reader can see. `bundle_id uuid NULL` on `approval` (core **0200**)
+names the act, so the proposals it produced are read and decided as the one
+question they were.
+
+**It is a grouping, never a second authority object.** ADR-0036 puts the
+authority in the staged row, so every member keeps its own diff hash, target
+version pin, expiry and verdict, and deciding a bundle records N per-effect
+decisions, audit rows and `approval.decided` events. There is no bundle table,
+no bundle entity and no new module — the change-set design this replaces was
+dissolved before a line was written.
+
+The surface: `Approval.bundle_id`, `GET /approvals?bundle_id=`, and
+`POST /approval-bundles/{bundle_id}/approve|reject`, both human-only over the
+session cookie exactly like the single-row decisions, answering a per-member
+`{approval, outcome}` list (`decided | already_decided | expired |
+effect_failed`). Authority is per member and unchanged: each goes through the
+same `decidable` probe the inbox uses, so bundling is not a way to release an
+effect sideways, and a bundle with no decidable member reads as absent.
+
+**Five things review found, each now carrying a test that fails without its
+fix**, and each worth reading as a rule rather than an incident:
+
+1. The over-cap refusal ran BEFORE the authority probe, so a caller who could
+   not see a single member got 422 where every other read gives 404. *The size
+   of a bundle you cannot see is not yours to learn* — read and filter before
+   deciding anything.
+2. A read staged its proposals one commit at a time, so the bundle was
+   decidable while the act was still writing it. All four site-read lanes now
+   stage an act's proposals in ONE transaction (the onboarding confirmation
+   already did).
+3. A decision read its members without locking them, so a re-proposal could move
+   one onto a fresher act's bundle mid-flight and the old bundle would decide a
+   row that had already left it.
+4. The join read the row it was about to re-point without locking it either, so
+   a human could settle that proposal in the gap — carrying a finished decision
+   into a question nobody asked.
+5. `edited_payload` posted to a bundle route was accepted and ignored, so the
+   agent's original payload executed while the human believed they had rewritten
+   it. The body decodes through `httperr.Decode` and the schema is closed.
+
+Locking the membership closed two of the three races the per-member error
+absorption was written for; the one left is the clock (the loop judges every
+member against one reading, each member's decision against a later one), which
+is now its whole justification and is tested with a stepping clock.
+
+**Left open:** #661 (a bundle decision and a multi-row staging can deadlock on
+approval rows — transient, database-detected, self-heals on retry) and #662 (the
+inbox still renders a bundle's members as unrelated rows; the grouped card wants
+the same i18n files an in-flight branch is rewriting, and D3's change-review App
+is the surface that should decide how a bundle looks).
+
+**Next:** D3 is unblocked — `propose_interaction_capture` stages N approvals
+sharing a `StageInput.BundleID` and returns it, and everything it needs on this
+side is already on the wire.
+
 ## Session pickup — 2026-08-09 (C2: the session's implicit bound becomes four explicit counters, PR #647, merged `25016800`)
 
 ADR-0092 §4 and §6 in one change, in the order the ADR makes normative: the

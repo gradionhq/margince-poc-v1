@@ -106,6 +106,12 @@ func WithBusReady(check func(context.Context) error) Option {
 func WithBlobstore(store blobstore.Store) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.blob = store
+		// Captured mail carries files too. Recorded as the STORE, which the sink
+		// turns into a writer when it is built: a keeper assigned here would be
+		// dropped by a WithCaptureConfig that runs afterwards and assigns the
+		// whole struct, and that failure has no error and nothing missing to
+		// see until somebody looks for a file that never arrived.
+		s.captureConfig.Blob = store
 		s.activitiesHandlers = s.activitiesHandlers.WithBlobstore(store)
 		s.dealsHandlers = s.dealsHandlers.WithBlobstore(store)
 		s.peopleHandlers = s.peopleHandlers.WithBlobstore(store)

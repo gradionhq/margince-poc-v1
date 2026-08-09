@@ -33,6 +33,9 @@ type Sink struct {
 	ensurer        CounterpartyEnsurer
 	channelEnsurer ChannelCounterpartyEnsurer
 	transactional  *TransactionalList
+	// files is the timeline module's attachment writer. Nil is a role that
+	// keeps no files: messages still land, and their attachments do not.
+	files FileKeeper
 }
 
 // fieldSourceSystem / fieldSourceID are the shared system_log detail keys for
@@ -67,6 +70,14 @@ type MergeProposal struct {
 
 func NewSink(pool *pgxpool.Pool) *Sink {
 	return &Sink{pool: pool}
+}
+
+// WithFileKeeper returns a copy that keeps the files a captured message
+// carried. Without it the messages still land; their attachments do not.
+func (s *Sink) WithFileKeeper(files FileKeeper) *Sink {
+	c := *s
+	c.files = files
+	return &c
 }
 
 // WithStager returns a copy wired to the merge-staging path.
@@ -232,6 +243,27 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 		return ref, false, counterpartyDecision{}, nil
 	}
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	// The files, after the links: the account roll-up a captured file carries is
+	// read from the activity's own organization link, which does not exist until
+	// the line above has run.
+	//
+	// Staged HERE, inside the transaction and only once the message is known to
+	// be new. The bytes still land before the row that points at them — the put
+	// is not transactional — but two things now cannot happen. Colleague mail
+	// the internal gate drops never has its files written at all, which it did
+	// when staging ran ahead of that gate. And a replayed message writes no
+	// second copy: every pull minted fresh keys and then skipped the insert, so
+	// a routine backfill left an unreferenced object per attachment per pass.
+	staged, err := s.stageParts(ctx, rec)
+	if err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	if err := s.recordParts(ctx, tx, id, rec, staged); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	if err := s.logPartDrops(ctx, tx, rec); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	// Who was in it (ACT-DDL-3). Stamped here, beside the links, because the
