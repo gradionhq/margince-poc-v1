@@ -313,7 +313,7 @@ func TestToolListCarriesTitleAndDerivedAnnotations(t *testing.T) {
 	ctx := scopedAgentCtx(principal.ScopeRead, principal.ScopeSend)
 
 	listed := map[string]map[string]any{}
-	for _, tool := range s.toolList(ctx) {
+	for _, tool := range s.toolList(ctx, legacyFraming) {
 		name, _ := tool[fieldName].(string)
 		listed[name] = tool
 	}
@@ -563,8 +563,13 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 func TestTheWholeToolListEncodes(t *testing.T) {
 	s := NewDispatcher(fullRegistry(t), bindAuthenticated, "margince-crm", "test")
 
+	// The WIDEST response: the modern framing with the App extension declared,
+	// so a view's `_meta.ui` is inside the bytes this walk marshals. A listing
+	// rendered without it would leave the one member added most recently as the
+	// only part of the entry no encode check has ever seen.
 	listed := s.toolList(scopedAgentCtx(
-		principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite, principal.ScopeSend))
+		principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite, principal.ScopeSend),
+		framing{modern: true, apps: true})
 	if len(listed) == 0 {
 		t.Fatal("no tools listed — this walk would pass vacuously")
 	}

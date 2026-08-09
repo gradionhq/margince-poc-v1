@@ -66,6 +66,11 @@ type ToolSpec struct {
 	OutputSchema json.RawMessage
 	OpenAPIOp    string // the crm.yaml operationId (or logical op family) this maps to
 	Egress       bool   // true if the tool reaches outside the workspace (send_email, webhooks)
+	// UI names the interactive view that renders this tool's result, and is
+	// nil on a tool that has none. It carries no authority: a view is a second
+	// renderer for an answer this tool already gives in text, never a second
+	// door onto the record. See ToolUI.
+	UI *ToolUI
 }
 
 // ReadOnly reports whether the tool only reads — the protocol's

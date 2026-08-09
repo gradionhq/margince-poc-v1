@@ -37,6 +37,11 @@ type Resource struct {
 	// careful not to be. A human's authority is their RBAC, not a scope, so
 	// the filter applies to agents alone.
 	RequiredScope principal.Scope
+	// UI is non-nil on an interactive view, and nil on every ordinary
+	// document. What it declares is what the host's sandbox will admit, so it
+	// travels with the document rather than with the tool that names it. See
+	// ResourceUI.
+	UI *ResourceUI
 }
 
 // ResourceContents is one resources/read result. Text only: every document

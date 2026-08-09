@@ -34,6 +34,36 @@ type resourceDescriptor struct {
 	Description string `json:"description"`
 	//nolint:tagliatelle // mimeType is the MCP wire member, camelCase by the protocol
 	MIMEType string `json:"mimeType"`
+	// Meta carries an interactive view's own sandbox declaration, and is
+	// omitted entirely for an ordinary document.
+	//
+	// It rides resources/list UNCONDITIONALLY, unlike a tool's `_meta.ui` —
+	// and the asymmetry is the point rather than an oversight. The extension
+	// exists so a host can fetch and security-review a view BEFORE any tool is
+	// called, which means the policy has to be readable on the document itself;
+	// withholding it from an undeclared caller would leave a host that
+	// prefetches with a document and no policy to sandbox it under. A caller
+	// with no use for the member ignores one object on a catalog of documents,
+	// where the tool catalog is read by every client on every session.
+	//nolint:tagliatelle // _meta is the protocol's reserved extension member, and the leading underscore is what reserves it
+	Meta *resourceMetaWire `json:"_meta,omitempty"`
+}
+
+// resourceMetaWire is the `_meta` envelope both resource surfaces put a view's
+// declaration inside. It exists as a named type rather than a map so the two
+// surfaces cannot spell the reserved member two ways.
+type resourceMetaWire struct {
+	UI *resourceUIWire `json:"ui,omitempty"`
+}
+
+// resourceMetaFor renders one resource's `_meta`, or nil when it has nothing to
+// declare — which is every document that is not a view.
+func resourceMetaFor(resource mcp.Resource) *resourceMetaWire {
+	ui := resourceUIMeta(resource)
+	if ui == nil {
+		return nil
+	}
+	return &resourceMetaWire{UI: ui}
 }
 
 // resourceContents is one resources/read result: the protocol carries a list
@@ -47,6 +77,13 @@ type resourceContentBlock struct {
 	//nolint:tagliatelle // mimeType is the MCP wire member, camelCase by the protocol
 	MIMEType string `json:"mimeType"`
 	Text     string `json:"text"`
+	// Meta repeats the view's declaration on the READ, so a host that fetched
+	// the document by URI without listing first still has the policy it needs
+	// to sandbox what it just received. A host is free to read either way, and
+	// a policy present on only one of them is a policy that depends on the
+	// order the host happened to ask in.
+	//nolint:tagliatelle // _meta is the protocol's reserved extension member, and the leading underscore is what reserves it
+	Meta *resourceMetaWire `json:"_meta,omitempty"`
 }
 
 // resourceList advertises what this caller may read. A server with no
@@ -66,6 +103,7 @@ func (s *Dispatcher) resourceList(ctx context.Context) []resourceDescriptor {
 		out = append(out, resourceDescriptor{
 			URI: r.URI, Name: r.Name, Title: r.Title,
 			Description: r.Description, MIMEType: r.MIMEType,
+			Meta: resourceMetaFor(r),
 		})
 	}
 	return out
@@ -89,7 +127,8 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 	if s.resources == nil {
 		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
 	}
-	if !s.scopeAdmitsRead(ctx, p.URI) {
+	published, admitted := s.publishedResource(ctx, p.URI)
+	if !admitted {
 		// The same answer an unknown URI gets: a caller whose scopes do not
 		// reach a document must not learn that it exists.
 		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
@@ -106,6 +145,12 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 	}
 	return resourceContents{Contents: []resourceContentBlock{{
 		URI: contents.URI, MIMEType: contents.MIMEType, Text: contents.Text,
+		// From the PUBLISHED descriptor, not from the read result: the seam's
+		// ResourceContents carries bytes and a type, and the sandbox policy is a
+		// property of the document the catalogue advertises. Reading it off the
+		// same value the listing renders from is what makes "what the host was
+		// told to sandbox" and "what the host was sent" one answer.
+		Meta: resourceMetaFor(published),
 	}}}, nil
 }
 
@@ -130,18 +175,25 @@ func readableByCaller(ctx context.Context, resource mcp.Resource) bool {
 	return p.Scopes.Has(resource.RequiredScope)
 }
 
-// scopeAdmitsRead answers whether this caller may read the named URI, by
-// asking the provider what it publishes and applying the same scope filter
-// the catalogue does. Going through the published set rather than a separate
-// per-URI lookup is what keeps the two answers from drifting: a document the
-// catalogue hides can never be readable.
-func (s *Dispatcher) scopeAdmitsRead(ctx context.Context, uri string) bool {
+// publishedResource answers the descriptor the catalogue advertises for one
+// URI, and whether this caller may read it.
+//
+// It goes through the PUBLISHED set rather than a separate per-URI lookup, which
+// is what keeps the two answers from drifting: a document the catalogue hides
+// can never be readable. And it returns the descriptor as well as the verdict so
+// the read path renders its sandbox policy from the same value the listing does
+// — two lookups would be two chances for the policy a host is told about and the
+// policy it is sent to disagree.
+//
+// A URI no provider claims is ADMITTED with a zero descriptor: ReadResource
+// answers its own not-found, and this filter has nothing to say about a document
+// it has never heard of. The zero descriptor is correct rather than convenient —
+// it declares no view, and a document that does not exist has no policy.
+func (s *Dispatcher) publishedResource(ctx context.Context, uri string) (mcp.Resource, bool) {
 	for _, r := range s.resources.Resources(ctx) {
 		if r.URI == uri {
-			return readableByCaller(ctx, r)
+			return r, readableByCaller(ctx, r)
 		}
 	}
-	// Not published at all — ReadResource answers its own not-found, and this
-	// filter has nothing to say about a URI no provider claims.
-	return true
+	return mcp.Resource{}, true
 }

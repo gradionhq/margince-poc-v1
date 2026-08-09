@@ -109,7 +109,15 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slo
 		// validates against (queryseam.go), which is what makes "what this
 		// document advertises" and "what a plan can be answered from" the same
 		// sentence rather than two that have to be kept in step.
-		agents.WithResourceProvider(search.NewQuerySchemaResource(queryVocabulary(pool))),
+		// TWO providers now, fanned into the one the transport takes: the
+		// vocabulary above, and the interactive views the tool surface serves. The
+		// views come second, so a URI collision resolves to the vocabulary — see
+		// composeResources for why the order is stated rather than incidental, and
+		// TestNoTwoResourceProvidersClaimOneURI for the gate that makes it moot.
+		agents.WithResourceProvider(composeResources(
+			search.NewQuerySchemaResource(queryVocabulary(pool)),
+			appViews,
+		)),
 		// The Tasks extension, which is why a confirm-first call no longer dead-ends
 		// for a client that can hold a handle. The store is composed here for the
 		// same reason the claim store is: agent_task rows are this transport's own
