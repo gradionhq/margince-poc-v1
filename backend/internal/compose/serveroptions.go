@@ -106,6 +106,11 @@ func WithBusReady(check func(context.Context) error) Option {
 func WithBlobstore(store blobstore.Store) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.blob = store
+		// Captured mail carries files too, and the sink is built from this
+		// config — set here so an inbound attachment reaches the same store an
+		// uploaded one does, whatever order the options run in. It goes through
+		// the timeline store, which owns the attachment table.
+		s.captureConfig.Files = capturedFileKeeper{store: activities.NewStore(pool).WithBlobstore(store)}
 		s.activitiesHandlers = s.activitiesHandlers.WithBlobstore(store)
 		s.dealsHandlers = s.dealsHandlers.WithBlobstore(store)
 		s.peopleHandlers = s.peopleHandlers.WithBlobstore(store)

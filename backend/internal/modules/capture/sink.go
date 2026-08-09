@@ -33,6 +33,9 @@ type Sink struct {
 	ensurer        CounterpartyEnsurer
 	channelEnsurer ChannelCounterpartyEnsurer
 	transactional  *TransactionalList
+	// files is the timeline module's attachment writer. Nil is a role that
+	// keeps no files: messages still land, and their attachments do not.
+	files FileKeeper
 }
 
 // fieldSourceSystem / fieldSourceID are the shared system_log detail keys for
@@ -67,6 +70,14 @@ type MergeProposal struct {
 
 func NewSink(pool *pgxpool.Pool) *Sink {
 	return &Sink{pool: pool}
+}
+
+// WithFileKeeper returns a copy that keeps the files a captured message
+// carried. Without it the messages still land; their attachments do not.
+func (s *Sink) WithFileKeeper(files FileKeeper) *Sink {
+	c := *s
+	c.files = files
+	return &c
 }
 
 // WithStager returns a copy wired to the merge-staging path.
@@ -109,7 +120,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	// produced no rows, and returning ErrSkip from inside the callback would
 	// roll that proof back along with everything else (ADR-0082 §1).
 	var internalOnly bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	// The bytes land BEFORE the transaction that records them — see sinkparts.go
+	// for why that order and not the other one.
+	staged, err := s.stageParts(ctx, rec)
+	if err != nil {
+		return datasource.EntityRef{}, err
+	}
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// A channel record's account id IS personal data, and THIS transaction is
 		// the one that makes it durable — so the erasure is excluded here, under
 		// the account's own lock, and not only at the ingress edge that admitted
@@ -139,7 +156,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		switch fields := rec.Fields.(type) {
 		case ActivityFields:
 			var err error
-			ref, activityCreated, decision, err = s.captureActivity(ctx, tx, rec, fields)
+			ref, activityCreated, decision, err = s.captureActivity(ctx, tx, rec, fields, staged)
 			return err
 		case LeadFields:
 			var err error
@@ -215,7 +232,7 @@ func storeRawCapture(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRec
 
 // captureActivity lands one activity: upsert on the natural key, links,
 // audit and event only when the row is new — a replay writes nothing.
-func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, bool, counterpartyDecision, error) {
+func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields, staged []StagedFile) (datasource.EntityRef, bool, counterpartyDecision, error) {
 	// One clock read for the whole capture. A provider payload carrying no
 	// timestamp falls back to now(), and THREE things downstream ask for that
 	// answer — the activity row, its audit image, and the reply fact — so asking
@@ -232,6 +249,15 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 		return ref, false, counterpartyDecision{}, nil
 	}
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	// The files, after the links: the account roll-up a captured file carries is
+	// read from the activity's own organization link, which does not exist until
+	// the line above has run.
+	if err := s.recordParts(ctx, tx, id, rec, staged); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	if err := s.logPartDrops(ctx, tx, rec); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	// Who was in it (ACT-DDL-3). Stamped here, beside the links, because the

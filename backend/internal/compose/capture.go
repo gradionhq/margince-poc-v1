@@ -74,6 +74,10 @@ type CaptureConfig struct {
 	// a capture). Nil falls back to the default logger — the site_lead accept
 	// path composes a Sink without a deployment config at all.
 	Logger *slog.Logger
+	// Files keeps what a captured message carried. Nil is a role that keeps no
+	// files: the messages still land, and their attachments do not — an
+	// unconfigured object store must not cost correspondence.
+	Files capture.FileKeeper
 }
 
 // logger is the configured logger, or the process default.
@@ -147,6 +151,10 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		log:    cfg.logger(),
 	}
 	return capture.NewSink(pool).
+		// The files a captured message carried, written by the module that owns
+		// the attachment table. Nil-safe: without it the sink keeps messages
+		// and no attachments.
+		WithFileKeeper(cfg.Files).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe

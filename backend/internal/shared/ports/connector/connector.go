@@ -180,6 +180,18 @@ type NormalizedRecord struct {
 	// not "there are none" — and an unenumerable message is never treated as
 	// internal, so it is captured.
 	Addresses []string
+
+	// Parts are the files this record carried, already bounded, renamed safely
+	// and typed by their bytes. A connector never enforces those rules itself:
+	// they belong to the one parser every mail adapter shares, so a new adapter
+	// cannot arrive without them.
+	Parts []Part
+
+	// PartDrops names the files the bounds refused. It is carried rather than
+	// discarded so a message whose attachments were too many or too large is
+	// distinguishable from a message that had none — silence would report the
+	// two identically, and only one of them means something is missing.
+	PartDrops []PartDrop
 }
 
 // NaturalKey is the (source_system, source_id) idempotency key the DB
