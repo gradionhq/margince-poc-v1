@@ -1859,79 +1859,49 @@ describe("CompanyScreen — Ask Margince", () => {
   });
 });
 
-// The page must not re-column itself under the reader. RecordView picks its
-// grid template from which zones are present, so a context column that arrives
-// with the composite read moves the work column — and everything the reader was
-// looking at — sideways the moment it lands.
-//
-// TWO columns, not three (plan §4): a work column and one context column. The
-// left rail is gone; its folded reference cards sit under the business context
-// on the right.
-describe("CompanyScreen — the layout does not shift as the read lands", () => {
-  it("holds the two-column template while the 360 is still in flight", async () => {
-    let releaseView: (() => void) | undefined;
-    const held = new Promise<void>((resolve) => {
-      releaseView = resolve;
-    });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (request: Request) => {
-        const pathname = new URL(request.url).pathname;
-        if (pathname.endsWith("/360")) {
-          await held;
-          return jsonResponse(org360);
-        }
-        if (pathname.endsWith("/hierarchy-rollup")) {
-          return jsonResponse(emptyRollup);
-        }
-        if (pathname.endsWith("/organizations/o-1")) {
-          return jsonResponse(org);
-        }
-        return jsonResponse({
-          data: [],
-          page: { has_more: false, next_cursor: null },
-        });
-      }),
-    );
-    const { container } = render(<CompanyScreen id="o-1" />);
-    await screen.findByText("Brandt Automotive GmbH");
-    const zonesWhileLoading = container.querySelector(".record-zones");
-    expect(zonesWhileLoading?.className).toContain("record-zones-aside");
-    // A three-column template would put the account's story in the middle
-    // 5/11ths, which is what §4 tells the implementer not to preserve.
-    expect(zonesWhileLoading?.className).not.toContain("record-zones-both");
-    releaseView?.();
-    await waitFor(() =>
-      expect(container.querySelector(".record-zones")?.className).toContain(
-        "record-zones-aside",
-      ),
-    );
-  });
-
-  // §4: "Do not preserve a three-column layout if it forces the daily-action
-  // surface below the fold." The work column now takes 7/10ths instead of
-  // 5/11ths, and the reference cards a reader opens occasionally sit under the
-  // business context rather than claiming a column of their own.
-  it("gives the account's story the work column, with no second rail", async () => {
+// ONE column, and a grid of cards inside it (mockup State D). The page had a
+// work column and a context column beside it; the context column is gone,
+// because that is the space the composer drawer opens into and no mockup shows
+// both. Its cards moved into the grid, which is the obligation these cases
+// keep: a layout change must not become an availability change.
+describe("CompanyScreen — State D's one column and its card grid", () => {
+  it("gives the account's story the full width, with no rail and no aside", async () => {
     stubFetch(companyBackstop, { org360 });
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
 
     await waitFor(() =>
-      expect(container.querySelector(".record-zones")?.className).toContain(
-        "record-zones-aside",
-      ),
+      expect(container.querySelector(".co-grid")).toBeTruthy(),
     );
+    // No zone template at all: RecordView names one only when a rail or an
+    // aside is present, so the page cannot re-column under the reader when
+    // the composite read lands — there is no second column to arrive.
+    expect(container.querySelector(".record-zones")).toBeNull();
     expect(container.querySelector(".record-rail")).toBeNull();
-    // The reference material did not vanish with its column — it moved, and
-    // it is still folded shut rather than standing open in the reader's way.
-    expect(screen.getAllByText("Company profile").length).toBeGreaterThan(0);
+    expect(container.querySelector(".record-aside")).toBeNull();
   });
 
-  // Moving those cards into the context column is a LAYOUT change and must not
-  // become an availability change. None of them comes from the 360 — each runs
-  // its own read — so they must be on the page before that read lands, and
-  // stay there if it never does.
+  // Every card the context column held is in the grid. Named individually
+  // rather than counted: a count passes on a grid that lost one card and
+  // grew another.
+  it("carries the business cards the context column used to hold", async () => {
+    stubFetch(companyBackstop, { org360 });
+    render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    const grid = await screen.findByRole("complementary", { name: "Business" });
+    for (const card of ["People", "Deals", "Signals", "Documents"]) {
+      expect(within(grid).getAllByText(card).length).toBeGreaterThan(0);
+    }
+    // Filing metadata stays folded, and stays in the grid: tags and lists are
+    // governed 360 sections like the cards above them, so a withheld half has
+    // to say so where the reader is looking for it.
+    expect(within(grid).getAllByText("Lists & tags").length).toBeGreaterThan(0);
+  });
+
+  // None of the reference cards comes from the 360 — each runs its own read —
+  // so they must be on the page before that read lands, and stay there if it
+  // never does.
   it("offers the reference cards before the 360 read lands", async () => {
     let releaseView: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
@@ -1957,7 +1927,7 @@ describe("CompanyScreen — the layout does not shift as the read lands", () => 
         el.textContent?.trim(),
       );
     await waitFor(() => expect(summaries()).toContain("Company profile"));
-    expect(summaries()).toContain("Documents");
+    expect(summaries()).toContain("Where this came from");
     expect(summaries()).toContain("Data & tools");
     releaseView?.();
   });
