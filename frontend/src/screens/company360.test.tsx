@@ -414,23 +414,25 @@ describe("company view — consent is per purpose", () => {
   });
 });
 
-describe("company view — the rails belong to the account, not to a tab", () => {
-  it("keeps both side columns mounted when the reader switches tab", async () => {
+describe("company view — the context column belongs to the account, not to a tab", () => {
+  it("keeps the context column mounted when the reader switches tab", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
 
     await screen.findByRole("complementary", { name: "Business" });
-    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
 
-    // Partner and History used to render in a header-only frame, so both
-    // rails unmounted, the grid re-columned under the reader, and every query
-    // behind them refetched on the way back.
+    // Partner and History used to render in a header-only frame, so the side
+    // column unmounted, the grid re-columned under the reader, and every query
+    // behind it refetched on the way back.
     expect(
       screen.getByRole("complementary", { name: "Business" }),
     ).toBeTruthy();
-    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
+    // There is no second landmark to check any more: the profile, documents,
+    // facts and tools disclosures live INSIDE the Business column (plan §4 —
+    // one context column, not two), so they ride on its mount.
+    expect(screen.queryByRole("complementary", { name: "Profile" })).toBeNull();
   });
 
   it("does not refetch the account when the reader switches tab and back", async () => {

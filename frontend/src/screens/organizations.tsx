@@ -1918,48 +1918,20 @@ function CompanyPage({
       // page: a whole form in the header's action strip pushed the account's
       // own story below the fold before a word of it was read.
       actions={<CompanyPrimaryActions org={org} />}
-      rail={
-        overlay ? undefined : (
-          <>
-            {/* The company's own statements, folded away. The BRIEF says what
-                this company is, in two sentences, at the top of the page —
-                these sixteen fields are where those sentences come from and
-                where a reader goes when two are not enough. Standing open
-                they were a wall of paragraphs, every value underlined, that
-                nobody read before a call. */}
-            <Disclosure summary={t("co.profile.title")}>
-              <ProfileFieldsCard orgId={org.id} onOpenHistory={showChanges} />
-            </Disclosure>
-            {/* The account's contracts, offers and legal files. Folded away
-                like the rest of the rail: a reader opens it when they are
-                looking for a document, not on every page load. */}
-            <Disclosure summary={t("docs.title")}>
-              <CompanyDocumentsCard orgId={org.id} />
-            </Disclosure>
-            <Disclosure summary={t("co.evidence.title")}>
-              <FactsCard orgId={org.id} onOpenHistory={showChanges} />
-            </Disclosure>
-            <Disclosure summary={t("co.relationships.title")}>
-              <RelationshipsTab scope={{ organization_id: org.id }} />
-            </Disclosure>
-            {/* One-off tools and configuration, folded away. Standing open
-                they carried the same weight as the facts a rep opens the page
-                for, and they are used a fraction as often. */}
-            <Disclosure summary={t("co.tools.title")}>
-              <CustomFieldsCard object="organization" record={org} />
-              <HierarchyRollupCard orgId={org.id} />
-              <EnrichCard orgId={org.id} />
-              <DeepReadCard orgId={org.id} />
-            </Disclosure>
-          </>
-        )
-      }
+      // ONE context column, not two. The plan (§4) says the page is a header,
+      // a primary work column and a secondary truth/context column, and not to
+      // preserve a three-column layout if it pushes the daily-action surface
+      // down. A left rail of five folded disclosures took a third of the width
+      // to say nothing until opened, and squeezed the account's own story into
+      // the middle 5/11ths. Those disclosures now sit under the business
+      // context on the right, in the order a rep reaches for them.
       aside={businessRail({
         org,
         view,
         overlay,
         failed,
         readOnly: Boolean(org.archived_at),
+        onOpenHistory: showChanges,
         t,
       })}
       // The chronology is the account's story and belongs to the overview.
@@ -2267,6 +2239,7 @@ function businessRail({
   overlay,
   failed,
   readOnly,
+  onOpenHistory,
   t,
 }: Readonly<{
   org: Organization;
@@ -2276,6 +2249,8 @@ function businessRail({
   // An archived company takes no new deals, tags or list rows, so it shows no
   // verb that would only be refused.
   readOnly: boolean;
+  // Where an evidence mark leads: the record's change history, on its own tab.
+  onOpenHistory: () => void;
   // Passed rather than read: this assembles a tree, it is not a component,
   // so it has no hook context of its own.
   t: ReturnType<typeof useT>;
@@ -2322,6 +2297,7 @@ function businessRail({
             listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
           />
         </Disclosure>
+        <ReferenceDisclosures org={org} onOpenHistory={onOpenHistory} t={t} />
       </>
     );
   }
@@ -2341,6 +2317,7 @@ function businessRail({
         <section className="card co-card">
           <Skeleton width="100%" height={64} />
         </section>
+        <ReferenceDisclosures org={org} onOpenHistory={onOpenHistory} t={t} />
       </>
     );
   }
@@ -2354,6 +2331,50 @@ function businessRail({
       <DealsCard />
       <SignalsCard orgId={org.id} />
       <TagsCard />
+      <ReferenceDisclosures org={org} onOpenHistory={onOpenHistory} t={t} />
+    </>
+  );
+}
+
+// The reference material a reader opens when the summary above is not enough.
+//
+// It renders in EVERY branch, because none of it comes from the 360: each card
+// runs its own read. It used to occupy a whole column of its own, folded shut —
+// a third of the page's width saying nothing until clicked, while the account's
+// own story ran in the middle 5/11ths (plan §4). Moving it here is a layout
+// change and must not become an availability change: a failed 360 hides what
+// the 360 answered, not the company's profile, its documents or its files.
+function ReferenceDisclosures({
+  org,
+  onOpenHistory,
+  t,
+}: Readonly<{
+  org: Organization;
+  onOpenHistory: () => void;
+  t: ReturnType<typeof useT>;
+}>): ReactNode {
+  return (
+    <>
+      <Disclosure summary={t("co.profile.title")}>
+        <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+      </Disclosure>
+      <Disclosure summary={t("docs.title")}>
+        <CompanyDocumentsCard orgId={org.id} />
+      </Disclosure>
+      <Disclosure summary={t("co.evidence.title")}>
+        <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+      </Disclosure>
+      <Disclosure summary={t("co.relationships.title")}>
+        <RelationshipsTab scope={{ organization_id: org.id }} />
+      </Disclosure>
+      {/* One-off tools and configuration, last: used a fraction as often as
+          anything above them. */}
+      <Disclosure summary={t("co.tools.title")}>
+        <CustomFieldsCard object="organization" record={org} />
+        <HierarchyRollupCard orgId={org.id} />
+        <EnrichCard orgId={org.id} />
+        <DeepReadCard orgId={org.id} />
+      </Disclosure>
     </>
   );
 }
