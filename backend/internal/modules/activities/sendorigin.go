@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -63,15 +64,24 @@ func (e *NoSendOriginError) Error() string {
 	return "send has no origin: name the activity it replies to, or the records it starts from"
 }
 
-// resolve reads whatever the origin needs BEFORE the guard sequence runs,
-// so an unreadable anchor answers with the row-scope verdict and nothing
-// else. An account origin reads nothing here: its links are probed at
-// insert, inside the transaction, where a link target that disappeared
-// between the two is still caught.
+// resolve reads whatever the origin needs BEFORE the guard sequence runs, so
+// a record the caller cannot see answers with the row-scope verdict and
+// nothing else.
+//
+// BOTH origins probe here, and the account one has to. Deferring its links to
+// the insert would let a caller name a company they cannot see and still reach
+// the consent gate, which answers about the RECIPIENTS — so the refusal they
+// got back would disclose whether strangers had consented, and it would be a
+// 409 where the row-scope answer is 404. The probe at insert stays: it runs
+// inside the staging transaction and still catches a target archived between
+// the two reads.
 func (o SendOrigin) resolve(ctx context.Context, s *Store) ([]ActivityLinkInput, error) {
 	if !o.isReply() {
 		if len(o.links) == 0 {
 			return nil, &NoSendOriginError{}
+		}
+		if err := s.probeLinkTargets(ctx, o.links); err != nil {
+			return nil, err
 		}
 		return o.links, nil
 	}
@@ -80,6 +90,22 @@ func (o SendOrigin) resolve(ctx context.Context, s *Store) ([]ActivityLinkInput,
 		return nil, err
 	}
 	return inheritedLinks(anchor), nil
+}
+
+// probeLinkTargets refuses an account-started send whose named records the
+// caller cannot read, before any later guard can answer about anyone else.
+func (s *Store) probeLinkTargets(ctx context.Context, links []ActivityLinkInput) error {
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		for _, link := range links {
+			if linkColumn(link.EntityType) == "" {
+				return &InvalidLinkTypeError{EntityType: link.EntityType}
+			}
+			if err := auth.EnsureLinkTarget(ctx, tx, link.EntityType, link.EntityID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // threading derives the conversation chain this send carries, inside the

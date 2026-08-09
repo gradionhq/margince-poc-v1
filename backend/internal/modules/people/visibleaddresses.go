@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // VisibleAddresses returns the subset of addresses that belong to a live
@@ -32,6 +33,14 @@ import (
 // lowercased (its person_email_norm CHECK), and a caller types whatever
 // case they like.
 func VisibleAddresses(ctx context.Context, tx pgx.Tx, addresses []string) (map[string]bool, error) {
+	// Both halves of the gate, in the usual order. The row scope below answers
+	// WHICH contacts this caller may read; the object grant answers whether
+	// they may read contacts at all. A seat with no person grant whose row
+	// scope happens to match would otherwise confirm that an address is on
+	// somebody's record — which is a read of that record.
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, err
+	}
 	normalized := make([]string, 0, len(addresses))
 	for _, addr := range addresses {
 		if trimmed := strings.ToLower(strings.TrimSpace(addr)); trimmed != "" {

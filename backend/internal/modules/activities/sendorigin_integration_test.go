@@ -137,6 +137,30 @@ func TestAnAccountStartedSendRefusesALinkTheCallerCannotSee(t *testing.T) {
 	}
 }
 
+// A link the caller cannot see must refuse BEFORE the consent gate answers.
+// The gate answers about the RECIPIENTS, so reaching it would tell a caller
+// who named a company they cannot see whether strangers had consented — and
+// would answer 409 where the row-scope verdict is 404.
+func TestAnUnreadableLinkRefusesBeforeTheConsentGateAnswers(t *testing.T) {
+	e := setupSend(t)
+	stager := &recordingStager{}
+	gate := &countingConsentGate{}
+	unseen := ids.NewV7()
+
+	_, err := e.accountStore().SendEmail(
+		e.as(principal.RowScopeAll), accountOrigin(unseen), sendInput("transactional"), gate, stager)
+
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("send linked to an invisible record = %v, want ErrNotFound (existence-hiding)", err)
+	}
+	if gate.calls != 0 {
+		t.Fatalf("the consent gate answered %d times for a caller who named a record they cannot see; that answer is about the recipients, not the link", gate.calls)
+	}
+	if len(stager.staged) != 0 {
+		t.Fatalf("a refused send staged %d deliveries, want none", len(stager.staged))
+	}
+}
+
 // An origin nobody named is a wiring defect, and it must refuse rather than
 // resolve to "no anchor" — which is exactly the silent new conversation
 // ADR-0087 rejects making the anchor merely optional to avoid.
