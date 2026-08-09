@@ -43,6 +43,39 @@ func TestExtensionsGenWiresUnitsInSortedOrder(t *testing.T) {
 	}
 }
 
+// A unit's module path is its own to choose, so the alias order (the enabled
+// set's unit-name order, which Extensions() wires in) and gofmt's import order
+// (by path) are two different orders. They coincide only while every unit is
+// published under the repo's own module prefix — which is exactly the tree the
+// generator sees locally, and exactly not the tree the extension-reference CI
+// job composes: it copies fixtures/extensions/crm-hello, published at
+// example.margince.dev, into the enabled set, where it sorts ahead of every
+// github.com/… unit. Emitting the import lines in alias order made that block
+// non-canonical and canonicalGoSource refused it.
+func TestExtensionsGenSortsImportsByPathNotByAlias(t *testing.T) {
+	// alpha is the first unit by name and therefore ext0, but its module path
+	// sorts LAST — the two orders disagree in both directions.
+	units := []extensionUnit{
+		{Name: "alpha", ModulePath: "zebra.test/ext/alpha"},
+		{Name: "beta", ModulePath: "aardvark.test/ext/beta"},
+	}
+	got := string(extensionsGen(units, nil, nil))
+	if _, err := canonicalGoSource("extensions_gen.go", []byte(got)); err != nil {
+		t.Fatalf("the emitted wiring is not canonical gofmt: %v\n%s", err, got)
+	}
+	// The import block is path-ordered…
+	wantImports := "\text1 \"aardvark.test/ext/beta\"\n\text0 \"zebra.test/ext/alpha\"\n"
+	if !strings.Contains(got, wantImports) {
+		t.Errorf("imports are not in path order:\n%s", got)
+	}
+	// …and the wiring is still in unit-name order, with each alias on its own
+	// unit. A fix that renumbered the aliases instead would pass the gofmt
+	// assertion above and silently reorder the composed set.
+	if !strings.Contains(got, "mustBe(\"alpha\", ext0.New()),\n\t\tmustBe(\"beta\", ext1.New()),") {
+		t.Errorf("the wiring order or the alias binding changed:\n%s", got)
+	}
+}
+
 // TestEmittedWiringIsCanonicalGoSource: the emitter must produce parsing,
 // gofmt-canonical bytes itself — canonicalGoSource is the gen-time gate
 // that turns a template bug into a named error instead of a failure at

@@ -70,6 +70,20 @@ func TestEveryEnabledExtensionIsTracked(t *testing.T) {
 			// git runs at the repository root (-C ..), so it is asked about a
 			// root-relative path rather than this package's ../ spelling.
 			repoPath := strings.TrimPrefix(filepath.ToSlash(onDisk), "../")
+			// The one enabled unit that is SUPPOSED to be untracked: the
+			// reference fixture CI copies in (`cp -R fixtures/extensions/
+			// crm-hello extensions/`, ci.yml's extension-reference job) to
+			// prove the tier composes a unit this repository does not ship.
+			// That copy is a build artifact of the job, and un-ignoring it
+			// would invite committing a second copy of a fixture that is
+			// already tracked one directory over. The exemption costs nothing:
+			// the fixture ITSELF is checked by the second root below, so the
+			// "a fixture git does not have" defect is still caught — at its
+			// source, where it belongs. A genuinely new first-party unit has no
+			// fixture of the same name and still fails here.
+			if root == "../extensions" && isTrackedFixture(t, e.Name()) {
+				continue
+			}
 			if rule, ignored := gitIgnoreRule(t, repoPath); ignored {
 				t.Errorf("%s is git-ignored by %q — every gate would pass over this unit and no clone "+
 					"of this repository would have it. Add an un-ignore line for it beside the others "+
@@ -77,6 +91,21 @@ func TestEveryEnabledExtensionIsTracked(t *testing.T) {
 			}
 		}
 	}
+}
+
+// isTrackedFixture reports whether extensions/<name> is CI's copy of the
+// same-named reference fixture. Both halves are required: the fixture must
+// exist as a Go module AND git must actually have it. The second half is what
+// keeps the exemption from being a hole — a fixture that were itself ignored
+// would stop exempting anything, and the copy would be reported again.
+func isTrackedFixture(t *testing.T, name string) bool {
+	t.Helper()
+	fixture := filepath.Join("..", "fixtures", "extensions", name, "go.mod")
+	if _, err := os.Stat(fixture); err != nil {
+		return false
+	}
+	_, ignored := gitIgnoreRule(t, "fixtures/extensions/"+name+"/go.mod")
+	return !ignored
 }
 
 // gitIgnoreRule reports the rule ignoring path, if any. `git check-ignore -v`

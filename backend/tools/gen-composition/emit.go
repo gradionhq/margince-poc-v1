@@ -283,8 +283,27 @@ func extensionsGen(units []extensionUnit, verbs []declaredVerb, jobDecls []exten
 	b.WriteString(extensionsGenSurfaceImport)
 	if len(units) > 0 {
 		b.WriteString("\n")
-		for i, u := range units {
-			fmt.Fprintf(&b, "\text%d %q\n", i, u.ModulePath)
+		// TWO orders, and they are not the same one. The alias index is the
+		// unit's position in the enabled set (unit-name order), because that
+		// is the order Extensions() wires the units in and the two must agree.
+		// gofmt, however, sorts an import group by PATH — and a unit's module
+		// path is its own to choose, so the two orders coincide only while
+		// every unit sits under the repo's module prefix. One unit published
+		// from another domain (a fixture at example.margince.dev, a real
+		// third-party unit) sorts ahead of them all, and emitting the lines in
+		// alias order would then produce a group gofmt would reorder, which
+		// canonicalGoSource refuses. Sorting the LINES by path leaves the
+		// aliases attached to their units and makes the block canonical for
+		// any set of module paths.
+		order := make([]int, len(units))
+		for i := range order {
+			order[i] = i
+		}
+		sort.SliceStable(order, func(a, b int) bool {
+			return units[order[a]].ModulePath < units[order[b]].ModulePath
+		})
+		for _, i := range order {
+			fmt.Fprintf(&b, "\text%d %q\n", i, units[i].ModulePath)
 		}
 	}
 	b.WriteString(")\n")

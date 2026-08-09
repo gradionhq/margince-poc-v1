@@ -32,16 +32,18 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ownerDSN is the throwaway clone the integration lane hands this package
-// (scripts/test-integration-one.sh). Fails loudly rather than skipping: a gate
-// suite that skips reports green while proving nothing.
+// ownerDSN is the vanilla throwaway database this package migrates for itself
+// in TestMain — NOT the clone of the shared template the integration lane hands
+// it, which carries every enabled unit's extension tables and is therefore the
+// one database this gate cannot run on. See throwawaydb_integration_test.go for
+// why that is structural rather than tidiness. Fails loudly rather than
+// skipping: a gate suite that skips reports green while proving nothing.
 func ownerDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("MARGINCE_TEST_DSN")
-	if dsn == "" {
-		t.Fatal("MARGINCE_TEST_DSN is unset — run this package through `make test-it DIR=backend/tools/extmigrategate`")
+	if gateDSN == "" {
+		t.Fatal("the throwaway gate database was not provisioned — run this package through `make test-it DIR=backend/tools/extmigrategate`")
 	}
-	return dsn
+	return gateDSN
 }
 
 // unitName mints a unit name unique to this test and this process. The role
