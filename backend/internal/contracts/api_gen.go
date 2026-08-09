@@ -1335,6 +1335,54 @@ func (e ChannelConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for ClaimEvidenceEntityType.
+const (
+	ClaimEvidenceEntityTypeFact         ClaimEvidenceEntityType = "fact"
+	ClaimEvidenceEntityTypeOrganization ClaimEvidenceEntityType = "organization"
+	ClaimEvidenceEntityTypeProfileField ClaimEvidenceEntityType = "profile_field"
+)
+
+// Valid indicates whether the value is a known member of the ClaimEvidenceEntityType enum.
+func (e ClaimEvidenceEntityType) Valid() bool {
+	switch e {
+	case ClaimEvidenceEntityTypeFact:
+		return true
+	case ClaimEvidenceEntityTypeOrganization:
+		return true
+	case ClaimEvidenceEntityTypeProfileField:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ClaimEvidenceSourceKind.
+const (
+	ClaimEvidenceSourceKindConnector ClaimEvidenceSourceKind = "connector"
+	ClaimEvidenceSourceKindHuman     ClaimEvidenceSourceKind = "human"
+	ClaimEvidenceSourceKindMigration ClaimEvidenceSourceKind = "migration"
+	ClaimEvidenceSourceKindRule      ClaimEvidenceSourceKind = "rule"
+	ClaimEvidenceSourceKindSiteRead  ClaimEvidenceSourceKind = "site_read"
+)
+
+// Valid indicates whether the value is a known member of the ClaimEvidenceSourceKind enum.
+func (e ClaimEvidenceSourceKind) Valid() bool {
+	switch e {
+	case ClaimEvidenceSourceKindConnector:
+		return true
+	case ClaimEvidenceSourceKindHuman:
+		return true
+	case ClaimEvidenceSourceKindMigration:
+		return true
+	case ClaimEvidenceSourceKindRule:
+		return true
+	case ClaimEvidenceSourceKindSiteRead:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColdStartFieldField.
 const (
 	ColdStartFieldFieldBuyingCenter      ColdStartFieldField = "buying_center"
@@ -3309,6 +3357,30 @@ func (e FilteredExportRequestObject) Valid() bool {
 	}
 }
 
+// Defines values for GrowthFitBand.
+const (
+	GrowthFitBandModerate GrowthFitBand = "moderate"
+	GrowthFitBandStrong   GrowthFitBand = "strong"
+	GrowthFitBandUnknown  GrowthFitBand = "unknown"
+	GrowthFitBandWeak     GrowthFitBand = "weak"
+)
+
+// Valid indicates whether the value is a known member of the GrowthFitBand enum.
+func (e GrowthFitBand) Valid() bool {
+	switch e {
+	case GrowthFitBandModerate:
+		return true
+	case GrowthFitBandStrong:
+		return true
+	case GrowthFitBandUnknown:
+		return true
+	case GrowthFitBandWeak:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IngestVoiceCorpusSourceRequestFormat.
 const (
 	IngestVoiceCorpusSourceRequestFormatText       IngestVoiceCorpusSourceRequestFormat = "text"
@@ -4345,6 +4417,7 @@ const (
 	OrganizationBriefEvidenceEntityTypeFact         OrganizationBriefEvidenceEntityType = "fact"
 	OrganizationBriefEvidenceEntityTypeOrganization OrganizationBriefEvidenceEntityType = "organization"
 	OrganizationBriefEvidenceEntityTypePerson       OrganizationBriefEvidenceEntityType = "person"
+	OrganizationBriefEvidenceEntityTypeProfileField OrganizationBriefEvidenceEntityType = "profile_field"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationBriefEvidenceEntityType enum.
@@ -4359,6 +4432,8 @@ func (e OrganizationBriefEvidenceEntityType) Valid() bool {
 	case OrganizationBriefEvidenceEntityTypeOrganization:
 		return true
 	case OrganizationBriefEvidenceEntityTypePerson:
+		return true
+	case OrganizationBriefEvidenceEntityTypeProfileField:
 		return true
 	default:
 		return false
@@ -4407,6 +4482,36 @@ func (e OrganizationBriefSentenceNature) Valid() bool {
 	case Fact:
 		return true
 	case Recommendation:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationDossierSectionKind.
+const (
+	OrganizationDossierSectionKindBuyingCenter     OrganizationDossierSectionKind = "buying_center"
+	OrganizationDossierSectionKindDifferentiation  OrganizationDossierSectionKind = "differentiation"
+	OrganizationDossierSectionKindFirmographics    OrganizationDossierSectionKind = "firmographics"
+	OrganizationDossierSectionKindMarkets          OrganizationDossierSectionKind = "markets"
+	OrganizationDossierSectionKindProductsServices OrganizationDossierSectionKind = "products_services"
+	OrganizationDossierSectionKindSummary          OrganizationDossierSectionKind = "summary"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationDossierSectionKind enum.
+func (e OrganizationDossierSectionKind) Valid() bool {
+	switch e {
+	case OrganizationDossierSectionKindBuyingCenter:
+		return true
+	case OrganizationDossierSectionKindDifferentiation:
+		return true
+	case OrganizationDossierSectionKindFirmographics:
+		return true
+	case OrganizationDossierSectionKindMarkets:
+		return true
+	case OrganizationDossierSectionKindProductsServices:
+		return true
+	case OrganizationDossierSectionKindSummary:
 		return true
 	default:
 		return false
@@ -7115,31 +7220,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -7148,16 +7253,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
-	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
+	Text       VoiceCorpusPreviewRequestFormat = "text"
+	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case VoiceCorpusPreviewRequestFormatText:
+	case Text:
 		return true
-	case VoiceCorpusPreviewRequestFormatTranscript:
+	case Transcript:
 		return true
 	default:
 		return false
@@ -7661,58 +7766,58 @@ func (e CapturedByKind) Valid() bool {
 
 // Defines values for ProfileFieldKey.
 const (
-	ProfileFieldKeyBuyingCenter      ProfileFieldKey = "buying_center"
-	ProfileFieldKeyBuyingIntents     ProfileFieldKey = "buying_intents"
-	ProfileFieldKeyCommonObjections  ProfileFieldKey = "common_objections"
-	ProfileFieldKeyCustomerPains     ProfileFieldKey = "customer_pains"
-	ProfileFieldKeyDesiredOutcomes   ProfileFieldKey = "desired_outcomes"
-	ProfileFieldKeyDisplayName       ProfileFieldKey = "display_name"
-	ProfileFieldKeyHistory           ProfileFieldKey = "history"
-	ProfileFieldKeyIcp               ProfileFieldKey = "icp"
-	ProfileFieldKeyIndustry          ProfileFieldKey = "industry"
-	ProfileFieldKeyLegalName         ProfileFieldKey = "legal_name"
-	ProfileFieldKeyOfferSummary      ProfileFieldKey = "offer_summary"
-	ProfileFieldKeyRegisterVat       ProfileFieldKey = "register_vat"
-	ProfileFieldKeyRegisteredAddress ProfileFieldKey = "registered_address"
-	ProfileFieldKeySalesMotion       ProfileFieldKey = "sales_motion"
-	ProfileFieldKeyUsp               ProfileFieldKey = "usp"
-	ProfileFieldKeyValueProposition  ProfileFieldKey = "value_proposition"
+	BuyingCenter      ProfileFieldKey = "buying_center"
+	BuyingIntents     ProfileFieldKey = "buying_intents"
+	CommonObjections  ProfileFieldKey = "common_objections"
+	CustomerPains     ProfileFieldKey = "customer_pains"
+	DesiredOutcomes   ProfileFieldKey = "desired_outcomes"
+	DisplayName       ProfileFieldKey = "display_name"
+	History           ProfileFieldKey = "history"
+	Icp               ProfileFieldKey = "icp"
+	Industry          ProfileFieldKey = "industry"
+	LegalName         ProfileFieldKey = "legal_name"
+	OfferSummary      ProfileFieldKey = "offer_summary"
+	RegisterVat       ProfileFieldKey = "register_vat"
+	RegisteredAddress ProfileFieldKey = "registered_address"
+	SalesMotion       ProfileFieldKey = "sales_motion"
+	Usp               ProfileFieldKey = "usp"
+	ValueProposition  ProfileFieldKey = "value_proposition"
 )
 
 // Valid indicates whether the value is a known member of the ProfileFieldKey enum.
 func (e ProfileFieldKey) Valid() bool {
 	switch e {
-	case ProfileFieldKeyBuyingCenter:
+	case BuyingCenter:
 		return true
-	case ProfileFieldKeyBuyingIntents:
+	case BuyingIntents:
 		return true
-	case ProfileFieldKeyCommonObjections:
+	case CommonObjections:
 		return true
-	case ProfileFieldKeyCustomerPains:
+	case CustomerPains:
 		return true
-	case ProfileFieldKeyDesiredOutcomes:
+	case DesiredOutcomes:
 		return true
-	case ProfileFieldKeyDisplayName:
+	case DisplayName:
 		return true
-	case ProfileFieldKeyHistory:
+	case History:
 		return true
-	case ProfileFieldKeyIcp:
+	case Icp:
 		return true
-	case ProfileFieldKeyIndustry:
+	case Industry:
 		return true
-	case ProfileFieldKeyLegalName:
+	case LegalName:
 		return true
-	case ProfileFieldKeyOfferSummary:
+	case OfferSummary:
 		return true
-	case ProfileFieldKeyRegisterVat:
+	case RegisterVat:
 		return true
-	case ProfileFieldKeyRegisteredAddress:
+	case RegisteredAddress:
 		return true
-	case ProfileFieldKeySalesMotion:
+	case SalesMotion:
 		return true
-	case ProfileFieldKeyUsp:
+	case Usp:
 		return true
-	case ProfileFieldKeyValueProposition:
+	case ValueProposition:
 		return true
 	default:
 		return false
@@ -9836,6 +9941,66 @@ type ChannelConnectionListResponse struct {
 	Data []ChannelConnection `json:"data"`
 }
 
+// ClaimEvidence The receipt behind one cited record (DOSS-WIRE-3). Each `source_kind` owes its own
+// identifying fields (DOSS-PARAM-9), carried in `identity`; a receipt that cannot fill one
+// names the gap in `gaps` rather than substituting a plausible value.
+type ClaimEvidence struct {
+	// Confidence The model's confidence. ABSENT for the `connector`, `human` and `migration` kinds — none
+	// of them carries a model confidence, and printing one would fabricate a number
+	// (DOSS-AC-16).
+	Confidence *float32                `json:"confidence,omitempty"`
+	EntityId   openapi_types.UUID      `json:"entity_id"`
+	EntityType ClaimEvidenceEntityType `json:"entity_type"`
+
+	// Excerpt The verbatim span the value was read from. Null when the kind has no text.
+	Excerpt *string `json:"excerpt,omitempty"`
+
+	// Gaps Fields this kind owes that could not be filled, named rather than silently omitted. An
+	// absent field and an unrecorded one look identical on the wire otherwise.
+	Gaps *[]string `json:"gaps,omitempty"`
+
+	// Identity The identifying fields this kind owes — site read: the canonical URL it was read from;
+	// connector: the provider and the external record; human: the actor and when; migration:
+	// the import that carried it. What the reader needs to go and check the claim themselves.
+	Identity *map[string]interface{} `json:"identity,omitempty"`
+
+	// Label The field this record holds, in the reader's words — what the claim was about.
+	Label *string `json:"label,omitempty"`
+
+	// LastVerifiedAt When a human last confirmed it. Deliberately distinct from `retrieved_at` — read and
+	// confirmed are different claims, and collapsing them would let a machine re-read pass
+	// for a person's approval.
+	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
+
+	// ProducedBy What produced the value — an extraction lane, a connector, or a named human.
+	ProducedBy string `json:"produced_by"`
+
+	// RetrievedAt When the source was read. Null when nothing recorded it.
+	RetrievedAt *time.Time `json:"retrieved_at,omitempty"`
+
+	// SourceKind How this record came to exist.
+	//
+	// `migration` is not in the spec's DOSS-PARAM-9 vocabulary, and is carried here because
+	// migration 0099 makes it one of the four provenance values a stored value can have.
+	// Reporting an imported row as a connector record or a person's assertion would be a
+	// claim about where it came from that nobody made. Raised upstream.
+	SourceKind ClaimEvidenceSourceKind `json:"source_kind"`
+
+	// Value The stored value the claim rests on.
+	Value *string `json:"value,omitempty"`
+}
+
+// ClaimEvidenceEntityType defines model for ClaimEvidence.EntityType.
+type ClaimEvidenceEntityType string
+
+// ClaimEvidenceSourceKind How this record came to exist.
+//
+// `migration` is not in the spec's DOSS-PARAM-9 vocabulary, and is carried here because
+// migration 0099 makes it one of the four provenance values a stored value can have.
+// Reporting an imported row as a connector record or a person's assertion would be a
+// claim about where it came from that nobody made. Raised upstream.
+type ClaimEvidenceSourceKind string
+
 // ColdStartField One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
 // omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
 // ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
@@ -10022,6 +10187,9 @@ type CompanyProfileField struct {
 	Confidence      *float32                 `json:"confidence,omitempty"`
 	EvidenceSnippet *string                  `json:"evidence_snippet,omitempty"`
 	Field           CompanyProfileFieldField `json:"field"`
+
+	// Id The stored row, so a dossier sentence written from this field can cite something the reader can open. Without it a field-derived claim could only cite the organization, which tells the reader where to look but not at what — and the grounding filter drops a sentence whose citation it cannot resolve.
+	Id *openapi_types.UUID `json:"id,omitempty"`
 
 	// RetrievedAt When the source was last actually read (PO-DDL-N-2, ADR-0085). Distinct from captured_at, which is when we first recorded the claim.
 	RetrievedAt *time.Time                `json:"retrieved_at,omitempty"`
@@ -10966,6 +11134,21 @@ type CustomFieldListResponse struct {
 	Page PageInfo      `json:"page"`
 }
 
+// DataCompleteness How much of what the band needs is actually present — with BOTH counts. "4 of 9"
+// and "4 of 40" are different claims and must never render identically (DOSS-AC-12).
+type DataCompleteness struct {
+	// Expected Required inputs the assembly wanted. Never omitted and never implied — a
+	// proportion without its denominator is not a completeness figure.
+	Expected int `json:"expected"`
+
+	// Missing Which required inputs are missing, named in the reader's words. This is what
+	// the "next data-gathering step" is built from, so it is never an opaque code.
+	Missing *[]string `json:"missing,omitempty"`
+
+	// Present Required inputs available and not stale.
+	Present int `json:"present"`
+}
+
 // DataSubjectRequest A GDPR data-subject request (Art. 15/16/17) tracked to completion (B-E11.30; data-model §12.5).
 type DataSubjectRequest struct {
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
@@ -11365,6 +11548,14 @@ type FxRateListResponse struct {
 	BaseCurrency *string  `json:"base_currency,omitempty"`
 	Data         []FxRate `json:"data"`
 }
+
+// GrowthFitBand How well this company fits what we sell (DOSS-PARAM-8).
+//
+// `unknown` is the ABSTENTION, not a low score. It says the assembly did not have
+// enough to judge on, and it always arrives with its completeness counts and a named
+// next step. A reader must never have to guess whether `unknown` means "poor fit" or
+// "we could not tell" — those are opposite conclusions.
+type GrowthFitBand string
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
@@ -12888,6 +13079,54 @@ type OrganizationDomainInput struct {
 	IsPrimary *bool  `json:"is_primary,omitempty"`
 }
 
+// OrganizationDossier A factual description of one company, assembled from what the READER can see.
+// Every sentence carries the records it was written from, so the reader can open the
+// evidence rather than take the sentence on trust.
+type OrganizationDossier struct {
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy `json:"generated_by"`
+
+	// NeedsRefresh The newest contributing source was retrieved more than thirty days ago
+	// (DOSS-PARAM-6). The content is still shown — a stale dossier is more useful
+	// than none — with the staleness said out loud beside it.
+	NeedsRefresh   *bool              `json:"needs_refresh,omitempty"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// Sections A section with nothing to say is ABSENT rather than empty: a heading over
+	// silence reads as a finding of nothing, which is a different claim. The compact
+	// card renders `summary` only.
+	Sections []OrganizationDossierSection `json:"sections"`
+}
+
+// OrganizationDossierSection defines model for OrganizationDossierSection.
+type OrganizationDossierSection struct {
+	// Kind `summary` — what this company is, in a sentence or three.
+	// `products_services` — what they sell.
+	// `markets` — where and to whom.
+	// `buying_center` — who decides.
+	// `differentiation` — what they claim sets them apart.
+	// `firmographics` — size, age, registration and the like.
+	Kind OrganizationDossierSectionKind `json:"kind"`
+
+	// Sentences The same claim shape the account brief uses, deliberately: one claim
+	// vocabulary and one grounding rule across every generated surface, so a reader
+	// learns the distinction once and it holds everywhere.
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
+// OrganizationDossierSectionKind `summary` — what this company is, in a sentence or three.
+// `products_services` — what they sell.
+// `markets` — where and to whom.
+// `buying_center` — who decides.
+// `differentiation` — what they claim sets them apart.
+// `firmographics` — size, age, registration and the like.
+type OrganizationDossierSectionKind string
+
 // OrganizationFact defines model for OrganizationFact.
 type OrganizationFact struct {
 	CapturedBy      *string                  `json:"captured_by,omitempty"`
@@ -13142,6 +13381,64 @@ type OrganizationGraphNodeKind string
 
 // OrganizationGraphNodeStrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
 type OrganizationGraphNodeStrengthBucket string
+
+// OrganizationGrowthFit Cached per reader (DOSS-DDL-2), because it folds seat-dependent workspace context
+// and makes recommendations.
+//
+// Every claim below carries the records it was written from, exactly like a dossier
+// sentence. The evidence is always TARGET-side: a factor drawn from our own offering
+// is labelled an `assessment` and still cites the other company's records, or it is
+// dropped. Our own profile is not a record this reader can open, and citing it would
+// invent a citation (DOSS-AC-6).
+type OrganizationGrowthFit struct {
+	// Band How well this company fits what we sell (DOSS-PARAM-8).
+	//
+	// `unknown` is the ABSTENTION, not a low score. It says the assembly did not have
+	// enough to judge on, and it always arrives with its completeness counts and a named
+	// next step. A reader must never have to guess whether `unknown` means "poor fit" or
+	// "we could not tell" — those are opposite conclusions.
+	Band GrowthFitBand `json:"band"`
+
+	// BandCappedReason Why the band could not go higher — our own offering context being unconfirmed
+	// caps it at `moderate` (DOSS-AC-13). Null when nothing capped it.
+	BandCappedReason *string `json:"band_capped_reason,omitempty"`
+
+	// DataCompleteness How much of what the band needs is actually present — with BOTH counts. "4 of 9"
+	// and "4 of 40" are different claims and must never render identically (DOSS-AC-12).
+	DataCompleteness DataCompleteness `json:"data_completeness"`
+	GeneratedAt      time.Time        `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy `json:"generated_by"`
+
+	// NegativeFactors What argues against it.
+	NegativeFactors *[]OrganizationBriefSentence `json:"negative_factors,omitempty"`
+
+	// NextStep The one named thing to do that would most improve this answer, or null when
+	// nothing is holding it back.
+	//
+	// When the band is `unknown` this is offered INSTEAD of a score and names the
+	// missing inputs to go and find. When the band was capped it names the other
+	// fix — confirming our own offering. Always a concrete action, never a
+	// restatement that data is missing.
+	NextStep *string `json:"next_step,omitempty"`
+
+	// Objections What this company is likely to push back with, each with its evidence.
+	Objections     *[]OrganizationBriefSentence `json:"objections,omitempty"`
+	OrganizationId openapi_types.UUID           `json:"organization_id"`
+
+	// PositiveFactors What argues for this company being a fit.
+	PositiveFactors *[]OrganizationBriefSentence `json:"positive_factors,omitempty"`
+
+	// RecommendedAngle The single suggested approach. A recommendation, and labelled as one.
+	RecommendedAngle *OrganizationBriefSentence `json:"recommended_angle,omitempty"`
+
+	// Whitespace What we sell that this company does not yet buy.
+	Whitespace *[]OrganizationBriefSentence `json:"whitespace,omitempty"`
+}
 
 // OrganizationHierarchyRollup The account-tree roll-up over organization.parent_org_id. A server read only,
 // never client-summed. Money is base-currency converted — never a raw
@@ -25714,9 +26011,18 @@ type ServerInterface interface {
 	// Every document that rolls up to this account, pinned first (DOC-WIRE-1).
 	// (GET /organizations/{id}/documents)
 	ListOrganizationDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationDocumentsParams)
+	// What this company IS — assembled from its own facts, every sentence citing one.
+	// (GET /organizations/{id}/dossier)
+	GetOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id)
+	// Reassemble the dossier now, past a fingerprint that still matches.
+	// (POST /organizations/{id}/dossier)
+	RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id)
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
+	// The receipt behind one cited record — where it came from, and what is missing.
+	// (GET /organizations/{id}/evidence/{entityType}/{entityId})
+	GetClaimEvidence(w http.ResponseWriter, r *http.Request, id Id, entityType string, entityId openapi_types.UUID)
 	// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 	// (GET /organizations/{id}/facts)
 	ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id)
@@ -25729,6 +26035,12 @@ type ServerInterface interface {
 	// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
 	// (GET /organizations/{id}/graph)
 	GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id)
+	// How well this company fits what we sell — banded, with both completeness counts.
+	// (GET /organizations/{id}/growth-fit)
+	GetOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id Id)
+	// Re-assemble the caller's growth fit now, past a fingerprint that still matches.
+	// (POST /organizations/{id}/growth-fit)
+	RefreshOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id Id)
 	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 	// (GET /organizations/{id}/hierarchy-rollup)
 	GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams)
@@ -27184,9 +27496,27 @@ func (_ Unimplemented) ListOrganizationDocuments(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// What this company IS — assembled from its own facts, every sentence citing one.
+// (GET /organizations/{id}/dossier)
+func (_ Unimplemented) GetOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reassemble the dossier now, past a fingerprint that still matches.
+// (POST /organizations/{id}/dossier)
+func (_ Unimplemented) RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 // (POST /organizations/{id}/enrich)
 func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The receipt behind one cited record — where it came from, and what is missing.
+// (GET /organizations/{id}/evidence/{entityType}/{entityId})
+func (_ Unimplemented) GetClaimEvidence(w http.ResponseWriter, r *http.Request, id Id, entityType string, entityId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -27211,6 +27541,18 @@ func (_ Unimplemented) ConfirmOrganizationFact(w http.ResponseWriter, r *http.Re
 // The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
 // (GET /organizations/{id}/graph)
 func (_ Unimplemented) GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// How well this company fits what we sell — banded, with both completeness counts.
+// (GET /organizations/{id}/growth-fit)
+func (_ Unimplemented) GetOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Re-assemble the caller's growth fit now, past a fingerprint that still matches.
+// (POST /organizations/{id}/growth-fit)
+func (_ Unimplemented) RefreshOrganizationGrowthFit(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35619,6 +35961,70 @@ func (siw *ServerInterfaceWrapper) ListOrganizationDocuments(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationDossier operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationDossier(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationDossier(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshOrganizationDossier operation middleware
+func (siw *ServerInterfaceWrapper) RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshOrganizationDossier(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ScrapeCompany operation middleware
 func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.Request) {
 
@@ -35644,6 +36050,56 @@ func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ScrapeCompany(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetClaimEvidence operation middleware
+func (siw *ServerInterfaceWrapper) GetClaimEvidence(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "entityType" -------------
+	var entityType string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entityType", chi.URLParam(r, "entityType"), &entityType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entityType", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "entityId" -------------
+	var entityId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entityId", chi.URLParam(r, "entityId"), &entityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entityId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetClaimEvidence(w, r, id, entityType, entityId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -35922,6 +36378,70 @@ func (siw *ServerInterfaceWrapper) GetOrganizationGraph(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetOrganizationGraph(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOrganizationGrowthFit operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationGrowthFit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationGrowthFit(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshOrganizationGrowthFit operation middleware
+func (siw *ServerInterfaceWrapper) RefreshOrganizationGrowthFit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshOrganizationGrowthFit(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -43589,7 +44109,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/organizations/{id}/documents", wrapper.ListOrganizationDocuments)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/dossier", wrapper.GetOrganizationDossier)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/dossier", wrapper.RefreshOrganizationDossier)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/evidence/{entityType}/{entityId}", wrapper.GetClaimEvidence)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/facts", wrapper.ListOrganizationFacts)
@@ -43602,6 +44131,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/graph", wrapper.GetOrganizationGraph)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/growth-fit", wrapper.GetOrganizationGrowthFit)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/growth-fit", wrapper.RefreshOrganizationGrowthFit)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/hierarchy-rollup", wrapper.GetOrganizationHierarchyRollup)

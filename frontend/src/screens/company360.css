@@ -310,3 +310,100 @@
   color: var(--textMeta);
   margin-block-end: 0.2rem;
 }
+
+/* The growth fit sits between the brief and the next steps: what this account
+   looks like, then what it is worth, then what to do about it.
+
+   The verdict block is deliberately one unit. The band, the completeness
+   figure and the next step are ONE answer — a reader who sees `unknown`
+   without the counts beside it cannot tell "we could not judge" from "a poor
+   fit", and separating them visually invites exactly that reading. */
+.co-growth-fit {
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.co-growth-fit-verdict {
+  margin: var(--space-2) 0 var(--space-3);
+}
+.co-growth-fit-band {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+/* The counts sit beside the band at the band's own weight, not beneath it in
+   fine print: they qualify the verdict rather than annotate it. */
+.co-growth-fit-completeness {
+  color: var(--textMeta);
+}
+.co-growth-fit-missing,
+.co-growth-fit-capped,
+.co-growth-fit-next {
+  margin-top: var(--space-2);
+  color: var(--textMeta);
+}
+.co-growth-fit-group {
+  margin-top: var(--space-3);
+}
+.co-part-sublabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--textMeta);
+}
+.co-part-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.co-part-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
+}
+
+/* The dossier: what the company IS, above the fit that judges it. Set like the
+   brief — prose, read top to bottom once — because it answers a question rather
+   than reporting a metric. */
+.co-dossier {
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.co-dossier-section {
+  margin-top: var(--space-3);
+}
+
+/* The receipt behind one cited value. Read as a short record, not as prose:
+   the reader is comparing what we stored against where we got it. */
+.co-evidence-value {
+  font-weight: 600;
+}
+.co-evidence-origin,
+.co-evidence-line {
+  margin-top: var(--space-2);
+  color: var(--textMeta);
+}
+/* Quoted verbatim and set apart, because the reader is checking it word for
+   word against the source. Any restyling that invited paraphrase would defeat
+   the point of storing a span at all. */
+.co-evidence-excerpt {
+  margin-top: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--borderStrong);
+}
+.co-evidence-identity {
+  margin-top: var(--space-3);
+}
+.co-evidence-identity dt {
+  color: var(--textMeta);
+}
+.co-evidence-identity dd {
+  margin-bottom: var(--space-2);
+  overflow-wrap: anywhere;
+}
+/* Said plainly, never hidden: a claim with no source to check it against is
+   worth knowing about, and a blank field would pass for having nothing to add. */
+.co-evidence-gaps {
+  margin-top: var(--space-3);
+  color: var(--textMeta);
+}

@@ -59,27 +59,115 @@ closes the door on manually entered financial figures that plan §4.6 left ajar.
   actually exchanged messages, plus `+N`, with untried distinguished from cold;
   and a coverage explorer over up to eight colleagues the reader picks.
 
-**Next, and the one to read before starting it: PR 4 (growth fit) is a module,
-not a slice.** `company-dossier.md` specifies the dossier and growth fit
-together — two tables, six wire operations, an AI lane with a deterministic
-floor, per-reader caching with an input fingerprint, field masking, evidence
-receipts. Its sibling `compose/orgbrief` is 3,235 lines. Growth fit's
-deterministic floor is *abstention*, so building the floor first yields a panel
-that always says "not enough evidence": the model lane is not optional for this
-slice to be worth anything.
+- **PR 4 (part)** — the dossier and the growth-fit assessment, both serving.
+  `GET`/`POST /organizations/{id}/dossier` and `.../growth-fit` are live over
+  `compose/orgdossier`, on the two per-reader caches in migration `0199`.
+  DOSS-FORM-2 is complete: seven required inputs, completeness with both counts
+  and the missing ones named, abstention below the floor, and the DOSS-AC-13
+  cap at `moderate` when the workspace's own offering is unconfirmed
+  (`minimum_complete` on the anchor company is the confirmation signal).
 
-Still unbuilt beyond that: PR 5 (documents), PR 6 (attachments, `ADR-0086`),
-PR 8 (account-started email, `ADR-0087`), PR 9/10 (finance, `ADR-0083`). Each
-needs a backend capability built from scratch.
+- **PR 4 (model lane)** — growth fit can now propose a band. The `growth_fit`
+  AI task reads our own offering through its company-context policy (offer,
+  positioning, proof) and is bound by `compose.WithGrowthFit` on the api role.
+  The model proposes; `Assess` re-counts and can lower that band to `unknown`
+  or cap it at `moderate`, never raise it. Every model-side failure — including
+  a model that answers `unknown` itself — degrades to the floor's abstention,
+  labelled `deterministic`. The cert case runs production's own request builder
+  and parser; its scenario is `aicert/corpus/growth_fit/clear_fit_01.yaml`.
 
-`make check`, `make craft-static`, `check-fe` and the integration lane (0
-skips) are green. Nothing is pushed: this work stays in the worktree until it
-is tested locally.
+- **PR 4 (growth-fit panel)** — `screens/companygrowthfit.tsx`, between the
+  account brief and the next steps. It reuses the brief's own `SentenceList`
+  and citation chips rather than a second copy, so the
+  fact/assessment/recommendation distinction is learned once. `unknown` is the
+  only band with no colour, on purpose: giving it one would put an abstention
+  on the same scale as a verdict.
 
-**Next**, in plan order: PR 2 (Today on this account), PR 3 (dossier, full
-facts, evidence drawer), PR 4 (growth fit), PR 5 (documents), PR 7 (scalable
-coverage), then PR 6/8 (attachments, account-started email) and PR 9/10
-(finance) against their ADRs.
+- **PR 4 (dossier panel + evidence)** — `screens/companydossier.tsx` renders the
+  dossier between the brief and the growth fit, and `getClaimEvidence` gives
+  every `fact` and `profile_field` citation a receipt: where the value came
+  from, the span it rests on, when a person last confirmed it, and what could
+  not be recorded. `screens/companyevidence.tsx` is the modal the chips open.
+
+- **PR 4 (dossier model lane)** — `org_dossier` is a third site on the existing
+  `summarize` task, bound by `compose.WithCompanyDossier`. Its request
+  deliberately does not ask for our own company context, though the task's
+  policy allows it: a writer handed what we sell starts comparing, and that is
+  the growth fit's job.
+
+**PR 4 is complete.** Both generated company surfaces have a model lane, a
+deterministic floor, a panel, and receipts behind every citation.
+
+**Two spec deviations on the evidence surface, both raised upstream.** The
+chapter addresses the receipt as `/claims/{claimId}/evidence`, but nothing here
+mints a claim identity — a sentence cites `(entity_type, entity_id)`, so the
+receipt is keyed on that and scoped under its company. And DOSS-PARAM-9's
+source-kind vocabulary has no `migration`, though migration 0099 makes it one of
+four provenance values a stored value can carry.
+
+**Three open issues from the review rounds**: [#2](../../issues/2) (nothing
+writes `retrieved_at`, so freshness measures the last write, not the last read),
+[#3](../../issues/3) (a row-scope miss on the anchor company reads as "you have
+not described your own company", so a rep who cannot see it is told to confirm a
+profile that already is), and [#4](../../issues/4) (DOSS-AC-N-1 assumes
+per-reader field masking on company values; this platform has row scope only).
+
+**What the review rounds cost, and why it was worth it.** Five rounds across
+three reviewers found nine defects that every gate passed, and four tests that
+passed for the wrong reason. Two findings were holes in fixes made an hour
+earlier, and one was a contradiction introduced BY a fix: dropping the
+organization from the grounding set while both prompts still ordered the model
+to cite it. The pattern worth carrying: after changing what the filter accepts,
+re-read what the prompt asks for — the two are one rule spelled in two places,
+and only one of them is compiled.
+
+**Two things to know before touching it.** Adding a contract operation breaks
+the build until its handler exists — `compose.Server` asserts
+`ServerInterface` at compile time. And both drift gates want generated files
+*committed*: `make gen` for the backend, `pnpm gen:api` for `schema.d.ts`.
+
+**One spec gap, raised upstream, decided here for now.** The abstention floor
+has no number anywhere in `company-dossier.md` — only its behaviour and two
+worked examples (four of seven judges normally, two of seven abstains). It is
+pinned at one half in `growthfit.go`, which satisfies both; it wants a
+`DOSS-PARAM` of its own. The same chapter's `next_step` wording says the step
+is offered *instead of a score when the band is unknown*, but its own worked
+example also names one when the band was merely capped — this build follows
+the example.
+
+**Since shipped, and NOT to be rebuilt.** PR #602 merged PR 5 and the outbound
+half of PR 6 together with the slices above. Check the tree before planning any
+of it again — a session on 2026-08-09 lost an hour re-scoping PR 5 from a stale
+local checkout of `main` that predated #602:
+
+- **PR 5 — documents.** Migration `0195_document_metadata` (DOC-DDL-1: category,
+  title, doc_state, pinned, supersedes_id, the organization/deal/project/activity
+  roll-up columns, the provider identity pair and `declared_type`, plus the
+  partial unique index and the account index). Wire: `listOrganizationDocuments`
+  (DOC-WIRE-1) and `updateAttachmentMetadata` (DOC-WIRE-2). Store:
+  `activities/documents.go`. Frontend: `companydocuments.tsx`.
+- **PR 6, outbound half.** Migration `0196_outbound_attachments` (DOC-DDL-2,
+  `comms_outbound_attachment` — the immutable snapshot of what a sent message
+  carried) and the attachment-carriage gate in the comms dispatcher.
+
+Two deviations from the chapter, both deliberate and both visible in the
+contract: DOC-WIRE-3's `pinAttachment`/`unpinAttachment` are folded into
+`updateAttachmentMetadata` as a sparse `pinned` field rather than shipping as
+two more operations, and that patch is NOT version-guarded because `attachment`
+carries no version column — the contract says so in its own description rather
+than advertising a precondition the row cannot honour.
+
+**Still unbuilt:** the INBOUND half of PR 6 (MIME parts through the capture
+sink — bounds DOC-PARAM-3/4/5, filename sanitization, sniffed-over-declared
+content type, idempotency on the provider's message-and-part identity), PR 8
+(account-started email, `ADR-0087`), and PR 9/10 (finance, `ADR-0083`).
+`connector.NormalizedRecord` carries no parts today, and `mailmap.extractText`
+skips every `*mail.AttachmentHeader` part silently — that is the starting point.
+
+Known gap, filed rather than fixed: **issue #663** — an object written before a
+transaction that then fails is never reclaimed, and Art. 17 erasure cannot reach
+it because erasure finds bytes through the attachment row. It predates the
+capture work and affects the human upload path too (DOC-AC-9).
 
 ## Open — two follow-ups left by ADR-0082/A127 (the own company, and internal mail)
 

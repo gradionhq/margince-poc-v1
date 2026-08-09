@@ -1303,10 +1303,15 @@ function Citations({
   );
 }
 
-// The citation kinds that have a screen to open. An activity has no detail
-// route of its own (it lives in a timeline) and the organization citation is
-// the page the reader is already on.
-const ROUTABLE_CITATIONS = new Set(["deal", "person"]);
+// The citation kinds a reader can open something for. `deal` and `person` route
+// to their own screens; `fact` and `profile_field` open their receipt instead —
+// where the value came from, when it was read, and what could not be recorded.
+//
+// An activity has no detail route of its own (it lives in a timeline) and no
+// receipt either, and the organization citation is the page the reader is
+// already on. Both stay flat: a clickable element that does nothing teaches the
+// reader that citations do not work, which costs more than the click it saves.
+const ROUTABLE_CITATIONS = new Set(["deal", "person", "fact", "profile_field"]);
 
 /** OverlayFallback replaces the page when the workspace reads elsewhere. */
 export function OverlayFallback() {
@@ -1325,7 +1330,7 @@ type Suggestion = components["schemas"]["Organization360Suggestion"];
  * written from the same records with the same citations. One component, so a
  * citation can never be clickable in one place and flat in the other.
  */
-function SentenceList({
+export function SentenceList({
   sentences,
   onOpenRecord,
 }: Readonly<{
@@ -1358,7 +1363,7 @@ function SentenceList({
   );
 }
 
-type BriefSentence = NonNullable<
+export type BriefSentence = NonNullable<
   Brief["sections"]
 >[number]["sentences"][number];
 type BriefSectionKind = NonNullable<Brief["sections"]>[number]["kind"];
@@ -1415,7 +1420,7 @@ function BriefSections({
  * reader weighing a sentence needs to know whether a model or the
  * deterministic fallback wrote it, and the two are not interchangeable.
  */
-function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
+export function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
   const t = useT();
   return (
     <Badge tone={by === "model" ? "ai" : undefined}>

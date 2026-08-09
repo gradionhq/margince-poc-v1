@@ -10,6 +10,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -53,6 +54,7 @@ type (
 	org360Handlers       = org360.Handlers
 	person360Handlers    = person360.Handlers
 	orgBriefHandlers     = orgbrief.Handlers
+	orgDossierHandlers   = orgdossier.Handlers
 )
 
 // wirePerson360 binds the person record page — the organization page's

@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/compose/claims"
 )
 
 // Deterministic writes the brief without a model. Every sentence cites the
@@ -54,7 +56,7 @@ func Deterministic(orgID string, in Input) []Sentence {
 	// Then what the company IS. Same two-part shape the model lane is asked
 	// for, so the card reads the same whichever wrote it.
 	sentences = append(sentences, profileLines(in, account)...)
-	return dedupedSentences(sentences)
+	return claims.Dedupe(sentences)
 }
 
 // profileLabels turn a stored field name into the question it answers.
@@ -303,7 +305,7 @@ func DeterministicSections(orgID string, in Input) []Section {
 	}
 	health = append(health, perRecordSentences(stalledDeals(in), citeDeal, dealID, stalledLine)...)
 	if len(health) > 0 {
-		sections = append(sections, Section{Kind: sectionHealth, Sentences: dedupedSentences(health)})
+		sections = append(sections, Section{Kind: sectionHealth, Sentences: claims.Dedupe(health)})
 	}
 
 	var activity []Sentence

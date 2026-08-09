@@ -141,6 +141,10 @@ tags:
     description: Owner or team revenue quota targets for a period, with server-computed attainment (RD-WIRE-2/RD-WIRE-3).
   - name: Agents
     description: The governed agent tool surface — registry metadata for the operator UI.
+  - name: Provenance
+    description: >-
+      Where a generated claim came from. Every sentence these surfaces write carries the records
+      it was written from, and this is what a reader gets when they open one.
   - name: Overlay
     description: The HubSpot mirror overlay — incumbent connection, mirror sync health, budget, and the read→overlay flip.
 
@@ -1343,6 +1347,186 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OrganizationGraph' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/dossier:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationDossier
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: What this company IS — assembled from its own facts, every sentence citing one.
+      description: |
+        The dossier describes the COMPANY; the account brief describes our relationship
+        with it. They are deliberately not merged: a page mixing "they operate in Germany
+        and Austria" with "the economic buyer has not replied in eighteen days" gives a
+        reader no way to know which claims age in weeks and which in hours.
+
+        **Built from the factual sidecars only** — profile fields, extracted facts, and the
+        inventory of sources that were read (DOSS-AC-4). Deliberately not the assembled
+        account composite: a dossier that could see the pipeline would describe the
+        pipeline, and the separation from the brief would collapse on the first prompt
+        revision.
+
+        **Cached per reader.** Not an optimisation detail — a guarantee. A claim's evidence
+        labels name files and activities, those records are row-scoped per reader, and a
+        shared assembly would disclose that such a record EXISTS to a reader who cannot see
+        it. No stable signature summarizes a reader's scope over an open-ended cited set,
+        so the safe key is the reader (DOSS-AC-N-2).
+
+        **A sentence with no grounding record is never rendered**, and one citing a record
+        the assembler did not supply is dropped whole rather than shown with its citation
+        stripped (DOSS-AC-1/2).
+
+        With no model lane configured the dossier still answers, deterministically, from
+        the same facts; `generated_by` says which produced it (DOSS-AC-7).
+      responses:
+        '200':
+          description: The company dossier.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationDossier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Organizations]
+      operationId: refreshOrganizationDossier
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Reassemble the dossier now, past a fingerprint that still matches.
+      description: |
+        A stale fingerprint already rewrites before an ordinary read answers, so this is
+        for the reader who wants a rebuild anyway — after correcting a claim, or after a
+        fresh site read.
+
+        A refresh refused by the AI budget returns the CACHED assembly with its age
+        rather than an error: a reader who asked for fresher content and cannot have it
+        is better served by yesterday's dossier, labelled, than by a failure.
+      responses:
+        '200':
+          description: The reassembled dossier.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationDossier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/evidence/{entityType}/{entityId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: entityType
+        in: path
+        required: true
+        description: The kind of record a claim cited. The pair is the reference, not the id alone.
+        schema: { type: string, enum: [organization, fact, profile_field] }
+      - name: entityId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Organizations, Provenance]
+      operationId: getClaimEvidence
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: The receipt behind one cited record — where it came from, and what is missing.
+      description: |
+        DOSS-WIRE-3. A generated sentence carries the records it was written from; this is what a
+        reader gets when they open one.
+
+        **Keyed on the cited RECORD, under the company it belongs to.** The spec addresses this
+        as `/claims/{claimId}/evidence`, but nothing in this implementation mints a claim identity
+        — a sentence cites `(entity_type, entity_id)`, which is what the citation chip carries and
+        what the grounding filter checks. Raised upstream; the payload below is the spec's.
+
+        The organization in the path is not decoration: it is what the read is row-scoped through,
+        and a record that does not belong to it answers `404` exactly as one the reader may not
+        see does.
+
+        **Each `source_kind` owes its own identifying fields** (DOSS-PARAM-9), carried in
+        `identity`. A receipt that cannot fill one NAMES it in `gaps` rather than substituting a
+        plausible value — an empty string where a canonical URL belongs reads as "no URL", which
+        is a different claim from "we did not record one".
+
+        **`confidence` is absent for the `connector` and `human` kinds** (DOSS-AC-16). A connector
+        record and a person's assertion carry no model confidence, and printing one would
+        fabricate a number.
+
+        **A record the reader cannot see discloses neither its content nor its existence**: the
+        answer is `404`, never a redacted body (DOSS-AC-11).
+      responses:
+        '200':
+          description: The receipt behind the cited record.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClaimEvidence' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/growth-fit:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationGrowthFit
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: How well this company fits what we sell — banded, with both completeness counts.
+      description: |
+        The dossier says what this company IS; growth fit says what it is worth to US. The
+        two are separate surfaces because they are answerable from different evidence: the
+        dossier needs only the company's own facts, while a fit reads those against our own
+        offering, which is a second thing that can be missing or wrong.
+
+        **Cached per reader** (DOSS-DDL-2), for the dossier's reason and one of its own:
+        the assembly folds seat-dependent workspace context and makes recommendations.
+
+        **`data_completeness` reports BOTH counts.** "4 of 7 inputs present" and "4 of 40"
+        are different claims and must never render alike (DOSS-AC-12).
+
+        **Below the abstention floor the band is `unknown`** — with its completeness, the
+        missing inputs named, and a next data-gathering step. No numeric score is produced:
+        abstention is a valid answer and a better one than a fabricated number (DOSS-AC-12).
+
+        **With our own offering unconfirmed the band is capped at `moderate`**, and
+        `band_capped_reason` says why — a fit computed against a guess about ourselves is a
+        guess about them (DOSS-AC-13).
+      responses:
+        '200':
+          description: The reader's growth-fit assembly.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationGrowthFit' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Organizations]
+      operationId: refreshOrganizationGrowthFit
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Re-assemble the caller's growth fit now, past a fingerprint that still matches.
+      description: |
+        Rebuilds the CALLER's assembly only — never another reader's. As with the dossier,
+        a refresh the AI budget refuses returns the cached assembly with its age rather
+        than an error.
+      responses:
+        '200':
+          description: The re-assembled growth fit, or the cached one with its age.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationGrowthFit' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -11543,6 +11727,200 @@ components:
               minimum: 0
               description: How many current contacts of this account the caller can see and the score was chosen from.
 
+    OrganizationDossier:
+      type: object
+      description: |
+        A factual description of one company, assembled from what the READER can see.
+        Every sentence carries the records it was written from, so the reader can open the
+        evidence rather than take the sentence on trust.
+      required: [organization_id, generated_at, generated_by, sections]
+      properties:
+        organization_id: { type: string, format: uuid }
+        generated_at: { type: string, format: date-time }
+        generated_by: { $ref: '#/components/schemas/WrittenBy' }
+        needs_refresh:
+          type: boolean
+          description: |
+            The newest contributing source was retrieved more than thirty days ago
+            (DOSS-PARAM-6). The content is still shown — a stale dossier is more useful
+            than none — with the staleness said out loud beside it.
+        sections:
+          type: array
+          description: |
+            A section with nothing to say is ABSENT rather than empty: a heading over
+            silence reads as a finding of nothing, which is a different claim. The compact
+            card renders `summary` only.
+          items: { $ref: '#/components/schemas/OrganizationDossierSection' }
+
+    OrganizationDossierSection:
+      type: object
+      required: [kind, sentences]
+      properties:
+        kind:
+          type: string
+          enum: [summary, products_services, markets, buying_center, differentiation, firmographics]
+          description: |
+            `summary` — what this company is, in a sentence or three.
+            `products_services` — what they sell.
+            `markets` — where and to whom.
+            `buying_center` — who decides.
+            `differentiation` — what they claim sets them apart.
+            `firmographics` — size, age, registration and the like.
+        sentences:
+          type: array
+          description: |
+            The same claim shape the account brief uses, deliberately: one claim
+            vocabulary and one grounding rule across every generated surface, so a reader
+            learns the distinction once and it holds everywhere.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+
+    ClaimEvidence:
+      type: object
+      description: |
+        The receipt behind one cited record (DOSS-WIRE-3). Each `source_kind` owes its own
+        identifying fields (DOSS-PARAM-9), carried in `identity`; a receipt that cannot fill one
+        names the gap in `gaps` rather than substituting a plausible value.
+      required: [entity_type, entity_id, source_kind, produced_by]
+      properties:
+        entity_type: { type: string, enum: [organization, fact, profile_field] }
+        entity_id: { type: string, format: uuid }
+        source_kind:
+          type: string
+          enum: [site_read, connector, human, migration, rule]
+          description: |
+            How this record came to exist.
+
+            `migration` is not in the spec's DOSS-PARAM-9 vocabulary, and is carried here because
+            migration 0099 makes it one of the four provenance values a stored value can have.
+            Reporting an imported row as a connector record or a person's assertion would be a
+            claim about where it came from that nobody made. Raised upstream.
+        identity:
+          type: object
+          additionalProperties: true
+          description: |
+            The identifying fields this kind owes — site read: the canonical URL it was read from;
+            connector: the provider and the external record; human: the actor and when; migration:
+            the import that carried it. What the reader needs to go and check the claim themselves.
+        label:
+          type: string
+          description: The field this record holds, in the reader's words — what the claim was about.
+        value: { type: string, description: The stored value the claim rests on. }
+        excerpt:
+          type: [string, 'null']
+          description: The verbatim span the value was read from. Null when the kind has no text.
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the source was read. Null when nothing recorded it.
+        last_verified_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            When a human last confirmed it. Deliberately distinct from `retrieved_at` — read and
+            confirmed are different claims, and collapsing them would let a machine re-read pass
+            for a person's approval.
+        confidence:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+          description: |
+            The model's confidence. ABSENT for the `connector`, `human` and `migration` kinds — none
+            of them carries a model confidence, and printing one would fabricate a number
+            (DOSS-AC-16).
+        produced_by:
+          type: string
+          description: What produced the value — an extraction lane, a connector, or a named human.
+        gaps:
+          type: array
+          description: |
+            Fields this kind owes that could not be filled, named rather than silently omitted. An
+            absent field and an unrecorded one look identical on the wire otherwise.
+          items: { type: string }
+
+    GrowthFitBand:
+      type: string
+      enum: [strong, moderate, weak, unknown]
+      description: |
+        How well this company fits what we sell (DOSS-PARAM-8).
+
+        `unknown` is the ABSTENTION, not a low score. It says the assembly did not have
+        enough to judge on, and it always arrives with its completeness counts and a named
+        next step. A reader must never have to guess whether `unknown` means "poor fit" or
+        "we could not tell" — those are opposite conclusions.
+
+    DataCompleteness:
+      type: object
+      description: |
+        How much of what the band needs is actually present — with BOTH counts. "4 of 9"
+        and "4 of 40" are different claims and must never render identically (DOSS-AC-12).
+      required: [present, expected]
+      properties:
+        present: { type: integer, description: Required inputs available and not stale. }
+        expected:
+          type: integer
+          description: |
+            Required inputs the assembly wanted. Never omitted and never implied — a
+            proportion without its denominator is not a completeness figure.
+        missing:
+          type: array
+          description: |
+            Which required inputs are missing, named in the reader's words. This is what
+            the "next data-gathering step" is built from, so it is never an opaque code.
+          items: { type: string }
+
+    OrganizationGrowthFit:
+      type: object
+      description: |
+        Cached per reader (DOSS-DDL-2), because it folds seat-dependent workspace context
+        and makes recommendations.
+
+        Every claim below carries the records it was written from, exactly like a dossier
+        sentence. The evidence is always TARGET-side: a factor drawn from our own offering
+        is labelled an `assessment` and still cites the other company's records, or it is
+        dropped. Our own profile is not a record this reader can open, and citing it would
+        invent a citation (DOSS-AC-6).
+      required: [organization_id, band, data_completeness, generated_at, generated_by]
+      properties:
+        organization_id: { type: string, format: uuid }
+        band: { $ref: '#/components/schemas/GrowthFitBand' }
+        band_capped_reason:
+          type: [string, 'null']
+          description: |
+            Why the band could not go higher — our own offering context being unconfirmed
+            caps it at `moderate` (DOSS-AC-13). Null when nothing capped it.
+        data_completeness: { $ref: '#/components/schemas/DataCompleteness' }
+        next_step:
+          type: [string, 'null']
+          description: |
+            The one named thing to do that would most improve this answer, or null when
+            nothing is holding it back.
+
+            When the band is `unknown` this is offered INSTEAD of a score and names the
+            missing inputs to go and find. When the band was capped it names the other
+            fix — confirming our own offering. Always a concrete action, never a
+            restatement that data is missing.
+        positive_factors:
+          type: array
+          description: What argues for this company being a fit.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+        negative_factors:
+          type: array
+          description: What argues against it.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+        whitespace:
+          type: array
+          description: What we sell that this company does not yet buy.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+        recommended_angle:
+          allOf: [{ $ref: '#/components/schemas/OrganizationBriefSentence' }]
+          description: The single suggested approach. A recommendation, and labelled as one.
+        objections:
+          type: array
+          description: What this company is likely to push back with, each with its evidence.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+        generated_at: { type: string, format: date-time }
+        generated_by: { $ref: '#/components/schemas/WrittenBy' }
+
     OrganizationBrief:
       type: object
       description: |
@@ -11653,7 +12031,7 @@ components:
       description: One record a brief sentence was written from.
       required: [entity_type, entity_id]
       properties:
-        entity_type: { type: string, enum: [deal, activity, person, organization, fact] }
+        entity_type: { type: string, enum: [deal, activity, person, organization, fact, profile_field] }
         entity_id: { type: string, format: uuid }
 
     RecordViewAck:
@@ -15126,6 +15504,15 @@ components:
       type: object
       required: [field, value, source, captured_by, updated_at]
       properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: >-
+            The stored row, so a dossier sentence written from this field can cite
+            something the reader can open. Without it a field-derived claim could only
+            cite the organization, which tells the reader where to look but not at what —
+            and the grounding filter drops a sentence whose citation it cannot resolve.
         retrieved_at:
           type: [string, 'null']
           format: date-time
