@@ -27,6 +27,9 @@ func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb, jobD
 	if err := validateExtensionSet(exts); err != nil {
 		return err
 	}
+	if err := validateVerbSet(verbs); err != nil {
+		return err
+	}
 	// Do every fallible step before applying anything, so the whole
 	// reconciliation stays validate-then-apply: adapting the handler-bearing
 	// tools to the core seam can (in principle — preflightTools already
@@ -132,6 +135,33 @@ func validateExtensionSet(exts []extension.Extension) error {
 		if err := preflightJobs(e); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateVerbSet refuses two operations that would mount the same route.
+//
+// It is in the VALIDATE phase because of what happens if it is not checked at
+// all: each verb is individually well-formed, so registration succeeds, the
+// jurisdiction packs and the RBAC vocabulary apply — and then route assembly
+// hands http.ServeMux the same "METHOD /path" pattern twice, which panics. The
+// boot dies either way; the difference is whether it dies having already
+// changed the registries, which is the one property validate-then-apply is
+// here to hold.
+//
+// The pattern is Method + ServedPath, which is exactly what the mux is keyed
+// on. Two units cannot reach this state through the generator — the contract
+// merge refuses a second overlay on one path — so this is the fail-closed
+// boundary for a composed set that arrived some other way.
+func validateVerbSet(verbs []extension.Verb) error {
+	seen := make(map[string]extension.Verb, len(verbs))
+	for _, v := range verbs {
+		pattern := v.Method + " " + v.ServedPath()
+		if prev, dup := seen[pattern]; dup {
+			return fmt.Errorf("compose: %s is declared by both %s/%s and %s/%s — one route is served by one operation, and mounting it twice panics the router",
+				pattern, prev.Unit, prev.OperationID, v.Unit, v.OperationID)
+		}
+		seen[pattern] = v
 	}
 	return nil
 }

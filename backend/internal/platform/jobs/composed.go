@@ -68,7 +68,13 @@ func RegisterComposed(declarations []Spec) error {
 		if _, dup := table[s.Kind]; dup {
 			return fmt.Errorf("jobs: %q is declared twice in the composed set", s.Kind)
 		}
-		table[s.Kind] = s
+		// Cloned in, for the reason every hand-out is cloned out: a Spec copies
+		// by value but its two slices do not, so storing the caller's Spec
+		// leaves the composed table sharing Args and Registration.When with the
+		// slice the caller still holds. The table is this process's declaration
+		// of what the fleet does, and it must not be editable from the outside
+		// after boot settled it.
+		table[s.Kind] = s.clone()
 	}
 	composed.mu.Lock()
 	defer composed.mu.Unlock()

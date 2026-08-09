@@ -200,9 +200,15 @@ func (v Verb) validateGovernance() error {
 	if v.Version == "" {
 		return fmt.Errorf("operation %s declares no version", v.OperationID)
 	}
+	// Version joins title and description, because it is rendered like them:
+	// the composer emits it as the tool's `schema_version`, so a value carrying
+	// a control character or invalid UTF-8 reaches a client verbatim — as
+	// replacement characters, or as a line break inside an identifier. Only the
+	// EMPTINESS of it was checked before, which is the one fault an author
+	// notices anyway.
 	for _, check := range []struct {
 		field, text string
-	}{{"title", v.Title}, {"description", v.Description}} {
+	}{{"title", v.Title}, {"description", v.Description}, {"version", v.Version}} {
 		if err := validateRenderedText(check.field, check.text); err != nil {
 			return fmt.Errorf("operation %s: %w", v.OperationID, err)
 		}

@@ -452,14 +452,17 @@ func sortedKeysOf[K comparable, V any](series map[K]V, order func(a, b K) int) [
 // unbounded; this read is the one that needs the budget, because it scans a
 // table no index covers.
 func jobMetricsSection(read func(context.Context) (jobs.Snapshot, error)) func(context.Context, io.Writer) error {
+	// The seatless-workspace gauge is deliberately NOT written here, and the
+	// reasoning is worth keeping because the opposite looks obviously right:
+	// the gauge is process state rather than a river_job read, so writing it
+	// beside the snapshot would keep it true when the stats query fails. But
+	// this section is mounted by the API's /metrics and by nothing else, and
+	// the value it would write is the API's own — which is `neverDispatched`
+	// forever, because dispatching is the worker's. So the line would emit
+	// nothing on the only role that runs it, while reading as coverage. The
+	// worker writes the gauge from its own exposition's `extra`
+	// (cmd/worker/observe.go), which is the role that has an answer.
 	return func(ctx context.Context, w io.Writer) error {
-		// FIRST, and outside the snapshot: the seatless gauge is process state,
-		// not a river_job read, so it is still true when the stats query fails —
-		// and a failed stats query is exactly when an operator most wants to
-		// know whether the extension fleet is dispatching at all.
-		if err := WriteSeatlessWorkspacesGauge(w); err != nil {
-			return err
-		}
 		snap, err := read(ctx)
 		if err != nil {
 			slog.ErrorContext(ctx, "metrics: job stats query failed", "err", err)

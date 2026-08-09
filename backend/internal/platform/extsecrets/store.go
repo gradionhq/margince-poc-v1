@@ -182,7 +182,14 @@ func (s *store) read(ctx context.Context, user *ids.UserID, key string) ([]byte,
 			return err
 		}
 
-		secret, err = s.vault.Get(ctx, ws, ref)
+		// GetOn, not Get: the resolve rides THIS transaction's connection.
+		// Get takes one of its own, and with the vault and this store sharing
+		// the app pool that turns a burst of concurrent reads into a deadlock
+		// — every one of them holding a connection and waiting for a
+		// connection. Moving the resolve outside the transaction would not do
+		// either, because the FOR SHARE above is what makes an absent blob
+		// corruption rather than a lost race with a rotation.
+		secret, err = s.vault.GetOn(ctx, tx, ws, ref)
 		switch {
 		case err == nil:
 			outcome = outcomeResolved
@@ -202,8 +209,15 @@ func (s *store) read(ctx context.Context, user *ids.UserID, key string) ([]byte,
 		// corruption, and the only honest report of it is an alarm. The
 		// caller is still told what an absent key gets, because there is
 		// nothing different it could do.
+		//
+		// The ref is NOT in the line, and its absence costs nothing: the
+		// extension, the key and the workspace name the damaged mapping
+		// exactly, and the row itself still holds the ref for anyone
+		// investigating. What putting it here would add is a resolvable vault
+		// handle — the full capability, not a description of it — sitting in
+		// whatever aggregates this installation's logs.
 		s.log.ErrorContext(ctx, "extsecrets: a mapping row names a secret the custodian does not hold",
-			"extension", s.unit, "key", key, "workspace", ws.String(), "vault_ref", string(ref))
+			"extension", s.unit, "key", key, "workspace", ws.String())
 	}
 	if outcome != outcomeResolved {
 		return nil, fmt.Errorf("extsecrets: %s/%s: %w", s.unit, key, extension.ErrSecretNotFound)

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // ErrSecretNotFound reports that the unit's namespace holds no secret
@@ -96,6 +97,14 @@ func (r SecretsRequest) Validate() error {
 		return errors.New("a declared secret has an empty key name")
 	case len(r.Key) > maxSecretKeyLength:
 		return fmt.Errorf("declared secret key %q is %d characters — the store bounds a key name at %d", r.Key, len(r.Key), maxSecretKeyLength)
+	}
+	// Before the rune loop, not after: ranging a Go string decodes an invalid
+	// byte to U+FFFD, which is not a control character — so a malformed key
+	// passes the loop below and is then written into the manifest and the audit
+	// ledger as replacement characters the declaration never spelled. Same
+	// ordering, and the same reason, as validateRenderedText in verb.go.
+	if !utf8.ValidString(r.Key) {
+		return fmt.Errorf("declared secret key %q is not valid UTF-8", r.Key)
 	}
 	for _, c := range r.Key {
 		// The key is echoed into the operator-facing manifest and the audit

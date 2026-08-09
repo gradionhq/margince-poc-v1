@@ -191,6 +191,20 @@ type Extension struct {
 	// Still inert data: an fs.FS is bytes to read, not a handle into the
 	// core. Applying them is the migrate role's job (cmd/migrate), after
 	// the composed set is known; declaring them mints nothing.
+	//
+	// WHAT TIES THIS FIELD TO THE GATED SQL, precisely, because the two are
+	// separate facts and the join is only as strong as its weakest link.
+	// gen-composition requires this field to name a package-level var whose
+	// //go:embed directive covers MigrationsDir, and requires the field to be
+	// present at all when the unit ships that directory — so the unset field,
+	// the typo and the var embedding some other layer are each refused at
+	// generation. What is NOT proven is that the bytes reaching cmd/migrate are
+	// the bytes extmigrategate applied: an embed directive may cover more than
+	// migrations/, and an fs.FS assembled at run time is beyond what a static
+	// reader can follow at all. The tier's threat model is a reviewed unit
+	// (see Runtime), and under it that residue is the ordinary distance between
+	// a shape check and a proof — not a hole a hostile unit is being trusted
+	// not to walk through, because such a unit has better roads.
 	Migrations fs.FS
 }
 

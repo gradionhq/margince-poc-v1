@@ -140,6 +140,14 @@ func dropPublicSchema(ctx context.Context, owner *pgx.Conn) error {
 	// named, so a batch that lists tables and then finds the same ones again
 	// means something is re-creating them underneath us. Spinning forever on
 	// that is strictly worse than failing with the reason.
+	//
+	// `cleared` rather than reading the counter afterwards: the loop spends one
+	// pass finding nothing left, so a schema needing exactly maxDropRounds
+	// batches exits with the counter at zero having dropped everything
+	// correctly — and a check on the counter would call that a failure. What
+	// the bound is about is whether the loop TERMINATED, which only the exit
+	// path knows.
+	var cleared bool
 	rounds := 1 + maxDropRounds
 	for rounds > 0 {
 		rounds--
@@ -155,6 +163,7 @@ func dropPublicSchema(ctx context.Context, owner *pgx.Conn) error {
 				return err
 			}
 			if len(tables) == 0 {
+				cleared = true
 				break
 			}
 		}
@@ -167,7 +176,7 @@ func dropPublicSchema(ctx context.Context, owner *pgx.Conn) error {
 			return fmt.Errorf("dropping tables: %w", err)
 		}
 	}
-	if rounds == 0 {
+	if !cleared {
 		return fmt.Errorf("public still holds tables after %d drop rounds — something is re-creating them", maxDropRounds)
 	}
 	// Extensions next, one statement each. They are the second concentration:

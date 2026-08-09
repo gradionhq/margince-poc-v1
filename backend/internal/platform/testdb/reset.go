@@ -393,10 +393,21 @@ func dropCustomFieldColumns(ctx context.Context, tx execQuerier) error {
 	// deliberately excludes would be readmitted through a same-named sibling in
 	// the other schema. Row-wise membership keeps "the tables the reset owns"
 	// meaning exactly what resetTables says.
+	//
+	// And constrained to PUBLIC within those. The premise this whole function
+	// rests on — "no migrated baseline table carries a cf_-prefixed column, so
+	// every match is a leaked custom field" — is a statement about the CORE
+	// schema, which customfields is the sole ALTER-TABLE chokepoint for. It is
+	// not true of ext: `cf_` is not a reserved prefix there, so a unit whose
+	// migration declares `cf_stage` on its own table is declaring an ordinary
+	// column, and dropping it would leave the installed schema altered after a
+	// test and every later test in the run reading a table that no longer
+	// matches its migration.
 	rows, err := tx.Query(ctx, `
 		SELECT quote_ident(table_schema) || '.' || quote_ident(table_name), quote_ident(column_name)
 		FROM information_schema.columns
 		WHERE column_name LIKE 'cf\_%'
+		  AND table_schema = 'public'
 		  AND (table_schema, table_name) IN (SELECT n.nspname, c.relname `+resetTables+`)`)
 	if err != nil {
 		return fmt.Errorf("listing leaked custom-field columns: %w", err)

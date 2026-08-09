@@ -169,6 +169,14 @@ func (v *localVault) Put(ctx context.Context, ws ids.WorkspaceID, secret []byte)
 }
 
 func (v *localVault) Get(ctx context.Context, ws ids.WorkspaceID, ref Ref) ([]byte, error) {
+	return v.GetOn(ctx, v.pool, ws, ref)
+}
+
+// GetOn reads through the caller's querier. The whole difference from Get is
+// which connection the SELECT lands on — the decision the caller must be able
+// to make, because a caller already inside a transaction cannot afford a
+// second connection from the same pool (see the Vault interface).
+func (v *localVault) GetOn(ctx context.Context, q Querier, ws ids.WorkspaceID, ref Ref) ([]byte, error) {
 	if !ref.scopedTo(ws) {
 		// Malformed, or a ref for another workspace: absent to this caller. A
 		// ref naming any other key version is likewise absent — its string
@@ -176,7 +184,7 @@ func (v *localVault) Get(ctx context.Context, ws ids.WorkspaceID, ref Ref) ([]by
 		return nil, ErrNotFound
 	}
 	var sealed []byte
-	err := v.pool.QueryRow(ctx, `SELECT ciphertext FROM vault_secret WHERE ref = $1`, string(ref)).Scan(&sealed)
+	err := q.QueryRow(ctx, `SELECT ciphertext FROM vault_secret WHERE ref = $1`, string(ref)).Scan(&sealed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

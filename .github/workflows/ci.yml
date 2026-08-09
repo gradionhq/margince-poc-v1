@@ -91,6 +91,11 @@ jobs:
               - 'fixtures/**'
               - 'composition/**'
               - 'backend/tools/gen-composition/**'
+              # And the Makefile, because the frontend GATE lives there:
+              # check-fe and fe-typecheck-composed are make targets, so a PR
+              # that edits what the lane does — and nothing else — would skip
+              # the lane that runs it.
+              - 'Makefile'
             e2e:
               - 'backend/**'
               - 'frontend/**'
