@@ -71,7 +71,7 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 // anyway, and naming a reference here would only make that refusal look like
 // an accident of wiring.
 func (c commsAdapter) SendEmail(ctx context.Context, anchor ids.UUID, in agents.SendEmailArgs) (agents.SendEmailResult, error) {
-	sent, err := c.store.SendEmail(ctx, ids.From[ids.ActivityKind](anchor), activities.SendEmailInput{
+	sent, err := c.store.SendEmail(ctx, activities.FromActivity(ids.From[ids.ActivityKind](anchor)), activities.SendEmailInput{
 		Recipients:     append(append([]string{}, in.To...), in.Cc...),
 		Cc:             append([]string{}, in.Cc...),
 		Subject:        in.Subject,

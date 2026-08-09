@@ -51,6 +51,11 @@ type Store struct {
 	// directly, and a signal closed on one transport only is a corpus built
 	// from half the sends.
 	draftOutcome DraftOutcomeRecorder
+	// recipients resolves an account-started send's addressees to people the
+	// sender may read; nil fails that path CLOSED
+	// (WithRecipientDirectory wires it). A reply never consults it — its
+	// addressees come from the captured conversation it answers.
+	recipients RecipientDirectory
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {

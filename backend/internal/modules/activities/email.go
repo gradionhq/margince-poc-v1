@@ -20,7 +20,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -178,11 +177,16 @@ func (s *Store) refuseUnsendable(ctx context.Context, in SendEmailInput, gate Co
 	return gate.RequireGrantedForEmails(ctx, in.Recipients, in.ConsentPurpose)
 }
 
-// SendEmail runs the governed send: anchor visibility → the guard sequence
+// SendEmail runs the governed send: origin resolution → the guard sequence
 // above → deliverability → the outbound activity and its delivery, committed
 // together in the write shape.
-func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (crmcontracts.Activity, error) {
-	anchor, err := s.GetActivity(ctx, anchorID, storekit.LiveOnly)
+//
+// There is exactly one send. A reply and an account-started message differ
+// only in the origin they arrive with (ADR-0087 §1); every invariant below
+// the resolution — the authorization order, the consent gate, deliverability,
+// identity minting, single-transaction staging — is reached by both.
+func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (crmcontracts.Activity, error) {
+	links, err := origin.resolve(ctx, s)
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}
@@ -205,12 +209,21 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 		recordedBody:    derived.recorded,
 		listUnsubscribe: derived.listUnsubscribe,
 		to:              toRecipients(in.Recipients, in.Cc),
-		links:           inheritedLinks(anchor),
+		links:           links,
 	}
 
 	var sent crmcontracts.Activity
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		chain, err := anchorThreading(ctx, tx, anchorID, messageID)
+		// An account-started send names its own addressees, so each must
+		// belong to someone this sender can read (ADR-0087 §2). It runs
+		// AFTER the consent gate: the gate is the recipients' own answer
+		// about being written to at all, and a caller must not learn that a
+		// stranger withheld consent by watching which of two refusals a
+		// typed address produces.
+		if err := s.resolveRecipients(ctx, tx, origin, in.Recipients); err != nil {
+			return err
+		}
+		chain, err := origin.threading(ctx, tx, messageID)
 		if err != nil {
 			return err
 		}
@@ -297,21 +310,6 @@ func (m outboundMessage) delivery(activityID ids.UUID, chain threading) Delivery
 		ThreadKey:       chain.threadKey,
 		ListUnsubscribe: m.listUnsubscribe,
 	}
-}
-
-// inheritedLinks carries the anchor's own links onto the reply, so the sent
-// message lands on the same records' timelines as the conversation it
-// answers. The links were already visibility-checked as part of reading the
-// anchor, and each one is re-checked at insert.
-func inheritedLinks(anchor crmcontracts.Activity) []ActivityLinkInput {
-	if anchor.Links == nil {
-		return nil
-	}
-	links := make([]ActivityLinkInput, 0, len(*anchor.Links))
-	for _, l := range *anchor.Links {
-		links = append(links, ActivityLinkInput{EntityType: string(l.EntityType), EntityID: ids.UUID(l.EntityId)})
-	}
-	return links
 }
 
 // messageIDDomain is the right-hand side of every minted Message-ID: the
