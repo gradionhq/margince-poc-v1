@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -37,73 +38,112 @@ func asCatalogueReader(ws ids.UUID, objects ...string) context.Context {
 	})
 }
 
+// The ties below are resolved by the ORDER BY's trailing created_at DESC, id
+// DESC, so a boolean column with two rows on the same side still has one right
+// answer. Every seeded row therefore carries an explicit creation instant
+// rather than whatever clock the insert ran under.
+const (
+	seedEarliest = "2026-01-01T00:00:00Z"
+	seedMiddle   = "2026-01-02T00:00:00Z"
+	seedLatest   = "2026-01-03T00:00:00Z"
+)
+
 func TestProductListSortsByEveryOfferedColumn(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := asCatalogueReader(e.WS, "product")
 
 	// Seeded so that creation order disagrees with every sort below: a list
-	// still ordering by created_at would return "Middle" first each time.
-	e.Seed(t, `INSERT INTO product (id, workspace_id, name, sku, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by)
-	           VALUES ($1, $2, 'Middle', 'SKU-M', 'day', 5000, 'EUR', 0, true, 'ui', 'human:x')`)
-	e.Seed(t, `INSERT INTO product (id, workspace_id, name, sku, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by)
-	           VALUES ($1, $2, 'Apex', 'SKU-A', 'day', 9000, 'EUR', 0, true, 'ui', 'human:x')`)
-	e.Seed(t, `INSERT INTO product (id, workspace_id, name, sku, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by)
-	           VALUES ($1, $2, 'Zenith', 'SKU-Z', 'day', 1000, 'EUR', 0, true, 'ui', 'human:x')`)
+	// still ordering by created_at would return the same page each time.
+	const seedProduct = `INSERT INTO product (id, workspace_id, name, sku, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by, created_at)
+	                     VALUES ($1, $2, $3, $4, 'day', $5, 'EUR', 0, $6, 'ui', 'human:x', $7)`
+	e.Seed(t, seedProduct, "Middle", "SKU-M", 5000, true, seedMiddle)
+	e.Seed(t, seedProduct, "Apex", "SKU-A", 9000, false, seedLatest)
+	e.Seed(t, seedProduct, "Zenith", "SKU-Z", 1000, true, seedEarliest)
 
 	store := deals.NewStore(e.Pool)
 	for _, tc := range []struct {
 		sort  string
-		first string
+		order []string
 	}{
-		{sort: "name", first: "Apex"},
-		{sort: "-name", first: "Zenith"},
-		{sort: "sku", first: "SKU-A"},
-		{sort: "-unit_price_minor", first: "Apex"},
+		{sort: "name", order: []string{"Apex", "Middle", "Zenith"}},
+		{sort: "-name", order: []string{"Zenith", "Middle", "Apex"}},
+		{sort: "sku", order: []string{"Apex", "Middle", "Zenith"}},
+		{sort: "unit_price_minor", order: []string{"Zenith", "Middle", "Apex"}},
+		{sort: "-unit_price_minor", order: []string{"Apex", "Middle", "Zenith"}},
+		// Apex is the only inactive row; the two active ones fall back to
+		// newest-first.
+		{sort: "active", order: []string{"Apex", "Middle", "Zenith"}},
+		{sort: "created_at", order: []string{"Zenith", "Middle", "Apex"}},
 	} {
 		sortField := tc.sort
-		one := 1
-		page, _, err := store.ListProducts(ctx, deals.ListProductsInput{Sort: &sortField, Limit: &one})
+		all := len(tc.order)
+		page, _, err := store.ListProducts(ctx, deals.ListProductsInput{Sort: &sortField, Limit: &all})
 		if err != nil {
 			t.Fatalf("ListProducts sort=%s: %v", tc.sort, err)
 		}
-		if len(page) != 1 {
-			t.Fatalf("ListProducts sort=%s returned %d rows, want 1", tc.sort, len(page))
-		}
-		got := page[0].Name
-		if tc.sort == "sku" {
-			got = deref(page[0].Sku)
-		}
-		if got != tc.first {
-			t.Fatalf("ListProducts sort=%s first = %q, want %q", tc.sort, got, tc.first)
-		}
+		assertOrder(t, "ListProducts sort="+tc.sort, tc.order, productNames(page))
 	}
 }
 
-func TestOfferTemplateListSortsByName(t *testing.T) {
+func TestOfferTemplateListSortsByEveryOfferedColumn(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := asCatalogueReader(e.WS, "offer_template")
 
-	e.Seed(t, `INSERT INTO offer_template (id, workspace_id, name, locale, is_default, layout)
-	           VALUES ($1, $2, 'Middle', 'de-DE', false, '{}'::jsonb)`)
-	e.Seed(t, `INSERT INTO offer_template (id, workspace_id, name, locale, is_default, layout)
-	           VALUES ($1, $2, 'Apex', 'en-GB', false, '{}'::jsonb)`)
+	const seedTemplate = `INSERT INTO offer_template (id, workspace_id, name, locale, is_default, layout, created_at)
+	                      VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, $6)`
+	e.Seed(t, seedTemplate, "Middle", "de-DE", false, seedMiddle)
+	e.Seed(t, seedTemplate, "Apex", "en-GB", false, seedLatest)
+	e.Seed(t, seedTemplate, "Zenith", "fr-FR", true, seedEarliest)
 
 	store := deals.NewStore(e.Pool)
-	sortField := "name"
-	one := 1
-	page, _, err := store.ListOfferTemplates(ctx, deals.ListOfferTemplatesInput{Sort: &sortField, Limit: &one})
-	if err != nil {
-		t.Fatalf("ListOfferTemplates sort=name: %v", err)
-	}
-	if len(page) != 1 || page[0].Name != "Apex" {
-		t.Fatalf("ListOfferTemplates sort=name first = %+v, want Apex", page)
+	for _, tc := range []struct {
+		sort  string
+		order []string
+	}{
+		{sort: "name", order: []string{"Apex", "Middle", "Zenith"}},
+		{sort: "-name", order: []string{"Zenith", "Middle", "Apex"}},
+		{sort: "locale", order: []string{"Middle", "Apex", "Zenith"}},
+		// Zenith is the only default template; the other two fall back to
+		// newest-first.
+		{sort: "is_default", order: []string{"Apex", "Middle", "Zenith"}},
+	} {
+		sortField := tc.sort
+		all := len(tc.order)
+		page, _, err := store.ListOfferTemplates(ctx, deals.ListOfferTemplatesInput{Sort: &sortField, Limit: &all})
+		if err != nil {
+			t.Fatalf("ListOfferTemplates sort=%s: %v", tc.sort, err)
+		}
+		assertOrder(t, "ListOfferTemplates sort="+tc.sort, tc.order, templateNames(page))
 	}
 }
 
-// deref reads an optional contract string, which a seeded row always has.
-func deref(s *string) string {
-	if s == nil {
-		return ""
+// assertOrder compares a page's names against the whole expected sequence, not
+// only its head: a column that orders the first row and then falls back to
+// creation time for the rest is still an unanswered header.
+func assertOrder(t *testing.T, what string, want, got []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s returned %d rows (%v), want %d", what, len(got), got, len(want))
 	}
-	return *s
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s order = %v, want %v", what, got, want)
+		}
+	}
+}
+
+func productNames(page []crmcontracts.Product) []string {
+	names := make([]string, 0, len(page))
+	for _, p := range page {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+func templateNames(page []crmcontracts.OfferTemplate) []string {
+	names := make([]string, 0, len(page))
+	for _, tpl := range page {
+		names = append(names, tpl.Name)
+	}
+	return names
 }

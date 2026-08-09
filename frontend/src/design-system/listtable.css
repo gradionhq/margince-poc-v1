@@ -205,8 +205,7 @@
   overflow: visible;
   font-size: 12.5px;
 }
-.lt-frow > :first-child,
-.lt-frow-attr {
+.lt-frow > :first-child {
   border-top-left-radius: var(--r-full);
   border-bottom-left-radius: var(--r-full);
 }

@@ -20,6 +20,7 @@ func (h Handlers) ListLeads(w http.ResponseWriter, r *http.Request, params crmco
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 		CapturedByKind:  capturedByKindArg(params.CapturedByKind),
 		AiWritten:       params.AiWritten,
+		MinScore:        params.MinScore,
 		Sort:            params.Sort,
 	}
 	if params.Status != nil {

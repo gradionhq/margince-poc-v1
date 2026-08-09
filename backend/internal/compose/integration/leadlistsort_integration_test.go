@@ -73,6 +73,35 @@ func TestLeadListSortsByScoreAndPagesUnderIt(t *testing.T) {
 	}
 }
 
+// The contract's min_score is a triage floor, so a reader asking for the warm
+// rows gets a shorter page rather than the whole list with the cold rows still
+// in it.
+func TestLeadListNarrowsToTheRequestedMinimumScore(t *testing.T) {
+	e := SetupSearch(t)
+	ctx := e.AsFullUser()
+
+	e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, status, source, score, captured_by)
+	           VALUES ($1, $2, 'Warmest', 'working', 'inbound', 90, 'human:x')`)
+	e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, status, source, score, captured_by)
+	           VALUES ($1, $2, 'AtTheFloor', 'working', 'inbound', 50, 'human:x')`)
+	e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, status, source, score, captured_by)
+	           VALUES ($1, $2, 'Coldest', 'working', 'inbound', 10, 'human:x')`)
+
+	store := people.NewStore(e.Pool)
+	sortField := "-score"
+	floor := 50
+
+	page, _, err := store.ListLeads(ctx, people.ListLeadsInput{Sort: &sortField, MinScore: &floor})
+	if err != nil {
+		t.Fatalf("ListLeads min_score=50: %v", err)
+	}
+	if len(page) != 2 ||
+		listedLeadName(page[0].FullName) != "Warmest" ||
+		listedLeadName(page[1].FullName) != "AtTheFloor" {
+		t.Fatalf("ListLeads min_score=50 = %+v, want [Warmest AtTheFloor]", page)
+	}
+}
+
 // A sort field outside the lead vocabulary is refused rather than guessed,
 // so a client cannot order by a column the list does not publish.
 func TestLeadListRefusesAnUnknownSortField(t *testing.T) {

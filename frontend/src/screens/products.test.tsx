@@ -1,10 +1,6 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  render as rtlRender,
-  screen,
-} from "@testing-library/react";
+import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -92,11 +88,14 @@ describe("ProductsScreen", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<ProductsScreen />);
     await userEvent.click(await screen.findByTestId("new-record"));
-    // The column header is a sort button named "Sort by Name" now, so the
-    // form field is asked for as a textbox rather than by a loose text match.
+    // Each column header is a sort button carrying its own column's name, so
+    // every form field is asked for by role rather than by a loose text match.
     const nameField = await screen.findByRole("textbox", { name: /Name/ });
     await userEvent.type(nameField, "Consulting Day");
-    await userEvent.type(screen.getByLabelText(/Unit price/), "1500");
+    await userEvent.type(
+      screen.getByRole("spinbutton", { name: /Unit price/ }),
+      "1500",
+    );
     await userEvent.click(screen.getByText("Create"));
     expect(await screen.findByText("sku already in use")).toBeTruthy();
   });

@@ -10,7 +10,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
-// linkedinURLField names the profile-URL field every refusal below reports.
+// One key keeps every refusal below reporting the same field, so a client can
+// bind all of them to one form input instead of matching on whichever spelling
+// the failing branch happened to use.
 const linkedinURLField = "linkedin_url"
 
 // NormalizeLinkedInURL reduces a LinkedIn profile URL to the one stored

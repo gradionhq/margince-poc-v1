@@ -21,7 +21,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
-// leadEntity is the lead's auth object and table name.
 const leadEntity = "lead"
 
 // The lead's sortable columns, named once. The vocabulary below and the
@@ -75,6 +74,9 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 			// The lead's own narrowing, alongside the shared chain.
 			if in.Status != nil {
 				where = append(where, storekit.SQLf(leadStatusColumn+" = $%d", arg(*in.Status)))
+			}
+			if in.MinScore != nil {
+				where = append(where, storekit.SQLf(leadScoreColumn+" >= $%d", arg(*in.MinScore)))
 			}
 			return where, nil
 		},

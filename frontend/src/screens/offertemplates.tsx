@@ -158,6 +158,7 @@ export function OfferTemplatesScreen() {
           {
             key: "is_default",
             header: t("template.isDefault"),
+            sort: "is_default",
             cell: (tpl: OfferTemplate) =>
               tpl.is_default ? (
                 <Badge tone="success">{t("template.isDefault")}</Badge>

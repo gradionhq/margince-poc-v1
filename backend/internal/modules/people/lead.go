@@ -280,6 +280,10 @@ type ListLeadsInput struct {
 	CapturedByKind *string
 	// AiWritten filters on whether an AI wrote into the record (§3a).
 	AiWritten *bool
+	// MinScore is the triage floor: a lead list is read to work the warmest
+	// rows first, so a reader asking for a score keeps the colder rows off
+	// the page rather than scanning past them.
+	MinScore *int
 	// Sort is the contract's sort spec, validated against the lead
 	// vocabulary plus the workspace's active cf_ columns.
 	Sort *string

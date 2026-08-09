@@ -921,14 +921,35 @@ describe("phone card layout hooks", () => {
 // delete step INSIDE its own box, so a rule that clips the row clips all three
 // — the menus open, and the reader sees nothing to click.
 describe("the applied filter row does not clip what it hosts", () => {
-  it("leaves its own overflow visible", () => {
+  // Every declaration the stylesheet makes under one exact selector, joined:
+  // a rule moved elsewhere in the file still counts, a rule deleted does not.
+  const declarationsFor = (selector: string) => {
     const css = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "listtable.css"),
       "utf8",
-    );
-    const rule = css.slice(css.indexOf(".lt-frow {"));
-    const block = rule.slice(0, rule.indexOf("}"));
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const blocks = css
+      .split("}")
+      .filter((block) => block.slice(0, block.indexOf("{")).trim() === selector)
+      .map((block) => block.slice(block.indexOf("{") + 1));
+    expect(blocks.length).toBeGreaterThan(0);
+    return blocks.join("\n");
+  };
+
+  it("leaves its own overflow visible", () => {
+    const block = declarationsFor(".lt-frow");
     expect(block).not.toContain("overflow: hidden");
     expect(block).toContain("overflow: visible");
+  });
+
+  // The row gave up its own clipping, so the rounding has to live on the
+  // segments at each end. Without these the pill reads as a bare rectangle.
+  it("rounds the segments at each of its ends", () => {
+    const left = declarationsFor(".lt-frow > :first-child");
+    expect(left).toContain("border-top-left-radius: var(--r-full)");
+    expect(left).toContain("border-bottom-left-radius: var(--r-full)");
+    const right = declarationsFor(".lt-frow-more");
+    expect(right).toContain("border-top-right-radius: var(--r-full)");
+    expect(right).toContain("border-bottom-right-radius: var(--r-full)");
   });
 });

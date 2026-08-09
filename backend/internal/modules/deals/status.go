@@ -19,8 +19,9 @@ const (
 	DealLost DealStatus = "lost"
 )
 
-// stageSemanticField names the stage semantic: the field a refusal reports
-// and the audit key a stage write records it under.
+// One key keeps a stage refusal and the audit image of a stage write naming
+// the same field, so the client reading the error and the auditor reading the
+// trail see one name rather than two spellings of it.
 const stageSemanticField = "semantic"
 
 type StageSemantic string
