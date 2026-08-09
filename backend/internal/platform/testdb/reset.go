@@ -96,15 +96,14 @@ type execQuerier interface {
 }
 
 // EnsureSchema migrates the test database exactly once per process. The first
-// integration test to run pays the DROP SCHEMA + full embedded migration; every
+// integration test to run pays the schema drop + full embedded migration; every
 // later test in the same process is a no-op here and resets via Reset. Any
 // caller may pass any owner connection to the same database — the migration runs
 // on whichever connection wins the race to the sync.Once, and the result is the
 // same schema for all of them.
 func EnsureSchema(ctx context.Context, owner *pgx.Conn) error {
 	migrateOnce.Do(func() {
-		if _, err := owner.Exec(ctx,
-			`DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
+		if err := dropPublicSchema(ctx, owner); err != nil {
 			migrateErr = err
 			return
 		}
@@ -132,8 +131,8 @@ func EnsureSchema(ctx context.Context, owner *pgx.Conn) error {
 		}
 		emptySizes.Store(&sizes)
 		// Last, and only on the success path: Pool refuses to hand out a
-		// connection until this is set, so a pool can never predate the DROP
-		// SCHEMA above.
+		// connection until this is set, so a pool can never predate the schema
+		// drop above.
 		schemaReady.Store(true)
 	})
 	return migrateErr
