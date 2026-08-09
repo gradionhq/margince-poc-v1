@@ -12,6 +12,7 @@ package mailmap
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -296,5 +297,63 @@ func TestAnUnnamedInlinePartIsBodyNotAFile(t *testing.T) {
 
 	if len(parts) != 0 || len(drops) != 0 {
 		t.Errorf("parts = %v, drops = %v — an alternative body is not an attachment", parts, drops)
+	}
+}
+
+// failingBody is a part whose bytes cannot be read — a truncated transfer, a
+// broken encoding. The message still lands; the file it could not read does not.
+type failingBody struct{}
+
+func (failingBody) Read([]byte) (int, error) { return 0, errors.New("truncated transfer") }
+
+// The collector is driven directly here rather than through a message, because
+// the message-level bounds are 25 MB and 50 MB: a fixture large enough to reach
+// them would spend more time allocating than the whole suite takes to run, and
+// what is under test is the accounting, not the parser.
+func TestTheBudgetRefusesWhatWillNotFitInTheMessage(t *testing.T) {
+	files := newCollector()
+	files.budget = 10
+
+	files.admit("first.bin", "application/octet-stream", strings.NewReader("12345678"))
+	files.admit("second.bin", "application/octet-stream", strings.NewReader("far too long for what is left"))
+	files.admit("third.bin", "application/octet-stream", strings.NewReader("x"))
+
+	if len(files.parts) != 1 || files.parts[0].Filename != "first.bin" {
+		t.Fatalf("kept %v, want only the file the budget could hold", files.parts)
+	}
+	drops := files.drops()
+	if len(drops) != 1 || drops[0].Reason != DropMessageTooBig {
+		t.Fatalf("drops = %v, want one %q", drops, DropMessageTooBig)
+	}
+	// Two refusals, one row. And the budget is NOT restored by a refusal: once
+	// the allowance is spent every later file is refused for the same reason,
+	// so a small file behind a large one does not sneak in.
+	if drops[0].Count != 2 {
+		t.Errorf("counted %d refusals, want 2 — the budget stays spent", drops[0].Count)
+	}
+}
+
+func TestAFileWhoseBytesCannotBeReadIsRefusedAndNamed(t *testing.T) {
+	files := newCollector()
+	files.admit("broken.pdf", "application/pdf", failingBody{})
+
+	if len(files.parts) != 0 {
+		t.Fatalf("kept %v, want none — its bytes never arrived", files.parts)
+	}
+	drops := files.drops()
+	if len(drops) != 1 || drops[0].Reason != DropUnreadablePart {
+		t.Errorf("drops = %v, want one %q", drops, DropUnreadablePart)
+	}
+}
+
+// A pathological name is cut to something a column and a list can hold, and the
+// ellipsis counts against the ceiling rather than pushing past it.
+func TestAnEndlessFilenameIsCutToTheCeiling(t *testing.T) {
+	got := SafeFilename(strings.Repeat("a", maxFilenameLen*3), 1)
+	if len(got) > maxFilenameLen {
+		t.Errorf("kept %d bytes, want no more than the stated ceiling of %d", len(got), maxFilenameLen)
+	}
+	if got == "" {
+		t.Error("a truncated name must still be something a reader can point at")
 	}
 }

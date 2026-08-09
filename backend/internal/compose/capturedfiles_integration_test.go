@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // captureWorkspace seeds a workspace and returns a context bound to it under
@@ -303,6 +304,63 @@ func TestARefusedFileLeavesAnObservableReason(t *testing.T) {
 // that ships.
 func fileKeeper(pool *pgxpool.Pool, blob blobstore.Store) capture.FileKeeper {
 	return capturedFileKeeper{store: activities.NewStore(pool).WithBlobstore(blob)}
+}
+
+// A file on a message filed against a company rolls up to that company, which
+// is what makes the account's document library one indexed read instead of a
+// union over every kind of parent. It is NOT what authorizes the file — that
+// stays the activity — so a message filed against nobody rolls up to nothing
+// and its file is reachable from the timeline alone.
+func TestACapturedFileRollsUpToTheCompanyItsMessageIsFiledUnder(t *testing.T) {
+	ctx, pool, tag := captureWorkspace(t)
+	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blobstore.NewMemory()))
+
+	orgID := ids.NewV7()
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
+			VALUES ($1, current_setting('app.workspace_id')::uuid, 'Voltaq', 'manual', 'human:test')`,
+			orgID)
+		return err
+	}); err != nil {
+		t.Fatalf("seed the company: %v", err)
+	}
+
+	rec := withFiles(mailRecord("msg-filed-"+tag), onePDF())
+	rec.Links = []datasource.EntityRef{{Type: datasource.EntityOrganization, ID: orgID}}
+	if _, err := sink.Upsert(ctx, rec); err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+
+	files := filesFor(ctx, t, pool, "msg-filed-"+tag)
+	if len(files) != 1 {
+		t.Fatalf("stored %d files, want 1", len(files))
+	}
+	if files[0].organization == nil || *files[0].organization != orgID.String() {
+		t.Errorf("organization_id = %v, want the company the message is filed under (%s)",
+			files[0].organization, orgID)
+	}
+}
+
+// And one filed against nobody rolls up to nothing rather than to the wrong
+// company. An empty roll-up keeps the file out of every account library; a
+// guessed one puts it in somebody else's.
+func TestACapturedFileFiledAgainstNobodyRollsUpToNothing(t *testing.T) {
+	ctx, pool, tag := captureWorkspace(t)
+	sink := capture.NewSink(pool).WithFileKeeper(fileKeeper(pool, blobstore.NewMemory()))
+
+	if _, err := sink.Upsert(ctx, withFiles(mailRecord("msg-unfiled-"+tag), onePDF())); err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+
+	files := filesFor(ctx, t, pool, "msg-unfiled-"+tag)
+	if len(files) != 1 {
+		t.Fatalf("stored %d files, want 1", len(files))
+	}
+	if files[0].organization != nil {
+		t.Errorf("organization_id = %v, want none — this message names no company",
+			*files[0].organization)
+	}
 }
 
 // activityOf reads the activity a captured file hangs off, so a duplicate can
