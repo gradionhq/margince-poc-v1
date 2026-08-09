@@ -404,6 +404,12 @@ func (h *treeHasher) sum() string {
 	return digestBytes([]byte(strings.Join(h.lines, "\n")))
 }
 
+// nodeModulesDir is the tree pnpm installs into a workspace member, and the one
+// directory digestTree walks past. The composition's own staleness probe
+// (treeHasher.addTree) needs no such carve-out: it walks backend/pkg, where no
+// package manager ever writes.
+const nodeModulesDir = "node_modules"
+
 // digestTree hashes every regular file under dir. A symlink is refused:
 // it would digest as its target's bytes while provenance points
 // elsewhere, and a real installation lands extensions as plain trees.
@@ -413,8 +419,22 @@ func (h *treeHasher) sum() string {
 func digestTree(dir string) (string, error) {
 	h := newTreeHasher(dir)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
+		}
+		// node_modules is resolved output, not unit source. pnpm builds it out
+		// of symlinks, which the refusal below is right to reject among the
+		// files a unit author wrote and wrong to reject here — what pins these
+		// bytes is the lockfile, and a unit that merely ran `pnpm install`
+		// must not report a different identity than the same unit before it.
+		//
+		// Skipped whole rather than filtered file by file: walking a
+		// dependency tree to hash nothing costs real time on every scan.
+		if d.IsDir() && d.Name() == nodeModulesDir {
+			return fs.SkipDir
+		}
+		if d.IsDir() {
+			return nil
 		}
 		if !d.Type().IsRegular() {
 			// A symlink would digest as its target's bytes while

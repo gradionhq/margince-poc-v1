@@ -219,6 +219,61 @@ func TestComposedWorkListsMembersSorted(t *testing.T) {
 // TestDigestTreeIsOrderIndependentAndContentBound: same files → same
 // digest; one changed byte → a different one — the property the
 // staleness gate rests on.
+// TestDigestTreeSkipsInstalledDependencies: a unit's node_modules is resolved
+// output, not unit source.
+//
+// The digest refuses non-regular files so a symlink cannot digest as its
+// target's bytes — right for everything a unit author writes, and wrong for
+// the tree pnpm builds, which is symlinks all the way down. What pins those
+// bytes is the lockfile, so a hash of the unit has no business chasing them,
+// and a unit that merely installed its dependencies must not report a
+// different identity than the same unit before `pnpm install` ran.
+func TestDigestTreeSkipsInstalledDependencies(t *testing.T) {
+	root := t.TempDir()
+	writeUnit(t, root, "u", map[string]string{
+		"go.mod":                "module m\n",
+		"frontend/package.json": "{}\n",
+		"frontend/screen.tsx":   "export default function S() { return null }\n",
+	})
+	dir := filepath.Join(root, "extensions", "u")
+	before, err := digestTree(dir)
+	if err != nil {
+		t.Fatalf("digesting the uninstalled unit: %v", err)
+	}
+
+	// The shape pnpm actually produces, and the one that used to hard-fail the
+	// whole composition the moment a unit had a dependency.
+	mods := filepath.Join(dir, "frontend", "node_modules", "react")
+	if err := os.MkdirAll(mods, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(mods, "linked")); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := digestTree(dir)
+	if err != nil {
+		t.Fatalf("a unit with installed dependencies must still digest: %v", err)
+	}
+	if after != before {
+		t.Errorf("digest changed when node_modules appeared (%s -> %s) — installed dependencies are not part of a unit's identity", before, after)
+	}
+}
+
+// And the refusal it is carved out of still stands everywhere else: a symlink
+// among the unit's OWN files is the case the rule was written for.
+func TestDigestTreeStillRefusesASymlinkInTheUnitsOwnFiles(t *testing.T) {
+	root := t.TempDir()
+	writeUnit(t, root, "u", map[string]string{"go.mod": "module m\n"})
+	dir := filepath.Join(root, "extensions", "u")
+	if err := os.Symlink(t.TempDir(), filepath.Join(dir, "sneaky.go")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := digestTree(dir); err == nil || !strings.Contains(err.Error(), "only regular files") {
+		t.Fatalf("err = %v, want the non-regular-file refusal", err)
+	}
+}
+
 func TestDigestTreeIsOrderIndependentAndContentBound(t *testing.T) {
 	root := t.TempDir()
 	writeUnit(t, root, "u", map[string]string{"go.mod": "module m\n", "a.go": "package a\n", "sub/b.txt": "b\n"})
