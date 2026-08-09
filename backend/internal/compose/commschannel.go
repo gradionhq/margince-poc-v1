@@ -82,3 +82,16 @@ var _ activities.ChannelReachability = channelReachability{}
 func (channelReachability) ReachableChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.UUID, provider string) ([]connector.ChannelIdentity, error) {
 	return people.ReachableChannelIdentities(ctx, tx, ids.From[ids.PersonKind](personID), provider)
 }
+
+// recipientDirectory is the mail twin of the edge above: an account-started
+// send names its own addressees, and person_email is the people module's
+// table. Stateless for the same reason — one query on the caller's own
+// transaction, so the addresses resolve in the same snapshot that stages
+// the message.
+type recipientDirectory struct{}
+
+var _ activities.RecipientDirectory = recipientDirectory{}
+
+func (recipientDirectory) VisibleAddresses(ctx context.Context, tx pgx.Tx, addresses []string) (map[string]bool, error) {
+	return people.VisibleAddresses(ctx, tx, addresses)
+}

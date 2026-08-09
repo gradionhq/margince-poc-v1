@@ -219,7 +219,7 @@ func TestBothSendTransportsCarryTheDraftOutcomeRecorder(t *testing.T) {
 		stager := &recordingStager{}
 		store := sendStore(e.Pool, SendPath{PublicBaseURL: voiceSendBaseURL, Delivery: stager})
 
-		if _, err := store.SendEmail(e.ctx, ids.From[ids.ActivityKind](e.anchor),
+		if _, err := store.SendEmail(e.ctx, activities.FromActivity(ids.From[ids.ActivityKind](e.anchor)),
 			e.draftedSend(draft.ref), consent.NewGate(consent.NewStore(e.Pool)), stager); err != nil {
 			t.Fatalf("send through the tool surface's store: %v", err)
 		}
@@ -369,14 +369,14 @@ func TestConcurrentSendsSharingADraftReferenceLeaveOneOutcomeAndBothTransmit(t *
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, winnerErr = winnerStore.SendEmail(e.ctx, anchor, e.draftedSend(draft.ref), gate, winnerStager)
+		_, winnerErr = winnerStore.SendEmail(e.ctx, activities.FromActivity(anchor), e.draftedSend(draft.ref), gate, winnerStager)
 	}()
 	holder := awaitLockHolder(t, winner.locked)
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, loserErr = loserStore.SendEmail(e.ctx, anchor, e.draftedSend(draft.ref), gate, loserStager)
+		_, loserErr = loserStore.SendEmail(e.ctx, activities.FromActivity(anchor), e.draftedSend(draft.ref), gate, loserStager)
 	}()
 	waitForBlockedOn(t, e, holder)
 

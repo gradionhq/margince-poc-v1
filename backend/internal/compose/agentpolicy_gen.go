@@ -286,6 +286,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/deals/{id}/offers":                                         {Op: "createOffer", Access: "tool", Tool: "create_record", RecordType: "offer", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/dedupe/candidates/{id}/disposition":                        {Op: "disposeDedupeCandidate", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/dedupe/candidates/{id}/undo":                               {Op: "undoDedupeDisposition", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/emails":                                                    {Op: "sendAccountEmail", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/embeddings/reindex":                                        {Op: "EmbedReindexStart", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/exports":                                                   {Op: "createFilteredExport", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/fx-rates":                                                  {Op: "setFxRate", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

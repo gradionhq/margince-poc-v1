@@ -243,6 +243,33 @@ func (e ActivityLinkEntityType) Valid() bool {
 	}
 }
 
+// Defines values for ActivityLinkInputEntityType.
+const (
+	ActivityLinkInputEntityTypeDeal         ActivityLinkInputEntityType = "deal"
+	ActivityLinkInputEntityTypeLead         ActivityLinkInputEntityType = "lead"
+	ActivityLinkInputEntityTypeOrganization ActivityLinkInputEntityType = "organization"
+	ActivityLinkInputEntityTypePerson       ActivityLinkInputEntityType = "person"
+	ActivityLinkInputEntityTypeProject      ActivityLinkInputEntityType = "project"
+)
+
+// Valid indicates whether the value is a known member of the ActivityLinkInputEntityType enum.
+func (e ActivityLinkInputEntityType) Valid() bool {
+	switch e {
+	case ActivityLinkInputEntityTypeDeal:
+		return true
+	case ActivityLinkInputEntityTypeLead:
+		return true
+	case ActivityLinkInputEntityTypeOrganization:
+		return true
+	case ActivityLinkInputEntityTypePerson:
+		return true
+	case ActivityLinkInputEntityTypeProject:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AddConsumerMailDomainRequestKind.
 const (
 	AddConsumerMailDomainRequestKindExtra AddConsumerMailDomainRequestKind = "extra"
@@ -7595,22 +7622,22 @@ func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	Automatic  VoiceProfileVersionReason = "automatic"
-	Manual     VoiceProfileVersionReason = "manual"
-	Onboarding VoiceProfileVersionReason = "onboarding"
-	Rollback   VoiceProfileVersionReason = "rollback"
+	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
+	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
+	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
+	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case Automatic:
+	case VoiceProfileVersionReasonAutomatic:
 		return true
-	case Manual:
+	case VoiceProfileVersionReasonManual:
 		return true
-	case Onboarding:
+	case VoiceProfileVersionReasonOnboarding:
 		return true
-	case Rollback:
+	case VoiceProfileVersionReasonRollback:
 		return true
 	default:
 		return false
@@ -8961,6 +8988,16 @@ type ActivityLink struct {
 
 // ActivityLinkEntityType defines model for ActivityLink.EntityType.
 type ActivityLinkEntityType string
+
+// ActivityLinkInput One record an activity is filed under, as a caller supplies it. The read shape
+// (ActivityLink) carries the ids the server assigned; this carries only the target.
+type ActivityLinkInput struct {
+	EntityId   openapi_types.UUID          `json:"entity_id"`
+	EntityType ActivityLinkInputEntityType `json:"entity_type"`
+}
+
+// ActivityLinkInputEntityType defines model for ActivityLinkInput.EntityType.
+type ActivityLinkInputEntityType string
 
 // ActivityListResponse defines model for ActivityListResponse.
 type ActivityListResponse struct {
@@ -15015,6 +15052,35 @@ type SearchResultTrustTier string
 // SearchResultType defines model for SearchResult.Type.
 type SearchResultType string
 
+// SendAccountEmailRequest One account-started send. It is SendEmailRequest plus the `links` an anchor would
+// otherwise have supplied — the records this new conversation belongs to.
+type SendAccountEmailRequest struct {
+	// Body The (possibly edited) final body that is sent.
+	Body string                 `json:"body"`
+	Cc   *[]openapi_types.Email `json:"cc,omitempty"`
+
+	// ConsentPurpose The consent purpose this send falls under. Default-deny per purpose (A22/ADR-0011):
+	// suppressed 409 `consent_not_granted` unless every recipient has an active `granted`
+	// `person_consent` for THIS purpose.
+	ConsentPurpose string `json:"consent_purpose"`
+
+	// DraftRef Opaque reference returned by the drafting operation, exactly as on `send_email`.
+	// Omit for independently composed mail.
+	DraftRef *string `json:"draft_ref,omitempty"`
+
+	// Links The records this conversation is filed under — the company it was started from, and
+	// optionally the person and deal it concerns. At least one is required: a message
+	// belonging to no record is one nobody will find again, which is the gap this
+	// operation exists to close. Each target is row-scope probed, so an id the caller
+	// cannot see is refused 404.
+	Links   []ActivityLinkInput `json:"links"`
+	Subject string              `json:"subject"`
+
+	// To At least one addressee. A send whose To: line is empty is refused 422 before
+	// anything is staged — `cc` alone does not make a message addressed to anyone.
+	To []openapi_types.Email `json:"to"`
+}
+
 // SendEmailRequest defines model for SendEmailRequest.
 type SendEmailRequest struct {
 	// Body The (possibly edited) final body that is sent.
@@ -17185,6 +17251,25 @@ type ListDedupeCandidatesParamsEntityType string
 type GetMorningDigestParams struct {
 	// Date A specific digest day; default: the latest generated.
 	Date *openapi_types.Date `form:"date,omitempty" json:"date,omitempty"`
+}
+
+// SendAccountEmailParams defines parameters for SendAccountEmail.
+type SendAccountEmailParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // GetFieldHistoryParams defines parameters for GetFieldHistory.
@@ -19531,6 +19616,9 @@ type CreateOfferJSONRequestBody = CreateOfferRequest
 
 // DisposeDedupeCandidateJSONRequestBody defines body for DisposeDedupeCandidate for application/json ContentType.
 type DisposeDedupeCandidateJSONRequestBody = DedupeDispositionRequest
+
+// SendAccountEmailJSONRequestBody defines body for SendAccountEmail for application/json ContentType.
+type SendAccountEmailJSONRequestBody = SendAccountEmailRequest
 
 // EmbedReindexStartJSONRequestBody defines body for EmbedReindexStart for application/json ContentType.
 type EmbedReindexStartJSONRequestBody = EmbedReindexStartRequest
@@ -25840,6 +25928,9 @@ type ServerInterface interface {
 	// The calling user's morning digest — what capture did overnight.
 	// (GET /digest)
 	GetMorningDigest(w http.ResponseWriter, r *http.Request, params GetMorningDigestParams)
+	// Start a new email conversation from a record — 🟡 confirm-first / gated.
+	// (POST /emails)
+	SendAccountEmail(w http.ResponseWriter, r *http.Request, params SendAccountEmailParams)
 	// Confirm and start a fleet-wide reindex.
 	// (POST /embeddings/reindex)
 	EmbedReindexStart(w http.ResponseWriter, r *http.Request)
@@ -27142,6 +27233,12 @@ func (_ Unimplemented) UndoDedupeDisposition(w http.ResponseWriter, r *http.Requ
 // The calling user's morning digest — what capture did overnight.
 // (GET /digest)
 func (_ Unimplemented) GetMorningDigest(w http.ResponseWriter, r *http.Request, params GetMorningDigestParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start a new email conversation from a record — 🟡 confirm-first / gated.
+// (POST /emails)
+func (_ Unimplemented) SendAccountEmail(w http.ResponseWriter, r *http.Request, params SendAccountEmailParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -33175,6 +33272,53 @@ func (siw *ServerInterfaceWrapper) GetMorningDigest(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMorningDigest(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SendAccountEmail operation middleware
+func (siw *ServerInterfaceWrapper) SendAccountEmail(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SendAccountEmailParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendAccountEmail(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -43936,6 +44080,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/digest", wrapper.GetMorningDigest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/emails", wrapper.SendAccountEmail)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/embeddings/reindex", wrapper.EmbedReindexStart)
