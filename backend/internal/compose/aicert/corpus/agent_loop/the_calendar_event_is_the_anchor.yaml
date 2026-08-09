@@ -7,10 +7,15 @@ fixture:
   goal: The quarterly sync starts in twenty minutes and I have not looked at it. Get me ready.
   trigger_ref: calendar:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e20
   grounding:
+    # No absolute timestamp. The goal already says when the meeting is, and a
+    # fixed date in a fixture the corpus replays for years would drift away from
+    # it — the scenario would then be measuring whether the model can reconcile
+    # "in twenty minutes" with a date long past, which is a different question
+    # from the one it is here to ask.
     - source_id: activity:0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e21
       trust_tier: T1
       content: >
-        Captured calendar event — "Quarterly sync", 2026-08-12T09:00:00Z,
+        Captured calendar event — "Quarterly sync",
         activity_id=0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e21. This event is the only
         record this run has been handed; no account, deal or contact is named here.
   tools: catalog

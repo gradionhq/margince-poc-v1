@@ -23,11 +23,14 @@ var catchMeUpOnCopy = toolCopy{
 var prepForMeetingCopy = toolCopy{
 	Purpose: "Get ready for a specific meeting: the same assembled picture as a catch-up, plus " +
 		"the open items pulled out as the things to raise.",
-	Limits: "It is built around ONE record you name — the account, the deal or the person, or a " +
-		"captured meeting where the workspace holds a record OF the meeting, which is not the " +
-		"same thing as a calendar reference on a trigger. Given a meeting it works out which " +
-		"record that meeting is about and names the others alongside, including any attendee it " +
-		"holds no record for.",
+	// Deliberately silent about anchoring on the meeting record itself. The
+	// input schema advertises it, and prose that also recommended it cost more
+	// than it bought: two bindings began reading the trigger's `calendar:…`
+	// reference as an activity record id and preparing against a record that
+	// does not exist. What the tool accepts is the schema's job to say.
+	Limits: "It is built around ONE record you name, and everything it reports carries a source; " +
+		"what cannot be evidenced is absent rather than inferred. Given a meeting it works out " +
+		"which record that meeting is about and names the others alongside.",
 	Instead: "Use catch_me_up_on when there is no meeting and the question is simply what has " +
 		"been happening, and check_availability when the goal is finding a time rather than " +
 		"preparing for one.",
