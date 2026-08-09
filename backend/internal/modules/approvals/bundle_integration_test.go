@@ -410,3 +410,155 @@ func TestABundleTooLargeToDecideIsRefused(t *testing.T) {
 		t.Errorf("%d members were decided by a refused call — the refusal must leave the bundle untouched", n)
 	}
 }
+
+// waitForRowLockWaiter blocks until some backend in THIS database is waiting on
+// a lock — the bundle decision reaching the member a competing decision holds.
+//
+// The scope comes from the WAITING BACKEND (pg_stat_activity.datname), not from
+// pg_locks.database: a row-lock wait is a `transactionid` lock, and those carry
+// a NULL database, so joining pg_database drops exactly the waiter this probe
+// exists to see. Scoped at all because pg_locks is cluster-wide and the
+// integration lane runs a dozen packages against one server, where an unrelated
+// package's waiter would satisfy a global probe and the run would sail past the
+// interleaving it claims to exercise.
+func waitForRowLockWaiter(t *testing.T, e *stagingEnv, done <-chan struct{}) {
+	t.Helper()
+	const maxProbes = 20_000
+	for probe := 0; probe < maxProbes; probe++ {
+		var waiting bool
+		if err := e.owner.QueryRow(context.Background(),
+			`SELECT EXISTS (SELECT 1 FROM pg_locks l
+			   JOIN pg_stat_activity a ON a.pid = l.pid
+			  WHERE NOT l.granted AND a.datname = current_database())`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			return
+		}
+		select {
+		case <-done:
+			t.Fatal("the bundle decision finished without ever blocking on the contested member — it never reached the row the competing decision was holding, so this run proved nothing")
+		default:
+		}
+	}
+	t.Fatalf("no backend waited on a lock in this database within %d probes", maxProbes)
+}
+
+// The race the pre-check cannot answer: a member is pending when the bundle
+// reads it and decided by someone else by the time the bundle reaches it.
+//
+// decideInTx takes the row lock, so this call waits for the competing decision
+// and then finds a verdict it must not overwrite — and reports it as an ERROR.
+// Absorbing that error is what keeps one person's click from turning another
+// person's whole bundle into a failed request, and re-reading the row is what
+// makes the answer say which verdict actually won.
+func TestABundleMemberDecidedMidFlightIsAbsorbedRatherThanFailingTheBundle(t *testing.T) {
+	e := setupStaging(t)
+	ctx := e.asHumanWith(decidesEverything())
+	org := e.organization(t)
+	bundle := ids.NewV7()
+	// Oldest first is the order the decision walks, so the uncontested member is
+	// already decided when the contested one blocks.
+	uncontested := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-anna")
+	contested := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-bruno")
+
+	bg := context.Background()
+	competing, err := e.owner.Begin(bg)
+	if err != nil {
+		t.Fatalf("opening the competing decision: %v", err)
+	}
+	// Released whatever happens: a held lock outlives a failing assertion, and
+	// the blocked decision would otherwise keep a pool connection until the
+	// package's own teardown gave up on it.
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = competing.Rollback(bg) }()
+	var locked ids.ApprovalID
+	if err := competing.QueryRow(bg,
+		`SELECT id FROM approval WHERE id = $1 FOR UPDATE`, contested).Scan(&locked); err != nil {
+		t.Fatalf("holding the contested member: %v", err)
+	}
+
+	done := make(chan struct{})
+	var members []BundleMember
+	var decideErr error
+	go func() {
+		defer close(done)
+		members, decideErr = e.svc.DecideBundle(ctx, bundle, true, nil)
+	}()
+	waitForRowLockWaiter(t, e, done)
+
+	if _, err := competing.Exec(bg,
+		`UPDATE approval SET status = 'rejected', decided_by = $2, decided_at = now() WHERE id = $1`,
+		contested, e.rep); err != nil {
+		t.Fatalf("recording the competing verdict: %v", err)
+	}
+	if err := competing.Commit(bg); err != nil {
+		t.Fatalf("committing the competing verdict: %v", err)
+	}
+	<-done
+
+	if decideErr != nil {
+		t.Fatalf("the bundle failed over one contested member: %v", decideErr)
+	}
+	got := outcomes(members)
+	if got[contested] != BundleAlreadyDecided {
+		t.Errorf("the contested member reported %s, want %s", got[contested], BundleAlreadyDecided)
+	}
+	if got[uncontested] != BundleDecided {
+		t.Errorf("its sibling reported %s, want %s", got[uncontested], BundleDecided)
+	}
+	if status := e.statusOf(t, contested); status != approvalStatusRejected {
+		t.Errorf("the contested member is %s, want the competing rejection to stand", status)
+	}
+	for _, m := range members {
+		if m.Approval.ID == contested && m.Approval.Status != approvalStatusRejected {
+			t.Errorf("the answer reports the contested member as %s, want the verdict that won", m.Approval.Status)
+		}
+	}
+}
+
+// bundleOf reads a row's grouping straight from the table.
+func (e *stagingEnv) bundleOf(t *testing.T, id ids.ApprovalID) *ids.UUID {
+	t.Helper()
+	var bundle *ids.UUID
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT bundle_id FROM approval WHERE id = $1`, id).Scan(&bundle); err != nil {
+		t.Fatalf("reading the stored bundle: %v", err)
+	}
+	return bundle
+}
+
+// The two re-proposals that must NOT move a row. An act carrying no bundle has
+// no claim to orphan a proposal from the act that did group it — a nightly
+// sweep re-proposing one lead would otherwise strip it out of the site read's
+// bundle and leave that bundle quietly short a member. And re-proposing into
+// the SAME bundle changes nothing, so it must not write an audit row saying
+// something moved.
+func TestARestagedProposalKeepsItsBundleWhenTheActHasNoneOrTheSameOne(t *testing.T) {
+	e := setupStaging(t)
+	ctx := e.asHumanWith(decidesEverything())
+	org := e.organization(t)
+	bundle := ids.NewV7()
+	member := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-anna")
+
+	if _, err := e.svc.Stage(ctx, StageInput{
+		Kind:           kindSiteLead,
+		ProposedChange: []byte(`{"organization_id":"` + org.String() + `","note":"lead-anna"}`),
+		DiffHash:       "lead-anna",
+		TargetType:     tableOrganization,
+		TargetID:       org,
+		Summary:        "Re-proposed by an unbundled act",
+		JoinPending:    true,
+	}); err != nil {
+		t.Fatalf("re-proposing without a bundle: %v", err)
+	}
+	if got := e.bundleOf(t, member); got == nil || *got != bundle {
+		t.Errorf("an unbundled re-proposal left the row in %v, want it still in %s", got, bundle)
+	}
+
+	e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-anna")
+	if n := e.count(t, `SELECT count(*) FROM audit_log
+		WHERE entity_id = $1 AND evidence->>'rebundled' = 'true'`, member.UUID); n != 0 {
+		t.Errorf("re-proposing into the same bundle wrote %d rebundle audit rows, want none — nothing moved", n)
+	}
+}
