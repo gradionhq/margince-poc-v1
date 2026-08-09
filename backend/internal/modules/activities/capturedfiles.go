@@ -16,8 +16,8 @@ package activities
 // reason: the worst outcome of a failure between the two is an object nobody
 // references, and the alternative is a row promising bytes that are not there.
 // One is invisible and reclaimable; the other is a broken download on a surface
-// whose whole promise is that a cited file opens. Reclaiming the orphan is
-// issue #663 and is owed by both writers, not only this one.
+// whose whole promise is that a cited file opens. Reclaiming the unreferenced
+// object is not done here and is owed by both writers of this table (#663).
 
 import (
 	"bytes"

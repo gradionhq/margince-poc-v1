@@ -32,8 +32,6 @@ import (
 // no size — because system_log is operational and a sender controls all three.
 const actionPartsDropped = "capture_parts_dropped"
 
-// fieldPartOrdinal names WHICH part was refused, so two drops on one message
-// are two distinguishable facts rather than one line repeated.
 // fieldDroppedParts is HOW MANY files one bound refused. A count rather than a
 // row each: the number of refusals is the sender's choice, and one breadcrumb
 // per refused part would let an inbound message size our own log.
