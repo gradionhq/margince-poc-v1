@@ -25,6 +25,7 @@ export function ConfirmModal({
   pending,
   error,
   size,
+  placement,
   children,
 }: Readonly<{
   open: boolean;
@@ -36,6 +37,11 @@ export function ConfirmModal({
   // READ before an irreversible act — an email about to leave — needs more
   // than the compact width every yes/no confirm uses.
   size?: "default" | "wide";
+  // Passed through to Modal. "right" is the drawer form: the record the
+  // confirm is about stays visible beside it as context, which a centred box
+  // covers. The composer uses it so a rep can read the account while writing
+  // to it.
+  placement?: "center" | "right";
   // The confirm button's tone. Defaults to "primary" (backward-compatible);
   // a destructive confirm (e.g. reject-with-reason) passes "danger" so it
   // doesn't read green like an approve.
@@ -52,7 +58,13 @@ export function ConfirmModal({
   const t = useT();
   const headingId = useId();
   return (
-    <Modal open={open} onClose={onClose} labelledBy={headingId} size={size}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy={headingId}
+      size={size}
+      placement={placement}
+    >
       <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
         {tier && (
           <>

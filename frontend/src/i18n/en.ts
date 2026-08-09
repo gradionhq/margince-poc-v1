@@ -1469,6 +1469,14 @@ export const en = {
   "compose.to": "To",
   "compose.cc": "Cc",
   "compose.subject": "Subject",
+  "compose.noGroundableRecipient":
+    "No contact on this account yet — write the message yourself, or add a contact first",
+  "compose.draftTo": "Draft to",
+  "compose.draftToUnset": "Choose a contact",
+  "compose.relatedTo": "Related to",
+  "compose.relatedToNone": "The account in general",
+  "compose.basedOn": "Based on: {inputs}",
+  "compose.whyThisDraft": "Why this draft?",
   "compose.body": "Body",
   "compose.purpose": "Consent purpose",
   "compose.purposeHint":

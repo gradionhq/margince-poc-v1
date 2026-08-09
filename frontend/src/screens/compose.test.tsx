@@ -1681,10 +1681,12 @@ describe("ComposeModal started from an account", () => {
     expect(sent.some((r) => r.key.includes("send-email"))).toBe(false);
   });
 
-  // The grounded account-started draft is ADR-0087 §3 and is not built. Saying
-  // so is honest; drafting against some nearby activity would ground the mail
-  // in a conversation the rep never chose.
-  it("reports drafting unavailable rather than drafting off a stranger's thread", async () => {
+  // The grounded account-started draft (ADR-0087/A132) needs a recipient
+  // before it can say anything: that is the one thing it knows that an empty
+  // compose box does not. The button is disabled with the picker directly
+  // above it, rather than running and coming back with a refusal about a
+  // field already on screen.
+  it("will not draft from an account until a recipient is chosen", async () => {
     const sent = stubRoutes({});
     render(
       <ComposeModal
@@ -1695,16 +1697,10 @@ describe("ComposeModal started from an account", () => {
       />,
     );
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Draft with AI" }),
-    );
-
+    const drafting = screen.getByRole("button", { name: "Draft with AI" });
+    expect(drafting).toHaveProperty("disabled", true);
     expect(sent.some((r) => r.key.includes("draft-email"))).toBe(false);
-    expect(screen.getByPlaceholderText("Body")).toHaveProperty("value", "");
-    // Silence would read as a broken button. The rep is told drafting is off
-    // and that writing it themselves still works — and Send stays reachable,
-    // because an undraftable message is not an unsendable one.
-    expect(await screen.findByText(/AI drafting is unavailable/)).toBeTruthy();
+    // Undraftable is not unsendable: the rep writes it themselves and sends.
     expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
   });
 });
