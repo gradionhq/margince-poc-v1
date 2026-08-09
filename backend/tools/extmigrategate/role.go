@@ -87,12 +87,12 @@ func mintRole(ctx context.Context, admin *pgx.Conn, namespace, dsn string) (mint
 	// arriving in those milliseconds. Closing it needs an ownership record the
 	// cluster does not have (roles carry no creation time), and the cost of the
 	// window is a failed CI step, not a wrong verdict.
-	claimed, err := claimRole(ctx, admin, role.name, password)
+	claimed, why, err := claimRole(ctx, admin, role.name, password)
 	if err != nil {
 		return nil, err
 	}
 	if !claimed {
-		return nil, fmt.Errorf("role %s already exists on this cluster and could not be reclaimed — another extmigrategate run owns it; re-run when it finishes", role.name)
+		return nil, fmt.Errorf("role %s could not be claimed — %s; another extmigrategate run owns it, so re-run when it finishes", role.name, why)
 	}
 	// Armed only once the role EXISTS: before the claim there is nothing of
 	// this run's to take back down, and dropping then would destroy the role of
@@ -132,29 +132,32 @@ func mintRole(ctx context.Context, admin *pgx.Conn, namespace, dsn string) (mint
 
 // claimRole creates the role, reclaiming a leaked one if — and only if — no
 // session anywhere on the cluster is using it. It reports whether this run now
-// owns the name; false means another run does.
+// owns the name; false means another run does, and `why` says which of the two
+// ways that was established — the two are a different thing for an author to
+// read, and only one of them ("a live session") tells them to go look at what
+// else is running.
 //
 // Dropped and recreated rather than adopted: a role left behind by an earlier
 // run may have been granted anything since, and inheriting it would quietly
 // weaken every refusal that rests on what this role cannot do.
-func claimRole(ctx context.Context, admin *pgx.Conn, name, password string) (bool, error) {
+func claimRole(ctx context.Context, admin *pgx.Conn, name, password string) (claimed bool, why string, err error) {
 	create := `CREATE ROLE ` + name + ` LOGIN PASSWORD '` + password + `' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION`
-	err := exec(ctx, admin, create)
+	err = exec(ctx, admin, create)
 	if err == nil {
-		return true, nil
+		return true, "", nil
 	}
 	if !isDuplicateRole(err) {
-		return false, fmt.Errorf("creating the %s role: %w", name, err)
+		return false, "", fmt.Errorf("creating the %s role: %w", name, err)
 	}
 
 	var sessions int
 	if err := admin.QueryRow(ctx,
 		`SELECT count(*) FROM pg_stat_activity WHERE usename = $1`, name,
 	).Scan(&sessions); err != nil {
-		return false, fmt.Errorf("looking for live %s sessions: %w", name, err)
+		return false, "", fmt.Errorf("looking for live %s sessions: %w", name, err)
 	}
 	if sessions > 0 {
-		return false, nil
+		return false, fmt.Sprintf("it already exists and has %d live session(s) on this cluster", sessions), nil
 	}
 
 	for _, statement := range []string{
@@ -162,7 +165,7 @@ func claimRole(ctx context.Context, admin *pgx.Conn, name, password string) (boo
 		`DROP ROLE IF EXISTS ` + name,
 	} {
 		if err := exec(ctx, admin, statement); err != nil && !isMissingRole(err) {
-			if isOwnedElsewhere(err) {
+			if isOwnedElsewhere(err) { //nolint:nestif // the two failure modes read better named than flattened
 				// DROP OWNED BY reaches only the CURRENT database, while the
 				// role is cluster-scoped: a run against another database on
 				// this cluster that died before its cleanup leaves objects the
@@ -171,11 +174,11 @@ func claimRole(ctx context.Context, admin *pgx.Conn, name, password string) (boo
 				// ("cannot be dropped because some objects depend on it") reads
 				// as a bug in this gate rather than as residue somewhere else
 				// on the cluster.
-				return false, fmt.Errorf("role %s still owns objects in ANOTHER database on this cluster, so it cannot be reclaimed here — "+
+				return false, "", fmt.Errorf("role %s still owns objects in ANOTHER database on this cluster, so it cannot be reclaimed here — "+
 					"connect to that database and run `DROP OWNED BY %s CASCADE`, or point this gate at a cluster of its own: %w",
 					name, name, err)
 			}
-			return false, fmt.Errorf("reclaiming the leaked %s role (%s): %w", name, statement, err)
+			return false, "", fmt.Errorf("reclaiming the leaked %s role (%s): %w", name, statement, err)
 		}
 	}
 
@@ -184,11 +187,11 @@ func claimRole(ctx context.Context, admin *pgx.Conn, name, password string) (boo
 	// That is the loss reported, not an error: the other run owns it fairly.
 	switch err := exec(ctx, admin, create); {
 	case err == nil:
-		return true, nil
+		return true, "", nil
 	case isDuplicateRole(err):
-		return false, nil
+		return false, "another run took the name while this one was reclaiming it", nil
 	default:
-		return false, fmt.Errorf("recreating the reclaimed %s role: %w", name, err)
+		return false, "", fmt.Errorf("recreating the reclaimed %s role: %w", name, err)
 	}
 }
 

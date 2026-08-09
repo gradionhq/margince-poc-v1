@@ -88,6 +88,7 @@ ALTER TABLE %[2]s FORCE ROW LEVEL SECURITY;
 CREATE POLICY %[1]s_quoted_isolation ON %[2]s
     USING      %[3]s
     WITH CHECK %[3]s;
+GRANT SELECT, INSERT, UPDATE, DELETE ON %[2]s TO margince_app;
 `, ns, quoted, predicateSQL)
 		down := "DROP TABLE IF EXISTS ext.stowaway2;\nDROP TABLE IF EXISTS " + quoted + ";\n" + scaffoldDown(ns)
 

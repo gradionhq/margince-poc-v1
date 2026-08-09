@@ -90,6 +90,26 @@ func grantRefusals() []refusal {
 		},
 		down:        dropNote,
 		mustMention: []string{"column-level grant", "body"},
+	}, {
+		// The other side of the allowlist, and it was missing: "nothing outside
+		// the list" is satisfied perfectly by granting NOTHING, and the table
+		// then answers `permission denied` at the first handler call.
+		tag: "grantnone",
+		up: func(ns string) string {
+			return strings.Replace(valid(ns),
+				fmt.Sprintf("GRANT SELECT, INSERT, UPDATE, DELETE ON ext.%s_note TO margince_app;\n", ns), "", 1)
+		},
+		down:        dropNote,
+		mustMention: []string{"margince_app", "must grant exactly"},
+	}, {
+		tag: "grantpartial",
+		up: func(ns string) string {
+			return strings.Replace(valid(ns),
+				fmt.Sprintf("GRANT SELECT, INSERT, UPDATE, DELETE ON ext.%s_note TO margince_app;\n", ns),
+				fmt.Sprintf("GRANT SELECT ON ext.%s_note TO margince_app;\n", ns), 1)
+		},
+		down:        dropNote,
+		mustMention: []string{`grants "r"`, "must grant exactly"},
 	}}
 }
 
@@ -413,7 +433,27 @@ func TestGateRefusesARoleTheClusterHasWidened(t *testing.T) {
 		name:        "insert on every core table",
 		setup:       `GRANT INSERT ON ALL TABLES IN SCHEMA public TO PUBLIC`,
 		restore:     `REVOKE INSERT ON ALL TABLES IN SCHEMA public FROM PUBLIC`,
-		mustMention: "can read or write public.",
+		mustMention: "can read, write or trigger on public.",
+	}, {
+		// TRIGGER is a write verb wearing another name: a role holding it can
+		// install a function of its own on a core table, and every core write
+		// runs it from then on. Nothing else in this gate would notice.
+		tag:         "widentrg",
+		name:        "trigger on every core table",
+		setup:       `GRANT TRIGGER ON ALL TABLES IN SCHEMA public TO PUBLIC`,
+		restore:     `REVOKE TRIGGER ON ALL TABLES IN SCHEMA public FROM PUBLIC`,
+		mustMention: "can read, write or trigger on public.",
+	}, {
+		// The gate grants REFERENCES on public.workspace(id) itself, so the
+		// verb cannot simply be refused — it is narrowed to that one column.
+		// A cluster that widened it anywhere else lets a unit hang a foreign
+		// key off a core table, which takes a lock on core writes and can
+		// refuse a core delete forever after.
+		tag:         "widenref",
+		name:        "references on every core table",
+		setup:       `GRANT REFERENCES ON ALL TABLES IN SCHEMA public TO PUBLIC`,
+		restore:     `REVOKE REFERENCES ON ALL TABLES IN SCHEMA public FROM PUBLIC`,
+		mustMention: "can declare a foreign key against public.",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			if _, err := owner.Exec(ctx, c.setup); err != nil {
