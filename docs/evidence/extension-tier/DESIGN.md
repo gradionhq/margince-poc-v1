@@ -728,6 +728,12 @@ of every affected user forever with no cleanup path, and with no `/roles` endpoi
 write path" that Parse's own doc promises has no write path to live at — so a typo'd grant in the only
 mechanism that exists (hand SQL) now no-ops silently instead of failing loudly.
 
+> **SUPERSEDED by §4.6.** The ruling below stands as the record of what this slice decided and why —
+> it was correct for a slice that had no answer to the supply-chain question. §4.6 takes that question
+> head-on and answers it, so `extensions/<name>/frontend/` becomes a real capability layer and
+> `unbuiltCapabilityLayers` empties. Read this section for the reasoning that held until it did; read
+> §4.6 for what replaces it, including the costs §4.6 accepts that this section declined to.
+
 **Frontend: `defineExtension` was not built, and that is a recorded ruling, not an oversight.**
 `extensions/<name>/frontend/` is **still refused on sight** by `gen-composition`'s scan — it is the one
 remaining member of `unbuiltCapabilityLayers`, and `scanUnit`'s "no Go module" refusal therefore never
@@ -771,6 +777,73 @@ and the local green run never exercised that path. Its paths filter also omitted
 `composition/**` and `gen-composition/**`, so a PR changing the only input that alters the composed registry
 did not run the frontend job at all. Both fixed; the general lesson holds, that a lane which skips
 composition must fail loudly rather than typecheck against a stale contract.
+
+### 4.6 Frontend, the sixth surface — a unit ships its own package
+
+> **Status: designed, not yet built.** Unlike every section above it, this one was written *before* its
+> code rather than reconciled against it, so read it as intent. It is reconciled in place when the
+> slice lands, and until then §4.5's "as built" statements elsewhere in this document — §2.2's removal
+> cost, §4's surface table, §5's refusal row — remain the accurate description of the tree.
+
+§4.5 declined to bundle unit-authored TSX because it had no answer to the supply-chain question. This
+section answers it: **a unit's frontend is a pnpm workspace package**, with its own `package.json` and
+its own dependencies, resolved and built by the same toolchain that builds the SPA. That is the
+deliberate choice between three shapes, and the other two are recorded because the reasoning matters
+more than the outcome:
+
+- **Source-only** — unit TSX compiled against core's dependencies, no unit `package.json`. Smallest
+  change, no supply-chain surface, but a unit can never bring a library, and the tier's stated purpose
+  is a bounded add-on somebody else writes.
+- **Workspace package (chosen).** A unit brings its own dependencies. The cost is stated below rather
+  than discovered.
+- **Runtime loading** (module federation, a per-unit bundle fetched at run time). Rejected: it would
+  trade away the property this tier's frontend already has and the backend cannot offer — a screen for a
+  unit whose contract fragment did not merge **fails `tsc`**, because its routes are not in the merged
+  contract's `paths`. That compile-time route guarantee is worth more than the isolation federation
+  would buy, and federation's isolation is weak anyway (one origin, one bundle, one `localStorage`).
+
+**What the mechanism is, and how little of it is new.** The two-lane alias pattern §4.5 built already
+carries three artifacts; `@composition/screens` is the only one still hand-written in core. It becomes
+generated like the other two, and the layer leaves `unbuiltCapabilityLayers` exactly as `migrations/`
+did. Vite already parameterises `server.fs.allow` for a root outside `frontend/`. So the new parts are:
+a workspace that spans `extensions/*/frontend`, a generated screen registry, and the gates below.
+
+**The published frontend surface is `frontend/package.json`'s `exports` map**, and that is the precise
+analogue of `//margince:extension-surface` over `backend/pkg/**`. A unit imports `@margince/frontend/…`
+and nothing else of the core's; a deep import, a relative escape into `../../frontend/src`, or an
+unmarked path is refused by a gate, because unlike Go there is no module boundary doing it for free.
+
+**React is a peer dependency, deduped.** Two React instances in one bundle break hooks at run time with
+an error that names nothing useful, so `react`/`react-dom` are `peerDependencies` of a unit package and
+`resolve.dedupe` pins one copy. This is the single most likely way a unit author breaks the SPA, and it
+is configuration rather than review.
+
+**Costs this section accepts, having named them.** They are real, and none is mitigated by anything in
+this design:
+
+1. **A unit's transitive npm dependencies ship in the SPA bundle**, on the same origin, with the same
+   `localStorage` and the same session as the core. There is no per-unit sandbox in a bundle, and this
+   design does not build one. The composed set was already the trust boundary on the backend (§2.4);
+   this extends the same posture to a place where the blast radius is larger and the review surface —
+   a dependency tree nobody on the core team wrote — is wider. A unit is added deliberately, and that
+   remains the whole of the protection.
+2. **The lockfile is upstream-owned and a unit writes to it.** Adding a unit with dependencies changes
+   the root `pnpm-lock.yaml`, so "a unit edits no upstream file" — true of the backend — is **false**
+   for a frontend-bearing unit. Stated here rather than left for someone to discover in a diff.
+3. **CSP is unchanged and unhelped.** Same bundle, same origin, built at build time: nothing about this
+   makes a unit's code more constrained at run time than core's is.
+
+**What it buys, concretely.** Removal becomes **one place** — `git rm -r extensions/<name>` — closing
+the two-place wart §2.2 records, which the acceptance run found and which three documents currently
+have to warn about. And the sixth surface finally comes from inside the unit, so `crm-demo` exercises
+six of six rather than five.
+
+**The digest collision, and its resolution.** `digestTree` refuses every non-regular file under a unit,
+deliberately (§5) — and pnpm gives each workspace package a `node_modules` of symlinks, so the two
+collide head-on the moment a unit has a dependency. `node_modules` is excluded from the digest by name,
+alongside the manifest that is already excluded, and for the same class of reason: it is resolved
+output, not unit source, and what pins it is the lockfile. The symlink refusal itself is unchanged
+everywhere else.
 
 ## 5. Gates
 
