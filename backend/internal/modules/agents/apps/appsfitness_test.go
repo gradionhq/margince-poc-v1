@@ -32,29 +32,13 @@ import (
 // assembled is every document this package serves, keyed by URI, as a host
 // receives it. Built through the real constructor: a test that re-assembled the
 // assets itself would be proving something about its own spelling.
+// Comments are STRIPPED: every sweep that reads this asks what a document DOES,
+// and a comment explaining a forbidden construct contains the construct. See
+// code.go — the required-call-site sweep is unsound without it, because a deleted
+// call leaves behind an explanation that satisfies a substring check.
 func assembled(t *testing.T) map[string]string {
 	t.Helper()
-	p, err := NewProvider()
-	if err != nil {
-		t.Fatalf("assembling the views: %v", err)
-	}
-	documents := map[string]string{}
-	for _, r := range p.Resources(context.Background()) {
-		contents, err := p.ReadResource(context.Background(), r.URI)
-		if err != nil {
-			t.Fatalf("reading the view %s: %v", r.URI, err)
-		}
-		// Comments stripped: every sweep below asks what the document DOES, and
-		// a comment explaining a forbidden construct contains the construct.
-		// See code.go — the required-call-site sweep is unsound without this,
-		// because a deleted call leaves an explanation that satisfies a
-		// substring check.
-		documents[r.URI] = Code(contents.Text)
-	}
-	if len(documents) == 0 {
-		t.Fatal("no view was assembled, so every sweep in this file would pass vacuously")
-	}
-	return documents
+	return served(t, Code)
 }
 
 // assembledRaw is every served document with its commentary intact. See
