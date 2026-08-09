@@ -233,6 +233,9 @@ func sendInputFrom(to []openapi_types.Email, cc *[]openapi_types.Email, subject,
 	}
 }
 
+// SendEmail answers an existing conversation: the activity in the path is the
+// anchor whose threading chain the reply continues and whose record links it
+// inherits. Its account-started twin above shares everything after the origin.
 func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SendEmailParams) {
 	var req crmcontracts.SendEmailRequest
 	if !httperr.Decode(w, r, &req) {

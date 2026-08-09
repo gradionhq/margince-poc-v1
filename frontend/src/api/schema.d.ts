@@ -1765,8 +1765,13 @@ export interface paths {
          *     - every entry in `links` is row-scope probed, so a record the caller cannot see is
          *       refused 404 exactly as reading it directly would be.
          *
-         *     Tier matches the operation it mirrors: an agent presenting a passport is confirm-first
-         *     and stages for approval; a human's own call is their confirmation (ADR-0055).
+         *     HUMAN-ONLY for now, and deliberately so. ADR-0087 §6 gives the agent surface this
+         *     operation at the same 🟡 tier as the reply, but a 🟡 agent call STAGES for approval, and a
+         *     staged row is only releasable when its kind maps onto a grantable object in approvals.
+         *     Registering the verb without that mapping would advertise a tool whose every call clears
+         *     admission and is then refused at staging — a governed verb no agent can reach and no human
+         *     can release. The composer surface ships first; the agent tool follows with its
+         *     decision-grant mapping, tool spec and staging test as one change.
          */
         post: operations["sendAccountEmail"];
         delete?: never;
@@ -16955,16 +16960,6 @@ export interface operations {
                  *     to retry blind.
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-                /**
-                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
-                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
-                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
-                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
-                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
-                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
-                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
-                 */
-                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
             };
             path?: never;
             cookie?: never;
@@ -16984,7 +16979,7 @@ export interface operations {
                     "application/json": components["schemas"]["Activity"];
                 };
             };
-            /** @description Approval token missing for a 🟡 send, or RBAC denied. */
+            /** @description RBAC denied, or an agent principal presented a passport to a human-only operation. */
             403: {
                 headers: {
                     [name: string]: unknown;

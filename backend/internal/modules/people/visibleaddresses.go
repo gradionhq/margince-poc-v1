@@ -51,7 +51,7 @@ func VisibleAddresses(ctx context.Context, tx pgx.Tx, addresses []string) (map[s
 		return nil, err
 	}
 	if visible == "" {
-		visible = "true"
+		visible = sqlAlwaysVisible
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT DISTINCT pe.email

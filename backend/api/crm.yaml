@@ -2864,12 +2864,17 @@ paths:
         - every entry in `links` is row-scope probed, so a record the caller cannot see is
           refused 404 exactly as reading it directly would be.
 
-        Tier matches the operation it mirrors: an agent presenting a passport is confirm-first
-        and stages for approval; a human's own call is their confirmation (ADR-0055).
-      x-mcp-tool: { verb: send_account_email, record_type: activity, tier: confirmation_required, scope: send }
+        HUMAN-ONLY for now, and deliberately so. ADR-0087 §6 gives the agent surface this
+        operation at the same 🟡 tier as the reply, but a 🟡 agent call STAGES for approval, and a
+        staged row is only releasable when its kind maps onto a grantable object in approvals.
+        Registering the verb without that mapping would advertise a tool whose every call clears
+        admission and is then refused at staging — a governed verb no agent can reach and no human
+        can release. The composer surface ships first; the agent tool follows with its
+        decision-grant mapping, tool spec and staging test as one change.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ApprovalToken'
       requestBody:
         required: true
         content:
@@ -2882,7 +2887,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Activity' }
         '403':
-          description: Approval token missing for a 🟡 send, or RBAC denied.
+          description: RBAC denied, or an agent principal presented a passport to a human-only operation.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
