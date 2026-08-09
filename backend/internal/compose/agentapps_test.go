@@ -117,8 +117,12 @@ func TestEveryViewIsServedUnderTheAppProfile(t *testing.T) {
 				"the sandbox and this assertion is where it gets argued: state why in the diff that adds it",
 				r.URI, r.UI.CSP)
 		}
-		if p := r.UI.Permissions; p.Camera || p.Microphone || p.Geolocation || p.ClipboardWrite {
-			t.Errorf("the view %s asks for browser permissions %+v; none of these views needs one", r.URI, p)
+		// Compared against the ZERO value rather than field by field: a permission
+		// added to the seam later would be invisible to a hand-written list, and
+		// silently-unchecked is the one thing a permission must not be.
+		if r.UI.Permissions != (mcp.ResourcePermissions{}) {
+			t.Errorf("the view %s asks for browser permissions %+v; none of these views needs one",
+				r.URI, r.UI.Permissions)
 		}
 	}
 	if views == 0 {

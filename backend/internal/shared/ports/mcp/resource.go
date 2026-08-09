@@ -44,9 +44,10 @@ type Resource struct {
 	UI *ResourceUI
 }
 
-// ResourceContents is one resources/read result. Text only: every document
-// this surface publishes is a UTF-8 payload (JSON today), and a binary
-// member would be a shape no provider here can fill.
+// ResourceContents is one resources/read result. Text only: every document this
+// surface publishes is a UTF-8 payload — JSON for the query vocabulary, HTML for
+// an interactive view — and a binary member would be a shape no provider here can
+// fill.
 type ResourceContents struct {
 	URI      string
 	MIMEType string

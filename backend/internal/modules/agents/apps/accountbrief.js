@@ -63,7 +63,12 @@
       root.appendChild(el('div', 'empty', 'The host sent no structured result for this brief.'));
       return;
     }
-    var items = window.mcpApp.list(data.items);
+    // Filtered before it is counted, for the reason the relationship map gives:
+    // a meta line describing rows that were then skipped is a view claiming an
+    // answer it did not show.
+    var items = window.mcpApp.list(data.items).filter(function (i) {
+      return i && typeof i === 'object';
+    });
     root.appendChild(el('h1', null, 'Morning brief'));
     // candidate_count may exceed the queue, and the difference is what the
     // ranking left out. Reporting both is the brief's own honesty rule.
@@ -88,11 +93,8 @@
       return;
     }
     var rows = el('div', 'rows');
-    // A non-object element is SKIPPED rather than thrown on: one malformed entry
-    // would abort the loop and leave a heading with no rows, which reads as an
-    // empty queue when the queue was not empty.
     items.forEach(function (item) {
-      if (item && typeof item === 'object') rows.appendChild(itemRow(item));
+      rows.appendChild(itemRow(item));
     });
     root.appendChild(rows);
   }

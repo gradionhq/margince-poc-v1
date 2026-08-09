@@ -180,12 +180,12 @@ func readableByCaller(ctx context.Context, resource mcp.Resource) bool {
 // lookup is what keeps the two answers from drifting: a document the catalogue
 // hides can never be readable.
 //
-// It answers the VERDICT only. It used to hand back the descriptor too, so the
-// read path could render the sandbox policy from it — and that design was
-// replaced, because with two providers publishing one URI the catalogue walk
-// finds the first ADVERTISER while the read finds the first that SERVES, and the
-// policy would have labelled the wrong document. The policy now travels on
-// mcp.ResourceContents, from the provider that produced the bytes.
+// It answers the VERDICT only, and deliberately not the descriptor: a sandbox
+// policy read from the catalogue can describe a different document than the read
+// returns, because with two providers publishing one URI the catalogue walk finds
+// the first ADVERTISER while the read finds the first that SERVES. The policy
+// travels on mcp.ResourceContents instead, from whichever provider produced the
+// bytes.
 //
 // A URI no provider claims is ADMITTED: ReadResource answers its own not-found,
 // and this filter has nothing to say about a document it has never heard of.

@@ -454,7 +454,7 @@ func TestEveryAssetStaysWithinWhatTheStripperCanRead(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading %s: %v", name, err)
 		}
-		if why := AssumptionsHold(string(raw)); why != "" {
+		if why := AssumptionsHold(name, string(raw)); why != "" {
 			t.Errorf("%s %s — rewrite it, or teach code.go the construct before relying on the sweeps here", name, why)
 		}
 	}
@@ -464,20 +464,33 @@ func TestEveryAssetStaysWithinWhatTheStripperCanRead(t *testing.T) {
 // fire. Every input below is one the browser reads differently from the scanner.
 func TestTheStripperRefusesWhatItCannotLex(t *testing.T) {
 	for _, tc := range []struct{ name, asset string }{
-		{"a regex literal carrying a quote desynchronises quote state", `s.replace(/"/g, ''); var u = "x";`},
+		{"a regex literal carrying a quote desynchronises the scan", `s.replace(/"/g, ''); var u = "x";`},
+		{
+			// The case a residue check cannot see: two regex quotes cancel, so the
+			// scan ends balanced while the text between them was read as code.
+			"two regex quotes cancel, leaving balanced state and a desynchronised middle",
+			`a.replace(/"/g, ''); var s = "keep // this"; b.replace(/"/g, '');`,
+		},
+		{"a regex carrying a comment opener", `s.split(/[/*]/);`},
+		{"a bare division, which cannot be told from a regex", `var r = total / count;`},
 		{"a lone carriage return ends a line comment for a browser", "// note\rel.innerHTML = payload;"},
 		{"U+2028 ends a line comment for a browser, invisibly", "// note el.innerHTML = payload;"},
 		{"U+2029 likewise", "// note el.innerHTML = payload;"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if AssumptionsHold(tc.asset) == "" {
+			if AssumptionsHold("x.js", tc.asset) == "" {
 				t.Errorf("AssumptionsHold accepted %q, which the scanner reads differently from a browser", tc.asset)
 			}
 		})
 	}
 	// And it accepts what it genuinely can read, or it would refuse every asset.
-	if why := AssumptionsHold("var s = 'it\\'s // fine'; /* block */ el.textContent = x;\n"); why != "" {
-		t.Errorf("AssumptionsHold refused an asset it can read: %s", why)
+	if why := AssumptionsHold("x.js", "var s = 'it\\'s // fine'; /* block */ el.textContent = x;\n"); why != "" {
+		t.Errorf("AssumptionsHold refused a script it can read: %s", why)
+	}
+	// A stylesheet keeps its shorthand slash: CSS has no regex literals, so the
+	// rule that makes a script's slash dangerous does not apply to one.
+	if why := AssumptionsHold("x.css", "body { font: 14px/1.5 sans-serif; } /* fine */\n"); why != "" {
+		t.Errorf("AssumptionsHold refused a stylesheet for an ordinary shorthand slash: %s", why)
 	}
 }
 

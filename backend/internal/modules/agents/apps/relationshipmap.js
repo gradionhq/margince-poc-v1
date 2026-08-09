@@ -65,7 +65,12 @@
       root.appendChild(el('div', 'empty', 'The host sent no structured result for this contact.'));
       return;
     }
-    var colleagues = window.mcpApp.list(data.colleagues);
+    // Filtered BEFORE anything is counted: the meta line and the empty state both
+    // have to describe what will actually be shown. Counting the raw list and
+    // rendering the filtered one is how a view says "3 colleagues" above no rows.
+    var colleagues = window.mcpApp.list(data.colleagues).filter(function (c) {
+      return c && typeof c === 'object';
+    });
     root.appendChild(el('h1', null, 'Who knows this contact'));
     // "warmest first" is only true of a COMPLETE ranking. When the read stopped
     // at its bound, these are the warmest found, and saying otherwise is the
@@ -79,14 +84,8 @@
       return;
     }
     var rows = el('div', 'rows');
-    // A non-object element is SKIPPED rather than thrown on. One malformed entry
-    // would otherwise abort the loop and leave a heading with no rows — a view
-    // that looks like an empty answer while the payload had colleagues in it.
-    var position = 0;
-    colleagues.forEach(function (colleague) {
-      if (!colleague || typeof colleague !== 'object') return;
-      position += 1;
-      rows.appendChild(colleagueRow(colleague, position));
+    colleagues.forEach(function (colleague, index) {
+      rows.appendChild(colleagueRow(colleague, index + 1));
     });
     root.appendChild(rows);
   }

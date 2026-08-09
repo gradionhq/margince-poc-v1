@@ -40,9 +40,17 @@ package apps
 //   an editor, which makes it a deliberate-evasion vector rather than a typo.
 //
 // Rather than pretend to lex JavaScript, AssumptionsHold refuses an asset that
-// uses any of them, and appsfitness_test.go fails the build on it. That turns a
-// silent hole into a loud one at the moment an asset first needs a construct
-// this cannot read.
+// could contain any of them, and appsfitness_test.go fails the build on it. That
+// turns a silent hole into a loud one at the moment an asset first needs a
+// construct this cannot read.
+//
+// For the regex cases the refusal is a POSITIVE rule about slashes rather than a
+// residue check on the scan, and the difference matters: a scan that desyncs on
+// one regex quote and resyncs on a second ends in balanced quote state while the
+// text between them was read in the wrong mode, so "ended balanced" is not proof
+// of anything. What IS checkable without lexing is that a script contains no bare
+// slash at all outside a string — no regex, no division — which these assets do
+// not need.
 
 import (
 	"strconv"
@@ -61,13 +69,24 @@ func Code(asset string) string {
 	return code
 }
 
-// scan is Code's body, answering the quote state it finished in as well as the
-// stripped text — which is what AssumptionsHold reads to detect a desync.
-func scan(asset string) (string, byte) {
+// scanned is what one pass over an asset learned besides the stripped text.
+type scanned struct {
+	// quote is the string delimiter still in force at the end, 0 when balanced.
+	quote byte
+	// bareSlash is true when a `/` was reached in CODE position — outside any
+	// string, and not opening or closing a comment. In JavaScript that is a
+	// regex literal or a division, and this scanner can tell neither from the
+	// other; a regex is what desynchronises it.
+	bareSlash bool
+}
+
+// scan is Code's body, answering what it learned as well as the stripped text.
+func scan(asset string) (string, scanned) {
 	var out strings.Builder
 	out.Grow(len(asset))
 	// quote is the delimiter of the string being scanned, or 0 outside one.
 	var quote byte
+	var learned scanned
 	for i := 0; i < len(asset); i++ {
 		if quote != 0 {
 			i, quote = copyStringByte(&out, asset, i, quote)
@@ -87,10 +106,14 @@ func scan(asset string) (string, byte) {
 			i = skipBlockComment(asset, i)
 			out.WriteByte('\n')
 		default:
+			if c == '/' {
+				learned.bareSlash = true
+			}
 			out.WriteByte(c)
 		}
 	}
-	return out.String(), quote
+	learned.quote = quote
+	return out.String(), learned
 }
 
 // opensComment reports whether a comment of the given second byte — `/` for a
@@ -164,22 +187,32 @@ var unlexable = []struct {
 // scanner whose limits are enforced. An asset that trips this is not
 // necessarily unsafe — it is unreadable to the sweeps that depend on Code, which
 // is the same thing from the gate's point of view.
-func AssumptionsHold(asset string) string {
+func AssumptionsHold(name, asset string) string {
 	for _, u := range unlexable {
 		if strings.Contains(asset, u.Token) {
 			return "contains " + strconv.QuoteToASCII(u.Token) + ": " + u.Why
 		}
 	}
-	// A regex literal is the other desync, and it cannot be recognised without
-	// parsing — `/` is division, a comment opener and a regex delimiter
-	// depending on what came before. So the check is on the SCAN's own residue:
-	// if quote state does not return to zero over the whole asset, something
-	// opened a string the scanner never saw close, and everything after that
-	// point was read in the wrong mode.
-	if _, quote := scan(asset); quote != 0 {
-		return "leaves an unclosed " + strconv.QuoteRune(rune(quote)) +
-			" string when scanned, which means a quote inside a regex literal (or similar) desynchronised the scan — " +
-			"every later string would be read as code and a `//` inside one would hide the rest of its line"
+	_, learned := scan(asset)
+	// A SCRIPT may not carry a bare slash. A regex literal is what desyncs this
+	// scanner, and a regex cannot be told from a division without parsing — so
+	// neither is allowed, which is a rule about these four assets rather than
+	// about JavaScript, and one they already keep.
+	//
+	// Stylesheets are exempt: CSS has no regex literals and no line comments, and
+	// a bare slash there is ordinary shorthand (`font: 14px/1.5`).
+	if strings.HasSuffix(name, ".js") && learned.bareSlash {
+		return "contains a `/` outside a string that does not open or close a comment. In a script that is a regex " +
+			"literal or a division, and this scanner cannot tell them apart — a regex carrying a quote or a `/*` " +
+			"desynchronises it and hides whatever follows. Rewrite it without the slash, or teach code.go to lex"
+	}
+	// A second net, and NOT a proof: unbalanced quote state means a string was
+	// opened that the scan never saw close, so everything after it was read in
+	// the wrong mode. Balanced state proves nothing — two desyncs cancel — which
+	// is why the slash rule above is the one doing the work.
+	if learned.quote != 0 {
+		return "leaves an unclosed " + strconv.QuoteRune(rune(learned.quote)) +
+			" string when scanned, so everything after it was read in the wrong mode"
 	}
 	return ""
 }
