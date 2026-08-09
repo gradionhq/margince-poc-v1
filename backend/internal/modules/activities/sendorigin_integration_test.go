@@ -243,6 +243,39 @@ func TestAnAccountStartedSendNamesTheAddressThatIsNotOnFile(t *testing.T) {
 	}
 }
 
+// A cc'd address is an addressee, and consent is owed to everyone who
+// receives the message however they were addressed — so the guard must refuse
+// an unresolvable Cc exactly as it refuses an unresolvable To.
+//
+// It is checked because Recipients is the MERGED To+Cc list, not because the
+// guard looks at Cc separately. That merge is the load-bearing part, and this
+// test names the cc'd address specifically so a future change that stopped
+// merging would fail here rather than quietly ship a cc-shaped hole.
+func TestAnAccountStartedSendRefusesAnUnresolvableCcAddress(t *testing.T) {
+	e := setupSend(t)
+	org := e.seedOrganization(t)
+	stager := &recordingStager{}
+	// The To: address resolves; the address that appears ONLY in Cc does not.
+	directory := partialRecipients{known: map[string]bool{"buyer@example.test": true}}
+	in := sendInput("transactional")
+	in.Recipients = []string{"buyer@example.test", "assistant@example.test"}
+	in.Cc = []string{"assistant@example.test"}
+
+	_, err := e.store(stubUnsubscribeLinker{}).WithRecipientDirectory(directory).SendEmail(
+		e.as(principal.RowScopeAll), accountOrigin(org), in, stubConsentGate{}, stager)
+
+	var unresolved *UnresolvedRecipientError
+	if !errors.As(err, &unresolved) {
+		t.Fatalf("send cc'ing an address on no contact = %v, want UnresolvedRecipientError", err)
+	}
+	if unresolved.Address != "assistant@example.test" {
+		t.Fatalf("refusal names %q, want the cc'd address that failed to resolve", unresolved.Address)
+	}
+	if len(stager.staged) != 0 {
+		t.Fatalf("a refused send staged %d deliveries, want none", len(stager.staged))
+	}
+}
+
 // A REPLY's addressees come from a conversation the workspace already
 // captured, so refusing them would block answering mail the product itself
 // put on the timeline. The directory must not be consulted there at all.
