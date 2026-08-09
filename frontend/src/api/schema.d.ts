@@ -1092,6 +1092,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/draft-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft an email to this account, grounded in its records.
+         * @description The drafting half of the account-started email pair (ADR-0087/A132). `POST /emails`
+         *     sends a new conversation from a company with no anchor activity; this writes the
+         *     first draft of one. `POST /activities/{id}/draft-email` is its reply-side twin and
+         *     needs an activity to answer — an account-started message has none, and the product
+         *     refuses to fabricate a placeholder activity to get one.
+         *
+         *     **It changes no record.** No field on the account, no activity, no voice-learning
+         *     signal, and nothing is sent. Sending stays `POST /emails`, with its own consent
+         *     gate, approval token and idempotency key; the absence of those three parameters
+         *     here is the guarantee rather than a convenience.
+         *
+         *     Two things it does write, and both are about the CALL rather than the account:
+         *     the workspace's AI usage meter and the model-call audit row, exactly as every
+         *     other model-backed read on this page does. A drafting call a workspace cannot see
+         *     in its own budget would be worse than one it can.
+         *
+         *     **Grounded, per viewer.** The draft is written from the caller's own 360, assembled
+         *     inside the normal gates, so it can only mention records that caller could open
+         *     themselves. Grounding order is A132's: the caller's intent, then the recipient and
+         *     our relationship with them, then the deal and what we last committed to, then the
+         *     recent conversation, then the dossier, then the writer's voice. Every input but
+         *     the intent is untrusted text and is fenced.
+         *
+         *     `reasoning` is a SIBLING of the body, never part of it: the composer renders it as
+         *     the "Based on" line and the "Why this draft?" chips, and a body that explained
+         *     itself would be a body the rep has to edit before sending.
+         *
+         *     When no model lane is configured, or the workspace's AI budget is exhausted, the
+         *     draft degrades to a deterministic one rather than failing — `generated_by` says
+         *     which wrote it.
+         *
+         *     Human-only: drafting spends the workspace's model budget on prose for a person to
+         *     send under their own name.
+         */
+        post: operations["draftAccountEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/view-ack": {
         parameters: {
             query?: never;
@@ -9799,6 +9854,62 @@ export interface components {
             /** @description Opaque reference identifying this served voice draft for learning feedback (rejectVoiceDraft); null when no voice profile styled it. */
             readonly draft_ref: string | null;
         };
+        /**
+         * @description A draft written from an account's records, and what it was written from
+         *     (ADR-0087/A132). Never sent by drafting; send via `POST /emails`.
+         *
+         *     It is `EmailDraft` plus the two things an account-started draft owes that a reply
+         *     does not: `reasoning`, because a rep who did not choose the message it answers
+         *     needs to see what the draft is standing on, and `generated_by`, because the
+         *     deterministic floor is a real outcome here rather than an error.
+         */
+        AccountEmailDraft: {
+            subject: string;
+            /** @description Plain text, end to end. There is no rich-text storage format, no paste sanitiser and no HTML+text send pair, so a formatted draft would be a wire change rather than a toolbar. */
+            body: string;
+            to?: string[];
+            /**
+             * @description What the draft was written from, as separate claims rather than a sentence in
+             *     the body. A SIBLING of the body on purpose (DRAFT-AC-N-4): a body that
+             *     explains itself is a body the rep has to edit before sending, and the two
+             *     surfaces the composer draws from this — the "Based on" line and the "Why this
+             *     draft?" chips — need the parts, not the prose.
+             *
+             *     Empty when the account gave the draft nothing to stand on beyond the
+             *     recipient. An honest empty list, never an invented reason.
+             */
+            reasoning: components["schemas"]["AccountDraftReason"][];
+            generated_by: components["schemas"]["WrittenBy"];
+            /** @description Art. 50 AI-assisted disclosure: true when a model produced this draft. Stamped on the drafting call, never persisted. */
+            readonly ai_generated: boolean;
+            /** @description The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true. */
+            readonly ai_disclosure?: string | null;
+            /** @description The Voice DNA profile version that styled this draft; null when no ready profile shaped it. */
+            readonly voice_profile_version?: number | null;
+            /** @description Opaque reference identifying this served draft. Null here: recording a draft for voice learning is a WRITE, and this operation performs none. */
+            readonly draft_ref?: string | null;
+        };
+        /**
+         * @description One thing the draft was written from, named so the reader can check it rather than
+         *     take the draft on trust. Structured rather than a phrase, because the composer
+         *     renders the same reason twice — once in the "Based on" line and once as a chip —
+         *     and a string would have to be parsed to do that.
+         */
+        AccountDraftReason: {
+            /**
+             * @description Which grounding input this came from, in A132's order.
+             *
+             *     `intent` — the caller's own steering. `recipient` / `relationship` — who they are
+             *     and how we stand with them. `deal` — the open opportunity the message is about.
+             *     `commitment` — something one side said they would do. `conversation` — what was
+             *     recently said. `dossier` — what the company is, from its own recorded facts.
+             * @enum {string}
+             */
+            kind: "intent" | "recipient" | "relationship" | "deal" | "commitment" | "conversation" | "dossier";
+            /** @description The reason in the reader's words, short enough to render as a chip. */
+            label: string;
+            evidence_ref?: components["schemas"]["OrganizationBriefEvidence"];
+        };
         SendEmailRequest: {
             subject: string;
             /** @description The (possibly edited) final body that is sent. */
@@ -15222,6 +15333,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationAnswer"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    draftAccountEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: uuid
+                     * @description Who the draft is addressed to. Required: a draft with no recipient has no relationship to ground itself in, and the one thing this endpoint adds over an empty compose box is that it knows who it is writing to. Must be a contact the caller can see on this account.
+                     */
+                    person_id: string;
+                    /**
+                     * Format: uuid
+                     * @description Which open deal the message is about. Absent draws on the account as a whole.
+                     */
+                    deal_id?: string | null;
+                    /** @description Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence. */
+                    intent?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description The draft, and what it was written from. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountEmailDraft"];
                 };
             };
             401: components["responses"]["Unauthorized"];
