@@ -1,7 +1,7 @@
 import {
   CalendarCheck,
   CalendarClock,
-  History,
+  Info,
   type LucideIcon,
   Target,
   TriangleAlert,
@@ -49,7 +49,9 @@ import { RECORD_ZONE, SectionCard, signalKindLabel } from "./company360";
 //   - the last interaction, which the account pulse line under the title
 //     already names in BOTH directions with their dates. One tile could only
 //     show the later of the two, and which side wrote last is the whole
-//     distinction a reader acts on.
+//     distinction a reader acts on;
+//   - what changed since the last visit, which the account brief's own footer
+//     reports with the baseline it counted from.
 //
 // So this section earns its place by carrying what nothing else says: what is
 // owed, when we next speak, who can reach them, what is running, and what is
@@ -257,12 +259,16 @@ function omitted(view: Organization360, section: string): boolean {
 // The sections this list is assembled from. Naming them lets the footer say
 // which ones the reader is missing, rather than silently composing a shorter
 // list and letting them believe it is complete.
+// One entry per section a tile actually reads, and no others: a footer that
+// reports a withheld section nothing here uses teaches the reader to ignore
+// it, and one that omits a section a tile DOES use lets that tile vanish in
+// silence.
 const TODAY_SOURCES: ReadonlyArray<{ section: string; label: MessageKey }> = [
   { section: "next_steps", label: "today.source.nextSteps" },
   { section: "next_meeting", label: "today.source.nextMeeting" },
+  { section: "people", label: "today.source.people" },
   { section: "deals", label: "today.source.deals" },
-  { section: "suggestions", label: "today.source.suggestions" },
-  { section: "last_touch", label: "today.source.lastTouch" },
+  { section: "signals", label: "today.source.signals" },
 ];
 
 function TodayWithheld({ view }: Readonly<{ view: Organization360 }>) {
@@ -307,7 +313,6 @@ function todayItems(ctx: TodayContext): TodayItem[] {
     bestRoute(ctx),
     activeOpportunity(ctx),
     openRisk(ctx),
-    changedSinceLastVisit(ctx),
   ].filter((item): item is TodayItem => item !== null);
 }
 
@@ -328,16 +333,23 @@ function nextCommitment({ view, t, when }: TodayContext): TodayItem | null {
   if (!step) {
     return null;
   }
+  // Every 360 collection is a page capped at 25 rows with `has_more` beside
+  // it, so a count off `data.length` is a claim about the PAGE. "12 overdue"
+  // on an account with 40 is the kind of small wrong figure a rep plans
+  // against. Past the cap the tile says "25+" rather than a number it cannot
+  // stand behind.
+  const truncated = view.next_steps?.page?.has_more === true;
   const overdue = steps.filter((each) => each.overdue).length;
+  const count = overdue > 0 ? overdue : steps.length;
+  const key = overdue > 0 ? "overdue" : "open";
   return {
     key: `commitment:${step.activity_id}`,
     icon: CalendarCheck,
     label: t("today.tile.commitment"),
     nature: "fact",
-    headline:
-      overdue > 0
-        ? t("today.commitment.overdueCount", { count: overdue })
-        : t("today.commitment.openCount", { count: steps.length }),
+    headline: truncated
+      ? t(`today.commitment.${key}AtLeast`, { count })
+      : t(`today.commitment.${key}Count`, { count }),
     detail: dueLine(step, t, when),
     tone: step.overdue ? "warn" : undefined,
   };
@@ -360,11 +372,18 @@ function dueLine(
 
 // Who on our side can actually reach the account, and through whom.
 //
-// The rule, written down because it is a choice and not a derivation: the
-// strongest CONTACT by their own relationship score, then that contact's
-// strongest ROUTE — which the server already sorts, so `top[0]` is it. A
-// contact nobody has ever written to carries no route and is skipped rather
-// than named with an empty way in.
+// The rule, written down because it is a choice and not a derivation: of the
+// contacts who HAVE a route, the strongest by their own relationship score,
+// then that contact's strongest route — which the server already sorts, so
+// `top[0]` is it. Filtering first is deliberate: the strongest contact overall
+// may be someone nobody has ever written to, and naming them with no way in
+// answers a different question than the one the tile asks.
+//
+// The people section is a page of 25, so on a large account this is the best
+// route among the contacts the page carries rather than provably the best on
+// the account. The tile says so when the section is truncated — a "best" that
+// is really "best of the first 25" is the kind of quiet qualifier that costs
+// a reader trust in every other figure.
 function bestRoute({ view, t }: TodayContext): TodayItem | null {
   const contacts = view.people?.data ?? [];
   const best = contacts
@@ -383,11 +402,25 @@ function bestRoute({ view, t }: TodayContext): TodayItem | null {
       colleague: route.display_name,
       contact: best.full_name,
     }),
-    detail:
-      best.routes && best.routes.remainder > 0
-        ? t("today.route.remainder", { count: best.routes.remainder })
-        : undefined,
+    detail: routeDetail(view, best, t),
   };
+}
+
+// The remainder of THIS contact's routes, and — when the contact list itself
+// was capped — that the page did not see every contact before choosing.
+function routeDetail(
+  view: Organization360,
+  best: Organization360Contact,
+  t: TodayContext["t"],
+): string | undefined {
+  const parts: string[] = [];
+  if (best.routes && best.routes.remainder > 0) {
+    parts.push(t("today.route.remainder", { count: best.routes.remainder }));
+  }
+  if (view.people?.page?.has_more) {
+    parts.push(t("today.route.ofThoseShown"));
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 // Strongest first, with the id as the tiebreak so two contacts on the same
@@ -428,6 +461,21 @@ function activeOpportunity({
   const open = view.deals?.data ?? [];
   if (open.length === 0) {
     return null;
+  }
+  // The section is a page of 25 ordered NEWEST first, not by amount, so past
+  // the cap the largest deal may not be on it. "The biggest deal here is €95k"
+  // when a €400k one sits on page two is worse than no figure: it is the
+  // figure a rep repeats in a forecast. The tile names the count instead and
+  // sends them to the pipeline, which ranks the whole set.
+  if (view.deals?.page?.has_more) {
+    return {
+      key: "deal:truncated",
+      icon: Target,
+      label: t("today.tile.opportunity"),
+      nature: "fact",
+      headline: t("today.deal.atLeast", { count: open.length }),
+      detail: t("today.deal.seePipeline"),
+    };
   }
   if (!sharesOneCurrency(open)) {
     return {
@@ -491,17 +539,30 @@ function openRisk({ view, t }: TodayContext): TodayItem | null {
   if (!signal) {
     return null;
   }
+  // An `info` signal is not a risk. "New opportunity" under a Risk heading in
+  // a warning colour tells a rep something is wrong when the page meant the
+  // opposite, so the label and the tone both follow the severity.
+  const worrying = signal.severity !== "info";
   return {
-    key: `risk:${signal.kind}`,
-    icon: TriangleAlert,
-    label: t("today.tile.risk"),
+    key: `signal:${signal.kind}`,
+    icon: worrying ? TriangleAlert : Info,
+    label: t(worrying ? "today.tile.risk" : "today.tile.signal"),
     // An assessment, not a fact: a signal is a threshold someone chose,
     // fired on records rather than observed directly.
     nature: "assessment",
     headline: signalKindLabel(signal.kind, t),
     detail: signal.summary ?? undefined,
-    tone: signal.severity === "urgent" ? "danger" : "warn",
+    tone: severityTone(signal.severity),
   };
+}
+
+function severityTone(
+  severity: "info" | "warn" | "urgent",
+): "warn" | "danger" | undefined {
+  if (severity === "urgent") {
+    return "danger";
+  }
+  return severity === "warn" ? "warn" : undefined;
 }
 
 type TodayContext = {
@@ -548,28 +609,5 @@ function bookedMeeting({ view, t, when }: TodayContext): TodayItem | null {
     detail: who
       ? t("today.meeting.withWhen", { who, when: when(meeting.starts_at) })
       : when(meeting.starts_at),
-  };
-}
-
-// What changed while the reader was away. Always a fact, and only worth a line
-// when something did change.
-function changedSinceLastVisit({
-  view,
-  t,
-  when,
-}: TodayContext): TodayItem | null {
-  const since = view.since_last_visit;
-  if (!since || since.new_activities === 0) {
-    return null;
-  }
-  return {
-    key: "since",
-    icon: History,
-    label: t("today.tile.since"),
-    nature: "fact",
-    headline: t("today.since.headline", { count: since.new_activities }),
-    detail: since.baseline_at
-      ? t("today.since.baseline", { when: when(since.baseline_at) })
-      : t("today.since.firstVisit"),
   };
 }

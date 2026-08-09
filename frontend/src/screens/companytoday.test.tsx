@@ -107,7 +107,10 @@ describe("what needs a person on this account today", () => {
     expect(screen.queryByText("Nothing here needs you today.")).toBeNull();
   });
 
-  it("counts what changed since the reader was last here", () => {
+  // The account brief's own footer reports this with the baseline it counted
+  // from. A second, shorter copy here is the duplication this section's rules
+  // forbid, so what changed since the last visit earns no tile.
+  it("leaves what changed since the last visit to the brief that reports it", () => {
     show({
       ...BASE,
       since_last_visit: {
@@ -115,7 +118,7 @@ describe("what needs a person on this account today", () => {
         baseline_at: "2026-08-01T09:00:00Z",
       },
     });
-    expect(screen.getByText(/3 new on the timeline/)).toBeTruthy();
+    expect(screen.getByText("Nothing here needs you today.")).toBeTruthy();
   });
 
   it("reports the failure even when a view is in hand", () => {
@@ -336,5 +339,86 @@ describe("the tiles, and which record each one picks", () => {
     const draft = screen.getByRole("button", { name: /Draft follow-up/ });
     expect(draft.hasAttribute("disabled")).toBe(true);
     expect(screen.getByText(/not built yet/)).toBeTruthy();
+  });
+});
+
+// Every 360 collection is a page of 25 with `has_more` beside it. A tile that
+// counts or ranks off that page states a fact about the PAGE, and the reader
+// has no way to tell. These are the three places it would have.
+describe("a page is not the account", () => {
+  const FACTORS = { recency: 0, frequency: 0, reciprocity: 0, direction: 0 };
+
+  it("says 25+ overdue rather than a count it cannot stand behind", () => {
+    show({
+      ...BASE,
+      next_steps: {
+        data: [
+          {
+            activity_id: "a-1",
+            subject: "One of many",
+            due_at: "2026-08-05T09:00:00Z",
+            overdue: true,
+          },
+        ],
+        page: { has_more: true, next_cursor: "c" },
+      },
+    });
+    expect(screen.getByText("1+ overdue")).toBeTruthy();
+    expect(screen.queryByText("1 overdue")).toBeNull();
+  });
+
+  // The deals page is ordered NEWEST first, not by amount, so past the cap the
+  // largest deal may sit on page two. A figure a rep would repeat in a
+  // forecast is the worst place to be quietly wrong.
+  it("refuses to name the largest deal when the page was capped", () => {
+    show({
+      ...BASE,
+      deals: {
+        data: [
+          {
+            deal_id: "d-1",
+            name: "Visible deal",
+            status: "open" as const,
+            stalled: false,
+            amount: { amount_minor: 100000, currency: "EUR" },
+          },
+        ],
+        page: { has_more: true, next_cursor: "c" },
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+    });
+    expect(screen.getByText("1+ open deals")).toBeTruthy();
+    expect(screen.queryByText(/Visible deal/)).toBeNull();
+  });
+
+  it("says the best route is the best of the contacts it could see", () => {
+    show({
+      ...BASE,
+      people: {
+        data: [
+          {
+            person_id: "p-1",
+            full_name: "Sarah Cole",
+            strength: { score: 40, bucket: "warm" as const, factors: FACTORS },
+            deal_roles: [],
+            consent: {},
+            routes: {
+              top: [
+                {
+                  user_id: "u-1",
+                  display_name: "Lars",
+                  strength_bucket: "strong" as const,
+                },
+              ],
+              remainder: 0,
+              untried: false,
+            },
+          },
+        ],
+        page: { has_more: true, next_cursor: "c" },
+      },
+    });
+    expect(screen.getByText(/of the contacts shown/)).toBeTruthy();
   });
 });
