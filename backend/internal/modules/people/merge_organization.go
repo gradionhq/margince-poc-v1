@@ -164,6 +164,7 @@ func relinkOrgAssociations(ctx context.Context, tx pgx.Tx, sourceID, targetID id
 func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.Organization, targetIsPartner bool, tgtLock storekit.RowLock) (map[string]any, error) {
 	p := storekit.NewPatch()
 	fillString(p, fieldLegalName, tgt.LegalName, src.LegalName)
+	fillString(p, "description", tgt.Description, src.Description)
 	fillString(p, "industry", tgt.Industry, src.Industry)
 	if targetIsPartner {
 		if err := ensureOrgRelationshipType(ctx, tx, workspaceID(ctx), ids.OrganizationID{UUID: ids.UUID(tgt.Id)},

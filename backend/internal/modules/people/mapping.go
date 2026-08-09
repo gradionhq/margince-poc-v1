@@ -134,6 +134,7 @@ func organizationCreateInput(req crmcontracts.CreateOrganizationRequest) (Create
 	in := CreateOrganizationInput{
 		DisplayName:  req.DisplayName,
 		LegalName:    req.LegalName,
+		Description:  req.Description,
 		Industry:     req.Industry,
 		Source:       req.Source,
 		OwnerID:      idArg[ids.UserKind](req.OwnerId),
@@ -160,6 +161,7 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 	in := UpdateOrganizationInput{
 		DisplayName:  req.DisplayName,
 		LegalName:    req.LegalName,
+		Description:  req.Description,
 		Industry:     req.Industry,
 		OwnerID:      idArg[ids.UserKind](req.OwnerId),
 		ParentOrgID:  idArg[ids.OrganizationKind](req.ParentOrgId),

@@ -11617,6 +11617,14 @@ components:
             *which companies are we selling to* exclude it unless `include_anchor` is set, and it
             cannot be archived or merged. A caller that offers company actions should tell it apart.
         legal_name: { type: [string, 'null'] }
+        description:
+          type: [string, 'null']
+          maxLength: 500
+          description: >-
+            One human-written line saying what the company does, shown under the title on the
+            company page. A column rather than a governed custom field for the same reason
+            `linkedin_url` is one: it is part of what a company IS and every installation wants
+            it. Distinct from `industry` (a category) and from the dossier (agent-written prose).
         industry: { type: [string, 'null'] }
         size_band:
           type: [string, 'null']
@@ -11707,6 +11715,7 @@ components:
       properties:
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
+        description: { type: [string, 'null'], maxLength: 500, description: One human-written line saying what the company does. }
         industry: { type: [string, 'null'] }
         size_band: { type: [string, 'null'], enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'] }
         address: { $ref: '#/components/schemas/Address' }
@@ -11728,6 +11737,7 @@ components:
           pattern: '^https://([a-z]{2,3}\.)?linkedin\.com/company/[^/?#]+/?$'
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
+        description: { type: [string, 'null'], maxLength: 500, description: 'One human-written line saying what the company does. Absent leaves it untouched; an empty string clears it, the same spelling every other nullable text field on this record uses.' }
         industry: { type: [string, 'null'] }
         size_band: { type: [string, 'null'], enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'] }
         address: { $ref: '#/components/schemas/Address' }

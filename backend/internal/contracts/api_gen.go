@@ -10882,7 +10882,10 @@ type CreateOfferTemplateRequest struct {
 // CreateOrganizationRequest defines model for CreateOrganizationRequest.
 type CreateOrganizationRequest struct {
 	// Address Structured postal address.
-	Address              *Address                           `json:"address,omitempty"`
+	Address *Address `json:"address,omitempty"`
+
+	// Description One human-written line saying what the company does.
+	Description          *string                            `json:"description,omitempty"`
 	DisplayName          string                             `json:"display_name"`
 	Domains              *[]OrganizationDomainInput         `json:"domains,omitempty"`
 	Industry             *string                            `json:"industry,omitempty"`
@@ -12488,12 +12491,15 @@ type Organization struct {
 	// ComputedFields S-E15.8c formula-field display rows (RD-AC-6/RD-AC-7/RD-AC-N-1). Populated on
 	// `getOrganization` only; the key is absent entirely (not an empty array) when the
 	// viewer's role lacks computed_field:read visibility (STATE-4).
-	ComputedFields *[]ComputedField      `json:"computed_fields,omitempty"`
-	CreatedAt      time.Time             `json:"created_at"`
-	DisplayName    string                `json:"display_name"`
-	Domains        *[]OrganizationDomain `json:"domains,omitempty"`
-	Id             openapi_types.UUID    `json:"id"`
-	Industry       *string               `json:"industry,omitempty"`
+	ComputedFields *[]ComputedField `json:"computed_fields,omitempty"`
+	CreatedAt      time.Time        `json:"created_at"`
+
+	// Description One human-written line saying what the company does, shown under the title on the company page. A column rather than a governed custom field for the same reason `linkedin_url` is one: it is part of what a company IS and every installation wants it. Distinct from `industry` (a category) and from the dossier (agent-written prose).
+	Description *string               `json:"description,omitempty"`
+	DisplayName string                `json:"display_name"`
+	Domains     *[]OrganizationDomain `json:"domains,omitempty"`
+	Id          openapi_types.UUID    `json:"id"`
+	Industry    *string               `json:"industry,omitempty"`
 
 	// IsAnchor True only for this installation's OWN company (ADR-0065/A111, amended by ADR-0082/A127).
 	// It is one ordinary organization, reachable by id everywhere, but the surfaces that answer
@@ -15695,8 +15701,11 @@ type UpdateOrganizationProfileFieldRequest struct {
 // UpdateOrganizationRequest defines model for UpdateOrganizationRequest.
 type UpdateOrganizationRequest struct {
 	// Address Structured postal address.
-	Address     *Address `json:"address,omitempty"`
-	DisplayName *string  `json:"display_name,omitempty"`
+	Address *Address `json:"address,omitempty"`
+
+	// Description One human-written line saying what the company does. Absent leaves it untouched; an empty string clears it, the same spelling every other nullable text field on this record uses.
+	Description *string `json:"description,omitempty"`
+	DisplayName *string `json:"display_name,omitempty"`
 
 	// Domains Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains.
 	Domains   *[]OrganizationDomainInput `json:"domains,omitempty"`
@@ -20630,6 +20639,14 @@ func (a *CreateOrganizationRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "address")
 	}
 
+	if raw, found := object["description"]; found {
+		err = json.Unmarshal(raw, &a.Description)
+		if err != nil {
+			return fmt.Errorf("error reading 'description': %w", err)
+		}
+		delete(object, "description")
+	}
+
 	if raw, found := object["display_name"]; found {
 		err = json.Unmarshal(raw, &a.DisplayName)
 		if err != nil {
@@ -20717,6 +20734,13 @@ func (a CreateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		object["address"], err = json.Marshal(a.Address)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'address': %w", err)
+		}
+	}
+
+	if a.Description != nil {
+		object["description"], err = json.Marshal(a.Description)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'description': %w", err)
 		}
 	}
 
@@ -22770,6 +22794,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "created_at")
 	}
 
+	if raw, found := object["description"]; found {
+		err = json.Unmarshal(raw, &a.Description)
+		if err != nil {
+			return fmt.Errorf("error reading 'description': %w", err)
+		}
+		delete(object, "description")
+	}
+
 	if raw, found := object["display_name"]; found {
 		err = json.Unmarshal(raw, &a.DisplayName)
 		if err != nil {
@@ -23001,6 +23033,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 	object["created_at"], err = json.Marshal(a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
+	}
+
+	if a.Description != nil {
+		object["description"], err = json.Marshal(a.Description)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'description': %w", err)
+		}
 	}
 
 	object["display_name"], err = json.Marshal(a.DisplayName)
@@ -24786,6 +24825,14 @@ func (a *UpdateOrganizationRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "address")
 	}
 
+	if raw, found := object["description"]; found {
+		err = json.Unmarshal(raw, &a.Description)
+		if err != nil {
+			return fmt.Errorf("error reading 'description': %w", err)
+		}
+		delete(object, "description")
+	}
+
 	if raw, found := object["display_name"]; found {
 		err = json.Unmarshal(raw, &a.DisplayName)
 		if err != nil {
@@ -24889,6 +24936,13 @@ func (a UpdateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		object["address"], err = json.Marshal(a.Address)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'address': %w", err)
+		}
+	}
+
+	if a.Description != nil {
+		object["description"], err = json.Marshal(a.Description)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'description': %w", err)
 		}
 	}
 

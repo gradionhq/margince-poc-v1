@@ -25,6 +25,9 @@ import (
 type CreateOrganizationInput struct {
 	DisplayName string
 	LegalName   *string
+	// Description is the one-line summary the company page shows under the
+	// title; nil leaves the column NULL, which the page renders as absent.
+	Description *string
 	Industry    *string
 	SizeBand    *string
 	OwnerID     *ids.UserID
@@ -86,6 +89,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		id, err := createOrganization(ctx, tx, match, OrgSpec{
 			DisplayName:  in.DisplayName,
 			LegalName:    in.LegalName,
+			Description:  in.Description,
 			Industry:     in.Industry,
 			SizeBand:     in.SizeBand,
 			OwnerID:      in.OwnerID,
@@ -180,6 +184,9 @@ func getOrganizationInTx(ctx context.Context, tx pgx.Tx, id ids.OrganizationID,
 type UpdateOrganizationInput struct {
 	DisplayName *string
 	LegalName   *string
+	// Description, when non-nil, sets or (when empty) clears the one-line
+	// summary the company page shows under the title. nil leaves it untouched.
+	Description *string
 	Industry    *string
 	SizeBand    *string
 	OwnerID     *ids.UserID
@@ -383,6 +390,9 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 	if in.LegalName != nil {
 		p.Set("legal_name", current.LegalName, *in.LegalName)
 	}
+	if in.Description != nil {
+		p.Set("description", current.Description, *in.Description)
+	}
 	if in.Industry != nil {
 		p.Set("industry", current.Industry, *in.Industry)
 	}
@@ -463,7 +473,7 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	var version int64
 
 	dests := []any{
-		&id, &wsID, &o.DisplayName, &o.LegalName, &o.Industry, &o.SizeBand, &ownerID,
+		&id, &wsID, &o.DisplayName, &o.LegalName, &o.Description, &o.Industry, &o.SizeBand, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&classification, &lifecycle, &relevance, &parentID, &mergedInto, &logoObjectKey, &linkedinURL, &o.Source, &o.CapturedBy,
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt, &o.IsAnchor,
