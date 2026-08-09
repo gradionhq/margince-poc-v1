@@ -72,7 +72,10 @@ const SIGNAL_KIND_LABELS: Record<string, MessageKey> = {
 // states whatever a producer raised, and a producer added upstream must not
 // make the tile disappear. An unmapped kind renders as its own words rather
 // than as an identifier — the same degradation an unmapped approval kind gets.
-function signalKindLabel(kind: string, t: (key: MessageKey) => string): string {
+export function signalKindLabel(
+  kind: string,
+  t: (key: MessageKey) => string,
+): string {
   // Own-property only, as dealRoleLabel does below: a wire value named
   // `toString` would otherwise find something on Object's prototype and pass
   // the truthy check instead of degrading to its own words.

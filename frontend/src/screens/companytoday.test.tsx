@@ -107,7 +107,10 @@ describe("what needs a person on this account today", () => {
     expect(screen.queryByText("Nothing here needs you today.")).toBeNull();
   });
 
-  it("counts what changed since the reader was last here", () => {
+  // The account brief's own footer reports this with the baseline it counted
+  // from. A second, shorter copy here is the duplication this section's rules
+  // forbid, so what changed since the last visit earns no tile.
+  it("leaves what changed since the last visit to the brief that reports it", () => {
     show({
       ...BASE,
       since_last_visit: {
@@ -115,7 +118,7 @@ describe("what needs a person on this account today", () => {
         baseline_at: "2026-08-01T09:00:00Z",
       },
     });
-    expect(screen.getByText(/3 new on the timeline/)).toBeTruthy();
+    expect(screen.getByText("Nothing here needs you today.")).toBeTruthy();
   });
 
   it("reports the failure even when a view is in hand", () => {
@@ -126,5 +129,296 @@ describe("what needs a person on this account today", () => {
 
     expect(screen.getByText(/could not be assembled/)).toBeTruthy();
     expect(screen.queryByText("Nothing here needs you today.")).toBeNull();
+  });
+});
+
+// The six tiles State D draws, and the rules that pick what each one names.
+// The rules are choices rather than derivations, so each is pinned here: a
+// selection nobody wrote down is one the next reader has to reverse-engineer
+// from the sort call.
+describe("the tiles, and which record each one picks", () => {
+  // The contract requires the full factor breakdown on every strength; the
+  // tiles read only the score, but a fixture that omits them is not the shape
+  // the wire sends.
+  const FACTORS = { recency: 0, frequency: 0, reciprocity: 0, direction: 0 };
+  const CONTACT = {
+    person_id: "p-1",
+    full_name: "Sarah Cole",
+    strength: { score: 40, bucket: "warm" as const, factors: FACTORS },
+    deal_roles: [],
+    consent: {},
+  };
+
+  it("names the head of the next-steps list, which the server already ordered", () => {
+    show({
+      ...BASE,
+      next_steps: {
+        data: [
+          {
+            activity_id: "a-1",
+            subject: "Send the revised proposal",
+            due_at: "2026-08-05T09:00:00Z",
+            overdue: true,
+          },
+          { activity_id: "a-2", subject: "Later thing", overdue: false },
+        ],
+        page: { has_more: false, next_cursor: null },
+      },
+    });
+    // The COUNT and the deadline, never the subject: the next-steps card
+    // below renders that with a due-date edit and a complete button, and a
+    // second flat copy here is the weaker of the two.
+    expect(screen.getByText("1 overdue")).toBeTruthy();
+    expect(screen.getByText(/Overdue since/)).toBeTruthy();
+    expect(screen.queryByText("Send the revised proposal")).toBeNull();
+    expect(screen.queryByText("Later thing")).toBeNull();
+  });
+
+  it("says a commitment has no due date rather than implying one", () => {
+    show({
+      ...BASE,
+      next_steps: {
+        data: [{ activity_id: "a-1", subject: "Someday", overdue: false }],
+        page: { has_more: false, next_cursor: null },
+      },
+    });
+    expect(screen.getByText("No due date")).toBeTruthy();
+    expect(screen.getByText("1 open")).toBeTruthy();
+  });
+
+  // The route rule: strongest CONTACT, then that contact's strongest ROUTE.
+  it("routes through the strongest contact who has a route at all", () => {
+    show({
+      ...BASE,
+      people: {
+        data: [
+          // Stronger, but nobody has ever written to them: no way in to name.
+          {
+            ...CONTACT,
+            person_id: "p-2",
+            full_name: "Mark Hughes",
+            strength: {
+              score: 90,
+              bucket: "strong" as const,
+              factors: FACTORS,
+            },
+            routes: { top: [], remainder: 0, untried: true },
+          },
+          {
+            ...CONTACT,
+            routes: {
+              top: [
+                {
+                  user_id: "u-1",
+                  display_name: "Lars",
+                  strength_bucket: "strong" as const,
+                },
+              ],
+              remainder: 2,
+              untried: false,
+            },
+          },
+        ],
+        page: { has_more: false, next_cursor: null },
+      },
+    });
+    expect(screen.getByText("Lars → Sarah Cole")).toBeTruthy();
+    expect(screen.getByText(/2 other colleagues/)).toBeTruthy();
+  });
+
+  it("picks the largest open deal, and ranks an unpriced one last", () => {
+    show({
+      ...BASE,
+      deals: {
+        data: [
+          {
+            deal_id: "d-1",
+            name: "Small",
+            status: "open" as const,
+            stalled: false,
+            amount: { amount_minor: 100000, currency: "EUR" },
+          },
+          {
+            deal_id: "d-2",
+            name: "Unpriced",
+            status: "open" as const,
+            stalled: false,
+          },
+          {
+            deal_id: "d-3",
+            name: "Expansion Phase 2",
+            status: "open" as const,
+            stalled: false,
+            amount: { amount_minor: 9500000, currency: "EUR" },
+          },
+        ],
+        page: { has_more: false, next_cursor: null },
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+    });
+    expect(screen.getByText(/Expansion Phase 2/)).toBeTruthy();
+  });
+
+  // A deal's amount is in its OWN currency with no base conversion, so ranking
+  // across currencies would compare 100 JPY against 100 EUR.
+  it("refuses to rank deals in different currencies and says why", () => {
+    show({
+      ...BASE,
+      deals: {
+        data: [
+          {
+            deal_id: "d-1",
+            name: "In yen",
+            status: "open" as const,
+            stalled: false,
+            amount: { amount_minor: 9000000, currency: "JPY" },
+          },
+          {
+            deal_id: "d-2",
+            name: "In euro",
+            status: "open" as const,
+            stalled: false,
+            amount: { amount_minor: 100000, currency: "EUR" },
+          },
+        ],
+        page: { has_more: false, next_cursor: null },
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+    });
+    expect(screen.getByText("2 open deals")).toBeTruthy();
+    expect(screen.getByText(/different currencies/)).toBeTruthy();
+    expect(screen.queryByText(/In yen/)).toBeNull();
+  });
+
+  it("repeats the strip's signal rather than forming a second verdict", () => {
+    show({
+      ...BASE,
+      state_strip: {
+        account: { lifecycle: "customer", relationship_types: [] },
+        signal: {
+          kind: "contract_ending",
+          severity: "urgent",
+          summary: "They wrote that the contract ends on 31 July.",
+        },
+      },
+    });
+    expect(
+      screen.getByText("They wrote that the contract ends on 31 July."),
+    ).toBeTruthy();
+    // A threshold someone chose is an assessment, not an observation.
+    expect(screen.getByText("Assessment")).toBeTruthy();
+  });
+
+  // The composer cannot draft from an account yet (DRAFT-WIRE-N-1). A button
+  // that opens a composer with nothing in it is worse than one that says why.
+  it("offers the draft verb disabled, with the reason on the page", () => {
+    show({
+      ...BASE,
+      people: {
+        data: [
+          {
+            ...CONTACT,
+            routes: {
+              top: [
+                {
+                  user_id: "u-1",
+                  display_name: "Lars",
+                  strength_bucket: "strong" as const,
+                },
+              ],
+              remainder: 0,
+              untried: false,
+            },
+          },
+        ],
+        page: { has_more: false, next_cursor: null },
+      },
+    });
+    const draft = screen.getByRole("button", { name: /Draft follow-up/ });
+    expect(draft.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/not built yet/)).toBeTruthy();
+  });
+});
+
+// Every 360 collection is a page of 25 with `has_more` beside it. A tile that
+// counts or ranks off that page states a fact about the PAGE, and the reader
+// has no way to tell. These are the three places it would have.
+describe("a page is not the account", () => {
+  const FACTORS = { recency: 0, frequency: 0, reciprocity: 0, direction: 0 };
+
+  it("says 25+ overdue rather than a count it cannot stand behind", () => {
+    show({
+      ...BASE,
+      next_steps: {
+        data: [
+          {
+            activity_id: "a-1",
+            subject: "One of many",
+            due_at: "2026-08-05T09:00:00Z",
+            overdue: true,
+          },
+        ],
+        page: { has_more: true, next_cursor: "c" },
+      },
+    });
+    expect(screen.getByText("1+ overdue")).toBeTruthy();
+    expect(screen.queryByText("1 overdue")).toBeNull();
+  });
+
+  // The deals page is ordered NEWEST first, not by amount, so past the cap the
+  // largest deal may sit on page two. A figure a rep would repeat in a
+  // forecast is the worst place to be quietly wrong.
+  it("refuses to name the largest deal when the page was capped", () => {
+    show({
+      ...BASE,
+      deals: {
+        data: [
+          {
+            deal_id: "d-1",
+            name: "Visible deal",
+            status: "open" as const,
+            stalled: false,
+            amount: { amount_minor: 100000, currency: "EUR" },
+          },
+        ],
+        page: { has_more: true, next_cursor: "c" },
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+    });
+    expect(screen.getByText("1+ open deals")).toBeTruthy();
+    expect(screen.queryByText(/Visible deal/)).toBeNull();
+  });
+
+  it("says the best route is the best of the contacts it could see", () => {
+    show({
+      ...BASE,
+      people: {
+        data: [
+          {
+            person_id: "p-1",
+            full_name: "Sarah Cole",
+            strength: { score: 40, bucket: "warm" as const, factors: FACTORS },
+            deal_roles: [],
+            consent: {},
+            routes: {
+              top: [
+                {
+                  user_id: "u-1",
+                  display_name: "Lars",
+                  strength_bucket: "strong" as const,
+                },
+              ],
+              remainder: 0,
+              untried: false,
+            },
+          },
+        ],
+        page: { has_more: true, next_cursor: "c" },
+      },
+    });
+    expect(screen.getByText(/of the contacts shown/)).toBeTruthy();
   });
 });
