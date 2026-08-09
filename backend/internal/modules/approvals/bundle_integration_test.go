@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -573,22 +575,20 @@ func TestARestagedProposalKeepsItsBundleWhenTheActHasNoneOrTheSameOne(t *testing
 	}
 }
 
-// The other mid-flight race, and the one the contract promises most loudly: a
-// member whose target moves out from under it "fails alone instead of taking its
-// siblings with it".
+// A target that leaves this human's world while the decision waits takes the
+// whole bundle with it — as an ABSENCE, not as a half-decision.
 //
-// decideInTx re-probes decidability under the row lock, so a target archived
-// while the bundle is blocked makes that member answer not-found. Letting that
-// propagate would roll back every verdict already written and hand the human a
-// 404 for the bundle they were just shown — so the member drops out exactly as
-// the filter would have dropped it, and its siblings stand.
-func TestABundleMemberWhoseTargetMovesMidFlightDropsAloneRatherThanFailingTheBundle(t *testing.T) {
+// The members are locked as they are read, so the decision blocks before it has
+// decided anything; by the time it runs, the filter finds nothing this human may
+// decide and answers the same not-found any unreadable bundle answers. What
+// matters is the other half: no verdict was written on the way to that answer.
+func TestABundleWhoseTargetLeavesMidFlightDecidesNothingAtAll(t *testing.T) {
 	e := setupStaging(t)
 	ctx := e.asHumanWith(decidesEverything())
 	org := e.organization(t)
 	bundle := ids.NewV7()
-	uncontested := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-anna")
-	contested := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-bruno")
+	first := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-anna")
+	second := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-bruno")
 
 	bg := context.Background()
 	competing, err := e.owner.Begin(bg)
@@ -599,20 +599,18 @@ func TestABundleMemberWhoseTargetMovesMidFlightDropsAloneRatherThanFailingTheBun
 	defer func() { _ = competing.Rollback(bg) }()
 	var locked ids.ApprovalID
 	if err := competing.QueryRow(bg,
-		`SELECT id FROM approval WHERE id = $1 FOR UPDATE`, contested).Scan(&locked); err != nil {
-		t.Fatalf("holding the contested member: %v", err)
+		`SELECT id FROM approval WHERE id = $1 FOR UPDATE`, second).Scan(&locked); err != nil {
+		t.Fatalf("holding a member: %v", err)
 	}
 
 	done := make(chan struct{})
-	var members []BundleMember
 	var decideErr error
 	go func() {
 		defer close(done)
-		members, decideErr = e.svc.DecideBundle(ctx, bundle, true, nil)
+		_, decideErr = e.svc.DecideBundle(ctx, bundle, true, nil)
 	}()
 	waitForRowLockWaiter(t, e, done)
 
-	// The target leaves this human's world while the decision waits on the row.
 	if _, err := competing.Exec(bg,
 		`UPDATE organization SET archived_at = now() WHERE id = $1`, org); err != nil {
 		t.Fatalf("archiving the target: %v", err)
@@ -622,21 +620,116 @@ func TestABundleMemberWhoseTargetMovesMidFlightDropsAloneRatherThanFailingTheBun
 	}
 	<-done
 
-	if decideErr != nil {
-		t.Fatalf("the bundle failed over one member whose target moved: %v", decideErr)
+	if !errors.Is(decideErr, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound — nothing about this bundle is decidable any more", decideErr)
 	}
-	got := outcomes(members)
-	if _, present := got[contested]; present {
-		t.Errorf("the member whose target moved is still reported as %s, want it dropped", got[contested])
+	for _, id := range []ids.ApprovalID{first, second} {
+		if status := e.statusOf(t, id); status != statusPending {
+			t.Errorf("member %s is %s, want pending — a refused decision writes no verdict", id, status)
+		}
 	}
-	if got[uncontested] != BundleDecided {
-		t.Errorf("its sibling reported %s, want %s — a moved target must not undo a committed verdict",
-			got[uncontested], BundleDecided)
+}
+
+// steppingClock answers t0 for the first reading and t1 for every one after,
+// which is the boundary a bundle decision straddles: the loop judges every
+// member's status against one reading of the clock, and each member's own
+// decision re-judges it against a later one.
+func steppingClock(t0, t1 time.Time) func() time.Time {
+	var read atomic.Int64
+	return func() time.Time {
+		if read.Add(1) == 1 {
+			return t0
+		}
+		return t1
 	}
-	if status := e.statusOf(t, uncontested); status != approvalStatusApproved {
-		t.Errorf("the sibling's stored status = %s, want approved", status)
+}
+
+// A member that lapses BETWEEN those two readings is reported expired — not
+// already_decided, which would tell a human somebody answered it, and not
+// decided, which would approve a proposal the later reading says is dead.
+//
+// This is the only way a member's own decision can disagree with the loop that
+// selected it: membership is locked for the life of the transaction, so no other
+// decision can slip in, and the clock is what is left.
+func TestAMemberThatLapsesBetweenTheTwoClockReadingsIsReportedExpired(t *testing.T) {
+	e := setupStaging(t)
+	ctx := e.asHumanWith(decidesEverything())
+	org := e.organization(t)
+	bundle := ids.NewV7()
+	lapsing := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-anna")
+
+	var expiresAt time.Time
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT expires_at FROM approval WHERE id = $1`, lapsing).Scan(&expiresAt); err != nil {
+		t.Fatalf("reading the member's expiry: %v", err)
 	}
-	if status := e.statusOf(t, contested); status != statusPending {
-		t.Errorf("the dropped member is %s, want it left pending", status)
+	e.svc.now = steppingClock(expiresAt.Add(-time.Second), expiresAt.Add(time.Second))
+
+	members, err := e.svc.DecideBundle(ctx, bundle, true, nil)
+	if err != nil {
+		t.Fatalf("deciding the bundle: %v", err)
+	}
+	if got := outcomes(members)[lapsing]; got != BundleExpired {
+		t.Errorf("the lapsed member reported %s, want %s", got, BundleExpired)
+	}
+	if status := e.statusOf(t, lapsing); status != statusPending {
+		t.Errorf("stored status = %s, want it left pending — expiry is not a verdict", status)
+	}
+}
+
+// A member that leaves for a fresher act's bundle while the decision is in
+// flight is NOT decided by the bundle it left.
+//
+// A re-proposal joins the pending row and re-points it (rebundleJoinedInTx), so
+// without holding the membership it read, this decision would answer the OLD
+// bundle's question by deciding a row that had already become part of the new
+// one — and the fresh act's bundle would then carry a member nobody decided
+// there. Locking the members as they are read makes the re-read see the move and
+// leave the row alone.
+func TestABundleDoesNotDecideAMemberThatMovedToAnotherBundleMidFlight(t *testing.T) {
+	e := setupStaging(t)
+	ctx := e.asHumanWith(decidesEverything())
+	org := e.organization(t)
+	leaving, arriving := ids.NewV7(), ids.NewV7()
+	member := e.stageInto(ctx, t, leaving, org, kindSiteLead, "lead-anna")
+
+	bg := context.Background()
+	competing, err := e.owner.Begin(bg)
+	if err != nil {
+		t.Fatalf("opening the competing re-proposal: %v", err)
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = competing.Rollback(bg) }()
+	var locked ids.ApprovalID
+	if err := competing.QueryRow(bg,
+		`SELECT id FROM approval WHERE id = $1 FOR UPDATE`, member).Scan(&locked); err != nil {
+		t.Fatalf("holding the member: %v", err)
+	}
+
+	done := make(chan struct{})
+	var decideErr error
+	go func() {
+		defer close(done)
+		_, decideErr = e.svc.DecideBundle(ctx, leaving, true, nil)
+	}()
+	waitForRowLockWaiter(t, e, done)
+
+	if _, err := competing.Exec(bg,
+		`UPDATE approval SET bundle_id = $2 WHERE id = $1`, member, arriving); err != nil {
+		t.Fatalf("re-pointing the member at the fresh act: %v", err)
+	}
+	if err := competing.Commit(bg); err != nil {
+		t.Fatalf("committing the move: %v", err)
+	}
+	<-done
+
+	if !errors.Is(decideErr, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound — the bundle it left holds nothing", decideErr)
+	}
+	if status := e.statusOf(t, member); status != statusPending {
+		t.Errorf("the moved member is %s, want pending — it belongs to the fresh act's question now", status)
+	}
+	if bundle := e.bundleOf(t, member); bundle == nil || *bundle != arriving {
+		t.Errorf("the moved member sits in %v, want the fresh act's %s", bundle, arriving)
 	}
 }

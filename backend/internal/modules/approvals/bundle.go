@@ -131,16 +131,9 @@ func (s *Service) decideBundleInTx(ctx context.Context, tx pgx.Tx, p principal.P
 			out = append(out, BundleMember{Approval: a, Outcome: outcomeOf(status)})
 			continue
 		}
-		member, decided, err := s.decideMemberInTx(ctx, tx, p, a, approve, reason)
+		member, err := s.decideMemberInTx(ctx, tx, p, a, approve, reason)
 		if err != nil {
 			return nil, err
-		}
-		if !decided {
-			// The member stopped being decidable between the filter above and
-			// the write — its target was archived or moved out of this human's
-			// scope inside the transaction. Dropping it is what the filter
-			// itself does; failing here would take its siblings with it.
-			continue
 		}
 		out = append(out, member)
 	}
@@ -169,43 +162,35 @@ func decidableMembers(ctx context.Context, tx pgx.Tx, p principal.Principal, row
 }
 
 // decideMemberInTx decides ONE member through the same path a single decision
-// takes, and absorbs the two answers that path gives for a member rather than
-// for the bundle. reported is false for a member that belongs in neither.
+// takes, and absorbs the one answer that path gives about the MEMBER rather than
+// about the bundle.
 //
-// Both arise from the same thing: decideInTx re-reads and re-probes under the row
-// lock, so it judges a world that may have moved since the filter ran. A
-// concurrent decision that commits first makes it AlreadyDecided — this member's
-// outcome, so the row is re-read for the verdict that won. A target archived or
-// moved out of this human's scope makes it NotFound — this member is simply not
-// theirs any more, so it drops out exactly as the filter would have dropped it.
-// Neither is the bundle's failure, and letting either propagate would roll back
-// every sibling verdict already written.
+// decideInTx judges the row's status against the service clock at the moment it
+// runs, while the loop above judged every member against the clock the decision
+// opened with. A member sitting on its expiry boundary is pending to the one
+// reading and lapsed to the other, and the later reading is the right one — but
+// it arrives as an error, and letting it propagate would roll back every sibling
+// verdict already written over a member nobody could have decided anyway.
 //
-// Both are raised before any statement has failed, so the transaction is intact
-// and can still be read from.
-func (s *Service) decideMemberInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, a row, approve bool, reason *string) (member BundleMember, reported bool, err error) {
+// It is raised before any statement has failed, so the transaction is intact and
+// the row can still be read for what it says now. The outcome comes from the
+// status the REFUSAL named rather than from re-judging that fresh row against
+// the older clock, which would see it as still pending and answer
+// "already_decided" — telling a human somebody decided a question nobody did.
+func (s *Service) decideMemberInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, a row, approve bool, reason *string) (BundleMember, error) {
 	decided, err := s.decideInTx(ctx, tx, p, a.ID, approve, reason, nil)
 	if err == nil {
-		return BundleMember{Approval: decided, Outcome: BundleDecided}, true, nil
-	}
-	if errors.Is(err, apperrors.ErrNotFound) {
-		return BundleMember{}, false, nil
+		return BundleMember{Approval: decided, Outcome: BundleDecided}, nil
 	}
 	var already *AlreadyDecidedError
 	if !errors.As(err, &already) {
-		return BundleMember{}, false, err
+		return BundleMember{}, err
 	}
 	fresh, getErr := get(ctx, tx, a.ID)
 	if getErr != nil {
-		return BundleMember{}, false, getErr
+		return BundleMember{}, getErr
 	}
-	// The outcome comes from the status the REFUSAL named, not from re-judging
-	// the row against this call's clock. A member that lapses between the two
-	// reads is refused as expired by the service clock decideInTx read, and
-	// re-judging it against the older one this decision opened with would see it
-	// as still pending and report "already_decided" — telling a human somebody
-	// answered a question nobody ever did.
-	return BundleMember{Approval: fresh, Outcome: outcomeOf(already.Status)}, true, nil
+	return BundleMember{Approval: fresh, Outcome: outcomeOf(already.Status)}, nil
 }
 
 // outcomeOf maps a member's non-pending status onto what this call did to it —

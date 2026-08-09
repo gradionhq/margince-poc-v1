@@ -5682,8 +5682,9 @@ paths:
         A bundle is the set of proposals ONE act staged together; it is a grouping, never a
         second authority object. Each member is decided **on its own terms** — its own verdict,
         audit row, `approval.decided` event and follow-on effect — so the record carries N
-        per-effect decisions rather than one decision covering N effects, and a member whose
-        target moved under it fails alone instead of taking its siblings with it.
+        per-effect decisions rather than one decision covering N effects, and a member that has
+        expired, that somebody already answered, or whose follow-on change fails to land is
+        reported on its own instead of taking its siblings with it.
 
         Members the caller could not decide individually are neither returned nor decided, and a
         bundle with no such member is a `404` — the same existence-hiding a single approval gives.
