@@ -76,6 +76,16 @@ func (s *Store) PendingLinkedInMatchesForPerson(ctx context.Context, personID id
 	return s.suggestedMatches(ctx, personID)
 }
 
+// optionalPerson renders the contact filter the way SQL reads it: NULL for the
+// unfiltered entry point, so the predicate below is one expression rather than
+// two queries whose row-scope join would have to be kept in step by hand.
+func optionalPerson(id ids.UUID) *ids.UUID {
+	if id == ids.Nil {
+		return nil
+	}
+	return &id
+}
+
 // suggestedMatches is the one gated read both entry points land on. forPerson
 // is ids.Nil for every contact.
 func (s *Store) suggestedMatches(ctx context.Context, forPerson ids.UUID) ([]PendingLinkedInMatch, error) {
@@ -103,11 +113,7 @@ func (s *Store) suggestedMatches(ctx context.Context, forPerson ids.UUID) ([]Pen
 		}
 		// NULL is every contact, so one query serves both entry points without a
 		// second copy of the row-scope join to keep in step with this one.
-		var person *ids.UUID
-		if forPerson != ids.Nil {
-			person = &forPerson
-		}
-		personPos := arg(person)
+		personPos := arg(optionalPerson(forPerson))
 		rows, err := tx.Query(ctx, storekit.SQLf(`
 			SELECT c.id, c.full_name, coalesce(c.company_name, ''), p.id, p.full_name
 			  FROM linkedin_connection c
