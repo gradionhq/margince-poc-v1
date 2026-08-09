@@ -61,6 +61,14 @@ func assembled(t *testing.T) map[string]string {
 // TestNoViewReachesOffItsOwnOrigin for why one sweep needs the raw bytes.
 func assembledRaw(t *testing.T) map[string]string {
 	t.Helper()
+	return served(t, func(document string) string { return document })
+}
+
+// served reads every published document through the real provider and passes each
+// through read — Code for the sweeps that ask what a document DOES, identity for
+// the one that has to see its commentary too.
+func served(t *testing.T, read func(string) string) map[string]string {
+	t.Helper()
 	p, err := NewProvider()
 	if err != nil {
 		t.Fatalf("assembling the views: %v", err)
@@ -71,10 +79,10 @@ func assembledRaw(t *testing.T) map[string]string {
 		if err != nil {
 			t.Fatalf("reading the view %s: %v", r.URI, err)
 		}
-		documents[r.URI] = contents.Text
+		documents[r.URI] = read(contents.Text)
 	}
 	if len(documents) == 0 {
-		t.Fatal("no view was assembled, so this sweep would pass vacuously")
+		t.Fatal("no view was assembled, so every sweep reading this would pass vacuously")
 	}
 	return documents
 }

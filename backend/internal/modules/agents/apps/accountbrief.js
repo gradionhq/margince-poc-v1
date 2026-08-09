@@ -53,7 +53,7 @@
     return row;
   }
 
-  function render(data, warnings) {
+  function render(data) {
     var root = document.getElementById('root');
     // Replacing children rather than clearing markup: a view may be sent a
     // second result, and the first one's nodes have to go without any string
@@ -72,10 +72,9 @@
     root.appendChild(el('h1', null, 'Morning brief'));
     // candidate_count may exceed the queue, and the difference is what the
     // ranking left out. Reporting both is the brief's own honesty rule.
-    // candidate_count already reports what the ranking left out, so this view
-    // states both without needing a warning. A warning is still surfaced when
-    // the read itself stopped early, which is a different claim from "ranked".
-    var bounded = window.mcpApp.warned(warnings, 'sweep_truncated');
+    // candidate_count already reports what the ranking left out, which is this
+    // view's whole completeness story — read_brief raises no truncation warning,
+    // so there is no second condition to surface and no branch here for one.
     root.appendChild(
       el(
         'p',
@@ -84,8 +83,7 @@
           ' of ' +
           window.mcpApp.count(data.candidate_count) +
           ' candidates · as of ' +
-          (data.as_of || 'unknown') +
-          (bounded ? ' · the read stopped at its bound, so this is not the whole queue' : '')
+          (data.as_of || 'unknown')
       )
     );
     if (items.length === 0) {

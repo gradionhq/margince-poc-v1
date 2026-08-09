@@ -573,6 +573,19 @@ func TestTheWholeToolListEncodes(t *testing.T) {
 	if len(listed) == 0 {
 		t.Fatal("no tools listed — this walk would pass vacuously")
 	}
+	// And a view's `_meta` really is among the bytes below, rather than the
+	// comment above merely hoping so: if no listed tool carried one, the newest
+	// member of an entry would be the only part no encode check had ever seen.
+	metaSeen := false
+	for _, tool := range listed {
+		if _, carried := tool[fieldMeta]; carried {
+			metaSeen = true
+			break
+		}
+	}
+	if !metaSeen {
+		t.Fatal("no listed tool carries _meta, so this walk does not cover the view metadata it claims to")
+	}
 
 	// Per tool first: a single failing Marshal of the whole slice names no
 	// tool, and the point of the boot assertion is that it says which one.
