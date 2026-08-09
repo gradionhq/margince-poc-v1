@@ -193,7 +193,7 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 	// derived by the store, on the message, where the MCP send tool reaches
 	// it too. It belongs on the mail, not on this response to the API
 	// caller, who is not the recipient and has nothing to unsubscribe from.
-	sent, err := h.store.SendEmail(r.Context(), pathID[ids.ActivityKind](id), SendEmailInput{
+	sent, err := h.store.SendEmail(r.Context(), FromActivity(pathID[ids.ActivityKind](id)), SendEmailInput{
 		Recipients:     recipients,
 		Cc:             cc,
 		Subject:        req.Subject,

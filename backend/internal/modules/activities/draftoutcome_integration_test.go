@@ -87,7 +87,7 @@ func TestSendEmailProceedsWhenNoDraftOutcomeRecorderIsWired(t *testing.T) {
 	stager := &recordingStager{}
 
 	if _, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeAll), anchor, draftedSendInput("transactional"), stubConsentGate{}, stager); err != nil {
+		e.as(principal.RowScopeAll), FromActivity(anchor), draftedSendInput("transactional"), stubConsentGate{}, stager); err != nil {
 		t.Fatalf("SendEmail with no learning loop wired: %v", err)
 	}
 	if n := e.outboundCount(t); n != 1 {
@@ -106,7 +106,7 @@ func TestSendEmailProceedsWhenTheDraftReferenceResolvesNoSignal(t *testing.T) {
 	recorder := &recordingDraftOutcome{recorded: false}
 
 	if _, err := e.store(stubUnsubscribeLinker{}).WithDraftOutcome(recorder).SendEmail(
-		e.as(principal.RowScopeAll), anchor, draftedSendInput("transactional"), stubConsentGate{}, stager); err != nil {
+		e.as(principal.RowScopeAll), FromActivity(anchor), draftedSendInput("transactional"), stubConsentGate{}, stager); err != nil {
 		t.Fatalf("SendEmail over an unresolvable draft reference: %v", err)
 	}
 	if len(recorder.calls) != 1 {
@@ -133,7 +133,7 @@ func TestSendEmailRollsBackTheWholeSendWhenTheLearningWriteFaults(t *testing.T) 
 	recorder := &recordingDraftOutcome{err: fault}
 
 	_, err := e.store(stubUnsubscribeLinker{}).WithDraftOutcome(recorder).SendEmail(
-		e.as(principal.RowScopeAll), anchor, draftedSendInput("transactional"), stubConsentGate{}, stager)
+		e.as(principal.RowScopeAll), FromActivity(anchor), draftedSendInput("transactional"), stubConsentGate{}, stager)
 	if !errors.Is(err, fault) {
 		t.Fatalf("SendEmail over a faulting learning write → %v, want the fault", err)
 	}
@@ -165,7 +165,7 @@ func TestDraftOutcomeJudgesTheApprovedBodyNotTheTransmittedFooter(t *testing.T) 
 	in := draftedSendInput("marketing_email")
 	in.Recipients, in.Cc = []string{"buyer@example.test"}, nil
 	if _, err := e.store(linker).WithDraftOutcome(recorder).SendEmail(
-		e.as(principal.RowScopeAll), anchor, in, stubConsentGate{}, stager); err != nil {
+		e.as(principal.RowScopeAll), FromActivity(anchor), in, stubConsentGate{}, stager); err != nil {
 		t.Fatalf("SendEmail: %v", err)
 	}
 
@@ -190,7 +190,7 @@ func TestSendEmailAsksNothingOfTheLearningLoopWithoutADraftReference(t *testing.
 	recorder := &recordingDraftOutcome{}
 
 	if _, err := e.store(stubUnsubscribeLinker{}).WithDraftOutcome(recorder).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager); err != nil {
+		e.as(principal.RowScopeAll), FromActivity(anchor), sendInput("transactional"), stubConsentGate{}, stager); err != nil {
 		t.Fatalf("SendEmail: %v", err)
 	}
 	if len(recorder.calls) != 0 {

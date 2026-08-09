@@ -285,7 +285,7 @@ func TestCaptureTierGateHonorsCorrespondenceFromACRMOriginatedSend(t *testing.T)
 		t.Fatalf("seed anchor: %v", err)
 	}
 
-	if _, err := activities.NewStore(e.Pool).SendEmail(ctx, ids.From[ids.ActivityKind](anchorID),
+	if _, err := activities.NewStore(e.Pool).SendEmail(ctx, activities.FromActivity(ids.From[ids.ActivityKind](anchorID)),
 		activities.SendEmailInput{
 			Recipients:     []string{"Team@News.Prospect.Example"},
 			Subject:        "Following up",
