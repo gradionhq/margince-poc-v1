@@ -172,11 +172,13 @@ func (h Handlers) RejectApprovalBundle(w http.ResponseWriter, r *http.Request, b
 
 func (h Handlers) decideBundle(w http.ResponseWriter, r *http.Request, bundleID crmcontracts.BundleId, approve bool) {
 	var req crmcontracts.ApprovalBundleDecisionRequest
-	if r.Body != nil && r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			httperr.Write(w, r, httperr.Validation("body", "malformed_json", err.Error()))
-			return
-		}
+	// httperr.Decode, not a bare json decode: this body has exactly one member,
+	// and the field a client is most likely to send anyway is `edited_payload`
+	// — an edit is a judgment about ONE proposed change and there is no such
+	// thing as one spanning several. Accepting and ignoring it would approve the
+	// agent's original payload while the human believed they had rewritten it.
+	if r.Body != nil && r.ContentLength != 0 && !httperr.Decode(w, r, &req) {
+		return
 	}
 	members, err := h.svc.DecideBundle(r.Context(), ids.UUID(bundleID), approve, req.Reason)
 	if err != nil {

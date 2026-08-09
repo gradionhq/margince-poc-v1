@@ -9200,9 +9200,8 @@ type Approval struct {
 	// ApprovalToken Signed single-use token minted on approve (schema ApprovalToken, serialized as compact JWS); authorizes exactly the downstream 🟡 operation it is bound to.
 	ApprovalToken *string `json:"approval_token,omitempty"`
 
-	// BundleId The act that staged this proposal together with its siblings — a site read's company
-	// facts and the leads it published, a captured interaction's person/company/deal. Null
-	// for a proposal staged on its own. It is a grouping id, not a foreign key: there is no
+	// BundleId The act that staged this proposal together with its siblings — today, a website read's
+	// company facts and the leads it published. Null for a proposal staged on its own. It is a grouping id, not a foreign key: there is no
 	// bundle entity, and every member keeps its own diff hash, version pin, expiry and
 	// verdict (ADR-0036 — the staged row IS the authority object). Decide the whole set with
 	// `POST /approval-bundles/{bundle_id}/approve|reject`, or any member on its own.
@@ -16220,11 +16219,10 @@ type ListApprovalsParams struct {
 	// TargetEntityId The record the staged actions act on. Requires `target_entity_type`.
 	TargetEntityId *openapi_types.UUID `form:"target_entity_id,omitempty" json:"target_entity_id,omitempty"`
 
-	// BundleId Filter to the proposals ONE act staged together (see `Approval.bundle_id`) — a site
-	// read's company facts plus the leads it published, a captured interaction's person,
-	// company and deal. Members the caller could not decide are absent from this page exactly
-	// as they are absent from the unfiltered inbox, so a bundle may report fewer members than
-	// it holds.
+	// BundleId Filter to the proposals ONE act staged together (see `Approval.bundle_id`) — today, a
+	// website read's company facts plus the leads it published. Members the caller could not
+	// decide are absent from this page exactly as they are absent from the unfiltered inbox,
+	// so a bundle may report fewer members than it holds.
 	BundleId *openapi_types.UUID `form:"bundle_id,omitempty" json:"bundle_id,omitempty"`
 }
 

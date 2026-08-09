@@ -54,9 +54,9 @@ type StageInput struct {
 	// coldstart.read_back_proposed) emitted in the SAME transaction as
 	// approval.requested, linked to the same audit row.
 	Announce []AnnouncedEvent
-	// BundleID names the act that proposed this row together with its siblings
-	// — a site read's company facts and the leads it published, a captured
-	// interaction's person, company and deal. Zero for a proposal staged alone.
+	// BundleID names the act that proposed this row together with its siblings —
+	// today, a website read's company facts and the leads it published. Zero for
+	// a proposal staged alone.
 	//
 	// It is a grouping, never a second authority object: every member keeps its
 	// own diff hash, version pin, expiry and verdict, and a bundle decision is N

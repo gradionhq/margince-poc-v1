@@ -102,32 +102,46 @@ func (s *Service) DecideBundle(ctx context.Context, bundleID ids.UUID, approve b
 // transaction, so the bundle's verdicts land together or not at all. The
 // follow-on effects deliberately do not: they run after the commit, exactly as
 // a single decision's does.
+//
+// It reads and filters the whole bundle BEFORE deciding any of it, in that
+// order for two reasons. A bundle nobody may decide has to read as absent
+// whatever else is true of it — answering "too large" to a caller who cannot see
+// a single member would confirm the act exists, which is the oracle this module
+// closes everywhere else. And a bundle past the cap must be refused whole rather
+// than applied to a prefix, which is only possible while nothing has been
+// decided yet.
 func (s *Service) decideBundleInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, bundleID ids.UUID, approve bool, reason *string) ([]BundleMember, error) {
-	rows, err := bundleMembers(ctx, tx, bundleID)
+	rows, oversized, err := bundleMembers(ctx, tx, bundleID)
 	if err != nil {
 		return nil, err
 	}
+	mine, err := decidableMembers(ctx, tx, p, rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(mine) == 0 {
+		return nil, apperrors.ErrNotFound
+	}
+	if oversized {
+		return nil, &BundleTooLargeError{Cap: bundleDecisionCap}
+	}
 	now := s.now()
-	out := make([]BundleMember, 0, len(rows))
-	for _, a := range rows {
-		// The probe classifies; decideInTx's own copy of it still guards the
-		// write. Both are wanted: without this one an undecidable member would
-		// abort the whole bundle instead of being invisible, and without that
-		// one the decision would have an ungated entry point.
-		visible, err := decidable(ctx, tx, p, a)
-		if err != nil {
-			return nil, err
-		}
-		if !visible {
-			continue
-		}
+	out := make([]BundleMember, 0, len(mine))
+	for _, a := range mine {
 		if status := a.effectiveStatus(now); status != statusPending {
 			out = append(out, BundleMember{Approval: a, Outcome: outcomeOf(status)})
 			continue
 		}
-		member, err := s.decideMemberInTx(ctx, tx, p, a, approve, reason, now)
+		member, decided, err := s.decideMemberInTx(ctx, tx, p, a, approve, reason, now)
 		if err != nil {
 			return nil, err
+		}
+		if !decided {
+			// The member stopped being decidable between the filter above and
+			// the write — its target was archived or moved out of this human's
+			// scope inside the transaction. Dropping it is what the filter
+			// itself does; failing here would take its siblings with it.
+			continue
 		}
 		out = append(out, member)
 	}
@@ -137,27 +151,56 @@ func (s *Service) decideBundleInTx(ctx context.Context, tx pgx.Tx, p principal.P
 	return out, nil
 }
 
+// decidableMembers keeps the members this caller could decide one at a time, by
+// the same predicate the inbox and a single decision use. A member outside their
+// authority is invisible here exactly as it is there — never a refusal, which
+// would confirm it exists.
+func decidableMembers(ctx context.Context, tx pgx.Tx, p principal.Principal, rows []row) ([]row, error) {
+	mine := make([]row, 0, len(rows))
+	for _, a := range rows {
+		visible, err := decidable(ctx, tx, p, a)
+		if err != nil {
+			return nil, err
+		}
+		if visible {
+			mine = append(mine, a)
+		}
+	}
+	return mine, nil
+}
+
 // decideMemberInTx decides ONE member through the same path a single decision
-// takes, and absorbs the one race that path reports as an error: decideInTx
-// takes the row lock, so a concurrent decision of that member commits first and
-// this call finds it already decided. That is this member's outcome, not the
-// bundle's failure, so the row is re-read for the verdict that won.
-func (s *Service) decideMemberInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, a row, approve bool, reason *string, now time.Time) (BundleMember, error) {
+// takes, and absorbs the two answers that path gives for a member rather than
+// for the bundle. reported is false for a member that belongs in neither.
+//
+// Both arise from the same thing: decideInTx re-reads and re-probes under the row
+// lock, so it judges a world that may have moved since the filter ran. A
+// concurrent decision that commits first makes it AlreadyDecided — this member's
+// outcome, so the row is re-read for the verdict that won. A target archived or
+// moved out of this human's scope makes it NotFound — this member is simply not
+// theirs any more, so it drops out exactly as the filter would have dropped it.
+// Neither is the bundle's failure, and letting either propagate would roll back
+// every sibling verdict already written.
+//
+// Both are raised before any statement has failed, so the transaction is intact
+// and can still be read from.
+func (s *Service) decideMemberInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, a row, approve bool, reason *string, now time.Time) (member BundleMember, reported bool, err error) {
 	decided, err := s.decideInTx(ctx, tx, p, a.ID, approve, reason, nil)
 	if err == nil {
-		return BundleMember{Approval: decided, Outcome: BundleDecided}, nil
+		return BundleMember{Approval: decided, Outcome: BundleDecided}, true, nil
+	}
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return BundleMember{}, false, nil
 	}
 	var already *AlreadyDecidedError
 	if !errors.As(err, &already) {
-		return BundleMember{}, err
+		return BundleMember{}, false, err
 	}
-	// AlreadyDecidedError is raised before any statement failed, so the
-	// transaction is intact and can still read the row that won.
 	fresh, getErr := get(ctx, tx, a.ID)
 	if getErr != nil {
-		return BundleMember{}, getErr
+		return BundleMember{}, false, getErr
 	}
-	return BundleMember{Approval: fresh, Outcome: outcomeOf(fresh.effectiveStatus(now))}, nil
+	return BundleMember{Approval: fresh, Outcome: outcomeOf(fresh.effectiveStatus(now))}, true, nil
 }
 
 // outcomeOf maps a member's non-pending status onto what this call did to it —
@@ -196,19 +239,19 @@ func (s *Service) releaseDecidedMembers(ctx context.Context, members []BundleMem
 }
 
 // bundleMembers reads one bundle's rows oldest-first — the order the act staged
-// them, which is also a stable lock order for two callers deciding the same
-// bundle at once.
+// them, and a deterministic order, so two callers deciding the same bundle at
+// once queue behind each other instead of deadlocking.
 //
-// It reads one row past the cap so a bundle too large to decide is a fact rather
-// than a truncation nobody is told about.
-func bundleMembers(ctx context.Context, tx pgx.Tx, bundleID ids.UUID) ([]row, error) {
-	rows, err := collect(ctx, tx, `SELECT `+columns+` FROM approval
+// It reads one row past the cap and reports oversized rather than refusing here,
+// so the caller can put the authority question first: a bundle whose existence
+// this human may not learn of must read as absent whatever its size. The extra
+// row is what makes "too large" a fact rather than a truncation nobody is told
+// about.
+func bundleMembers(ctx context.Context, tx pgx.Tx, bundleID ids.UUID) (rows []row, oversized bool, err error) {
+	rows, err = collect(ctx, tx, `SELECT `+columns+` FROM approval
 		WHERE bundle_id = $1 ORDER BY created_at, id LIMIT $2`, []any{bundleID, bundleDecisionCap + 1})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	if len(rows) > bundleDecisionCap {
-		return nil, &BundleTooLargeError{Cap: bundleDecisionCap}
-	}
-	return rows, nil
+	return rows, len(rows) > bundleDecisionCap, nil
 }

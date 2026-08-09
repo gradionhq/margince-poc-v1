@@ -385,7 +385,12 @@ func TestABundleMemberWhoseEffectFailsIsReportedAlone(t *testing.T) {
 // A bundle larger than one decision covers is REFUSED, not applied to a prefix.
 // A partial decision reported as a whole one is the silent half-effect the whole
 // per-member design exists to prevent.
-func TestABundleTooLargeToDecideIsRefused(t *testing.T) {
+//
+// And the refusal is only ever shown to someone who could decide the bundle. To
+// a caller who could not, an oversized bundle is as absent as any other — a 422
+// where they would otherwise get a 404 tells them the act exists, which is the
+// oracle every other read on this table closes.
+func TestABundleTooLargeToDecideIsRefusedAndStillHiddenFromOutsiders(t *testing.T) {
 	e := setupStaging(t)
 	ctx := e.asHumanWith(decidesEverything())
 	org := e.organization(t)
@@ -408,6 +413,11 @@ func TestABundleTooLargeToDecideIsRefused(t *testing.T) {
 	}
 	if n := e.count(t, `SELECT count(*) FROM approval WHERE bundle_id = $1 AND status <> 'pending'`, bundle); n != 0 {
 		t.Errorf("%d members were decided by a refused call — the refusal must leave the bundle untouched", n)
+	}
+
+	ungranted := e.asHumanWith(grantsFor(map[string]principal.ObjectGrant{}))
+	if _, err := e.svc.DecideBundle(ungranted, bundle, true, nil); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound — the size of a bundle they cannot see is not theirs to learn", err)
 	}
 }
 
@@ -560,5 +570,73 @@ func TestARestagedProposalKeepsItsBundleWhenTheActHasNoneOrTheSameOne(t *testing
 	if n := e.count(t, `SELECT count(*) FROM audit_log
 		WHERE entity_id = $1 AND evidence->>'rebundled' = 'true'`, member.UUID); n != 0 {
 		t.Errorf("re-proposing into the same bundle wrote %d rebundle audit rows, want none — nothing moved", n)
+	}
+}
+
+// The other mid-flight race, and the one the contract promises most loudly: a
+// member whose target moves out from under it "fails alone instead of taking its
+// siblings with it".
+//
+// decideInTx re-probes decidability under the row lock, so a target archived
+// while the bundle is blocked makes that member answer not-found. Letting that
+// propagate would roll back every verdict already written and hand the human a
+// 404 for the bundle they were just shown — so the member drops out exactly as
+// the filter would have dropped it, and its siblings stand.
+func TestABundleMemberWhoseTargetMovesMidFlightDropsAloneRatherThanFailingTheBundle(t *testing.T) {
+	e := setupStaging(t)
+	ctx := e.asHumanWith(decidesEverything())
+	org := e.organization(t)
+	bundle := ids.NewV7()
+	uncontested := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-anna")
+	contested := e.stageInto(ctx, t, bundle, org, kindSiteLead, "lead-bruno")
+
+	bg := context.Background()
+	competing, err := e.owner.Begin(bg)
+	if err != nil {
+		t.Fatalf("opening the competing writer: %v", err)
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = competing.Rollback(bg) }()
+	var locked ids.ApprovalID
+	if err := competing.QueryRow(bg,
+		`SELECT id FROM approval WHERE id = $1 FOR UPDATE`, contested).Scan(&locked); err != nil {
+		t.Fatalf("holding the contested member: %v", err)
+	}
+
+	done := make(chan struct{})
+	var members []BundleMember
+	var decideErr error
+	go func() {
+		defer close(done)
+		members, decideErr = e.svc.DecideBundle(ctx, bundle, true, nil)
+	}()
+	waitForRowLockWaiter(t, e, done)
+
+	// The target leaves this human's world while the decision waits on the row.
+	if _, err := competing.Exec(bg,
+		`UPDATE organization SET archived_at = now() WHERE id = $1`, org); err != nil {
+		t.Fatalf("archiving the target: %v", err)
+	}
+	if err := competing.Commit(bg); err != nil {
+		t.Fatalf("committing the archive: %v", err)
+	}
+	<-done
+
+	if decideErr != nil {
+		t.Fatalf("the bundle failed over one member whose target moved: %v", decideErr)
+	}
+	got := outcomes(members)
+	if _, present := got[contested]; present {
+		t.Errorf("the member whose target moved is still reported as %s, want it dropped", got[contested])
+	}
+	if got[uncontested] != BundleDecided {
+		t.Errorf("its sibling reported %s, want %s — a moved target must not undo a committed verdict",
+			got[uncontested], BundleDecided)
+	}
+	if status := e.statusOf(t, uncontested); status != approvalStatusApproved {
+		t.Errorf("the sibling's stored status = %s, want approved", status)
+	}
+	if status := e.statusOf(t, contested); status != statusPending {
+		t.Errorf("the dropped member is %s, want it left pending", status)
 	}
 }

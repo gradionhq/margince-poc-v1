@@ -1,8 +1,8 @@
--- One act often proposes several things at once: a site read stages a
--- company-facts proposal plus one lead per person it published, and a
--- captured interaction proposes a person, an organization and a deal
--- together. bundle_id names that act, so the proposals it produced can be
--- read and decided as the one question they were.
+-- One act often proposes several things at once: a website read stages a
+-- company-facts proposal plus one lead per person it published, and the
+-- inbox otherwise shows them as unrelated questions. bundle_id names that
+-- act, so the proposals it produced can be read and decided as the one
+-- question they were.
 --
 -- It is a naked grouping id, not a foreign key: there is no bundle entity
 -- (ADR-0036 — the staged row IS the authority object, and a second object
