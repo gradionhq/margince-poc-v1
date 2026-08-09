@@ -98,7 +98,7 @@ func (s *Dispatcher) runReleased(ctx context.Context, task Task) map[string]any 
 	// cannot tell an approval spent elsewhere from one being spent by the poll
 	// executing this very task — and a losing poll would then declare the task
 	// interrupted while the winner was still committing it.
-	if s.spentElsewhere(ctx, task, apperrors.ErrApprovalTokenInvalid) {
+	if s.approvalConsumed(ctx, task) {
 		s.log.Warn("mcp: a task's approval was consumed outside it",
 			"task", task.ID, "approval", task.ApprovalID)
 		return s.settle(ctx, task, s.interrupted())
@@ -148,16 +148,12 @@ func (s *Dispatcher) invokeReleased(ctx context.Context, task Task) Settlement {
 	}
 	out, records, err := s.registry.InvokeServing(ctx, task.Tool, args)
 	if err != nil {
-		if s.spentElsewhere(ctx, task, err) {
+		if errors.Is(err, apperrors.ErrApprovalTokenInvalid) && s.approvalConsumed(ctx, task) {
 			// The approval was consumed between this poll's state read and its
-			// redemption — a direct retry carrying the same approval_id got
-			// there first. Reporting the redemption refusal would tell the agent
-			// its call was rejected when the effect may well have landed.
-			return Settlement{
-				Status:        TaskFailed,
-				StatusMessage: taskInterruptedMessage,
-				Error:         mustMarshalRPCError(taskInterruptedMessage),
-			}
+			// redemption: a direct retry carrying the same approval_id got there
+			// first. Reporting the redemption refusal would tell the agent its
+			// call was rejected when the effect may well have landed.
+			return s.interrupted()
 		}
 		// A refusal hands over no records, so it carries no ServedRecords and
 		// every later poll may serve it as it stands.
@@ -195,36 +191,45 @@ func (s *Dispatcher) serveRecorded(ctx context.Context, task Task) map[string]an
 	}
 	proven, err := s.registry.ServeRecorded(ctx, task.Tool, task.Result, *task.ServedRecords)
 	if err != nil {
-		// The same existence-hiding answer a live read of an unreadable record
-		// gives. The task itself is left alone: it really did complete, and a
-		// caller whose access is restored may read it again.
-		s.log.Warn("mcp: a completed task's recorded answer is no longer readable by its caller",
+		// WHY it could not be served decides what the agent should do, and the
+		// three causes differ: a record it may no longer read is permanent and
+		// says so, while a read bound it has exhausted clears with the window
+		// and a store that hiccuped clears on the next poll. Telling the last
+		// two "do not repeat the call" would strand a document they could have
+		// had — so only the existence-hiding answer keeps the withheld wording.
+		s.log.Warn("mcp: a completed task's recorded answer could not be served",
 			"task", task.ID, "tool", task.Tool, "err", err)
+		message := s.explain(task.Tool, err)
+		if errors.Is(err, apperrors.ErrNotFound) {
+			message = taskWithheldMessage
+		}
 		withheld := task
 		withheld.ServedRecords = nil
-		withheld.Result = mustMarshalToolError(taskWithheldMessage)
+		withheld.Result = mustMarshalToolError(message)
 		return taskWire(withheld, s.now())
 	}
 	task.Result = proven
 	return taskWire(s.rendered(task), s.now())
 }
 
-// spentElsewhere reports whether a refused call was refused because somebody
-// else had already spent the approval.
+// approvalConsumed reports whether this task's single-use authority has already
+// been spent.
 //
-// The check is made AFTER the refusal rather than only before the attempt,
-// because the window between reading a decision and redeeming it is real: a
-// direct retry can consume the approval inside it. Only a token refusal is
-// worth re-asking about — every other refusal (row scope, version skew, the
-// fifteen-minute window closing) is the honest answer to a call that genuinely
-// did not happen.
-func (s *Dispatcher) spentElsewhere(ctx context.Context, task Task, refusal error) bool {
-	if !errors.Is(refusal, apperrors.ErrApprovalTokenInvalid) {
-		return false
-	}
+// It is asked TWICE, and the two moments are different questions. After winning
+// the claim it means "somebody else spent it" — a direct retry, or a poll that
+// died after redeeming. After a redemption REFUSAL it closes the window between
+// those two points, which is real: a direct retry can consume the approval
+// inside it, and reporting the refusal would tell the agent its call was
+// rejected when the effect may have landed.
+//
+// A caller must filter its own refusals before asking: only a token refusal is
+// worth re-asking about, because row scope, version skew and the fifteen-minute
+// window closing are all the honest answer to a call that genuinely did not
+// happen.
+func (s *Dispatcher) approvalConsumed(ctx context.Context, task Task) bool {
 	state, err := s.taskApprovals.State(ctx, task.ApprovalID)
 	if err != nil {
-		s.log.Error("mcp: re-reading an approval after a redemption refusal failed",
+		s.log.Error("mcp: re-reading an approval to see whether it was already spent failed",
 			"task", task.ID, "approval", task.ApprovalID, "err", err)
 		return false
 	}
@@ -248,6 +253,15 @@ func (s *Dispatcher) settle(ctx context.Context, task Task, settlement Settlemen
 		settled.Result, settled.Error = settlement.Result, settlement.Error
 		settled.ServedRecords = settlement.ServedRecords
 		settled.UpdatedAt = s.now()
+	}
+	// A settlement can LOSE: the store answers an already-terminal task with the
+	// stored row rather than this caller's settlement. That row is somebody
+	// else's answer, so it is a read like any other — rendered() would hand its
+	// records over on the strength of a call this request never made, unproven
+	// and uncharged. Only a settlement that carries its own envelope is this
+	// request's own work.
+	if settled.ServedRecords != nil && settlement.ServedRecords == nil {
+		return s.serveRecorded(ctx, settled)
 	}
 	return taskWire(s.rendered(settled), s.now())
 }

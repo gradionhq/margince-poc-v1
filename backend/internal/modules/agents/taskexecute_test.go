@@ -13,6 +13,7 @@ package agents
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -239,6 +240,64 @@ func TestATaskReclaimedAfterAnUnsettledExecutionFailsWithoutRunning(t *testing.T
 	}
 	if wire[fieldError] == nil {
 		t.Error("a failed task carried no error, so a client learns nothing about why")
+	}
+}
+
+// A receipt is a verb. A passport past its volume ceiling is refused for every
+// verb, so it must not be able to keep drawing record documents out of answers
+// it produced before the ceiling closed — the poll door takes the same ceiling
+// the call door does.
+func TestAPassportPastItsCeilingCannotKeepDrawingARecordedAnswer(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+
+	first := pollTask(t, s, task.ID)
+	if isToolError(t, first[fieldResult].(json.RawMessage)) {
+		t.Fatalf("the first poll refused its own fresh answer: %v", first)
+	}
+
+	// The window closes underneath the handle.
+	store.quota.exceed()
+
+	again := pollTask(t, s, task.ID)
+
+	if again[fieldStatus] != string(TaskCompleted) {
+		t.Fatalf("status = %v, want the task to stay completed — the effect did happen", again[fieldStatus])
+	}
+	if !isToolError(t, again[fieldResult].(json.RawMessage)) {
+		t.Errorf("a suspended passport was served the recorded records anyway:\n%s", again[fieldResult])
+	}
+	// And the refusal says the window ends it, not that the records are gone:
+	// one clears by waiting and the other never does.
+	if body := string(again[fieldResult].(json.RawMessage)); strings.Contains(body, "no longer readable") {
+		t.Errorf("a volume refusal was reported as lost access, which tells the agent not to retry:\n%s", body)
+	}
+}
+
+// A settlement can LOSE, and the row it loses to is somebody else's answer. It
+// is a read like any other: rendered() would hand its records over on the
+// strength of a call this request never made.
+func TestASettlementThatLosesReProvesTheAnswerItFindsInstead(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	task := mintOne(t, s, store)
+	store.approvals.decision = ApprovalApproved
+
+	// The winner records a completed answer carrying records.
+	pollTask(t, s, task.ID)
+	// The loser arrives with its own terminal settlement and finds that row.
+	store.records.hide(store.tool.target)
+	lost := s.settle(agentCtx(), store.tasks[task.ID], Settlement{
+		Status:        TaskFailed,
+		StatusMessage: taskInterruptedMessage,
+		Error:         mustMarshalRPCError(taskInterruptedMessage),
+	})
+
+	if lost[fieldStatus] != string(TaskCompleted) {
+		t.Fatalf("status = %v, want the stored completed answer", lost[fieldStatus])
+	}
+	if !isToolError(t, lost[fieldResult].(json.RawMessage)) {
+		t.Errorf("the losing settlement was handed records it never proved:\n%s", lost[fieldResult])
 	}
 }
 

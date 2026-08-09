@@ -239,7 +239,8 @@ func (s *Dispatcher) cancelTask(ctx context.Context, task Task) (map[string]any,
 	if !retracted {
 		message = taskCancelledLateMessage
 	}
-	if _, err := s.tasks.Cancel(ctx, task.ID, message); err != nil {
+	cancelled, err := s.tasks.Cancel(ctx, task.ID, taskClaimLease, message)
+	if err != nil {
 		// Answered as an error for the same reason the withdrawal above is: an
 		// empty ack tells the client its cancellation succeeded, and a client
 		// that believes that stops polling — leaving a task nothing will ever
@@ -251,6 +252,14 @@ func (s *Dispatcher) cancelTask(ctx context.Context, task Task) (map[string]any,
 			Message: "the cancellation could not be recorded, so this task was not cancelled: " +
 				"poll it again, or try cancelling once more",
 		}
+	}
+	if !cancelled {
+		// A poll holds the claim and is inside the released call, or the task
+		// has already settled. The ack stays empty and claims nothing — the
+		// client learns the real terminal state by polling, which is what the
+		// specification means by cooperative.
+		s.log.Info("mcp: a cancelled task was already executing or settled",
+			"task", task.ID, "status", task.Status)
 	}
 	return map[string]any{}, nil
 }

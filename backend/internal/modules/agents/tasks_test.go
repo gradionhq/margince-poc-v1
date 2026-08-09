@@ -12,10 +12,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -543,7 +545,29 @@ type fakeTasks struct {
 	approvals *fakeApprovals
 	tool      *stagingTool
 	records   *recordReader
+	quota     *fakeQuota
 }
+
+// fakeQuota is a meter a test can push past a ceiling. It records nothing:
+// what these cases turn on is whether a reading REFUSES, not what it counts.
+type fakeQuota struct {
+	mu       sync.Mutex
+	exceeded bool
+}
+
+func (q *fakeQuota) exceed() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.exceeded = true
+}
+
+func (q *fakeQuota) Read(_ context.Context, c agentquota.Counter) agentquota.Reading {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return agentquota.Reading{Counter: c, Exceeded: q.exceeded}
+}
+
+func (q *fakeQuota) Consume(context.Context, agentquota.Counter, int) error { return nil }
 
 // recordReader is the live re-read a recorded answer is proven against. Taking
 // a record out of `visible` is how a test narrows the caller's access after the
@@ -630,13 +654,17 @@ func (f *fakeTasks) Settle(_ context.Context, id ids.UUID, s Settlement) (Task, 
 
 // Cancel mirrors the store's one guard: a claimed task is executing, and
 // cancelling it would discard that execution's own settlement.
-func (f *fakeTasks) Cancel(_ context.Context, id ids.UUID, message string) (bool, error) {
+func (f *fakeTasks) Cancel(_ context.Context, id ids.UUID, lease time.Duration, message string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.cancelErr != nil {
 		return false, f.cancelErr
 	}
 	task, ok := f.tasks[id]
+	// The store reads a claim as live only while it is younger than the lease;
+	// this fixture has no clock, so a claim it holds is always live. The stale
+	// arm is the integration lane's to prove, against the real predicate.
+	_ = lease
 	if !ok || task.Status != TaskWorking || f.claimed[id] {
 		return false, nil
 	}
@@ -661,11 +689,13 @@ func stagingDispatcher(t *testing.T) (*Dispatcher, *fakeTasks) {
 	// and the reason a composition that forgets it loses replay rather than its
 	// gate.
 	reader := &recordReader{visible: map[ids.UUID]bool{tool.target: true}}
-	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}), WithReplayReader(reader))
+	quota := &fakeQuota{}
+	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}, auth.WithQuota(quota)),
+		WithReplayReader(reader), WithQuotaCharger(quota))
 	registry.Register(tool)
 	s := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test").
 		WithLogger(discardLog()).WithTasks(store, approvals)
-	store.records = reader
+	store.records, store.quota = reader, quota
 	return s, store
 }
 
@@ -736,8 +766,26 @@ func TestAHandlePointsAtTheApprovalItsCallStaged(t *testing.T) {
 	if task.ApprovalID != store.approvals.staged {
 		t.Errorf("the handle points at %s, want the staged approval %s", task.ApprovalID, store.approvals.staged)
 	}
-	var staged *workflow.StagedApprovalError
-	if !errors.As(&workflow.StagedApprovalError{ApprovalID: store.approvals.staged}, &staged) {
-		t.Fatal("the staged refusal type stopped matching errors.As, which is how mintTask recognises it")
+}
+
+// A staged refusal does not always arrive bare. Invoke wraps, and the whole
+// reason mintTask uses errors.As rather than a type switch is to see through
+// that — a wrapped refusal that stopped minting would put every 🟡 call back on
+// the dead end this track exists to close.
+func TestAWrappedStagedRefusalStillMintsAHandle(t *testing.T) {
+	s, store := stagingDispatcher(t)
+	staged := ids.From[ids.ApprovalKind](ids.NewV7())
+	wrapped := fmt.Errorf("the gate refused it: %w", &workflow.StagedApprovalError{ApprovalID: staged})
+
+	handle, minted := s.mintTask(agentCtx(), taskCapableFraming(), "send_it", wrapped)
+
+	if !minted {
+		t.Fatal("a wrapped staged refusal minted no handle")
+	}
+	if handle[fieldStatus] != string(TaskWorking) {
+		t.Errorf("status = %v, want working", handle[fieldStatus])
+	}
+	if len(store.created) != 1 || store.created[0].ApprovalID != staged {
+		t.Errorf("the handle points at %v, want the wrapped refusal's own approval %s", store.created, staged)
 	}
 }

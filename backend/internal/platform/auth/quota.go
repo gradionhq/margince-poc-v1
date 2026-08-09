@@ -100,6 +100,31 @@ func (e *QuotaExceededError) Error() string {
 // than listed, by the same function the charge point uses (agentquota.CounterFor).
 // One derivation means the quota that refuses and the quota that is paid can
 // never be two different quotas.
+// AdmitReplay is the admission a RECORDED answer takes before it is served
+// again. It is the volume half of Admit and nothing else, and each omission is
+// deliberate rather than an economy:
+//
+//   - SCOPE and TIER are not re-asked because a replay makes no new call. Worse,
+//     asking would break the thing it is meant to protect: a confirm-first tool
+//     answers ErrRequiresApproval to every Admit, so a full admission would
+//     refuse to re-serve the receipt of an act a human already approved.
+//   - The SEAT and the granting human's RBAC bind where they always did — the
+//     records are re-read live through the datasource seam, which is what
+//     applies object grants and row scope.
+//   - REVOCATION binds one layer up: the transport re-authenticates the
+//     passport on every exchange.
+//
+// What is left is the part nothing else re-asks: the ceilings. A passport past
+// its call ceiling is refused for every verb, and a receipt is a verb — without
+// this, a suspended caller could keep drawing record documents out of answers it
+// produced before the ceiling closed.
+func (g *Gate) AdmitReplay(ctx context.Context, spec mcp.ToolSpec) error {
+	if g == nil {
+		return nil
+	}
+	return g.refuseOnQuota(ctx, spec)
+}
+
 func (g *Gate) refuseOnQuota(ctx context.Context, spec mcp.ToolSpec) error {
 	if g.quota == nil {
 		return nil

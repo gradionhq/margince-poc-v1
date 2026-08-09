@@ -313,6 +313,14 @@ func (r *Registry) ServeRecorded(ctx context.Context, tool string, recorded json
 		// against the schema and counters it was produced under.
 		return nil, apperrors.ErrNotFound
 	}
+	// The ceilings first, because they are the one term of admission nothing
+	// downstream re-asks. The record re-read below applies object RBAC and row
+	// scope, and the transport re-authenticates the passport — but a caller past
+	// its volume ceiling is refused for every verb, and handing back a stored
+	// document is a verb. Both doors onto a receipt take this.
+	if err := r.gate.AdmitReplay(ctx, spec); err != nil {
+		return nil, err
+	}
 	evidence, err := replayEvidence(recorded)
 	if err != nil {
 		slog.ErrorContext(ctx, "a recorded tool result could not be read back as an envelope; withholding it",

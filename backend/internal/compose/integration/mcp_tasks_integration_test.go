@@ -266,10 +266,14 @@ func TestTwoSimultaneousPollsRunTheReleasedCallOnce(t *testing.T) {
 	taskID, _ := created["taskId"].(string)
 	approveStagedCall(t, e.AppEnv)
 
-	// The goroutines COLLECT and the test goroutine asserts. t.Fatalf is
-	// documented as callable only from the test's own goroutine — from a worker
-	// it ends that goroutine alone, so the run continues past the condition
-	// meant to stop it and fails later on something unrelated.
+	// The STATUSES are collected and asserted on the test goroutine. t.Fatalf is
+	// documented as callable only from there: from a worker it ends that
+	// goroutine alone, so the run would continue past the condition meant to
+	// stop it and fail later on something unrelated.
+	//
+	// mcpRaw can still Fatal from inside a worker on a transport failure, which
+	// this does not fix. That is the harness's own contract and shared with
+	// every suite here; what this file owns is the assertions, and they are out.
 	var wg sync.WaitGroup
 	bodies := make([]string, 2)
 	for i := range bodies {
@@ -375,6 +379,43 @@ func TestRepeatingAStagedCallAnswersItsOwnHandle(t *testing.T) {
 	}
 	if staged := stagedApprovalCount(t, e.AppEnv); staged != 2 {
 		t.Errorf("%d proposals staged for two calls, want 2", staged)
+	}
+}
+
+// Cancel reads a claim as live by the SAME rule Claim and the retention sweep
+// do — younger than the executor's lease. A claim left behind by a process that
+// died must not make a task permanently uncancellable, and only the real
+// predicate can show that; the unit fixture has no clock.
+func TestATaskWhoseExecutorDiedCanStillBeCancelled(t *testing.T) {
+	e := setupConnector(t)
+	bearer := passportBearer(t, e.AppEnv, "task client", "read", "write")
+	leadID := createDisqualifiableLead(t, e.AppEnv)
+
+	created := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,
+			"name":"disqualify_lead","arguments":{"lead_id":%q}}}`, tasksMeta, leadID),
+		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
+	taskID, _ := created["taskId"].(string)
+
+	// A claim from a process that is not coming back.
+	if _, err := e.Owner.Exec(t.Context(),
+		`UPDATE agent_task SET claimed_at = now() - interval '1 hour' WHERE id = $1`, taskID); err != nil {
+		t.Fatalf("simulating a dead executor: %v", err)
+	}
+
+	rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tasks/cancel","params":{%s,"taskId":%q}}`, tasksMeta, taskID),
+		modernHeaders(bearer, "tasks/cancel", taskID)).Body)
+
+	after := pollTask(t, e, bearer, taskID)
+	if after["status"] != "cancelled" {
+		t.Fatalf("status = %v, want cancelled — a stale claim must not strand the handle", after["status"])
+	}
+	if pendingApprovalCount(t, e.AppEnv) != 0 {
+		t.Error("the proposal behind a cancelled task is still live")
+	}
+	if disqualified(t, e.AppEnv, leadID) {
+		t.Fatal("cancelling ran the released call")
 	}
 }
 

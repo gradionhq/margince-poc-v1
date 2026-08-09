@@ -175,7 +175,7 @@ type Tasks interface {
 	// Losing is not a failure. Cancellation is cooperative, and the
 	// specification permits a task to reach a terminal state other than
 	// cancelled — the poll holding the claim will finish it.
-	Cancel(ctx context.Context, id ids.UUID, message string) (cancelled bool, err error)
+	Cancel(ctx context.Context, id ids.UUID, lease time.Duration, message string) (cancelled bool, err error)
 }
 
 // TaskApprovals is what POLLING a decision needs, as distinct from staging or
@@ -269,12 +269,6 @@ const (
 	taskCancelledLateMessage = "This task was cancelled. A person had already decided the approval behind it, " +
 		"so that decision stands and was not withdrawn. Nothing was carried out through this task."
 	taskCompletedMessage = "A person approved this and it has now been carried out."
-	// taskInterruptedMessage is the one answer this surface cannot make
-	// definite, so it says exactly that. It is reached when the approval was
-	// already consumed by an execution this task has no recorded result for: an
-	// earlier poll that died after redeeming, or the agent redeeming the same
-	// approval through a direct call. Guessing either way would be a lie, and
-	// re-running would risk a second effect from one human yes.
 	// taskWithheldMessage is what a completed task answers when the records its
 	// recorded result hands over can no longer be read by this caller — the
 	// access was narrowed, the row was archived, or an erasure reached it. The
@@ -283,6 +277,12 @@ const (
 	taskWithheldMessage = "This was approved and carried out, but its result can no longer be shown to " +
 		"this agent, because the records it named are no longer readable under the current access. " +
 		"Do not repeat the call; ask the user to check the record."
+	// taskInterruptedMessage is the one answer this surface cannot make
+	// definite, so it says exactly that. It is reached when the approval was
+	// already consumed by an execution this task has no recorded result for: an
+	// earlier poll that died after redeeming, or the agent redeeming the same
+	// approval through a direct call. Guessing either way would be a lie, and
+	// re-running would risk a second effect from one human yes.
 	taskInterruptedMessage = "The approval for this call was consumed by an attempt that recorded no result, " +
 		"so whether the effect was carried out is not known here. Do not repeat the call — read the record, " +
 		"or the workspace audit log, to see what committed."

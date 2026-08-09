@@ -190,13 +190,19 @@ func (t agentTasks) Settle(ctx context.Context, id ids.UUID, s agents.Settlement
 
 // Cancel settles a task NOTHING IS EXECUTING.
 //
-// `claimed_at IS NULL` is the whole guard, and it is what a status check alone
-// could not give: a claimed task is inside its released call right now, and
-// marking it cancelled would discard that call's own settlement and tell the
-// client nothing happened while the effect was committing. Losing this race is
-// reported, not raised — cancellation is cooperative, and the poll holding the
-// claim will settle the task itself.
-func (t agentTasks) Cancel(ctx context.Context, id ids.UUID, message string) (bool, error) {
+// The claim guard is the whole of it, and it is what a status check alone could
+// not give: a task inside its released call would otherwise be marked cancelled,
+// discarding that call's own settlement and telling the client nothing happened
+// while the effect was committing.
+//
+// It is the SAME predicate Claim and the retention sweep use — a live claim is
+// one younger than the executor's lease — because all three are asking one
+// question, and a cancel with a stricter answer would leave a task whose
+// executor died permanently uncancellable. So losing here means an executor
+// really is inside the row, and that poll will settle the task itself:
+// cancellation is cooperative, and the specification permits a terminal state
+// other than cancelled.
+func (t agentTasks) Cancel(ctx context.Context, id ids.UUID, lease time.Duration, message string) (bool, error) {
 	passport, err := taskPassport(ctx, "cancelling")
 	if err != nil {
 		return false, err
@@ -205,11 +211,12 @@ func (t agentTasks) Cancel(ctx context.Context, id ids.UUID, message string) (bo
 	err = database.WithWorkspaceTx(ctx, t.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			WITH taken AS (
-				UPDATE agent_task SET status = 'cancelled', status_message = NULLIF($3, ''), updated_at = now()
-				WHERE id = $1 AND passport_id = $2 AND status = 'working' AND claimed_at IS NULL
+				UPDATE agent_task SET status = 'cancelled', status_message = NULLIF($4, ''), updated_at = now()
+				WHERE id = $1 AND passport_id = $2 AND status = 'working'
+				  AND (claimed_at IS NULL OR claimed_at < now() - $3::interval)
 				RETURNING id
 			)
-			SELECT EXISTS (SELECT 1 FROM taken)`, id, passport, message).Scan(&cancelled)
+			SELECT EXISTS (SELECT 1 FROM taken)`, id, passport, lease, message).Scan(&cancelled)
 	})
 	if err != nil {
 		return false, fmt.Errorf("compose: cancelling an MCP task: %w", err)
