@@ -25,8 +25,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -101,11 +99,14 @@ func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse, 
 }
 
 // httpMCPHandler is the concrete type behind NewHTTPHandler's http.Handler
-// return value. It is unexported — callers outside this package see only
-// the interface — but a whitebox test in this package can reach `sessions`
-// directly to assert registry state DELETE alone cannot prove (a 404 looks
-// the same whether a session never existed or belongs to someone else; the
-// registry is the only place that distinction is visible).
+// return value. It is unexported — callers outside this package see only the
+// interface.
+//
+// It holds NO per-connection state, which is the whole of ADR-0092 §6: a call
+// can land on any api replica because there is nothing here for it to have
+// landed on before. What the in-process session registry used to hold was
+// bookkeeping plus an implicit volume bound, and the bound now lives in Redis
+// (platform/agentquota) where every replica reads the same number.
 type httpMCPHandler struct {
 	// server is the SAME dispatcher the stdio transport runs, built once:
 	// method dispatch, the tool surface and the scrubbed-error rules are
@@ -115,7 +116,6 @@ type httpMCPHandler struct {
 	server       *Dispatcher
 	authenticate func(*http.Request) (context.Context, error)
 	challenge    func(*http.Request) string
-	sessions     *sessionRegistry
 }
 
 // NewHTTPHandler serves MCP over HTTP. authenticate runs PER REQUEST —
@@ -139,7 +139,6 @@ func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (contex
 		server:       server,
 		authenticate: authenticate,
 		challenge:    challenge,
-		sessions:     newSessionRegistry(),
 	}
 }
 
@@ -208,27 +207,16 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// this needs saying to the linter as well as to the reader.
 	r = r.WithContext(ctx) //nolint:contextcheck // ctx is derived from r.Context() inside the injected authenticate closure
 	if r.Method == http.MethodDelete {
-		if duplicatedVersionHeader(r.Header) {
-			httperr.Write(w, r, &httperr.DetailedError{
-				Status: http.StatusBadRequest,
-				Code:   "ambiguous_protocol_version",
-				Detail: "This request names more than one protocol version, so there is no version to act on.",
-			})
-			return
-		}
-		if servesAsModern(declaredTransportVersion(r.Header)) {
-			// The modern revision has no protocol-level session, so it has
-			// nothing to tear down. Answering 405 tells a client that named
-			// that revision what is true of it, rather than letting it close a
-			// session it could not have opened.
-			httperr.Write(w, r, &httperr.DetailedError{
-				Status: http.StatusMethodNotAllowed,
-				Code:   "method_not_allowed",
-				Detail: "This protocol revision establishes no session, so there is none to close.",
-			})
-			return
-		}
-		h.teardownSession(w, r)
+		// NEITHER era has a session to tear down, and the answer is the same
+		// sentence for both. `Mcp-Session-Id` is optional in the handshake era
+		// and this server no longer mints one, so a legacy client has nothing
+		// to name here either — and telling it so beats a 404 it would read as
+		// "your session expired" and re-handshake over.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusMethodNotAllowed,
+			Code:   "method_not_allowed",
+			Detail: "This server establishes no session, so there is none to close.",
+		})
 		return
 	}
 	h.servePost(w, r)
@@ -354,52 +342,13 @@ func (h *httpMCPHandler) exchange(w http.ResponseWriter, r *http.Request, req rp
 	resp := h.server.handle(ctx, req, fr)
 	status := http.StatusOK
 	if fr.modern {
-		// A modern call mints no session: it carries its own state, and an
-		// Mcp-Session-Id it presented anyway is ignored rather than echoed.
 		status = modernStatus(resp)
-	} else if req.Method == methodInitialize && resp.Error == nil {
-		h.mintSession(ctx, w)
 	}
+	// NEITHER era is answered with an Mcp-Session-Id. A modern call carries its
+	// own state by construction; a handshake-era `initialize` used to mint one,
+	// and the id it minted was never authority — every request re-authenticates
+	// on its Bearer passport, and the volume the session implicitly bounded is
+	// now bounded per Passport in Redis (ADR-0092 §6). What the header cost was
+	// real: it pinned a conversation to the process that answered initialize.
 	writeRPCResponse(w, r, resp, status)
-}
-
-// mintSession registers a fresh session under the passport that just
-// initialized and returns its id as Mcp-Session-Id. The passport is what
-// "closes only your own" (§10.4) has to key on: the session id itself
-// carries no authority. actor.PassportID is the zero value for a human
-// call, which is fine — it just means every session-less human shares one
-// bucket in this registry, a case this transport (agent passports only)
-// does not reach in production.
-func (h *httpMCPHandler) mintSession(ctx context.Context, w http.ResponseWriter) {
-	actor, _ := principal.Actor(ctx)
-	sessionID := ids.NewV7().String()
-	h.sessions.register(actor.PassportID, sessionID)
-	w.Header().Set("Mcp-Session-Id", sessionID)
-}
-
-// teardownSession answers DELETE /mcp: it closes only the session the
-// PRESENTING passport opened. A missing header is a client error (400);
-// a session id that does not exist under this exact passport — whether it
-// never existed or belongs to someone else — answers 404, identically, so
-// a probe cannot tell the two apart.
-func (h *httpMCPHandler) teardownSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.Header.Get("Mcp-Session-Id")
-	if sessionID == "" {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusBadRequest,
-			Code:   "missing_session_id",
-			Detail: "Closing a session needs the Mcp-Session-Id header initialize returned.",
-		})
-		return
-	}
-	actor, _ := principal.Actor(r.Context())
-	if !h.sessions.close(actor.PassportID, sessionID) {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusNotFound,
-			Code:   "session_not_open",
-			Detail: "No session is open under this id for this passport.",
-		})
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }

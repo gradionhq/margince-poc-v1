@@ -8,7 +8,7 @@ package integration
 // The MCP-SESS-READS bound on the REST door, over the REAL HTTP stack with a
 // real passport.
 //
-// The shared app harness composes readmeter.Unmetered() — it serves no Redis,
+// The shared app harness composes agentquota.Unmetered() — it serves no Redis,
 // and a meter that cannot reach its counter fails closed, which would refuse
 // every agent read in suites testing something else. That is the right default
 // for those suites and the wrong one for this property, so this file builds its
@@ -26,25 +26,25 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
-	"github.com/gradionhq/margince/backend/internal/platform/readmeter"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // boundedApp is the app under a live read bound, plus the meter itself so a
 // test can put the window into whatever state it is about.
-func boundedApp(t *testing.T, slug string, limit int) (*apptest.AppEnv, *readmeter.Meter) {
+func boundedApp(t *testing.T, slug string, limit int) (*apptest.AppEnv, *agentquota.Meter) {
 	t.Helper()
-	meter := readmeter.New(budgettest.Client(t), limit, time.Hour)
-	e := apptest.SetupAppWithOptions(t, compose.WithReadMeter(meter))
+	meter := agentquota.New(budgettest.Client(t), agentquota.Limits{Reads: limit}, time.Hour)
+	e := apptest.SetupAppWithOptions(t, compose.WithAgentQuota(meter))
 	e.Slug = slug
 	apptest.BootstrapWorkspaceSession(t, e, "Read Bound", slug+"@fable.test", "Admin")
 	return e, meter
 }
 
 // spendWindow charges the meter against one passport, as the MCP door would.
-func spendWindow(t *testing.T, e *apptest.AppEnv, meter *readmeter.Meter, passport ids.UUID, records int) {
+func spendWindow(t *testing.T, e *apptest.AppEnv, meter *agentquota.Meter, passport ids.UUID, records int) {
 	t.Helper()
 	var ws ids.UUID
 	if err := e.Owner.QueryRow(t.Context(), `SELECT id FROM workspace LIMIT 1`).Scan(&ws); err != nil {
@@ -54,7 +54,7 @@ func spendWindow(t *testing.T, e *apptest.AppEnv, meter *readmeter.Meter, passpo
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalAgent, ID: "agent:" + passport.String(), PassportID: passport,
 	})
-	if err := meter.Consume(ctx, records); err != nil {
+	if err := meter.Consume(ctx, agentquota.Reads, records); err != nil {
 		t.Fatalf("spending the window: %v", err)
 	}
 }

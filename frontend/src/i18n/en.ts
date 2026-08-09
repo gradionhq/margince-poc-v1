@@ -753,6 +753,7 @@ export const en = {
   "approval.kind.send_email": "Send an email",
   "approval.kind.book_meeting": "Book a meeting",
   "approval.kind.send_offer": "Send an offer",
+  "approval.kind.quota_release": "Let an agent continue",
   "approval.kind.coldstart": "Fill in a new account",
   "approval.kind.enrich": "Enrich from the web",
   "approval.kind.deepread": "Read the company site",
@@ -3684,6 +3685,9 @@ export const en = {
 
   "consent.title": "Authorize access",
   "consent.asks": "{client} wants to act in Margince as you.",
+  "consent.redirectsTo": "Margince will send the authorization back to {host}.",
+  "consent.redirectsToLoopback":
+    "That is an address on this computer, and this connection cannot prove which program is listening on it.",
   "consent.lend": "Lend it one of your agent passports",
   "consent.grantedNote":
     "This connection gets exactly the scopes shown — the ones this passport carries.",

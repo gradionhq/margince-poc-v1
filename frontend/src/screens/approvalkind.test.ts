@@ -39,6 +39,7 @@ const STAGEABLE_KINDS = [
   "org_name_promotion",
   "progress_deal",
   "promote_lead",
+  "quota_release",
   "send_email",
   "send_offer",
   "share_record",

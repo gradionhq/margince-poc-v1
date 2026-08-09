@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -471,11 +472,12 @@ func TestAQueryIsChargedPerRecordIncludingItsHops(t *testing.T) {
 	// Three rows and the one organization they were all admitted through: the
 	// hop is served content too, so it is counted once, not three times and
 	// not zero.
-	if charger.charged != 4 {
-		t.Errorf("charged %d records for 3 rows sharing 1 hop, want 4", charger.charged)
+	if charger.reads() != 4 {
+		t.Errorf("charged %d records for 3 rows sharing 1 hop, want 4", charger.reads())
 	}
-	if charger.calls != 1 {
-		t.Errorf("the bound was consulted %d times, want one charge for the whole answer", charger.calls)
+	if charger.times[agentquota.Reads] != 1 {
+		t.Errorf("the read bound was consulted %d times, want one charge for the whole answer",
+			charger.times[agentquota.Reads])
 	}
 }
 
@@ -519,9 +521,9 @@ func TestADroppedRowIsNeitherChargedNorNamed(t *testing.T) {
 
 	// The served row and its organization, and nothing for the row that was
 	// dropped — not the deal that WAS readable, and not the hop that was not.
-	if charger.charged != 2 {
+	if charger.reads() != 2 {
 		t.Errorf("charged %d records, want 2 — the served row and its hop, and nothing for the dropped row",
-			charger.charged)
+			charger.reads())
 	}
 	for _, ref := range env.Evidence {
 		if ref.RecordID == dropped || ref.RecordID == goneOrg {

@@ -239,8 +239,8 @@ func TestAnUnansweredCandidateIsStillCharged(t *testing.T) {
 		t.Fatalf("invoking resolve_entities: %v", err)
 	}
 
-	if charger.charged != 2 {
-		t.Errorf("charged %d for two unanswered candidates, want 2", charger.charged)
+	if charger.reads() != 2 {
+		t.Errorf("charged %d for two unanswered candidates, want 2", charger.reads())
 	}
 }
 
@@ -283,8 +283,8 @@ func TestResolutionIsChargedPerRecordServed(t *testing.T) {
 		t.Fatalf("invoking resolve_entities: %v", err)
 	}
 
-	if charger.charged != 4 {
-		t.Errorf("charged %d for four resolved records, want 4", charger.charged)
+	if charger.reads() != 4 {
+		t.Errorf("charged %d for four resolved records, want 4", charger.reads())
 	}
 }
 
@@ -309,8 +309,8 @@ func TestARecordNamedByTwoCandidatesIsChargedOnce(t *testing.T) {
 		t.Fatalf("invoking resolve_entities: %v", err)
 	}
 
-	if charger.charged != 1 {
-		t.Errorf("charged %d for one record named by two candidates, want 1", charger.charged)
+	if charger.reads() != 1 {
+		t.Errorf("charged %d for one record named by two candidates, want 1", charger.reads())
 	}
 	// Both answers still carry it: charging once must not cost the second
 	// candidate its match.

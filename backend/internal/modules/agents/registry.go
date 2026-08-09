@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -58,10 +57,20 @@ type Registry struct {
 	// granting human's authority live per call. A nil gate fails closed
 	// for agent principals (Gate.Admit owns that rule).
 	gate *auth.Gate
-	// reads is the MCP-SESS-READS meter this surface CHARGES. The gate holds
-	// the same meter and does the refusing; the split is deliberate — a bound
-	// is enforced where admission is decided and paid where records leave.
-	reads ReadCharger
+	// quota is the MCP-SESS-* meter this surface CHARGES. The gate holds the
+	// same meter and does the refusing; the split is deliberate — a bound is
+	// enforced where admission is decided and paid where records and effects
+	// leave.
+	quota QuotaCharger
+	// cost answers the SOFT budget-share counter, whose only effect is a
+	// warning on the answer (quota.go).
+	cost CostShareReader
+	// claims is what makes `idempotency_key` mean something. Nil refuses a
+	// keyed call rather than running it unprotected (idempotency.go).
+	claims Idempotency
+	// replayReader re-reads the records a recorded result rests on, so a replay
+	// is gated as the read it is.
+	replayReader ReplayReader
 }
 
 // NewRegistry builds the tool surface over its approvals engine and admission
@@ -85,120 +94,14 @@ func NewRegistry(approvals Approvals, gate *auth.Gate, opts ...RegistryOption) *
 
 var _ mcp.Registry = (*Registry)(nil)
 
-// maxDescriptionRunes bounds one tool's written description. See Register for
-// why a bound exists at all; the value is roughly three times the longest entry
-// this surface ships, so it refuses runaway prose without ever being a number
-// an author writing a careful description has to think about.
-const maxDescriptionRunes = 3000
-
-// Register refuses, at boot, the spec defects that would otherwise surface as
-// a runtime authority bug or a broken wire response: a duplicate name (two
-// handlers behind one admission decision), a TierDynamic spec with no resolver
-// (a tool whose tier nobody computes would default to whatever the gate
-// assumes), a missing display title, a missing description (a tool no client
-// can tell apart from its neighbours), and a schema that is not an encodable
-// object (see assertObjectSchemas — one bad brace takes the whole tools/list
-// down, not just its own tool).
-//
-// This is the ONE door every tool comes through, core and extension alike, so
-// none of it is a list of tools someone has to keep current.
-func (r *Registry) Register(t mcp.Tool) {
-	spec := t.Spec()
-	if spec.Name == "" {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic("crmagents: registering a tool with no name")
-	}
-	if spec.Tier == mcp.TierDynamic && spec.TierResolver == nil {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: %s is TierDynamic without a TierResolver", spec.Name))
-	}
-	if spec.Tier != mcp.TierDynamic && spec.TierResolver != nil {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: %s carries a TierResolver but is not TierDynamic", spec.Name))
-	}
-	// TrimSpace, because a blank title is worse than none: a client takes it
-	// over the name (title outranks name for display) and renders an empty
-	// heading, where an absent one would at least have fallen back.
-	if strings.TrimSpace(spec.Title) == "" {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: %s has no Title — tools/list would render its identifier as its display name", spec.Name))
-	}
-	// A tool nobody described can be selected only by the shape of its name:
-	// the surfaces that serve it have nothing else to say about it, and fall
-	// back to describing how it is GOVERNED — which is not the question a
-	// caller choosing between thirty tools is asking. Refused at the one door,
-	// so no tool can answer it for itself.
-	if strings.TrimSpace(spec.Description) == "" {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: %s has no Description — a client would be told how it is governed and never what it is for", spec.Name))
-	}
-	// And an upper bound, because the description is not only served to a
-	// client that can ignore it: the Surface-B window prints every registered
-	// tool's, and that listing is in the system prompt, which elision never
-	// touches. One tool's prose is therefore spent out of every run's own
-	// context for the life of the process. The ceiling is several times the
-	// longest written entry — it is a bound on the pathological case, not a
-	// style rule — and it binds every tool that comes through this door, so an
-	// extension unit cannot crowd the prompt on its own.
-	if n := len([]rune(spec.Description)); n > maxDescriptionRunes {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: %s has a %d-rune Description, past the %d a tool may spend — "+
-			"every run's prompt carries it and never elides it", spec.Name, n, maxDescriptionRunes))
-	}
-	// The version a result declares as its own. It is not documentation: every
-	// result this surface seals carries it as `schema_version`, which is the
-	// only thing that lets a client tell a shape change from a data change. A
-	// tool registered without one would put an empty string in that field on
-	// every call — a claim that the contract has no version, made forever.
-	if strings.TrimSpace(spec.Version) == "" {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: %s declares no Version — every result carries it as schema_version, "+
-			"and an empty one tells a client the shape can never be compared", spec.Name))
-	}
-	if err := assertObjectSchemas(spec); err != nil {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic("crmagents: " + err.Error())
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, dup := r.tools[spec.Name]; dup {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: duplicate tool %s", spec.Name))
-	}
-	r.tools[spec.Name] = t
-	r.specs[spec.Name] = envelopedSpec(spec)
-	r.idArgs[spec.Name] = declaredIDArgs(spec.InputSchema)
-	r.numArgs[spec.Name] = declaredNumBounds(spec.InputSchema)
-	r.requiredArgs[spec.Name] = declaredRequired(spec.InputSchema)
-}
-
-// envelopedSpec is the spec every surface is served: the tool's own, with its
-// declared output shape wrapped in the envelope Invoke seals results into.
-//
-// It is computed HERE, once at registration, rather than where each surface
-// serves it. The advertised schema and the answered document are two halves of
-// one promise, and the only way they cannot drift is for one wrapper to produce
-// both — the tool declares the shape of its payload and knows nothing about the
-// envelope, exactly as its handler does.
-func envelopedSpec(spec mcp.ToolSpec) mcp.ToolSpec {
-	if spec.OutputSchema == nil {
-		// A tool promising no output shape owes tools/call no structured
-		// content; its result is still sealed, but there is nothing to wrap.
-		return spec
-	}
-	sealed, err := envelopedSchema(spec.OutputSchema)
-	if err != nil {
-		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
-		panic(fmt.Sprintf("crmagents: cannot advertise %s's result inside the envelope: %v", spec.Name, err))
-	}
-	spec.OutputSchema = sealed
-	return spec
-}
-
 // Invoke runs the admission gate, then the tool. There is no other path
 // to a Handle in this package. A refused 🟡 call is staged for human
 // decision; a retry carrying `approval_id` redeems that decision — bound
 // to the identical call by content hash — and only then reaches Handle.
+//
+// A call carrying `idempotency_key` reaches Handle at most once for that key
+// (idempotency.go): the claim is taken AFTER admission, so a caller the gate
+// turns away never occupies a key, and the effect is what the claim protects.
 func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) (json.RawMessage, error) {
 	// The REGISTERED spec, not a fresh Spec() call. The two are the same for a
 	// tool whose spec is a literal, and every tool here is — but the registered
@@ -214,51 +117,58 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		return nil, &UnknownToolError{Name: name}
 	}
 
-	args, approvalID, diffHash, err := splitApproval(in)
+	res, err := splitReserved(in)
 	if err != nil {
 		return nil, err
 	}
+	args := res.Args
 
 	admitted, err := r.gate.Admit(ctx, spec, r.tierResolverFor(ctx, t, name, args))
 	// Static-tier tools, whose resolver Admit never runs. After authority and
 	// before staging, and both halves matter: a caller the gate turns away learns
 	// nothing about arguments, while a caller it would send to the approval queue
 	// is told about its own bad arguments first — staging an unrunnable call spends
-	// a human's yes on something that was never going to happen.
-	if err == nil || errors.Is(err, apperrors.ErrRequiresApproval) {
+	// a human's yes on something that was never going to happen. A step-up is
+	// staging too, and spends the same yes.
+	if askedOfAHuman(err) {
 		if argErr := r.requireDeclaredArgs(name, args); argErr != nil {
 			return nil, argErr
 		}
 	}
 	ctx = admitted
-	switch {
-	case err == nil:
-		// An auto-execute call may still carry approval_id: the retry of a
-		// per-field precedence staging (interfaces.md §2.1) admits at the
-		// auto-execute tier, so its asserted authority is consumed HERE — validated against
-		// the identical-call hash, never ignored. The redeemed mark tells
-		// the handler the overwrite it is about to make was human-released.
-		if !approvalID.IsZero() {
-			if r.approvals == nil {
-				return nil, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
-			}
-			marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
-			if rErr != nil {
-				return nil, rErr
-			}
-			ctx = marked
+	if stepUp := releasableQuotaRefusal(err); stepUp != nil {
+		return nil, r.stageStepUp(ctx, stepUp)
+	}
+	// The call ceiling is charged where the call is known to RUN, and only
+	// there. A refusal, a staged 🟡, and a token that fails redemption all
+	// execute nothing — counting them would let a caller suspend its own
+	// Passport with requests it was never allowed to make, or with a replayed
+	// token that opens nothing.
+	//
+	// Whether it may REFUSE depends on what has already committed. Before a
+	// redemption, nothing has, so an uncountable call is not run. After one, the
+	// human's approval is consumed and refusing would burn it on a call that
+	// never happened and can never be redeemed again — so the charge is absorbed
+	// there instead, the same asymmetry a committed write takes.
+	if err == nil && res.ApprovalID.IsZero() {
+		if chargeErr := r.chargeCall(ctx, spec, nothingHasHappenedYet); chargeErr != nil {
+			return nil, chargeErr
 		}
-		return r.handle(ctx, t, spec, args)
+	}
+	switch {
+	// An auto-execute call may still carry approval_id: the retry of a per-field
+	// precedence staging (interfaces.md §2.1) admits at the auto-execute tier, so
+	// its asserted authority is consumed by redeemPresented — validated against
+	// the identical-call hash, never ignored.
+	case err == nil, !res.ApprovalID.IsZero() && errors.Is(err, apperrors.ErrRequiresApproval) && r.approvals != nil:
+		return r.runClaimed(ctx, t, spec, res)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
-	case !approvalID.IsZero():
-		marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
-		if rErr != nil {
-			return nil, rErr
-		}
-		return r.handle(marked, t, spec, args)
 	default:
-		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, diffHash, err)
+		// Staged, and deliberately BEFORE any claim: a call that did not run
+		// must not leave a key held, and the retry that redeems the approval is
+		// the same call under the same key.
+		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, res.DiffHash, err)
 	}
 }
 
@@ -273,27 +183,84 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 // The failure path deliberately seals nothing: a refusal is an error, and an
 // error carries the sentinel and the message the caller acts on, not a document
 // with an empty payload inside it.
-func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, error) {
+// runClaimed is the one path from admission to a handler: claim the retry key,
+// redeem any asserted approval, run, and record what the run produced.
+//
+// The ORDER is the whole point. The claim comes first, so the retry of an
+// approved call reaches its recorded result instead of dying on the single-use
+// approval it already spent. Redemption comes second, so a refused redemption
+// gives the key straight back — nothing ran.
+func (r *Registry) runClaimed(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, error) {
+	fresh, answered, err := r.claimFor(ctx, spec, res)
+	if !fresh {
+		return answered, err
+	}
+	redeemed, err := r.redeemPresented(ctx, spec, res)
+	if err != nil {
+		r.releaseUnrunKey(ctx, spec, res)
+		return nil, err
+	}
+	return r.handle(redeemed, t, spec, res)
+}
+
+// redeemPresented consumes the approval a retry asserts, and answers the
+// context marked as released. A call presenting none passes through: whether
+// one was REQUIRED is the gate's question, already answered above.
+//
+// The redeemed call's ceiling is charged HERE, where the redemption is known to
+// have succeeded, and absorbed rather than refused — the human's approval is
+// consumed by this point, and refusing would burn it on a call that never
+// happened and can never be redeemed again.
+func (r *Registry) redeemPresented(ctx context.Context, spec mcp.ToolSpec, res reserved) (context.Context, error) {
+	if res.ApprovalID.IsZero() {
+		return ctx, nil
+	}
+	if r.approvals == nil {
+		return ctx, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
+	}
+	marked, _, _, err := RedeemAndMark(ctx, r.approvals, res.ApprovalID, spec.Name, res.DiffHash)
+	if err != nil {
+		return ctx, err
+	}
+	r.ChargeRedeemedCall(marked, spec)
+	return marked, nil
+}
+
+// handle runs an admitted call, seals its answer, and records what a claimed
+// retry key produced — this is the one place that knows both that the tool RAN
+// and what it answered with.
+func (r *Registry) handle(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, error) {
+	sealed, records, err := r.runAndSeal(ctx, t, spec, res.Args)
+	r.settleRun(ctx, spec, res, sealed, records, err)
+	return sealed, err
+}
+
+// runAndSeal is the call itself: run, seal, charge. It answers the record count
+// as well as the document, because what an answer COST is what its replay
+// costs, and only this frame can see it.
+func (r *Registry) runAndSeal(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, args json.RawMessage) (json.RawMessage, int, error) {
 	ctx, trace := withTrace(ctx)
 	ctx, facts := withEnvelopeFacts(ctx)
 	noteRowScope(ctx)
 	out, err := t.Handle(ctx, args)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	r.noteCostShare(ctx)
 	sealed, err := sealEnvelope(spec, trace, facts, out)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	// Charged AFTER sealing and BEFORE returning: at this point the answer
 	// exists but has not reached the caller, so a charge that cannot be
 	// recorded can still refuse it. An answer sealed and then charged in the
 	// other order would spend the window on a result a marshalling failure was
 	// about to discard.
-	if err := r.chargeReads(ctx, spec, facts.servedCount()); err != nil {
-		return nil, err
+	served := facts.servedCount()
+	if err := r.chargeAnswer(ctx, spec, served); err != nil {
+		return nil, 0, err
 	}
-	return sealed, nil
+	return sealed, served, nil
 }
 
 // tierResolverFor builds the resolver Admit consults for the call's tier. A
@@ -406,56 +373,6 @@ func (r *Registry) Offered(ctx context.Context) []mcp.ToolSpec {
 		}
 	}
 	return out
-}
-
-// assertObjectSchemas holds two promises tools/list and tools/call have to
-// keep, at the one door every tool comes through.
-//
-// The first is ENCODABILITY. Both schemas are hand-written JSON literals
-// spliced together from constants, and they reach the client by being embedded
-// verbatim into the tools/list response — so ONE misplaced brace does not
-// break one tool, it makes the whole listing unencodable and every tool
-// disappears behind a 500. That is a boot-time defect discovered on a client's
-// first request, which is exactly the wrong end.
-//
-// The second is that both are OBJECT schemas. MCP requires an object input
-// schema, and a declared outputSchema obliges the server to answer with
-// structured content conforming to it — which the dispatcher can only do for
-// an object, because structuredContent is typed as one. A schema written some
-// other way (a $ref, a bare allOf) fails here on purpose: not wrong, but not
-// something the dispatcher has been taught to honour, and failing at boot
-// beats advertising a shape the results miss.
-func assertObjectSchemas(spec mcp.ToolSpec) error {
-	if spec.InputSchema == nil {
-		// The protocol requires one. A tool taking no arguments still declares
-		// `{"type":"object"}`; nil would put a bare null on tools/list.
-		return fmt.Errorf("%s declares no InputSchema; MCP requires every tool to advertise an object input schema", spec.Name)
-	}
-	for _, s := range []struct {
-		field string
-		raw   json.RawMessage
-	}{
-		{field: "InputSchema", raw: spec.InputSchema},
-		// Optional: a tool promising no output shape owes tools/call no
-		// structured content.
-		{field: "OutputSchema", raw: spec.OutputSchema},
-	} {
-		if s.raw == nil {
-			continue
-		}
-		var declared struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(s.raw, &declared); err != nil {
-			return fmt.Errorf("%s has an %s that is not valid JSON, which makes the whole tools/list response unencodable: %w",
-				spec.Name, s.field, err)
-		}
-		if declared.Type != "object" {
-			return fmt.Errorf("%s declares %s type %q; this surface serves object schemas only",
-				spec.Name, s.field, declared.Type)
-		}
-	}
-	return nil
 }
 
 // dynamicTool is implemented by TierDynamic tools that need more than the

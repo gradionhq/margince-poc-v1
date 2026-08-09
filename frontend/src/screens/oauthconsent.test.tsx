@@ -702,3 +702,46 @@ describe("OAuthConsent — re-entering after sign-in", () => {
     expect(assigned).toEqual([]);
   });
 });
+
+// The 2026-07-28 profile makes the redirect's HOST a MUST on this screen, and a
+// loopback one an extra warning. Both exist for the CIMD case: a client id is a
+// URL and a client name is whatever that URL's document says, so the
+// destination is the one fact about a connection only the human can judge —
+// and a document cannot prove which program holds a port on this machine.
+describe("the redirect disclosure", () => {
+  const oneOption: ConsentPayload = {
+    client_name: "Claude Code",
+    offline: false,
+    passports: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        label: "Desk",
+        scopes: ["read"],
+      },
+    ],
+  };
+
+  it("names the host the authorization is sent back to", async () => {
+    globalThis.location.hash = hashWith({
+      redirect_uri: "https://client.example/cb",
+    });
+    stubConsent(oneOption);
+    render(<OAuthConsent />);
+
+    expect(await screen.findByText(/client\.example/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/address on this computer/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("warns when that destination is an address on this computer", async () => {
+    globalThis.location.hash = hashWith({
+      redirect_uri: "http://127.0.0.1:3000/callback",
+    });
+    stubConsent(oneOption);
+    render(<OAuthConsent />);
+
+    expect(await screen.findByText(/127\.0\.0\.1:3000/)).toBeInTheDocument();
+    expect(screen.getByText(/address on this computer/)).toBeInTheDocument();
+  });
+});

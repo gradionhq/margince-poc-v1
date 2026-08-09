@@ -31,9 +31,9 @@ func TestTheBriefIsChargedPerItem(t *testing.T) {
 	// Three deals and the two activity rows each item's ranking cites: a brief
 	// names more than one record per item, and metering only the deals would
 	// hand the rest of the queue over free.
-	if charger.charged != 9 {
+	if charger.reads() != 9 {
 		t.Errorf("charged %d for 3 items naming 3 deals and 6 activity rows, want 9 — metered per "+
-			"item, the brief is the cheapest bulk read on the surface", charger.charged)
+			"item, the brief is the cheapest bulk read on the surface", charger.reads())
 	}
 }
 
@@ -46,8 +46,8 @@ func TestAnEmptyBriefChargesNothing(t *testing.T) {
 		t.Fatalf("invoking read_brief: %v", err)
 	}
 
-	if charger.charged != 0 {
-		t.Errorf("charged %d for an empty queue, want 0", charger.charged)
+	if charger.reads() != 0 {
+		t.Errorf("charged %d for an empty queue, want 0", charger.reads())
 	}
 }
 

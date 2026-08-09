@@ -24,6 +24,12 @@ func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 		"authorization_endpoint": issuer + authorizePath,
 		"token_endpoint":         issuer + "/oauth/token",
 		"registration_endpoint":  issuer + "/oauth/register",
+		// CIMD is the forward path and DCR is retained for the compatibility
+		// window (ADR-0092 §4), so BOTH are advertised. A client reading the
+		// profile's own priority order picks the metadata document on its own;
+		// one that predates the revision keeps registering, and is not stranded
+		// by a change it never asked for.
+		"client_id_metadata_document_supported": true,
 		// RFC 7009: a client that cannot see this here will never call it —
 		// it hands back a credential and ends the connection on its own
 		// initiative, not on a server-side hint.

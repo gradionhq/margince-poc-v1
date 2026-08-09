@@ -297,10 +297,12 @@ func TestModernRefusalsCarryTheStatusTheirClientReads(t *testing.T) {
 	}
 }
 
-// The handshake era is untouched by any of this: a legacy client still
-// initializes, is answered a legacy revision, and is handed the session id it
-// closes with DELETE.
-func TestTheHandshakeEraStillOpensASession(t *testing.T) {
+// The handshake era is untouched by the framing work: a legacy client still
+// initializes and is answered a legacy revision. What it is no longer handed is
+// a session id — ADR-0092 §6 removed the registry once the per-Passport
+// counters replaced the volume bound it implicitly carried, and `Mcp-Session-Id`
+// is optional in `2025-11-25`, so a client that receives none simply sends none.
+func TestTheHandshakeEraStillInitializesAndIsHandedNoSession(t *testing.T) {
 	srv := modernServer(t)
 	req, err := http.NewRequest(http.MethodPost, srv.URL,
 		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}`))
@@ -321,8 +323,9 @@ func TestTheHandshakeEraStillOpensASession(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if resp.Header.Get("Mcp-Session-Id") == "" {
-		t.Error("initialize minted no session id — the handshake era still needs one")
+	if got := resp.Header.Get("Mcp-Session-Id"); got != "" {
+		t.Errorf("initialize returned Mcp-Session-Id %q; a client handed one pins its conversation "+
+			"to whichever replica answered, which is the thing ADR-0092 §6 removes", got)
 	}
 	var answered struct {
 		Result struct {
@@ -572,7 +575,10 @@ func TestNoVerbActsOnADuplicatedVersionHeader(t *testing.T) {
 		// A legacy-framed POST: no _meta, and a version that IS in the window,
 		// so nothing but the duplication can refuse it.
 		{"a handshake-era POST", http.MethodPost, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`},
-		{"a session teardown", http.MethodDelete, ""},
+		// DELETE is deliberately absent: it now answers 405 for every declared
+		// version, so there is no reading of the header for two readers to
+		// disagree about. Adding it back would assert a 400 this verb has no
+		// path to produce.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body io.Reader

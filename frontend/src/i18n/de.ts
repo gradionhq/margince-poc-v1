@@ -748,6 +748,7 @@ export const de = {
   "approval.kind.send_email": "E-Mail senden",
   "approval.kind.book_meeting": "Termin buchen",
   "approval.kind.send_offer": "Angebot senden",
+  "approval.kind.quota_release": "Einen Agenten weiterarbeiten lassen",
   "approval.kind.coldstart": "Neuen Account befüllen",
   "approval.kind.enrich": "Aus dem Web anreichern",
   "approval.kind.deepread": "Unternehmensseite lesen",
@@ -3697,6 +3698,9 @@ export const de = {
 
   "consent.title": "Zugriff autorisieren",
   "consent.asks": "{client} möchte in Margince als du handeln.",
+  "consent.redirectsTo": "Margince sendet die Autorisierung zurück an {host}.",
+  "consent.redirectsToLoopback":
+    "Das ist eine Adresse auf diesem Computer, und diese Verbindung kann nicht belegen, welches Programm dort lauscht.",
   "consent.lend": "Leih ihm einen deiner Agent-Passports",
   "consent.grantedNote":
     "Diese Verbindung erhält genau die gezeigten Berechtigungen — die dieses Passports.",

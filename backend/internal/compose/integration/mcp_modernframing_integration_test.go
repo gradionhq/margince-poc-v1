@@ -104,16 +104,16 @@ func TestBothFramingsConnectAndLandTheSameEffect(t *testing.T) {
 		}
 	})
 
-	t.Run("a handshake client still opens a session", func(t *testing.T) {
+	t.Run("a handshake client still connects, and is handed no session", func(t *testing.T) {
 		initialized := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
 			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}`,
 			withContentType(bearer))
 		if initialized.StatusCode != http.StatusOK {
 			t.Fatalf("initialize → %d %s", initialized.StatusCode, initialized.Body)
 		}
-		session := initialized.Header.Get("Mcp-Session-Id")
-		if session == "" {
-			t.Fatal("initialize minted no session, so the handshake era lost the state it depends on")
+		if session := initialized.Header.Get("Mcp-Session-Id"); session != "" {
+			t.Fatalf("initialize returned Mcp-Session-Id %q; neither era is handed one since ADR-0092 §6, "+
+				"and the id was never authority — every call re-authenticates on its Bearer passport", session)
 		}
 		negotiated, _ := rpcResult(t, initialized.Body)["protocolVersion"].(string)
 		if negotiated != "2025-11-25" {
@@ -123,7 +123,7 @@ func TestBothFramingsConnectAndLandTheSameEffect(t *testing.T) {
 		called := mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
 			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_record",`+
 				`"arguments":{"record_type":"person","fields":{"full_name":"Handshake Era Person"}}}}`,
-			legacyHeaders(bearer, negotiated, session))
+			legacyHeaders(bearer, negotiated))
 		if called.StatusCode != http.StatusOK {
 			t.Fatalf("tools/call → %d %s", called.StatusCode, called.Body)
 		}
@@ -178,10 +178,12 @@ func withContentType(bearer map[string]string) map[string]string {
 
 // legacyHeaders is what a connected handshake client carries on every request
 // after initialize.
-func legacyHeaders(bearer map[string]string, negotiated, session string) map[string]string {
+func legacyHeaders(bearer map[string]string, negotiated string) map[string]string {
 	headers := withContentType(bearer)
 	headers["MCP-Protocol-Version"] = negotiated
-	headers["Mcp-Session-Id"] = session
+	// No Mcp-Session-Id: this server mints none in either era, so a handshake
+	// client has nothing to present. Sending one anyway would test a header the
+	// transport ignores rather than the call it carries.
 	return headers
 }
 

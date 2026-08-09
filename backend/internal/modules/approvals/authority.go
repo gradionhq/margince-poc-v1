@@ -45,6 +45,20 @@ type grantRequirement struct {
 // both today, and decisionGrantsFor combines them so one that grows a second half
 // gains authority rather than silently losing the first.
 var decisionGrants = map[string][]grantRequirement{
+	// A step-up requires NO object grant, and the empty slice is the decision
+	// rather than an omission. Releasing a volume window touches no record: it
+	// does not widen what the agent may read, only how much of what it may
+	// already read it may be handed. There is no object to name, and naming one
+	// would be a fiction that decided the wrong question — a human holding
+	// deal.update is not thereby the person who lent this passport.
+	//
+	// What bounds it instead is selfOnlyKinds below: the lender, and nobody
+	// else. Without that entry this empty set would make a step-up decidable by
+	// everyone, which is the failure decisionGrantsFor's own comment names — so
+	// the two entries are one decision and TestAStepUpIsDecidedByTheLenderAlone
+	// holds them together.
+	KindQuotaRelease: {},
+
 	"advance_deal": {{tableDeal, principal.ActionUpdate}},
 	// progress_deal is advance_deal plus a timeline note; the gated effect
 	// is the deal move, so deciding it needs the same grant.
@@ -232,7 +246,11 @@ const (
 // must BE the member it was staged for. It is the inbox's mirror of the
 // webhooks module's selfOnlyEvents, which keeps the same three LinkedIn facts
 // off the workspace fan-out for the same reason.
-var selfOnlyKinds = map[string]bool{"linkedin_match": true}
+//
+// A step-up is the other: "may this agent keep reading" is a question about ONE
+// connection, and the only person who can answer it is the human whose authority
+// that connection borrows.
+var selfOnlyKinds = map[string]bool{"linkedin_match": true, KindQuotaRelease: true}
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would

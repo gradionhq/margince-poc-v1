@@ -747,6 +747,7 @@ export const vi = {
   "approval.kind.send_email": "Gửi một email",
   "approval.kind.book_meeting": "Đặt một lịch họp",
   "approval.kind.send_offer": "Gửi một báo giá",
+  "approval.kind.quota_release": "Cho tác nhân tiếp tục",
   "approval.kind.coldstart": "Điền thông tin công ty mới",
   "approval.kind.enrich": "Bổ sung thông tin từ web",
   "approval.kind.deepread": "Đọc website công ty",
@@ -3689,6 +3690,9 @@ export const vi = {
   "consent.title": "Cho phép truy cập",
   "consent.asks":
     "{client} muốn hành động trong Margince với danh nghĩa của bạn.",
+  "consent.redirectsTo": "Margince sẽ gửi ủy quyền trở lại {host}.",
+  "consent.redirectsToLoopback":
+    "Đó là địa chỉ trên chính máy này, và kết nối này không thể chứng minh chương trình nào đang lắng nghe ở đó.",
   "consent.lend": "Cho nó mượn một passport Agent của bạn",
   "consent.grantedNote":
     "Kết nối này nhận đúng những phạm vi hiển thị ở đây — đúng những gì passport này mang.",
