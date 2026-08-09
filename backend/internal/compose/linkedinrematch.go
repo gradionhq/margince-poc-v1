@@ -17,8 +17,17 @@ package compose
 // in it by name, and the upload-time pass matched 13. The rest were people and
 // employers the CRM learned about minutes later.
 //
-// The pass only ever looks at UNMATCHED ghosts, so a human's confirmation or
-// rejection is never revisited and a caught-up workspace costs one query.
+// The MATCH only ever looks at unmatched ghosts, so a decision a human has
+// already made is never revisited. The pass around it is wider, deliberately:
+// it also PROPOSES, and a suggestion that never became a proposal is invisible
+// to everyone until some pass re-reaches it. So the enumeration takes undecided
+// ghosts of either status and runs the staging pass for each owner it finds.
+//
+// That costs one re-read plus one idempotent staging attempt per outstanding
+// suggestion, and it is paid even when every one of them has already been
+// refused — a refusal is recorded on the approval, not on the ghost row, so
+// nothing here can tell those apart. A caught-up workspace still costs one
+// query; a workspace holding refusals does not.
 
 import (
 	"context"
@@ -166,8 +175,14 @@ func (w *linkedInRematchWorker) sweepWorkspace(ctx context.Context, ws ids.UUID)
 			//
 			// Over the WHOLE outstanding set, which is also this pass's
 			// rescue duty: an owner reached here because ghostOwners now
-			// enumerates `suggested` too may have suggestions that never
-			// became proposals, and this is the pass that repairs them.
+			// enumerates `suggested` too may hold suggestions that never
+			// became proposals, and this is the pass that proposes them.
+			//
+			// It rescues what is still proposable. A suggestion whose contact
+			// has since been archived — or merged away, which archives the
+			// source and re-points nothing — is read by neither this pass nor
+			// the matcher, so it stays where it is; the ghost row has no
+			// terminal state for a contact that left the live set.
 			_, err = StageLinkedInMatches(ownerCtx, w.approvals, w.store)
 			return err
 		})

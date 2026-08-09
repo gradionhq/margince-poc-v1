@@ -180,6 +180,19 @@ var contextTargetKinds = map[string]string{
 		"writes bump — and the same enrichment run that discovers the leads writes " +
 		"the company's profile fields, so the pin went stale before any human saw " +
 		"the lead and every accept failed for the row's lifetime.",
+	"deal_follow_up": "A reconciled follow-up is filed under the deal it is about, but the " +
+		"effect CREATES an activity and reads none of the deal's own fields. Its stager " +
+		"has always said it carries no pin, and stopped being right when the pin moved " +
+		"server-side: an overnight proposal waits until someone works their morning " +
+		"inbox, which is exactly the window a rep moves the stage, edits the amount or " +
+		"corrects the close date in — and any one of those cancelled the follow-up they " +
+		"had just approved.",
+	"capture_counterparty": "The proposal is filed under the ACTIVITY that carried the " +
+		"unrecognized sender, because that message is the evidence a human judges it on. " +
+		"The effect creates a person and an organization and closes the capture " +
+		"disposition; it never writes the activity. Pinning bound the answer to a row " +
+		"that relinking, a participant correction or a subject fix bumps — every one of " +
+		"which is ordinary inbox work on the very message the question is about.",
 }
 
 // unpinnedKinds are the staging kinds whose target IS the row their effect

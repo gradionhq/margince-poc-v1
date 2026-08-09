@@ -198,6 +198,46 @@ func TestTheSweepStagesALinkedInSuggestionNobodyWasEverAskedAbout(t *testing.T) 
 	onlyPendingLinkedInMatch(t, e)
 }
 
+// Refusing a match leaves the ghost at `suggested` — the reject path writes no
+// row here, by design, because the refusal IS the approval — so the widened
+// enumeration reaches that owner on every sweep from then on. What must not
+// happen is the sweep asking again.
+//
+// The durable-refusal property is not new, but the widening is what makes it
+// load-bearing: before it, an owner with nothing left but refused suggestions
+// dropped out of the enumeration and was never given the chance to be re-asked.
+func TestTheSweepNeverReasksALinkedInMatchThatWasRefused(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	linkedInMatchFixture(ctx, t, e)
+	grantReadPeopleRole(t, e, e.Rep1, "all")
+
+	store := people.NewStore(e.Pool)
+	if _, err := store.MatchLinkedInConnections(ctx, e.Rep1); err != nil {
+		t.Fatalf("matching: %v", err)
+	}
+	svc := approvalsServiceWithEffects(e.Pool)
+	if _, err := StageLinkedInMatches(ctx, svc, store); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+	if _, err := svc.Decide(ctx, onlyPendingLinkedInMatch(t, e), false, nil); err != nil {
+		t.Fatalf("rejecting: %v", err)
+	}
+
+	// The owner is still enumerated — the refusal is not on the ghost row — so
+	// the sweep runs their whole pass again.
+	sweep := newLinkedInRematchWorker(e.Pool, store, identity.NewService(e.Pool),
+		slog.New(slog.DiscardHandler))
+	if _, err := sweep.sweepWorkspace(context.Background(), e.WS); err != nil {
+		t.Fatalf("sweeping after the refusal: %v", err)
+	}
+
+	if pending := pendingLinkedInMatchCount(t, e); pending != 0 {
+		t.Errorf("%d pending proposals after a refused match was swept, want 0 — the sweep is "+
+			"re-asking a question the member already answered", pending)
+	}
+}
+
 // A contact edit must not cancel a LinkedIn match waiting to be decided.
 //
 // The proposal's claim is "this imported connection is this contact", and no

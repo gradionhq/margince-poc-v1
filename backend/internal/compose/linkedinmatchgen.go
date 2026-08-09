@@ -25,9 +25,15 @@ package compose
 //
 // It lives in compose because the call crosses modules — the events are the
 // people module's own, but the seam that reacts to them is nobody's private
-// business. Recomputing is idempotent, so the at-least-once bus costs nothing:
-// a redelivered event re-runs a match that has already been made and changes
-// no row, because only UNMATCHED ghosts are ever considered.
+// business.
+//
+// Both halves are idempotent, so the at-least-once bus costs nothing — for two
+// different reasons, which is worth saying because only one of them is the old
+// one. A redelivered event re-runs a match that changes no row, because only
+// UNMATCHED ghosts are ever matched. The proposal that now follows it considers
+// SUGGESTED ones too, which is the point of proposing at all, and is idempotent
+// because staging takes the proposal's identity lock and joins the live offer
+// rather than minting a second copy of the same question.
 
 import (
 	"context"
@@ -158,6 +164,14 @@ func (g *LinkedInMatchGen) matchWorkspace(ctx context.Context, workspace ids.UUI
 			// The whole network was matched here, so the whole outstanding set
 			// is what this pass owes a proposal over — the same scope rule the
 			// per-person arm above follows in the narrow direction.
+			//
+			// This arm therefore pays the per-event cost the narrow one
+			// refuses: one staging attempt per outstanding suggestion, per
+			// owner, per organization event. It is accepted rather than
+			// overlooked. A new or renamed account is exactly what unblocks
+			// ghosts belonging to many different contacts at once, so there is
+			// no narrower read that would still be complete — unlike the
+			// person arm, where the arrival names its own scope.
 			staged, err := StageLinkedInMatches(ownerCtx, g.approvals, g.store)
 			if err != nil {
 				return err

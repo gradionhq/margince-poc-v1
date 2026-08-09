@@ -47,14 +47,19 @@ import (
 // undecided ghosts count, because a workspace whose queue is clear should cost
 // one query rather than one query per member.
 //
-// UNDECIDED is both statuses a pass can leave behind, not just `unmatched`. A
-// `suggested` ghost is a question the matcher has answered and no human has:
-// until somebody approves or rejects it, the pass that turns it into an inbox
-// proposal still owes it one. Enumerating only `unmatched` meant an owner whose
-// ghosts were ALL already suggested was never reached at all, so a suggestion
+// UNDECIDED means the MATCHER has not settled it — `unmatched` or `suggested`.
+// It deliberately does not mean "no human has settled it", and the difference
+// matters: the ghost row records only the matcher's outcome plus `confirmed`,
+// which the accept effect writes back. A REFUSAL is not written here at all —
+// it lives in the approval, which is where this design puts the pending state,
+// and StageUnlessDeclined is what consults it. So this enumeration also reaches
+// members whose every question has already been refused, and the staging pass it
+// feeds correctly proposes nothing for them.
+//
+// Enumerating `unmatched` alone was narrower than the work. An owner whose
+// ghosts had ALL been matched to `suggested` was never reached, so a suggestion
 // that missed its proposal had no later pass that could rescue it and stayed
-// invisible for the row's lifetime. `confirmed` and `rejected` are decided, and
-// are correctly absent.
+// invisible for the row's lifetime.
 func ghostOwners(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, error) {
 	var out []ids.UUID
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
