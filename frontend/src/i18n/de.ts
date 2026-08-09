@@ -572,6 +572,16 @@ export const de = {
   // Die drei Aussagen, mit denen die Übersicht beginnt, und was das
   // Ausführen eines Vorschlags bedeutet.
   "co.strip.title": "Wo dieser Account steht",
+  "co.strip.convertedAsOf": "{count} umgerechnet, Kurse vom {date}",
+  "co.strip.noOpenDeals": "Keine offenen Deals",
+  "co.strip.pipeline": "Offene Pipeline",
+  "co.strip.unpriced": "Keine umrechenbaren Beträge hinterlegt",
+  "co.strip.pricedPartly": "{priced} von {total} Deals mit Betrag",
+  "co.strip.expectedClose": "Erwarteter Abschluss",
+  "co.strip.health": "Beziehung",
+  "co.strip.healthActive": "Im Gespräch",
+  "co.strip.healthQuiet": "Still geworden",
+  "co.strip.noInboundEver": "Sie haben nie geschrieben",
   "co.strip.account": "Phase",
   "co.strip.engagement": "Wer am Zug ist",
   "co.strip.commercial": "Offene Arbeit",

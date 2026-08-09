@@ -27,8 +27,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -177,6 +175,31 @@ type pipeline struct {
 	// applied by the rule that lists them, AFTER dismissals are filtered out, so
 	// dismissing one suggestion reveals the next rather than shrinking the card.
 	Stalled []stalledDeal
+	// ValueMinorBase is the open pipeline in the workspace's base currency, and
+	// Priced counts how many of the open deals carry a figure at all.
+	//
+	// Both travel together because the sum alone cannot be read honestly: a
+	// deal with no amount, and one whose currency has no conversion rate, both
+	// contribute nothing, and a total that silently omits them reads as the
+	// whole pipeline. Priced < OpenCount is what lets the page say the figure
+	// covers part of it rather than showing a number that is quietly short.
+	ValueMinorBase int64
+	Priced         int
+	// NextCloseOn is the nearest expected close date among the open deals, or
+	// nil when none of them names one.
+	NextCloseOn *time.Time
+	// Converted counts the deals that needed a rate to enter the sum, and
+	// FXAsOf is the OLDEST rate date among them — each deal freezes its rate on
+	// its own date, so that is the furthest back any part of the figure reaches.
+	// Without both, the total is a cross-currency sum with no conversion source
+	// behind it, which is what plan §4.2 forbids showing.
+	Converted int
+	FXAsOf    *time.Time
+	// BaseCurrency is what ValueMinorBase is denominated in, read in the SAME
+	// statement as the figure so the two cannot come from different snapshots
+	// — a converted sum labelled with a currency fetched separately is the
+	// unlabelled cross-currency total the page must never show.
+	BaseCurrency string
 }
 
 // openPipeline reads every open deal on the account the caller may see, in one
@@ -211,7 +234,10 @@ func openPipeline(
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until,
 		       (SELECT count(*) FROM deal_stage_history h
-		         WHERE h.deal_id = d.id AND h.from_stage_id IS DISTINCT FROM h.to_stage_id)
+		         WHERE h.deal_id = d.id AND h.from_stage_id IS DISTINCT FROM h.to_stage_id),
+		       d.amount_minor, d.amount_minor_base, d.expected_close_date,
+		       d.currency, d.fx_rate_date,
+		       (SELECT base_currency FROM workspace WHERE id = d.workspace_id)
 		FROM deal d
 		%s
 		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id`,
@@ -219,20 +245,14 @@ func openPipeline(
 	if err != nil {
 		return pipeline{}, fmt.Errorf("read the account's open pipeline: %w", err)
 	}
-	type openRow struct {
-		id         ids.UUID
-		name       string
-		stalled    bool
-		idleSince  time.Time
-		stageMoves int
-	}
 	open, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (openRow, error) {
 		var r openRow
 		var status string
 		var createdAt time.Time
 		var lastActivityAt, waitUntil *time.Time
 		if err := row.Scan(&r.id, &r.name, &status, &createdAt, &lastActivityAt, &waitUntil,
-			&r.stageMoves); err != nil {
+			&r.stageMoves, &r.amountMinor, &r.valueBase, &r.closeOn, &r.currency,
+			&r.rateDate, &r.baseCcy); err != nil {
 			return r, err
 		}
 		r.stalled = deals.IsStalled(status, createdAt, lastActivityAt, waitUntil, now)
@@ -248,23 +268,7 @@ func openPipeline(
 		return pipeline{}, err
 	}
 
-	out := pipeline{OpenCount: len(open), Stalled: make([]stalledDeal, 0, len(open))}
-	sorted := make([]string, 0, len(open))
-	for _, deal := range open {
-		sorted = append(sorted, deal.id.String())
-		if deal.stalled {
-			out.Stalled = append(out.Stalled, stalledDeal{
-				ID: deal.id, Name: deal.name,
-				IdleSince: deal.idleSince, StageMoves: deal.stageMoves,
-			})
-		}
-	}
-	// Sorted by id rather than by the read's order, so the digest depends on
-	// WHICH deals are open and on nothing else — a deal whose last activity moves
-	// must not read as a changed pipeline.
-	slices.Sort(sorted)
-	out.OpenDigest = strings.Join(sorted, ",")
-	return out, nil
+	return foldPipeline(open), nil
 }
 
 // hasOpenTask answers whether anything at all is scheduled on the account.
