@@ -504,3 +504,11 @@ the short form:
    to git, not the source. Same for test names.
 5. **Never rationalize a known gap in a comment** — restructure it away
    or gate it with a test.
+6. **A test that supplies its own version of production proves nothing
+   about production** — hand-inserted rows the real writer never writes,
+   or a hand-copied adapter mirroring what compose wires. Seed through
+   the real writer; if a test needs the wiring, reach for the wiring
+   (integration tests live directly in `package compose` so unexported
+   adapters are in scope). An unexpectedly uncovered new file usually
+   means a test double stands where the real thing should.
+
