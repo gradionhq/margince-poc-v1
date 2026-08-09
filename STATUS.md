@@ -19,6 +19,7 @@ Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
 - [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
+- [Company record page V2 — what shipped 2026-08-09, and what §4 still owes](#company-record-page-v2--what-shipped-2026-08-09-and-what-4-still-owes)
 - [Open — account-started outbound and the finance mirror (2026-08-09)](#open--account-started-outbound-and-the-finance-mirror-2026-08-09)
 - [Open — the settings mirror is a dual-write on ADR-0091's critical path](#open--the-settings-mirror-is-a-dual-write-on-adr-0091s-critical-path)
 - [Pick up here — ADR-0091 (A136): retiring the workspace tenant boundary](#pick-up-here--adr-0091-a136-retiring-the-workspace-tenant-boundary)
@@ -80,6 +81,44 @@ every task and needs its own certification pass.
 
 [#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
 [#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
+
+## Company record page V2 — what shipped 2026-08-09, and what §4 still owes
+
+Seven PRs against `docs/explanation/company-record-page-v2-implementation-plan.md`.
+Verified in the browser against the `lars-demo` snapshot, not only in tests.
+
+| PR | What a user gets |
+|---|---|
+| #728 | **Write email** on a company opens a composer — the surface for #685's account-started send, which had none |
+| #729 | Two columns, not three. §4 forbids the third; the work column went from 5/11ths to 7/10ths |
+| #730 | The KPI row asks a customer and a prospect different questions, and prices the open pipeline |
+| #731 | The finance payment-behaviour formulas (FIN-FORM-1..5) as provable arithmetic |
+| #733 | The page works on a phone: one column, sticky verbs, dialogs as full-screen sheets |
+| #734 | **A deal with an expected close date no longer 500s the whole page** |
+| #735 | The health card stopped repeating the engagement card's words |
+
+**#734 is the one to know about.** Every company page with a priced deal
+returned 500: Postgres sends a bare `DATE` and pgx will not decode it into the
+contract's `Date` wrapper. The deals card carried it since it was written, and
+nothing caught it because no test in the suite had ever created a deal with a
+close date — the field is optional and every fixture left it unset. Found by
+seeding four deals into the dev database and opening the page.
+
+### What §4 still owes
+
+- **4.6 finance section — the UI does not exist.** #689 laid the five tables and
+  #731 the formulas; there is no contract surface, no read path, no adapter-state
+  matrix, and no invoice table. This is the largest single gap.
+- **4.10 the account-started DRAFT** (ADR-0087 §3): grounded, fenced,
+  auto-starting. The composer reports drafting unavailable on that origin today.
+  Its agent tool is #688.
+- **4.3 Today on this account** composes two of the plan's eight bullets and
+  delegates the rest to sibling cards — the shape the section was meant to replace.
+- **4.7 documents** has no full library view; **4.8 coverage** has no summary line
+  and is missing three of its six columns; **4.9 timeline** does not collapse
+  quoted history, filter by kind, or search.
+- `organizations.tsx` (84KB) still mixes the companies LIST with the company
+  RECORD page. §10.1's `company-page.tsx` boundary was never drawn.
 
 ## Open — account-started outbound and the finance mirror (2026-08-09)
 
