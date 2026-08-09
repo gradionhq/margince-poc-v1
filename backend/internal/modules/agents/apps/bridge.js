@@ -47,22 +47,45 @@
   // result after it has announced itself, and the two states below are what let
   // this refuse anything out of order — see handle().
   var initialized = false;
+  // The host's origin, LEARNED rather than configured.
+  //
+  // A view is loaded into an opaque sandbox origin and cannot know its host's
+  // ahead of time — reading window.parent.origin throws cross-origin, and the
+  // specification therefore prescribes '*' for the opening message. But the
+  // response to it arrives with the host's origin attached, so from that point
+  // on there IS something to pin: every later message is sent to that origin
+  // and accepted only from it.
+  //
+  // 'null' is kept as a sentinel rather than pinned. An opaque origin reports
+  // itself as the STRING "null", which is not a usable postMessage target, so a
+  // host in one keeps the wildcard — the sender check below is what holds there.
+  var hostOrigin = null;
 
-  // Every inbound message is checked to be from the frame that embedded us.
-  // A sandboxed view can still be messaged by anything holding a handle to its
-  // window, and a view that rendered whatever arrived would let a second sender
-  // choose what the human is shown — the host's own origin is opaque to us, so
-  // the sender identity is what there is to check.
+  // Every inbound message is checked on TWO things: it came from the frame that
+  // embedded us, and — once the host's origin is known — from that origin.
+  //
+  // The sender check is the stronger of the two and it holds from the first
+  // message: a sandboxed view can still be messaged by anything holding a handle
+  // to its window, and a view that rendered whatever arrived would let a second
+  // sender choose what the human is shown. The origin check adds what the sender
+  // check cannot see, which is a host that navigated the parent frame somewhere
+  // else between the handshake and the result.
   function fromHost(event) {
-    return event.source === window.parent;
+    if (event.source !== window.parent) return false;
+    if (hostOrigin === null || hostOrigin === 'null') return true;
+    return event.origin === hostOrigin;
   }
 
   function send(message) {
-    // '*' is what the specification prescribes here: a view is loaded into an
-    // opaque sandbox origin and cannot know the host's, so pinning a
-    // targetOrigin would mean guessing it. Nothing sensitive travels outward —
-    // the messages this view sends are a handshake and nothing else.
-    window.parent.postMessage(Object.assign({ jsonrpc: '2.0' }, message), '*');
+    // Pinned to the host's origin once it is known, and '*' only for the opening
+    // message, which is sent before there is anything to learn it from.
+    //
+    // Nothing sensitive travels outward on either path: what this view sends is
+    // a handshake — an initialise request naming the protocol revision, and its
+    // confirmation. No record, no credential, no customer text ever leaves here,
+    // because a view is given an answer and never the means to ask again.
+    var target = hostOrigin === null || hostOrigin === 'null' ? '*' : hostOrigin;
+    window.parent.postMessage({ jsonrpc: '2.0', ...message }, target);
   }
 
   function announce() {
@@ -82,7 +105,7 @@
   function handle(event) {
     if (!fromHost(event)) return;
     var message = event.data;
-    if (!message || message.jsonrpc !== '2.0') return;
+    if (message?.jsonrpc !== '2.0') return;
     // The response to our own ui/initialize is the readiness signal: the host
     // is listening, so we confirm and then wait to be given a result.
     //
@@ -93,6 +116,9 @@
     if (initializeID !== null && message.id === initializeID && message.result) {
       initializeID = null;
       initialized = true;
+      // Learned here and only here, from the one message whose sender is already
+      // proven to be the embedding frame.
+      hostOrigin = event.origin;
       applyTheme(message.result.hostContext);
       send({ method: 'ui/notifications/initialized', params: {} });
       return;
@@ -107,16 +133,16 @@
       // answer into; `data` is the tool's own result inside it. A host that sent
       // no structured content leaves the view with nothing to render, which is
       // reported rather than guessed at.
-      var structured = message.params && message.params.structuredContent;
-      resultHandler(structured && structured.data ? structured.data : null);
+      var structured = message.params?.structuredContent;
+      resultHandler(structured?.data ?? null);
     }
   }
 
   // The host tells us which way round it is drawn. Following it is the whole
   // reason a view looks embedded rather than pasted in.
   function applyTheme(hostContext) {
-    if (hostContext && hostContext.theme) {
-      document.documentElement.setAttribute('data-theme', hostContext.theme);
+    if (hostContext?.theme) {
+      document.documentElement.dataset.theme = hostContext.theme;
     }
   }
 
@@ -138,11 +164,11 @@
     // is looking at data it did not produce, and a missing field is a thing
     // that happens.
     percent: function (value) {
-      if (typeof value !== 'number' || !isFinite(value)) return '—';
+      if (!Number.isFinite(value)) return '—';
       return Math.round(value * 100) + '%';
     },
     count: function (value) {
-      if (typeof value !== 'number' || !isFinite(value)) return '—';
+      if (!Number.isFinite(value)) return '—';
       return String(value);
     },
     // A list a view iterates. A field the host did not send is an empty list,

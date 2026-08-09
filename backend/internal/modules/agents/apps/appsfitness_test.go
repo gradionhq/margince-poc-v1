@@ -191,7 +191,13 @@ func TestEveryViewAnnouncesItselfToItsHost(t *testing.T) {
 			// The sender check: a sandboxed frame can be messaged by anything
 			// holding a handle to its window, and a view that rendered whatever
 			// arrived would let a second sender choose what the human sees.
-			"event.source === window.parent",
+			"event.source !== window.parent",
+			// And the origin pinning that the sender check cannot provide: the
+			// host's origin is unknowable until it answers, learned from that
+			// answer, and then required of every later message and used as the
+			// target of every later send.
+			"hostOrigin = event.origin",
+			"event.origin === hostOrigin",
 			// The element the renderers write into.
 			`id="root"`,
 		} {
@@ -357,5 +363,28 @@ func TestADeletedCallSiteIsNotSatisfiedByItsOwnComment(t *testing.T) {
 	const present = "send({ method: 'ui/notifications/initialized', params: {} });"
 	if !strings.Contains(Code(present), "method: 'ui/notifications/initialized'") {
 		t.Error("a real call site was stripped, which would fail the handshake sweep against a correct view")
+	}
+}
+
+// The opening message is the only one sent to a wildcard target, and it must
+// stay that way.
+//
+// A view cannot know its host's origin before the host answers — reading it
+// throws cross-origin — so the specification prescribes '*' there. Every LATER
+// send is pinned to the origin the answer arrived from, which is the control a
+// static scan of the wildcard cannot see. This asserts the pinning exists rather
+// than the wildcard's absence, because the wildcard is correct exactly once.
+func TestOnlyTheOpeningMessageIsSentToAWildcardTarget(t *testing.T) {
+	for uri, document := range assembled(t) {
+		// The target is a VARIABLE, resolved per send. A literal '*' at the
+		// postMessage call would mean every message goes to any origin.
+		if !strings.Contains(document, "window.parent.postMessage({ jsonrpc: '2.0', ...message }, target)") {
+			t.Errorf("the view %s does not send through a resolved target, so its later messages are not pinned "+
+				"to the origin the host answered from", uri)
+		}
+		if strings.Contains(document, "postMessage(") && strings.Contains(document, ", '*');") {
+			t.Errorf("the view %s posts to a literal wildcard target, so a message meant for its host would be "+
+				"delivered to whatever origin the parent frame currently holds", uri)
+		}
 	}
 }

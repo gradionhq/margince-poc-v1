@@ -38,41 +38,55 @@ func Code(asset string) string {
 	// quote is the delimiter of the string being scanned, or 0 outside one.
 	var quote byte
 	for i := 0; i < len(asset); i++ {
-		c := asset[i]
 		if quote != 0 {
-			out.WriteByte(c)
-			switch {
-			case c == '\\' && i+1 < len(asset):
-				// An escape consumes the next byte whatever it is, so an
-				// escaped quote does not end the string.
-				i++
-				out.WriteByte(asset[i])
-			case c == quote:
-				quote = 0
-			}
+			i, quote = copyStringByte(&out, asset, i, quote)
 			continue
 		}
-		if c == '\'' || c == '"' || c == '`' {
+		switch c := asset[i]; {
+		case c == '\'' || c == '"' || c == '`':
 			quote = c
 			out.WriteByte(c)
-			continue
-		}
-		if c == '/' && i+1 < len(asset) && asset[i+1] == '/' {
+		case opensComment(asset, i, '/'):
 			i = skipToLineEnd(asset, i)
 			// The newline itself is kept: the checks that read this output are
 			// line-oriented in their reporting, and joining two lines could
 			// splice two harmless halves into a forbidden spelling.
 			out.WriteByte('\n')
-			continue
-		}
-		if c == '/' && i+1 < len(asset) && asset[i+1] == '*' {
+		case opensComment(asset, i, '*'):
 			i = skipBlockComment(asset, i)
 			out.WriteByte('\n')
-			continue
+		default:
+			out.WriteByte(c)
 		}
-		out.WriteByte(c)
 	}
 	return out.String()
+}
+
+// opensComment reports whether a comment of the given second byte — `/` for a
+// line comment, `*` for a block one — starts at i.
+func opensComment(asset string, i int, second byte) bool {
+	return asset[i] == '/' && i+1 < len(asset) && asset[i+1] == second
+}
+
+// copyStringByte copies one byte from inside a string literal, and answers the
+// index it consumed to and the delimiter still in force (0 once it closed).
+//
+// It exists so Code's loop reads as the four cases it has, rather than carrying
+// the escape handling inline where it doubles the branching of the whole scan.
+func copyStringByte(out *strings.Builder, asset string, i int, quote byte) (int, byte) {
+	c := asset[i]
+	out.WriteByte(c)
+	// An escape consumes the next byte whatever it is, so an escaped quote does
+	// not end the string.
+	if c == '\\' && i+1 < len(asset) {
+		i++
+		out.WriteByte(asset[i])
+		return i, quote
+	}
+	if c == quote {
+		return i, 0
+	}
+	return i, quote
 }
 
 // skipToLineEnd answers the index of the last byte of a line comment starting at
