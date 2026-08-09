@@ -3587,6 +3587,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/approval-bundles/{bundle_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The act that staged a set of proposals together (`Approval.bundle_id`). It names a
+                 *     grouping over approval rows, not a resource of its own — there is nothing to GET, and a
+                 *     bundle exists exactly as long as some member points at it.
+                 */
+                bundle_id: components["parameters"]["BundleId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve every still-pending member of one bundle.
+         * @description A bundle is the set of proposals ONE act staged together; it is a grouping, never a
+         *     second authority object. Each member is decided **on its own terms** — its own verdict,
+         *     audit row, `approval.decided` event and follow-on effect — so the record carries N
+         *     per-effect decisions rather than one decision covering N effects, and a member that has
+         *     expired, that somebody already answered, or whose follow-on change fails to land is
+         *     reported on its own instead of taking its siblings with it.
+         *
+         *     Members the caller could not decide individually are neither returned nor decided, and a
+         *     bundle with no such member is a `404` — the same existence-hiding a single approval gives.
+         *     Deciding is not all-or-nothing: `data[].outcome` reports each member.
+         */
+        post: operations["approveApprovalBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/approval-bundles/{bundle_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The act that staged a set of proposals together (`Approval.bundle_id`). It names a
+                 *     grouping over approval rows, not a resource of its own — there is nothing to GET, and a
+                 *     bundle exists exactly as long as some member points at it.
+                 */
+                bundle_id: components["parameters"]["BundleId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject every still-pending member of one bundle; no records change.
+         * @description The rejecting half of `approveApprovalBundle`, with the same per-member semantics: a
+         *     rejection is a decision too, so it demands the same authority per member and is recorded
+         *     per member. Already-decided and expired members are reported, not overwritten.
+         */
+        post: operations["rejectApprovalBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/data-subject-requests": {
         parameters: {
             query?: never;
@@ -11291,6 +11356,19 @@ export interface components {
              * @description When the staged action expires unactioned (mirrors approval.requested.expires_at). After this it auto-transitions to status=expired and cannot be approved.
              */
             expires_at?: string | null;
+            /**
+             * Format: uuid
+             * @description The act that staged this proposal together with its siblings — today, a website read's
+             *     company facts and the leads it published. Null for a proposal staged on its own. It is a grouping id, not a foreign key: there is no
+             *     bundle entity, and every member keeps its own diff hash, version pin, expiry and
+             *     verdict (ADR-0036 — the staged row IS the authority object). Decide the whole set with
+             *     `POST /approval-bundles/{bundle_id}/approve|reject`, or any member on its own.
+             *
+             *     A proposal that is re-staged identically JOINS the row already pending and MOVES onto
+             *     the fresh act's bundle, so a bundle always holds exactly what its act proposed rather
+             *     than only the part of it that was new.
+             */
+            bundle_id?: string | null;
             /** @description Entity the effect mutates (for precondition re-validation). */
             target_entity_type?: string | null;
             /** Format: uuid */
@@ -11343,6 +11421,46 @@ export interface components {
         ApprovalListResponse: {
             data: components["schemas"]["Approval"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description Decide every still-pending member of one bundle. There is no `edited_payload` arm: an edit
+         *     is a judgment about ONE proposed change (it re-hashes that diff and re-pins its entity
+         *     refs, ADR-0036 §4), and there is no such thing as one edit spanning several. Edit a member
+         *     through `POST /approvals/{id}/approve`, then decide the rest here.
+         */
+        ApprovalBundleDecisionRequest: {
+            /** @description Recorded on every member this call decides — one stated reason for one decision. */
+            reason?: string;
+        };
+        /**
+         * @description The per-member result of a bundle decision. Deciding a bundle is not all-or-nothing: the
+         *     members were always independent authorities, so one that expired, one someone else already
+         *     decided, and one whose follow-on effect failed each report for themselves while their
+         *     siblings decide normally.
+         */
+        ApprovalBundleDecision: {
+            /** Format: uuid */
+            bundle_id: string;
+            /**
+             * @description Every member of the bundle this caller could decide, in the state it is in AFTER the
+             *     decision. Members outside their authority are absent — the same existence-hiding the
+             *     inbox and a single approval read give — so this list may be shorter than the bundle.
+             */
+            data: components["schemas"]["ApprovalBundleMember"][];
+        };
+        /** @description One member of a bundle, and what the bundle decision did to it. */
+        ApprovalBundleMember: {
+            approval: components["schemas"]["Approval"];
+            /**
+             * @description What THIS call did to the member. `decided` — the verdict was recorded now.
+             *     `already_decided` — it carried a verdict before this call, which is left standing
+             *     (the status says which). `expired` — it lapsed undecided and is no longer
+             *     approvable; re-propose instead. `effect_failed` — the verdict IS recorded and
+             *     audited, but the follow-on change did not land; the member reads approved and
+             *     unredeemed, and the server log carries the cause.
+             * @enum {string}
+             */
+            outcome: "decided" | "already_decided" | "expired" | "effect_failed";
         };
         /**
          * Format: int64
@@ -12887,6 +13005,12 @@ export interface components {
         CaptureProvider: "gmail" | "gcal" | "graph" | "imap";
         /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
         Id: string;
+        /**
+         * @description The act that staged a set of proposals together (`Approval.bundle_id`). It names a
+         *     grouping over approval rows, not a resource of its own — there is nothing to GET, and a
+         *     bundle exists exactly as long as some member points at it.
+         */
+        BundleId: string;
         /** @description Immutable Voice DNA artifact version number within one profile. */
         VoiceProfileVersionNumber: number;
         /**
@@ -19730,6 +19854,13 @@ export interface operations {
                 target_entity_type?: string;
                 /** @description The record the staged actions act on. Requires `target_entity_type`. */
                 target_entity_id?: string;
+                /**
+                 * @description Filter to the proposals ONE act staged together (see `Approval.bundle_id`) — today, a
+                 *     website read's company facts plus the leads it published. Members the caller could not
+                 *     decide are absent from this page exactly as they are absent from the unfiltered inbox,
+                 *     so a bundle may report fewer members than it holds.
+                 */
+                bundle_id?: string;
             };
             header?: never;
             path?: never;
@@ -19868,6 +19999,74 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    approveApprovalBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The act that staged a set of proposals together (`Approval.bundle_id`). It names a
+                 *     grouping over approval rows, not a resource of its own — there is nothing to GET, and a
+                 *     bundle exists exactly as long as some member points at it.
+                 */
+                bundle_id: components["parameters"]["BundleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApprovalBundleDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The per-member result of the decision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalBundleDecision"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    rejectApprovalBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The act that staged a set of proposals together (`Approval.bundle_id`). It names a
+                 *     grouping over approval rows, not a resource of its own — there is nothing to GET, and a
+                 *     bundle exists exactly as long as some member points at it.
+                 */
+                bundle_id: components["parameters"]["BundleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApprovalBundleDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The per-member result of the decision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalBundleDecision"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listDataSubjectRequests: {
