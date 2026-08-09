@@ -431,21 +431,36 @@ function CoverageSummary({
   untried,
   gaps,
   truncated,
+  routesReadable,
 }: Readonly<{
   contacts: readonly Contact[];
   untried: number;
   gaps: number;
   truncated: boolean;
+  // Whether the routes this page read carry an answer at all. "Never written
+  // to" is derived from who has exchanged messages with whom, so a reader
+  // without that access must not be handed the aggregate — an activity-derived
+  // count is still activity data.
+  routesReadable: boolean;
 }>) {
   const t = useT();
-  if (truncated || contacts.length === 0) {
+  if (contacts.length === 0) {
     return null;
   }
-  const parts = [t("co.coverage.contacts", { count: contacts.length })];
-  if (untried > 0) {
+  // A truncated page still knows how many contacts it is showing, and saying
+  // "at least 25" beats saying nothing: the reader learns both that the
+  // account is large and that this is not the whole of it.
+  const parts = [
+    truncated
+      ? t("co.coverage.contactsAtLeast", { count: contacts.length })
+      : t("co.coverage.contacts", { count: contacts.length }),
+  ];
+  if (routesReadable && untried > 0) {
     parts.push(t("co.coverage.untried", { count: untried }));
   }
-  if (gaps > 0) {
+  // The gap count is only meaningful over a complete picture: a capped page
+  // hides the contacts who might hold the roles it would report as missing.
+  if (!truncated && gaps > 0) {
     parts.push(t("co.coverage.gaps", { count: gaps }));
   }
   return <p className="co-empty">{parts.join(" · ")}</p>;
@@ -577,6 +592,7 @@ export function PeopleCard({
           untried={untried.length}
           gaps={missing.length}
           truncated={truncated}
+          routesReadable={contacts.some((each) => each.routes)}
         />
       }
       // The per-row coverage says who to call. The explorer answers the other

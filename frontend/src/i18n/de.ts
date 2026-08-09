@@ -740,6 +740,7 @@ export const de = {
   "commercial.offer.expired": "Abgelaufen",
   "commercial.offer.superseded": "Ersetzt",
   "co.coverage.contacts": "{count} Kontakte",
+  "co.coverage.contactsAtLeast": "{count}+ Kontakte",
   "co.coverage.untried": "{count} nie angeschrieben",
   "co.coverage.gaps": "{count} Rollenlücken",
   "co.section.restricted":
