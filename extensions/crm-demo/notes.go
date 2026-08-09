@@ -10,12 +10,15 @@ package crmdemo
 // SQL these functions write.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -38,10 +41,16 @@ type note struct {
 }
 
 // listNotes answers the workspace's notes, newest first.
-func listNotes(ctx context.Context, rt extension.Runtime, _ json.RawMessage) (json.RawMessage, error) {
-	// The argument document is ignored rather than decoded: the contract
-	// declares an empty object with additionalProperties: false, so there is
-	// nothing to read and nothing that could fail.
+func listNotes(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
+	// Decoded although there is nothing to read. The contract declares an empty
+	// object with additionalProperties: false, and this seam validates no body
+	// against the schema before the handler runs — so ignoring the document
+	// would make this the one operation of the three that accepts whatever it
+	// is sent. A closed schema that is closed in the contract and open in the
+	// code is worse than an open one, because a client is told otherwise.
+	if _, err := decode[struct{}](in); err != nil {
+		return nil, err
+	}
 	var notes []note
 	err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
 		rows, err := tx.Query(ctx,
@@ -89,8 +98,12 @@ func addNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (jso
 	switch {
 	case body == "":
 		return nil, errors.New("crm-demo: a note needs a body")
-	case len(body) > maxNoteBody:
-		return nil, fmt.Errorf("crm-demo: a note is at most %d characters, this one is %d", maxNoteBody, len(body))
+	// Runes, not bytes. The contract advertises maxLength: 500, and JSON Schema
+	// counts CHARACTERS — so counting len() here refuses a 200-character note
+	// in Vietnamese or Japanese while the schema the client was handed says it
+	// fits, and the refusal names a length the author cannot see anywhere.
+	case utf8.RuneCountInString(body) > maxNoteBody:
+		return nil, fmt.Errorf("crm-demo: a note is at most %d characters, this one is %d", maxNoteBody, utf8.RuneCountInString(body))
 	}
 	var (
 		n       note
@@ -128,14 +141,23 @@ func removeNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(args.ID) == "" {
+	id := strings.TrimSpace(args.ID)
+	if id == "" {
 		return nil, errors.New("crm-demo: removing a note needs its id")
+	}
+	// Checked HERE, before the transaction, and the contract declares the same
+	// shape (api/crm.yaml, format: uuid with a pattern). Leaving it to the
+	// `::uuid` cast below means a client that sent schema-valid input — the
+	// contract said "string" — gets a 22P02 from Postgres instead of the
+	// documented `{"removed": …}`, and a refusal class this unit cannot express
+	// (issue #657) answers 500. An id that is well-formed and simply not here
+	// is still `removed: false`; that is a different question, answered below.
+	if !isCanonicalUUID(id) {
+		return nil, fmt.Errorf("crm-demo: %q is not a note id — an id is a canonical UUID, as the contract declares", id)
 	}
 	var affected int64
 	err = rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		// $1::uuid, not $1: the id arrives as contract text, and an unparseable
-		// one is a 22P02 from Postgres rather than a silent no-op.
-		affected, err = tx.Exec(ctx, `DELETE FROM `+noteTable+` WHERE id = $1::uuid`, args.ID)
+		affected, err = tx.Exec(ctx, `DELETE FROM `+noteTable+` WHERE id = $1::uuid`, id)
 		return err
 	})
 	if err != nil {
@@ -152,12 +174,92 @@ func removeNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (
 // with additionalProperties: false and nothing between the client and this
 // function enforces it: a caller sending `bdy` would otherwise write an empty
 // note and be told it succeeded.
+// It is NOT sufficient on its own, which is why the canonical-key pass runs
+// first: encoding/json matches field names case-insensitively, so `BODY` and
+// `bOdY` both satisfy DisallowUnknownFields and both set Body. A closed schema
+// that admits three spellings of a key is not closed — and the spelling that
+// wins between two case-variants in one document is whichever comes last, which
+// is a way to change a mutation's value past a reviewer reading the first one.
 func decode[T any](in json.RawMessage) (T, error) {
 	var out T
+	if err := rejectNonCanonicalKeys[T](in); err != nil {
+		return out, err
+	}
 	dec := json.NewDecoder(strings.NewReader(string(in)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&out); err != nil {
 		return out, fmt.Errorf("crm-demo: the arguments are not the declared shape: %w", err)
 	}
 	return out, nil
+}
+
+// rejectNonCanonicalKeys refuses a top-level key that is not byte-for-byte one
+// of T's declared JSON names. It answers nothing about nested objects, and
+// needs to answer nothing: every request schema this unit declares is flat.
+//
+// An empty or whitespace-only document is left to the decoder, so "no body at
+// all" keeps reading as the decoder's error rather than becoming this one's.
+func rejectNonCanonicalKeys[T any](in json.RawMessage) error {
+	if len(bytes.TrimSpace(in)) == 0 {
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(in, &raw); err != nil {
+		// Not an object, or not JSON: the decoder below says so better than a
+		// key check can, and says it about the shape rather than about a key.
+		return nil
+	}
+	declared := declaredJSONNames[T]()
+	for key := range raw {
+		if !declared[key] {
+			return fmt.Errorf("crm-demo: the arguments are not the declared shape: unknown field %q — a declared name is matched byte for byte, so a case-variant of one is not one of them", key)
+		}
+	}
+	return nil
+}
+
+// declaredJSONNames reads T's json tags. T is always a struct literal declared
+// a few lines above its call site, so a non-struct here is a programming error
+// that shows up as an empty set and a refusal of every key.
+func declaredJSONNames[T any]() map[string]bool {
+	names := map[string]bool{}
+	t := reflect.TypeFor[T]()
+	if t.Kind() != reflect.Struct {
+		return names
+	}
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+// isCanonicalUUID reports whether s is the hyphenated 8-4-4-4-12 hex form.
+//
+// Hand-written rather than a dependency: the tier's published surface is
+// stdlib-only and a unit that pulled in a UUID library to check thirty-six
+// bytes would be spending a supply-chain decision on it. Deliberately strict —
+// no braces, no urn: prefix, no uppercase-insensitivity beyond hex digits —
+// because the ids this unit hands out are the ones Postgres printed, and those
+// are exactly this shape.
+func isCanonicalUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range []byte(s) {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+			if !isHex {
+				return false
+			}
+		}
+	}
+	return true
 }

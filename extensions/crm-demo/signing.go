@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -47,6 +48,13 @@ const signatureAlgorithm = "hmac-sha256"
 // maxSigningKey and maxPayload mirror the contract's declared bounds. The
 // contract advertises them; these enforce them, since nothing on this seam
 // validates a body against the published schema before the handler runs.
+//
+// Counted in RUNES, because that is what the contract's maxLength: 4096 counts:
+// JSON Schema bounds characters, so a byte count here refuses a key or a
+// payload the schema handed the client says will fit — and the refusal names a
+// length nothing the author can see agrees with. Every non-ASCII value is
+// affected, and the shorter the alphabet's byte-per-character ratio the earlier
+// it breaks.
 const (
 	maxSigningKey = 4096
 	maxPayload    = 4096
@@ -71,8 +79,8 @@ func storeSigningKey(ctx context.Context, rt extension.Runtime, in json.RawMessa
 	switch {
 	case key == "":
 		return nil, errors.New("crm-demo: the signing key is empty")
-	case len(key) > maxSigningKey:
-		return nil, fmt.Errorf("crm-demo: the signing key is at most %d bytes, this one is %d", maxSigningKey, len(key))
+	case utf8.RuneCountInString(key) > maxSigningKey:
+		return nil, fmt.Errorf("crm-demo: the signing key is at most %d characters, this one is %d", maxSigningKey, utf8.RuneCountInString(key))
 	}
 	if err := rt.Secrets().Put(ctx, signingKeyName, []byte(key)); err != nil {
 		return nil, err
@@ -114,8 +122,8 @@ func signPayload(ctx context.Context, rt extension.Runtime, in json.RawMessage) 
 	switch {
 	case args.Payload == "":
 		return nil, errors.New("crm-demo: there is no payload to sign")
-	case len(args.Payload) > maxPayload:
-		return nil, fmt.Errorf("crm-demo: a payload is at most %d bytes, this one is %d", maxPayload, len(args.Payload))
+	case utf8.RuneCountInString(args.Payload) > maxPayload:
+		return nil, fmt.Errorf("crm-demo: a payload is at most %d characters, this one is %d", maxPayload, utf8.RuneCountInString(args.Payload))
 	}
 	key, err := rt.Secrets().Get(ctx, signingKeyName)
 	if err != nil {

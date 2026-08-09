@@ -39,13 +39,19 @@ is the tier, and a domain-shaped demo would invite arguing about the domain.
 | Surface | Demo behavior | How a human verifies it |
 |---|---|---|
 | **`migrations/`** | owns `ext_crm_demo_note` | add a note, restart the stack, it is still there |
-| **`api/`** | `GET/POST/DELETE /v1/ext/crm-demo/notes`, own RBAC object `ext_crm_demo_note` | a read-only seat sees the list, **`Add` is not rendered** |
+| **`api/`** | six POSTs — `/v1/ext/crm-demo/notes/list`, `/notes/add`, `/notes/remove`, `/signing-key`, `/signing-key/status`, `/signature` — and its own RBAC object `ext_crm_demo_note` | a read-only seat sees the list, **`Add` is not rendered** |
 | **`frontend/`** | the screen itself, mounted from the composed set | `#/ext/crm-demo` resolves; on a vanilla tree it 404s |
 | **`secrets`** | store a signing key; HMAC-sign a payload with it | paste a key → "connected"; sign a string → signature returned. The key is **never** emitted, not even masked |
 | **`Jobs`** | tick appends `heartbeat — tick #N` | leave the screen open; a row appears with no user action |
 | **`Tools`** | `demo_list_notes`, served, auto-execute + read | ask the agent "what's in my demo notepad" |
 
 Six surfaces, one screen, nothing that needs explaining to whoever is watching.
+
+Every operation is a POST, and there is no `/notes` base path: a served extension operation IS a
+governed tool invocation and its arguments are the request body, so the method validator admits only
+POST/PUT/PATCH (see `extensions/crm-demo/api/crm.yaml`). "list", "add" and "remove" are three verbs
+on three paths, not three methods on one — an operator following a `GET /v1/ext/crm-demo/notes` gets
+a 404.
 
 ## 3. What each surface must prove, precisely
 

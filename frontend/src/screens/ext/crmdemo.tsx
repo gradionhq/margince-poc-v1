@@ -95,6 +95,15 @@ function useSigningKeyStatus(enabled: boolean) {
       if (error || !response.ok) {
         throwProblem(error);
       }
+      // The declared field, or an error. `data.stored` on a body that does not
+      // carry it is `undefined`, which is falsey — so a response this screen
+      // could not read would render "No key stored", which is a claim about
+      // the installation rather than about the read. Wrong in the one
+      // direction that matters: it invites someone to paste a key over one
+      // that is already there.
+      if (typeof data?.stored !== "boolean") {
+        throw new Error("the signing-key status carried no `stored` field");
+      }
       return data.stored;
     },
   });
@@ -166,13 +175,23 @@ function SigningCard() {
         title={t("extDemo.signing.title")}
         sub={t("extDemo.signing.sub")}
       />
-      <p>
-        {status.data ? (
-          <Badge tone="success">{t("extDemo.signing.connected")}</Badge>
-        ) : (
-          <Badge tone="warn">{t("extDemo.signing.notConnected")}</Badge>
-        )}
-      </p>
+      {/*
+        Through the query gate, not off `status.data` directly. `data` is
+        undefined while the read is in flight and undefined when it failed, and
+        both would render the "No key stored" badge — a statement about the
+        installation made from a read that produced nothing. The two are not
+        interchangeable: one of them invites someone to paste a key over one
+        that is already there.
+      */}
+      <QueryStates query={status}>
+        <p>
+          {status.data ? (
+            <Badge tone="success">{t("extDemo.signing.connected")}</Badge>
+          ) : (
+            <Badge tone="warn">{t("extDemo.signing.notConnected")}</Badge>
+          )}
+        </p>
+      </QueryStates>
       {canStore ? (
         <>
           <Field label={t("extDemo.signing.keyLabel")}>
@@ -191,6 +210,7 @@ function SigningCard() {
           >
             {t("extDemo.signing.store")}
           </Button>
+          {store.isError ? <p>{t("extDemo.signing.storeFailed")}</p> : null}
         </>
       ) : null}
       <Field label={t("extDemo.signing.payloadLabel")}>
@@ -216,8 +236,16 @@ function SigningCard() {
 
 // ── migrations + api + jobs ──────────────────────────────────────────────────
 
-function useNotes() {
+/**
+ * `enabled` is the caller's `read` grant, for the reason the signing card's is:
+ * an ungranted seat would otherwise fire a request the server answers 403 —
+ * and then fire it again every {@link HEARTBEAT_POLL_MS}, because this query
+ * polls. A refused read on a timer is a failed query where the honest answer
+ * is "you were not granted this".
+ */
+function useNotes(enabled: boolean) {
   return useQuery({
+    enabled,
     queryKey: ["ext", "crm-demo", "notes"],
     queryFn: async () => {
       const { data, error, response } = await api.POST(
@@ -226,6 +254,15 @@ function useNotes() {
       );
       if (error || !response.ok) {
         throwProblem(error);
+      }
+      // Same rule as the signing status, and here it is what the UAT caught:
+      // a body shaped like the governed-tool envelope carries the notes under
+      // `data`, so `data.notes` is `undefined` — and `undefined?.length === 0`
+      // is falsey, so the list rendered as though the workspace simply had no
+      // notes. An unreadable response must reach the query gate's error card,
+      // never the empty state.
+      if (!Array.isArray(data?.notes)) {
+        throw new Error("the notes list carried no `notes` array");
       }
       return data.notes;
     },
@@ -266,13 +303,13 @@ function NotesCard() {
   // workspace-configured zone.
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const queryClient = useQueryClient();
-  const notes = useNotes();
-  const canAdd = useCanWrite(NOTE_OBJECT, "create");
-  const canRemove = useCanWrite(NOTE_OBJECT, "delete");
   // Not folded into canAdd: the read grant is what decides whether the card
   // has anything to say at all, and a seat that may read but not write must
-  // still see the list.
+  // still see the list. Read BEFORE the query, because it gates it.
   const canRead = useCan(NOTE_OBJECT, "read");
+  const notes = useNotes(canRead);
+  const canAdd = useCanWrite(NOTE_OBJECT, "create");
+  const canRemove = useCanWrite(NOTE_OBJECT, "delete");
   const [body, setBody] = useState("");
 
   const invalidate = () =>
@@ -332,6 +369,7 @@ function NotesCard() {
           >
             {t("extDemo.notes.add")}
           </Button>
+          {add.isError ? <p>{t("extDemo.notes.addFailed")}</p> : null}
         </>
       ) : null}
       <QueryStates query={notes}>
@@ -356,6 +394,13 @@ function NotesCard() {
           </ul>
         )}
       </QueryStates>
+      {/*
+        A rejected write leaves the input and the list exactly as they were, so
+        without these lines the only difference between "refused" and "nothing
+        happened" is that nothing happened. The signing card already said so
+        for `sign`; these are the other three writes.
+      */}
+      {remove.isError ? <p>{t("extDemo.notes.removeFailed")}</p> : null}
     </Card>
   );
 }

@@ -78,7 +78,7 @@ actions:
                         additionalProperties: false
                         required: [id, body, created_at]
                         properties:
-                          id: { type: string }
+                          id: { type: string, format: uuid }
                           body: { type: string }
                           created_at: { type: string, format: date-time }
           '401': { $ref: '#/components/responses/Unauthorized' }
@@ -125,7 +125,7 @@ actions:
                   additionalProperties: false
                   required: [id, body, created_at]
                   properties:
-                    id: { type: string }
+                    id: { type: string, format: uuid }
                     body: { type: string }
                     created_at: { type: string, format: date-time }
           '401': { $ref: '#/components/responses/Unauthorized' }
@@ -159,7 +159,14 @@ actions:
                 additionalProperties: false
                 required: [id]
                 properties:
-                  id: { type: string }
+                  # The id is a UUID, and declaring it as a bare string was a
+                  # contract that lied by omission: a generated caller could
+                  # submit schema-valid input the route then answered 500 to,
+                  # because the value reaches PostgreSQL's ::uuid cast. The
+                  # handler checks the same shape (notes.go) — the schema tells
+                  # a client, the handler enforces it, and nothing between the
+                  # two validates a body against the schema.
+                  id: { type: string, format: uuid, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' }
         responses:
           '200':
             description: Whether a note was removed.

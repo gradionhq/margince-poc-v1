@@ -72,8 +72,11 @@ psql … -c "INSERT INTO app_user (workspace_id,email,display_name,status,is_age
 node .superpowers/sdd/extension-tier-slices/video/record.mjs
 ```
 
-`record.mjs` is the throwaway driver, kept here rather than in `frontend/e2e/`. This whole directory
-is git-ignored; no tracked file was touched to make the recording.
+`record.mjs` is the throwaway driver, kept outside the repository rather than in `frontend/e2e/`: no
+tracked file was touched to make the recording. The walkthrough itself IS tracked — the mp4 and the
+seven stills are committed under `docs/evidence/extension-tier/`, which nothing in the root
+`.gitignore` excludes, so they are about two megabytes of binaries in the history and should be counted
+as such before another one is added.
 
 ## What the video does not show
 

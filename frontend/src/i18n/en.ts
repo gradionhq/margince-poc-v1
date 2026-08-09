@@ -148,6 +148,11 @@ export const en = {
   "extDemo.notes.empty": "No notes yet.",
   "extDemo.notes.noGrant":
     "You do not hold read access to this extension's notes.",
+  "extDemo.signing.storeFailed":
+    "The key was not stored. Nothing was changed.",
+  "extDemo.notes.addFailed": "The note was not added. Nothing was changed.",
+  "extDemo.notes.removeFailed":
+    "The note was not removed. Nothing was changed.",
 
   "search.title": "Search",
   "search.placeholder": "Search people, companies, deals, activities, leads…",

@@ -321,7 +321,7 @@ describe("the Demo Notepad screen", () => {
   });
 
   it("says so when the principal cannot read the unit's notes at all", async () => {
-    const { fetchStub } = stubTransport(
+    const { fetchStub, calls } = stubTransport(
       { seat_type: "full", objects: {} },
       { "/ext/crm-demo/signing-key/status": () => ({ stored: false }) },
     );
@@ -333,5 +333,14 @@ describe("the Demo Notepad screen", () => {
         "You do not hold read access to this extension's notes.",
       ),
     ).toBeTruthy();
+
+    // And it asked for nothing. The list query is gated on the same grant the
+    // card is, so an ungranted seat fires no request the server would answer
+    // 403 — which matters here more than on a one-shot read, because this
+    // query POLLS: an ungranted seat would otherwise repeat a refused request
+    // every fifteen seconds for as long as the tab is open.
+    expect(calls.some((c) => c.path === "/ext/crm-demo/notes/list")).toBe(
+      false,
+    );
   });
 });

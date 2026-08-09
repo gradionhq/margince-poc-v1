@@ -81,7 +81,7 @@ func TestEveryEnabledExtensionIsTracked(t *testing.T) {
 			// "a fixture git does not have" defect is still caught — at its
 			// source, where it belongs. A genuinely new first-party unit has no
 			// fixture of the same name and still fails here.
-			if root == "../extensions" && isTrackedFixture(t, e.Name()) {
+			if root == "../extensions" && isTrackedFixture(t, e.Name(), onDisk) {
 				continue
 			}
 			if rule, ignored := gitIgnoreRule(t, repoPath); ignored {
@@ -94,18 +94,51 @@ func TestEveryEnabledExtensionIsTracked(t *testing.T) {
 }
 
 // isTrackedFixture reports whether extensions/<name> is CI's copy of the
-// same-named reference fixture. Both halves are required: the fixture must
-// exist as a Go module AND git must actually have it. The second half is what
-// keeps the exemption from being a hole — a fixture that were itself ignored
-// would stop exempting anything, and the copy would be reported again.
-func isTrackedFixture(t *testing.T, name string) bool {
+// same-named reference fixture. Three things are required: the fixture must
+// exist as a Go module, git must actually have it, and the unit on disk must
+// BE it.
+//
+// The tracked-fixture half is what keeps the exemption from being a hole in
+// the other direction — a fixture that were itself ignored would stop
+// exempting anything, and the copy would be reported again.
+//
+// The module-identity half is what keeps the NAME from being the exemption.
+// Matching on the directory name alone means any git-ignored unit called
+// `crm-hello` is waved through, so the day that fixture is promoted to a
+// first-party unit — or a genuine unit is given a name a fixture already has —
+// this gate silently stops asking about it, which is exactly the "no clone of
+// this repository would have it" defect it was built to catch. Comparing the
+// two `module` lines makes the exemption a statement about the unit rather
+// than about its directory: CI's `cp -R` copies the fixture's go.mod verbatim,
+// so the real copy matches and an impostor does not.
+func isTrackedFixture(t *testing.T, name, onDisk string) bool {
 	t.Helper()
 	fixture := filepath.Join("..", "fixtures", "extensions", name, "go.mod")
 	if _, err := os.Stat(fixture); err != nil {
 		return false
 	}
-	_, ignored := gitIgnoreRule(t, "fixtures/extensions/"+name+"/go.mod")
-	return !ignored
+	if _, ignored := gitIgnoreRule(t, "fixtures/extensions/"+name+"/go.mod"); ignored {
+		return false
+	}
+	fixtureModule, unitModule := declaredModulePath(t, fixture), declaredModulePath(t, onDisk)
+	return fixtureModule != "" && fixtureModule == unitModule
+}
+
+// declaredModulePath reads a go.mod's module line, or "" when the file cannot be read
+// or declares none — either of which makes the caller's comparison fail, which
+// is the safe direction: an unreadable go.mod exempts nothing.
+func declaredModulePath(t *testing.T, goMod string) string {
+	t.Helper()
+	raw, err := os.ReadFile(goMod) // #nosec G304 -- a path this test walked to
+	if err != nil {
+		return ""
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if path, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(path)
+		}
+	}
+	return ""
 }
 
 // gitIgnoreRule reports the rule ignoring path, if any. `git check-ignore -v`

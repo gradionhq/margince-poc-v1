@@ -77,6 +77,31 @@ func TestListNotesAnswersAnEmptyArrayRatherThanNull(t *testing.T) {
 	}
 }
 
+// TestListNotesHoldsItsDeclaredEmptyObject: the contract declares the list's
+// arguments as an empty object with additionalProperties: false, and nothing on
+// this seam validates a body against the schema. Ignoring the document would
+// make the list the one operation of the three that accepts whatever it is
+// sent, while its published schema says the opposite.
+func TestListNotesHoldsItsDeclaredEmptyObject(t *testing.T) {
+	for _, in := range []string{`{"limit":10}`, `{"Notes":1}`} {
+		rt := newRuntime()
+		_, err := listNotes(context.Background(), rt, json.RawMessage(in))
+		if err == nil {
+			t.Errorf("%s: the list accepted arguments its schema declares it has none of", in)
+		}
+		if len(rt.tx.statements) != 0 {
+			t.Errorf("%s: the refusal still reached the database: %v", in, rt.tx.statements)
+		}
+	}
+	// And the shape a caller legitimately sends still works. The contract
+	// declares the requestBody required, so `{}` is what a client sends and
+	// what the generated caller sends; an absent document is the same refusal
+	// the other two operations give it.
+	if _, err := listNotes(context.Background(), newRuntime(), json.RawMessage(`{}`)); err != nil {
+		t.Errorf("a list with no arguments must read: %v", err)
+	}
+}
+
 func TestListNotesPropagatesTheReadFailure(t *testing.T) {
 	rt := newRuntime()
 	rt.tx.err = errors.New("connection reset")
@@ -134,6 +159,13 @@ func TestAddNoteRefusesWhatItCannotStoreHonestly(t *testing.T) {
 		// otherwise write an empty note and be told it worked.
 		{"an unknown field", `{"bdy":"typo"}`, "not the declared shape"},
 		{"a malformed document", `{`, "not the declared shape"},
+		// encoding/json matches field names case-insensitively, so
+		// DisallowUnknownFields alone admits three spellings of one key — and
+		// between two case-variants in one document the LAST one wins, which
+		// is a way to change what a mutation writes past a reviewer reading
+		// the first. A closed schema has to be closed byte for byte.
+		{"a case-variant of a declared field", `{"Body":"typo"}`, "matched byte for byte"},
+		{"a declared field and a case-variant of it", `{"body":"first","BODY":"second"}`, "matched byte for byte"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -205,10 +237,35 @@ func TestRemoveNoteRejectsAnUnknownField(t *testing.T) {
 	}
 }
 
+// TestRemoveNoteRefusesAnIDTheContractCouldNotHaveMeant: the contract declares
+// a UUID, and a value that is not one reaches PostgreSQL's ::uuid cast — a
+// 22P02 the unit cannot express as a refusal class (issue #657), so the route
+// answers 500 to input its own schema called valid. Checked before the
+// transaction instead, so nothing reaches the database.
+func TestRemoveNoteRefusesAnIDTheContractCouldNotHaveMeant(t *testing.T) {
+	for _, id := range []string{
+		"not-a-uuid",
+		"11111111111141118111111111111111",                 // unhyphenated
+		"{11111111-1111-4111-8111-111111111111}",           // braced
+		"11111111-1111-4111-8111-11111111111",              // one digit short
+		"11111111-1111-4111-8111-11111111111g",             // not hex
+		"urn:uuid:11111111-1111-4111-8111-111111111111",    // prefixed
+	} {
+		rt := newRuntime()
+		_, err := removeNote(context.Background(), rt, json.RawMessage(`{"id":"`+id+`"}`))
+		if err == nil || !strings.Contains(err.Error(), "is not a note id") {
+			t.Errorf("id %q: err = %v, want the shape refusal", id, err)
+		}
+		if len(rt.tx.statements) != 0 {
+			t.Errorf("id %q: the refusal still reached the database: %v", id, rt.tx.statements)
+		}
+	}
+}
+
 func TestRemoveNotePropagatesTheDeleteFailure(t *testing.T) {
 	rt := newRuntime()
-	rt.tx.err = errors.New("invalid input syntax for type uuid")
-	_, err := removeNote(context.Background(), rt, json.RawMessage(`{"id":"not-a-uuid"}`))
+	rt.tx.err = errors.New("deadlock detected")
+	_, err := removeNote(context.Background(), rt, json.RawMessage(`{"id":"11111111-1111-4111-8111-111111111111"}`))
 	if err == nil {
 		t.Fatal("a failed delete reported removed:false, which is the answer for a note that simply is not there")
 	}
@@ -229,7 +286,12 @@ func TestHandlersPropagateARefusedTransaction(t *testing.T) {
 			return err
 		},
 		"remove": func(rt *fakeRuntime) error {
-			_, err := removeNote(context.Background(), rt, json.RawMessage(`{"id":"x"}`))
+			// A well-formed id, because the shape check now runs BEFORE the
+			// transaction: what this case asserts is that the runtime's own
+			// refusal reaches the caller unwrapped, and an id the handler
+			// rejects outright never gets as far as the transaction to be
+			// refused by it.
+			_, err := removeNote(context.Background(), rt, json.RawMessage(`{"id":"018f3a1b-0000-7000-8000-0000000000d0"}`))
 			return err
 		},
 		"heartbeat": func(rt *fakeRuntime) error { return heartbeat(context.Background(), rt) },

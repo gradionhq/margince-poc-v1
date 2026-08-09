@@ -144,6 +144,12 @@ export const de = {
   "extDemo.notes.empty": "Noch keine Notizen.",
   "extDemo.notes.noGrant":
     "Sie haben keinen Lesezugriff auf die Notizen dieser Erweiterung.",
+  "extDemo.signing.storeFailed":
+    "Der Schlüssel wurde nicht hinterlegt. Es wurde nichts geändert.",
+  "extDemo.notes.addFailed":
+    "Die Notiz wurde nicht hinzugefügt. Es wurde nichts geändert.",
+  "extDemo.notes.removeFailed":
+    "Die Notiz wurde nicht entfernt. Es wurde nichts geändert.",
 
   "search.title": "Suche",
   "search.placeholder":

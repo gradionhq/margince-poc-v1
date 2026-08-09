@@ -111,6 +111,9 @@ func runSuite(m *testing.M) (code int, err error) {
 	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`); err != nil {
 		return 0, fmt.Errorf("dropping a leftover %s: %w", name, err)
 	}
+	if err := reapAbandonedDatabases(ctx, admin, name); err != nil {
+		return 0, err
+	}
 	if _, err := admin.Exec(ctx, `CREATE DATABASE `+name); err != nil {
 		return 0, fmt.Errorf("creating the throwaway %s: %w", name, err)
 	}
@@ -129,6 +132,57 @@ func runSuite(m *testing.M) (code int, err error) {
 		return 0, err
 	}
 	return m.Run(), nil
+}
+
+// reapAbandonedDatabases drops every throwaway this suite has ever left behind
+// that nothing is connected to.
+//
+// The teardown above runs through a deferred function, and a test binary killed
+// by `go test -timeout` (SIGQUIT) or SIGKILL runs no defers at all. The name
+// embeds THIS process's pid, so the run that comes after cannot clean up the
+// one that died — it computes a different name and reaps nothing. Left alone
+// that is not a leak, it is an accumulation: one abandoned database per timeout
+// forever, each holding a full migrated schema, on a cluster shared by the
+// whole integration lane.
+//
+// Zero backends is the liveness test, and DROP without FORCE is the second
+// half of it: another shard of this same lane is a legitimate concurrent owner
+// of its own pid-named database, and the pair means such a database is left
+// alone even if it goes idle between the query and the drop. `mine` is skipped
+// because the caller has just dropped it WITH (FORCE), which is right for this
+// process's own name and wrong for anyone else's.
+func reapAbandonedDatabases(ctx context.Context, admin *pgx.Conn, mine string) error {
+	rows, err := admin.Query(ctx, `
+		SELECT quote_ident(d.datname)
+		  FROM pg_database d
+		 WHERE d.datname LIKE 'margince\_extgate\_test\_%'
+		   AND d.datname <> $1
+		   AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.datname = d.datname)`, mine)
+	if err != nil {
+		return fmt.Errorf("looking for abandoned throwaway databases: %w", err)
+	}
+	var abandoned []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return fmt.Errorf("looking for abandoned throwaway databases: %w", err)
+		}
+		abandoned = append(abandoned, name)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("looking for abandoned throwaway databases: %w", err)
+	}
+	for _, name := range abandoned {
+		// Not fatal: a database that acquired a backend between the query and
+		// here belongs to somebody, and refusing to run this suite over
+		// somebody else's housekeeping would be the wrong trade.
+		if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+name); err != nil {
+			fmt.Fprintf(os.Stderr, "extmigrategate tests: leaving %s in place: %v\n", name, err)
+		}
+	}
+	return nil
 }
 
 // migrateVanilla brings the throwaway database to head over the core and

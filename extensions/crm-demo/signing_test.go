@@ -50,7 +50,7 @@ func TestStoreSigningKeyRefusesWhatItCannotSealHonestly(t *testing.T) {
 	}{
 		{"an empty key", `{"key":""}`, "signing key is empty"},
 		{"a key of whitespace", `{"key":"\t "}`, "signing key is empty"},
-		{"an over-long key", `{"key":"` + strings.Repeat("k", maxSigningKey+1) + `"}`, "at most 4096 bytes"},
+		{"an over-long key", `{"key":"` + strings.Repeat("k", maxSigningKey+1) + `"}`, "at most 4096 characters"},
 		{"an unknown field", `{"secret":"x"}`, "not the declared shape"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,7 +176,7 @@ func TestSignPayloadRefusesWhatItCannotSign(t *testing.T) {
 		name, in, want string
 	}{
 		{"an empty payload", `{"payload":""}`, "no payload to sign"},
-		{"an over-long payload", `{"payload":"` + strings.Repeat("p", maxPayload+1) + `"}`, "at most 4096 bytes"},
+		{"an over-long payload", `{"payload":"` + strings.Repeat("p", maxPayload+1) + `"}`, "at most 4096 characters"},
 		{"an unknown field", `{"body":"x"}`, "not the declared shape"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -304,6 +304,62 @@ func TestComposedToolServesThroughAdmission(t *testing.T) {
 	}
 }
 
+// TestAComposedToolAdvertisesItsResultInsideTheEnvelope: the registered spec's
+// outputSchema describes the SEALED result, not the unit's bare payload.
+//
+// The two have to agree or tools/call quietly loses structuredContent: the
+// dispatcher checks a result against the schema the registry advertises, the
+// result is the envelope, and a schema describing only `{"quote": …}` would
+// never match it — so every extension tool call would answer with the text
+// block alone and log a server defect, while tools/list told a model the answer
+// would be the bare payload.
+//
+// It agrees today because a unit's contract declares its PAYLOAD schema, and
+// Registry.Register wraps every registered spec's output in the envelope
+// (agents.envelopedSpec) — an extension tool takes exactly the same path a core
+// tool does. This test is what keeps that true: the wrapping is invisible from
+// this side of the seam, and gen-composition emitting the payload schema is
+// correct precisely BECAUSE the registry wraps it afterwards.
+func TestAComposedToolAdvertisesItsResultInsideTheEnvelope(t *testing.T) {
+	// The payload schema a unit's contract declares for its 200 response —
+	// gen-composition emits exactly this as the tool's OutputSchema.
+	quoting := unitVerb("demo", "give_quote", extension.TierAutoExecute, extension.ScopeRead)
+	quoting.OutputSchema = json.RawMessage(`{"type":"object","additionalProperties":false,"required":["quote"],"properties":{"quote":{"type":"string"}}}`)
+	tools, err := buildExtensionTools([]extension.Extension{{
+		Name:    "demo",
+		Version: "1.0.0",
+		Tools: []extension.Tool{{
+			Name: "give_quote",
+			Handle: func(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) {
+				return json.RawMessage(`{"quote":"it ain't over"}`), nil
+			},
+		}},
+	}}, []extension.Verb{quoting})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := agents.NewRegistry(nil, auth.NewGate(fullSeat{}))
+	for _, tool := range tools {
+		r.Register(tool)
+	}
+	spec, ok := r.Spec("give_quote")
+	if !ok {
+		t.Fatal("the composed tool did not register")
+	}
+	var advertised struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(spec.OutputSchema, &advertised); err != nil {
+		t.Fatalf("the advertised output schema is not an object schema: %v (%s)", err, spec.OutputSchema)
+	}
+	for _, field := range []string{"data", "schema_version", "trace_id", "warnings"} {
+		if _, present := advertised.Properties[field]; !present {
+			t.Errorf("the advertised output schema declares no %q — it describes the payload, not the sealed result a call actually returns:\n%s",
+				field, spec.OutputSchema)
+		}
+	}
+}
+
 // TestComposedReadToolRequiresTheScope: admission is real — the same tool
 // is refused when the principal lacks the requested scope.
 func TestComposedReadToolRequiresTheScope(t *testing.T) {
