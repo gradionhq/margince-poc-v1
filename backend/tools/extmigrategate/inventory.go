@@ -73,6 +73,13 @@ func relationsInExt(ctx context.Context, conn *pgx.Conn) ([]relation, error) {
 // knows nothing about — so it is a capability the unit did not have to mint to
 // hold, it survives DROP OWNED BY's reach in the same way, and it is a live
 // credential at a remote system. Nothing else in this gate would see it.
+//
+// Read through pg_user_mappings, the VIEW, and not pg_user_mapping, the table:
+// the table holds the mapping options — which is where a password lives — and
+// is readable by superusers alone, so querying it from the restricted role this
+// inventory runs as fails with `permission denied` and takes every refusal in
+// this gate down with it. The view answers the only question asked here (which
+// server, mapped for whom) to any role, and hides the options.
 func ownedObjects(ctx context.Context, conn *pgx.Conn, role string, includeExt bool) ([]string, error) {
 	// pg_toast is always excluded: a table's TOAST relation is owned by the
 	// table's owner and disappears with it, so reporting it would name an
@@ -128,9 +135,8 @@ func ownedObjects(ctx context.Context, conn *pgx.Conn, role string, includeExt b
 		  FROM pg_ts_config tc JOIN pg_namespace n ON n.oid = tc.cfgnamespace
 		 WHERE tc.cfgowner = to_regrole($1::text)
 		UNION ALL
-		SELECT 'user mapping', 'on foreign server ' || quote_ident(s.srvname)
-		  FROM pg_user_mapping m JOIN pg_foreign_server s ON s.oid = m.umserver
-		 WHERE m.umuser = to_regrole($1::text)
+		SELECT 'user mapping', 'on foreign server ' || quote_ident(m.srvname)
+		  FROM pg_user_mappings m WHERE m.usename = $1
 		UNION ALL
 		SELECT 'schema', n.nspname
 		  FROM pg_namespace n WHERE n.nspowner = to_regrole($1::text)
