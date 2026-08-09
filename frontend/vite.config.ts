@@ -21,10 +21,12 @@ const compositionDir = composedComposition
 // step did not run. Falling back to the vanilla stub would build a bundle that
 // silently routes no extension at all — the failure would surface as a missing
 // screen in a deployed image, long after the build that caused it went green.
-if (composedComposition && !existsSync(join(compositionDir, "extensions.gen.ts"))) {
-  throw new Error(
-    `MARGINCE_COMPOSITION_FRONTEND=${composedComposition} holds no extensions.gen.ts — run 'make -C backend composition' before building the composed frontend lane`,
-  );
+for (const artifact of ["extensions.gen.ts", "extscreens.gen.ts"]) {
+  if (composedComposition && !existsSync(join(compositionDir, artifact))) {
+    throw new Error(
+      `MARGINCE_COMPOSITION_FRONTEND=${composedComposition} holds no ${artifact} — run 'make -C backend composition' before building the composed frontend lane`,
+    );
+  }
 }
 
 // The frontend talks only to the /v1 contract surface (architecture/01:
@@ -44,13 +46,20 @@ export default defineConfig({
     alias: {
       "@composition/extensions": join(compositionDir, "extensions.gen.ts"),
       // The unit SCREENS, selected by the same switch and for the same reason.
-      // They are core files either way — a unit ships no TSX — but they call
-      // routes only a composed installation serves, so the vanilla bundle
-      // resolves an empty registry and never pulls them into the graph.
-      "@composition/screens": composedComposition
-        ? join(frontendRoot, "src", "screens", "ext", "index.tsx")
-        : join(frontendRoot, "src", "composition", "extscreens.ts"),
+      // Both sides are GENERATED now, and the composed one imports each unit's
+      // own workspace package: a screen calls routes only a composed
+      // installation serves, so the vanilla bundle resolves an empty registry
+      // and never pulls a unit into the graph at all.
+      "@composition/screens": join(compositionDir, "extscreens.gen.ts"),
     },
+    // ONE React, whichever copy a unit package's own dependency tree would
+    // otherwise resolve. React's hook dispatcher is per-instance: a second copy
+    // in the bundle gives a unit's screen a dispatcher its host never rendered
+    // through, and every hook it calls throws with a message naming neither the
+    // unit nor the cause. The package rule refuses react as a DIRECT dependency
+    // (gen-composition's collectUnitFrontend); this is the half that holds when
+    // one of a unit's own dependencies pulls it in transitively.
+    dedupe: ["react", "react-dom"],
   },
   server: {
     // build/composition/ sits OUTSIDE the Vite root (frontend/), and Vite's
@@ -58,7 +67,17 @@ export default defineConfig({
     // workspace. Listing the resolved directory keeps `pnpm dev` working in
     // the composed lane; in the vanilla lane it names src/composition, which
     // was already allowed, so the entry is inert rather than a widening.
-    fs: { allow: [frontendRoot, compositionDir] },
+    fs: {
+      allow: [
+        frontendRoot,
+        compositionDir,
+        // The unit trees. A composed dev server resolves a screen out of
+        // extensions/<name>/frontend, which is outside the Vite root, and
+        // without this `pnpm dev` serves the registry and then 403s the very
+        // module it imports.
+        join(frontendRoot, "..", "extensions"),
+      ],
+    },
     // Everything the api owns is reachable through this origin, so
     // `curl localhost:8080/v1/...` and the operational probes keep working
     // against the port a human already has open — the app's port IS the

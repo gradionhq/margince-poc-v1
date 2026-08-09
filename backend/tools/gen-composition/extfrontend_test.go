@@ -120,3 +120,38 @@ func TestScreenIdent(t *testing.T) {
 		}
 	}
 }
+
+// TestExtScreensGenImportsOnlyUnitsWithAScreen: the registry is the join
+// between the enabled set and the units that actually ship a screen. A unit
+// without one contributes nothing and is not an error — App.tsx falls through
+// to the generic published-operations card, which is what de and yogi get.
+func TestExtScreensGenImportsOnlyUnitsWithAScreen(t *testing.T) {
+	got := string(extScreensGen([]extensionUnit{
+		{Name: "crm-demo", Frontend: &unitFrontend{Package: "@margince-ext/crm-demo", Export: "@margince-ext/crm-demo"}},
+		{Name: "de"},
+	}))
+	for _, want := range []string{
+		`import CrmDemoScreen from "@margince-ext/crm-demo";`,
+		`"crm-demo": CrmDemoScreen,`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted registry is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `"de"`) {
+		t.Errorf("a unit with no frontend layer must contribute no entry:\n%s", got)
+	}
+}
+
+// The emitted file is a function of the ENABLED SET, not of the order the
+// filesystem handed directories over — scanExtensions sorts, and this pins
+// that the emitter preserves it rather than ranging a map.
+func TestExtScreensGenIsOrderedByUnitName(t *testing.T) {
+	got := string(extScreensGen([]extensionUnit{
+		{Name: "alpha", Frontend: &unitFrontend{Package: "@margince-ext/alpha", Export: "@margince-ext/alpha"}},
+		{Name: "beta", Frontend: &unitFrontend{Package: "@margince-ext/beta", Export: "@margince-ext/beta"}},
+	}))
+	if strings.Index(got, "AlphaScreen") > strings.Index(got, "BetaScreen") {
+		t.Errorf("imports are not in unit order:\n%s", got)
+	}
+}

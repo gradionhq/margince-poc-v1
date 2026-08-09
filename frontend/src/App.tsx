@@ -1,4 +1,4 @@
-import { extensionScreens } from "@composition/screens";
+import { extensionScreens as composedScreens } from "@composition/screens";
 import {
   type ReactNode,
   useCallback,
@@ -6,7 +6,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { EXTENSION_SCREEN, findExtension } from "./app/extensions";
+import {
+  EXTENSION_SCREEN,
+  type ExtensionScreenRegistry,
+  findExtension,
+} from "./app/extensions";
 import { AskFab } from "./app/fab";
 import {
   CommandPalette,
@@ -121,6 +125,18 @@ function ShareRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
 // cannot render for a unit this installation did not compose: an entry for a
 // disabled unit is inert rather than a route into a surface with no server
 // behind it.
+// The generated registry is emitted UNTYPED, and the annotation lands here.
+//
+// That file is written to two locations at different depths — the vanilla stub
+// under src/composition/ and the composed output under build/composition/ —
+// and stubMatchesVanilla requires the two to be byte-identical, so it can carry
+// neither a relative type import (the paths would differ) nor a bare one
+// (nothing resolves from build/composition/). Annotating at the import site
+// costs nothing and moves the check rather than losing it: a unit whose default
+// export is not a component fails HERE, in core, in the composed lane, at the
+// one place both halves of the registry are visible at once.
+const extensionScreens: ExtensionScreenRegistry = composedScreens;
+
 function ExtensionRoute({ name }: Readonly<{ name?: string }>) {
   const t = useT();
   const unit = findExtension(name);
