@@ -743,6 +743,10 @@ func (stubs) ConfirmOrganizationFact(w nethttp.ResponseWriter, r *nethttp.Reques
 	httperr.NotImplemented(w, r, "ConfirmOrganizationFact")
 }
 
+func (stubs) GetOrganizationFinanceSummary(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationFinanceSummary")
+}
+
 func (stubs) GetOrganizationGraph(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetOrganizationGraph")
 }

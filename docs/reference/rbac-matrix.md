@@ -68,6 +68,7 @@ the workspace but changes none of them.
 | `custom_field` | CRUD | -R-- | -R-- | -R-- | CRUD |
 | `deal` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `embedding_reindex` | -RU- | ---- | ---- | ---- | -RU- |
+| `finance` | CRUD | -R-- | -R-- | -R-- | CRUD |
 | `fx_rate` | CRU- | ---- | ---- | ---- | CRU- |
 | `import_run` | CRUD | ---- | ---- | ---- | CRUD |
 | `installation_settings` | -RU- | -R-- | -R-- | -R-- | -RU- |

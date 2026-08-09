@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/finance"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -57,6 +58,7 @@ type (
 	orgBriefHandlers     = orgbrief.Handlers
 	orgDossierHandlers   = orgdossier.Handlers
 	accountDraftHandlers = accountdraft.Handlers
+	financeHandlers      = finance.Handlers
 )
 
 // wirePerson360 binds the person record page — the organization page's

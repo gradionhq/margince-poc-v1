@@ -3420,6 +3420,72 @@ func (e FilteredExportRequestObject) Valid() bool {
 	}
 }
 
+// Defines values for FinanceInvoiceStatus.
+const (
+	FinanceInvoiceStatusCredited      FinanceInvoiceStatus = "credited"
+	FinanceInvoiceStatusDisputed      FinanceInvoiceStatus = "disputed"
+	FinanceInvoiceStatusDraft         FinanceInvoiceStatus = "draft"
+	FinanceInvoiceStatusOpen          FinanceInvoiceStatus = "open"
+	FinanceInvoiceStatusOverdue       FinanceInvoiceStatus = "overdue"
+	FinanceInvoiceStatusPaid          FinanceInvoiceStatus = "paid"
+	FinanceInvoiceStatusPartiallyPaid FinanceInvoiceStatus = "partially_paid"
+	FinanceInvoiceStatusVoid          FinanceInvoiceStatus = "void"
+)
+
+// Valid indicates whether the value is a known member of the FinanceInvoiceStatus enum.
+func (e FinanceInvoiceStatus) Valid() bool {
+	switch e {
+	case FinanceInvoiceStatusCredited:
+		return true
+	case FinanceInvoiceStatusDisputed:
+		return true
+	case FinanceInvoiceStatusDraft:
+		return true
+	case FinanceInvoiceStatusOpen:
+		return true
+	case FinanceInvoiceStatusOverdue:
+		return true
+	case FinanceInvoiceStatusPaid:
+		return true
+	case FinanceInvoiceStatusPartiallyPaid:
+		return true
+	case FinanceInvoiceStatusVoid:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FinanceSummaryState.
+const (
+	FinanceSummaryStateConnected    FinanceSummaryState = "connected"
+	FinanceSummaryStateError        FinanceSummaryState = "error"
+	FinanceSummaryStateNoConnection FinanceSummaryState = "no_connection"
+	FinanceSummaryStateStale        FinanceSummaryState = "stale"
+	FinanceSummaryStateSyncing      FinanceSummaryState = "syncing"
+	FinanceSummaryStateUnmapped     FinanceSummaryState = "unmapped"
+)
+
+// Valid indicates whether the value is a known member of the FinanceSummaryState enum.
+func (e FinanceSummaryState) Valid() bool {
+	switch e {
+	case FinanceSummaryStateConnected:
+		return true
+	case FinanceSummaryStateError:
+		return true
+	case FinanceSummaryStateNoConnection:
+		return true
+	case FinanceSummaryStateStale:
+		return true
+	case FinanceSummaryStateSyncing:
+		return true
+	case FinanceSummaryStateUnmapped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GrowthFitBand.
 const (
 	GrowthFitBandModerate GrowthFitBand = "moderate"
@@ -7655,22 +7721,22 @@ func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	Automatic  VoiceProfileVersionReason = "automatic"
-	Manual     VoiceProfileVersionReason = "manual"
-	Onboarding VoiceProfileVersionReason = "onboarding"
-	Rollback   VoiceProfileVersionReason = "rollback"
+	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
+	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
+	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
+	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case Automatic:
+	case VoiceProfileVersionReasonAutomatic:
 		return true
-	case Manual:
+	case VoiceProfileVersionReasonManual:
 		return true
-	case Onboarding:
+	case VoiceProfileVersionReasonOnboarding:
 		return true
-	case Rollback:
+	case VoiceProfileVersionReasonRollback:
 		return true
 	default:
 		return false
@@ -8825,22 +8891,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -11682,6 +11748,48 @@ type FilteredExportRequestFormat string
 // FilteredExportRequestObject The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
 type FilteredExportRequestObject string
 
+// FinanceInvoice One mirrored invoice, in the currency it was issued in.
+type FinanceInvoice struct {
+	Currency string `json:"currency"`
+
+	// DaysLate Days between the due date and settlement, or between the due date and today while it is still open. Absent when the invoice carries no due date — lateness against no deadline is not a reading.
+	DaysLate *int                `json:"days_late,omitempty"`
+	DueAt    *openapi_types.Date `json:"due_at,omitempty"`
+
+	// GrossMinor The invoiced total in minor units.
+	GrossMinor int64              `json:"gross_minor"`
+	Id         openapi_types.UUID `json:"id"`
+	IssuedAt   openapi_types.Date `json:"issued_at"`
+
+	// Number The source's own invoice number, absent when it does not issue one.
+	Number *string `json:"number,omitempty"`
+
+	// OpenMinor What is still unpaid on it.
+	OpenMinor int64 `json:"open_minor"`
+
+	// PaidAt When it was settled in full. Null while anything is still open.
+	PaidAt *time.Time           `json:"paid_at,omitempty"`
+	Status FinanceInvoiceStatus `json:"status"`
+}
+
+// FinanceInvoiceStatus defines model for FinanceInvoice.Status.
+type FinanceInvoiceStatus string
+
+// FinanceSummaryState Why the figures are what they are — the six cases a company page must keep
+// apart, because five of them look identical if you only render the numbers.
+//
+// `no_connection` — no accounting source is configured for this installation.
+// `unmapped` — a source is connected, but nobody has said which of its
+// customers this organization is. The figures are absent, and the fix is a
+// mapping rather than a sync.
+// `syncing` — the first pass has not finished; figures may be partial.
+// `connected` — the figures are current.
+// `stale` — the last sync succeeded, but long enough ago that the reader
+// should see the date beside the number.
+// `error` — the last attempt failed. What is shown is the last good answer,
+// and the reader is told it is not current.
+type FinanceSummaryState string
+
 // FxRate One effective-dated FX rate converting from_currency into the workspace base (to_currency). rate is a decimal string (numeric(20,10)), never a float.
 type FxRate struct {
 	EffectiveDate openapi_types.Date `json:"effective_date"`
@@ -13343,6 +13451,59 @@ type OrganizationFactSuspectReason string
 // OrganizationFactListResponse defines model for OrganizationFactListResponse.
 type OrganizationFactListResponse struct {
 	Data []OrganizationFact `json:"data"`
+}
+
+// OrganizationFinanceSummary What the accounting mirror knows about one customer (ADR-0083/A128).
+//
+// Every figure is nullable and ABSENT when it cannot be computed, never zero
+// (FIN-AC-2). "€0 open" says the customer is square with us; "no figure" says
+// we do not know. A card that renders the second as the first tells a rep an
+// account is healthy on the strength of a missing connector.
+type OrganizationFinanceSummary struct {
+	// LastSyncedAt When the last successful sync finished. Null when none has.
+	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+
+	// MedianDaysAfterDue The median days between an invoice's DUE date and its settlement over the window (FIN-FORM-3) — how late they pay, not how long they take. Negative reads as early. Deliberately not issue-to-settlement: an invoice paid on the last day of 30-day terms is punctual, and a figure that called it "30 days to pay" would read as slow.
+	// Absent when too few invoices have settled to say — a median of one invoice is an anecdote, not a payment habit.
+	MedianDaysAfterDue *int `json:"median_days_after_due,omitempty"`
+
+	// NetInvoiced Issued minus credited over the last 365 days (FIN-FORM-1). Named "net invoiced" rather than "revenue": the source supports issued amounts, not a ledger revenue figure, and calling one the other is the kind of small wrong label a reader plans against.
+	NetInvoiced *Money `json:"net_invoiced,omitempty"`
+
+	// OpenBalance What is still open across unpaid invoices (FIN-FORM-2).
+	OpenBalance    *Money             `json:"open_balance,omitempty"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// Overdue The share of the open balance already past its due date.
+	Overdue *Money `json:"overdue,omitempty"`
+
+	// PaymentBehaviour Days-late per settled invoice, oldest first, for the sparkline. Never padded with zeroes, because a zero here reads as "paid exactly on time".
+	// Absent under the same sample floor the median observes: a shape drawn from one invoice would state a payment habit the number beside it refuses to.
+	PaymentBehaviour *[]int `json:"payment_behaviour,omitempty"`
+
+	// Provider Which accounting source this came from, in the source's own words ("offline_demo"). Rendered as a label beside the figures so a reader knows what they are looking at; absent when nothing is connected.
+	Provider *string `json:"provider,omitempty"`
+
+	// RecentInvoices The five most recent invoices (FIN-LIM-4); `truncated` says whether there are more.
+	RecentInvoices *[]FinanceInvoice `json:"recent_invoices,omitempty"`
+
+	// State Why the figures are what they are — the six cases a company page must keep
+	// apart, because five of them look identical if you only render the numbers.
+	//
+	// `no_connection` — no accounting source is configured for this installation.
+	// `unmapped` — a source is connected, but nobody has said which of its
+	// customers this organization is. The figures are absent, and the fix is a
+	// mapping rather than a sync.
+	// `syncing` — the first pass has not finished; figures may be partial.
+	// `connected` — the figures are current.
+	// `stale` — the last sync succeeded, but long enough ago that the reader
+	// should see the date beside the number.
+	// `error` — the last attempt failed. What is shown is the last good answer,
+	// and the reader is told it is not current.
+	State FinanceSummaryState `json:"state"`
+
+	// Truncated True when the account has more invoices than `recent_invoices` carries.
+	Truncated *bool `json:"truncated,omitempty"`
 }
 
 // OrganizationGraph The account's one-hop connection graph, as nodes and edges the client lays out.
@@ -26324,6 +26485,9 @@ type ServerInterface interface {
 	// Confirm an extracted fact without changing its value.
 	// (POST /organizations/{id}/facts/{factKey}/confirm)
 	ConfirmOrganizationFact(w http.ResponseWriter, r *http.Request, id Id, factKey FactKey, params ConfirmOrganizationFactParams)
+	// Does this customer actually pay us, and on time?
+	// (GET /organizations/{id}/finance-summary)
+	GetOrganizationFinanceSummary(w http.ResponseWriter, r *http.Request, id Id)
 	// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
 	// (GET /organizations/{id}/graph)
 	GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id)
@@ -27839,6 +28003,12 @@ func (_ Unimplemented) UpdateOrganizationFact(w http.ResponseWriter, r *http.Req
 // Confirm an extracted fact without changing its value.
 // (POST /organizations/{id}/facts/{factKey}/confirm)
 func (_ Unimplemented) ConfirmOrganizationFact(w http.ResponseWriter, r *http.Request, id Id, factKey FactKey, params ConfirmOrganizationFactParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Does this customer actually pay us, and on time?
+// (GET /organizations/{id}/finance-summary)
+func (_ Unimplemented) GetOrganizationFinanceSummary(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36736,6 +36906,40 @@ func (siw *ServerInterfaceWrapper) ConfirmOrganizationFact(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationFinanceSummary operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationFinanceSummary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationFinanceSummary(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOrganizationGraph operation middleware
 func (siw *ServerInterfaceWrapper) GetOrganizationGraph(w http.ResponseWriter, r *http.Request) {
 
@@ -44517,6 +44721,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/facts/{factKey}/confirm", wrapper.ConfirmOrganizationFact)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/finance-summary", wrapper.GetOrganizationFinanceSummary)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/graph", wrapper.GetOrganizationGraph)
