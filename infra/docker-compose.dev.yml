@@ -20,6 +20,16 @@ services:
     # pgvector ships inside the Postgres image: the search module's hybrid
     # retrieval needs the extension available at migrate time.
     image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+    # The lock table, sized for the integration lane rather than for one app.
+    # Postgres pre-allocates max_locks_per_transaction * max_connections slots at
+    # boot and shares them across every backend, and the lane's reset takes one
+    # per relation — every table AND every index — inside a single transaction,
+    # on up to INTEGRATION_JOBS databases at once. At the default 64 that pool is
+    # exhausted well before max_connections is, and the failure is
+    # `out of shared memory (SQLSTATE 53200)` in whichever package happened to
+    # ask next. Slots are a few hundred bytes each, so this costs single-digit
+    # megabytes and buys the lane its concurrency back.
+    command: ["postgres", "-c", "max_locks_per_transaction=512"]
     environment:
       POSTGRES_USER: margince_owner
       POSTGRES_PASSWORD: dev
