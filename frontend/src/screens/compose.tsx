@@ -480,6 +480,53 @@ function purposeOptions(
 // subject on top of a body; a channel reply carries neither (design §9.3 —
 // the recipient is resolved server-side, and a channel has no subject line),
 // so only the words and the consent purpose gate it.
+// The one place the send's ORIGIN is chosen, so the three transports cannot
+// drift into different bodies. An anchor sends the reply the composer has
+// always sent; no anchor sends the account-started twin, which carries the
+// records it is filed under instead of inheriting them from a conversation
+// (ADR-0087 §1). A channel reply is anchor-only by nature — there is no such
+// thing as starting a Telegram thread with a stranger from a company page —
+// so it keeps the anchored path and never reaches the account arm.
+async function sendFrom(args: {
+  activityId?: string;
+  isTelegram: boolean;
+  mail: {
+    subject: string;
+    body: string;
+    to: string[];
+    cc?: string[];
+    draft_ref?: string;
+    consent_purpose: string;
+  };
+  channelBody: { body: string; consent_purpose: string };
+  links: { entity_type: RelinkKind; entity_id: string }[];
+}) {
+  if (args.isTelegram) {
+    if (!args.activityId) {
+      // A channel reply answers a conversation the person opened; there is no
+      // way to start one with a stranger from a company page. Falling through
+      // to the mail arm would post a channel message as an account EMAIL —
+      // wrong transport, wrong body shape, and a message the rep never meant
+      // to send by mail. No caller constructs this today; the refusal is what
+      // keeps that true.
+      throw new Error(
+        "compose: a channel reply needs the conversation it answers",
+      );
+    }
+    return api.POST("/activities/{id}/send-message", {
+      params: { path: { id: args.activityId } },
+      body: args.channelBody,
+    });
+  }
+  if (args.activityId) {
+    return api.POST("/activities/{id}/send-email", {
+      params: { path: { id: args.activityId } },
+      body: args.mail,
+    });
+  }
+  return api.POST("/emails", { body: { ...args.mail, links: args.links } });
+}
+
 function canSendCompose(
   isTelegram: boolean,
   fields: { to: string[]; subject: string; body: string; purpose: string },
@@ -609,7 +656,13 @@ export function ComposeModal({
   open,
   onClose,
 }: Readonly<{
-  activityId: string;
+  // Absent means this is an ACCOUNT-STARTED send: a new conversation with no
+  // prior message to anchor to (ADR-0087 §1). It is the same send either way —
+  // only the origin differs — so the drafting, consent, refusal and provenance
+  // behaviour below is shared rather than forked. A reply keeps threading and
+  // inherits its links; an account-started message roots its own thread and
+  // files itself under the record it was started from.
+  activityId?: string;
   entityType: RelinkKind;
   entityId: string;
   personId?: string;
@@ -644,6 +697,12 @@ export function ComposeModal({
   const draft = useMutation({
     mutationFn: async () => {
       setDraftUnavailable(false);
+      // Drafting is anchored: the grounded account-started draft is ADR-0087
+      // §3 and is not built yet. Reporting it unavailable is the honest answer
+      // — the rep writes the mail themselves and still sends it — where
+      // drafting against some nearby activity would ground the message in a
+      // conversation the rep never chose.
+      if (!activityId) return { available: false as const };
       const { data, error, response } = await api.POST(
         "/activities/{id}/draft-email",
         {
@@ -742,22 +801,21 @@ export function ComposeModal({
       setSendUnavailable(false);
       // No X-Approval-Token, no Idempotency-Key on either path: the human's
       // own click IS the approval on the REST path (ADR-0055).
-      const { data, error, response } = isTelegram
-        ? await api.POST("/activities/{id}/send-message", {
-            params: { path: { id: activityId } },
-            body: { body, consent_purpose: purpose },
-          })
-        : await api.POST("/activities/{id}/send-email", {
-            params: { path: { id: activityId } },
-            body: {
-              subject,
-              body,
-              to,
-              cc: cc.length ? cc : undefined,
-              draft_ref: draftRef ?? undefined,
-              consent_purpose: purpose,
-            },
-          });
+      const mail = {
+        subject,
+        body,
+        to,
+        cc: cc.length ? cc : undefined,
+        draft_ref: draftRef ?? undefined,
+        consent_purpose: purpose,
+      };
+      const { data, error, response } = await sendFrom({
+        activityId,
+        isTelegram,
+        mail,
+        channelBody: { body, consent_purpose: purpose },
+        links: [{ entity_type: entityType, entity_id: entityId }],
+      });
       if (response.status === 501) return { sent: false as const };
       // Only a real 202 is a send. openapi-fetch returns a falsy `error` for a
       // bodiless non-2xx (a gateway 502/503/504); inferring success from

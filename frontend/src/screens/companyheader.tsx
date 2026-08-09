@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -13,6 +14,7 @@ import { ArchiveAction } from "./archive";
 import { provenanceOf, throwProblem, useSorMode, useViewerId } from "./common";
 import { RECORD_ZONE } from "./company360";
 import { DecisionsChip } from "./companyapprovals";
+import { ComposeModal } from "./compose";
 import { joinMultiselectValue } from "./create";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
@@ -48,11 +50,11 @@ type UpdateOrganizationRequest =
 // was two clicks inside it, behind a type picker, which is why accounts get
 // notes and no follow-ups.
 //
-// "Write email" is deliberately NOT here yet. The composer requires an existing
-// activity to reply to (ComposeModal takes an activityId), so an account-started
-// email has no contract to call — and a button that opens a composer with
-// nothing to send from would be a promise this page cannot keep. It joins this
-// group with the account-started draft/send contract, not before.
+// "Write email" leads, because it is the account's primary action (plan §4.1):
+// a rep opening a company is usually about to start a conversation, not log
+// one that happened. It sends through POST /emails, the account-started origin
+// — a new thread filed under this company — rather than fabricating an
+// activity to reply to.
 export function CompanyPrimaryActions({
   org,
 }: Readonly<{ org: Organization }>) {
@@ -63,6 +65,7 @@ export function CompanyPrimaryActions({
   }
   return (
     <>
+      <WriteEmailAction org={org} />
       <LogActivityAction entityType="organization" entityId={org.id} />
       <LogActivityAction
         entityType="organization"
@@ -70,6 +73,36 @@ export function CompanyPrimaryActions({
         initialKind="task"
         triggerLabel="log.addTask"
       />
+    </>
+  );
+}
+
+// WriteEmailAction opens the composer with no anchor. The modal owns the send,
+// the consent gate and the refusal vocabulary; this owns only whether the
+// surface is offered and the open/close state, so the account-started and
+// reply surfaces stay one component.
+function WriteEmailAction({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button variant="primary" onClick={() => setOpen(true)}>
+        {t("co.writeEmail")}
+      </Button>
+      {open && (
+        // Keyed by the record, so navigating to another company while the
+        // composer is open REMOUNTS it rather than re-pointing it. Without the
+        // key the form keeps the text written for the previous account while
+        // the links payload follows the new one — a message composed for A,
+        // filed against B, with nothing on screen saying so.
+        <ComposeModal
+          key={org.id}
+          entityType="organization"
+          entityId={org.id}
+          open={open}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }

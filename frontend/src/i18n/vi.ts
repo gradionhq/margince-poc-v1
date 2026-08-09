@@ -715,6 +715,7 @@ export const vi = {
   "co.growthFit.whitespace": "Những thứ họ chưa mua của bạn",
   "co.growthFit.objections": "Những điều họ có thể phản đối",
   "co.growthFit.angle": "Hướng tiếp cận đề xuất",
+  "co.writeEmail": "Viết email",
   "co.dossier.title": "Công ty này là gì",
   "co.dossier.unavailable":
     "Không đọc được mô tả này. Thông tin công ty không thay đổi.",
