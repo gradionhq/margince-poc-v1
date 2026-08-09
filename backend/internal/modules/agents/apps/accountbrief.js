@@ -83,8 +83,11 @@
       return;
     }
     var rows = el('div', 'rows');
+    // A non-object element is SKIPPED rather than thrown on: one malformed entry
+    // would abort the loop and leave a heading with no rows, which reads as an
+    // empty queue when the queue was not empty.
     items.forEach(function (item) {
-      rows.appendChild(itemRow(item));
+      if (item && typeof item === 'object') rows.appendChild(itemRow(item));
     });
     root.appendChild(rows);
   }

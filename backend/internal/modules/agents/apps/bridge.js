@@ -113,13 +113,17 @@
     // view announce itself twice. A host that received two
     // ui/notifications/initialized would be entitled to read the second as a
     // fresh view and re-send everything it had already sent.
-    if (initializeID !== null && message.id === initializeID && message.result) {
+    // `'result' in message` rather than a truthy check: `"result": null` is a
+    // legal JSON-RPC response, and treating it as "not answered yet" left the
+    // view permanently blank — no re-announce, no timeout, every later result
+    // dropped, and nothing anywhere saying why.
+    if (initializeID !== null && message.id === initializeID && 'result' in message) {
       initializeID = null;
       initialized = true;
       // Learned here and only here, from the one message whose sender is already
       // proven to be the embedding frame.
       hostOrigin = event.origin;
-      applyTheme(message.result.hostContext);
+      applyTheme(message.result?.hostContext);
       send({ method: 'ui/notifications/initialized', params: {} });
       return;
     }

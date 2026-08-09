@@ -59,14 +59,19 @@ func declaresUI(capabilities json.RawMessage) bool {
 	if !present {
 		return false
 	}
-	var negotiated struct {
-		//nolint:tagliatelle // mimeTypes is the extension's wire member, camelCase by the specification
-		MIMETypes []string `json:"mimeTypes"`
-	}
-	if err := json.Unmarshal(declared, &negotiated); err != nil {
+	// Decoded through a MAP and matched exactly, for the same reason
+	// declaredExtension does it: a struct member would match `"MimeTypes"` or
+	// `"MIMETYPES"` case-insensitively, and this check exists precisely to hold a
+	// client to what it declared.
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(declared, &members); err != nil {
 		return false
 	}
-	for _, offered := range negotiated.MIMETypes {
+	var offeredTypes []string
+	if err := json.Unmarshal(members["mimeTypes"], &offeredTypes); err != nil {
+		return false
+	}
+	for _, offered := range offeredTypes {
 		// Compared exactly. The profile parameter is the whole discriminator —
 		// a client declaring bare `text/html` is declaring it can show a
 		// document, which is not the same as being able to run an App.

@@ -20,9 +20,12 @@ package apps
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -65,7 +68,7 @@ func assembled(t *testing.T) map[string]string {
 var offOrigin = []string{
 	"http://", "https://", "//cdn.", "<link", "src=", "@import", "url(",
 	"fetch(", "XMLHttpRequest", "WebSocket(", "EventSource(", "importScripts(",
-	"navigator.sendBeacon",
+	"navigator.sendBeacon", "RTCPeerConnection", "location.replace", "navigator.geolocation",
 }
 
 func TestNoViewReachesOffItsOwnOrigin(t *testing.T) {
@@ -144,6 +147,7 @@ func TestNoViewCarriesACredential(t *testing.T) {
 		for _, secret := range []string{
 			"authorization", "bearer ", "access_token", "refresh_token",
 			"api_key", "apikey", "client_secret", "passport", "approval_id",
+			"token", "secret", "credential",
 		} {
 			if strings.Contains(lowered, secret) {
 				t.Errorf("the view %s mentions %q. A view holds no credential and no authority handle: it renders "+
@@ -159,7 +163,7 @@ func TestNoViewCarriesACredential(t *testing.T) {
 // to call something, this sweep is where that decision gets made explicitly.
 func TestNoViewCallsATool(t *testing.T) {
 	for uri, document := range assembled(t) {
-		for _, call := range []string{`"tools/call"`, "'tools/call'", "ui/open-link", "ui/message"} {
+		for _, call := range []string{`"tools/call"`, "'tools/call'", "tools/", "ui/open-link", "ui/message"} {
 			if strings.Contains(document, call) {
 				t.Errorf("the view %s sends %s. A view is a renderer; a call from inside one is a second door onto "+
 					"a record and needs its own authority argument", uri, call)
@@ -198,6 +202,10 @@ func TestEveryViewAnnouncesItselfToItsHost(t *testing.T) {
 			// target of every later send.
 			"hostOrigin = event.origin",
 			"event.origin === hostOrigin",
+			// The id MATCH, not merely that an initialise was sent: a bridge that
+			// accepted any message carrying a result as the handshake response
+			// would keep every other string in this list and still be wrong.
+			"message.id === initializeID",
 			// The element the renderers write into.
 			`id="root"`,
 		} {
@@ -248,8 +256,15 @@ func TestAnUnknownViewAnswersTheNotFoundSentinel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assembling the views: %v", err)
 	}
-	if _, err := p.ReadResource(context.Background(), "ui://margince/not-a-view.html"); err == nil {
+	_, err = p.ReadResource(context.Background(), "ui://margince/not-a-view.html")
+	if err == nil {
 		t.Fatal("a URI this provider does not serve was answered anyway")
+	}
+	// The DECLARED sentinel, not merely some error. Anything else surfaces as a
+	// 500 and tells the caller something is there — which is the whole point of
+	// this assertion, and an `err != nil` check would pass against it.
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("an unserved view answered %v, want the declared not-found sentinel", err)
 	}
 }
 
@@ -306,7 +321,7 @@ func TestMustProviderAssemblesThisBuildsViews(t *testing.T) {
 	}
 }
 
-// The comment stripper, which five sweeps above now depend on. A stripper that
+// The comment stripper, which every sweep above now depends on. A stripper that
 // removed too much would hide exactly the constructs they exist to find, so its
 // erring-toward-keeping rule is asserted rather than described.
 func TestCodeSeparatesWhatADocumentDoesFromWhatItSays(t *testing.T) {
@@ -382,9 +397,103 @@ func TestOnlyTheOpeningMessageIsSentToAWildcardTarget(t *testing.T) {
 			t.Errorf("the view %s does not send through a resolved target, so its later messages are not pinned "+
 				"to the origin the host answered from", uri)
 		}
-		if strings.Contains(document, "postMessage(") && strings.Contains(document, ", '*');") {
-			t.Errorf("the view %s posts to a literal wildcard target, so a message meant for its host would be "+
-				"delivered to whatever origin the parent frame currently holds", uri)
+		// Every spelling of a literal wildcard target, not just the one that was
+		// there when this was written: quotes either way, and any spacing before
+		// the closing paren.
+		for _, wildcard := range []string{`, '*')`, `, "*")`, `,'*')`, `,"*")`, `, '*' )`, `, "*" )`} {
+			if strings.Contains(document, wildcard) {
+				t.Errorf("the view %s posts to a literal wildcard target (%s), so a message meant for its host "+
+					"would be delivered to whatever origin the parent frame currently holds", uri, wildcard)
+			}
+		}
+	}
+}
+
+// Code cannot lex JavaScript, and every sweep in this file depends on it. So the
+// assets are held to the constructs it CAN read: a regex literal carrying a quote
+// or a `/*`, or a line terminator it does not know, desynchronises the scan and
+// hides whatever follows — silently, in the one direction that matters.
+//
+// This is the check that turns that latent hole into a loud one. An asset that
+// trips it is not necessarily unsafe; it is unreadable to the sweeps, which from
+// a gate's point of view is the same thing.
+func TestEveryAssetStaysWithinWhatTheStripperCanRead(t *testing.T) {
+	for _, name := range []string{"bridge.js", "app.css", "accountbrief.js", "relationshipmap.js"} {
+		raw, err := assets.ReadFile(name)
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		if why := AssumptionsHold(string(raw)); why != "" {
+			t.Errorf("%s %s — rewrite it, or teach code.go the construct before relying on the sweeps here", name, why)
+		}
+	}
+}
+
+// And the check itself detects each construct, or it is a guard nobody has seen
+// fire. Every input below is one the browser reads differently from the scanner.
+func TestTheStripperRefusesWhatItCannotLex(t *testing.T) {
+	for _, tc := range []struct{ name, asset string }{
+		{"a regex literal carrying a quote desynchronises quote state", `s.replace(/"/g, ''); var u = "x";`},
+		{"a lone carriage return ends a line comment for a browser", "// note\rel.innerHTML = payload;"},
+		{"U+2028 ends a line comment for a browser, invisibly", "// note el.innerHTML = payload;"},
+		{"U+2029 likewise", "// note el.innerHTML = payload;"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if AssumptionsHold(tc.asset) == "" {
+				t.Errorf("AssumptionsHold accepted %q, which the scanner reads differently from a browser", tc.asset)
+			}
+		})
+	}
+	// And it accepts what it genuinely can read, or it would refuse every asset.
+	if why := AssumptionsHold("var s = 'it\\'s // fine'; /* block */ el.textContent = x;\n"); why != "" {
+		t.Errorf("AssumptionsHold refused an asset it can read: %s", why)
+	}
+}
+
+// The policy on the READ, asserted against the REAL provider.
+//
+// This is the assertion whose absence let a defect through: with only the
+// transport test's stub supplying `UI` on its own contents, deleting
+// `UI: sandbox()` from ReadResource left every test green — and a host that
+// fetched a view by URI without listing first would have received a document with
+// no sandbox policy at all, which is the exact prefetch case the policy was moved
+// onto the contents for.
+func TestTheRealProviderSendsItsPolicyWithTheDocument(t *testing.T) {
+	p, err := NewProvider()
+	if err != nil {
+		t.Fatalf("assembling the views: %v", err)
+	}
+	for _, r := range p.Resources(context.Background()) {
+		contents, err := p.ReadResource(context.Background(), r.URI)
+		if err != nil {
+			t.Fatalf("reading %s: %v", r.URI, err)
+		}
+		if contents.UI == nil {
+			t.Errorf("the view %s is read WITHOUT its sandbox policy, so a host that fetched it by URI has a "+
+				"document and no rules to sandbox it under", r.URI)
+			continue
+		}
+		// And it must be the SAME policy the catalogue advertised, since the two
+		// reach the host through different calls and a host may make either.
+		//
+		// Compared through the rendered JSON rather than as structs: the policy
+		// holds slices, so it is not comparable with ==, and what has to agree is
+		// what the host READS rather than how it is spelled in Go.
+		if r.UI == nil {
+			t.Errorf("the view %s is read with a policy but advertised without one", r.URI)
+			continue
+		}
+		advertised, err := json.Marshal(r.UI)
+		if err != nil {
+			t.Fatalf("encoding the advertised policy for %s: %v", r.URI, err)
+		}
+		served, err := json.Marshal(contents.UI)
+		if err != nil {
+			t.Fatalf("encoding the served policy for %s: %v", r.URI, err)
+		}
+		if string(advertised) != string(served) {
+			t.Errorf("the view %s advertises %s but is read with %s — a host is told one policy and sent another",
+				r.URI, advertised, served)
 		}
 	}
 }

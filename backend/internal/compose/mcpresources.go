@@ -31,6 +31,21 @@ import (
 // than on the first host that tries to render.
 var appViews = apps.MustProvider()
 
+// mcpResourceProviders is the list of document providers a hosted request
+// reaches, in composition order.
+//
+// It exists as ONE list because both the transport and the gates over it have to
+// be talking about the same surface. They were two lists, and the cost was
+// exactly the failure a gate is for: a provider added here would not have entered
+// the collision check, so a URI it claimed against a view's would have collided in
+// production with every gate green and the losing document silently unreachable.
+//
+// The vocabulary comes FIRST, so a collision resolves to it — see composeResources
+// for why the order is stated rather than incidental.
+func mcpResourceProviders(vocabulary mcp.ResourceProvider) []mcp.ResourceProvider {
+	return []mcp.ResourceProvider{vocabulary, appViews}
+}
+
 // resourceFanout serves the documents of several providers as one catalogue.
 //
 // ORDER IS THE CONFLICT RULE, and it is decided here rather than left to

@@ -25,8 +25,11 @@
   // time one was added.
   var BANDS = { high: true, medium: true, low: true, none: true };
 
+  // Object.hasOwn, not a plain lookup: a bucket of "constructor" or "toString"
+  // finds a truthy value on the prototype chain and would be rendered as a class
+  // this stylesheet does not have.
   function bandClass(bucket) {
-    return BANDS[bucket] ? 'band-' + bucket : 'state';
+    return Object.hasOwn(BANDS, bucket) ? 'band-' + bucket : 'state';
   }
 
   function strengthText(colleague) {
@@ -65,8 +68,14 @@
       return;
     }
     var rows = el('div', 'rows');
-    colleagues.forEach(function (colleague, index) {
-      rows.appendChild(colleagueRow(colleague, index + 1));
+    // A non-object element is SKIPPED rather than thrown on. One malformed entry
+    // would otherwise abort the loop and leave a heading with no rows — a view
+    // that looks like an empty answer while the payload had colleagues in it.
+    var position = 0;
+    colleagues.forEach(function (colleague) {
+      if (!colleague || typeof colleague !== 'object') return;
+      position += 1;
+      rows.appendChild(colleagueRow(colleague, position));
     });
     root.appendChild(rows);
   }

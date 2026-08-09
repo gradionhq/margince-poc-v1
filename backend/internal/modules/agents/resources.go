@@ -127,8 +127,7 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 	if s.resources == nil {
 		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
 	}
-	_, admitted := s.publishedResource(ctx, p.URI)
-	if !admitted {
+	if !s.readableByThisCaller(ctx, p.URI) {
 		// The same answer an unknown URI gets: a caller whose scopes do not
 		// reach a document must not learn that it exists.
 		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
@@ -175,25 +174,26 @@ func readableByCaller(ctx context.Context, resource mcp.Resource) bool {
 	return p.Scopes.Has(resource.RequiredScope)
 }
 
-// publishedResource answers the descriptor the catalogue advertises for one
-// URI, and whether this caller may read it.
+// readableByThisCaller answers whether this caller may read one URI, by asking
+// the provider what it publishes and applying the same scope filter the
+// catalogue does. Going through the published set rather than a separate per-URI
+// lookup is what keeps the two answers from drifting: a document the catalogue
+// hides can never be readable.
 //
-// It goes through the PUBLISHED set rather than a separate per-URI lookup, which
-// is what keeps the two answers from drifting: a document the catalogue hides
-// can never be readable. And it returns the descriptor as well as the verdict so
-// the read path renders its sandbox policy from the same value the listing does
-// — two lookups would be two chances for the policy a host is told about and the
-// policy it is sent to disagree.
+// It answers the VERDICT only. It used to hand back the descriptor too, so the
+// read path could render the sandbox policy from it — and that design was
+// replaced, because with two providers publishing one URI the catalogue walk
+// finds the first ADVERTISER while the read finds the first that SERVES, and the
+// policy would have labelled the wrong document. The policy now travels on
+// mcp.ResourceContents, from the provider that produced the bytes.
 //
-// A URI no provider claims is ADMITTED with a zero descriptor: ReadResource
-// answers its own not-found, and this filter has nothing to say about a document
-// it has never heard of. The zero descriptor is correct rather than convenient —
-// it declares no view, and a document that does not exist has no policy.
-func (s *Dispatcher) publishedResource(ctx context.Context, uri string) (mcp.Resource, bool) {
+// A URI no provider claims is ADMITTED: ReadResource answers its own not-found,
+// and this filter has nothing to say about a document it has never heard of.
+func (s *Dispatcher) readableByThisCaller(ctx context.Context, uri string) bool {
 	for _, r := range s.resources.Resources(ctx) {
 		if r.URI == uri {
-			return r, readableByCaller(ctx, r)
+			return readableByCaller(ctx, r)
 		}
 	}
-	return mcp.Resource{}, true
+	return true
 }

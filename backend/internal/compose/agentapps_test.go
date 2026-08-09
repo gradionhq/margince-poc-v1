@@ -34,11 +34,13 @@ import (
 // conditional wiring an installation without a vocabulary gets, and the same
 // path every assertion below is about.
 //
-// What that leaves unmeasured is a URI collision BETWEEN the two production
+// What that leaves unmeasured is a URI collision BETWEEN the production
 // providers. TestTheProductionProvidersPublishDisjointSchemes covers it from the
-// other side, structurally, because it can be answered without a pool.
+// other side, structurally, because it can be answered without a pool — and it
+// reads mcpResourceProviders, so a provider added to the transport enters it
+// automatically rather than being a list somebody has to remember.
 func composedResources() mcp.ResourceProvider {
-	return composeResources(nil, appViews)
+	return composeResources(mcpResourceProviders(nil)...)
 }
 
 // readerCtx is an agent holding `read`, which is the scope a view requires. The
@@ -187,6 +189,13 @@ func TestNoCapabilityLivesOnlyInsideAView(t *testing.T) {
 // and the losing document becomes unreachable with nothing reporting it, and the
 // read would serve one provider's bytes under the other's sandbox policy.
 func TestTheProductionProvidersPublishDisjointSchemes(t *testing.T) {
+	// Derived from the transport's own list, so a THIRD provider is measured the
+	// commit it is wired rather than the commit somebody remembers this test.
+	wired := mcpResourceProviders(nil)
+	if len(wired) != 2 {
+		t.Fatalf("the transport composes %d resource providers; this gate knows how to reason about the "+
+			"vocabulary and the views. Add the new one's scheme below before it can collide with a view", len(wired))
+	}
 	for _, r := range appViews.Resources(readerCtx()) {
 		if !strings.HasPrefix(r.URI, mcp.AppURIScheme) {
 			t.Errorf("the view provider publishes %s, which is outside %s — it can now collide with the query "+

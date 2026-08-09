@@ -113,10 +113,11 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slo
 		// vocabulary above, and the interactive views the tool surface serves. The
 		// views come second, so a URI collision resolves to the vocabulary — see
 		// composeResources for why the order is stated rather than incidental, and
-		// TestNoTwoResourceProvidersClaimOneURI for the gate that makes it moot.
+		// TestTheProductionProvidersPublishDisjointSchemes for the gate that makes
+		// it moot — which is the one that reaches BOTH of these, unlike the
+		// duplicate sweep, which only sees the view catalogue.
 		agents.WithResourceProvider(composeResources(
-			search.NewQuerySchemaResource(queryVocabulary(pool)),
-			appViews,
+			mcpResourceProviders(search.NewQuerySchemaResource(queryVocabulary(pool)))...,
 		)),
 		// The Tasks extension, which is why a confirm-first call no longer dead-ends
 		// for a client that can hold a handle. The store is composed here for the
