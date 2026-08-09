@@ -76,12 +76,21 @@ CREATE TABLE finance_customer_link (
   version              bigint NOT NULL DEFAULT 1,
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now(),
-  archived_at          timestamptz NULL,
-  -- One link each way per connection: an accounting customer maps to at most
-  -- one company, and a company to at most one accounting customer.
-  UNIQUE (workspace_id, connection_id, external_customer_id),
-  UNIQUE (workspace_id, connection_id, organization_id)
+  archived_at          timestamptz NULL
 );
+
+-- One link each way per connection: an accounting customer maps to at most one
+-- company, and a company to at most one accounting customer. Partial indexes
+-- rather than table constraints, because a RETIRED mapping must not block a new
+-- one — a human who unmaps a customer and maps it elsewhere is doing the
+-- ordinary thing, and an unconditional unique would refuse them forever.
+
+CREATE UNIQUE INDEX finance_customer_link_external_ux
+  ON finance_customer_link (workspace_id, connection_id, external_customer_id)
+  WHERE archived_at IS NULL;
+CREATE UNIQUE INDEX finance_customer_link_organization_ux
+  ON finance_customer_link (workspace_id, connection_id, organization_id)
+  WHERE archived_at IS NULL;
 
 -- FIN-DDL-3: a mirrored issued invoice. `void_at` is FIN-FORM-6's tombstone —
 -- a row is never deleted, so a record the source stops returning stays
@@ -101,7 +110,7 @@ CREATE TABLE finance_invoice (
   -- The provider's own word, kept for diagnosis: our vocabulary above is a
   -- normalization, and a mapping argument is unanswerable without the input.
   raw_status        text NULL,
-  currency          char(3) NOT NULL,
+  currency          char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
   net_minor         bigint NOT NULL,
   tax_minor         bigint NOT NULL DEFAULT 0,
   gross_minor       bigint NOT NULL,
@@ -128,6 +137,18 @@ CREATE TABLE finance_invoice (
   updated_at        timestamptz NOT NULL DEFAULT now(),
   archived_at       timestamptz NULL,
   UNIQUE (workspace_id, connection_id, external_id),
+  -- A frozen rate and the date it froze on are ONE fact (FIN-PARAM-7). A rate
+  -- without its date cannot be re-derived or audited; a date without a rate
+  -- converts nothing. Either both or neither.
+  CONSTRAINT finance_invoice_fx_pair
+    CHECK ((fx_rate_to_base IS NULL) = (fx_rate_date IS NULL)),
+  -- A credit note credits another invoice, never itself.
+  CONSTRAINT finance_invoice_credits_not_self
+    CHECK (credits_invoice_id IS NULL OR credits_invoice_id <> id),
+  -- void_at is FIN-FORM-6's tombstone, so it and the status must agree: a row
+  -- carrying a tombstone reads as void, and one that does not, does not.
+  CONSTRAINT finance_invoice_void_agrees
+    CHECK ((void_at IS NULL) = (status <> 'void')),
   CONSTRAINT finance_invoice_paid_status
     CHECK (fully_paid_at IS NULL OR status IN ('paid','credited','void'))
 );
@@ -157,7 +178,7 @@ CREATE TABLE finance_payment (
   external_id       text NOT NULL,
   invoice_id        uuid NULL,
   paid_at           timestamptz NOT NULL,
-  currency          char(3) NOT NULL,
+  currency          char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
   amount_minor      bigint NOT NULL,
   source_updated_at timestamptz NULL,
   sync_hash         text NOT NULL,
@@ -225,6 +246,21 @@ ALTER TABLE finance_payment
   ADD CONSTRAINT finance_payment_invoice_fk
   FOREIGN KEY (workspace_id, invoice_id)
   REFERENCES finance_invoice (workspace_id, id) ON DELETE RESTRICT;
+
+-- Every table carries version + updated_at, so every table takes the trigger
+-- that maintains them. Without it `version` never moves, and the optimistic
+-- concurrency the column exists for silently does nothing: a sync pass and a
+-- human edit would overwrite each other with no conflict ever reported.
+CREATE TRIGGER trg_finance_connection_updated BEFORE UPDATE ON finance_connection
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
+CREATE TRIGGER trg_finance_external_customer_updated BEFORE UPDATE ON finance_external_customer
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
+CREATE TRIGGER trg_finance_customer_link_updated BEFORE UPDATE ON finance_customer_link
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
+CREATE TRIGGER trg_finance_invoice_updated BEFORE UPDATE ON finance_invoice
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
+CREATE TRIGGER trg_finance_payment_updated BEFORE UPDATE ON finance_payment
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
 
 -- Tenant isolation (FIN-AC-13): every finance table is workspace-scoped with
 -- row-level security enabled AND forced, so the owner role migrations run as

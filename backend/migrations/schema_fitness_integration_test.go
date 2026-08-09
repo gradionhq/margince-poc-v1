@@ -365,9 +365,9 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// client-named company — the connector writes them, and it resolves the
 	// organization by reading the link that human already made, so a mirrored
 	// row can only land on a company somebody deliberately mapped.
-	"finance_customer_link.organization_id": "client-supplied and gated: the mapping write puts the named company through auth.EnsureLinkTarget before the link row is written",
-	"finance_invoice.organization_id":       "server-derived: resolved by the sync pass from the customer link a human already mapped, never from a request body",
-	"finance_payment.organization_id":       "server-derived: resolved by the sync pass from the customer link a human already mapped, never from a request body",
+	"finance_customer_link.organization_id": "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
+	"finance_invoice.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
+	"finance_payment.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
 })
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
