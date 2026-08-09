@@ -1719,11 +1719,15 @@ paths:
         needs an activity to answer — an account-started message has none, and the product
         refuses to fabricate a placeholder activity to get one.
 
-        **It writes nothing.** No record field changes, no activity, no voice-learning
+        **It changes no record.** No field on the account, no activity, no voice-learning
         signal, and nothing is sent. Sending stays `POST /emails`, with its own consent
-        gate, approval token and idempotency key. The absence of those three parameters
-        here is the guarantee, not a convenience: there is no code path from this
-        operation to a write.
+        gate, approval token and idempotency key; the absence of those three parameters
+        here is the guarantee rather than a convenience.
+
+        Two things it does write, and both are about the CALL rather than the account:
+        the workspace's AI usage meter and the model-call audit row, exactly as every
+        other model-backed read on this page does. A drafting call a workspace cannot see
+        in its own budget would be worse than one it can.
 
         **Grounded, per viewer.** The draft is written from the caller's own 360, assembled
         inside the normal gates, so it can only mention records that caller could open

@@ -14,13 +14,19 @@
 //
 // Three rules shape every file here.
 //
-// **It writes nothing.** Not a record field, not an activity, not a
+// **It changes no record.** Not a field on the account, not an activity, not a
 // voice-learning signal. The reply drafter records a served draft so the voice
 // model can learn from what the rep changed; this one does not, and
 // `draft_ref` is null for exactly that reason. There is no transaction in this
 // package and no store with a write method injected into it — the guarantee is
 // structural rather than a rule someone has to remember. Sending stays `POST
 // /emails`, with its consent gate, approval token and idempotency key.
+//
+// Two writes DO happen further down, and both are about the call rather than
+// the account: the model router meters the workspace's AI usage and records
+// the call for audit, as it does for every model-backed read on this page.
+// Saying "writes nothing" without that caveat would be the kind of small
+// inaccuracy that costs a reader trust in the rest of the sentence.
 //
 // **It is written per viewer, from the caller's own 360.** The composite read
 // runs inside the normal gates, so a draft can only mention records the caller

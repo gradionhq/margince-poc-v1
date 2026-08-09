@@ -198,14 +198,25 @@ func keepGroundedReasons(reasons []modelReason, in Input) []Reason {
 		}
 		keep := Reason{Kind: kind, Label: label}
 		if reason.EntityID != "" {
-			if !known[reason.EntityID] {
-				// A cited record the caller cannot open. The reason may still
-				// be true, but it is no longer checkable, so it is dropped
-				// rather than shown as a chip that leads nowhere.
+			// The PAIR, not the id alone: an id checked without its type lets a
+			// deal id come back labelled as a person, and the chip then opens
+			// the wrong record's page rather than nothing at all — the worse of
+			// the two failures, because it looks like it worked.
+			if known[reason.EntityID] != reason.EntityType {
+				// A cited record the caller cannot open, or one cited as the
+				// wrong kind. The reason may still be true, but it is no longer
+				// checkable, so it is dropped rather than shown as a chip that
+				// leads somewhere wrong.
 				continue
 			}
 			keep.EntityType = reason.EntityType
 			keep.EntityID = reason.EntityID
+		} else if kind != crmcontracts.AccountDraftReasonKindIntent {
+			// A reason with no citation is only honest for the caller's own
+			// intent, which cites nothing by design. An uncited "deal" or
+			// "dossier" reason is a claim about a record with no record behind
+			// it — exactly what the grounding filter exists to drop.
+			continue
 		}
 		out = append(out, keep)
 	}
@@ -231,19 +242,32 @@ func parseKind(raw string) (crmcontracts.AccountDraftReasonKind, bool) {
 	}
 }
 
-// knownRecords is every id this draft's own input carried — which is exactly
-// the set the caller's 360 let through, so it is a row-scope check and not
-// merely a typo check.
-func knownRecords(in Input) map[string]bool {
-	known := map[string]bool{in.Recipient.ID: true}
+// knownRecords maps every id this draft's own input carried to the KIND that
+// id actually is — which is exactly the set the caller's 360 let through, so
+// it is a row-scope check and not merely a typo check.
+//
+// Id → type rather than a set of ids, because a citation is a pair and half of
+// one points at the wrong page.
+func knownRecords(in Input) map[string]string {
+	known := map[string]string{in.Recipient.ID: citePerson}
 	if in.Deal != nil {
-		known[in.Deal.ID] = true
+		known[in.Deal.ID] = citeDeal
 	}
 	if in.Commitment != nil {
-		known[in.Commitment.ID] = true
+		known[in.Commitment.ID] = citeActivity
 	}
 	for _, act := range in.Recent {
-		known[act.ID] = true
+		known[act.ID] = citeActivity
 	}
 	return known
 }
+
+// The citable record kinds, DERIVED from the contract's own enum rather than
+// re-spelled: a literal copy would let a contract rename leave the filter
+// matching a type the wire no longer carries — a citation that silently stops
+// grounding.
+var (
+	citeDeal     = string(crmcontracts.OrganizationBriefEvidenceEntityTypeDeal)
+	citeActivity = string(crmcontracts.OrganizationBriefEvidenceEntityTypeActivity)
+	citePerson   = string(crmcontracts.OrganizationBriefEvidenceEntityTypePerson)
+)

@@ -92,6 +92,39 @@ func TestAReasonCitingARecordTheReaderCannotSeeIsDropped(t *testing.T) {
 	}
 }
 
+// A citation is a PAIR. An id checked without its type lets a deal id come
+// back labelled as a person, and the chip then opens the wrong record's page
+// rather than nothing — the worse failure, because it looks like it worked.
+func TestAReasonCitingTheRightIdAsTheWrongKindIsDropped(t *testing.T) {
+	answer := `{"subject":"S","body":"B","reasoning":[
+	  {"kind":"deal","label":"mislabelled","entity_type":"person",
+	   "entity_id":"019fe7ae-0000-7000-8000-000000000002"}]}`
+	draft, _, err := Write(context.Background(), &scriptedLane{answer: answer}, sampleInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.Reasoning) != 0 {
+		t.Fatalf("reasoning = %+v, want none: the deal was cited as a person", draft.Reasoning)
+	}
+}
+
+// Only the caller's own intent may cite nothing. An uncited "deal" reason is
+// a claim about a record with no record behind it.
+func TestAnUncitedReasonSurvivesOnlyForTheCallersOwnIntent(t *testing.T) {
+	answer := `{"subject":"S","body":"B","reasoning":[
+	  {"kind":"deal","label":"something about a deal"},
+	  {"kind":"dossier","label":"something about the company"},
+	  {"kind":"intent","label":"shorter"}]}`
+	draft, _, err := Write(context.Background(), &scriptedLane{answer: answer}, sampleInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.Reasoning) != 1 ||
+		draft.Reasoning[0].Kind != crmcontracts.AccountDraftReasonKindIntent {
+		t.Fatalf("reasoning = %+v, want only the intent", draft.Reasoning)
+	}
+}
+
 // A kind outside the contract's closed vocabulary would render as an
 // unlabelled chip, because the composer groups reasons by kind.
 func TestAnUnknownReasonKindIsDropped(t *testing.T) {
