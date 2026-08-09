@@ -706,6 +706,7 @@ export const de = {
   "finance.overdue": "Überfällig",
   "finance.behaviour": "Zahlungsverhalten",
   "finance.medianAfterDue": "Typisch {days} Tage nach Fälligkeit",
+  "finance.medianEarly": "Typisch {days} Tage früher",
   "finance.col.invoice": "Rechnung",
   "finance.col.issued": "Ausgestellt",
   "finance.col.due": "Fällig",

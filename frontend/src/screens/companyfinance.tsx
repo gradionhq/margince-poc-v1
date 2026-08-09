@@ -7,7 +7,7 @@ import { Sparkline } from "../design-system/readings";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { throwProblem } from "./common";
+import { problemCodeOf, throwProblem } from "./common";
 import { RECORD_ZONE, SectionCard, type SectionState } from "./company360";
 
 // The finance card: does this customer actually pay us, and on time?
@@ -51,8 +51,13 @@ const CARD_STATE: Record<FinanceState, SectionState> = {
   unmapped: "empty",
   syncing: "loading",
   connected: "ready",
+  // The last refresh failed, and the figures beside it are the last ones that
+  // succeeded. `stale` rather than `failed`, because `failed` suppresses the
+  // body — and a figure from this morning with its date on it is more useful
+  // to a rep than an empty card with a retry button. The retry is offered
+  // either way.
+  error: "stale",
   stale: "stale",
-  error: "failed",
 };
 
 export function CompanyFinanceCard({
@@ -85,12 +90,16 @@ export function CompanyFinanceCard({
     );
   }
   if (query.isError) {
+    // A refusal is not a failure. A reader whose role cannot see finance is
+    // told so; retrying would refuse again, and a retry button that always
+    // fails teaches them the card is broken.
+    const withheld = problemCodeOf(query.error) === "permission_denied";
     return (
       <SectionCard
         title={t("finance.title")}
-        state="failed"
+        state={withheld ? "withheld" : "failed"}
         emptyLabel={t("finance.none")}
-        detail={{ onRetry: () => void query.refetch() }}
+        detail={withheld ? {} : { onRetry: () => void query.refetch() }}
       >
         {null}
       </SectionCard>
@@ -131,41 +140,17 @@ function FinanceBody({ summary }: Readonly<{ summary: FinanceSummary }>) {
       <div className="fin-figures">
         <FinanceFigure
           label={t("finance.netInvoiced")}
-          value={
-            summary.net_invoiced
-              ? formatMoney(
-                  summary.net_invoiced.amount_minor ?? 0,
-                  summary.net_invoiced.currency ?? "EUR",
-                  locale,
-                )
-              : undefined
-          }
+          value={amountOf(summary.net_invoiced, locale)}
         />
         <FinanceFigure
           label={t("finance.openBalance")}
-          value={
-            summary.open_balance
-              ? formatMoney(
-                  summary.open_balance.amount_minor ?? 0,
-                  summary.open_balance.currency ?? "EUR",
-                  locale,
-                )
-              : undefined
-          }
+          value={amountOf(summary.open_balance, locale)}
         />
         <FinanceFigure
           label={t("finance.overdue")}
-          value={
-            summary.overdue
-              ? formatMoney(
-                  summary.overdue.amount_minor ?? 0,
-                  summary.overdue.currency ?? "EUR",
-                  locale,
-                )
-              : undefined
-          }
+          value={amountOf(summary.overdue, locale)}
           // Overdue money is the one reading on this card that is bad news
-          // when it is present at all.
+          // simply by being present.
           tone={(summary.overdue?.amount_minor ?? 0) > 0 ? "danger" : undefined}
         />
       </div>
@@ -173,6 +158,24 @@ function FinanceBody({ summary }: Readonly<{ summary: FinanceSummary }>) {
       <RecentInvoices summary={summary} />
     </>
   );
+}
+
+// A money reading, or nothing.
+//
+// BOTH halves are required. An amount with no currency cannot be rendered —
+// defaulting to EUR would put a euro sign on a figure that might be dollars,
+// which is a worse error than showing no figure. And a null amount is the
+// server saying it could not compute one, so it must not become a zero: this
+// card's whole rule is that "€0 open" and "we do not know" are different
+// claims about a customer.
+function amountOf(
+  money: components["schemas"]["Money"] | undefined,
+  locale: ReturnType<typeof useLocale>["locale"],
+): string | undefined {
+  if (money?.amount_minor == null || !money.currency) {
+    return undefined;
+  }
+  return formatMoney(money.amount_minor, money.currency, locale);
 }
 
 // One reading. An absent value renders as a dash with its label intact, so the
@@ -205,8 +208,16 @@ function PaymentBehaviour({ summary }: Readonly<{ summary: FinanceSummary }>) {
     <div className="fin-behaviour">
       <span className="t-caption">{t("finance.behaviour")}</span>
       <Sparkline points={series} label={t("finance.behaviour")} />
+      {/* Negative days mean they pay BEFORE the due date. "-4 days after
+          due" is a puzzle; "typically 4 days early" is the reading. */}
       <span className="t-caption">
-        {t("finance.medianAfterDue", { days: summary.median_days_after_due })}
+        {summary.median_days_after_due < 0
+          ? t("finance.medianEarly", {
+              days: Math.abs(summary.median_days_after_due),
+            })
+          : t("finance.medianAfterDue", {
+              days: summary.median_days_after_due,
+            })}
       </span>
     </div>
   );

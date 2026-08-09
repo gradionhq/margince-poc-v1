@@ -705,6 +705,7 @@ export const vi = {
   "finance.overdue": "Quá hạn",
   "finance.behaviour": "Hành vi thanh toán",
   "finance.medianAfterDue": "Thường {days} ngày sau hạn",
+  "finance.medianEarly": "Thường sớm {days} ngày",
   "finance.col.invoice": "Hóa đơn",
   "finance.col.issued": "Ngày xuất",
   "finance.col.due": "Hạn",

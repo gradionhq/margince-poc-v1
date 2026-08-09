@@ -704,6 +704,7 @@ export const en = {
   "finance.overdue": "Overdue",
   "finance.behaviour": "Payment behaviour",
   "finance.medianAfterDue": "Typically {days} days after due",
+  "finance.medianEarly": "Typically {days} days early",
   "finance.col.invoice": "Invoice",
   "finance.col.issued": "Issued",
   "finance.col.due": "Due",
