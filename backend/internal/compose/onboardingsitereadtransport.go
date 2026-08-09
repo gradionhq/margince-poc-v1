@@ -187,6 +187,10 @@ func (e *deepReadEngine) stageOnboardingPeople(ctx context.Context, tx pgx.Tx, o
 	execCtx := principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "agent:site-read", UserID: decider.UserID, OnBehalfOf: decider.UserID,
 	})
+	// One confirmation, one bundle — the same grouping the crawl worker stages
+	// under, so a confirmed onboarding read reaches the inbox as one question
+	// about this company rather than as one per person it published.
+	bundleID := ids.NewV7()
 	proposalIDs := make([]ids.UUID, 0, len(found))
 	for _, person := range found {
 		// A published person the workspace already reaches by email is not a
@@ -213,7 +217,7 @@ func (e *deepReadEngine) stageOnboardingPeople(ctx context.Context, tx pgx.Tx, o
 		in, err := siteLeadStageInput(read.ID, orgID.UUID, read.SeedURL, sitePerson{
 			Name: person.Name, Role: person.Role, PublishedEmail: person.PublishedEmail,
 			LinkedinURL: person.LinkedinURL, EvidenceSnippet: person.EvidenceSnippet, SourceURL: person.SourceURL,
-		})
+		}, bundleID)
 		if err != nil {
 			return nil, err
 		}

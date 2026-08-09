@@ -86,6 +86,10 @@ func listInput(params crmcontracts.ListApprovalsParams) (ListInput, *httperr.Det
 		targetID := ids.UUID(*params.TargetEntityId)
 		in.TargetType, in.TargetID = params.TargetEntityType, &targetID
 	}
+	if params.BundleId != nil {
+		bundleID := ids.UUID(*params.BundleId)
+		in.BundleID = &bundleID
+	}
 	return in, nil
 }
 
@@ -154,7 +158,49 @@ func (h Handlers) RejectApproval(w http.ResponseWriter, r *http.Request, id crmc
 	writeJSON(w, http.StatusOK, h.wire(a))
 }
 
+// ApproveApprovalBundle decides every still-pending member of one bundle at
+// once. Each member is decided on its own terms, so the response is per member.
+func (h Handlers) ApproveApprovalBundle(w http.ResponseWriter, r *http.Request, bundleID crmcontracts.BundleId) {
+	h.decideBundle(w, r, bundleID, true)
+}
+
+// RejectApprovalBundle is the rejecting half, on the same terms: a rejection is
+// a decision, so it demands the same authority and is recorded the same way.
+func (h Handlers) RejectApprovalBundle(w http.ResponseWriter, r *http.Request, bundleID crmcontracts.BundleId) {
+	h.decideBundle(w, r, bundleID, false)
+}
+
+func (h Handlers) decideBundle(w http.ResponseWriter, r *http.Request, bundleID crmcontracts.BundleId, approve bool) {
+	var req crmcontracts.ApprovalBundleDecisionRequest
+	// httperr.Decode, not a bare json decode: this body has exactly one member,
+	// and the field a client is most likely to send anyway is `edited_payload`
+	// — an edit is a judgment about ONE proposed change and there is no such
+	// thing as one spanning several. Accepting and ignoring it would approve the
+	// agent's original payload while the human believed they had rewritten it.
+	if r.Body != nil && r.ContentLength != 0 && !httperr.Decode(w, r, &req) {
+		return
+	}
+	members, err := h.svc.DecideBundle(r.Context(), ids.UUID(bundleID), approve, req.Reason)
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	data := make([]crmcontracts.ApprovalBundleMember, 0, len(members))
+	for _, member := range members {
+		data = append(data, crmcontracts.ApprovalBundleMember{
+			Approval: h.wire(member.Approval),
+			Outcome:  crmcontracts.ApprovalBundleMemberOutcome(member.Outcome),
+		})
+	}
+	writeJSON(w, http.StatusOK, crmcontracts.ApprovalBundleDecision{BundleId: bundleID, Data: data})
+}
+
 func writeErr(w http.ResponseWriter, r *http.Request, err error) {
+	var oversized *BundleTooLargeError
+	if errors.As(err, &oversized) {
+		httperr.Write(w, r, httperr.Validation("bundle_id", "bundle_too_large", oversized.Error()))
+		return
+	}
 	var decided *AlreadyDecidedError
 	if errors.As(err, &decided) {
 		httperr.Write(w, r, &httperr.DetailedError{
@@ -198,6 +244,10 @@ func wire(a row, now time.Time) crmcontracts.Approval {
 	if a.DecidedBy != nil {
 		v := openapi_types.UUID(a.DecidedBy.UUID)
 		out.DecidedBy = &v
+	}
+	if a.BundleID != nil {
+		v := openapi_types.UUID(*a.BundleID)
+		out.BundleId = &v
 	}
 	if a.TargetType != nil {
 		out.TargetEntityType = a.TargetType

@@ -46,6 +46,7 @@ func newTriageTestWorker(e *integration.Env, site *fakeSite, extractBrain comple
 	svc := approvals.NewService(e.Pool)
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool, CaptureConfig{})))
 	return &siteDeepReadWorker{
+		pool:        e.Pool,
 		people:      e.People,
 		crawler:     testSiteCrawler(site),
 		extract:     evidenceExtractor{brain: extractBrain, factBrain: extractBrain},

@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -93,6 +95,9 @@ func siteDeepReadInsertOpts() *river.InsertOpts {
 // with no model path it fails the read honestly instead of leaving it
 // queued forever.
 type siteDeepReadWorker struct {
+	// pool opens the ONE transaction an act's proposals are staged in, so the
+	// inbox never shows half of a read's findings as a whole question.
+	pool    *pgxpool.Pool
 	people  *people.Store
 	crawler *siteCrawler
 	extract evidenceExtractor
@@ -134,6 +139,7 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain, triageBrain com
 	fetcher := webread.New()
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
+		pool:        pool,
 		people:      people.NewStore(pool),
 		crawler:     newSiteCrawler(fetcher, caps),
 		extract:     evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
@@ -317,27 +323,37 @@ func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID id
 }
 
 // stageProposals stages everything the read evidenced: the ONE deepread
-// bundle first (when any field or fact survived), then one thin
+// proposal first (when any field or fact survived), then one thin
 // site_lead per published person — the dossier's proposal_ids keep
 // that order.
+//
+// They share ONE approval bundle, because they are one act. Without it the
+// inbox shows a company's facts and each person the site published as unrelated
+// questions, and the only thing that knew they were asked together was the
+// dossier's own proposal_ids list — which no inbox reader can see. The bundle
+// is minted before anything is staged, so a lead the already-on-file probe skips
+// leaves no hole: a bundle is what the act PROPOSED, not what it happened to
+// insert.
 func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, mergedPeople []sitePerson, pagesRead int) ([]ids.UUID, error) {
+	bundleID := ids.NewV7()
 	var proposalIDs []ids.UUID
-	if len(mergedFields)+len(mergedFacts) > 0 {
-		approvalID, err := w.stage(ctx, readID, claim, mergedFields, mergedFacts, pagesRead)
+	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
+		if len(mergedFields)+len(mergedFacts) > 0 {
+			approvalID, err := w.stage(ctx, tx, readID, claim, mergedFields, mergedFacts, pagesRead, bundleID)
+			if err != nil {
+				return fmt.Errorf("staging the proposal: %w", err)
+			}
+			proposalIDs = []ids.UUID{approvalID.UUID}
+		}
+		leads, err := w.stageSiteLeadsInTx(ctx, tx, readID, claim, mergedPeople, bundleID)
 		if err != nil {
-			return nil, fmt.Errorf("staging the proposal: %w", err)
+			return err
 		}
-		proposalIDs = []ids.UUID{approvalID.UUID}
-	}
-	for _, person := range mergedPeople {
-		approvalID, staged, err := w.stageSiteLead(ctx, readID, claim, person)
-		if err != nil {
-			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
-		}
-		if !staged {
-			continue
-		}
-		proposalIDs = append(proposalIDs, approvalID.UUID)
+		proposalIDs = append(proposalIDs, leads...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return proposalIDs, nil
 }
@@ -347,7 +363,7 @@ func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID
 // machinery applies and the category facts bound for organization_fact —
 // plus the dossier id, so the accept effect links the landed facts back
 // to the read that evidenced them.
-func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, pagesRead int) (ids.ApprovalID, error) {
+func (w *siteDeepReadWorker) stage(ctx context.Context, tx pgx.Tx, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, pagesRead int, bundleID ids.UUID) (ids.ApprovalID, error) {
 	if claim.OrganizationID == nil {
 		return ids.ApprovalID{}, errors.New("site deep read: an unbound onboarding draft cannot stage an organization approval")
 	}
@@ -363,7 +379,7 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 		return ids.ApprovalID{}, err
 	}
 	digest := sha256.Sum256(proposedChange)
-	approvalID, err := w.approvals.Stage(ctx, approvals.StageInput{
+	approvalID, err := w.approvals.StageOrJoinPendingInTx(ctx, tx, approvals.StageInput{
 		Kind:           deepReadProposalKind,
 		ProposedChange: proposedChange,
 		DiffHash:       hex.EncodeToString(digest[:]),
@@ -371,6 +387,7 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 		TargetID:       *claim.OrganizationID,
 		Summary:        fmt.Sprintf("Deep site read of %s: %d fields, %d facts from %d pages", claim.SeedURL, len(mergedFields), len(mergedFacts), pagesRead),
 		JoinPending:    true,
+		BundleID:       bundleID,
 	})
 	return approvalID, err
 }
