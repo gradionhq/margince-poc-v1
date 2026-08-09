@@ -152,8 +152,7 @@ export const vi = {
   "extDemo.notes.empty": "Chưa có ghi chú nào.",
   "extDemo.notes.noGrant":
     "Bạn không có quyền đọc ghi chú của tiện ích mở rộng này.",
-  "extDemo.signing.storeFailed":
-    "Khóa chưa được lưu. Không có gì thay đổi.",
+  "extDemo.signing.storeFailed": "Khóa chưa được lưu. Không có gì thay đổi.",
   "extDemo.notes.addFailed": "Ghi chú chưa được thêm. Không có gì thay đổi.",
   "extDemo.notes.removeFailed": "Ghi chú chưa được xóa. Không có gì thay đổi.",
 
