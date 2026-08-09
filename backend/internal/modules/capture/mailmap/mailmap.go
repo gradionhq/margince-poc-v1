@@ -13,6 +13,7 @@ package mailmap
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -58,6 +59,11 @@ type Message struct {
 	// internal-vs-external rule is about the whole message, so it needs the
 	// full set rather than the derived ends (ADR-0082 §3).
 	addresses []string
+	// parts are the files the message carried, already bounded, sanitized and
+	// sniffed. partDrops names the ones the bounds refused, so a message whose
+	// files were dropped never reads as a message with no files (DOC-AC-12).
+	parts     []Part
+	partDrops []PartDrop
 }
 
 // AttestSentByOwner returns a copy carrying the provider's own attestation
@@ -115,7 +121,7 @@ func Parse(raw []byte, owner string) (Message, error) {
 	from := firstAddress(fromList)
 	to := firstAddress(toList)
 
-	body := extractText(reader)
+	body, parts, drops := extractText(reader)
 
 	ownerLower := strings.ToLower(strings.TrimSpace(owner))
 	direction := connector.DirectionInbound
@@ -147,6 +153,8 @@ func Parse(raw []byte, owner string) (Message, error) {
 		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
 		participants:     otherParties(toList, ccList, bccList, ownerLower, counterparty),
 		addresses:        allAddresses(fromList, toList, ccList, bccList),
+		parts:            parts,
+		partDrops:        drops,
 	}, nil
 }
 
@@ -309,6 +317,8 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 		ThreadKey:    m.threadKey,
 		Participants: m.participants,
 		Addresses:    m.addresses,
+		Parts:        m.recordParts(),
+		PartDrops:    m.recordDrops(),
 	}
 }
 
@@ -323,17 +333,38 @@ func domainOf(addr string) string {
 	return ""
 }
 
-// extractText returns the message's plain-text body. It prefers a
-// text/plain part; falling back to a crude tag-strip of text/html only when
-// no plain part exists, so an HTML-only newsletter still yields readable text.
-func extractText(reader *mail.Reader) string {
+// extractText returns the message's plain-text body and the files it carried.
+//
+// It prefers a text/plain part, falling back to a crude tag-strip of text/html
+// only when no plain part exists, so an HTML-only newsletter still yields
+// readable text. Attachment parts are collected on the SAME walk: a MIME reader
+// is single-pass, so a second walk would mean holding or re-parsing the whole
+// message to find files this one already stepped over.
+func extractText(reader *mail.Reader) (string, []Part, []PartDrop) {
 	var plain, html string
+	files := newCollector()
 	for {
+		if files.exhausted() {
+			// Past any real message. Everything beyond is unread and reported
+			// as such rather than walked, because walking it is the work an
+			// unauthenticated sender was trying to buy.
+			files.truncated()
+			break
+		}
 		part, err := reader.NextPart()
 		if err != nil {
-			// io.EOF (and any structural read error) ends the walk; whatever
-			// text was already collected stands.
+			if !errors.Is(err, io.EOF) {
+				// A structural failure ends the walk, so any file after this
+				// point is lost. Recorded rather than passed over: a message
+				// whose files went missing must not read like one that carried
+				// none (DOC-AC-12).
+				files.truncated()
+			}
 			break
+		}
+		if attached, ok := part.Header.(*mail.AttachmentHeader); ok {
+			files.take(attached, part.Body)
+			continue
 		}
 		inline, ok := part.Header.(*mail.InlineHeader)
 		if !ok {
@@ -341,6 +372,14 @@ func extractText(reader *mail.Reader) string {
 		}
 		contentType, _, err := inline.ContentType()
 		if err != nil {
+			continue
+		}
+		// An INLINE part with a filename is a file. Several mail clients send
+		// PDFs and images that way as a matter of course, and reading only
+		// Content-Disposition: attachment loses them with nothing recorded —
+		// the sender chose how to render it, not whether we keep it.
+		if name := inlineFilename(inline); name != "" {
+			files.takeInline(inline, name, part.Body)
 			continue
 		}
 		content, err := io.ReadAll(part.Body)
@@ -354,6 +393,10 @@ func extractText(reader *mail.Reader) string {
 			html = string(content)
 		}
 	}
+	return bodyText(plain, html), files.parts, files.drops()
+}
+
+func bodyText(plain, html string) string {
 	if strings.TrimSpace(plain) != "" {
 		return strings.TrimSpace(plain)
 	}
@@ -397,4 +440,36 @@ func truncate(s string, limit int) string {
 		cut--
 	}
 	return s[:cut] + "…"
+}
+
+// recordParts hands the collected files to the seam. The two shapes are
+// deliberately separate types: this package owns the MIME reading and its
+// bounds, and the seam owns what a connector may report — a shared struct
+// would let a future parser widen the seam without anyone deciding to.
+func (m Message) recordParts() []connector.Part {
+	if len(m.parts) == 0 {
+		return nil
+	}
+	out := make([]connector.Part, 0, len(m.parts))
+	for _, part := range m.parts {
+		out = append(out, connector.Part{
+			Ordinal:      part.Ordinal,
+			Filename:     part.Filename,
+			ContentType:  part.ContentType,
+			DeclaredType: part.DeclaredType,
+			Body:         part.Body,
+		})
+	}
+	return out
+}
+
+func (m Message) recordDrops() []connector.PartDrop {
+	if len(m.partDrops) == 0 {
+		return nil
+	}
+	out := make([]connector.PartDrop, 0, len(m.partDrops))
+	for _, drop := range m.partDrops {
+		out = append(out, connector.PartDrop{Reason: drop.Reason, Count: drop.Count})
+	}
+	return out
 }
