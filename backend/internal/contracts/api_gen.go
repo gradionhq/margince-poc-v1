@@ -111,6 +111,39 @@ func (e AcceptedExtractionFieldProvenance) Valid() bool {
 	}
 }
 
+// Defines values for AccountDraftReasonKind.
+const (
+	AccountDraftReasonKindCommitment   AccountDraftReasonKind = "commitment"
+	AccountDraftReasonKindConversation AccountDraftReasonKind = "conversation"
+	AccountDraftReasonKindDeal         AccountDraftReasonKind = "deal"
+	AccountDraftReasonKindDossier      AccountDraftReasonKind = "dossier"
+	AccountDraftReasonKindIntent       AccountDraftReasonKind = "intent"
+	AccountDraftReasonKindRecipient    AccountDraftReasonKind = "recipient"
+	AccountDraftReasonKindRelationship AccountDraftReasonKind = "relationship"
+)
+
+// Valid indicates whether the value is a known member of the AccountDraftReasonKind enum.
+func (e AccountDraftReasonKind) Valid() bool {
+	switch e {
+	case AccountDraftReasonKindCommitment:
+		return true
+	case AccountDraftReasonKindConversation:
+		return true
+	case AccountDraftReasonKindDeal:
+		return true
+	case AccountDraftReasonKindDossier:
+		return true
+	case AccountDraftReasonKindIntent:
+		return true
+	case AccountDraftReasonKindRecipient:
+		return true
+	case AccountDraftReasonKindRelationship:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityCaptureLabel.
 const (
 	ActivityCaptureLabelCommitment  ActivityCaptureLabel = "commitment"
@@ -7622,22 +7655,22 @@ func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
-	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
-	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
-	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
+	Automatic  VoiceProfileVersionReason = "automatic"
+	Manual     VoiceProfileVersionReason = "manual"
+	Onboarding VoiceProfileVersionReason = "onboarding"
+	Rollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case VoiceProfileVersionReasonAutomatic:
+	case Automatic:
 		return true
-	case VoiceProfileVersionReasonManual:
+	case Manual:
 		return true
-	case VoiceProfileVersionReasonOnboarding:
+	case Onboarding:
 		return true
-	case VoiceProfileVersionReasonRollback:
+	case Rollback:
 		return true
 	default:
 		return false
@@ -8894,6 +8927,76 @@ type AcceptedExtractionField struct {
 
 // AcceptedExtractionFieldProvenance defines model for AcceptedExtractionField.Provenance.
 type AcceptedExtractionFieldProvenance string
+
+// AccountDraftReason One thing the draft was written from, named so the reader can check it rather than
+// take the draft on trust. Structured rather than a phrase, because the composer
+// renders the same reason twice — once in the "Based on" line and once as a chip —
+// and a string would have to be parsed to do that.
+type AccountDraftReason struct {
+	// EvidenceRef One record a brief sentence was written from.
+	EvidenceRef *OrganizationBriefEvidence `json:"evidence_ref,omitempty"`
+
+	// Kind Which grounding input this came from, in A132's order.
+	//
+	// `intent` — the caller's own steering. `recipient` / `relationship` — who they are
+	// and how we stand with them. `deal` — the open opportunity the message is about.
+	// `commitment` — something one side said they would do. `conversation` — what was
+	// recently said. `dossier` — what the company is, from its own recorded facts.
+	Kind AccountDraftReasonKind `json:"kind"`
+
+	// Label The reason in the reader's words, short enough to render as a chip.
+	Label string `json:"label"`
+}
+
+// AccountDraftReasonKind Which grounding input this came from, in A132's order.
+//
+// `intent` — the caller's own steering. `recipient` / `relationship` — who they are
+// and how we stand with them. `deal` — the open opportunity the message is about.
+// `commitment` — something one side said they would do. `conversation` — what was
+// recently said. `dossier` — what the company is, from its own recorded facts.
+type AccountDraftReasonKind string
+
+// AccountEmailDraft A draft written from an account's records, and what it was written from
+// (ADR-0087/A132). Never sent by drafting; send via `POST /emails`.
+//
+// It is `EmailDraft` plus the two things an account-started draft owes that a reply
+// does not: `reasoning`, because a rep who did not choose the message it answers
+// needs to see what the draft is standing on, and `generated_by`, because the
+// deterministic floor is a real outcome here rather than an error.
+type AccountEmailDraft struct {
+	// AiDisclosure The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true.
+	AiDisclosure *string `json:"ai_disclosure,omitempty"`
+
+	// AiGenerated Art. 50 AI-assisted disclosure: true when a model produced this draft. Stamped on the drafting call, never persisted.
+	AiGenerated *bool `json:"ai_generated,omitempty"`
+
+	// Body Plain text, end to end. There is no rich-text storage format, no paste sanitiser and no HTML+text send pair, so a formatted draft would be a wire change rather than a toolbar.
+	Body string `json:"body"`
+
+	// DraftRef Opaque reference identifying this served draft. Null here: recording a draft for voice learning is a WRITE, and this operation performs none.
+	DraftRef *string `json:"draft_ref,omitempty"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy `json:"generated_by"`
+
+	// Reasoning What the draft was written from, as separate claims rather than a sentence in
+	// the body. A SIBLING of the body on purpose (DRAFT-AC-N-4): a body that
+	// explains itself is a body the rep has to edit before sending, and the two
+	// surfaces the composer draws from this — the "Based on" line and the "Why this
+	// draft?" chips — need the parts, not the prose.
+	//
+	// Empty when the account gave the draft nothing to stand on beyond the
+	// recipient. An honest empty list, never an invented reason.
+	Reasoning []AccountDraftReason   `json:"reasoning"`
+	Subject   string                 `json:"subject"`
+	To        *[]openapi_types.Email `json:"to,omitempty"`
+
+	// VoiceProfileVersion The Voice DNA profile version that styled this draft; null when no ready profile shaped it.
+	VoiceProfileVersion *int `json:"voice_profile_version,omitempty"`
+}
 
 // Activity A polymorphic timeline item. Mirrors the `activity` table + `activity_link`.
 // **Per-kind field constraints** (enforced server-side to match the DB `activity_task_fields`
@@ -17943,6 +18046,18 @@ type ListOrganizationDocumentsParamsCategory string
 // ListOrganizationDocumentsParamsDocState defines parameters for ListOrganizationDocuments.
 type ListOrganizationDocumentsParamsDocState string
 
+// DraftAccountEmailJSONBody defines parameters for DraftAccountEmail.
+type DraftAccountEmailJSONBody struct {
+	// DealId Which open deal the message is about. Absent draws on the account as a whole.
+	DealId *openapi_types.UUID `json:"deal_id,omitempty"`
+
+	// Intent Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence.
+	Intent *string `json:"intent,omitempty"`
+
+	// PersonId Who the draft is addressed to. Required: a draft with no recipient has no relationship to ground itself in, and the one thing this endpoint adds over an empty compose box is that it knows who it is writing to. Must be a contact the caller can see on this account.
+	PersonId openapi_types.UUID `json:"person_id"`
+}
+
 // UpdateOrganizationFactParams defines parameters for UpdateOrganizationFact.
 type UpdateOrganizationFactParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -19714,6 +19829,9 @@ type AskAboutOrganizationJSONRequestBody AskAboutOrganizationJSONBody
 
 // DeepReadCompanyJSONRequestBody defines body for DeepReadCompany for application/json ContentType.
 type DeepReadCompanyJSONRequestBody = EnrichCompanyRequest
+
+// DraftAccountEmailJSONRequestBody defines body for DraftAccountEmail for application/json ContentType.
+type DraftAccountEmailJSONRequestBody DraftAccountEmailJSONBody
 
 // ScrapeCompanyJSONRequestBody defines body for ScrapeCompany for application/json ContentType.
 type ScrapeCompanyJSONRequestBody = EnrichCompanyRequest
@@ -26188,6 +26306,9 @@ type ServerInterface interface {
 	// Reassemble the dossier now, past a fingerprint that still matches.
 	// (POST /organizations/{id}/dossier)
 	RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id)
+	// Draft an email to this account, grounded in its records.
+	// (POST /organizations/{id}/draft-email)
+	DraftAccountEmail(w http.ResponseWriter, r *http.Request, id Id)
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
@@ -27682,6 +27803,12 @@ func (_ Unimplemented) GetOrganizationDossier(w http.ResponseWriter, r *http.Req
 // Reassemble the dossier now, past a fingerprint that still matches.
 // (POST /organizations/{id}/dossier)
 func (_ Unimplemented) RefreshOrganizationDossier(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Draft an email to this account, grounded in its records.
+// (POST /organizations/{id}/draft-email)
+func (_ Unimplemented) DraftAccountEmail(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36249,6 +36376,38 @@ func (siw *ServerInterfaceWrapper) RefreshOrganizationDossier(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
+// DraftAccountEmail operation middleware
+func (siw *ServerInterfaceWrapper) DraftAccountEmail(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DraftAccountEmail(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ScrapeCompany operation middleware
 func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.Request) {
 
@@ -44340,6 +44499,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/dossier", wrapper.RefreshOrganizationDossier)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/draft-email", wrapper.DraftAccountEmail)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)
