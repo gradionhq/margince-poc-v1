@@ -627,19 +627,26 @@ func execAsOwner(t *testing.T, sql string, args ...any) {
 	}
 }
 
-// waitUntil polls a condition to a deadline. Polling and not sleeping: the
-// condition is a row River writes from another goroutine, and there is no
-// channel that reports "the attempt was recorded as failed".
+// waitUntil polls a condition to a deadline, the same select-on-ctx shape
+// awaitRows above uses: the condition is either a row River writes from
+// another goroutine or a mutex-guarded map a job handler mutates on its own
+// goroutine, and neither has a channel that reports "now check again" — so
+// the wait is bounded by a context deadline and re-armed with time.After
+// inside a select, never by an unconditional, uninterruptible time.Sleep.
 func waitUntil(t *testing.T, cond func() bool, what string) {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for {
 		if cond() {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for %s", what)
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
-	t.Fatalf("timed out waiting for %s", what)
 }
 
 func mustDeadline(t *testing.T) context.Context {
