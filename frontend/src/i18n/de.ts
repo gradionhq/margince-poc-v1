@@ -739,6 +739,9 @@ export const de = {
   "commercial.offer.rejected": "Abgelehnt",
   "commercial.offer.expired": "Abgelaufen",
   "commercial.offer.superseded": "Ersetzt",
+  "co.coverage.contacts": "{count} Kontakte",
+  "co.coverage.untried": "{count} nie angeschrieben",
+  "co.coverage.gaps": "{count} Rollenlücken",
   "co.section.restricted":
     "Ausgeblendet \u2014 deine Rolle darf das nicht lesen",
   "co.section.unsupported":

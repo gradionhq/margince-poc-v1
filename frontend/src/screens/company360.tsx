@@ -415,6 +415,42 @@ export function SectionPart({
   );
 }
 
+// The coverage line the mockup draws above the contact rows: how many
+// contacts, how many nobody has written to, how many roles are unfilled.
+//
+// ONLY counts this page can total. The mockup also carries "11 connected
+// colleagues", which would mean summing each contact's routes — and those are
+// capped at the top three by strength, so the sum would count the same
+// colleague once per contact they know and report a bigger team than exists.
+// A number nobody can check is worse than a shorter line.
+//
+// Silent when the contact list was truncated: "7 contacts" off a capped page
+// is a count of the page, not of the account.
+function CoverageSummary({
+  contacts,
+  untried,
+  gaps,
+  truncated,
+}: Readonly<{
+  contacts: readonly Contact[];
+  untried: number;
+  gaps: number;
+  truncated: boolean;
+}>) {
+  const t = useT();
+  if (truncated || contacts.length === 0) {
+    return null;
+  }
+  const parts = [t("co.coverage.contacts", { count: contacts.length })];
+  if (untried > 0) {
+    parts.push(t("co.coverage.untried", { count: untried }));
+  }
+  if (gaps > 0) {
+    parts.push(t("co.coverage.gaps", { count: gaps }));
+  }
+  return <p className="co-empty">{parts.join(" · ")}</p>;
+}
+
 /**
  * SectionCard is the one shape a single-section rail card takes.
  *
@@ -535,6 +571,14 @@ export function PeopleCard({
         contacts.length,
       )}
       emptyLabel={t("co.people.empty")}
+      footer={
+        <CoverageSummary
+          contacts={contacts}
+          untried={untried.length}
+          gaps={missing.length}
+          truncated={truncated}
+        />
+      }
       // The per-row coverage says who to call. The explorer answers the other
       // question — where are we thin — for a handful of colleagues the reader
       // picks, rather than a column per person on a forty-strong team.
