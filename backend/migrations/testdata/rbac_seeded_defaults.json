@@ -55,6 +55,12 @@
         "read": true,
         "update": true
       },
+      "finance": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
       "fx_rate": {
         "create": true,
         "delete": false,
@@ -240,6 +246,12 @@
         "read": false,
         "update": false
       },
+      "finance": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
       "fx_rate": {
         "create": false,
         "delete": false,
@@ -422,6 +434,12 @@
       "embedding_reindex": {
         "create": false,
         "delete": false,
+        "read": true,
+        "update": true
+      },
+      "finance": {
+        "create": true,
+        "delete": true,
         "read": true,
         "update": true
       },
@@ -610,6 +628,12 @@
         "read": false,
         "update": false
       },
+      "finance": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
       "fx_rate": {
         "create": false,
         "delete": false,
@@ -793,6 +817,12 @@
         "create": false,
         "delete": false,
         "read": false,
+        "update": false
+      },
+      "finance": {
+        "create": false,
+        "delete": false,
+        "read": true,
         "update": false
       },
       "fx_rate": {

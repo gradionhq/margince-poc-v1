@@ -1304,6 +1304,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/finance-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Does this customer actually pay us, and on time?
+         * @description The finance card's whole read (FIN-WIRE-1, ADR-0083/A128): what we have
+         *     invoiced, what is still open, and how they pay — plus the handful of recent
+         *     invoices the card shows.
+         *
+         *     **`state` is the answer, not a decoration.** A page that renders figures
+         *     without it cannot tell "they owe nothing" from "no accounting source is
+         *     connected", and those are opposite facts about a customer. Every figure is
+         *     absent rather than zero when it cannot be computed (FIN-AC-2): €0 open is a
+         *     claim that they are square with us, and it must be earned.
+         *
+         *     Read-only, like everything in the mirror. The connection is managed
+         *     elsewhere; this endpoint only reads what the last sync brought back.
+         */
+        get: operations["getOrganizationFinanceSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/facts": {
         parameters: {
             query?: never;
@@ -8025,6 +8059,88 @@ export interface components {
             /** Format: uuid */
             entity_id: string;
         };
+        /**
+         * @description What the accounting mirror knows about one customer (ADR-0083/A128).
+         *
+         *     Every figure is nullable and ABSENT when it cannot be computed, never zero
+         *     (FIN-AC-2). "€0 open" says the customer is square with us; "no figure" says
+         *     we do not know. A card that renders the second as the first tells a rep an
+         *     account is healthy on the strength of a missing connector.
+         */
+        OrganizationFinanceSummary: {
+            /** Format: uuid */
+            organization_id: string;
+            state: components["schemas"]["FinanceSummaryState"];
+            /** @description Which accounting source this came from, in the source's own words ("offline_demo"). Rendered as a label beside the figures so a reader knows what they are looking at; absent when nothing is connected. */
+            provider?: string | null;
+            /**
+             * Format: date-time
+             * @description When the last successful sync finished. Null when none has.
+             */
+            last_synced_at?: string | null;
+            /** @description Issued minus credited over the last 365 days (FIN-FORM-1). Named "net invoiced" rather than "revenue": the source supports issued amounts, not a ledger revenue figure, and calling one the other is the kind of small wrong label a reader plans against. */
+            net_invoiced?: components["schemas"]["Money"];
+            /** @description What is still open across unpaid invoices (FIN-FORM-2). */
+            open_balance?: components["schemas"]["Money"];
+            /** @description The share of the open balance already past its due date. */
+            overdue?: components["schemas"]["Money"];
+            /** @description The median days between issue and settlement over the window (FIN-FORM-3). Absent when too few invoices have settled to say — a median of one invoice is an anecdote. */
+            median_days_to_pay?: number | null;
+            /** @description Days-late per settled invoice, oldest first, for the sparkline. Empty when nothing settled inside the window; never padded with zeroes, because a zero here reads as "paid exactly on time". */
+            payment_behaviour?: number[];
+            /** @description The five most recent invoices (FIN-LIM-4); `truncated` says whether there are more. */
+            recent_invoices?: components["schemas"]["FinanceInvoice"][];
+            /** @description True when the account has more invoices than `recent_invoices` carries. */
+            truncated?: boolean;
+        };
+        /**
+         * @description Why the figures are what they are — the six cases a company page must keep
+         *     apart, because five of them look identical if you only render the numbers.
+         *
+         *     `no_connection` — no accounting source is configured for this installation.
+         *     `unmapped` — a source is connected, but nobody has said which of its
+         *     customers this organization is. The figures are absent, and the fix is a
+         *     mapping rather than a sync.
+         *     `syncing` — the first pass has not finished; figures may be partial.
+         *     `connected` — the figures are current.
+         *     `stale` — the last sync succeeded, but long enough ago that the reader
+         *     should see the date beside the number.
+         *     `error` — the last attempt failed. What is shown is the last good answer,
+         *     and the reader is told it is not current.
+         * @enum {string}
+         */
+        FinanceSummaryState: "no_connection" | "unmapped" | "syncing" | "connected" | "stale" | "error";
+        /** @description One mirrored invoice, in the currency it was issued in. */
+        FinanceInvoice: {
+            /** Format: uuid */
+            id: string;
+            /** @description The source's own invoice number, absent when it does not issue one. */
+            number?: string | null;
+            /** Format: date */
+            issued_at: string;
+            /** Format: date */
+            due_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When it was settled in full. Null while anything is still open.
+             */
+            paid_at?: string | null;
+            /** @enum {string} */
+            status: "draft" | "open" | "partially_paid" | "paid" | "overdue" | "disputed" | "credited" | "void";
+            currency: string;
+            /**
+             * Format: int64
+             * @description The invoiced total in minor units.
+             */
+            gross_minor: number;
+            /**
+             * Format: int64
+             * @description What is still unpaid on it.
+             */
+            open_minor: number;
+            /** @description Days between the due date and settlement, or between the due date and today while it is still open. Absent when the invoice carries no due date — lateness against no deadline is not a reading. */
+            days_late?: number | null;
+        };
         /** @description The per-user "I have seen this record" baseline, after an acknowledgment. */
         RecordViewAck: {
             /** @enum {string} */
@@ -10720,7 +10836,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -15604,6 +15720,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RelationshipStrength"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getOrganizationFinanceSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account's finance summary, in whatever state it is in. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationFinanceSummary"];
                 };
             };
             401: components["responses"]["Unauthorized"];
