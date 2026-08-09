@@ -21,6 +21,49 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## Session pickup — 2026-08-09 (a meeting becomes an anchor, and what the tool copy cost, PR #686)
+
+`prep_for_meeting`, `catch_me_up_on` and `GET /records/{entity_type}/{id}/context`
+took an `activity` anchor (closing #577). The event is dereferenced to the
+records it names — from `activity_link` and from the `activity_participant`
+rows capture matched to people — one becomes the subject by a stated
+precedence, and the ordinary record walk runs around that. An activity is still
+a link, not a thing links hang off; the graph kept exactly the anchors it had.
+Two follow-ups are open and carried in STATUS.md: [#687] and [#726].
+
+**Two things the next agent-surface branch should budget for.**
+
+Tool copy is load-bearing and has to be measured rather than reasoned about. A
+sentence recommending the new anchor — "name the captured calendar event itself
+when you have one" — made two `not_supported` bindings read the run's
+`calendar:…` trigger reference as an activity `record_id`;
+`meeting_prep_is_not_a_catchup` went to 0/3 on both, deterministically, with an
+identical failure detail every run. Warning against it in prose did not help
+(ministral stayed at 1/5). Saying nothing did (5/5) — the schema advertises what
+a tool accepts, and prose that also recommends it is what tipped them. So budget
+an `agent_loop` re-run per copy REVISION, not one per PR: three revisions cost
+three full re-certification passes across three bindings.
+
+And the two openrouter bindings cannot be read at three runs a scenario. Two
+consecutive runs of an UNCHANGED tree moved ministral 0.587 → 0.556 and deepseek
+0.62 → 0.51. Certify ministral at `RUNS=5` before trusting one of its numbers,
+and treat a single three-run delta on either as noise unless the failure detail
+is identical every run. `gemini-3.1-flash-lite` at 0.90 was the only binding
+stable enough to read anything from, and it was unaffected by every variant.
+
+The review loop found four things worth naming, all fixed in the PR: the
+dereference borrowed the hop-2 walk's shorter link list and so dropped
+`activity_link`'s lead arm (the discovery call a prep is most often for); the
+context walk had only ever applied ROW scope, so a caller with `activity.read`
+and no `deal.read` could be handed a deal's name; the bounded participant window
+was cut by id, which could drop an organizer before the precedence saw them; and
+`max_items` did not bound the two new sections. The first of those is the one to
+remember — its fitness gate derived the link vocabulary from a sibling Go map
+rather than from the DDL, so the gate passed against the bug it described.
+
+[#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
+[#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
+
 ## Resolved — the graph can answer "who do I know here" (PR #355)
 
 The `in_contact_with` edge used to join on who TYPED the activity
