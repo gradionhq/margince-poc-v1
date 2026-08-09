@@ -140,10 +140,10 @@ func TestScanExtensions(t *testing.T) {
 		{name: "go files without a module", unit: "no-mod", files: map[string]string{"a.go": "package a\n"}, wantErr: "no go.mod"},
 		{name: "module without a root package", unit: "no-pkg", files: map[string]string{"go.mod": goMod}, wantErr: "no root package"},
 		{name: "invalid unit name", unit: "Bad_Name", files: map[string]string{}, wantErr: "not a valid unit name"},
-		// api/ used to be here; it has a composition now (contracts.go), and
-		// TestApiLayerIsGovernedByItsOwnRule plus TestFragmentRefusals pin
-		// what replaced the blanket refusal.
-		{name: "unbuilt capability layer", unit: "with-frontend", files: map[string]string{"go.mod": goMod, "a.go": "package a\n", "frontend/app.tsx": "export {};\n"}, wantErr: "frontend/ composition is not built yet"},
+		// api/ and frontend/ used to be here; both have a composition now
+		// (contracts.go, extfrontend.go), and their own refusal tests pin what
+		// replaced the blanket one — TestApiLayerIsGovernedByItsOwnRule with
+		// TestFragmentRefusals, and TestCollectUnitFrontendRefusals.
 		{name: "empty unit", unit: "empty", files: map[string]string{}, wantErr: "nothing to compose"},
 	}
 	for _, tc := range cases {
@@ -156,6 +156,47 @@ func TestScanExtensions(t *testing.T) {
 			}
 		})
 	}
+
+	// The refusal MECHANISM outlives the list, which is empty now that all
+	// three layers compose. Driving it through the var is the only way to
+	// exercise it, and it is worth exercising: the next capability layer
+	// arrives by joining this list, and a mechanism nothing covers is one that
+	// can rot silently between now and then.
+	t.Run("a layer with no composition is refused on sight", func(t *testing.T) {
+		defer func(prev []string) { unbuiltCapabilityLayers = prev }(unbuiltCapabilityLayers)
+		unbuiltCapabilityLayers = []string{"widgets"}
+
+		root := t.TempDir()
+		writeUnit(t, root, "with-widgets", map[string]string{
+			"go.mod": goMod, "a.go": "package a\n", "widgets/w.tsx": "export {};\n",
+		})
+		_, err := scanExtensions(root)
+		if err == nil || !strings.Contains(err.Error(), "widgets/ composition is not built yet") {
+			t.Fatalf("err = %v, want the unbuilt-layer refusal", err)
+		}
+	})
+
+	// And the layer that just gained one composes rather than refusing.
+	t.Run("a frontend layer composes", func(t *testing.T) {
+		root := t.TempDir()
+		writeUnit(t, root, "a-unit", map[string]string{
+			"go.mod": goMod,
+			"a.go":   "package a\n",
+			"frontend/package.json": `{"name":"@margince-ext/a-unit","private":true,` +
+				`"main":"screen.tsx","peerDependencies":{"react":"^19.0.0"}}`,
+			"frontend/screen.tsx": "export default function S() { return null }\n",
+		})
+		units, err := scanExtensions(root)
+		if err != nil {
+			t.Fatalf("a unit with a frontend layer must compose: %v", err)
+		}
+		if len(units) != 1 || units[0].Frontend == nil {
+			t.Fatalf("units = %#v, want one carrying a frontend package", units)
+		}
+		if got := units[0].Frontend.Package; got != "@margince-ext/a-unit" {
+			t.Errorf("package = %q", got)
+		}
+	})
 
 	t.Run("well-formed unit", func(t *testing.T) {
 		root := t.TempDir()
