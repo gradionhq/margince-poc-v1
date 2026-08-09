@@ -387,6 +387,23 @@ because getting it wrong once was expensive:
    happen (run-then-mark) or add the failing test that documents it
    honestly.
 
+6. **A test that supplies its own version of production proves nothing
+   about production.** Whatever a test substitutes for the real thing is
+   the part the real thing no longer has to get right. Two shapes, both
+   already shipped defects here: hand-inserted rows the real writer never
+   produces (a signal pass joined `activity_link` on an `entity_type`
+   capture never writes — every workspace found zero candidates, the job
+   reported success, the page rendered empty for a release), and a
+   hand-copied adapter mirroring what `compose` wires (a captured-file
+   suite built its own `FileKeeper`, so the production join could have
+   been deleted with nothing going red). Seed through the real writer, or
+   mirror its exact row shape; if a test needs the wiring, reach for the
+   wiring — integration tests live directly in `package compose` for
+   exactly this, so unexported adapters are in scope. The tell is writing
+   a struct in a test file whose fields mirror something `compose`
+   already builds, and an unexpectedly uncovered new file usually means a
+   test double stands where the real thing should.
+
 ## License
 
 **Business Source License 1.1** (`BUSL-1.1`) — see [LICENSE](LICENSE). Licensor:
