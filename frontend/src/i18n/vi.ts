@@ -1478,6 +1478,14 @@ export const vi = {
   "compose.to": "Đến",
   "compose.cc": "Cc",
   "compose.subject": "Tiêu đề",
+  "compose.noGroundableRecipient":
+    "Tài khoản này chưa có liên hệ nào — hãy tự viết thư, hoặc thêm liên hệ trước",
+  "compose.draftTo": "Soạn gửi",
+  "compose.draftToUnset": "Chọn liên hệ",
+  "compose.relatedTo": "Liên quan đến",
+  "compose.relatedToNone": "Toàn bộ tài khoản",
+  "compose.basedOn": "Dựa trên: {inputs}",
+  "compose.whyThisDraft": "Vì sao có bản nháp này?",
   "compose.body": "Nội dung",
   "compose.purpose": "Mục đích chấp thuận",
   "compose.purposeHint":
