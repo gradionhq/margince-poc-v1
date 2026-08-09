@@ -18,6 +18,7 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- [Open — two follow-ups left by the activity anchor (#686, 2026-08-09)](#open--two-follow-ups-left-by-the-activity-anchor-686-2026-08-09)
 - [Open — account-started outbound and the finance mirror (2026-08-09)](#open--account-started-outbound-and-the-finance-mirror-2026-08-09)
 - [Open — the settings mirror is a dual-write on ADR-0091's critical path](#open--the-settings-mirror-is-a-dual-write-on-adr-0091s-critical-path)
 - [Pick up here — ADR-0091 (A136): retiring the workspace tenant boundary](#pick-up-here--adr-0091-a136-retiring-the-workspace-tenant-boundary)
@@ -43,6 +44,46 @@ needs the whole file to start a session.
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Open — two follow-ups left by the activity anchor (#686, 2026-08-09)
+
+`prep_for_meeting` and `catch_me_up_on` now take an `activity` anchor, and so
+does `GET /records/{entity_type}/{id}/context`: the event is dereferenced to the
+records it is about, one becomes the subject, and the ordinary walk runs around
+that. Two things it deliberately did not fix.
+
+**The context walk does not follow activity_link's lead arm — [#687].** A lead
+anchor answers with its profile and nothing else, because `anchorLinkColumn`
+maps only person / organization / deal / project. `activity_link` has carried
+`lead_id` since core `0038`, so a lead does have a timeline and the walk simply
+does not read it. #686 made a lead a first-class *subject* of an activity anchor
+and corrected a comment that asserted the opposite, but the lead's own
+neighborhood walk is still empty. Closing it means a `lead` entry in
+`anchorLinkColumn` and a decision about whether a lead should also be a hop-2
+neighbour, both of which change what an existing endpoint answers.
+
+**A weak model invents a record id from the trigger reference — [#726].** With
+`activity` in the anchor enum, the two `not_supported` agent_loop bindings
+sometimes call `prep_for_meeting{record_type: activity, record_id: <the run's
+`calendar:…` trigger ref>}` — a record that does not exist — instead of
+anchoring on the organization they were grounded with. It is an id-provenance
+error, not a tool-selection one. Three wordings were measured; only silence in
+the tool copy helped, and only on one binding. The durable fix is a statement in
+the runner's own system frame (a record id comes from something the run has
+read, never from the occurrence reference it was started with), which touches
+every task and needs its own certification pass.
+
+**Two things #686 learned that the next agent-surface branch should budget for.**
+Tool copy is load-bearing and has to be measured rather than reasoned about — a
+sentence recommending the new anchor cost `meeting_prep_is_not_a_catchup` 0/3 on
+two bindings, deterministically — so budget an `agent_loop` re-run per copy
+revision, not one per PR. And the two openrouter bindings cannot be read at
+n=3: two consecutive runs of an unchanged tree moved ministral 0.587 → 0.556 and
+deepseek 0.62 → 0.51, so certify ministral at `RUNS=5` and treat a single
+three-run delta as noise unless the failure detail is identical every run.
+
+[#687]: https://github.com/gradionhq/margince-poc-v1/issues/687
+[#726]: https://github.com/gradionhq/margince-poc-v1/issues/726
 
 ## Open — account-started outbound and the finance mirror (2026-08-09)
 
