@@ -1734,6 +1734,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/emails": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a new email conversation from a record — 🟡 confirm-first / gated.
+         * @description The account-started twin of `send_email` (ADR-0087/A132). "Write email" from a company,
+         *     a person or a deal is a NEW conversation: there is no prior message to anchor to, and
+         *     the product refuses to fabricate a placeholder activity to obtain one — that would put a
+         *     timeline entry on the record for a message nobody has sent yet.
+         *
+         *     This is the SAME send. Authorization order, the default-deny per-purpose consent gate,
+         *     deliverability derivation, message-identity minting and the single-transaction staging of
+         *     activity + delivery + job are the ones `send_email` runs; only the ORIGIN differs. The
+         *     message roots a fresh thread at its own newly minted identity, and `links` says which
+         *     records it belongs to instead of inheriting them from an anchor.
+         *
+         *     Two refusals are specific to naming your own addressees and your own links:
+         *
+         *     - every address in `to`/`cc` must belong to a person the sender can READ, or the send is
+         *       refused 422 `recipient_not_on_file` naming the address — a fix the composer can offer
+         *       ("attach this address to a contact"), rather than mail to a string nobody is
+         *       accountable for;
+         *     - every entry in `links` is row-scope probed, so a record the caller cannot see is
+         *       refused 404 exactly as reading it directly would be.
+         *
+         *     Tier matches the operation it mirrors: an agent presenting a passport is confirm-first
+         *     and stages for approval; a human's own call is their confirmation (ADR-0055).
+         */
+        post: operations["sendAccountEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activities/{id}/send-message": {
         parameters: {
             query?: never;
@@ -9425,6 +9466,16 @@ export interface components {
             entity_id: string;
         };
         /**
+         * @description One record an activity is filed under, as a caller supplies it. The read shape
+         *     (ActivityLink) carries the ids the server assigned; this carries only the target.
+         */
+        ActivityLinkInput: {
+            /** @enum {string} */
+            entity_type: "person" | "organization" | "deal" | "lead" | "project";
+            /** Format: uuid */
+            entity_id: string;
+        };
+        /**
          * @description A polymorphic timeline item. Mirrors the `activity` table + `activity_link`.
          *     **Per-kind field constraints** (enforced server-side to match the DB `activity_task_fields`
          *     CHECK; the OpenAPI cannot express these conditionally): `due_at`/`assignee_id`/`is_done`/
@@ -9722,6 +9773,36 @@ export interface components {
              *     `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
              */
             consent_purpose: string;
+        };
+        /**
+         * @description One account-started send. It is SendEmailRequest plus the `links` an anchor would
+         *     otherwise have supplied — the records this new conversation belongs to.
+         */
+        SendAccountEmailRequest: {
+            subject: string;
+            /** @description The (possibly edited) final body that is sent. */
+            body: string;
+            to: string[];
+            cc?: string[];
+            /**
+             * @description Opaque reference returned by the drafting operation, exactly as on `send_email`.
+             *     Omit for independently composed mail.
+             */
+            draft_ref?: string | null;
+            /**
+             * @description The consent purpose this send falls under. Default-deny per purpose (A22/ADR-0011):
+             *     suppressed 409 `consent_not_granted` unless every recipient has an active `granted`
+             *     `person_consent` for THIS purpose.
+             */
+            consent_purpose: string;
+            /**
+             * @description The records this conversation is filed under — the company it was started from, and
+             *     optionally the person and deal it concerns. At least one is required: a message
+             *     belonging to no record is one nobody will find again, which is the gap this
+             *     operation exists to close. Each target is row-scope probed, so an id the caller
+             *     cannot see is refused 404.
+             */
+            links: components["schemas"]["ActivityLinkInput"][];
         };
         /**
          * @description One channel reply. It carries no subject and no addressee list, and that absence is the
@@ -16834,6 +16915,86 @@ export interface operations {
             };
             /** @description Approval token missing for a 🟡 send, or RBAC denied. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Consent not granted for the send purpose (`code: consent_not_granted`) — suppressed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    sendAccountEmail: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendAccountEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted for send (queued); the resulting outbound activity is logged. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Activity"];
+                };
+            };
+            /** @description Approval token missing for a 🟡 send, or RBAC denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A named link target does not exist, or is outside the caller's row scope. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
