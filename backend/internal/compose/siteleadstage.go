@@ -31,7 +31,7 @@ import (
 // knows is not a decision: they reached us by email long before a crawler
 // read their name off the about page, and re-proposing them spends the
 // queue on a confirmation that would land on the row that is already there.
-func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, person sitePerson) (ids.ApprovalID, bool, error) {
+func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, person sitePerson, bundleID ids.UUID) (ids.ApprovalID, bool, error) {
 	if claim.OrganizationID == nil {
 		return ids.ApprovalID{}, false, errors.New("site deep read: an unbound onboarding draft cannot stage a lead proposal")
 	}
@@ -60,7 +60,7 @@ func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID,
 			"read", readID.String(), "url", person.SourceURL)
 		return ids.ApprovalID{}, false, nil
 	}
-	in, err := siteLeadStageInput(readID, *claim.OrganizationID, claim.SeedURL, person)
+	in, err := siteLeadStageInput(readID, *claim.OrganizationID, claim.SeedURL, person, bundleID)
 	if err != nil {
 		return ids.ApprovalID{}, false, err
 	}
@@ -131,7 +131,7 @@ func (w *siteDeepReadWorker) probeCtx(ctx context.Context) (context.Context, err
 // second would expire the first's still-undecided approval. The natural key
 // normalizes the name and carries the published email, so it separates exactly
 // the people the accept path keeps separate.
-func siteLeadStageInput(readID, organizationID ids.UUID, seedURL string, person sitePerson) (approvals.StageInput, error) {
+func siteLeadStageInput(readID, organizationID ids.UUID, seedURL string, person sitePerson, bundleID ids.UUID) (approvals.StageInput, error) {
 	naturalKey := siteLeadSourceID(organizationID, person.Name, person.PublishedEmail)
 	proposedChange, err := json.Marshal(siteLeadProposal{
 		OrganizationID:  organizationID,
@@ -160,6 +160,7 @@ func siteLeadStageInput(readID, organizationID ids.UUID, seedURL string, person 
 		TargetID:       organizationID,
 		Identity:       identity,
 		JoinPending:    true,
+		BundleID:       bundleID,
 		Summary:        fmt.Sprintf("Lead from %s: %s — %s", seedURL, person.Name, person.Role),
 	}, nil
 }

@@ -573,6 +573,30 @@ func (e ApprovalStatus) Valid() bool {
 	}
 }
 
+// Defines values for ApprovalBundleMemberOutcome.
+const (
+	ApprovalBundleMemberOutcomeAlreadyDecided ApprovalBundleMemberOutcome = "already_decided"
+	ApprovalBundleMemberOutcomeDecided        ApprovalBundleMemberOutcome = "decided"
+	ApprovalBundleMemberOutcomeEffectFailed   ApprovalBundleMemberOutcome = "effect_failed"
+	ApprovalBundleMemberOutcomeExpired        ApprovalBundleMemberOutcome = "expired"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalBundleMemberOutcome enum.
+func (e ApprovalBundleMemberOutcome) Valid() bool {
+	switch e {
+	case ApprovalBundleMemberOutcomeAlreadyDecided:
+		return true
+	case ApprovalBundleMemberOutcomeDecided:
+		return true
+	case ApprovalBundleMemberOutcomeEffectFailed:
+		return true
+	case ApprovalBundleMemberOutcomeExpired:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AssistantConfiguredModelProvider.
 const (
 	AssistantModelProviderAnthropic        AssistantConfiguredModelProvider = "anthropic"
@@ -7535,16 +7559,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
-	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
+	Active WebhookSubscriptionState = "active"
+	Paused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case WebhookSubscriptionStateActive:
+	case Active:
 		return true
-	case WebhookSubscriptionStatePaused:
+	case Paused:
 		return true
 	default:
 		return false
@@ -9174,11 +9198,23 @@ type ApplyTagRequestEntityType string
 // Approval A staged 🟡 confirm-first action awaiting human decision.
 type Approval struct {
 	// ApprovalToken Signed single-use token minted on approve (schema ApprovalToken, serialized as compact JWS); authorizes exactly the downstream 🟡 operation it is bound to.
-	ApprovalToken *string             `json:"approval_token,omitempty"`
-	Confidence    *float32            `json:"confidence,omitempty"`
-	CreatedAt     time.Time           `json:"created_at"`
-	DecidedAt     *time.Time          `json:"decided_at,omitempty"`
-	DecidedBy     *openapi_types.UUID `json:"decided_by,omitempty"`
+	ApprovalToken *string `json:"approval_token,omitempty"`
+
+	// BundleId The act that staged this proposal together with its siblings — a site read's company
+	// facts and the leads it published, a captured interaction's person/company/deal. Null
+	// for a proposal staged on its own. It is a grouping id, not a foreign key: there is no
+	// bundle entity, and every member keeps its own diff hash, version pin, expiry and
+	// verdict (ADR-0036 — the staged row IS the authority object). Decide the whole set with
+	// `POST /approval-bundles/{bundle_id}/approve|reject`, or any member on its own.
+	//
+	// A proposal that is re-staged identically JOINS the row already pending and MOVES onto
+	// the fresh act's bundle, so a bundle always holds exactly what its act proposed rather
+	// than only the part of it that was new.
+	BundleId   *openapi_types.UUID `json:"bundle_id,omitempty"`
+	Confidence *float32            `json:"confidence,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
+	DecidedAt  *time.Time          `json:"decided_at,omitempty"`
+	DecidedBy  *openapi_types.UUID `json:"decided_by,omitempty"`
 
 	// DiffHash Hash of the staged proposed_change; the minted approval_token is bound to this hash so a token cannot authorize a different effect.
 	DiffHash *string `json:"diff_hash,omitempty"`
@@ -9227,6 +9263,50 @@ type ApprovalEvidenceSourceType string
 
 // ApprovalStatus defines model for Approval.Status.
 type ApprovalStatus string
+
+// ApprovalBundleDecision The per-member result of a bundle decision. Deciding a bundle is not all-or-nothing: the
+// members were always independent authorities, so one that expired, one someone else already
+// decided, and one whose follow-on effect failed each report for themselves while their
+// siblings decide normally.
+type ApprovalBundleDecision struct {
+	BundleId openapi_types.UUID `json:"bundle_id"`
+
+	// Data Every member of the bundle this caller could decide, in the state it is in AFTER the
+	// decision. Members outside their authority are absent — the same existence-hiding the
+	// inbox and a single approval read give — so this list may be shorter than the bundle.
+	Data []ApprovalBundleMember `json:"data"`
+}
+
+// ApprovalBundleDecisionRequest Decide every still-pending member of one bundle. There is no `edited_payload` arm: an edit
+// is a judgment about ONE proposed change (it re-hashes that diff and re-pins its entity
+// refs, ADR-0036 §4), and there is no such thing as one edit spanning several. Edit a member
+// through `POST /approvals/{id}/approve`, then decide the rest here.
+type ApprovalBundleDecisionRequest struct {
+	// Reason Recorded on every member this call decides — one stated reason for one decision.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// ApprovalBundleMember One member of a bundle, and what the bundle decision did to it.
+type ApprovalBundleMember struct {
+	// Approval A staged 🟡 confirm-first action awaiting human decision.
+	Approval Approval `json:"approval"`
+
+	// Outcome What THIS call did to the member. `decided` — the verdict was recorded now.
+	// `already_decided` — it carried a verdict before this call, which is left standing
+	// (the status says which). `expired` — it lapsed undecided and is no longer
+	// approvable; re-propose instead. `effect_failed` — the verdict IS recorded and
+	// audited, but the follow-on change did not land; the member reads approved and
+	// unredeemed, and the server log carries the cause.
+	Outcome ApprovalBundleMemberOutcome `json:"outcome"`
+}
+
+// ApprovalBundleMemberOutcome What THIS call did to the member. `decided` — the verdict was recorded now.
+// `already_decided` — it carried a verdict before this call, which is left standing
+// (the status says which). `expired` — it lapsed undecided and is no longer
+// approvable; re-propose instead. `effect_failed` — the verdict IS recorded and
+// audited, but the follow-on change did not land; the member reads approved and
+// unredeemed, and the server log carries the cause.
+type ApprovalBundleMemberOutcome string
 
 // ApprovalListResponse defines model for ApprovalListResponse.
 type ApprovalListResponse struct {
@@ -15818,6 +15898,9 @@ type AiWritten = bool
 // ApprovalToken defines model for ApprovalToken.
 type ApprovalToken = string
 
+// BundleId defines model for BundleId.
+type BundleId = openapi_types.UUID
+
 // CaptureProvider defines model for CaptureProvider.
 type CaptureProvider string
 
@@ -16136,6 +16219,13 @@ type ListApprovalsParams struct {
 
 	// TargetEntityId The record the staged actions act on. Requires `target_entity_type`.
 	TargetEntityId *openapi_types.UUID `form:"target_entity_id,omitempty" json:"target_entity_id,omitempty"`
+
+	// BundleId Filter to the proposals ONE act staged together (see `Approval.bundle_id`) — a site
+	// read's company facts plus the leads it published, a captured interaction's person,
+	// company and deal. Members the caller could not decide are absent from this page exactly
+	// as they are absent from the unfiltered inbox, so a bundle may report fewer members than
+	// it holds.
+	BundleId *openapi_types.UUID `form:"bundle_id,omitempty" json:"bundle_id,omitempty"`
 }
 
 // ListApprovalsParamsStatus defines parameters for ListApprovals.
@@ -19017,6 +19107,12 @@ type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
 
 // RecordAIFeedbackJSONRequestBody defines body for RecordAIFeedback for application/json ContentType.
 type RecordAIFeedbackJSONRequestBody = AIFeedbackInput
+
+// ApproveApprovalBundleJSONRequestBody defines body for ApproveApprovalBundle for application/json ContentType.
+type ApproveApprovalBundleJSONRequestBody = ApprovalBundleDecisionRequest
+
+// RejectApprovalBundleJSONRequestBody defines body for RejectApprovalBundle for application/json ContentType.
+type RejectApprovalBundleJSONRequestBody = ApprovalBundleDecisionRequest
 
 // ApproveApprovalJSONRequestBody defines body for ApproveApproval for application/json ContentType.
 type ApproveApprovalJSONRequestBody = ApproveRequest
@@ -25167,6 +25263,12 @@ type ServerInterface interface {
 	// AI usage + budget — the spend is never invisible.
 	// (GET /ai/usage)
 	GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams)
+	// Approve every still-pending member of one bundle.
+	// (POST /approval-bundles/{bundle_id}/approve)
+	ApproveApprovalBundle(w http.ResponseWriter, r *http.Request, bundleId BundleId)
+	// Reject every still-pending member of one bundle; no records change.
+	// (POST /approval-bundles/{bundle_id}/reject)
+	RejectApprovalBundle(w http.ResponseWriter, r *http.Request, bundleId BundleId)
 	// The approval inbox — list staged 🟡 actions awaiting human decision.
 	// (GET /approvals)
 	ListApprovals(w http.ResponseWriter, r *http.Request, params ListApprovalsParams)
@@ -26175,6 +26277,18 @@ func (_ Unimplemented) GetAiProfile(w http.ResponseWriter, r *http.Request) {
 // AI usage + budget — the spend is never invisible.
 // (GET /ai/usage)
 func (_ Unimplemented) GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Approve every still-pending member of one bundle.
+// (POST /approval-bundles/{bundle_id}/approve)
+func (_ Unimplemented) ApproveApprovalBundle(w http.ResponseWriter, r *http.Request, bundleId BundleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reject every still-pending member of one bundle; no records change.
+// (POST /approval-bundles/{bundle_id}/reject)
+func (_ Unimplemented) RejectApprovalBundle(w http.ResponseWriter, r *http.Request, bundleId BundleId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -28896,6 +29010,70 @@ func (siw *ServerInterfaceWrapper) GetAiUsage(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ApproveApprovalBundle operation middleware
+func (siw *ServerInterfaceWrapper) ApproveApprovalBundle(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bundle_id" -------------
+	var bundleId BundleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bundle_id", chi.URLParam(r, "bundle_id"), &bundleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bundle_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveApprovalBundle(w, r, bundleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectApprovalBundle operation middleware
+func (siw *ServerInterfaceWrapper) RejectApprovalBundle(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bundle_id" -------------
+	var bundleId BundleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bundle_id", chi.URLParam(r, "bundle_id"), &bundleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bundle_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectApprovalBundle(w, r, bundleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListApprovals operation middleware
 func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.Request) {
 
@@ -28987,6 +29165,19 @@ func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "target_entity_id"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "target_entity_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "bundle_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bundle_id", r.URL.Query(), &params.BundleId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bundle_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bundle_id", Err: err})
 		}
 		return
 	}
@@ -42945,6 +43136,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/usage", wrapper.GetAiUsage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/approval-bundles/{bundle_id}/approve", wrapper.ApproveApprovalBundle)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/approval-bundles/{bundle_id}/reject", wrapper.RejectApprovalBundle)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/approvals", wrapper.ListApprovals)

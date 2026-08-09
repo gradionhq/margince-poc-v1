@@ -5567,6 +5567,15 @@ paths:
           in: query
           schema: { type: string, format: uuid }
           description: The record the staged actions act on. Requires `target_entity_type`.
+        - name: bundle_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            Filter to the proposals ONE act staged together (see `Approval.bundle_id`) — a site
+            read's company facts plus the leads it published, a captured interaction's person,
+            company and deal. Members the caller could not decide are absent from this page exactly
+            as they are absent from the unfiltered inbox, so a bundle may report fewer members than
+            it holds.
       responses:
         '200':
           description: A page of approval items.
@@ -5659,6 +5668,69 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---- Approval bundles: one act's proposals, decided together (D2/R7) -------
+  /approval-bundles/{bundle_id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/BundleId'
+    post:
+      tags: [Approvals]
+      operationId: approveApprovalBundle
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Approve every still-pending member of one bundle.
+      description: |
+        A bundle is the set of proposals ONE act staged together; it is a grouping, never a
+        second authority object. Each member is decided **on its own terms** — its own verdict,
+        audit row, `approval.decided` event and follow-on effect — so the record carries N
+        per-effect decisions rather than one decision covering N effects, and a member whose
+        target moved under it fails alone instead of taking its siblings with it.
+
+        Members the caller could not decide individually are neither returned nor decided, and a
+        bundle with no such member is a `404` — the same existence-hiding a single approval gives.
+        Deciding is not all-or-nothing: `data[].outcome` reports each member.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalBundleDecisionRequest' }
+      responses:
+        '200':
+          description: The per-member result of the decision.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalBundleDecision' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /approval-bundles/{bundle_id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/BundleId'
+    post:
+      tags: [Approvals]
+      operationId: rejectApprovalBundle
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Reject every still-pending member of one bundle; no records change.
+      description: |
+        The rejecting half of `approveApprovalBundle`, with the same per-member semantics: a
+        rejection is a decision too, so it demands the same authority per member and is recorded
+        per member. Already-decided and expired members are reported, not overwritten.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalBundleDecisionRequest' }
+      responses:
+        '200':
+          description: The per-member result of the decision.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalBundleDecision' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ---- Per-purpose consent (A22/ADR-0011 — V1) ----
   /data-subject-requests:
@@ -9685,6 +9757,15 @@ components:
       required: true
       schema: { type: string, format: uuid }
       description: Opaque resource id (UUID; ordering semantics are not exposed).
+    BundleId:
+      name: bundle_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: |
+        The act that staged a set of proposals together (`Approval.bundle_id`). It names a
+        grouping over approval rows, not a resource of its own — there is nothing to GET, and a
+        bundle exists exactly as long as some member points at it.
     VoiceProfileVersionNumber:
       name: profileVersion
       in: path
@@ -15649,6 +15730,20 @@ components:
         proposed_by: { type: string, description: 'agent:<id> / connector:<n> that staged this.' }
         on_behalf_of: { type: [string, 'null'], format: uuid }
         expires_at: { type: [string, 'null'], format: date-time, description: 'When the staged action expires unactioned (mirrors approval.requested.expires_at). After this it auto-transitions to status=expired and cannot be approved.' }
+        bundle_id:
+          type: [string, 'null']
+          format: uuid
+          description: |
+            The act that staged this proposal together with its siblings — a site read's company
+            facts and the leads it published, a captured interaction's person/company/deal. Null
+            for a proposal staged on its own. It is a grouping id, not a foreign key: there is no
+            bundle entity, and every member keeps its own diff hash, version pin, expiry and
+            verdict (ADR-0036 — the staged row IS the authority object). Decide the whole set with
+            `POST /approval-bundles/{bundle_id}/approve|reject`, or any member on its own.
+
+            A proposal that is re-staged identically JOINS the row already pending and MOVES onto
+            the fresh act's bundle, so a bundle always holds exactly what its act proposed rather
+            than only the part of it that was new.
         target_entity_type: { type: [string, 'null'], description: Entity the effect mutates (for precondition re-validation). }
         target_entity_id: { type: [string, 'null'], format: uuid }
         target_version: { type: [integer, 'null'], description: 'The `version` of the target row when the diff was staged. On approve-execute the server RE-READS the row; if its current version ≠ target_version the execution is rejected with 409 ErrVersionSkew (the world changed since the human last saw the diff — re-stage). This closes the stage→approval race (ADR-0036).' }
@@ -15696,6 +15791,53 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Approval' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    ApprovalBundleDecisionRequest:
+      type: object
+      description: |
+        Decide every still-pending member of one bundle. There is no `edited_payload` arm: an edit
+        is a judgment about ONE proposed change (it re-hashes that diff and re-pins its entity
+        refs, ADR-0036 §4), and there is no such thing as one edit spanning several. Edit a member
+        through `POST /approvals/{id}/approve`, then decide the rest here.
+      properties:
+        reason:
+          type: string
+          description: Recorded on every member this call decides — one stated reason for one decision.
+
+    ApprovalBundleDecision:
+      type: object
+      description: |
+        The per-member result of a bundle decision. Deciding a bundle is not all-or-nothing: the
+        members were always independent authorities, so one that expired, one someone else already
+        decided, and one whose follow-on effect failed each report for themselves while their
+        siblings decide normally.
+      required: [bundle_id, data]
+      properties:
+        bundle_id: { type: string, format: uuid }
+        data:
+          type: array
+          description: |
+            Every member of the bundle this caller could decide, in the state it is in AFTER the
+            decision. Members outside their authority are absent — the same existence-hiding the
+            inbox and a single approval read give — so this list may be shorter than the bundle.
+          items: { $ref: '#/components/schemas/ApprovalBundleMember' }
+
+    ApprovalBundleMember:
+      type: object
+      description: One member of a bundle, and what the bundle decision did to it.
+      required: [approval, outcome]
+      properties:
+        approval: { $ref: '#/components/schemas/Approval' }
+        outcome:
+          type: string
+          enum: [decided, already_decided, expired, effect_failed]
+          description: |
+            What THIS call did to the member. `decided` — the verdict was recorded now.
+            `already_decided` — it carried a verdict before this call, which is left standing
+            (the status says which). `expired` — it lapsed undecided and is no longer
+            approvable; re-propose instead. `effect_failed` — the verdict IS recorded and
+            audited, but the follow-on change did not land; the member reads approved and
+            unredeemed, and the server log carries the cause.
 
     # ---- Optimistic concurrency ----
     RowVersion:

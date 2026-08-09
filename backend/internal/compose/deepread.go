@@ -317,20 +317,29 @@ func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID id
 }
 
 // stageProposals stages everything the read evidenced: the ONE deepread
-// bundle first (when any field or fact survived), then one thin
+// proposal first (when any field or fact survived), then one thin
 // site_lead per published person — the dossier's proposal_ids keep
 // that order.
+//
+// They share ONE approval bundle, because they are one act. Without it the
+// inbox shows a company's facts and each person the site published as unrelated
+// questions, and the only thing that knew they were asked together was the
+// dossier's own proposal_ids list — which no inbox reader can see. The bundle
+// is minted before anything is staged, so a lead the already-on-file probe skips
+// leaves no hole: a bundle is what the act PROPOSED, not what it happened to
+// insert.
 func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, mergedPeople []sitePerson, pagesRead int) ([]ids.UUID, error) {
+	bundleID := ids.NewV7()
 	var proposalIDs []ids.UUID
 	if len(mergedFields)+len(mergedFacts) > 0 {
-		approvalID, err := w.stage(ctx, readID, claim, mergedFields, mergedFacts, pagesRead)
+		approvalID, err := w.stage(ctx, readID, claim, mergedFields, mergedFacts, pagesRead, bundleID)
 		if err != nil {
 			return nil, fmt.Errorf("staging the proposal: %w", err)
 		}
 		proposalIDs = []ids.UUID{approvalID.UUID}
 	}
 	for _, person := range mergedPeople {
-		approvalID, staged, err := w.stageSiteLead(ctx, readID, claim, person)
+		approvalID, staged, err := w.stageSiteLead(ctx, readID, claim, person, bundleID)
 		if err != nil {
 			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
 		}
@@ -347,7 +356,7 @@ func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID
 // machinery applies and the category facts bound for organization_fact —
 // plus the dossier id, so the accept effect links the landed facts back
 // to the read that evidenced them.
-func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, pagesRead int) (ids.ApprovalID, error) {
+func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, pagesRead int, bundleID ids.UUID) (ids.ApprovalID, error) {
 	if claim.OrganizationID == nil {
 		return ids.ApprovalID{}, errors.New("site deep read: an unbound onboarding draft cannot stage an organization approval")
 	}
@@ -371,6 +380,7 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 		TargetID:       *claim.OrganizationID,
 		Summary:        fmt.Sprintf("Deep site read of %s: %d fields, %d facts from %d pages", claim.SeedURL, len(mergedFields), len(mergedFacts), pagesRead),
 		JoinPending:    true,
+		BundleID:       bundleID,
 	})
 	return approvalID, err
 }

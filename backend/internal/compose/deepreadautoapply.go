@@ -52,6 +52,10 @@ func (w *siteDeepReadWorker) autoApply(ctx context.Context, args SiteDeepReadArg
 	// the record that exists. That match is deliberately narrow (exact email, or
 	// exactly one confident name among the org's own employees) — everyone else,
 	// and every ambiguity, stages exactly as before.
+	// One act, one bundle: the org's own fields and facts are APPLIED on this
+	// lane rather than proposed, so the leads are everything it asked about, and
+	// they are asked together.
+	bundleID := ids.NewV7()
 	var proposalIDs []ids.UUID
 	for _, person := range mergedPeople {
 		matched, err := w.people.ApplySitePersonFields(ctx, orgID, people.SitePersonFields{
@@ -71,7 +75,7 @@ func (w *siteDeepReadWorker) autoApply(ctx context.Context, args SiteDeepReadArg
 		if matched {
 			continue
 		}
-		approvalID, staged, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person)
+		approvalID, staged, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person, bundleID)
 		if err != nil {
 			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
 		}

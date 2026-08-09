@@ -275,11 +275,14 @@ func TestDeepReadConcurrentStagingJoinsThePendingProposal(t *testing.T) {
 	ready := make(chan struct{}, 2)
 	start := make(chan struct{})
 	results := make(chan result, 2)
+	// One bundle for both passes: they are the same act racing itself, so what
+	// is under test is the join, not which act's grouping wins.
+	bundle := ids.NewV7()
 	for range 2 {
 		go func() {
 			ready <- struct{}{}
 			<-start
-			id, err := worker.stage(ctx, readID, claim, nil, facts, 1)
+			id, err := worker.stage(ctx, readID, claim, nil, facts, 1, bundle)
 			results <- result{id: id, err: err}
 		}()
 	}

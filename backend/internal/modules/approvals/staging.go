@@ -54,6 +54,14 @@ type StageInput struct {
 	// coldstart.read_back_proposed) emitted in the SAME transaction as
 	// approval.requested, linked to the same audit row.
 	Announce []AnnouncedEvent
+	// BundleID names the act that proposed this row together with its siblings
+	// — a site read's company facts and the leads it published, a captured
+	// interaction's person, company and deal. Zero for a proposal staged alone.
+	//
+	// It is a grouping, never a second authority object: every member keeps its
+	// own diff hash, version pin, expiry and verdict, and a bundle decision is N
+	// per-row decisions (ADR-0036 — the staged row IS the authority object).
+	BundleID ids.UUID
 }
 
 // AnnouncedEvent is one extra catalog event a staging carries. Payload
@@ -202,6 +210,9 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 			ORDER BY created_at DESC LIMIT 1`, wsID, in.Kind, nullUUID(in.TargetID), in.DiffHash).Scan(&id)
 	switch {
 	case err == nil:
+		if err := s.rebundleJoinedInTx(ctx, tx, in, id); err != nil {
+			return ids.ApprovalID{}, err
+		}
 	case errors.Is(err, pgx.ErrNoRows):
 		if id, err = s.insertProposalInTx(ctx, tx, in); err != nil {
 			return ids.ApprovalID{}, err
@@ -215,6 +226,48 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 		}
 	}
 	return id, nil
+}
+
+// rebundleJoinedInTx moves a JOINED proposal onto the bundle of the act that
+// just re-proposed it, so a bundle always holds exactly what its act proposed.
+//
+// Without this, re-proposing is where a bundle silently loses members. A site
+// read stages five proposals under bundle B1; a second read of the same site
+// re-proposes all five, four of which join B1's still-pending rows while one is
+// new — so B2 holds ONE member, and a human (or the D3 agent that returned the
+// bundle id) reviewing "what this read proposed" reviews a fifth of it, with
+// nothing anywhere saying four are missing.
+//
+// Moving the row costs nothing it was carrying: the diff hash, the version pin,
+// the expiry and the pending verdict are all untouched, and the emptied bundle
+// was only ever a grouping over rows that are still in the inbox. It is audited
+// because a proposal a human may have open changed which question it belongs to.
+//
+// A staging with NO bundle never clears one: an unbundled act joining a bundled
+// proposal has no claim to orphan it from the act that did group it.
+func (s *Service) rebundleJoinedInTx(ctx context.Context, tx pgx.Tx, in StageInput, joined ids.ApprovalID) error {
+	if in.BundleID.IsZero() {
+		return nil
+	}
+	p, ok := principal.Actor(ctx)
+	if !ok {
+		return errors.New("crmapprovals: no actor bound to context")
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE approval SET bundle_id = $2 WHERE id = $1 AND bundle_id IS DISTINCT FROM $2`,
+		joined, in.BundleID)
+	if err != nil {
+		return fmt.Errorf("rebundle joined approval: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil // already this act's bundle — the re-proposal changed nothing
+	}
+	if _, err := s.audit(ctx, tx, p, "update", joined.UUID, map[string]any{
+		approvalKeyKind: in.Kind, "rebundled": true, "bundle_id": in.BundleID,
+	}); err != nil {
+		return fmt.Errorf("audit rebundled approval: %w", err)
+	}
+	return nil
 }
 
 // supersedePendingInTx withdraws every OTHER live pending proposal of the same
@@ -340,11 +393,12 @@ func (s *Service) insertProposalInTx(ctx context.Context, tx pgx.Tx, in StageInp
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO approval (id, workspace_id, kind, proposed_by, on_behalf_of, passport_id,
 			                       target_entity_type, target_entity_id, target_version,
-			                       summary, proposed_change, diff_hash, expires_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			                       summary, proposed_change, diff_hash, expires_at, bundle_id)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		id, wsID, in.Kind, p.ID, nullUUID(p.OnBehalfOf), nullUUID(p.PassportID),
 		nullStr(in.TargetType), nullUUID(in.TargetID), in.TargetVersion,
-		nullStr(in.Summary), in.ProposedChange, in.DiffHash, expiresAt); err != nil {
+		nullStr(in.Summary), in.ProposedChange, in.DiffHash, expiresAt,
+		nullUUID(in.BundleID)); err != nil {
 		return ids.ApprovalID{}, err
 	}
 	auditID, err := s.audit(ctx, tx, p, "create", id.UUID, map[string]any{

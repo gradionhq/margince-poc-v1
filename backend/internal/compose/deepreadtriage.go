@@ -22,6 +22,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/freemail"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -221,8 +222,11 @@ func (w *siteDeepReadWorker) settleTriage(ctx context.Context, args SiteDeepRead
 	// name_source='domain' and no finished read, and a triage company has
 	// neither — so skipping it here means faceless forever.
 	w.resolveLogo(ctx, args, claim, payload.Crawl)
+	// One verdict, one bundle: the people this triage published were all asked
+	// about by the same act, and reach the inbox as one question.
+	bundleID := ids.NewV7()
 	for _, person := range payload.People {
-		if _, _, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person); err != nil {
+		if _, _, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person, bundleID); err != nil {
 			w.log.WarnContext(ctx, "domain triage: staging a site person failed",
 				"read", args.SiteReadID.String(), "err", err)
 		}
