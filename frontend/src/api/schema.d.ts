@@ -3919,9 +3919,12 @@ export interface paths {
          *     event that matched no record, as items whose `ref` is the EVENT — an attendee nobody
          *     here holds a record for has no id of their own — and whose `summary` is the address and
          *     the part they played. Subject precedence is deal, then project, then organization, then
-         *     person, taking a link before a participant within a tier and the organizer before the
-         *     attendees. Each subject is visibility-probed on its own, so an event readable through
-         *     one link never discloses a record behind another.
+         *     person, then lead, taking a link before a participant within a tier and the organizer
+         *     before the attendees. `also_present` and `unresolved_attendees` are bounded by
+         *     `max_items` like every other section and are ordered so the cut keeps the most useful
+         *     first, so raise it to see the whole room. Each subject is object-RBAC checked and
+         *     visibility-probed on its own, so an event readable through one link never discloses a
+         *     record behind another.
          */
         get: operations["getRecordContext"];
         put?: never;

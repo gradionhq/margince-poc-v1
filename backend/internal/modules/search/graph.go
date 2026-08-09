@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -137,10 +139,18 @@ func (s *Store) assembleRecordWithin(ctx context.Context, tx pgx.Tx, anchorType 
 		// uses.
 		return nil, fmt.Errorf("search: %s is not a graph anchor: %w", anchorType, apperrors.ErrNotFound)
 	}
-	// A lead carries no activity_link neighborhood — the link shape admits
-	// only person/organization/deal (0008_activity.up.sql) — so a lead
-	// anchor's context is its profile alone: an honestly-empty
-	// neighborhood, not a walk silently skipped.
+	// Object RBAC before row scope, the order every read in this module takes
+	// (Search's branch admission spells it the same way). The row-scope probe
+	// below answers a different question — WHICH rows of a type — and a caller
+	// with no grant on the type at all must not reach it.
+	if err := auth.Require(ctx, anchorType, principal.ActionRead); err != nil {
+		return nil, err
+	}
+	// anchorLinkColumn is what this walk can READ, not what activity_link can
+	// hold: the link shape has admitted a lead arm since core 0038, and this
+	// walk does not follow it, so a lead anchor's context is its profile alone.
+	// That is an honestly-empty neighborhood rather than a walk silently
+	// skipped — and it is a gap, tracked rather than restated as a property.
 	linkCol, walkable := anchorLinkColumn[anchorType]
 	now := time.Now().UTC()
 
@@ -342,21 +352,16 @@ func MemberNames(ctx context.Context, tx pgx.Tx, edges []InteractionEdge) (map[i
 	return out, rows.Err()
 }
 
-// graphHop names one hop-2 target type: the entity, the activity_link
-// column that reaches it, and its human-facing title column.
-type graphHop struct {
-	entity string
-	column string
-	title  string
-}
-
-// relatedHops is the fixed set of hop-2 neighbor types, in the order the
-// related_* sections are emitted.
-var relatedHops = []graphHop{
-	{entity: string(datasource.EntityPerson), column: "person_id", title: "full_name"},
-	{entity: string(datasource.EntityOrganization), column: "organization_id", title: "display_name"},
-	{entity: string(datasource.EntityDeal), column: "deal_id", title: "name"},
-	{entity: string(datasource.EntityProject), column: "project_id", title: "name"},
+// relatedSectionOrder is the hop-2 neighbor types the walk renders a related_*
+// section for, in the order they are emitted.
+//
+// It is a SUBSET of activity_link's arms (activityLinkArms) and the walk skips
+// the rest: a project or a lead reached at hop 2 has nowhere to be reported, so
+// reading them would be a query whose result is discarded.
+var relatedSectionOrder = []string{
+	string(datasource.EntityPerson),
+	string(datasource.EntityOrganization),
+	string(datasource.EntityDeal),
 }
 
 func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.ActivityID, maxItems int) ([]graphSection, error) {
@@ -364,9 +369,16 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 		return nil, nil
 	}
 	sectionsByType := map[string][]graphItem{}
-	for _, hop := range relatedHops {
-		if hop.entity == anchorType {
-			continue // the anchor is not its own neighbor
+	for _, hop := range activityLinkArms {
+		if hop.entity == anchorType || !slices.Contains(relatedSectionOrder, hop.entity) {
+			continue // the anchor is not its own neighbor, and neither is a type with no section
+		}
+		// Object RBAC hides a denied type SILENTLY here, unlike at the anchor:
+		// a neighbor is context the caller did not ask for by name, so a type
+		// they hold no grant on is absent rather than a 403 on a read they did
+		// not make. Search's branch admission takes the same posture.
+		if auth.Require(ctx, hop.entity, principal.ActionRead) != nil {
+			continue
 		}
 		items, err := hopNeighbors(ctx, tx, hop, anchorID, activityIDs)
 		if err != nil {
@@ -375,7 +387,7 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 		sectionsByType[hop.entity] = items
 	}
 	var out []graphSection
-	for _, entity := range []string{string(datasource.EntityPerson), string(datasource.EntityOrganization), string(datasource.EntityDeal)} {
+	for _, entity := range relatedSectionOrder {
 		items := sectionsByType[entity]
 		if len(items) == 0 {
 			continue
@@ -392,7 +404,7 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 // hopNeighbors reads one hop's bounded, deterministic candidate window and
 // returns the visible ones as graph items. Each candidate is
 // visibility-probed individually: the walk widens context, never authority.
-func hopNeighbors(ctx context.Context, tx pgx.Tx, hop graphHop, anchorID ids.UUID, activityIDs []ids.ActivityID) ([]graphItem, error) {
+func hopNeighbors(ctx context.Context, tx pgx.Tx, hop activityLinkArm, anchorID ids.UUID, activityIDs []ids.ActivityID) ([]graphItem, error) {
 	// Bounded like the activity leg: the id order makes the window
 	// deterministic before the per-row visibility probe thins it.
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
@@ -400,7 +412,7 @@ func hopNeighbors(ctx context.Context, tx pgx.Tx, hop graphHop, anchorID ids.UUI
 		FROM activity_link l JOIN %s t ON t.id = l.%s
 		WHERE l.activity_id = ANY($1) AND t.archived_at IS NULL AND l.%s IS NOT NULL AND t.id <> $2
 		ORDER BY t.id LIMIT %d`,
-		hop.title, hop.entity, hop.column, hop.column, graphExpansionLimit), activityIDs, anchorID)
+		hop.title(), hop.entity, hop.column, hop.column, graphExpansionLimit), activityIDs, anchorID)
 	if err != nil {
 		return nil, err
 	}

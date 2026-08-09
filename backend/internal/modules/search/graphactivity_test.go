@@ -8,6 +8,11 @@ package search
 // to, and that the answer is the same every time it is asked.
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -156,20 +161,75 @@ func TestAnEventThatNamesNoRecordHasNoSubject(t *testing.T) {
 	}
 }
 
-// Every record type a link can reach is a record type the precedence can
-// place. Without this a new link target lands on tier 0 — ahead of the deal —
-// by the silent default of a missing map entry.
-func TestEveryLinkTargetHasASubjectTier(t *testing.T) {
-	for _, hop := range relatedHops {
-		if _, ok := subjectTier[hop.entity]; !ok {
-			t.Errorf("activity_link reaches %q and subjectTier does not rank it, so it would "+
-				"sort ahead of a deal as the meeting's subject", hop.entity)
+// Every arm of activity_link is a subject the precedence can place, and every
+// subject it ranks is an arm — derived from the DDL's own enum rather than
+// from a sibling list in Go, because that is how the lead arm went missing in
+// the first draft: the hop-2 walk renders no related_leads section, so its own
+// shorter list omits lead, and borrowing that list silently dropped exactly
+// the discovery call a prep is most often for.
+//
+// A new arm with no tier would land on tier 0, ahead of the deal, by the
+// silent default of a missing map entry.
+func TestEverySubjectLinkArmIsRanked(t *testing.T) {
+	declared := activityLinkEntityTypes(t)
+	armed := make(map[string]bool, len(activityLinkArms))
+	for _, arm := range activityLinkArms {
+		armed[arm.entity] = true
+		if _, ok := subjectTier[arm.entity]; !ok {
+			t.Errorf("activityLinkArms reaches %q and subjectTier does not rank it, so it would "+
+				"sort ahead of a deal as the meeting's subject", arm.entity)
+		}
+		if arm.title() == "" {
+			t.Errorf("activityLinkArms reaches %q and no search branch renders it, so the arm's "+
+				"read has no title column and would not run at all", arm.entity)
+		}
+	}
+	for _, entity := range declared {
+		if !armed[entity] {
+			t.Errorf("activity_link admits entity_type %q and no activityLinkArms arm reads it — "+
+				"an event linked to one prepares against nothing", entity)
 		}
 	}
 	for entity := range subjectTier {
-		if _, ok := anchorLinkColumn[entity]; !ok {
-			t.Errorf("subjectTier ranks %q, which no activity_link column reaches — "+
-				"the precedence names a subject an event cannot produce", entity)
+		if !armed[entity] {
+			t.Errorf("subjectTier ranks %q, which no activityLinkArms arm produces — "+
+				"the precedence names a subject an event cannot name", entity)
 		}
 	}
+}
+
+// activityLinkEntityTypes reads the live vocabulary off the migrations: the
+// LAST activity_link_entity_type_check to be declared wins, which is the one a
+// fresh database ends up with. Core migrations are zero-padded, so filename
+// order is migration order.
+func activityLinkEntityTypes(t *testing.T) []string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join("..", "..", "..", "migrations", "core", "*.up.sql"))
+	if err != nil {
+		t.Fatalf("listing the core migrations: %v", err)
+	}
+	sort.Strings(files)
+	check := regexp.MustCompile(`activity_link_entity_type_check[\s\S]*?entity_type IN \(([^)]*)\)`)
+	create := regexp.MustCompile(`CREATE TABLE activity_link[\s\S]*?entity_type\s+text NOT NULL CHECK \(entity_type IN \(([^)]*)\)`)
+	var latest string
+	for _, file := range files {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("reading %s: %v", file, err)
+		}
+		for _, re := range []*regexp.Regexp{create, check} {
+			if all := re.FindAllStringSubmatch(string(body), -1); len(all) > 0 {
+				latest = all[len(all)-1][1]
+			}
+		}
+	}
+	if latest == "" {
+		t.Fatal("no activity_link entity_type CHECK found in the core migrations; " +
+			"the declaration this gate derives from has moved")
+	}
+	var out []string
+	for _, quoted := range strings.Split(latest, ",") {
+		out = append(out, strings.Trim(strings.TrimSpace(quoted), "'"))
+	}
+	return out
 }

@@ -21,7 +21,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -29,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -45,15 +49,59 @@ type activitySubject struct {
 	role  int
 }
 
+// activityLinkArm is one record type an activity_link row can point at: the
+// entity and the link column that reaches it.
+type activityLinkArm struct {
+	entity string
+	column string
+}
+
+// title is the expression that renders this record type for a human, read off
+// the module's one entity table rather than restated here — so a record named
+// in a prep reads exactly as it reads in a search result and on an anchor
+// profile. An entity with no branch has no title, which is a broken read the
+// arm gate (TestEverySubjectLinkArmIsRanked) refuses before it can ship.
+func (a activityLinkArm) title() string {
+	for _, branch := range searchBranches {
+		if branch.entity == a.entity {
+			return branch.title
+		}
+	}
+	return ""
+}
+
+// activityLinkArms is EVERY arm of activity_link, in no particular order —
+// subjectTier decides the dereference precedence and relatedSectionOrder
+// decides which of them the hop-2 walk reports.
+//
+// All five are here, and the completeness is load-bearing: the first draft of
+// the dereference borrowed the hop-2 walk's shorter list and so dropped the
+// lead arm (core 0038), which is exactly the discovery call a prep is most
+// often for. TestEverySubjectLinkArmIsRanked holds this against the DDL's own
+// enum rather than against a sibling list in Go.
+var activityLinkArms = []activityLinkArm{
+	{entity: string(datasource.EntityPerson), column: "person_id"},
+	{entity: string(datasource.EntityOrganization), column: "organization_id"},
+	{entity: string(datasource.EntityDeal), column: "deal_id"},
+	{entity: string(datasource.EntityProject), column: "project_id"},
+	{entity: string(datasource.EntityLead), column: "lead_id"},
+}
+
 // subjectTier orders record types by how much of the meeting they account for:
 // the work first (a deal, then a project), then the account, then a single
 // contact. A prep built around the deal answers what is at stake in the room;
 // the same prep built around one attendee answers a smaller question.
+//
+// A lead comes last, below the person it may one day become: an event naming
+// both has a promoted record to prepare against, and that is the one with a
+// neighborhood. An event naming ONLY a lead still prepares against it — an
+// honest "this is all we hold" beats naming nothing at all.
 var subjectTier = map[string]int{
 	string(datasource.EntityDeal):         0,
 	string(datasource.EntityProject):      1,
 	string(datasource.EntityOrganization): 2,
 	string(datasource.EntityPerson):       3,
+	string(datasource.EntityLead):         4,
 }
 
 // A link is something capture ASSERTED about the record; a participant is
@@ -74,6 +122,29 @@ var participantRoleRank = map[string]int{
 // constraint (0157_activity_participant.up.sql) that may gain a member without
 // this map hearing about it, and the ordering stays total when it does.
 var unrankedRole = len(participantRoleRank)
+
+// participantRoleOrder renders participantRoleRank as SQL, so the bounded
+// participant window is CUT by role rather than by id.
+//
+// This exists because the two are not interchangeable at the boundary. The
+// reads below stop at graphExpansionLimit rows like every other leg of the
+// walk, and a fifty-attendee meeting whose organizer happens to hold a high id
+// would have its organizer cut from the window before the Go-side precedence
+// ever saw them — the prep would then be built around whichever attendee
+// sorted first, which is the one outcome the organizer rule exists to prevent.
+//
+// It is rendered FROM the map rather than spelled a second time in SQL: two
+// copies of an ordering are two chances for the window and the fold to
+// disagree, and they would disagree silently.
+func participantRoleOrder(alias string) string {
+	var order strings.Builder
+	order.WriteString("CASE " + alias + ".role")
+	for _, role := range slices.Sorted(maps.Keys(participantRoleRank)) {
+		fmt.Fprintf(&order, " WHEN '%s' THEN %d", role, participantRoleRank[role])
+	}
+	fmt.Fprintf(&order, " ELSE %d END", unrankedRole)
+	return order.String()
+}
 
 // linkOnlyRole is the role slot a link carries. A link names no party, so it
 // ranks ahead of every participant role within its tier — which is the same
@@ -101,13 +172,18 @@ func (s *Store) assembleActivityWithin(ctx context.Context, tx pgx.Tx, activityI
 		sections = append(sections, graphSection{
 			name: "prepared_for", items: []graphItem{subjectItem(subjects[0])},
 		})
-	}
-	if len(subjects) > 1 {
-		also := make([]graphItem, 0, len(subjects)-1)
-		for _, subject := range subjects[1:] {
-			also = append(also, subjectItem(subject))
+		// max_items bounds this exactly as it bounds every other section, and
+		// the order makes a cut survivable: the next-best subject first. The
+		// contract states one per-section cap for the whole response, and a
+		// section that quietly ignored it would be the surprise — a caller
+		// preparing for a large meeting raises max_items rather than
+		// discovering which sections opted out.
+		if also := subjectItems(subjects[1:], maxItems); len(also) > 0 {
+			sections = append(sections, graphSection{name: "also_present", items: also})
 		}
-		sections = append(sections, graphSection{name: "also_present", items: also})
+	}
+	if len(unresolved) > maxItems {
+		unresolved = unresolved[:maxItems] // bounded like the rest; organizer first
 	}
 	if len(unresolved) > 0 {
 		sections = append(sections, graphSection{name: "unresolved_attendees", items: unresolved})
@@ -139,6 +215,12 @@ func (s *Store) assembleActivityWithin(ctx context.Context, tx pgx.Tx, activityI
 // content, so an archived event must not answer and an unbounded actor does
 // not skip the existence probe.
 func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (graphItem, error) {
+	// Object RBAC before row scope: a caller with no read grant on activity at
+	// all is denied the type (403), not handed the subset of events their row
+	// scope would have admitted.
+	if err := auth.Require(ctx, string(datasource.EntityActivity), principal.ActionRead); err != nil {
+		return graphItem{}, err
+	}
 	if err := auth.EnsureActivityVisibleLive(ctx, tx, activityID); err != nil {
 		return graphItem{}, err
 	}
@@ -181,24 +263,27 @@ func activitySubjects(ctx context.Context, tx pgx.Tx, activityID ids.UUID) ([]ac
 	return rankSubjects(ctx, tx, append(linked, attending...))
 }
 
-// linkedSubjects reads the records capture linked to the event. relatedHops is
-// the same person/organization/deal/project mapping the hop-2 walk uses, so a
-// new link target reaches both reads from one declaration.
+// linkedSubjects reads the records capture linked to the event, one bounded
+// read per arm of activity_link.
 func linkedSubjects(ctx context.Context, tx pgx.Tx, activityID ids.UUID) ([]activitySubject, error) {
 	var out []activitySubject
-	for _, hop := range relatedHops {
+	for _, arm := range activityLinkArms {
+		// The title goes in unqualified, as anchorProfile spells it: the lead
+		// arm's is an expression over several columns, and none of the title
+		// columns collides with one on activity_link, so `t` is the only table
+		// they can resolve against.
 		rows, err := tx.Query(ctx, fmt.Sprintf(`
-			SELECT DISTINCT t.id, t.%s
+			SELECT DISTINCT t.id, %s
 			  FROM activity_link l JOIN %s t ON t.id = l.%s
 			 WHERE l.activity_id = $1 AND l.%s IS NOT NULL AND t.archived_at IS NULL
 			 ORDER BY t.id LIMIT %d`,
-			hop.title, hop.entity, hop.column, hop.column, graphExpansionLimit), activityID)
+			arm.title(), arm.entity, arm.column, arm.column, graphExpansionLimit), activityID)
 		if err != nil {
 			return nil, fmt.Errorf("search: reading the records an event links to: %w", err)
 		}
 		for rows.Next() {
 			subject := activitySubject{
-				entityType: hop.entity, tier: subjectTier[hop.entity],
+				entityType: arm.entity, tier: subjectTier[arm.entity],
 				named: namedByLink, role: linkOnlyRole,
 			}
 			if err := rows.Scan(&subject.id, &subject.title); err != nil {
@@ -223,7 +308,7 @@ func participantSubjects(ctx context.Context, tx pgx.Tx, activityID ids.UUID) ([
 		SELECT p.id, p.full_name, ap.role
 		  FROM activity_participant ap JOIN person p ON p.id = ap.person_id
 		 WHERE ap.activity_id = $1 AND p.archived_at IS NULL
-		 ORDER BY p.id LIMIT $2`, activityID, graphExpansionLimit)
+		 ORDER BY `+participantRoleOrder("ap")+`, p.id LIMIT $2`, activityID, graphExpansionLimit)
 	if err != nil {
 		return nil, fmt.Errorf("search: reading the people on an event: %w", err)
 	}
@@ -255,9 +340,19 @@ func participantSubjects(ctx context.Context, tx pgx.Tx, activityID ids.UUID) ([
 // roles — is ONE subject at its best rank. Without the fold the same account
 // would appear in also_present beside itself, and a prep that lists the same
 // company twice reads as two accounts.
+// Two gates, and they answer different questions. Object RBAC asks whether the
+// caller may read that KIND of record at all, and a denied kind is absent
+// rather than a 403 — a subject is context the caller did not ask for by name.
+// The row-scope probe then asks whether they may read THAT record.
+//
+// foldSubjects returns them in precedence order and this only ever drops, so
+// the order survives and needs no second sort.
 func rankSubjects(ctx context.Context, tx pgx.Tx, candidates []activitySubject) ([]activitySubject, error) {
 	out := make([]activitySubject, 0, len(candidates))
 	for _, subject := range foldSubjects(candidates) {
+		if auth.Require(ctx, subject.entityType, principal.ActionRead) != nil {
+			continue
+		}
 		visible, err := auth.VisibleTo(ctx, tx, subject.entityType, subject.id)
 		if err != nil {
 			return nil, err
@@ -266,7 +361,6 @@ func rankSubjects(ctx context.Context, tx pgx.Tx, candidates []activitySubject) 
 			out = append(out, subject)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return subjectPrecedes(out[i], out[j]) })
 	return out, nil
 }
 
@@ -310,6 +404,21 @@ func subjectItem(subject activitySubject) graphItem {
 	return graphItem{entityType: subject.entityType, id: subject.id, summary: subject.title}
 }
 
+// subjectItems renders a run of subjects, bounded. The order is the
+// precedence's, so the bound keeps the best of them — sortAndTrim is
+// deliberately not used, because these items carry no §10.7.2 rank score and a
+// zero would reorder them by id.
+func subjectItems(subjects []activitySubject, maxItems int) []graphItem {
+	if len(subjects) > maxItems {
+		subjects = subjects[:maxItems]
+	}
+	items := make([]graphItem, 0, len(subjects))
+	for _, subject := range subjects {
+		items = append(items, subjectItem(subject))
+	}
+	return items
+}
+
 // unresolvedAttendees reads the addresses on the event that matched no record.
 //
 // This is a deliberate disclosure, not a leak. The addresses are content of an
@@ -326,12 +435,19 @@ func subjectItem(subject activitySubject) graphItem {
 // address would disclose by the back door exactly what the row scope withheld.
 // Colleagues (user_id) are likewise absent — they resolved to a member.
 func unresolvedAttendees(ctx context.Context, tx pgx.Tx, activityID ids.UUID) ([]graphItem, error) {
+	// DISTINCT ON the address, not on (address, role): one party copied as both
+	// `to` and `cc` is one person in the room, and listing them twice reads as
+	// two. The role kept is the most significant one they held, which is also
+	// the order the window is cut by.
 	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT ap.address, ap.role
-		  FROM activity_participant ap
-		 WHERE ap.activity_id = $1
-		   AND ap.person_id IS NULL AND ap.user_id IS NULL AND ap.address IS NOT NULL
-		 ORDER BY ap.address, ap.role LIMIT $2`, activityID, graphExpansionLimit)
+		SELECT address, role FROM (
+		    SELECT DISTINCT ON (ap.address) ap.address, ap.role, `+participantRoleOrder("ap")+` AS rank
+		      FROM activity_participant ap
+		     WHERE ap.activity_id = $1
+		       AND ap.person_id IS NULL AND ap.user_id IS NULL AND ap.address IS NOT NULL
+		     ORDER BY ap.address, rank
+		) parties
+		 ORDER BY rank, address LIMIT $2`, activityID, graphExpansionLimit)
 	if err != nil {
 		return nil, fmt.Errorf("search: reading the addresses on an event that matched nobody: %w", err)
 	}
