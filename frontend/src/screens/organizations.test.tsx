@@ -1860,11 +1860,15 @@ describe("CompanyScreen — Ask Margince", () => {
 });
 
 // The page must not re-column itself under the reader. RecordView picks its
-// grid template from which zones are present, so a right rail that arrives
-// with the composite read moves the whole middle column — and everything the
-// reader was looking at — sideways the moment it lands.
+// grid template from which zones are present, so a context column that arrives
+// with the composite read moves the work column — and everything the reader was
+// looking at — sideways the moment it lands.
+//
+// TWO columns, not three (plan §4): a work column and one context column. The
+// left rail is gone; its folded reference cards sit under the business context
+// on the right.
 describe("CompanyScreen — the layout does not shift as the read lands", () => {
-  it("holds the three-column template while the 360 is still in flight", async () => {
+  it("holds the two-column template while the 360 is still in flight", async () => {
     let releaseView: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
       releaseView = resolve;
@@ -1892,13 +1896,70 @@ describe("CompanyScreen — the layout does not shift as the read lands", () => 
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
     const zonesWhileLoading = container.querySelector(".record-zones");
-    expect(zonesWhileLoading?.className).toContain("record-zones-both");
+    expect(zonesWhileLoading?.className).toContain("record-zones-aside");
+    // A three-column template would put the account's story in the middle
+    // 5/11ths, which is what §4 tells the implementer not to preserve.
+    expect(zonesWhileLoading?.className).not.toContain("record-zones-both");
     releaseView?.();
     await waitFor(() =>
       expect(container.querySelector(".record-zones")?.className).toContain(
-        "record-zones-both",
+        "record-zones-aside",
       ),
     );
+  });
+
+  // §4: "Do not preserve a three-column layout if it forces the daily-action
+  // surface below the fold." The work column now takes 7/10ths instead of
+  // 5/11ths, and the reference cards a reader opens occasionally sit under the
+  // business context rather than claiming a column of their own.
+  it("gives the account's story the work column, with no second rail", async () => {
+    stubFetch(companyBackstop, { org360 });
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    await waitFor(() =>
+      expect(container.querySelector(".record-zones")?.className).toContain(
+        "record-zones-aside",
+      ),
+    );
+    expect(container.querySelector(".record-rail")).toBeNull();
+    // The reference material did not vanish with its column — it moved, and
+    // it is still folded shut rather than standing open in the reader's way.
+    expect(screen.getAllByText("Company profile").length).toBeGreaterThan(0);
+  });
+
+  // Moving those cards into the context column is a LAYOUT change and must not
+  // become an availability change. None of them comes from the 360 — each runs
+  // its own read — so they must be on the page before that read lands, and
+  // stay there if it never does.
+  it("offers the reference cards before the 360 read lands", async () => {
+    let releaseView: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseView = resolve;
+    });
+    const { fetchMock } = stubFetch(companyBackstop);
+    const held360 = vi.fn(async (request: Request) => {
+      if (new URL(request.url).pathname.endsWith("/360")) {
+        await held;
+      }
+      return fetchMock(request);
+    });
+    vi.stubGlobal("fetch", held360);
+
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+
+    // Asserted on the disclosure summaries a reader actually clicks: these
+    // words also appear in the app's navigation, so a bare text match would
+    // pass on a page that had lost every one of these cards.
+    const summaries = () =>
+      Array.from(container.querySelectorAll(".disclosure-summary")).map((el) =>
+        el.textContent?.trim(),
+      );
+    await waitFor(() => expect(summaries()).toContain("Company profile"));
+    expect(summaries()).toContain("Documents");
+    expect(summaries()).toContain("Data & tools");
+    releaseView?.();
   });
 });
 
