@@ -737,6 +737,10 @@ export const en = {
   "commercial.offer.rejected": "Rejected",
   "commercial.offer.expired": "Expired",
   "commercial.offer.superseded": "Superseded",
+  "co.coverage.contacts": "{count} contacts",
+  "co.coverage.contactsAtLeast": "{count}+ contacts",
+  "co.coverage.untried": "{count} never written to",
+  "co.coverage.gaps": "{count} role gaps",
   "co.section.restricted": "Hidden \u2014 your role cannot read this",
   "co.section.unsupported":
     "Not available in this mode \u2014 the connected system does not hold it",

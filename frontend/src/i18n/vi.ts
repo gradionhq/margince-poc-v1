@@ -738,6 +738,10 @@ export const vi = {
   "commercial.offer.rejected": "Đã từ chối",
   "commercial.offer.expired": "Hết hạn",
   "commercial.offer.superseded": "Đã thay thế",
+  "co.coverage.contacts": "{count} liên hệ",
+  "co.coverage.contactsAtLeast": "{count}+ liên hệ",
+  "co.coverage.untried": "{count} chưa từng viết cho",
+  "co.coverage.gaps": "{count} vai trò còn trống",
   "co.section.restricted": "Đã ẩn — vai trò của bạn không đọc được phần này",
   "co.section.unsupported":
     "Không có ở chế độ này — hệ thống đang kết nối không lưu dữ liệu đó",
