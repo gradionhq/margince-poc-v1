@@ -59,6 +59,90 @@
   }
 }
 
+/* "Today on this account" (mockup State D): the tiles on the left, the verbs
+   they lead to in a column on the right. The verbs keep their own column so a
+   reader looking for something to press has one place to look, rather than
+   hunting for a link inside whichever tile happens to carry one. */
+.today-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-5);
+  align-items: start;
+}
+.today-tiles {
+  display: grid;
+  /* Three across at full width and fewer as it narrows. A tile below ~200px
+     cannot hold a name and a date on one line, and the row should lose a
+     column rather than crush all of them.
+
+     `auto-fill`, not `auto-fit`: auto-fit collapses the empty tracks and
+     stretches the surviving tiles across the whole row, so an account with
+     two tiles draws two 540px-wide ones. The tiles keep the width they would
+     have in a full row and the rest of the row stays empty. */
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4) var(--space-5);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.today-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+}
+.today-tile-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--textMeta);
+  font-size: 12px;
+}
+.today-headline {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.today-headline-warn {
+  color: var(--warn);
+}
+.today-headline-danger {
+  color: var(--danger);
+}
+.today-detail {
+  color: var(--textMeta);
+  font-size: 12.5px;
+}
+.today-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 190px;
+}
+/* Why the primary verb is disabled, under the verb rather than in a tooltip
+   nobody hovers and a keyboard reader never sees. */
+.today-actions-note {
+  margin: 0;
+  color: var(--textMeta);
+  font-size: 11.5px;
+  max-width: 190px;
+}
+.today-withheld {
+  margin-top: var(--space-3);
+  color: var(--textMeta);
+  font-size: 12.5px;
+  font-style: italic;
+}
+/* On a phone the verbs go under the tiles: a 190px column beside them leaves
+   neither enough width to read. */
+@media (max-width: 720px) {
+  .today-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .today-actions {
+    min-width: 0;
+  }
+}
+
 /* The header's description line and its row of attribute chips. */
 .co-description {
   margin: 0 0 var(--space-2);

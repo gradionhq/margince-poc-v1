@@ -20,6 +20,10 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // Pure punctuation layouts: every word in them is a placeholder, so there is
   // nothing to translate and a "translation" could only reorder the slots.
   "today.meeting.headline",
+  // Two names and a separator, or a name and an amount: every word is a
+  // placeholder and the only literal is punctuation.
+  "today.route.headline",
+  "today.deal.headline",
   // An em dash standing in for a figure nobody can compute yet. A glyph, not a
   // word — the sentence explaining it is the detail line beside it.
   "co.strip.financeUnknown",
