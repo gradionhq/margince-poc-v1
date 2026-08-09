@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -96,6 +97,7 @@ type Server struct {
 	org360Handlers
 	person360Handlers
 	orgBriefHandlers
+	orgDossierHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
 	// webhook.go), injected by WithGmailPush only when a subscription token
@@ -262,6 +264,13 @@ type Server struct {
 	// the company's curated profile through it, under the caller's own gates.
 	peopleStore *people.Store
 
+	// orgDossierSvc and orgGrowthFitSvc are the company view's other two
+	// generated surfaces. They are held for WithGrowthFit's sake: rebinding one
+	// lane must not silently drop the other's handler, which is what building a
+	// fresh handler set from a half-remembered pair would do.
+	orgDossierSvc   *orgdossier.Service
+	orgGrowthFitSvc *orgdossier.GrowthFitService
+
 	// resetRuntime is the non-Postgres purge set POST /admin/reset-data runs —
 	// the job queue, the event bus, the cache-flush announcement — injected by
 	// WithResetRuntime. Zero value = a Postgres-only reset, which is the honest
@@ -388,7 +397,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// the gate and the registry take: a step-up refused against one counter and
 	// released into another would read, from the human's side, as an approval
 	// that did nothing.
-	srv.approvalsHandlers = approvalsHandlersWithEffects(pool, srv.quotaMeter)
+	srv.approvalsHandlers = approvalsHandlersWithEffects(pool, srv.quotaMeter, log)
 	srv.wireCaptureSettingsSurface(pool)
 	srv.wireExportSurface(pool, log)
 	srv.wireOnboardingSurface(pool)

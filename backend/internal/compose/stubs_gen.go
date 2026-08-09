@@ -103,6 +103,14 @@ func (stubs) GetAiUsage(w nethttp.ResponseWriter, r *nethttp.Request, params crm
 	httperr.NotImplemented(w, r, "GetAiUsage")
 }
 
+func (stubs) ApproveApprovalBundle(w nethttp.ResponseWriter, r *nethttp.Request, bundleId crmcontracts.BundleId) {
+	httperr.NotImplemented(w, r, "ApproveApprovalBundle")
+}
+
+func (stubs) RejectApprovalBundle(w nethttp.ResponseWriter, r *nethttp.Request, bundleId crmcontracts.BundleId) {
+	httperr.NotImplemented(w, r, "RejectApprovalBundle")
+}
+
 func (stubs) ListApprovals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListApprovalsParams) {
 	httperr.NotImplemented(w, r, "ListApprovals")
 }
@@ -699,8 +707,20 @@ func (stubs) ListOrganizationDocuments(w nethttp.ResponseWriter, r *nethttp.Requ
 	httperr.NotImplemented(w, r, "ListOrganizationDocuments")
 }
 
+func (stubs) GetOrganizationDossier(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationDossier")
+}
+
+func (stubs) RefreshOrganizationDossier(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RefreshOrganizationDossier")
+}
+
 func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ScrapeCompany")
+}
+
+func (stubs) GetClaimEvidence(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, entityType string, entityId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetClaimEvidence")
 }
 
 func (stubs) ListOrganizationFacts(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
@@ -717,6 +737,14 @@ func (stubs) ConfirmOrganizationFact(w nethttp.ResponseWriter, r *nethttp.Reques
 
 func (stubs) GetOrganizationGraph(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetOrganizationGraph")
+}
+
+func (stubs) GetOrganizationGrowthFit(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationGrowthFit")
+}
+
+func (stubs) RefreshOrganizationGrowthFit(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RefreshOrganizationGrowthFit")
 }
 
 func (stubs) GetOrganizationHierarchyRollup(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetOrganizationHierarchyRollupParams) {

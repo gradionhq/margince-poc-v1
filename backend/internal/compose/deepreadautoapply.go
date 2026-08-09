@@ -33,6 +33,47 @@ const (
 	autoEnrichOutcomeFailed  = "failed"
 )
 
+// fillMatchedPeople fills the site's role and details onto the people this
+// workspace ALREADY records at the company, and answers the strangers — the
+// ones the act still has to ASK about.
+//
+// The match is deliberately narrow (exact email, or exactly one confident name
+// among the org's own employees); everyone else, and every ambiguity, is a
+// stranger and stages. A fill that FAILS must not cost the lead either: the
+// person falls through to staging so they still reach a human, and the reason
+// goes to the log.
+//
+// It runs before the staging transaction rather than inside it, because these
+// writes and those proposals answer for different things — an apply that fails
+// on one person must not roll back the questions asked about the others.
+func (w *siteDeepReadWorker) fillMatchedPeople(ctx context.Context, orgID ids.OrganizationID, found []sitePerson) []sitePerson {
+	strangers := make([]sitePerson, 0, len(found))
+	for _, person := range found {
+		matched, err := w.people.ApplySitePersonFields(ctx, orgID, people.SitePersonFields{
+			Name:            person.Name,
+			Role:            person.Role,
+			PublishedEmail:  person.PublishedEmail,
+			LinkedinURL:     person.LinkedinURL,
+			EvidenceSnippet: person.EvidenceSnippet,
+			SourceURL:       person.SourceURL,
+		})
+		if err != nil {
+			// The lead survives a failed fill — the person still reaches a human.
+			// Stated here rather than borrowed: the store answers no match on
+			// error today, but that is its contract to keep, and this loop's
+			// invariant should not depend on remembering it.
+			matched = false
+			w.log.WarnContext(ctx, "auto-enrich: filling a matched site person failed",
+				"org", orgID.String(), "person", person.Name, "err", err)
+		}
+		if matched {
+			continue
+		}
+		strangers = append(strangers, person)
+	}
+	return strangers
+}
+
 // isAutoEnrichRequest reports whether a deep read was triggered by the
 // auto-enrich sweep rather than a human.
 func isAutoEnrichRequest(requestedBy string) bool { return requestedBy == systemAutoEnrichActor }
@@ -47,38 +88,12 @@ func (w *siteDeepReadWorker) autoApply(ctx context.Context, args SiteDeepReadArg
 	// them on an apply failure would break the strangers-stay-staged invariant
 	// (NEVER-8). Staged first so a later apply error cannot skip them.
 	//
-	// A published person the workspace ALREADY records at this company is not a
-	// stranger, so they are not staged: the site's role fills the empty fields on
-	// the record that exists. That match is deliberately narrow (exact email, or
-	// exactly one confident name among the org's own employees) — everyone else,
-	// and every ambiguity, stages exactly as before.
-	var proposalIDs []ids.UUID
-	for _, person := range mergedPeople {
-		matched, err := w.people.ApplySitePersonFields(ctx, orgID, people.SitePersonFields{
-			Name:            person.Name,
-			Role:            person.Role,
-			PublishedEmail:  person.PublishedEmail,
-			LinkedinURL:     person.LinkedinURL,
-			EvidenceSnippet: person.EvidenceSnippet,
-			SourceURL:       person.SourceURL,
-		})
-		if err != nil {
-			// A fill that failed must not cost the lead: fall through to staging
-			// so the person still reaches a human, and say why in the log.
-			w.log.WarnContext(ctx, "auto-enrich: filling a matched site person failed",
-				"org", orgID.String(), "person", person.Name, "err", err)
-		}
-		if matched {
-			continue
-		}
-		approvalID, staged, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person)
-		if err != nil {
-			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
-		}
-		if !staged {
-			continue
-		}
-		proposalIDs = append(proposalIDs, approvalID.UUID)
+	// One act, one bundle, staged in one transaction: the org's own fields and
+	// facts are APPLIED on this lane rather than proposed, so the leads are
+	// everything this act asked about, and they reach the inbox together.
+	proposalIDs, err := w.stageSiteLeads(ctx, args.SiteReadID, claim, w.fillMatchedPeople(ctx, orgID, mergedPeople), ids.NewV7())
+	if err != nil {
+		return nil, err
 	}
 
 	fields := deepReadFields(mergedFields)

@@ -64,7 +64,12 @@ type ModelPath struct {
 	// standing account brief and the prepared "Ask Margince" questions. Both
 	// degrade to a deterministic floor, so a role without this lane still
 	// answers — just not in written prose.
-	Summarize  completer
+	Summarize completer
+	// GrowthFit judges how well one company fits what we sell. It is the only
+	// company-view lane whose absence changes the ANSWER rather than the prose:
+	// its floor abstains, because grading is not a restatement of recorded
+	// values (DOSS-PARAM-7).
+	GrowthFit  completer
 	DraftReply completer // activity-anchored email reply drafting
 	OfferDraft completer // the offer regenerate-from-signal drafting call
 	// CaptureClassify is the §2.8 batched mail-label lane (ADR-0063) —
@@ -212,6 +217,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		RateExtract:                brain(ai.TaskRateExtract),
 		BriefRanking:               brain(ai.TaskBriefRanking),
 		Summarize:                  brain(ai.TaskSummarize),
+		GrowthFit:                  brain(ai.TaskGrowthFit),
 		DraftReply:                 brain(ai.TaskDraftReply),
 		OfferDraft:                 brain(ai.TaskOfferDraft),
 		CaptureClassify:            brain(ai.TaskCaptureClassify),

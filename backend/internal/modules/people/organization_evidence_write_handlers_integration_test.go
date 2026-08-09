@@ -94,6 +94,29 @@ func TestConfirmOrganizationProfileFieldHandler(t *testing.T) {
 	if out.VerifiedAt == nil {
 		t.Fatal("confirmed profile field has no verified_at — the confirmation left no trace")
 	}
+	// The row's own id, so the client that just confirmed this value holds the
+	// record a dossier sentence will cite. Without it they must list the whole
+	// field set again to find the id of the one they were already looking at.
+	if out.Id == nil {
+		t.Fatal("the confirmed profile field came back without its id, so nothing can cite it")
+	}
+	// And the confirmation survives the LIST read, which is what every reading
+	// surface goes through. A write that records it and a read that drops it
+	// leave the receipt reporting the confirmation as one of its gaps — the
+	// reader is told nobody has checked a value somebody just did.
+	listed, err := e.store.ListOrganizationProfileFields(ctx, orgID)
+	if err != nil {
+		t.Fatalf("list profile fields: %v", err)
+	}
+	confirmedInList := false
+	for _, field := range listed {
+		if field.Field == "icp" {
+			confirmedInList = field.VerifiedAt != nil && field.VerifiedBy != nil
+		}
+	}
+	if !confirmedInList {
+		t.Error("the listed icp field carries no verified_at, so the confirmation is invisible to every reader")
+	}
 
 	// A foreign/absent org is existence-hidden rather than refused.
 	rec = httptest.NewRecorder()
