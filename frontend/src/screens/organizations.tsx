@@ -69,6 +69,7 @@ import { CompanyApprovalsPanel } from "./companyapprovals";
 import { CompanyDocumentsCard } from "./companydocuments";
 import { DossierPanel } from "./companydossier";
 import { type CitedRecord, EvidenceModal } from "./companyevidence";
+import { CompanyFinanceCard } from "./companyfinance";
 import { GrowthFitPanel } from "./companygrowthfit";
 import {
   CompanyActionBadges,
@@ -2255,6 +2256,10 @@ function CompanyBusinessGrid({
         }
       />
       <HealthCard health={view?.health} />
+      {/* The money, next to the pipeline it belongs beside. Absent entirely on
+          an account we have never billed — an empty finance card on a target
+          is a question nobody asked. */}
+      <CompanyFinanceCard orgId={org.id} lifecycle={org.lifecycle} />
       <SignalsCard orgId={org.id} />
       {/* Who carries the account, and the paperwork behind it. */}
       <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
