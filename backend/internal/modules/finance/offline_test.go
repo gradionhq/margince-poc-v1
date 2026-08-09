@@ -10,6 +10,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func ledgerFor(t *testing.T, customer string) SourceLedger {
@@ -150,5 +152,75 @@ func TestTheGeneratorDoesNotMoveWithTheClock(t *testing.T) {
 			t.Fatalf("invoice %s is issued after the fixed epoch, so the ledger tracks the clock",
 				inv.ExternalID)
 		}
+	}
+}
+
+// FIN-FORM-1 reads `credited_minor` off the invoice being REDUCED — its term
+// is `net - credited`. A credit note that carried its own amount there would
+// subtract nothing from anything, and the credit would never reach the figure.
+func TestACreditLandsOnTheInvoiceItReducesRatherThanOnTheNote(t *testing.T) {
+	ledger := ledgerFor(t, "ACME-01")
+	credited, orphans := applyCredits(ledger)
+	if len(orphans) != 0 {
+		t.Fatalf("generated ledger has %d orphan credit notes", len(orphans))
+	}
+	if len(credited) == 0 {
+		t.Fatal("no credit landed on any invoice")
+	}
+	for _, inv := range ledger.Invoices {
+		if inv.CreditsExternalID == "" {
+			continue
+		}
+		if credited[inv.ExternalID] != 0 {
+			t.Fatalf("the credit landed on the note %s rather than on its target",
+				inv.ExternalID)
+		}
+		if credited[inv.CreditsExternalID] != inv.GrossMinor {
+			t.Fatalf("target %s carries %d credited, want the note's %d",
+				inv.CreditsExternalID, credited[inv.CreditsExternalID], inv.GrossMinor)
+		}
+	}
+}
+
+// The source may list a note before the invoice it reduces. Resolving credits
+// over the whole ledger is what makes the outcome independent of that order —
+// a per-row pass would leave the note pointing at nothing, and the
+// unchanged-hash short circuit would stop a later pass repairing it.
+func TestCreditsResolveWhateverOrderTheSourceListsThemIn(t *testing.T) {
+	target := SourceInvoice{ExternalID: "INV-1", GrossMinor: 100000}
+	note := SourceInvoice{ExternalID: "CN-1", GrossMinor: 25000, CreditsExternalID: "INV-1"}
+
+	noteFirst, _ := applyCredits(SourceLedger{Invoices: []SourceInvoice{note, target}})
+	targetFirst, _ := applyCredits(SourceLedger{Invoices: []SourceInvoice{target, note}})
+	if noteFirst["INV-1"] != 25000 || targetFirst["INV-1"] != 25000 {
+		t.Fatalf("order changed the result: %d vs %d", noteFirst["INV-1"], targetFirst["INV-1"])
+	}
+}
+
+// A note whose target the source did not send is reported rather than dropped:
+// a credit that vanishes overstates what the customer owes.
+func TestAnOrphanCreditIsReportedRatherThanDropped(t *testing.T) {
+	note := SourceInvoice{ExternalID: "CN-9", GrossMinor: 5000, CreditsExternalID: "INV-GONE"}
+	credited, orphans := applyCredits(SourceLedger{Invoices: []SourceInvoice{note}})
+	if len(orphans) != 1 || orphans[0] != "CN-9" {
+		t.Fatalf("orphans = %v, want [CN-9]", orphans)
+	}
+	if len(credited) != 0 {
+		t.Fatalf("credited = %v, want nothing applied", credited)
+	}
+}
+
+// A credit note is money going the other way. Left with its gross as an open
+// balance it would inflate receivables by the amount it was meant to reduce.
+func TestACreditNoteOwesNothing(t *testing.T) {
+	note := SourceInvoice{
+		ExternalID: "CN-1", GrossMinor: 25000, CreditsExternalID: "INV-1",
+	}
+	values := deriveValues(note, offlineEpoch, map[string]ids.UUID{}, 0)
+	if values.openMinor != 0 {
+		t.Fatalf("the credit note owes %d, want 0", values.openMinor)
+	}
+	if values.status != statusCredited {
+		t.Fatalf("status = %q, want %q", values.status, statusCredited)
 	}
 }

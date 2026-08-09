@@ -44,6 +44,10 @@ type SyncResult struct {
 	// Unchanged is the number the whole hash discipline exists to keep high: a
 	// second pass over an unchanged source must write nothing.
 	Unchanged int
+	// OrphanCredits counts credit notes whose target invoice the source did
+	// not send. Reported rather than dropped in silence: a credit that
+	// vanishes overstates what the customer owes.
+	OrphanCredits int
 }
 
 // SyncConnection runs one pass of one connection.
@@ -199,7 +203,7 @@ func hashOf(parts ...string) string {
 func invoiceHash(inv SourceInvoice) string {
 	return hashOf(
 		inv.ExternalID, inv.Number,
-		inv.IssuedOn.UTC().Format(time.RFC3339),
+		inv.IssuedOn.UTC().Format(time.RFC3339Nano),
 		stampOf(inv.DueOn), inv.Currency,
 		strconv.FormatInt(inv.NetMinor, 10),
 		strconv.FormatInt(inv.TaxMinor, 10),
@@ -213,13 +217,16 @@ func invoiceHash(inv SourceInvoice) string {
 
 func paymentHash(pay SourcePayment) string {
 	return hashOf(pay.ExternalID, pay.InvoiceExternalID,
-		pay.PaidAt.UTC().Format(time.RFC3339), pay.Currency,
+		pay.PaidAt.UTC().Format(time.RFC3339Nano), pay.Currency,
 		strconv.FormatInt(pay.AmountMinor, 10))
 }
 
+// RFC3339Nano, not RFC3339: a source that restates a settlement time within
+// the same second would otherwise hash identically and the change would be
+// missed. The extra precision costs nothing and closes the window.
 func stampOf(at *time.Time) string {
 	if at == nil {
 		return ""
 	}
-	return at.UTC().Format(time.RFC3339)
+	return at.UTC().Format(time.RFC3339Nano)
 }
