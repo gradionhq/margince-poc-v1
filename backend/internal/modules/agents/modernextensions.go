@@ -36,13 +36,21 @@ const extensionTasks = "io.modelcontextprotocol/tasks"
 // string, a capabilities object with no `extensions` member at all — is read as
 // "not declared".
 func declaresTasks(capabilities json.RawMessage) bool {
-	var declared struct {
-		Extensions map[string]json.RawMessage `json:"extensions"`
-	}
+	// Decoded through a MAP, and matched exactly, for the reason metaOf gives
+	// about the reserved `_meta` keys: encoding/json matches struct members
+	// case-insensitively, so a struct field would read `"Extensions"` — or
+	// `"EXTENSIONS"` — as this declaration. A client that mis-cased it would be
+	// handed a handle it never claimed to understand, and the approved effect
+	// behind it would strand.
+	var declared map[string]json.RawMessage
 	if err := json.Unmarshal(capabilities, &declared); err != nil {
 		return false
 	}
-	return isJSONObject(declared.Extensions[extensionTasks])
+	var extensions map[string]json.RawMessage
+	if err := json.Unmarshal(declared["extensions"], &extensions); err != nil {
+		return false
+	}
+	return isJSONObject(extensions[extensionTasks])
 }
 
 // missingClientCapability refuses a method whose whole contract depends on a

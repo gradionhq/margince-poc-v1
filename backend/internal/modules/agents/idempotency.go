@@ -129,12 +129,12 @@ func WithReplayReader(reader ReplayReader) RegistryOption {
 // `send_email` — the exact call whose response was lost, and the most
 // irreversible act on this surface — dies on the consumed approval and never
 // reaches the result the first attempt recorded.
-func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved) (fresh bool, out json.RawMessage, err error) {
+func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved) (fresh bool, out json.RawMessage, records int, err error) {
 	if res.RetryKey == "" {
-		return true, nil, nil
+		return true, nil, 0, nil
 	}
 	if err := r.refuseUnkeyableCall(spec); err != nil {
-		return false, nil, err
+		return false, nil, 0, err
 	}
 	claim, err := r.claims.Claim(ctx, spec.Name, res.RetryKey, res.DiffHash)
 	if err != nil {
@@ -143,22 +143,22 @@ func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved
 		// promise the retry then discovers was never kept.
 		slog.ErrorContext(ctx, "the idempotency claim failed; refusing the call rather than running it unprotected",
 			"tool", spec.Name, "err", err)
-		return false, nil, fmt.Errorf(
+		return false, nil, 0, fmt.Errorf(
 			"%s could not be made safe to retry just now, so it was not run; retry the identical call: %w",
 			spec.Name, apperrors.ErrConflict)
 	}
 	switch claim.State {
 	case ClaimFresh:
-		return true, nil, nil
+		return true, nil, 0, nil
 	case ClaimReplay:
 		out, err := r.replay(ctx, spec, claim)
-		return false, out, err
+		return false, out, claim.Records, err
 	case ClaimInFlight:
-		return false, nil, fmt.Errorf(
+		return false, nil, 0, fmt.Errorf(
 			"an earlier %s call with this idempotency_key has not finished yet; wait for it rather than "+
 				"repeating it: %w", spec.Name, apperrors.ErrConflict)
 	case ClaimMismatch:
-		return false, nil, fmt.Errorf(
+		return false, nil, 0, fmt.Errorf(
 			"this idempotency_key was already used for a DIFFERENT %s call; send a new key to make this "+
 				"call, or repeat the original arguments to read its result: %w", spec.Name, apperrors.ErrConflict)
 	case ClaimFailed:
@@ -166,14 +166,14 @@ func (r *Registry) claimFor(ctx context.Context, spec mcp.ToolSpec, res reserved
 		// attempt reached the tool, so whether it took effect is exactly what
 		// this surface does not know — and a fresh key here would be a second
 		// attempt at something that may already have happened.
-		return false, nil, fmt.Errorf(
+		return false, nil, 0, fmt.Errorf(
 			"an earlier %s call with this idempotency_key failed after it had already started, so it may or "+
 				"may not have taken effect (%s); check the record before retrying under a NEW key: %w",
 			spec.Name, claim.Reason, apperrors.ErrConflict)
 	default:
 		// A state this switch does not know cannot be resolved into "safe to
 		// run", so it is refused rather than guessed at.
-		return false, nil, fmt.Errorf("crmagents: unknown idempotency claim state %d: %w", claim.State, apperrors.ErrConflict)
+		return false, nil, 0, fmt.Errorf("crmagents: unknown idempotency claim state %d: %w", claim.State, apperrors.ErrConflict)
 	}
 }
 

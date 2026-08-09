@@ -266,17 +266,27 @@ func TestTwoSimultaneousPollsRunTheReleasedCallOnce(t *testing.T) {
 	taskID, _ := created["taskId"].(string)
 	approveStagedCall(t, e.AppEnv)
 
+	// The goroutines COLLECT and the test goroutine asserts. t.Fatalf is
+	// documented as callable only from the test's own goroutine — from a worker
+	// it ends that goroutine alone, so the run continues past the condition
+	// meant to stop it and fails later on something unrelated.
 	var wg sync.WaitGroup
-	statuses := make([]string, 2)
-	for i := range statuses {
+	bodies := make([]string, 2)
+	for i := range bodies {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			answered := pollTask(t, e, bearer, taskID)
-			statuses[i], _ = answered["status"].(string)
+			bodies[i] = mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp",
+				fmt.Sprintf(`{"jsonrpc":"2.0","id":9,"method":"tasks/get","params":{%s,"taskId":%q}}`,
+					tasksMeta, taskID),
+				modernHeaders(bearer, "tasks/get", taskID)).Body
 		}()
 	}
 	wg.Wait()
+	statuses := make([]string, len(bodies))
+	for i, body := range bodies {
+		statuses[i], _ = rpcResult(t, body)["status"].(string)
+	}
 
 	// Exactly one redemption, which is what "one human yes, one act" means in
 	// the table rather than in the dispatcher.

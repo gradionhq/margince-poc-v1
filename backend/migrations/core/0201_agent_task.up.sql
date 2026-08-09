@@ -100,6 +100,13 @@ CREATE UNIQUE INDEX idx_agent_task_approval ON agent_task (workspace_id, approva
 -- The retention sweep's access path: expired rows, oldest first.
 CREATE INDEX idx_agent_task_expiry ON agent_task (workspace_id, expires_at);
 
+-- The passport FK's own access path. Postgres indexes the REFERENCED side for
+-- free and the referencing side never, so without this a passport delete scans
+-- every task ever created in the workspace to prove none points at it — a cost
+-- that grows with history and lands on exactly the operation an operator
+-- reaches for in a hurry.
+CREATE INDEX idx_agent_task_passport ON agent_task (workspace_id, passport_id);
+
 ALTER TABLE agent_task ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_task FORCE ROW LEVEL SECURITY;
 

@@ -93,9 +93,14 @@ func scopedAgentCtx(scopes ...principal.Scope) context.Context {
 // assuming it.
 func callMap(ctx context.Context, t *testing.T, s *Dispatcher, params string) map[string]any {
 	t.Helper()
-	out, ok := s.call(ctx, json.RawMessage(params), legacyFraming).(map[string]any)
+	// The raw answer is kept BEFORE the assertion: a two-value type assertion
+	// leaves the zero value of the asserted type when it fails, so %T on it
+	// would report map[string]interface{} for every failure and lose the one
+	// fact the message exists to carry.
+	answer := s.call(ctx, json.RawMessage(params), legacyFraming)
+	out, ok := answer.(map[string]any)
 	if !ok {
-		t.Fatalf("tools/call answered %T, not a tool result", out)
+		t.Fatalf("tools/call answered %T, not a tool result", answer)
 	}
 	return out
 }

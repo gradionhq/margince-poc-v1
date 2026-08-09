@@ -240,7 +240,17 @@ func (s *Dispatcher) cancelTask(ctx context.Context, task Task) (map[string]any,
 		message = taskCancelledLateMessage
 	}
 	if _, err := s.tasks.Cancel(ctx, task.ID, message); err != nil {
-		s.log.Error("mcp: settling a cancelled task failed", "task", task.ID, "err", err)
+		// Answered as an error for the same reason the withdrawal above is: an
+		// empty ack tells the client its cancellation succeeded, and a client
+		// that believes that stops polling — leaving a task nothing will ever
+		// settle. Losing the RACE to an executor is different and returns nil:
+		// there the task does reach a terminal state, just not this one.
+		s.log.Error("mcp: recording a cancelled task failed", "task", task.ID, "err", err)
+		return nil, &rpcError{
+			Code: codeInternalError,
+			Message: "the cancellation could not be recorded, so this task was not cancelled: " +
+				"poll it again, or try cancelling once more",
+		}
 	}
 	return map[string]any{}, nil
 }

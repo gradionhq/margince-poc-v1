@@ -32,6 +32,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -72,7 +73,18 @@ func (s *AgentTaskRetentionSweeper) purgeExpired(ctx context.Context) (int64, er
 	var purged int64
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// idx_agent_task_expiry (migration 0201) is what keeps this cheap.
-		tag, err := tx.Exec(ctx, `DELETE FROM agent_task WHERE expires_at < now()`)
+		//
+		// A row an executor may still be INSIDE is spared, however expired it
+		// looks. A poll that won its claim just before the window closed is in
+		// its released call now, and deleting the row underneath it would leave
+		// the effect committed with nowhere to record the outcome — the one
+		// state a later poll could never report honestly, because there would be
+		// no later poll. The lease is the same bound the executor itself uses,
+		// so a claim older than it belongs to a process that is not coming back.
+		tag, err := tx.Exec(ctx, `
+			DELETE FROM agent_task
+			WHERE expires_at < now()
+			  AND (claimed_at IS NULL OR claimed_at < now() - $1::interval)`, agents.ClaimLease())
 		if err != nil {
 			return fmt.Errorf("compose: purging expired MCP tasks: %w", err)
 		}

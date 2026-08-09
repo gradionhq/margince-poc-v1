@@ -27,9 +27,11 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -52,19 +54,6 @@ func (s *Dispatcher) advance(ctx context.Context, task Task) map[string]any {
 	case ApprovalPending:
 		return taskWire(task, s.now())
 	case ApprovalApproved:
-		if state.Consumed {
-			// Spent by something other than this task — an ordinary retry
-			// carrying the same approval_id, or a poll that died after redeeming.
-			// Either way the effect may already have landed, and one human yes
-			// must not become two acts.
-			s.log.Warn("mcp: a task's approval was consumed outside it",
-				"task", task.ID, "approval", task.ApprovalID)
-			return s.settle(ctx, task, Settlement{
-				Status:        TaskFailed,
-				StatusMessage: taskInterruptedMessage,
-				Error:         mustMarshalRPCError(codeInternalError, taskInterruptedMessage),
-			})
-		}
 		return s.runReleased(ctx, task)
 	case ApprovalRejected:
 		// A person said no. That is a RESULT — the surface answered the call —
@@ -103,13 +92,31 @@ func (s *Dispatcher) runReleased(ctx context.Context, task Task) map[string]any 
 	if claim.Reclaimed {
 		s.log.Error("mcp: a task was re-claimed after an execution that recorded no outcome",
 			"task", task.ID, "approval", task.ApprovalID)
-		return s.settle(ctx, task, Settlement{
-			Status:        TaskFailed,
-			StatusMessage: taskInterruptedMessage,
-			Error:         mustMarshalRPCError(codeInternalError, taskInterruptedMessage),
-		})
+		return s.settle(ctx, task, s.interrupted())
+	}
+	// Only now is "already consumed" meaningful. Asked BEFORE the claim it
+	// cannot tell an approval spent elsewhere from one being spent by the poll
+	// executing this very task — and a losing poll would then declare the task
+	// interrupted while the winner was still committing it.
+	if s.spentElsewhere(ctx, task, apperrors.ErrApprovalTokenInvalid) {
+		s.log.Warn("mcp: a task's approval was consumed outside it",
+			"task", task.ID, "approval", task.ApprovalID)
+		return s.settle(ctx, task, s.interrupted())
 	}
 	return s.settle(ctx, task, s.invokeReleased(ctx, task))
+}
+
+// interrupted is the settlement for a task whose approval was spent by
+// something this poll cannot see the outcome of. It says so rather than
+// guessing, because the two guesses are "nothing happened" (which would invite
+// a repeat of an irreversible act) and "it worked" (which would report a result
+// nobody has).
+func (s *Dispatcher) interrupted() Settlement {
+	return Settlement{
+		Status:        TaskFailed,
+		StatusMessage: taskInterruptedMessage,
+		Error:         mustMarshalRPCError(taskInterruptedMessage),
+	}
 }
 
 // invokeReleased runs the released call and turns its outcome into a
@@ -136,11 +143,22 @@ func (s *Dispatcher) invokeReleased(ctx context.Context, task Task) Settlement {
 		return Settlement{
 			Status:        TaskFailed,
 			StatusMessage: message,
-			Error:         mustMarshalRPCError(codeInternalError, message),
+			Error:         mustMarshalRPCError(message),
 		}
 	}
 	out, records, err := s.registry.InvokeServing(ctx, task.Tool, args)
 	if err != nil {
+		if s.spentElsewhere(ctx, task, err) {
+			// The approval was consumed between this poll's state read and its
+			// redemption — a direct retry carrying the same approval_id got
+			// there first. Reporting the redemption refusal would tell the agent
+			// its call was rejected when the effect may well have landed.
+			return Settlement{
+				Status:        TaskFailed,
+				StatusMessage: taskInterruptedMessage,
+				Error:         mustMarshalRPCError(taskInterruptedMessage),
+			}
+		}
 		// A refusal hands over no records, so it carries no ServedRecords and
 		// every later poll may serve it as it stands.
 		explained := s.explain(task.Tool, err)
@@ -189,6 +207,28 @@ func (s *Dispatcher) serveRecorded(ctx context.Context, task Task) map[string]an
 	}
 	task.Result = proven
 	return taskWire(s.rendered(task), s.now())
+}
+
+// spentElsewhere reports whether a refused call was refused because somebody
+// else had already spent the approval.
+//
+// The check is made AFTER the refusal rather than only before the attempt,
+// because the window between reading a decision and redeeming it is real: a
+// direct retry can consume the approval inside it. Only a token refusal is
+// worth re-asking about — every other refusal (row scope, version skew, the
+// fifteen-minute window closing) is the honest answer to a call that genuinely
+// did not happen.
+func (s *Dispatcher) spentElsewhere(ctx context.Context, task Task, refusal error) bool {
+	if !errors.Is(refusal, apperrors.ErrApprovalTokenInvalid) {
+		return false
+	}
+	state, err := s.taskApprovals.State(ctx, task.ApprovalID)
+	if err != nil {
+		s.log.Error("mcp: re-reading an approval after a redemption refusal failed",
+			"task", task.ID, "approval", task.ApprovalID, "err", err)
+		return false
+	}
+	return state.Consumed
 }
 
 // settle records a terminal state and answers the task as settled.
@@ -284,8 +324,13 @@ func mustMarshalToolError(message string) json.RawMessage {
 
 // mustMarshalRPCError renders the JSON-RPC error a failed task carries, in the
 // wire shape a client already parses errors in.
-func mustMarshalRPCError(code int, message string) json.RawMessage {
-	raw, err := json.Marshal(rpcError{Code: code, Message: message})
+//
+// The code is always the internal one, and takes no parameter for that reason:
+// every way a task can FAIL is this server being unable to carry out something
+// it accepted. A refusal the caller could act on is not a failed task at all —
+// the specification puts it in a completed one, as an isError result.
+func mustMarshalRPCError(message string) json.RawMessage {
+	raw, err := json.Marshal(rpcError{Code: codeInternalError, Message: message})
 	if err != nil {
 		return json.RawMessage(`{"code":-32603,"message":"internal error"}`)
 	}

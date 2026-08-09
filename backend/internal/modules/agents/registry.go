@@ -203,11 +203,14 @@ func (r *Registry) InvokeServing(ctx context.Context, name string, in json.RawMe
 // approval it already spent. Redemption comes second, so a refused redemption
 // gives the key straight back — nothing ran.
 func (r *Registry) runClaimed(ctx context.Context, t mcp.Tool, spec mcp.ToolSpec, res reserved) (json.RawMessage, int, error) {
-	fresh, answered, err := r.claimFor(ctx, spec, res)
+	fresh, answered, records, err := r.claimFor(ctx, spec, res)
 	if !fresh {
 		// A replay hands over the records the ORIGINAL call was charged for, and
-		// claimFor has already re-proven and re-charged them.
-		return answered, 0, err
+		// claimFor has already re-proven and re-charged them. The COUNT still
+		// travels: a task settled from a replayed answer must record what that
+		// answer costs, or its own later polls would re-prove the evidence and
+		// charge nothing for it.
+		return answered, records, err
 	}
 	redeemed, err := r.redeemPresented(ctx, spec, res)
 	if err != nil {

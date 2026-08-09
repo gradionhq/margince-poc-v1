@@ -267,7 +267,7 @@ const (
 	// retraction that did not happen — the decision stands, and only the
 	// agent's handle to it is gone.
 	taskCancelledLateMessage = "This task was cancelled. A person had already decided the approval behind it, " +
-		"so that decision stands and was not withdrawn — nothing was carried out through this task."
+		"so that decision stands and was not withdrawn. Nothing was carried out through this task."
 	taskCompletedMessage = "A person approved this and it has now been carried out."
 	// taskInterruptedMessage is the one answer this surface cannot make
 	// definite, so it says exactly that. It is reached when the approval was
@@ -281,8 +281,8 @@ const (
 	// EFFECT still happened; only the document is withheld, and saying both is
 	// what stops an agent redoing work that already landed.
 	taskWithheldMessage = "This was approved and carried out, but its result can no longer be shown to " +
-		"this agent — the records it named are no longer readable under the current access. Do not repeat " +
-		"the call; ask the user to check the record."
+		"this agent, because the records it named are no longer readable under the current access. " +
+		"Do not repeat the call; ask the user to check the record."
 	taskInterruptedMessage = "The approval for this call was consumed by an attempt that recorded no result, " +
 		"so whether the effect was carried out is not known here. Do not repeat the call — read the record, " +
 		"or the workspace audit log, to see what committed."
@@ -305,3 +305,9 @@ const taskPollIntervalMs = 5000
 // gone, so reaching this can only mean the process holding it is not coming
 // back.
 const taskClaimLease = 4 * mcpCallDeadline
+
+// ClaimLease is taskClaimLease for the composition layer, whose retention sweep
+// must spare a task an executor may still be inside. One number, read in both
+// places: a sweep working to its own guess would delete a row out from under a
+// live execution the moment the two drifted.
+func ClaimLease() time.Duration { return taskClaimLease }
