@@ -53,7 +53,12 @@
     return row;
   }
 
-  function render(data) {
+  // The envelope's code for "this read stopped at its bound". A bounded ranking
+  // is not the whole network, and the tool's contract is explicit that a model —
+  // or a view — told nothing will report it as one.
+  var SWEEP_TRUNCATED = 'sweep_truncated';
+
+  function render(data, warnings) {
     var root = document.getElementById('root');
     root.replaceChildren();
     if (!data) {
@@ -62,7 +67,13 @@
     }
     var colleagues = window.mcpApp.list(data.colleagues);
     root.appendChild(el('h1', null, 'Who knows this contact'));
-    root.appendChild(el('p', 'meta', colleagues.length + ' colleague(s), warmest first · ' + (data.person_id || '')));
+    // "warmest first" is only true of a COMPLETE ranking. When the read stopped
+    // at its bound, these are the warmest found, and saying otherwise is the
+    // claim the tool refuses to make.
+    var bounded = window.mcpApp.warned(warnings, SWEEP_TRUNCATED);
+    root.appendChild(el('p', 'meta', bounded
+      ? colleagues.length + ' colleague(s) found — more know this contact than are listed, so this is not the whole network'
+      : colleagues.length + ' colleague(s), warmest first · ' + (data.person_id || '')));
     if (colleagues.length === 0) {
       root.appendChild(el('div', 'empty', 'Nobody here has spoken to this contact. That is the answer, not a gap.'));
       return;

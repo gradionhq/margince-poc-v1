@@ -57,6 +57,28 @@ func assembled(t *testing.T) map[string]string {
 	return documents
 }
 
+// assembledRaw is every served document with its commentary intact. See
+// TestNoViewReachesOffItsOwnOrigin for why one sweep needs the raw bytes.
+func assembledRaw(t *testing.T) map[string]string {
+	t.Helper()
+	p, err := NewProvider()
+	if err != nil {
+		t.Fatalf("assembling the views: %v", err)
+	}
+	documents := map[string]string{}
+	for _, r := range p.Resources(context.Background()) {
+		contents, err := p.ReadResource(context.Background(), r.URI)
+		if err != nil {
+			t.Fatalf("reading the view %s: %v", r.URI, err)
+		}
+		documents[r.URI] = contents.Text
+	}
+	if len(documents) == 0 {
+		t.Fatal("no view was assembled, so this sweep would pass vacuously")
+	}
+	return documents
+}
+
 // offOrigin are the ways a document reaches a network. Every view declares an
 // EMPTY origin allowlist, so any of these is a request the host's sandbox will
 // refuse — which means the feature silently does not work rather than failing
@@ -71,8 +93,17 @@ var offOrigin = []string{
 	"navigator.sendBeacon", "RTCPeerConnection", "location.replace", "navigator.geolocation",
 }
 
+// This sweep reads the RAW document, not the stripped one — the only sweep here
+// that does, and deliberately.
+//
+// A scheme separator IS a comment opener to the stripper: an unquoted
+// `https://host/x` leaves `https:` behind and takes `//host/x` — and the rest of
+// that line — with it, so the very token being searched for is what the strip
+// destroys. Reading raw cannot miss that. The cost is that prose naming a URL
+// would fail this sweep, which is a false positive a reviewer fixes by rewording,
+// and is the direction to be wrong in.
 func TestNoViewReachesOffItsOwnOrigin(t *testing.T) {
-	for uri, document := range assembled(t) {
+	for uri, document := range assembledRaw(t) {
 		for _, reach := range offOrigin {
 			if strings.Contains(document, reach) {
 				t.Errorf("the view %s contains %q. Every view declares an empty origin allowlist, so the host's "+

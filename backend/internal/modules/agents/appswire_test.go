@@ -192,8 +192,12 @@ func TestTheListingCarriesEveryViewsSandboxPolicy(t *testing.T) {
 			t.Errorf("resources/list is missing %s:\n%s", want, body)
 		}
 	}
-	if strings.Contains(string(body), "null") {
-		t.Errorf("a policy list reached the host as null, which is a rule it was never given:\n%s", body)
+	// Narrowed to the four lists this is about. A blanket null check would fail
+	// on any legitimate null elsewhere in the response and read as this defect.
+	for _, list := range []string{"connectDomains", "resourceDomains", "frameDomains", "baseUriDomains"} {
+		if strings.Contains(string(body), `"`+list+`":null`) {
+			t.Errorf("%s reached the host as null, which is a rule it was never given rather than a denial:\n%s", list, body)
+		}
 	}
 }
 

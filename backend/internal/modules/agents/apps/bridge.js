@@ -133,12 +133,18 @@
     // accepting data outside the sequence is how a view ends up rendering
     // whatever arrives whenever it arrives.
     if (message.method === 'ui/notifications/tool-result' && initialized && resultHandler) {
-      // structuredContent is the envelope every tool on this surface seals its
-      // answer into; `data` is the tool's own result inside it. A host that sent
-      // no structured content leaves the view with nothing to render, which is
-      // reported rather than guessed at.
-      var structured = message.params?.structuredContent;
-      resultHandler(structured?.data ?? null);
+      // `params` IS the CallToolResult — `structuredContent` sits directly on it,
+      // not under a nested member — and that structuredContent is the envelope
+      // every tool on this surface seals its answer into: `data` is the tool's
+      // own result, `warnings` are the conditions the answer came with.
+      //
+      // THE WARNINGS ARE PASSED ON, not dropped. A bounded read reports its bound
+      // as a warning rather than in its data — `who_knows` stops at a cap and
+      // says so — so a renderer given only `data` would present a truncated list
+      // as the whole network. That is the one thing the tool's own contract
+      // forbids in those words.
+      var envelope = message.params?.structuredContent;
+      resultHandler(envelope?.data ?? null, envelope?.warnings ?? []);
     }
   }
 
@@ -154,8 +160,19 @@
   // than markup. The three helpers beside it exist so a view never has to reach
   // past it to format a number or iterate a list that the host did not send.
   window.mcpApp = {
+    // onResult(fn) — fn(data, warnings). warnings is always an array, so a
+    // renderer never has to decide whether an absent one means "none" or "not
+    // computed".
     onResult: function (fn) {
       resultHandler = fn;
+    },
+    // warned(warnings, code) reports whether one condition was raised. The codes
+    // belong to the envelope, so a view asks by code rather than reading prose
+    // it would then have to keep in step with the server's wording.
+    warned: function (warnings, code) {
+      return (Array.isArray(warnings) ? warnings : []).some(function (w) {
+        return w && w.code === code;
+      });
     },
     el: function (tag, className, text) {
       var node = document.createElement(tag);

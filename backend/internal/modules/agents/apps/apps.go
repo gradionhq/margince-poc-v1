@@ -209,7 +209,16 @@ func document(title, style, bridge, script string) string {
 // per-caller filter the resource surface applies on top still runs, which is
 // what keeps a passport without a read grant from being shown them.
 func (p *Provider) Resources(context.Context) []mcp.Resource {
-	return p.published
+	// A COPY, and the policy copied with it. The provider is a process-lifetime
+	// value shared by every caller, so handing out its own slice would let one
+	// caller's mutation change what every later host is told — including the
+	// sandbox policy, which is the one thing here that is a security decision.
+	out := make([]mcp.Resource, 0, len(p.published))
+	for _, r := range p.published {
+		r.UI = sandbox()
+		out = append(out, r)
+	}
+	return out
 }
 
 // ReadResource answers one assembled document, or the declared not-found for a

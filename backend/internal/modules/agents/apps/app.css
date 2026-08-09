@@ -18,7 +18,10 @@
   --accent: #1d4ed8;
   --warm: #047857;
   --cool: #b45309;
-  --cold: #9ca3af;
+  /* Dark enough to read: the band names are TEXT, and a "none" band is exactly
+     the case a rep has to be able to see. #9ca3af on this ground is ~2.5:1,
+     under the 4.5:1 normal text needs. */
+  --cold: #5b6472;
 }
 
 /* The host may state a theme, and may equally state nothing and leave the
@@ -34,7 +37,9 @@
     --accent: #93b4fd;
     --warm: #34d399;
     --cool: #fbbf24;
-    --cold: #6b7280;
+    /* 5.5:1 on this ground. #6b7280 was 3.9:1 — under AA for text, and the
+       "none" band is text a rep specifically needs to read. */
+    --cold: #818b9c;
   }
 }
 
@@ -46,7 +51,8 @@
   --accent: #93b4fd;
   --warm: #34d399;
   --cool: #fbbf24;
-  --cold: #6b7280;
+  /* Matches the media-query block above; see the note there. */
+  --cold: #818b9c;
 }
 
 * {
