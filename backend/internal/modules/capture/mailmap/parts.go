@@ -159,8 +159,8 @@ func (c *collector) takeInline(header *mail.InlineHeader, name string, body io.R
 // or not it survives — see Part.Ordinal for why that matters more than it
 // looks.
 func (c *collector) take(header *mail.AttachmentHeader, body io.Reader) {
-	declared, err := "", error(nil)
-	if declared, _, err = header.ContentType(); err != nil {
+	declared, _, err := header.ContentType()
+	if err != nil {
 		// A malformed Content-Type is no claim at all, which the sniff answers
 		// on its own.
 		declared = ""
