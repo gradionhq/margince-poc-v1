@@ -689,3 +689,14 @@
   gap: var(--space-2);
   margin-top: var(--space-4);
 }
+
+/* The commercial card's two blocks, stacked with a labelled heading each so a
+   reader can tell the open opportunities from the last offer at a glance. */
+.com-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.com-block + .com-block {
+  margin-top: var(--space-3);
+}

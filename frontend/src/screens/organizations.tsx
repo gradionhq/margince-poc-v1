@@ -66,6 +66,7 @@ import {
 } from "./company360";
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
+import { CompanyCommercialCard } from "./companycommercial";
 import { CompanyDocumentsCard } from "./companydocuments";
 import { DossierPanel } from "./companydossier";
 import { type CitedRecord, EvidenceModal } from "./companyevidence";
@@ -2294,6 +2295,10 @@ function CompanyBusinessGrid({
           )
         }
       />
+      {/* What is running with them, and what we last put in front of them.
+          Beside the deals card because the two answer the same question at
+          different depths. */}
+      <CompanyCommercialCard view={view} />
       <HealthCard health={view?.health} />
       {/* The money, next to the pipeline it belongs beside. Absent entirely on
           an account we have never billed — an empty finance card on a target
