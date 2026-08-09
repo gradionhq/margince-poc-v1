@@ -358,6 +358,16 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// addresses the ghost row rather than naming a person.
 	"linkedin_connection.matched_person_id": "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
 	"linkedin_connection.matched_org_id":    "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
+	// The finance mirror (FIN-DDL-2..4). Exactly ONE of these three is
+	// client-supplied: the customer LINK is a human's mapping decision, so the
+	// company it names is gated by auth.EnsureLinkTarget at the write, exactly
+	// like an activity link. The invoice and payment rows never carry a
+	// client-named company — the connector writes them, and it resolves the
+	// organization by reading the link that human already made, so a mirrored
+	// row can only land on a company somebody deliberately mapped.
+	"finance_customer_link.organization_id": "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
+	"finance_invoice.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
+	"finance_payment.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
 })
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
