@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -48,11 +49,19 @@ type linkedInRematchWorker struct {
 	pool      *pgxpool.Pool
 	store     *people.Store
 	authority authz.Resolver
+	// approvals is built ONCE, with the worker, rather than inside the
+	// per-owner loop: it registers a dozen effects over a dozen stores and
+	// answers the same service every time, so rebuilding it per member per
+	// sweep pass was work with no result.
+	approvals *approvals.Service
 	log       *slog.Logger
 }
 
 func newLinkedInRematchWorker(pool *pgxpool.Pool, store *people.Store, authority authz.Resolver, log *slog.Logger) *linkedInRematchWorker {
-	return &linkedInRematchWorker{pool: pool, store: store, authority: authority, log: log}
+	return &linkedInRematchWorker{
+		pool: pool, store: store, authority: authority,
+		approvals: approvalsServiceWithEffects(pool), log: log,
+	}
 }
 
 // Work re-matches each workspace's unmatched ghosts, one workspace at a time so
@@ -117,10 +126,19 @@ func (w *linkedInRematchWorker) renormalizeWorkspace(ctx context.Context, ws ids
 	return nil
 }
 
-// systemContext binds the workspace and the maintenance principal both passes
-// run under, spelled once so they cannot diverge.
+// systemContext binds the workspace, the trace and the maintenance principal
+// both passes run under, spelled once so they cannot diverge.
+//
+// The correlation id is bound HERE rather than at the job entry point because
+// this is the only context either pass runs under, and the write shape refuses
+// an unbound trace: the staging the sweep performs commits an audit row and an
+// outbox event, so a pass built without one fails on its first proposal and
+// takes the whole workspace's re-match down with it — permanently, since the
+// retry rebuilds the same context. A pass and a re-key are two operations and
+// carry a trace each.
 func (w *linkedInRematchWorker) systemContext(ctx context.Context, ws ids.UUID) context.Context {
 	ctx = principal.WithWorkspaceID(ctx, ws)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "system:linkedin_rematch",
 		Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
@@ -145,7 +163,12 @@ func (w *linkedInRematchWorker) sweepWorkspace(ctx context.Context, ws ids.UUID)
 			// A suggestion is only useful once somebody can see it, and the
 			// member who owns it is not necessarily importing today: the sweep
 			// stages under the same authority it matched under.
-			_, err = StageLinkedInMatches(ownerCtx, w.pool, approvalsServiceWithEffects(w.pool), w.store)
+			//
+			// Over the WHOLE outstanding set, which is also this pass's
+			// rescue duty: an owner reached here because ghostOwners now
+			// enumerates `suggested` too may have suggestions that never
+			// became proposals, and this is the pass that repairs them.
+			_, err = StageLinkedInMatches(ownerCtx, w.approvals, w.store)
 			return err
 		})
 	return total, err

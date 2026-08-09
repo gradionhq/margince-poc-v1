@@ -46,12 +46,21 @@ import (
 // records, and the roster is readable by any authenticated member. Only
 // undecided ghosts count, because a workspace whose queue is clear should cost
 // one query rather than one query per member.
+//
+// UNDECIDED is both statuses a pass can leave behind, not just `unmatched`. A
+// `suggested` ghost is a question the matcher has answered and no human has:
+// until somebody approves or rejects it, the pass that turns it into an inbox
+// proposal still owes it one. Enumerating only `unmatched` meant an owner whose
+// ghosts were ALL already suggested was never reached at all, so a suggestion
+// that missed its proposal had no later pass that could rescue it and stayed
+// invisible for the row's lifetime. `confirmed` and `rejected` are decided, and
+// are correctly absent.
 func ghostOwners(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, error) {
 	var out []ids.UUID
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT DISTINCT owner_user_id FROM linkedin_connection
-			 WHERE match_status = 'unmatched' AND tombstoned_at IS NULL`)
+			 WHERE match_status IN ('unmatched', 'suggested') AND tombstoned_at IS NULL`)
 		if err != nil {
 			return fmt.Errorf("compose: listing the members with ghosts to match: %w", err)
 		}

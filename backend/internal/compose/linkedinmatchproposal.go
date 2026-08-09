@@ -72,10 +72,13 @@ func withGhostOwnerAsSubject(ctx context.Context) (context.Context, error) {
 }
 
 // linkedInMatchStager is the seam people.Handlers calls after an import. It
-// builds its own approvals service so the transport does not have to hold one.
+// holds the approvals service so the transport does not have to, and builds it
+// ONCE: the registration list is a dozen effects over a dozen stores, and
+// rebuilding it per upload produces the same service every time.
 func linkedInMatchStager(pool *pgxpool.Pool) func(context.Context) error {
+	svc, store := approvalsServiceWithEffects(pool), people.NewStore(pool)
 	return func(ctx context.Context) error {
-		_, err := StageLinkedInMatches(ctx, pool, approvalsServiceWithEffects(pool), people.NewStore(pool))
+		_, err := StageLinkedInMatches(ctx, svc, store)
 		return err
 	}
 }
@@ -86,11 +89,33 @@ func linkedInMatchStager(pool *pgxpool.Pool) func(context.Context) error {
 // It runs under the ghost owner's own authority — the caller establishes that,
 // as every other pass over these rows does — so a contact outside their row
 // scope never becomes a proposal they can see.
-func StageLinkedInMatches(ctx context.Context, pool *pgxpool.Pool, svc *approvals.Service, store *people.Store) (int, error) {
+func StageLinkedInMatches(ctx context.Context, svc *approvals.Service, store *people.Store) (int, error) {
 	pending, err := store.PendingLinkedInMatches(ctx)
 	if err != nil {
 		return 0, err
 	}
+	return stagePendingLinkedInMatches(ctx, svc, pending)
+}
+
+// StageLinkedInMatchesForPerson is the same pass narrowed to the matches about
+// ONE contact.
+//
+// The rule both entry points keep is that a pass proposes over the SAME scope it
+// matched. Matching against a single arrival can only have raised questions
+// about that arrival, so this is the complete answer for that caller as well as
+// the bounded one: proposing the member's entire outstanding set instead would
+// run once per person event and only ever rejoin rows that already exist.
+func StageLinkedInMatchesForPerson(ctx context.Context, svc *approvals.Service, store *people.Store, person ids.UUID) (int, error) {
+	pending, err := store.PendingLinkedInMatchesForPerson(ctx, person)
+	if err != nil {
+		return 0, err
+	}
+	return stagePendingLinkedInMatches(ctx, svc, pending)
+}
+
+// stagePendingLinkedInMatches turns the candidates a match produced into
+// proposals — the one place both scopes pass through.
+func stagePendingLinkedInMatches(ctx context.Context, svc *approvals.Service, pending []people.PendingLinkedInMatch) (int, error) {
 	// Staged ON BEHALF OF the member whose network produced it, so the audit
 	// trail records whose export raised the question. It grants nothing and
 	// withholds nothing: who may decide is the inbox's ordinary rule — the
@@ -98,7 +123,7 @@ func StageLinkedInMatches(ctx context.Context, pool *pgxpool.Pool, svc *approval
 	// about. ADR-0078/A123 settles that deliberately: who-knows-whom is
 	// workspace-shared metadata, guarded by "you only see edges for a person
 	// you can see at all", which is exactly what that rule already applies.
-	ctx, err = withGhostOwnerAsSubject(ctx)
+	ctx, err := withGhostOwnerAsSubject(ctx)
 	if err != nil {
 		return 0, err
 	}

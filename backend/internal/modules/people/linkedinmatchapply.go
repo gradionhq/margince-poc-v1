@@ -14,6 +14,7 @@ package people
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -54,6 +55,30 @@ type PendingLinkedInMatch struct {
 // proposal is the caller's job, and skipping the ones already decided is too —
 // the approval row is the record of that, and this module does not read it.
 func (s *Store) PendingLinkedInMatches(ctx context.Context) ([]PendingLinkedInMatch, error) {
+	return s.suggestedMatches(ctx, ids.Nil)
+}
+
+// PendingLinkedInMatchesForPerson is the same list narrowed to ONE contact —
+// what a caller that matched a single arrival owes a proposal pass over.
+//
+// The narrow read exists because the whole-network one is O(the member's open
+// questions) and the caller runs once per person event: proposing every
+// outstanding match again on each capture write only ever joins rows that
+// already exist. Matching against one contact can raise questions about that
+// contact and no other, so this is the complete answer for that caller as well
+// as the cheap one.
+func (s *Store) PendingLinkedInMatchesForPerson(ctx context.Context, personID ids.UUID) ([]PendingLinkedInMatch, error) {
+	if personID == ids.Nil {
+		// The zero id is exactly what the unfiltered read passes, so accepting
+		// it here would silently widen a caller that meant to name one contact.
+		return nil, errors.New("people: a person-scoped pending-match read was given no contact")
+	}
+	return s.suggestedMatches(ctx, personID)
+}
+
+// suggestedMatches is the one gated read both entry points land on. forPerson
+// is ids.Nil for every contact.
+func (s *Store) suggestedMatches(ctx context.Context, forPerson ids.UUID) ([]PendingLinkedInMatch, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.UserID == ids.Nil {
 		return nil, apperrors.ErrPermissionDenied
@@ -76,6 +101,13 @@ func (s *Store) PendingLinkedInMatches(ctx context.Context) ([]PendingLinkedInMa
 		if scope != "" {
 			visible = scope
 		}
+		// NULL is every contact, so one query serves both entry points without a
+		// second copy of the row-scope join to keep in step with this one.
+		var person *ids.UUID
+		if forPerson != ids.Nil {
+			person = &forPerson
+		}
+		personPos := arg(person)
 		rows, err := tx.Query(ctx, storekit.SQLf(`
 			SELECT c.id, c.full_name, coalesce(c.company_name, ''), p.id, p.full_name
 			  FROM linkedin_connection c
@@ -83,7 +115,8 @@ func (s *Store) PendingLinkedInMatches(ctx context.Context) ([]PendingLinkedInMa
 			 WHERE c.owner_user_id = $%d
 			   AND c.match_status = 'suggested'
 			   AND c.tombstoned_at IS NULL
-			 ORDER BY c.full_name, c.id`, visible, ownerPos), args...)
+			   AND ($%d::uuid IS NULL OR c.matched_person_id = $%d::uuid)
+			 ORDER BY c.full_name, c.id`, visible, ownerPos, personPos, personPos), args...)
 		if err != nil {
 			return fmt.Errorf("people: reading the LinkedIn matches awaiting a decision: %w", err)
 		}

@@ -35,6 +35,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -51,7 +52,8 @@ const (
 	matchEntityOrganization = "organization"
 )
 
-// LinkedInMatchGen attaches LinkedIn ghosts as the CRM learns who exists.
+// LinkedInMatchGen attaches LinkedIn ghosts as the CRM learns who exists, and
+// asks a human about the ones a string comparison cannot settle.
 type LinkedInMatchGen struct {
 	store *people.Store
 	// pool and authority are what lets each pass run under the GHOST OWNER's
@@ -61,12 +63,20 @@ type LinkedInMatchGen struct {
 	// which already runs under its caller.
 	pool      *pgxpool.Pool
 	authority authz.Resolver
+	// approvals is built ONCE, here, rather than per event or per owner: the
+	// registration list is a dozen effects over a dozen stores and produces the
+	// same service every time, while this consumer runs on every contact write
+	// in the workspace.
+	approvals *approvals.Service
 	log       *slog.Logger
 }
 
 // NewLinkedInMatchGen builds the matcher consumer over the people store.
 func NewLinkedInMatchGen(pool *pgxpool.Pool, store *people.Store, authority authz.Resolver, log *slog.Logger) *LinkedInMatchGen {
-	return &LinkedInMatchGen{store: store, pool: pool, authority: authority, log: log}
+	return &LinkedInMatchGen{
+		store: store, pool: pool, authority: authority,
+		approvals: approvalsServiceWithEffects(pool), log: log,
+	}
 }
 
 // HandleEvent routes one envelope to a match. An event this consumer does not
@@ -117,10 +127,18 @@ func (g *LinkedInMatchGen) matchPerson(ctx context.Context, workspace, person id
 			if err != nil {
 				return err
 			}
-			if matched.Confirmed+matched.Suggested > 0 {
+			// Proposed in the SAME pass, over the same contact that was
+			// matched. A suggestion the matcher writes and nobody is asked
+			// about is a suggestion that does not exist: the ghost row carries
+			// only the outcome, and the pending question lives in the approval.
+			staged, err := StageLinkedInMatchesForPerson(ownerCtx, g.approvals, g.store, person)
+			if err != nil {
+				return err
+			}
+			if matched.Confirmed+matched.Suggested+staged > 0 {
 				g.log.InfoContext(ownerCtx, "linkedin match: a contact met their ghost",
 					"person", person.String(), "owner", owner.String(),
-					"confirmed", matched.Confirmed, "suggested", matched.Suggested)
+					"confirmed", matched.Confirmed, "suggested", matched.Suggested, "staged", staged)
 			}
 			return nil
 		})
@@ -137,10 +155,17 @@ func (g *LinkedInMatchGen) matchWorkspace(ctx context.Context, workspace ids.UUI
 			if err != nil {
 				return err
 			}
-			if matched.Confirmed+matched.Suggested > 0 {
+			// The whole network was matched here, so the whole outstanding set
+			// is what this pass owes a proposal over — the same scope rule the
+			// per-person arm above follows in the narrow direction.
+			staged, err := StageLinkedInMatches(ownerCtx, g.approvals, g.store)
+			if err != nil {
+				return err
+			}
+			if matched.Confirmed+matched.Suggested+staged > 0 {
 				g.log.InfoContext(ownerCtx, "linkedin match: an account unblocked ghosts",
 					"owner", owner.String(),
-					"confirmed", matched.Confirmed, "suggested", matched.Suggested)
+					"confirmed", matched.Confirmed, "suggested", matched.Suggested, "staged", staged)
 			}
 			return nil
 		})

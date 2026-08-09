@@ -182,6 +182,28 @@ var contextTargetKinds = map[string]string{
 		"the lead and every accept failed for the row's lifetime.",
 }
 
+// unpinnedKinds are the staging kinds whose target IS the row their effect
+// writes — so contextTargetKinds does not describe them — but for which the pin
+// protects nothing, and therefore only ever cancels the approval when the row
+// moves for an unrelated reason. The value is the reason why.
+//
+// Two waivers rather than one because they make different claims, and a reader
+// has to be able to tell which is being made. contextTargetKinds says the target
+// is context the proposal is merely ABOUT; this one says the target is the
+// operand and the pin still binds nothing. Filing a kind under the wrong one
+// leaves a label that reads true and is not, which is worse than the pin it
+// removes. TestEveryUnpinnedKindIsExplained holds each entry to its rationale,
+// and TestNoKindIsBothContextOnlyAndUnpinned holds the two maps apart.
+var unpinnedKinds = map[string]string{
+	kindLinkedInMatch: "The proposal's claim is \"this imported connection is this contact\", and no " +
+		"field edit on the contact can make that claim false — the founder decision is " +
+		"explicitly that editing a contact must not cancel a LinkedIn match waiting to be " +
+		"decided. The write it authorizes is an additive, idempotent person_social insert " +
+		"rather than a patch of any field a human could have seen, so there is no content " +
+		"state for a pin to protect. Pinning also broke the second of two matches onto one " +
+		"contact, because applying the first bumps that person's version.",
+}
+
 // TargetIsContextOnly reports whether this kind's target names context rather
 // than the row the effect operates on.
 func TargetIsContextOnly(kind string) bool {
@@ -189,11 +211,28 @@ func TargetIsContextOnly(kind string) bool {
 	return ok
 }
 
+// TargetVersionUnpinned reports whether this kind operates on its target but
+// declines the version pin, per unpinnedKinds.
+func TargetVersionUnpinned(kind string) bool {
+	_, ok := unpinnedKinds[kind]
+	return ok
+}
+
 // ContextTargetKinds reports the declared kinds and their rationales, so a
 // fitness test can hold each one to an explanation.
 func ContextTargetKinds() map[string]string {
-	out := make(map[string]string, len(contextTargetKinds))
-	for kind, why := range contextTargetKinds {
+	return copyRationales(contextTargetKinds)
+}
+
+// UnpinnedKinds reports the declared kinds and their rationales, for the same
+// reason ContextTargetKinds does.
+func UnpinnedKinds() map[string]string {
+	return copyRationales(unpinnedKinds)
+}
+
+func copyRationales(declared map[string]string) map[string]string {
+	out := make(map[string]string, len(declared))
+	for kind, why := range declared {
 		out[kind] = why
 	}
 	return out
