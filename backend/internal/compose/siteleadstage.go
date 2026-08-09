@@ -3,9 +3,10 @@
 
 package compose
 
-// Staging ONE published person as a decision. The gate upstream decided
+// Staging the people ONE act published as decisions. The gate upstream decided
 // whether the site published someone contactable; this decides whether the
-// workspace needs to ASK about them, and what question it asks.
+// workspace needs to ASK about them, what question it asks, and — because they
+// were asked by one act — that they arrive in the inbox together.
 
 import (
 	"context"
@@ -15,23 +16,61 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// stageSiteLead records ONE published person as a thin "site_lead"
-// proposal: exactly what the site printed, nothing enriched. Each
-// person is decided on their own — accepting the CTO does not accept the
-// whole roster.
+// stageSiteLeads records the published people of ONE act as thin "site_lead"
+// proposals: exactly what the site printed, nothing enriched. Each person is
+// decided on their own — accepting the CTO does not accept the whole roster —
+// but they are ASKED together, under one bundle.
+//
+// One transaction for the whole set, and that is what makes the bundle mean
+// what it says. Staged one commit at a time, a human refreshing their inbox
+// mid-act can see the bundle, decide it, and be told the act's question is
+// answered while the rest of it is still being written — and a worker that dies
+// halfway leaves a permanently partial set. Neither is reachable when the
+// members become visible at once.
+func (w *siteDeepReadWorker) stageSiteLeads(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, found []sitePerson, bundleID ids.UUID) ([]ids.UUID, error) {
+	var proposalIDs []ids.UUID
+	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
+		var err error
+		proposalIDs, err = w.stageSiteLeadsInTx(ctx, tx, readID, claim, found, bundleID)
+		return err
+	})
+	return proposalIDs, err
+}
+
+// stageSiteLeadsInTx is stageSiteLeads on the caller's transaction, for an act
+// that stages more than leads and must commit all of it at once.
+func (w *siteDeepReadWorker) stageSiteLeadsInTx(ctx context.Context, tx pgx.Tx, readID ids.UUID, claim people.SiteReadClaim, found []sitePerson, bundleID ids.UUID) ([]ids.UUID, error) {
+	var proposalIDs []ids.UUID
+	for _, person := range found {
+		approvalID, staged, err := w.stageSiteLead(ctx, tx, readID, claim, person, bundleID)
+		if err != nil {
+			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
+		}
+		if !staged {
+			continue
+		}
+		proposalIDs = append(proposalIDs, approvalID.UUID)
+	}
+	return proposalIDs, nil
+}
+
+// stageSiteLead records ONE published person as a thin "site_lead" proposal.
 //
 // It reports whether anything was staged. A person the workspace already
 // knows is not a decision: they reached us by email long before a crawler
 // read their name off the about page, and re-proposing them spends the
 // queue on a confirmation that would land on the row that is already there.
-func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, person sitePerson, bundleID ids.UUID) (ids.ApprovalID, bool, error) {
+func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, tx pgx.Tx, readID ids.UUID, claim people.SiteReadClaim, person sitePerson, bundleID ids.UUID) (ids.ApprovalID, bool, error) {
 	if claim.OrganizationID == nil {
 		return ids.ApprovalID{}, false, errors.New("site deep read: an unbound onboarding draft cannot stage a lead proposal")
 	}
@@ -39,7 +78,7 @@ func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID,
 	if err != nil {
 		return ids.ApprovalID{}, false, err
 	}
-	known, err := w.people.EmailAlreadyOnFile(probeCtx, person.PublishedEmail)
+	known, err := w.people.EmailAlreadyOnFileTx(probeCtx, tx, person.PublishedEmail)
 	// A requester who may not read people cannot be told, on their own
 	// authority, that this one is already known — so they are told nothing and
 	// simply get the proposal. Suppressing it on the WORKER's authority is the
@@ -64,7 +103,7 @@ func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID,
 	if err != nil {
 		return ids.ApprovalID{}, false, err
 	}
-	approvalID, err := w.approvals.Stage(ctx, in)
+	approvalID, err := w.approvals.StageOrJoinPendingInTx(ctx, tx, in)
 	if err != nil {
 		return ids.ApprovalID{}, false, err
 	}

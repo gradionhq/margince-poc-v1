@@ -222,14 +222,11 @@ func (w *siteDeepReadWorker) settleTriage(ctx context.Context, args SiteDeepRead
 	// name_source='domain' and no finished read, and a triage company has
 	// neither — so skipping it here means faceless forever.
 	w.resolveLogo(ctx, args, claim, payload.Crawl)
-	// One verdict, one bundle: the people this triage published were all asked
-	// about by the same act, and reach the inbox as one question.
-	bundleID := ids.NewV7()
-	for _, person := range payload.People {
-		if _, _, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person, bundleID); err != nil {
-			w.log.WarnContext(ctx, "domain triage: staging a site person failed",
-				"read", args.SiteReadID.String(), "err", err)
-		}
+	// One verdict, one bundle, one transaction: the people this triage published
+	// were all asked about by the same act, and reach the inbox as one question.
+	if _, err := w.stageSiteLeads(ctx, args.SiteReadID, claim, payload.People, ids.NewV7()); err != nil {
+		w.log.WarnContext(ctx, "domain triage: staging the site's people failed",
+			"read", args.SiteReadID.String(), "err", err)
 	}
 	return w.finishTriageRead(ctx, args, readStatus, warning, payload)
 }

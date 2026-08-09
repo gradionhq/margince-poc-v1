@@ -49,7 +49,7 @@ const touchIconURL = seedURL + "/touch.png"
 // object store — the worker as the onboarding read runs it, minus the crawl.
 func onboardingLogoWorker(e *integration.Env, site *assetSite, blob blobstore.Store) *siteDeepReadWorker {
 	return &siteDeepReadWorker{
-		people: e.People, fetch: site, blob: blob,
+		pool: e.Pool, people: e.People, fetch: site, blob: blob,
 		log: slog.New(slog.DiscardHandler),
 	}
 }

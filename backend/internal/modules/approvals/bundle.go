@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -132,7 +131,7 @@ func (s *Service) decideBundleInTx(ctx context.Context, tx pgx.Tx, p principal.P
 			out = append(out, BundleMember{Approval: a, Outcome: outcomeOf(status)})
 			continue
 		}
-		member, decided, err := s.decideMemberInTx(ctx, tx, p, a, approve, reason, now)
+		member, decided, err := s.decideMemberInTx(ctx, tx, p, a, approve, reason)
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +183,7 @@ func decidableMembers(ctx context.Context, tx pgx.Tx, p principal.Principal, row
 //
 // Both are raised before any statement has failed, so the transaction is intact
 // and can still be read from.
-func (s *Service) decideMemberInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, a row, approve bool, reason *string, now time.Time) (member BundleMember, reported bool, err error) {
+func (s *Service) decideMemberInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, a row, approve bool, reason *string) (member BundleMember, reported bool, err error) {
 	decided, err := s.decideInTx(ctx, tx, p, a.ID, approve, reason, nil)
 	if err == nil {
 		return BundleMember{Approval: decided, Outcome: BundleDecided}, true, nil
@@ -200,7 +199,13 @@ func (s *Service) decideMemberInTx(ctx context.Context, tx pgx.Tx, p principal.P
 	if getErr != nil {
 		return BundleMember{}, false, getErr
 	}
-	return BundleMember{Approval: fresh, Outcome: outcomeOf(fresh.effectiveStatus(now))}, true, nil
+	// The outcome comes from the status the REFUSAL named, not from re-judging
+	// the row against this call's clock. A member that lapses between the two
+	// reads is refused as expired by the service clock decideInTx read, and
+	// re-judging it against the older one this decision opened with would see it
+	// as still pending and report "already_decided" — telling a human somebody
+	// answered a question nobody ever did.
+	return BundleMember{Approval: fresh, Outcome: outcomeOf(already.Status)}, true, nil
 }
 
 // outcomeOf maps a member's non-pending status onto what this call did to it —
@@ -242,6 +247,15 @@ func (s *Service) releaseDecidedMembers(ctx context.Context, members []BundleMem
 // them, and a deterministic order, so two callers deciding the same bundle at
 // once queue behind each other instead of deadlocking.
 //
+// The rows are LOCKED as they are read, which is what makes membership hold
+// still for the rest of the decision. Without it, a re-proposal joining a member
+// (rebundleJoinedInTx) can move that row onto a fresher act's bundle in the gap
+// between this read and the write — and the decision would then answer the OLD
+// bundle's question by deciding a row that had already become part of the new
+// one, leaving the fresh act's bundle carrying a member nobody decided there.
+// One statement, in one order, so the locks are also taken more safely than the
+// per-member walk would take them.
+//
 // It reads one row past the cap and reports oversized rather than refusing here,
 // so the caller can put the authority question first: a bundle whose existence
 // this human may not learn of must read as absent whatever its size. The extra
@@ -249,7 +263,8 @@ func (s *Service) releaseDecidedMembers(ctx context.Context, members []BundleMem
 // about.
 func bundleMembers(ctx context.Context, tx pgx.Tx, bundleID ids.UUID) (rows []row, oversized bool, err error) {
 	rows, err = collect(ctx, tx, `SELECT `+columns+` FROM approval
-		WHERE bundle_id = $1 ORDER BY created_at, id LIMIT $2`, []any{bundleID, bundleDecisionCap + 1})
+		WHERE bundle_id = $1 ORDER BY created_at, id LIMIT $2 FOR UPDATE`,
+		[]any{bundleID, bundleDecisionCap + 1})
 	if err != nil {
 		return nil, false, err
 	}
