@@ -3,14 +3,19 @@
 This file provides guidance to Claude Code (claude.ai/code) when working in this
 repository. It is the long form: the full operating detail lives here.
 [AGENTS.md](AGENTS.md) is a deliberately shorter digest for other agent
-harnesses that links back here — the two are **not** copies, so do not sync
-them line by line. AGENTS.md is machine-read, though, so keep it accurate:
-`cli/craft` feeds the **whole** nearest AGENTS.md into the gate prompt
-(`gate.Assembler.nearestAgents` walks up from the touched directories; this root
-file is the only one in the tree today), and `make check-craft-doc` separately
-asserts that **AGENTS.md** still carries a `## Craftsmanship` heading. Nothing
-gates this file's own copy — keep the two in agreement by hand. When a rule
-below changes, decide whether the digest needs it too.
+harnesses that links back here. Most sections differ on purpose, so do not sync
+them line by line. **Three sections are the exception** — *The write shape*,
+*License headers*, and *Rules learned from the review loop* — which both files
+carry in full because both are read in isolation. They must stay byte-identical,
+and `TestSharedRulebookSectionsAreIdenticalInBothDocs` in
+`backend/agentsdocparity_test.go` fails when they drift: edit one, edit both.
+
+AGENTS.md is machine-read, so keep it accurate: `cli/craft` feeds the **whole**
+nearest AGENTS.md into the gate prompt (`gate.Assembler.nearestAgents` walks up
+from the touched directories; this root file is the only one in the tree today),
+and `make check-craft-doc` separately asserts that **AGENTS.md** still carries a
+`## Craftsmanship` heading. When a rule below changes, decide whether the digest
+needs it too.
 
 Margince CRM implementation PoC (WP0 foundation + WP1 core spine). This is the
 **build repo** — the running Go software. The *specification* lives in a separate
@@ -60,8 +65,12 @@ The spec is under active cleanup by another session: some docs still show the ol
 `crm-*` layout. Don't edit the spec from here — raise discrepancies for
 upstream reconciliation.
 
-**Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the session-pickup
-point; update it at the end of every working session. Route findings as you work:
+**Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
+Read its *Open work, in one screen* index first and open only the sections that
+bear on your change; the file is not meant to be read end to end. Update it at
+the end of every working session, and put the session narrative straight into
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md) rather than letting it pile up in
+STATUS.md. Route findings as you work:
 implementation decisions are recorded in the commit and PR that makes the change
 (git history is the record); spec/ticket defects are reconciled upstream against
 the spec (contract-first, P3), never worked around in this source; anything found
@@ -232,56 +241,16 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
 - `internal/modules/` — twenty bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
-  growing subpackages only when a named trigger fires (split for a reason, never symmetry); a module NEVER
-  imports a sibling: `identity` (workspaces, users, sessions, passports;
-  RBAC policy docs ONLY in `identity/internal/policy`),
-  `people` (person, organization, lead + merge + promote —
-  cross-aggregate single-tx SQL ownership per the §9 single-tx exception), `deals`
-  (deal, pipeline/stage config, workspace seed, won/lost + FX freeze),
-  `activities` (the timeline: idempotent logging + polymorphic links),
-  `approvals` (the 🟡 confirm-first engine, ADR-0036: staged rows ARE
-  the authority object), `agents` (the governed tool
-  surface: registry, admission gate, the hosted HTTP transport and its
-  JSON-RPC dispatcher, the
-  Surface-B loop — reaches records only through the datasource seam),
-  `automation` (the closed 7×7 trigger/action catalog, ADR-0035: the
-  registry, the per-workspace standing automation store, and the
-  deterministic trigger runtime — event matcher and clock time-scan
-  converging on one path, gated at both author-time and match-time),
-  `ai` (the model runtime behind ports/model: BYOK cloud — native
-  anthropic/openai/gemini plus the generic openai_compatible wire —
-  local ollama/vllm, the offline fake; routing + budget +
-  secret-stripping, and the effective-dated `ai_model_rate` sheet the
-  read-side pricer prices calls against — `ai_call` stores tokens, never
-  a price), `search`
-  (row-scoped retrieval: FTS + pgvector/RRF hybrid + context graph),
-  `capture` (the ONE `connector.Sink`: normalized inbound capture,
-  idempotent on the source natural key), `consent` (per-purpose consent
-  + the default-deny outbound suppression gate + the DSR case queue),
-  `privacy` (the GDPR engines: Art. 17 erasure, Art. 15 SAR assembly,
-  the nightly retention evaluator — the ratified cross-store writer,
-  gated by `backend/tableownership_test.go`), `collections`
-  (lists — static and dynamic segments — and tags, visibility-probed),
-  `signals` (the consent-gated warm-room substrate: company-level
-  signals, the inspectable resolver, warm/cold join), `customfields`
-  (the governed add-field engine: the sole runtime `ALTER TABLE`
-  chokepoint; record stores read the `cf_*` columns via the
-  `fieldcatalog` seam), `quotas` (RD-T06 owner-XOR-team revenue
-  targets, human-set, workspace-shared config posture), `webhooks`
-  (outbound webhook subscriptions + owner-scoped delivery, E10), and `overlay` (the incumbent-CRM mirror: a second
-  `datasource.SystemOfRecordProvider` selected per-workspace by
-  `workspace.x_sor_mode`, serving mirror-backed reads behind the inner
-  `incumbent.Incumbent` seam — fail-closed visibility deny-join,
-  budget-metered force-fresh read-through, continuous sync (backfill +
-  reconcile poller), disconnect teardown, and the ADR-0071
-  overlay→native cutover; `Update`/`Archive` write back incumbent-first
-  and re-mirror the returned state, while `Create`/`Merge`/`PromoteLead`/
-  `AdvanceDeal` + RunReport are declared `unsupported_by_sor`),
-  `comms` (outbound delivery machinery — the durable staging row, the
-  transmit-time gates, the provider dispatcher; the message itself is an
-  activity), `migration` (the shared importer engine: one classification
-  step, one zero-write dry run, one checkpointed resumable run loop,
-  with sources and native writers injected as seams).
+  growing subpackages only when a named trigger fires (split for a reason,
+  never symmetry). **A module NEVER imports a sibling** — if capability A
+  needs B, compose injects the edge. A module writes only the tables it
+  owns, declared in its `doc.go` and gated by
+  `backend/tableownership_test.go`.
+  Which module owns what — purpose, spine shape, owned tables, and HTTP
+  surface for all twenty, plus the compose-owned tables and the notable
+  subpackages — is the table in
+  [docs/reference/modules.md](docs/reference/modules.md). Read it to place a
+  change; don't guess from the package name.
 
   Two sanctioned spine shapes, and ONLY two — don't invent a third:
   **Handlers→Store** for CRUD modules (people, deals, activities, …:

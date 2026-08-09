@@ -8,9 +8,12 @@ decisions; delivery tracking lives at that repo's root in `tooling/`. See
 [CLAUDE.md](CLAUDE.md#where-the-spec-is-read-before-building) for the full map.
 Don't edit the spec from here — raise discrepancies for upstream reconciliation.
 
-**Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the
-session-pickup point; update it at the end of every working session.
-Route findings as you work: implementation decisions are recorded in the
+**Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
+Read its *Open work, in one screen* index first and open only the sections that
+bear on your change; the file is not meant to be read end to end. Update it at
+the end of every working session, and put the session narrative straight into
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md) rather than letting it pile up in
+STATUS.md. Route findings as you work: implementation decisions are recorded in the
 commit and PR that makes the change (git history is the record); spec/ticket
 defects are reconciled upstream against the spec (contract-first, P3), never
 worked around in this source; a finding you are NOT fixing now (bug, gap,
