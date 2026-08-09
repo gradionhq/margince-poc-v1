@@ -66,6 +66,76 @@ func TestCounterpartyAcceptCreatesTheRecordsAndClosesTheDisposition(t *testing.T
 	}
 }
 
+// The proposal is FILED under the message that carried the unrecognized sender,
+// because that message is the evidence a human judges it on — but the effect
+// creates a person and an organization and closes the disposition, and never
+// writes the activity. So the ordinary inbox work done to the message while the
+// question waits (a relink, a participant correction, a subject fix) must not be
+// able to cancel the answer.
+//
+// It could, and silently: the decision commits before the effect runs, so the
+// human saw an approved proposal whose records were never created.
+func TestEditingTheCapturedMessageDoesNotCancelItsWaitingReview(t *testing.T) {
+	e := integration.Setup(t)
+	activityID := seedCapturedMail(t, e, "dana@editco.example", "about your services")
+	dispositionID := seedPendingDisposition(t, e, "dana@editco.example", "editco.example", activityID)
+	retireToUnsure(t, e, dispositionID)
+
+	svc := approvalsServiceWithEffects(e.Pool)
+	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
+		t.Fatalf("staging reviews: %v", err)
+	}
+	approvalID := stagedProposalID(t, e, dispositionID)
+
+	before := activityVersion(t, e, activityID)
+	editCapturedSubject(t, e, activityID, "about your services (corrected)")
+	if after := activityVersion(t, e, activityID); after == before {
+		t.Fatalf("the message's version did not move (still %d), so this test would pass whether "+
+			"or not the pin is declined", after)
+	}
+
+	decider := e.As(e.Rep1, nil, integration.AdminPerms)
+	if _, err := svc.Decide(decider, ids.From[ids.ApprovalKind](approvalID), true, nil); err != nil {
+		t.Fatalf("approving after the message was edited: %v — editing the evidence must not "+
+			"cancel the question it raised", err)
+	}
+	if n := countIn(t, e, `
+		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+		 WHERE pe.email = 'dana@editco.example'`); n != 1 {
+		t.Errorf("%d persons after accept, want 1 — the approval was released but its effect did "+
+			"not run", n)
+	}
+}
+
+// editCapturedSubject makes the one edit this lane's own screens make to a
+// captured message, through a plain UPDATE: the version moves by database
+// trigger, so the row bumps the way any writer would bump it.
+func editCapturedSubject(t *testing.T, e *integration.Env, activityID ids.UUID, subject string) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE activity SET subject = $2 WHERE id = $1`, activityID, subject)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("editing the captured message: %v", err)
+	}
+}
+
+func activityVersion(t *testing.T, e *integration.Env, activityID ids.UUID) int64 {
+	t.Helper()
+	var v int64
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT version FROM activity WHERE id = $1`, activityID).Scan(&v)
+	})
+	if err != nil {
+		t.Fatalf("reading the message's version: %v", err)
+	}
+	return v
+}
+
 // retireToUnsure puts a disposition in the state a terminal below-floor
 // judgement leaves it in, without spending two scripted model calls to get there.
 func retireToUnsure(t *testing.T, e *integration.Env, id ids.UUID) {

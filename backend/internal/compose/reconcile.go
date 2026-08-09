@@ -34,6 +34,14 @@ import (
 // follow-up is a new activity, independent of the deal's current field
 // values, so a concurrent deal edit must not invalidate the human's yes
 // (unlike a close-date correction, which overwrites a deal field).
+//
+// Leaving TargetVersion unset is NOT what makes that true, which is worth
+// saying because it used to be. The pin is taken server-side now, at the one
+// place every stager passes through, so a stager cannot decline it by
+// omission — and for a while this comment described an intention the code had
+// silently stopped honouring. What declines it is the kind's entry in
+// approvals' contextTargetKinds, and this paragraph is accurate exactly as
+// long as that entry exists.
 type followUpStager struct {
 	svc *approvals.Service
 }
