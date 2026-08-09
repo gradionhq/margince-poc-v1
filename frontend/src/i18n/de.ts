@@ -3468,6 +3468,7 @@ export const de = {
   "aiusage.sub":
     "Ihre eigene Rechnung sichtbar — nach Aufgabe und Stufe, in Tokens.",
   "aiusage.budget": "{spent} von {budget} Tokens · {pct}%",
+  "aiusage.budgetMeter": "Verbrauchtes Monats-Tokenbudget",
   "aiusage.band.normal": "normal",
   "aiusage.band.degraded": "Sparmodus",
   "aiusage.band.queued": "Budget erreicht — Hintergrund-KI wartet",

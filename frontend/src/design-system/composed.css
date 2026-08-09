@@ -359,23 +359,6 @@
   border: 1px solid var(--accentMed);
 }
 
-/* Strength meter bar — shared by StrengthCard (screens/strength.tsx) and
- * onboarding (screens/onboarding.tsx); onboarding.css no longer defines it. */
-.meterbar {
-  height: 8px;
-  background: var(--bgCard);
-  border-radius: var(--r-full);
-  overflow: hidden;
-  margin: 10px 0 8px;
-}
-.meterbar span {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--away));
-  border-radius: var(--r-full);
-  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
 .firmo {
   display: flex;
   gap: 24px;

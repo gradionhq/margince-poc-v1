@@ -3454,6 +3454,7 @@ export const en = {
   "aiusage.sub":
     "Your own bill, made visible — per task and tier, token-denominated.",
   "aiusage.budget": "{spent} of {budget} tokens · {pct}%",
+  "aiusage.budgetMeter": "Monthly token budget used",
   "aiusage.band.normal": "normal",
   "aiusage.band.degraded": "economy mode",
   "aiusage.band.queued": "budget reached — background AI queued",

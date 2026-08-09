@@ -3462,6 +3462,7 @@ export const vi = {
   "aiusage.sub":
     "Hoá đơn của chính bạn, hiện rõ — theo từng tác vụ và bậc, tính bằng token.",
   "aiusage.budget": "{spent} trên {budget} token · {pct}%",
+  "aiusage.budgetMeter": "Ngân sách token hằng tháng đã dùng",
   "aiusage.band.normal": "bình thường",
   "aiusage.band.degraded": "chế độ tiết kiệm",
   "aiusage.band.queued": "đã chạm hạn mức — AI chạy nền bị xếp hàng",

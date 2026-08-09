@@ -10,6 +10,7 @@ import {
   SectionHeader,
   Skeleton,
 } from "../design-system/atoms";
+import { Meter } from "../design-system/readings";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import {
@@ -163,9 +164,11 @@ function StrengthBody({
                 <span>{t(`strength.factor.${row.key}`)}</span>
                 <span className="t-mono">{pct}%</span>
               </div>
-              <div className="meterbar">
-                <span style={{ width: `${pct}%` }} />
-              </div>
+              <Meter
+                value={pct}
+                max={100}
+                label={t(`strength.factor.${row.key}`)}
+              />
             </div>
           );
         })}
