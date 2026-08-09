@@ -117,35 +117,41 @@ func TestTheGrowthFitCacheRowIsKeyedToTheReaderWhoAskedForIt(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.BootstrapWorkspace(t)
 	orgID := createBareOrganization(t, e)
-	// Another reader's assembly, already cached for this same company. It is
-	// what a keyed read has to step over: keying the row and then reading it
-	// unkeyed would hand this payload to whoever asks next.
-	other := seedAnotherReadersGrowthFit(t, e, orgID)
 
-	var served struct {
-		Band string `json:"band"`
-	}
-	if status := e.Call(t, "GET", "/v1/organizations/"+orgID+"/growth-fit", nil, nil, &served); status != http.StatusOK {
+	// One real read first, purely to MINT a row. Its fingerprint is the one
+	// this company's facts compute to, and a hand-written one would not be:
+	// the cache gate rejects a stale fingerprint before it ever consults the
+	// reader, so a seeded row with an invented fingerprint is refused for the
+	// wrong reason and an unkeyed read would pass this test too.
+	var first growthFitResponse
+	if status := e.Call(t, "GET", "/v1/organizations/"+orgID+"/growth-fit", nil, nil, &first); status != http.StatusOK {
 		t.Fatalf("GET growth-fit = %d, want 200", status)
 	}
-	if served.Band == otherReadersBand {
-		t.Fatalf("the read served the other reader's cached assessment (%q)", served.Band)
+	if first.Band == otherReadersBand {
+		t.Fatalf("a bare company assessed as %q, so that band cannot mark the other reader's row", first.Band)
 	}
 
-	var cachedFor ids.UUID
-	if err := e.Owner.QueryRow(context.Background(),
-		`SELECT user_id FROM org_growth_fit WHERE organization_id = $1 AND user_id <> $2`,
-		orgID, other).Scan(&cachedFor); err != nil {
-		t.Fatalf("the read cached no row of its own for this company: %v", err)
+	// Now move that row — fingerprint and all — to a DIFFERENT reader, with a
+	// band this company could not produce, and leave the acting reader with
+	// nothing of their own. The row is live: it would be served on sight.
+	acting := readerByEmail(t, e, bootstrappedAdminEmail)
+	giveTheCachedRowToAnotherReader(t, e, orgID, acting)
+
+	var second growthFitResponse
+	if status := e.Call(t, "GET", "/v1/organizations/"+orgID+"/growth-fit", nil, nil, &second); status != http.StatusOK {
+		t.Fatalf("second GET growth-fit = %d, want 200", status)
 	}
-	var acting ids.UUID
-	if err := e.Owner.QueryRow(context.Background(),
-		`SELECT id FROM app_user WHERE email = $1`, bootstrappedAdminEmail).Scan(&acting); err != nil {
-		t.Fatalf("acting user lookup: %v", err)
+	if second.Band == otherReadersBand {
+		t.Fatal("the read served another reader's cached assessment — the cache is keyed on write and not on read")
 	}
-	if cachedFor != acting {
-		t.Errorf("cached row user_id = %s, want the acting reader %s — a shared row would serve one reader's assembly to another",
-			cachedFor, acting)
+
+	// And it wrote its own row rather than overwriting theirs, which is the
+	// same guarantee seen from the write side.
+	var mine ids.UUID
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT user_id FROM org_growth_fit WHERE organization_id = $1 AND user_id = $2`,
+		orgID, acting).Scan(&mine); err != nil {
+		t.Fatalf("the acting reader's own row is missing after their read: %v", err)
 	}
 }
 
@@ -212,18 +218,32 @@ func seedRequiredProfileFields(t *testing.T, e *apptest.AppEnv, orgID string) {
 	}
 }
 
-// otherReadersBand is a band no assembly of a bare company could produce, so
-// seeing it in a response can only mean the read crossed readers.
+// otherReadersBand is a band a company with nothing recorded can never be
+// assessed as, so seeing it in a response can only mean the read crossed
+// readers rather than reassessing.
 const otherReadersBand = "strong"
 
-// seedAnotherReadersGrowthFit puts a second reader's cached assessment on the
-// same company and returns that reader's id.
+func readerByEmail(t *testing.T, e *apptest.AppEnv, email string) ids.UUID {
+	t.Helper()
+	var id ids.UUID
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT id FROM app_user WHERE email = $1`, email).Scan(&id); err != nil {
+		t.Fatalf("reader lookup for %s: %v", email, err)
+	}
+	return id
+}
+
+// giveTheCachedRowToAnotherReader reassigns the acting reader's just-written
+// cache row to a second reader and marks it with a band this company could not
+// produce, leaving the acting reader with none of their own.
 //
-// Written straight to the table rather than through a second signed-in session:
-// what is under test is whether the READ is keyed, and a hand-written row is a
-// sharper probe than a second session, which would also have to be granted a
-// seat and visibility before it could produce one.
-func seedAnotherReadersGrowthFit(t *testing.T, e *apptest.AppEnv, orgID string) ids.UUID {
+// Moving the REAL row rather than writing one is what makes this a probe. The
+// cache gate checks the fingerprint before it checks anything about the reader,
+// so an invented fingerprint is rejected for a reason that has nothing to do
+// with keying — and the test would pass over an unkeyed read. This row carries
+// the fingerprint the next read will compute, so it is live: an unkeyed read
+// finds it, accepts it, and serves it.
+func giveTheCachedRowToAnotherReader(t *testing.T, e *apptest.AppEnv, orgID string, acting ids.UUID) {
 	t.Helper()
 	var workspaceID ids.UUID
 	if err := e.Owner.QueryRow(context.Background(),
@@ -234,15 +254,18 @@ func seedAnotherReadersGrowthFit(t *testing.T, e *apptest.AppEnv, orgID string) 
 	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO app_user (id, workspace_id, email, display_name)
 		 VALUES ($1, $2, 'grace@example.com', 'Grace')`, other, workspaceID); err != nil {
-		t.Fatalf("seed the other reader: %v", err)
+		t.Fatalf("create the other reader: %v", err)
 	}
-	payload := `{"fingerprint":"theirs","version":1,"band":"` + otherReadersBand + `"}`
-	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO org_growth_fit (workspace_id, user_id, organization_id,
-		     fingerprint, payload, generated_by)
-		 VALUES ($1, $2, $3, 'theirs', $4::jsonb, 'model')`,
-		workspaceID, other, orgID, payload); err != nil {
-		t.Fatalf("seed the other reader's assessment: %v", err)
+	tag, err := e.Owner.Exec(context.Background(),
+		`UPDATE org_growth_fit
+		    SET user_id = $1,
+		        payload = jsonb_set(payload, '{band}', to_jsonb($2::text))
+		  WHERE workspace_id = $3 AND organization_id = $4 AND user_id = $5`,
+		other, otherReadersBand, workspaceID, orgID, acting)
+	if err != nil {
+		t.Fatalf("hand the cached row to the other reader: %v", err)
 	}
-	return other
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("moved %d cache rows, want exactly the one the first read wrote", tag.RowsAffected())
+	}
 }
