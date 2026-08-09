@@ -65,7 +65,14 @@ func dispatcherServingAView(t *testing.T) *Dispatcher {
 		WithResources(stubResources{
 			published: []mcp.Resource{theView()},
 			contents: map[string]mcp.ResourceContents{
-				viewURI: {URI: viewURI, MIMEType: mcp.AppMIMEType, Text: "<!doctype html><title>t</title>"},
+				// The policy rides the CONTENTS, exactly as the real view
+				// provider sends it — a stub that omitted it would be asserting
+				// against a provider production does not have, and the read
+				// path's own policy rendering would go untested.
+				viewURI: {
+					URI: viewURI, MIMEType: mcp.AppMIMEType, Text: "<!doctype html><title>t</title>",
+					UI: &mcp.ResourceUI{PrefersBorder: true},
+				},
 			},
 		})
 }
@@ -247,7 +254,10 @@ func TestAViewTheCallerMayNotReadStaysInvisible(t *testing.T) {
 	d := dispatcherWith(stubResources{
 		published: []mcp.Resource{view},
 		contents: map[string]mcp.ResourceContents{
-			viewURI: {URI: viewURI, MIMEType: mcp.AppMIMEType, Text: "<!doctype html>"},
+			viewURI: {
+				URI: viewURI, MIMEType: mcp.AppMIMEType, Text: "<!doctype html>",
+				UI: &mcp.ResourceUI{PrefersBorder: true},
+			},
 		},
 	})
 	ctx := agentHolding(principal.ScopeRead)

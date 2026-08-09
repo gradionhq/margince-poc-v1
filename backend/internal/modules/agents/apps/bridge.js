@@ -43,6 +43,10 @@
   // assigned at the end of the file: handle() reads it, and a reader should not
   // have to reason about hoisting to know it is set before a message can arrive.
   var initializeID = null;
+  // Whether the handshake has completed. A view is only supposed to be given a
+  // result after it has announced itself, and the two states below are what let
+  // this refuse anything out of order — see handle().
+  var initialized = false;
 
   // Every inbound message is checked to be from the frame that embedded us.
   // A sandboxed view can still be messaged by anything holding a handle to its
@@ -81,12 +85,24 @@
     if (!message || message.jsonrpc !== '2.0') return;
     // The response to our own ui/initialize is the readiness signal: the host
     // is listening, so we confirm and then wait to be given a result.
+    //
+    // The id is CLEARED as it is consumed, so a repeated response cannot make the
+    // view announce itself twice. A host that received two
+    // ui/notifications/initialized would be entitled to read the second as a
+    // fresh view and re-send everything it had already sent.
     if (initializeID !== null && message.id === initializeID && message.result) {
+      initializeID = null;
+      initialized = true;
       applyTheme(message.result.hostContext);
       send({ method: 'ui/notifications/initialized', params: {} });
       return;
     }
-    if (message.method === 'ui/notifications/tool-result' && resultHandler) {
+    // A result BEFORE the handshake is dropped rather than rendered. The view has
+    // not been told the theme or the display mode yet, so rendering then shows
+    // the human a panel drawn against defaults the host already corrected — and
+    // accepting data outside the sequence is how a view ends up rendering
+    // whatever arrives whenever it arrives.
+    if (message.method === 'ui/notifications/tool-result' && initialized && resultHandler) {
       // structuredContent is the envelope every tool on this surface seals its
       // answer into; `data` is the tool's own result inside it. A host that sent
       // no structured content leaves the view with nothing to render, which is

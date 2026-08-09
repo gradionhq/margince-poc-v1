@@ -127,7 +127,7 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 	if s.resources == nil {
 		return resourceContents{}, &rpcError{Code: resourceNotFound, Message: "no resource at " + p.URI}
 	}
-	published, admitted := s.publishedResource(ctx, p.URI)
+	_, admitted := s.publishedResource(ctx, p.URI)
 	if !admitted {
 		// The same answer an unknown URI gets: a caller whose scopes do not
 		// reach a document must not learn that it exists.
@@ -145,12 +145,12 @@ func (s *Dispatcher) readResource(ctx context.Context, params json.RawMessage) (
 	}
 	return resourceContents{Contents: []resourceContentBlock{{
 		URI: contents.URI, MIMEType: contents.MIMEType, Text: contents.Text,
-		// From the PUBLISHED descriptor, not from the read result: the seam's
-		// ResourceContents carries bytes and a type, and the sandbox policy is a
-		// property of the document the catalogue advertises. Reading it off the
-		// same value the listing renders from is what makes "what the host was
-		// told to sandbox" and "what the host was sent" one answer.
-		Meta: resourceMetaFor(published),
+		// From the CONTENTS the provider just produced, never from the
+		// catalogue: with two providers publishing one URI, the catalogue walk
+		// picks the first advertiser while this read picks the first that
+		// serves, and taking the policy from the catalogue would label these
+		// bytes with the other provider's rules. See mcp.ResourceContents.UI.
+		Meta: resourceMetaFor(mcp.Resource{URI: contents.URI, UI: contents.UI}),
 	}}}, nil
 }
 

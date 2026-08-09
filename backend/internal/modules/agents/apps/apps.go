@@ -148,13 +148,27 @@ func MustProvider() *Provider {
 	return p
 }
 
+// sandbox is the policy every view here declares, and the ONE place it is
+// stated.
+//
+// EVERY allowlist is left empty, and every permission unasked. That is the whole
+// security posture of these views: no fetch, no remote script, no nested frame,
+// no camera, no clipboard. See the package comment for why an empty list is the
+// promise rather than a placeholder.
+//
+// It is one function because the policy reaches a host TWICE — on the catalogue
+// and on the read — and those are the two answers that must not be allowed to
+// differ. A second literal would be a second chance to widen one of them.
+func sandbox() *mcp.ResourceUI {
+	return &mcp.ResourceUI{
+		// PrefersBorder, because these render as a panel of rows beside a
+		// conversation and read better with an edge than bleeding into it.
+		PrefersBorder: true,
+	}
+}
+
 // describe is one view's published descriptor, including the sandbox policy a
 // host builds its content-security policy from.
-//
-// EVERY allowlist is left empty, and every permission false. That is the whole
-// security posture of these views stated in the one place a host reads: no
-// fetch, no remote script, no nested frame, no camera, no clipboard. See the
-// package comment for why an empty list is the promise rather than a placeholder.
 func describe(v view) mcp.Resource {
 	return mcp.Resource{
 		URI: v.uri, Name: v.name, Title: v.title, Description: v.description,
@@ -163,11 +177,7 @@ func describe(v view) mcp.Resource {
 		// filter on the resource surface applies to it exactly as to any other
 		// document — a passport with no read grant is not shown these.
 		RequiredScope: principal.ScopeRead,
-		UI: &mcp.ResourceUI{
-			// PrefersBorder, because these render as a panel of rows beside a
-			// conversation and read better with an edge than bleeding into it.
-			PrefersBorder: true,
-		},
+		UI:            sandbox(),
 	}
 }
 
@@ -210,7 +220,10 @@ func (p *Provider) ReadResource(_ context.Context, uri string) (mcp.ResourceCont
 	if !served {
 		return mcp.ResourceContents{}, apperrors.ErrNotFound
 	}
-	return mcp.ResourceContents{URI: uri, MIMEType: mcp.AppMIMEType, Text: text}, nil
+	// The policy travels WITH the bytes, from the same function the catalogue
+	// entry took it from — so a host that read this document without listing
+	// first sandboxes it under exactly the rules it would have been told.
+	return mcp.ResourceContents{URI: uri, MIMEType: mcp.AppMIMEType, Text: text, UI: sandbox()}, nil
 }
 
 var _ mcp.ResourceProvider = (*Provider)(nil)

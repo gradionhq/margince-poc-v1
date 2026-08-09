@@ -41,10 +41,40 @@ const extensionUI = "io.modelcontextprotocol/ui"
 // protocol reserves for extensions.
 const metaUIKey = "ui"
 
-// declaresUI reports whether this request's capabilities declare the App
-// extension, and fails closed for every reason declaresExtension gives.
+// declaresUI reports whether this request may be offered a view.
+//
+// It is STRICTER than the presence check every other extension takes, because
+// this extension's declaration carries a payload rather than being a bare
+// acknowledgement: a client declares the content types it can render, and
+// `mimeTypes` is required of it. A host that renders some other profile is not a
+// host that can render these documents, so presence alone would offer a view to a
+// client whose own declaration says it cannot show it.
+//
+// Fails closed for every reason declaresExtension gives, and additionally for a
+// declaration with no `mimeTypes`, one that is not an array of strings, or one
+// that does not name this surface's profile. What a false costs is the plain
+// unrendered answer every client already handles.
 func declaresUI(capabilities json.RawMessage) bool {
-	return declaresExtension(capabilities, extensionUI)
+	declared, present := declaredExtension(capabilities, extensionUI)
+	if !present {
+		return false
+	}
+	var negotiated struct {
+		//nolint:tagliatelle // mimeTypes is the extension's wire member, camelCase by the specification
+		MIMETypes []string `json:"mimeTypes"`
+	}
+	if err := json.Unmarshal(declared, &negotiated); err != nil {
+		return false
+	}
+	for _, offered := range negotiated.MIMETypes {
+		// Compared exactly. The profile parameter is the whole discriminator —
+		// a client declaring bare `text/html` is declaring it can show a
+		// document, which is not the same as being able to run an App.
+		if offered == mcp.AppMIMEType {
+			return true
+		}
+	}
+	return false
 }
 
 // assertViewDeclaration holds a tool's own view declaration to the three things
@@ -170,9 +200,12 @@ func visibilityOrBoth(declared []string) []string {
 // resourceUIWire is one view's `_meta.ui` as a host reads it before it builds
 // the sandbox.
 type resourceUIWire struct {
-	CSP         resourceCSPWire         `json:"csp"`
-	Permissions resourcePermissionsWire `json:"permissions"`
-	Domain      string                  `json:"domain,omitempty"`
+	CSP resourceCSPWire `json:"csp"`
+	// Permissions is OMITTED when the view asks for none, and carries one
+	// member per permission it does ask for — see requestedPermissions for why
+	// the wire shape is a set of present keys rather than a flag per permission.
+	Permissions map[string]emptyObject `json:"permissions,omitempty"`
+	Domain      string                 `json:"domain,omitempty"`
 	//nolint:tagliatelle // prefersBorder is the extension's wire member, camelCase by the specification
 	PrefersBorder bool `json:"prefersBorder,omitempty"`
 }
@@ -191,12 +224,40 @@ type resourceCSPWire struct {
 	BaseURIDomains []string `json:"baseUriDomains"`
 }
 
-type resourcePermissionsWire struct {
-	Camera      bool `json:"camera"`
-	Microphone  bool `json:"microphone"`
-	Geolocation bool `json:"geolocation"`
-	//nolint:tagliatelle // clipboardWrite is the extension's wire member, camelCase by the specification
-	ClipboardWrite bool `json:"clipboardWrite"`
+// emptyObject is the extension's spelling for "this permission is requested":
+// the member's PRESENCE is the request, and its value is an empty object.
+type emptyObject struct{}
+
+// requestedPermissions renders the permissions a view asks for, as the extension
+// spells them — one member per request, valued `{}`, and no member at all for a
+// permission it does not want.
+//
+// THE SHAPE IS NOT A FLAG PER PERMISSION, and getting this wrong is the reverse
+// of the intended meaning rather than a cosmetic difference. The extension
+// declares them as optional object members (`camera?: {}`), so a host reads
+// PRESENCE as the request. A struct of booleans marshals every key on every
+// view, which means a view asking for nothing would present four requested
+// permissions to any host that reads presence — the widest possible sandbox,
+// emitted by the code whose comment says it asks for none.
+//
+// Returning nil for a view that wants nothing is what lets the member be omitted
+// entirely, which is the only unambiguous way to say "none".
+func requestedPermissions(p mcp.ResourcePermissions) map[string]emptyObject {
+	requested := map[string]emptyObject{}
+	for member, asked := range map[string]bool{
+		"camera":         p.Camera,
+		"microphone":     p.Microphone,
+		"geolocation":    p.Geolocation,
+		"clipboardWrite": p.ClipboardWrite,
+	} {
+		if asked {
+			requested[member] = emptyObject{}
+		}
+	}
+	if len(requested) == 0 {
+		return nil
+	}
+	return requested
 }
 
 // resourceUIMeta renders a view's own declaration, and answers nil for an
@@ -213,12 +274,7 @@ func resourceUIMeta(resource mcp.Resource) *resourceUIWire {
 			FrameDomains:    originsOrEmpty(resource.UI.CSP.FrameDomains),
 			BaseURIDomains:  originsOrEmpty(resource.UI.CSP.BaseURIDomains),
 		},
-		Permissions: resourcePermissionsWire{
-			Camera:         resource.UI.Permissions.Camera,
-			Microphone:     resource.UI.Permissions.Microphone,
-			Geolocation:    resource.UI.Permissions.Geolocation,
-			ClipboardWrite: resource.UI.Permissions.ClipboardWrite,
-		},
+		Permissions:   requestedPermissions(resource.UI.Permissions),
 		Domain:        resource.UI.Domain,
 		PrefersBorder: resource.UI.PrefersBorder,
 	}

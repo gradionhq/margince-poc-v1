@@ -33,20 +33,54 @@ func TestTheAppExtensionUsesTheSpecificationsOwnTokens(t *testing.T) {
 	}
 }
 
-// One negotiation mechanism, two extensions. declaresExtension replaced
-// declaresTasks's hand-spelled key so the second extension is not bolted onto
-// the first's spelling — which means the exactness the Tasks tests establish
-// has to still hold when the key is a parameter.
+// The App declaration is STRICTER than presence, because its negotiation carries
+// a payload: the client names the content types it can render, and `mimeTypes` is
+// required of it. Presence alone would offer a view to a client whose own
+// declaration says it cannot show one.
+//
+// Everything unreadable fails closed. What a false costs is the plain unrendered
+// answer every client already handles.
 func TestOnlyAnExactlySpelledAppDeclarationCounts(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		capabilities string
 		want         bool
 	}{
-		{"the specification's own spelling", `{"extensions":{"io.modelcontextprotocol/ui":{}}}`, true},
-		{"declared beside Tasks", `{"extensions":{"io.modelcontextprotocol/tasks":{},"io.modelcontextprotocol/ui":{}}}`, true},
-		{"a mis-cased member", `{"Extensions":{"io.modelcontextprotocol/ui":{}}}`, false},
-		{"a mis-cased extension name", `{"extensions":{"IO.MODELCONTEXTPROTOCOL/UI":{}}}`, false},
+		{
+			"the specification's own spelling",
+			`{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}}`, true,
+		},
+		{
+			"declared beside Tasks",
+			`{"extensions":{"io.modelcontextprotocol/tasks":{},` +
+				`"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}}`, true,
+		},
+		{
+			"the App type among others it also renders",
+			`{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/uri-list","text/html;profile=mcp-app"]}}}`, true,
+		},
+		// The payload half. A client that declared the extension but no content
+		// type, or only types this surface does not serve, cannot render these
+		// documents — and being offered one leaves it with a URI and nothing to
+		// do with it.
+		{"declared with no mimeTypes at all", `{"extensions":{"io.modelcontextprotocol/ui":{}}}`, false},
+		{
+			"declared with an empty mimeTypes",
+			`{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":[]}}}`, false,
+		},
+		{
+			// Bare text/html says "I can show a document", which is not the same
+			// as being able to run an App. The profile parameter is the whole
+			// discriminator, so it is compared exactly.
+			"declared with bare text/html rather than the App profile",
+			`{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html"]}}}`, false,
+		},
+		{
+			"mimeTypes as a string rather than a list",
+			`{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":"text/html;profile=mcp-app"}}}`, false,
+		},
+		{"a mis-cased member", `{"Extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}}`, false},
+		{"a mis-cased extension name", `{"extensions":{"IO.MODELCONTEXTPROTOCOL/UI":{"mimeTypes":["text/html;profile=mcp-app"]}}}`, false},
 		{"only Tasks declared", `{"extensions":{"io.modelcontextprotocol/tasks":{}}}`, false},
 		{"no extensions at all", `{}`, false},
 		{"a null extensions member", `{"extensions":null}`, false},
@@ -154,8 +188,12 @@ func TestAViewsEmptyAllowlistReachesTheWireAsAnEmptyAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encoding the view's _meta.ui: %v", err)
 	}
+	// No `permissions` member at all. The extension declares each permission as
+	// an optional object whose PRESENCE is the request, so spelling them out as
+	// false would present four requested permissions to a host that reads
+	// presence — the widest sandbox available, emitted by the view that wants
+	// none. Omission is the only unambiguous way to ask for nothing.
 	const want = `{"csp":{"connectDomains":[],"resourceDomains":[],"frameDomains":[],"baseUriDomains":[]},` +
-		`"permissions":{"camera":false,"microphone":false,"geolocation":false,"clipboardWrite":false},` +
 		`"prefersBorder":true}`
 	if string(encoded) != want {
 		t.Errorf("_meta.ui = %s,\nwant                %s", encoded, want)
@@ -179,8 +217,16 @@ func TestADeclaredOriginReachesTheWire(t *testing.T) {
 	if got := meta.CSP.ConnectDomains; len(got) != 1 || got[0] != "https://example.test" {
 		t.Errorf("connectDomains = %v, want the declared origin", got)
 	}
-	if !meta.Permissions.ClipboardWrite {
-		t.Error("a declared clipboard permission did not reach the wire")
+	if _, asked := meta.Permissions["clipboardWrite"]; !asked {
+		t.Errorf("a declared clipboard permission did not reach the wire: %+v", meta.Permissions)
+	}
+	// And only that one. A permission the view did not ask for must be absent
+	// rather than present-and-false, or a presence-reading host grants it.
+	for _, unasked := range []string{"camera", "microphone", "geolocation"} {
+		if _, present := meta.Permissions[unasked]; present {
+			t.Errorf("%s reaches the wire although the view never asked for it, and a host reading presence "+
+				"would grant it", unasked)
+		}
 	}
 	if meta.Domain != "app.example.test" {
 		t.Errorf("domain = %q, want the declared sandbox origin", meta.Domain)

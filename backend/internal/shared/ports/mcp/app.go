@@ -32,7 +32,13 @@ type ToolUI struct {
 	// rather than the host's, because a host is entitled to prefetch the view
 	// before the tool is ever called — so a URI nobody serves is not a broken
 	// render, it is a host fetching a 404 and an App that silently never
-	// appears. Registration refuses it instead.
+	// appears.
+	//
+	// WHERE THAT IS ENFORCED is not registration, which sees one spec and no
+	// provider: it is a sweep over the COMPOSED surface, where the registry and
+	// the wired providers are both known. Registration refuses only what one
+	// spec can be judged on — an empty URI, one outside the scheme, an
+	// unrecognised audience.
 	ResourceURI string
 	// Visibility is who may reach this tool: "model", "app", or both. A tool
 	// the model cannot see is one a host MUST leave out of the agent's
@@ -106,9 +112,15 @@ func (c ResourceCSP) Empty() bool {
 }
 
 // ResourcePermissions are the browser capabilities a view asks the host to
-// grant its sandbox. Every one is false on a view that needs none, and false
-// is what the host enforces — a permission is granted only where it is asked
-// for, so a view that asks for nothing gets a sandbox with none of them.
+// grant its sandbox. Every one is false on a view that needs none.
+//
+// ON THE WIRE THIS IS A SET, NOT A SET OF FLAGS. The extension declares each
+// permission as an optional object member (`camera?: {}`), so a host reads the
+// member's PRESENCE as the request — which means a shape that spelled every
+// permission out as `false` would present four REQUESTED permissions to a host
+// reading presence, and a view asking for nothing would get the widest sandbox
+// available. The booleans here are for the Go caller; the renderer emits only
+// the ones asked for, and omits the member entirely when there are none.
 type ResourcePermissions struct {
 	Camera         bool
 	Microphone     bool

@@ -41,7 +41,12 @@ func assembled(t *testing.T) map[string]string {
 		if err != nil {
 			t.Fatalf("reading the view %s: %v", r.URI, err)
 		}
-		documents[r.URI] = contents.Text
+		// Comments stripped: every sweep below asks what the document DOES, and
+		// a comment explaining a forbidden construct contains the construct.
+		// See code.go — the required-call-site sweep is unsound without this,
+		// because a deleted call leaves an explanation that satisfies a
+		// substring check.
+		documents[r.URI] = Code(contents.Text)
 	}
 	if len(documents) == 0 {
 		t.Fatal("no view was assembled, so every sweep in this file would pass vacuously")
@@ -83,10 +88,20 @@ func TestNoViewReachesOffItsOwnOrigin(t *testing.T) {
 // back, which is execution inside the view's own origin. Text reaches the page
 // through textContent and structure through createElement, and this is the sweep
 // that keeps it that way.
+//
+// WHAT THIS LIST CANNOT DO, said plainly so nobody reads it as a proof. A
+// substring scan catches the spellings it knows. It does not catch a computed
+// property (`node['inner' + 'HTML']`), an aliased reference, or a sink invented
+// after this list was written. So it is a RATCHET, not a boundary: it makes the
+// known sinks impossible to add by habit, and the review of a view's renderer is
+// still the thing that decides whether it is safe. The list grows when the
+// platform grows one — setHTML and setHTMLUnsafe are here because they shipped
+// after the obvious ones and would otherwise have been a silent hole.
 var fromMarkup = []string{
 	"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write",
+	"setHTML", "setHTMLUnsafe", "createContextualFragment", "DOMParser",
 	"eval(", "new Function", "setTimeout(\"", "setInterval(\"",
-	"createContextualFragment", "srcdoc",
+	"srcdoc", "location.href", "location.assign", "import(",
 }
 
 func TestNoViewBuildsMarkupOrCodeFromData(t *testing.T) {
@@ -161,7 +176,16 @@ func TestEveryViewAnnouncesItselfToItsHost(t *testing.T) {
 		for _, required := range []string{
 			// The initialise request, its confirmation, and the notification the
 			// view's whole purpose depends on receiving.
-			"ui/initialize", "ui/notifications/initialized", "ui/notifications/tool-result",
+			//
+			// Spelled as the CALL SITE spells them, not as bare tokens: a token
+			// is satisfied by a comment mentioning it, so a sweep on
+			// "ui/notifications/initialized" alone would stay green after the
+			// send was deleted and the explanation left behind. Which is not
+			// hypothetical — the prose in these very assets had to be reworded
+			// once already for tripping the sweep above.
+			`method: 'ui/initialize'`,
+			`method: 'ui/notifications/initialized'`,
+			`=== 'ui/notifications/tool-result'`,
 			// The protocol revision this dialect is spoken at.
 			"2026-01-26",
 			// The sender check: a sandboxed frame can be messaged by anything
@@ -273,5 +297,65 @@ func TestMustProviderAssemblesThisBuildsViews(t *testing.T) {
 	if len(p.Resources(context.Background())) != len(catalog) {
 		t.Errorf("MustProvider published %d views, want the %d in the catalogue",
 			len(p.Resources(context.Background())), len(catalog))
+	}
+}
+
+// The comment stripper, which five sweeps above now depend on. A stripper that
+// removed too much would hide exactly the constructs they exist to find, so its
+// erring-toward-keeping rule is asserted rather than described.
+func TestCodeSeparatesWhatADocumentDoesFromWhatItSays(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		asset string
+		want  string
+	}{
+		{"a line comment goes", "keep();\n// innerHTML is forbidden\nkeep2();", "keep();\n\nkeep2();"},
+		{"a block comment goes", "a();/* eval( */b();", "a();\nb();"},
+		{"a trailing line comment goes", "a(); // note", "a(); \n"},
+		{
+			// The case that makes a naive stripper dangerous: a `//` inside a
+			// string is not a comment, and eating the rest of the line would
+			// hide whatever followed it.
+			name:  "a slash pair inside a string is not a comment",
+			asset: `var u = "x//y"; innerHTML;`,
+			want:  `var u = "x//y"; innerHTML;`,
+		},
+		{
+			name:  "an escaped quote does not end the string",
+			asset: `var s = 'it\'s // fine'; eval(x);`,
+			want:  `var s = 'it\'s // fine'; eval(x);`,
+		},
+		{
+			name:  "a template literal is a string",
+			asset: "var t = `a // b`; innerHTML;",
+			want:  "var t = `a // b`; innerHTML;",
+		},
+		{
+			// Erring toward keeping: an unterminated block comment must not
+			// swallow the remainder of the asset.
+			name:  "an unterminated block comment keeps what follows",
+			asset: "a(); /* oops innerHTML",
+			want:  "a(); \n oops innerHTML",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Code(tc.asset); got != tc.want {
+				t.Errorf("Code(%q) =\n  %q\nwant\n  %q", tc.asset, got, tc.want)
+			}
+		})
+	}
+}
+
+// And the whole reason it exists: a required call site, deleted with its
+// explanation left behind, must not satisfy the handshake sweep.
+func TestADeletedCallSiteIsNotSatisfiedByItsOwnComment(t *testing.T) {
+	const removed = "// send({ method: 'ui/notifications/initialized', params: {} }) — removed"
+	if strings.Contains(Code(removed), "method: 'ui/notifications/initialized'") {
+		t.Error("a commented-out call still reads as a call, so the handshake sweep would stay green after " +
+			"the send was deleted")
+	}
+	const present = "send({ method: 'ui/notifications/initialized', params: {} });"
+	if !strings.Contains(Code(present), "method: 'ui/notifications/initialized'") {
+		t.Error("a real call site was stripped, which would fail the handshake sweep against a correct view")
 	}
 }

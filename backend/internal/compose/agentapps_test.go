@@ -18,19 +18,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// composedResources is the resource surface a hosted request actually reaches:
-// both providers, fanned exactly as mcpHandler fans them. Reading it from the
-// same constructor the transport uses is what keeps these sweeps measuring the
-// served surface rather than a second assembly that agrees with it today.
+// composedResources is the view half of the resource surface, assembled through
+// the same constructor the transport uses.
+//
+// IT IS NOT THE WHOLE PRODUCTION FAN-OUT, and the difference matters enough to
+// state: mcpHandler composes the query vocabulary FIRST and the views second,
+// and the vocabulary needs a pool that these sweeps have no business opening. So
+// composeResources drops the nil and returns the view provider alone — the same
+// conditional wiring an installation without a vocabulary gets, and the same
+// path every assertion below is about.
+//
+// What that leaves unmeasured is a URI collision BETWEEN the two production
+// providers. TestTheProductionProvidersPublishDisjointSchemes covers it from the
+// other side, structurally, because it can be answered without a pool.
 func composedResources() mcp.ResourceProvider {
-	// A nil query-schema provider, because these sweeps are about the views and
-	// the vocabulary needs a pool. composeResources drops a nil provider, which
-	// is the same conditional wiring an installation without one gets.
 	return composeResources(nil, appViews)
 }
 
@@ -167,6 +174,30 @@ func TestNoCapabilityLivesOnlyInsideAView(t *testing.T) {
 			t.Errorf("%s carries a view but declares no result shape, so the answer a non-rendering client "+
 				"reads is undescribed — the view would be the only documented way to understand it", spec.Name)
 		}
+	}
+}
+
+// The two providers a hosted request actually reaches publish under disjoint URI
+// SCHEMES, which is what makes a collision between them impossible rather than
+// merely absent today.
+//
+// Asserted structurally because it can be: the vocabulary publishes under
+// `margince://` and a view under `ui://`, and neither needs a database to say so.
+// A collision would otherwise be invisible — the fan-out resolves one by order
+// and the losing document becomes unreachable with nothing reporting it, and the
+// read would serve one provider's bytes under the other's sandbox policy.
+func TestTheProductionProvidersPublishDisjointSchemes(t *testing.T) {
+	for _, r := range appViews.Resources(readerCtx()) {
+		if !strings.HasPrefix(r.URI, mcp.AppURIScheme) {
+			t.Errorf("the view provider publishes %s, which is outside %s — it can now collide with the query "+
+				"vocabulary, and the fan-out would resolve that silently by composition order", r.URI, mcp.AppURIScheme)
+		}
+	}
+	// The vocabulary's own scheme, named as the constant the other side of the
+	// fan-out uses. If it ever publishes under `ui://` this fails here rather
+	// than as a document that quietly stopped being served.
+	if strings.HasPrefix(search.QuerySchemaURI, mcp.AppURIScheme) {
+		t.Errorf("the query vocabulary publishes %s, inside the view scheme %s", search.QuerySchemaURI, mcp.AppURIScheme)
 	}
 }
 

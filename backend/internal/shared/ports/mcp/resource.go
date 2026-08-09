@@ -51,6 +51,18 @@ type ResourceContents struct {
 	URI      string
 	MIMEType string
 	Text     string
+	// UI is the sandbox declaration for THIS document, non-nil on an
+	// interactive view and nil on everything else.
+	//
+	// IT IS REPEATED HERE RATHER THAN LOOKED UP, and that is the whole point.
+	// The catalogue and the read are two answers, and a composed surface can
+	// make them disagree: with two providers publishing one URI, a catalogue
+	// walk picks the first ADVERTISER while a read picks the first that SERVES
+	// — so a policy taken from the catalogue could label one provider's bytes
+	// with another provider's rules. Carrying it on the contents means the
+	// provider that produced the document also states what may be done with
+	// it, which is one reading of one value rather than two that agree today.
+	UI *ResourceUI
 }
 
 // ResourceProvider publishes documents beside the tool surface. Both methods

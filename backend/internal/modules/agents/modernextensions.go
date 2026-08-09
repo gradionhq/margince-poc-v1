@@ -50,6 +50,18 @@ func declaresTasks(capabilities json.RawMessage) bool {
 // existed, and the second extension would otherwise have been bolted onto the
 // first's spelling of it.
 func declaresExtension(capabilities json.RawMessage, extension string) bool {
+	_, present := declaredExtension(capabilities, extension)
+	return present
+}
+
+// declaredExtension answers the declaration BODY as well as its presence, for an
+// extension whose negotiation carries a payload rather than being a bare
+// acknowledgement — the App extension declares the content types the client can
+// render, and a caller that only knew "it was declared" could not check them.
+//
+// present is false for everything declaresExtension refuses, and the returned
+// bytes are meaningless then.
+func declaredExtension(capabilities json.RawMessage, extension string) (json.RawMessage, bool) {
 	// Decoded through a MAP, and matched exactly, for the reason metaOf gives
 	// about the reserved `_meta` keys: encoding/json matches struct members
 	// case-insensitively, so a struct field would read `"Extensions"` — or
@@ -57,13 +69,17 @@ func declaresExtension(capabilities json.RawMessage, extension string) bool {
 	// handed a capability it never claimed to understand.
 	var declared map[string]json.RawMessage
 	if err := json.Unmarshal(capabilities, &declared); err != nil {
-		return false
+		return nil, false
 	}
 	var extensions map[string]json.RawMessage
 	if err := json.Unmarshal(declared["extensions"], &extensions); err != nil {
-		return false
+		return nil, false
 	}
-	return isJSONObject(extensions[extension])
+	body := extensions[extension]
+	if !isJSONObject(body) {
+		return nil, false
+	}
+	return body, true
 }
 
 // missingClientCapability refuses a method whose whole contract depends on a
