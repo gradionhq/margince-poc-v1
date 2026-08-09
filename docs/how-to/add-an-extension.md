@@ -336,7 +336,10 @@ is *meant* to stay ignored: its presence in the working tree already enables it 
 routes the merged contract no longer publishes, and `make fe-typecheck-composed` fails. Remove the
 screen and its entry in the same commit. Use `git rm`, not `mv` or `rm`: `make drift` compares the
 working tree against the INDEX, so an unstaged deletion of the committed
-`manifest.generated.json` fails the gate on a removal that is otherwise correct.
+`manifest.generated.json` fails the gate on a removal that is otherwise correct. Deleting the last
+entry leaves the registry an empty object, which the formatter wants on one line — finish with
+`pnpm -C frontend exec biome check --write src/screens/ext/index.tsx`, or `check-fe` fails on
+formatting alone. The full recipe is verified green; see [Ship it](#ship-it).
 
 Then commit **the complete unit directory** — every source and test file plus its module metadata
 (`go.mod`, and `go.sum` if it carries third-party dependencies) — together with the `.gitignore`
@@ -345,9 +348,25 @@ tracked `composition/` stub unchanged unless you are deliberately changing the v
 off every commit (`git commit -s`), then the usual PR loop ([CONTRIBUTING.md](../../CONTRIBUTING.md));
 merge only when the gates are green.
 
-**Removing a unit is a two-place operation.** `git rm -r extensions/<name>` (never `mv` — a moved
-directory is still a directory under `extensions/`), **and** delete its core screen plus its entry in
-`frontend/src/screens/ext/index.tsx` in the same commit, or `fe-typecheck-composed` fails. Removal
+**Removing a unit is a two-place operation**, and this is the whole recipe — run end to end against
+`crm-demo`, with `make check-q` green afterwards:
+
+```bash
+git rm -r extensions/<name> \
+       frontend/src/screens/ext/<name>.tsx frontend/src/screens/ext/<name>.test.tsx
+# drop the unit's line (and its import) from frontend/src/screens/ext/index.tsx
+pnpm -C frontend exec biome check --write src/screens/ext/index.tsx
+git add -A && make check-q
+```
+
+`git rm`, never `mv` or `rm`: a moved directory is still a directory under `extensions/`, and an
+unstaged deletion of the committed `manifest.generated.json` fails `make drift` on a removal that is
+otherwise correct. The biome step is not optional — deleting the last screen leaves
+`export const extensionScreens: ExtensionScreenRegistry = {\n};`, and the formatter wants `{}`.
+
+Nothing else needs editing. In particular no core TEST needs touching: the one that used to hard-code
+the unit's path (`gen-composition`'s namespace-wall fixture pairing) skips when the unit is absent,
+because removing a unit must not require editing the core's tests. Removal
 *disables* cleanly — routes 404, the inventory omits the unit, migrations skip it — but it does **not
 purge**: the unit's tables and rows, its `extension_secret` rows and any grants of its RBAC objects
 inside `role.permissions` all survive. There is no purge primitive yet (#628).

@@ -28,11 +28,19 @@ import { CrmDemoScreen } from "./crmdemo";
 // it drives the screen against the shape the server ACTUALLY used to send, so
 // a regression on either side of the seam fails somewhere.
 
-/** The grants a full seat holds on the unit's object. */
+/**
+ * The grants a full seat holds on the unit's TWO objects.
+ *
+ * Two, not one: the secrets operations gate on `ext_crm_demo_signing_key`
+ * separately from the notes, because a role that may add a note has no business
+ * rotating the installation's credential. `update` is what stores or rotates the
+ * key — there is one per workspace, so setting it is never a create.
+ */
 const FULL_GRANT = {
   seat_type: "full",
   objects: {
     ext_crm_demo_note: { read: true, create: true, delete: true },
+    ext_crm_demo_signing_key: { read: true, update: true },
   },
 };
 
@@ -236,10 +244,20 @@ describe("the Demo Notepad screen", () => {
     // the unit declares an RBAC object at all: the list renders, the controls
     // do not. UX honesty only — the server's gate is the authority — but a
     // screen that showed Add to a reader would send them into a refusal.
+    //
+    // `Store key` is in that set now and was not before. The UAT re-run found
+    // this control rendered for a read-only seat and, worse, WORKED: the
+    // operations declared no RBAC object, so nothing refused the write and the
+    // reader replaced the installation's signing key (R1). The seat below holds
+    // read on the key and not update, which is what a read-only role looks like
+    // after the fix.
     const { fetchStub } = stubTransport(
       {
         seat_type: "read",
-        objects: { ext_crm_demo_note: { read: true } },
+        objects: {
+          ext_crm_demo_note: { read: true },
+          ext_crm_demo_signing_key: { read: true },
+        },
       },
       {
         "/ext/crm-demo/notes/list": () => ({
@@ -260,6 +278,12 @@ describe("the Demo Notepad screen", () => {
     expect(await screen.findByText(/visible to a reader/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Store key" })).toBeNull();
+    // But the read side of the same object survives: the reader still sees
+    // whether a key is stored, and can still sign. A lockout would pass the
+    // three assertions above and be the wrong fix.
+    expect(await screen.findByText("Connected")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sign" })).toBeTruthy();
   });
 
   // The screen against the WRONG body — the envelope the server used to send.

@@ -34,7 +34,19 @@ import { CrmDemoScreen } from "./crmdemo";
 // extensions/<name>/frontend/ is a real capability layer:
 //
 //	git rm -r extensions/<name> frontend/src/screens/ext/<name>.tsx …
-//	# and drop its line from this map
+//	# and drop its line from this map, then:
+//	pnpm -C frontend exec biome check --write src/screens/ext/index.tsx
+//
+// That last step is not tidiness: removing the LAST entry leaves `= {\n};`,
+// and the formatter wants `= {}` — without it `check-fe` fails on formatting
+// alone, on a removal that is otherwise complete.
+//
+// TWO places, and verified to be exactly two: docs/how-to/add-an-extension.md
+// carries the same recipe and it was run end to end against crm-demo with
+// `make check-q` green. It briefly WAS three — gen-composition's namespace-wall
+// fixture pairing hard-coded this unit's path and failed on its absence — which
+// is fixed there rather than documented here, because removing a unit must not
+// require editing the core's tests.
 //
 // Found by Task 14's UAT re-run of the removal leg. Documented rather than
 // worked around: a conditional include is not expressible in tsconfig, and
