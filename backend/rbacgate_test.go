@@ -135,6 +135,9 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/approvals:Redeem":               "redeems a verified approval token: the token (minted for an admitted decision) is the authority",
 	"internal/modules/approvals:RedeemInTx":           "transactional form of Redeem: the already-admitted approval token is the authority; the caller supplies only the commit boundary",
 	"internal/modules/approvals:RedeemAndApply":       "atomic approval-effect boundary: Redeem performs the authority checks and the callback runs only inside that same transaction",
+	"internal/modules/approvals:TaskState":            "gated by the STAGING PASSPORT rather than by object RBAC, and that is the right gate: an MCP task polls the agent's own proposal, of which it has exactly one, so ownProposal answers ErrNotFound for any approval this passport did not stage. It returns a status and a window, never a record",
+	"internal/modules/approvals:ProposedChange":       "same passport binding as TaskState, over the payload the agent itself staged — read live because a human edit rewrites it, and answered only to the passport that proposed it",
+	"internal/modules/approvals:Withdraw":             "same passport binding, over the agent's own live proposal: it retracts what this passport staged and nothing else, and a human's decision is never the caller's to take back (WithdrawInTx refuses a decided row)",
 
 	// Engine/system seams that never carry a human principal: the
 	// worker loop and cross-module effects run as the system actor, and
