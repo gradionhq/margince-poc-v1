@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import { Badge } from "../design-system/atoms";
 import { formatDate, formatMoney } from "../format/format";
@@ -47,7 +48,10 @@ export function CompanyCommercialCard({
       emptyLabel={t("commercial.noneOpen")}
     >
       <OpenOpportunities deals={deals} />
-      <LastOffer deals={deals} />
+      <LastOffer
+        deals={deals}
+        truncated={view?.deals?.page?.has_more === true}
+      />
     </SectionCard>
   );
 }
@@ -110,18 +114,29 @@ function dealAmount(
 
 // The last offer we put in front of them.
 //
-// Read off the account's largest open deal, because an offer hangs off a deal
+// Read off the account's leading open deal, because an offer hangs off a deal
 // rather than off a company: there is no account-wide offer read, and the
 // alternative — one request per open deal — would cost a page load to answer
-// a single line. The deal it came from is named, so a reader can tell which
+// a single line. The deal it came from is NAMED, so a reader can tell which
 // offer they are looking at rather than assuming it is the only one.
-function LastOffer({ deals }: Readonly<{ deals: readonly Deal[] }>) {
+function LastOffer({
+  deals,
+  truncated,
+}: Readonly<{ deals: readonly Deal[]; truncated: boolean }>) {
   const t = useT();
   const { locale } = useLocale();
-  const leading = leadingDeal(deals);
+  // Offers are their own RBAC object: a reader who may see deals may not see
+  // what we quoted. Without this the request is fired to be refused, and the
+  // refusal renders as "no offer" — which is a claim about the account rather
+  // than about the reader's grants.
+  const mayRead = useCan("offer", "read");
+  const leading = leadingDeal(deals, truncated);
   const offers = useQuery({
-    queryKey: ["deal-offers", leading?.deal_id],
-    enabled: Boolean(leading),
+    // A DISTINCT key. The deal screen caches its own full offer list under
+    // ["deal-offers", id]; sharing it would let this one-row response stand in
+    // for that list and leave the deal screen showing a single offer.
+    queryKey: ["deal-latest-offer", leading?.deal_id],
+    enabled: Boolean(leading) && mayRead,
     queryFn: async () => {
       const { data, error } = await api.GET("/deals/{id}/offers", {
         params: { path: { id: leading?.deal_id ?? "" }, query: { limit: 1 } },
@@ -165,21 +180,32 @@ function LastOffer({ deals }: Readonly<{ deals: readonly Deal[] }>) {
   );
 }
 
-// The account's leading deal, by the same rule the Today tile uses: largest by
-// amount, id as the tiebreak so two equal deals do not swap between renders.
+// The account's leading deal: largest by amount, id as the tiebreak so two
+// equal deals do not swap between renders. Undefined when no deal can honestly
+// be called the leading one.
 //
-// Mixed currencies fall back to the newest rather than ranking across them: a
-// deal's amount carries no base conversion, so comparing 100 JPY with 100 EUR
-// would pick a winner by coincidence.
-function leadingDeal(deals: readonly Deal[]): Deal | undefined {
-  if (deals.length === 0) {
+// TWO refusals, both because picking wrong sends the reader to the wrong
+// offer:
+//
+//   - Mixed currencies. A deal's amount carries no base conversion, so
+//     comparing 100 JPY with 100 EUR picks a winner by coincidence.
+//   - A truncated deals page. The 360 caps its sections, so the largest deal
+//     may not be on the page — and "the last offer" pointing at the
+//     second-largest deal is a line the reader has no way to question.
+//
+// In both cases the block is omitted rather than filled from a guess.
+function leadingDeal(
+  deals: readonly Deal[],
+  truncated: boolean,
+): Deal | undefined {
+  if (deals.length === 0 || truncated) {
     return undefined;
   }
   const currencies = new Set(
     deals.map((deal) => deal.amount?.currency).filter(Boolean),
   );
   if (currencies.size > 1) {
-    return deals[0];
+    return undefined;
   }
   return [...deals].sort((a, b) => {
     const left = a.amount?.amount_minor ?? -1;
