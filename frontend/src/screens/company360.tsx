@@ -1352,18 +1352,44 @@ export function citationChips(
  * clickable element that does nothing teaches the reader that citations do not
  * work, which costs more than the click it saves.
  */
+// The citation kinds that open a RECEIPT rather than a record page. Only these
+// can be stepped through, because only these render in the drawer.
+const RECEIPT_CITATIONS = new Set(["fact", "profile_field"]);
+
+// One steppable citation, in the receipt's own shape.
+export type CitedSibling = {
+  entityType: "fact" | "profile_field";
+  entityId: string;
+};
+
 function Citations({
   evidence,
   onOpenRecord,
 }: Readonly<{
   evidence: readonly Cited[];
-  onOpenRecord?: (entityType: string, entityId: string) => void;
+  onOpenRecord?: (
+    entityType: string,
+    entityId: string,
+    siblings?: readonly CitedSibling[],
+  ) => void;
 }>) {
   const t = useT();
   const chips = citationChips(
     evidence,
     (entityType) => Boolean(onOpenRecord) && ROUTABLE_CITATIONS.has(entityType),
   );
+  // THIS sentence's citations, in the order it cites them, so the receipt's
+  // prev/next walks the sentence the reader is actually looking at. The order
+  // belongs to the sentence, which is why it is passed from here rather than
+  // rebuilt in the drawer.
+  // Mapped to the receipt's own shape here, at the one place that knows both:
+  // the wire is snake_case and the drawer's CitedRecord is not.
+  const siblings = evidence
+    .filter((each) => RECEIPT_CITATIONS.has(each.entity_type))
+    .map((each) => ({
+      entityType: each.entity_type as "fact" | "profile_field",
+      entityId: each.entity_id,
+    }));
   if (chips.length === 0) {
     return null;
   }
@@ -1375,7 +1401,9 @@ function Citations({
             key={`${chip.entityType}:${chip.entityId}`}
             type="button"
             className="co-brief-cite"
-            onClick={() => onOpenRecord?.(chip.entityType, chip.entityId)}
+            onClick={() =>
+              onOpenRecord?.(chip.entityType, chip.entityId, siblings)
+            }
           >
             {t(`co.brief.cite.${chip.entityType}`)}
           </button>

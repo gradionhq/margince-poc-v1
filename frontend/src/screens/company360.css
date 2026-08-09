@@ -680,3 +680,12 @@
   gap: var(--space-1);
   margin-top: var(--space-2);
 }
+
+/* The receipt's prev/next, pinned under the body so a long excerpt does not
+   push them out of reach. */
+.co-evidence-steps {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}

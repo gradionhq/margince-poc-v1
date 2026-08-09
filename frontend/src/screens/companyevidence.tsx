@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, EmptyState, Modal, Skeleton } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Modal,
+  Skeleton,
+} from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -47,10 +53,16 @@ export function EvidenceModal({
   orgId,
   cited,
   onClose,
+  onStep,
 }: Readonly<{
   orgId: string;
   cited: CitedRecord;
   onClose: () => void;
+  // Move to the neighbouring claim in the list that opened this. The ORDER is
+  // the citing card's, not the drawer's: the drawer sees one receipt at a
+  // time and has no idea what comes next. A card that offers no ordering gets
+  // no arrows rather than arrows that guess.
+  onStep?: (direction: -1 | 1) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -78,7 +90,15 @@ export function EvidenceModal({
 
   const shown = receipt.data;
   return (
-    <Modal open onClose={onClose} labelledBy="co-evidence-title">
+    // A right-anchored DRAWER (mockup State C): the claim's own sentence stays
+    // on screen behind it, which is the thing the reader is checking the
+    // receipt against. A centred box covers it.
+    <Modal
+      open
+      onClose={onClose}
+      labelledBy="co-evidence-title"
+      placement="right"
+    >
       <h2 id="co-evidence-title">{t("co.evidence.title")}</h2>
       {receipt.isPending ? (
         <Skeleton width="100%" height={120} />
@@ -92,6 +112,7 @@ export function EvidenceModal({
           </p>
           <p className="co-evidence-origin">
             <Badge>{t(KIND_LABELS[shown.source_kind])}</Badge>{" "}
+            <ExtractedMark receipt={shown} />{" "}
             {t("co.evidence.producedBy", { who: shown.produced_by })}
           </p>
           {shown.excerpt && (
@@ -121,7 +142,49 @@ export function EvidenceModal({
           )}
         </div>
       )}
+      <EvidenceSteps onStep={onStep} />
     </Modal>
+  );
+}
+
+// "AI extracted · not yet confirmed", derived rather than stored: a claim
+// nothing but a machine has touched, that no person has since verified. The
+// PREDICATE is stated here rather than left implicit, because the badge makes
+// a claim about the claim and a reader deserves to know what earned it.
+//
+// `human` and `migration` sources are excluded: a person typed the first and
+// an older system holds the second, so "AI extracted" would be false of both.
+function ExtractedMark({ receipt }: Readonly<{ receipt: Receipt }>) {
+  const t = useT();
+  const machineWritten =
+    receipt.source_kind !== "human" && receipt.source_kind !== "migration";
+  if (!machineWritten || receipt.last_verified_at) {
+    return null;
+  }
+  return <Badge tone="ai">{t("co.evidence.extractedUnconfirmed")}</Badge>;
+}
+
+// Previous / next through the list the citing card owns.
+//
+// Rendered only when that card offered an ordering. A drawer that drew arrows
+// for a card with no order would step through nothing, and one that guessed an
+// order would step somewhere the reader cannot predict.
+function EvidenceSteps({
+  onStep,
+}: Readonly<{ onStep?: (direction: -1 | 1) => void }>) {
+  const t = useT();
+  if (!onStep) {
+    return null;
+  }
+  return (
+    <div className="co-evidence-steps">
+      <Button small onClick={() => onStep(-1)}>
+        {t("co.evidence.previous")}
+      </Button>
+      <Button small onClick={() => onStep(1)}>
+        {t("co.evidence.next")}
+      </Button>
+    </div>
   );
 }
 
