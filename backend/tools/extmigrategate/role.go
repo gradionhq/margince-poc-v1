@@ -15,7 +15,7 @@ import (
 )
 
 // extSchema is the one schema an extension's migrations may create in; the
-// core owns public (backend/migrations/core/0200_ext_schema.up.sql).
+// core owns public (backend/migrations/core/0202_ext_schema.up.sql).
 const extSchema = "ext"
 
 // coreTenantParent is the core table every extension tenant table hangs off.
@@ -160,7 +160,7 @@ func (r *extRole) assertRestricted(ctx context.Context) error {
 		// unit fail inside its own CREATE TABLE.
 		return fmt.Errorf("role %s cannot USE schema public, so it cannot name %s in a foreign key — grant USAGE on public to PUBLIC on this cluster (CREATE stays revoked)", r.name, coreTenantParent)
 	case !createExt || !usageExt:
-		return fmt.Errorf("role %s lacks CREATE/USAGE on schema %s — migration 0200 creates that schema; is this database migrated to head?", r.name, extSchema)
+		return fmt.Errorf("role %s lacks CREATE/USAGE on schema %s — migration 0202 creates that schema; is this database migrated to head?", r.name, extSchema)
 	}
 	return r.assertNoCorePrivileges(ctx)
 }

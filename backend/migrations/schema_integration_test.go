@@ -69,7 +69,7 @@ func migrateAll(t *testing.T, conn *pgx.Conn) {
 //
 // BOTH schemas the migrations own, not just public. Every clone is copied from
 // the migrated template (scripts/lib-testdb.sh), so ext arrives already created
-// and owned by margince_owner; leaving it would hand 0200 a schema it did not
+// and owned by margince_owner; leaving it would hand 0202 a schema it did not
 // create, and its `GRANT USAGE ON SCHEMA ext` would then fail for a migration
 // role that is not the owner. Dropping it is the same move public already gets,
 // for the same reason: the role under test must build what it owns.
@@ -77,7 +77,7 @@ func migrateAll(t *testing.T, conn *pgx.Conn) {
 // CASCADE here, where the migration's own down half deliberately uses RESTRICT:
 // this is a test reset primitive over a throwaway clone, and refusing to clear
 // a leftover extension table would only strand the next run. RESTRICT belongs
-// in 0200_ext_schema.down.sql, where the data is real.
+// in 0202_ext_schema.down.sql, where the data is real.
 func resetSchema(t *testing.T, conn *pgx.Conn) {
 	t.Helper()
 	ctx := context.Background()

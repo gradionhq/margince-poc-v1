@@ -68,7 +68,7 @@ var (
 // for the current one. Every caller selects a qualified identifier from it, so
 // the emitted statements never depend on search_path resolution.
 //
-// ext is in scope for exactly the reason public is. Since 0200 every extension
+// ext is in scope for exactly the reason public is. Since 0202 every extension
 // unit's tables live there (ADR-0069), applied by the same lane, and an ext_
 // table left out of this fragment is one no reset ever empties: the rows an
 // integration test writes through a unit survive into every later test in the

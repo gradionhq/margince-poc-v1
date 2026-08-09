@@ -59,7 +59,7 @@ func asMigrator(t *testing.T, admin *pgx.Conn) *pgx.Conn {
 		`DROP ROLE IF EXISTS ` + migratorRole,
 		`CREATE ROLE ` + migratorRole + ` LOGIN PASSWORD '` + password + `' NOSUPERUSER NOBYPASSRLS`,
 		`GRANT CREATE, USAGE ON SCHEMA public TO ` + migratorRole,
-		// CREATE on the DATABASE, not just on public: since 0200_ext_schema the
+		// CREATE on the DATABASE, not just on public: since 0202_ext_schema the
 		// migrations create a second schema (ext), and CREATE SCHEMA is a
 		// database-level privilege. A deployed installation's migration role
 		// already holds it and always has — scripts/deploy/db-bootstrap.sql
@@ -203,7 +203,7 @@ func TestAnUnboundTenantWriteSucceedsAndChangesNothingForTheMigrationRole(t *tes
 }
 
 // assertNotTheDatabaseOwner is the second half of what "the deployed migration
-// role" means, and the half nothing checked until 0200 needed it.
+// role" means, and the half nothing checked until 0202 needed it.
 //
 // A database's owner holds every database-level privilege implicitly, so a
 // stand-in that happened to own this database would satisfy CREATE SCHEMA
@@ -229,7 +229,7 @@ func assertNotTheDatabaseOwner(ctx context.Context, t *testing.T, conn *pgx.Conn
 // whole class of defect `make check-q` cannot see, and it exists because that
 // class already shipped once.
 //
-// 0200 added `CREATE SCHEMA ext`. CREATE SCHEMA is a DATABASE-level privilege,
+// 0202 added `CREATE SCHEMA ext`. CREATE SCHEMA is a DATABASE-level privilege,
 // not a schema-level one, and the restricted stand-in held only CREATE on
 // public — so four tests in this package broke with `permission denied for
 // database`. Nothing went red for the author: the merge gate does not run the
@@ -280,13 +280,13 @@ func TestTheCoreLaneAppliesUnderTheDeployedMigrationRole(t *testing.T) {
 	}
 
 	// The ext schema by name, because it is the statement that broke: a
-	// table count alone would stay green if 0200 were reduced to a no-op.
+	// table count alone would stay green if 0202 were reduced to a no-op.
 	var extExists bool
 	if err := migrator.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'ext')`).Scan(&extExists); err != nil {
 		t.Fatalf("looking for the ext schema: %v", err)
 	}
 	if !extExists {
-		t.Error("the ext schema does not exist after the core lane — 0200's CREATE SCHEMA is what needs a database-level privilege")
+		t.Error("the ext schema does not exist after the core lane — 0202's CREATE SCHEMA is what needs a database-level privilege")
 	}
 }
