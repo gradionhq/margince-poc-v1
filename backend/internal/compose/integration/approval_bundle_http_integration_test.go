@@ -143,6 +143,10 @@ func TestABundleIsListedAndDecidedThroughTheAPI(t *testing.T) {
 		nil, nil, &replay); status != http.StatusOK {
 		t.Fatalf("re-approve bundle → %d, want 200 reporting per member", status)
 	}
+	if len(replay.Data) != 3 {
+		t.Fatalf("the second call reported %d members, want the same 3 — a loop over an "+
+			"empty list would pass this test having checked nothing", len(replay.Data))
+	}
 	for _, member := range replay.Data {
 		if member.Outcome != "already_decided" {
 			t.Errorf("member %s on the second call → %q, want already_decided",

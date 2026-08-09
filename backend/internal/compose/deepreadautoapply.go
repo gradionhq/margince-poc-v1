@@ -58,9 +58,11 @@ func (w *siteDeepReadWorker) fillMatchedPeople(ctx context.Context, orgID ids.Or
 			SourceURL:       person.SourceURL,
 		})
 		if err != nil {
-			// A failed fill answers matched=false, so the person falls through to
-			// staging on the line below and still reaches a human — which is the
-			// invariant, not an accident of this branch.
+			// The lead survives a failed fill — the person still reaches a human.
+			// Stated here rather than borrowed: the store answers no match on
+			// error today, but that is its contract to keep, and this loop's
+			// invariant should not depend on remembering it.
+			matched = false
 			w.log.WarnContext(ctx, "auto-enrich: filling a matched site person failed",
 				"org", orgID.String(), "person", person.Name, "err", err)
 		}
