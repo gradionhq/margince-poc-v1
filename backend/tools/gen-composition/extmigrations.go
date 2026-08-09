@@ -101,7 +101,10 @@ func derivedIdentifier(namespace, table string) (string, error) {
 // their suffixes for the cross-unit check.
 //
 // A unit without migrations/ declares no tables; that is the common case and
-// not an error.
+// not an error. `present` distinguishes that case from a unit that ships the
+// layer, which is what the declaration reader needs to know: the SQL being on
+// disk and the SQL being applied are two facts, and only the Extension
+// literal's Migrations field connects them.
 //
 // On the schema: declaredTables checks the qualifier only when one is WRITTEN,
 // so a bare `CREATE TABLE ext_crm_demo_note (…)` is accepted here even though
@@ -110,18 +113,18 @@ func derivedIdentifier(namespace, table string) (string, error) {
 // role, which holds CREATE on ext alone, so an unqualified create fails loudly
 // at apply time — but the rule this function enforces is "no OTHER schema is
 // named", not "every table lands in ext".
-func collectUnitTables(name, dir string) ([]string, error) {
+func collectUnitTables(name, dir string) (tableNames []string, present bool, err error) {
 	layer := filepath.Join(dir, migrationsLayer)
 	entries, err := os.ReadDir(layer)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	namespace, err := extension.Name(name).Namespace()
 	if err != nil {
-		return nil, fmt.Errorf("extensions/%s: %w", name, err)
+		return nil, false, fmt.Errorf("extensions/%s: %w", name, err)
 	}
 	var tables []string
 	for _, e := range entries {
@@ -129,30 +132,31 @@ func collectUnitTables(name, dir string) ([]string, error) {
 			// dbmigrate.Load reads ONE directory and does not descend, so a
 			// nested migration would be ignored at apply time while looking
 			// applied in the tree — silence, not a partial apply.
-			return nil, fmt.Errorf("extensions/%s: %s/%s/ is a directory — the migrations layer is a flat set of .sql files, and a nested one would never be applied", name, migrationsLayer, e.Name())
+			return nil, false, fmt.Errorf("extensions/%s: %s/%s/ is a directory — the migrations layer is a flat set of .sql files, and a nested one would never be applied", name, migrationsLayer, e.Name())
 		}
 		if !strings.HasSuffix(e.Name(), ".sql") {
-			return nil, fmt.Errorf("extensions/%s: %s/%s is not a .sql file — the migrations layer holds NNNN_name.up.sql / .down.sql pairs and nothing else", name, migrationsLayer, e.Name())
+			return nil, false, fmt.Errorf("extensions/%s: %s/%s is not a .sql file — the migrations layer holds NNNN_name.up.sql / .down.sql pairs and nothing else", name, migrationsLayer, e.Name())
 		}
 		// Only the up half creates tables; the down half drops them, and
 		// scanning it would double-count every name.
 		if !strings.HasSuffix(e.Name(), ".up.sql") {
 			continue
 		}
+		present = true
 		sqlBytes, err := os.ReadFile(filepath.Join(layer, e.Name()))
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		found, err := declaredTables(name, namespace, filepath.ToSlash(filepath.Join(migrationsLayer, e.Name())), string(sqlBytes))
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		tables = append(tables, found...)
 	}
 	// Sorted so a refusal reads the same on every machine: os.ReadDir is
 	// ordered, but the suffixes within one file are not otherwise ranked.
 	sort.Strings(tables)
-	return tables, nil
+	return tables, present, nil
 }
 
 // createTablePattern finds the target of a CREATE TABLE. It is deliberately

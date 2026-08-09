@@ -1,4 +1,4 @@
--- 0202: the ext schema — where every extension's own tables live (ADR-0069).
+-- 0204: the ext schema — where every extension's own tables live (ADR-0069).
 --
 -- A separate schema, not more tables in public, is what lets the catalog gate
 -- enumerate ext's contents and see exactly what a unit created. Inside ext,

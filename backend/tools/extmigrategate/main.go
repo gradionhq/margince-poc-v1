@@ -65,7 +65,7 @@ func main() {
 
 // run is the whole gate, separated from main so the integration suite drives
 // it in-process and reads the error rather than parsing a subprocess's stderr.
-func run(ctx context.Context, unit, dir, dsn string) error {
+func run(ctx context.Context, unit, dir, dsn string) (err error) {
 	switch {
 	case unit == "":
 		return errors.New("-unit is required")
@@ -104,6 +104,17 @@ func run(ctx context.Context, unit, dir, dsn string) error {
 	}
 	defer closeQuietly(ctx, admin)
 
+	// The success line is deferred, and registered BEFORE the cleanup defer so
+	// that it runs AFTER it: cleanup can turn a passing run into a failing one,
+	// and a gate that printed OK and then exited 1 would have told the operator
+	// both things.
+	var summary string
+	defer func() {
+		if err == nil && summary != "" {
+			fmt.Println(summary)
+		}
+	}()
+
 	role, err := mintRole(ctx, admin, namespace, dsn)
 	if err != nil {
 		return fmt.Errorf("%s: %w", unit, err)
@@ -112,10 +123,22 @@ func run(ctx context.Context, unit, dir, dsn string) error {
 	// dropped, and the role must be dropped even when an assertion fails —
 	// a login role left on the cluster owns the tables it created and can
 	// drop their tenant-isolation policies.
+	//
+	// A failed cleanup is a FAILED GATE, not a note on stderr. The role is a
+	// LOGIN role that owns whatever the migrations just created, so leaving one
+	// behind is a standing credential on the cluster; a run that printed OK
+	// while leaking one would be reporting the opposite of what happened. It
+	// joins rather than replaces an assertion failure, because which rule broke
+	// is still the more useful half of the message.
 	defer func() {
 		closeQuietly(ctx, role.conn)
-		if dropErr := role.drop(ctx, admin); dropErr != nil {
-			fmt.Fprintf(os.Stderr, "extmigrategate: %s: %v\n", unit, dropErr)
+		dropErr := role.drop(ctx, admin)
+		switch {
+		case dropErr == nil:
+		case err == nil:
+			err = fmt.Errorf("%s: %w", unit, dropErr)
+		default:
+			err = fmt.Errorf("%w (and cleaning up afterwards: %s: %w)", err, unit, dropErr)
 		}
 	}()
 
@@ -135,9 +158,9 @@ func run(ctx context.Context, unit, dir, dsn string) error {
 	if err := validateReverted(ctx, role.conn, namespace, unit); err != nil {
 		return err
 	}
-	// Printed from here rather than from main so the namespace is the one that
-	// was actually used, not a second derivation of it.
-	fmt.Printf("OK: extmigrategate %s — %d migration(s) apply as %s, the catalog holds, and the revert is clean\n",
+	// Composed here rather than in main so the namespace is the one that was
+	// actually used, not a second derivation of it.
+	summary = fmt.Sprintf("OK: extmigrategate %s — %d migration(s) apply as %s, the catalog holds, and the revert is clean",
 		unit, len(migrations), namespace)
 	return nil
 }

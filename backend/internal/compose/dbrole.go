@@ -16,15 +16,24 @@ import (
 // second query a different session, and the answer would then describe a role
 // this pool never serves under.
 //
-// The ownership arm is a catalog join, not a cast of 'ext' to regnamespace: the
-// schema is created by the extension migration namespace and is legitimately
-// absent on an installation that has none, where the honest answer is zero
-// objects owned rather than a boot failure.
+// The ownership arms are catalog joins, not a cast of 'ext' to regnamespace:
+// the schema is created by the extension migration namespace and is
+// legitimately absent on an installation that has none, where the honest answer
+// is zero objects owned rather than a boot failure.
+//
+// Both arms are read, and the schema arm is not redundant with the relation
+// one: on an installation with no units yet composed, `ext` holds no relations,
+// so a pool pointed at the owner DSN would pass on an empty count while holding
+// the schema itself — and a schema owner can CREATE, and therefore later own,
+// every unit table that lands in it. The empty tree is exactly the
+// configuration this check must still protect.
 const runtimeRoleQuery = `
 	SELECT r.rolname, r.rolsuper, r.rolbypassrls,
 	       (SELECT count(*) FROM pg_class c
 	          JOIN pg_namespace n ON n.oid = c.relnamespace
-	         WHERE n.nspname = 'ext' AND c.relowner = r.oid)
+	         WHERE n.nspname = 'ext' AND c.relowner = r.oid),
+	       EXISTS (SELECT 1 FROM pg_namespace n
+	                WHERE n.nspname = 'ext' AND n.nspowner = r.oid)
 	  FROM pg_roles r WHERE r.rolname = current_user`
 
 // AssertRuntimeRole refuses to serve when the runtime pool carries an
@@ -40,15 +49,15 @@ const runtimeRoleQuery = `
 // gets runtime database access under a role holding any of the three.
 func AssertRuntimeRole(ctx context.Context, pool *pgxpool.Pool) error {
 	var role string
-	var super, bypass bool
+	var super, bypass, ownsExtSchema bool
 	var ownsExt int
-	if err := pool.QueryRow(ctx, runtimeRoleQuery).Scan(&role, &super, &bypass, &ownsExt); err != nil {
+	if err := pool.QueryRow(ctx, runtimeRoleQuery).Scan(&role, &super, &bypass, &ownsExt, &ownsExtSchema); err != nil {
 		return fmt.Errorf("reading the runtime role's attributes: %w", err)
 	}
-	if super || bypass || ownsExt > 0 {
-		return fmt.Errorf("the runtime pool connects as %q (superuser=%t bypassrls=%t, owns %d object(s) in schema ext) — "+
+	if super || bypass || ownsExt > 0 || ownsExtSchema {
+		return fmt.Errorf("the runtime pool connects as %q (superuser=%t bypassrls=%t, owns schema ext=%t, owns %d object(s) in schema ext) — "+
 			"the app role must hold none of these; point it at the app DSN, not the migration owner's",
-			role, super, bypass, ownsExt)
+			role, super, bypass, ownsExtSchema, ownsExt)
 	}
 	return nil
 }

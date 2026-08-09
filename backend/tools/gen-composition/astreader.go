@@ -35,7 +35,10 @@ func scannableGoFile(name string) bool {
 
 func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declaredVerb, jobDecls []extension.JobDeclaration) ([]byte, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution)
+	// ParseComments, because one of the declarations this reader has to judge
+	// lives in a comment: //go:embed binds a pattern to the var beneath it, and
+	// the Migrations field is checked against exactly that binding.
+	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution|parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
@@ -45,7 +48,14 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declar
 	if err := rejectLiveInitializers(pkgs, fset); err != nil {
 		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
-	r := &unitReader{fset: fset, vocab: vocab, verbs: verbs, jobs: jobDecls}
+	r := &unitReader{
+		fset:            fset,
+		vocab:           vocab,
+		verbs:           verbs,
+		jobs:            jobDecls,
+		hasMigrations:   u.HasMigrations,
+		migrationEmbeds: migrationEmbedVars(pkgs),
+	}
 	newFn, newFile, count := findNew(pkgs)
 	if count == 0 {
 		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is required", u.Name)
@@ -108,6 +118,71 @@ type unitReader struct {
 	// read from the MERGED contract for the same reason verbs are: the join
 	// between behavior and declaration, and the manifest's job risk tiers.
 	jobs []extension.JobDeclaration
+	// hasMigrations is whether the unit ships a migrations/ layer, read from
+	// the tree rather than from the AST — the other half of the join the
+	// Migrations field has to satisfy.
+	hasMigrations bool
+	// migrationEmbeds are the package-level vars whose //go:embed directive
+	// names the migrations layer, by name. The Migrations field must be one of
+	// them; see readExtensionField.
+	migrationEmbeds map[string]bool
+	// sawMigrations records that the literal set Migrations at all, so an
+	// absent field on a unit that ships SQL is caught after the walk.
+	sawMigrations bool
+}
+
+// migrationEmbedVars collects the package-level vars whose //go:embed
+// directive names the migrations layer.
+//
+// The directive is read from the declaration's doc comment because that is
+// where the go:embed contract puts it: the compiler binds the pattern to the
+// var immediately below it, so the same association read here is the one that
+// will hold at build time. A pattern is accepted when its first path element
+// is the migrations layer — `migrations`, `migrations/*.sql`, and
+// `all:migrations` all embed the directory this gate is about.
+func migrationEmbedVars(pkgs map[string]*ast.Package) map[string]bool {
+	embeds := map[string]bool{}
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			for _, decl := range f.Decls {
+				d, ok := decl.(*ast.GenDecl)
+				if !ok || d.Tok != token.VAR || d.Doc == nil {
+					continue
+				}
+				if !embedsMigrations(d.Doc) {
+					continue
+				}
+				for _, spec := range d.Specs {
+					v, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for _, name := range v.Names {
+						embeds[name.Name] = true
+					}
+				}
+			}
+		}
+	}
+	return embeds
+}
+
+func embedsMigrations(doc *ast.CommentGroup) bool {
+	for _, c := range doc.List {
+		directive, ok := strings.CutPrefix(c.Text, "//go:embed")
+		if !ok {
+			continue
+		}
+		for _, pattern := range strings.Fields(directive) {
+			// `all:` is the only prefix go:embed defines, and it changes which
+			// files inside the directory are taken, not which directory.
+			pattern = strings.TrimPrefix(pattern, "all:")
+			if first, _, _ := strings.Cut(pattern, "/"); first == migrationsLayer {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManifest, error) {
@@ -132,6 +207,9 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 		if err := r.readExtensionField(elt, file, &m); err != nil {
 			return unitManifest{}, err
 		}
+	}
+	if r.hasMigrations && !r.sawMigrations {
+		return unitManifest{}, r.errPos(lit, "the unit ships %s/ but New() declares no Migrations field — the directory is validated and gated, and applied by nothing; embed it and name it here", migrationsLayer)
 	}
 	// Validate identity through the published grammar the boot preflight
 	// runs, so gen-time acceptance cannot diverge from boot-time: an empty,
@@ -176,7 +254,7 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 		var tools []declaredTool
 		tools, err = r.readTools(kv.Value, file)
 		if err == nil {
-			err = r.joinToolsToContract(tools, r.verbs)
+			err = r.joinToolsToContract(served(tools), r.verbs)
 		}
 	case "Jobs":
 		// Symmetric with Tools: the manifest's job risk tiers are already set,
@@ -186,18 +264,37 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 		var declared []declaredTool
 		declared, err = r.readJobs(kv.Value, file)
 		if err == nil {
-			err = r.joinJobsToContract(declared, r.jobs)
+			err = r.joinJobsToContract(served(declared), r.jobs)
 		}
 	case "Jurisdictions":
 		// Recognized and deliberately skipped: a jurisdiction pack is
 		// passive policy the core consults, never a governed operation an
 		// operator resolves, so it contributes no manifest entry.
 	case "Migrations":
-		// Recognized and deliberately skipped for the same reason, and the
-		// layer is not unread: collectUnitTables validates the SQL this field
-		// embeds, and extmigrategate applies it as the restricted ext_<name>
-		// role. What an operator resolves are risk tiers and secret requests;
-		// a schema is neither.
+		// It contributes no MANIFEST entry, for the same reason a jurisdiction
+		// pack does not: what an operator resolves are risk tiers and secret
+		// requests, and a schema is neither. But the field is not unchecked,
+		// because it is the ONLY thing that connects the SQL on disk to the SQL
+		// that runs. collectUnitTables reads extensions/<unit>/migrations/ and
+		// extmigrategate applies it as the restricted ext_<name> role; both
+		// address the DIRECTORY. cmd/migrate applies this FIELD. A unit that
+		// ships a validated, gated migrations/ tree and leaves the field unset,
+		// or points it at some other embedded FS, passes every one of those
+		// checks and then boots against a database where its tables were never
+		// created — and the first symptom is a handler answering `relation
+		// does not exist` in production.
+		//
+		// So the field must name a package-level var whose //go:embed directive
+		// covers that directory. That is a shape check, not a proof: the var
+		// could embed migrations/ AND more, and an fs.FS assembled at runtime
+		// is outside what a static reader can follow at all. What it does close
+		// is the whole population of accidents — the unset field, the typo, the
+		// var that embeds a different layer.
+		r.sawMigrations = true
+		name, ok := kv.Value.(*ast.Ident)
+		if !ok || !r.migrationEmbeds[name.Name] {
+			err = r.errAt(kv.Value, "Migrations must name a package-level var whose //go:embed directive covers %s/ — the field is what cmd/migrate applies, so one pointing anywhere else leaves the unit's tables uncreated at boot", migrationsLayer)
+		}
 	case "Secrets":
 		var secrets []secretsRequest
 		secrets, err = r.readSecrets(kv.Value, file)

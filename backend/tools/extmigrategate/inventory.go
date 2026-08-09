@@ -13,7 +13,7 @@ import (
 
 // relationsInExt lists everything the ext schema holds. The gate runs against
 // a throwaway database whose ext schema is empty before the migrations apply
-// (0202 creates the schema and nothing in it), so every row here is the unit's
+// (0204 creates the schema and nothing in it), so every row here is the unit's
 // doing — including rows the unit does not own, which is itself a refusal.
 func relationsInExt(ctx context.Context, conn *pgx.Conn) ([]relation, error) {
 	rows, err := conn.Query(ctx, `
@@ -52,6 +52,19 @@ func relationsInExt(ctx context.Context, conn *pgx.Conn) ([]relation, error) {
 // only "did anything land ANYWHERE ELSE" — a routine, a type, a schema, a
 // default-privilege grant, a relation in another schema. After the revert it
 // asks "is anything left at all", ext included.
+//
+// includeExt narrows the RELATION branch alone, and deliberately: relations in
+// ext are the only kind validateCatalog inspects one by one. Every other branch
+// reports its objects wherever they live, ext included, because nothing else
+// looks at them — an operator or a collation the unit created inside ext is
+// outside the allowlist in either phase, and a branch that filtered on schema
+// like the relation branch does would let it pass validation AND pass the
+// clean-down assertion.
+//
+// The kinds enumerated are the schema-scoped catalogs that carry an owner
+// column. Cluster-scoped ones (a foreign-data wrapper, a language, a tablespace)
+// are absent because a role holding neither superuser nor CREATEDB cannot make
+// one; if that premise ever changes, they belong here too.
 func ownedObjects(ctx context.Context, conn *pgx.Conn, role string, includeExt bool) ([]string, error) {
 	// pg_toast is always excluded: a table's TOAST relation is owned by the
 	// table's owner and disappears with it, so reporting it would name an
@@ -74,6 +87,38 @@ func ownedObjects(ctx context.Context, conn *pgx.Conn, role string, includeExt b
 		SELECT 'type', n.nspname || '.' || t.typname
 		  FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
 		 WHERE t.typowner = to_regrole($1::text) AND t.typrelid = 0 AND t.typelem = 0
+		UNION ALL
+		SELECT 'operator', n.nspname || '.' || o.oprname
+		  FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace
+		 WHERE o.oprowner = to_regrole($1::text)
+		UNION ALL
+		SELECT 'operator class', n.nspname || '.' || oc.opcname
+		  FROM pg_opclass oc JOIN pg_namespace n ON n.oid = oc.opcnamespace
+		 WHERE oc.opcowner = to_regrole($1::text)
+		UNION ALL
+		SELECT 'operator family', n.nspname || '.' || opf.opfname
+		  FROM pg_opfamily opf JOIN pg_namespace n ON n.oid = opf.opfnamespace
+		 WHERE opf.opfowner = to_regrole($1::text)
+		UNION ALL
+		SELECT 'collation', n.nspname || '.' || col.collname
+		  FROM pg_collation col JOIN pg_namespace n ON n.oid = col.collnamespace
+		 WHERE col.collowner = to_regrole($1::text)
+		UNION ALL
+		SELECT 'conversion', n.nspname || '.' || cv.conname
+		  FROM pg_conversion cv JOIN pg_namespace n ON n.oid = cv.connamespace
+		 WHERE cv.conowner = to_regrole($1::text)
+		UNION ALL
+		SELECT 'extended statistics', n.nspname || '.' || st.stxname
+		  FROM pg_statistic_ext st JOIN pg_namespace n ON n.oid = st.stxnamespace
+		 WHERE st.stxowner = to_regrole($1::text)
+		UNION ALL
+		SELECT 'text search dictionary', n.nspname || '.' || td.dictname
+		  FROM pg_ts_dict td JOIN pg_namespace n ON n.oid = td.dictnamespace
+		 WHERE td.dictowner = to_regrole($1::text)
+		UNION ALL
+		SELECT 'text search configuration', n.nspname || '.' || tc.cfgname
+		  FROM pg_ts_config tc JOIN pg_namespace n ON n.oid = tc.cfgnamespace
+		 WHERE tc.cfgowner = to_regrole($1::text)
 		UNION ALL
 		SELECT 'schema', n.nspname
 		  FROM pg_namespace n WHERE n.nspowner = to_regrole($1::text)

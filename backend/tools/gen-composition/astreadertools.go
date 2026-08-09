@@ -169,6 +169,26 @@ type declaredTool struct {
 	at     ast.Node
 }
 
+// served keeps the entries that actually serve a handler, which is the only
+// population either join has an opinion about.
+//
+// An inert entry is filtered out rather than joined, because the two rules
+// would otherwise contradict each other: `Handle: nil` is DEFINED as "declare
+// it, serve nothing" and the runtime adapter skips it, so an inert entry the
+// contract does not declare registers nothing, publishes nothing, and is
+// indistinguishable at boot from an entry that was never written — while the
+// join would refuse the whole unit over it. What the join is for is behavior
+// with no published surface, and an inert entry has no behavior.
+func served(entries []declaredTool) []declaredTool {
+	kept := make([]declaredTool, 0, len(entries))
+	for _, e := range entries {
+		if e.served {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
 // joinToolsToContract reconciles the unit's Go behavior with the operations its
 // contract fragment declares, and refuses the one direction that is a defect.
 //

@@ -81,3 +81,37 @@ func TestAssertRuntimeRoleRefusesARoleOwningExtObjects(t *testing.T) {
 		t.Fatal("AssertRuntimeRole accepted a runtime role owning an ext relation")
 	}
 }
+
+func TestAssertRuntimeRoleRefusesARoleOwningTheExtSchema(t *testing.T) {
+	env := Setup(t)
+	ctx := context.Background()
+
+	// The empty tree is the case the relation count cannot see: with no unit
+	// composed there are no ext relations to own, so a pool pointed at the
+	// owner DSN would pass on a zero count while holding the schema — and the
+	// schema's owner can CREATE in it, so it owns every unit table that
+	// afterwards lands there.
+	var runtimeRole string
+	if err := env.Pool.QueryRow(ctx, `SELECT current_user`).Scan(&runtimeRole); err != nil {
+		t.Fatalf("reading the runtime role name: %v", err)
+	}
+	owner := OwnerConn(t)
+	var priorOwner string
+	if err := owner.QueryRow(ctx,
+		`SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'ext'`,
+	).Scan(&priorOwner); err != nil {
+		t.Fatalf("reading the ext schema's owner: %v", err)
+	}
+	if _, err := owner.Exec(ctx, `ALTER SCHEMA ext OWNER TO `+runtimeRole); err != nil {
+		t.Fatalf("handing the ext schema to the runtime role: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(), `ALTER SCHEMA ext OWNER TO `+priorOwner); err != nil {
+			t.Errorf("returning the ext schema to %s: %v", priorOwner, err)
+		}
+	})
+
+	if err := compose.AssertRuntimeRole(ctx, env.Pool); err == nil {
+		t.Fatal("AssertRuntimeRole accepted a runtime role owning the ext schema")
+	}
+}

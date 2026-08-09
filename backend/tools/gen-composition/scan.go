@@ -27,6 +27,11 @@ type extensionUnit struct {
 	// already stripped of its ext_<namespace>_ prefix — the suffixes whose
 	// join with the namespace checkDerivedIdentifiers validates.
 	Tables []string
+	// HasMigrations reports whether the unit ships a migrations/ layer with at
+	// least one .up.sql in it. It is not `len(Tables) > 0`: a migration that
+	// alters an existing table declares no new one, and a unit whose schema
+	// exists but is never applied is the defect this flag exists to catch.
+	HasMigrations bool
 	// Fragments are the unit's contract overlays, keyed by the core contract
 	// each targets (composedContractBases). Nil for a Go-only unit.
 	Fragments map[string]contractFragment
@@ -138,7 +143,7 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 	if mod.Module == nil || mod.Module.Mod.Path == "" {
 		return extensionUnit{}, fmt.Errorf("extensions/%s: go.mod declares no module path", name)
 	}
-	tables, err := collectUnitTables(name, dir)
+	tables, hasMigrations, err := collectUnitTables(name, dir)
 	if err != nil {
 		return extensionUnit{}, err
 	}
@@ -146,7 +151,14 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 	if err != nil {
 		return extensionUnit{}, err
 	}
-	return extensionUnit{Name: name, Dir: dir, ModulePath: mod.Module.Mod.Path, Tables: tables, Fragments: fragments}, nil
+	return extensionUnit{
+		Name:          name,
+		Dir:           dir,
+		ModulePath:    mod.Module.Mod.Path,
+		Tables:        tables,
+		HasMigrations: hasMigrations,
+		Fragments:     fragments,
+	}, nil
 }
 
 // refuseNonRootGoPackages refuses any Go package inside a unit's tree other

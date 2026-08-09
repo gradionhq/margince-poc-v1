@@ -319,6 +319,60 @@ func New() extension.Extension {
 	}
 }
 
+// TestMigrationsMustEmbedTheLayerThatShipped: the field is the only thing
+// joining the SQL on disk to the SQL cmd/migrate applies, so both halves of
+// that join are refusals. A unit that ships migrations/ and declares no field
+// boots against a database where its tables were never created, and a field
+// pointing at some other embedded FS does the same thing while looking set.
+func TestMigrationsMustEmbedTheLayerThatShipped(t *testing.T) {
+	const upSQL = "CREATE TABLE ext.ext_hello_note (id uuid PRIMARY KEY);\n"
+	const downSQL = "DROP TABLE ext.ext_hello_note;\n"
+
+	derive := func(t *testing.T, source string) error {
+		t.Helper()
+		root := t.TempDir()
+		writeUnit(t, root, "hello", map[string]string{
+			"go.mod":                        "module example.test/ext/hello\n\ngo 1.26.5\n",
+			"x.go":                          source,
+			"migrations/0001_note.up.sql":   upSQL,
+			"migrations/0001_note.down.sql": downSQL,
+		})
+		unit, err := scanUnit("hello", filepath.Join(root, "extensions", "hello"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = deriveUnitManifest(unit, realVocabulary(t), nil, nil)
+		return err
+	}
+
+	unitSource := func(imports, vars, field string) string {
+		return "package hello\n\nimport (\n" + imports + "\n\t\"github.com/gradionhq/margince/backend/pkg/extension\"\n)\n\n" +
+			vars + "\n\nfunc New() extension.Extension {\n\treturn extension.Extension{\n\t\tName:    \"hello\",\n\t\tVersion: \"0.1.0\",\n" + field + "\t}\n}\n"
+	}
+
+	t.Run("absent", func(t *testing.T) {
+		err := derive(t, unitSource("", "", ""))
+		if err == nil || !strings.Contains(err.Error(), "declares no Migrations field") {
+			t.Fatalf("err = %v, want the unapplied-schema refusal", err)
+		}
+	})
+
+	t.Run("embeds another layer", func(t *testing.T) {
+		err := derive(t, unitSource("\t\"embed\"\n",
+			"//go:embed x.go\nvar sql embed.FS", "\t\tMigrations: sql,\n"))
+		if err == nil || !strings.Contains(err.Error(), "//go:embed directive covers migrations/") {
+			t.Fatalf("err = %v, want the wrong-embed refusal", err)
+		}
+	})
+
+	t.Run("embeds the layer", func(t *testing.T) {
+		if err := derive(t, unitSource("\t\"embed\"\n",
+			"//go:embed migrations\nvar sql embed.FS", "\t\tMigrations: sql,\n")); err != nil {
+			t.Fatalf("a unit embedding its own migrations layer must derive: %v", err)
+		}
+	})
+}
+
 // toolUnitSource is a unit declaring one governed tool with the given
 // field body.
 func toolUnitSource(toolFields string) string {
@@ -464,10 +518,27 @@ func TestANarrowedToolFieldIsRefusedAtTheDeclaration(t *testing.T) {
 // be an error: a declared verb with no Go behavior is a contract-only governed
 // request, which is exactly what fixtures/extensions/crm-hello ships.
 func TestBehaviorForAVerbNoContractDeclaresIsRefused(t *testing.T) {
-	_, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tName: \"orphan\","),
+	// A HANDLER is what makes it behavior. The entry below serves one, so it
+	// would reach the registry with nothing published about it.
+	orphan := strings.Replace(
+		toolUnitSource("\t\t\tName: \"orphan\",\n\t\t\tHandle: run,"),
+		"func New()",
+		"func run(context.Context, extension.Runtime, json.RawMessage) (json.RawMessage, error) { return nil, nil }\n\nfunc New()", 1)
+	orphan = strings.Replace(orphan, `import "github.com/gradionhq/margince/backend/pkg/extension"`,
+		"import (\n\t\"context\"\n\t\"encoding/json\"\n\n\t\"github.com/gradionhq/margince/backend/pkg/extension\"\n)", 1)
+	_, err := deriveSynthetic(t, "x", orphan,
 		syntheticVerb("x", "declared_elsewhere", "auto_execute", "read"))
 	if err == nil || !strings.Contains(err.Error(), "no operation in this unit's api/ fragments declares it") {
 		t.Fatalf("err = %v, want the undeclared-behavior refusal", err)
+	}
+
+	// And an INERT entry the contract does not declare is not that defect.
+	// `Handle: nil` means "declare it, serve nothing": the runtime adapter
+	// skips it, so it registers nothing and publishes nothing, and refusing the
+	// unit over it would contradict the field's own definition.
+	if _, err := deriveSynthetic(t, "x", toolUnitSource("\t\t\tName: \"orphan\",\n\t\t\tHandle: nil,"),
+		syntheticVerb("x", "declared_elsewhere", "auto_execute", "read")); err != nil {
+		t.Fatalf("an inert entry the contract does not declare must derive: %v", err)
 	}
 
 	noGoEntry := `package x

@@ -116,7 +116,7 @@ func assertRelationAllowed(ctx context.Context, conn *pgx.Conn, rel relation, na
 	case 'S':
 		// A sequence has no workspace_id to isolate, but it does carry an ACL,
 		// and this allowlist advertises completeness.
-		return assertGrants(ctx, conn, rel, namespace, where, sequenceUse)
+		return assertGrants(ctx, conn, rel, namespace, where, sequenceUse, "")
 	case 'f':
 		return fmt.Errorf("%s is a FOREIGN TABLE — PostgreSQL cannot enforce row-level security on one, so its rows would be reachable across every workspace; extension data lives in ordinary tables in %s", where, extSchema)
 	case 'm':
@@ -143,7 +143,7 @@ func assertTenantTable(ctx context.Context, conn *pgx.Conn, rel relation, namesp
 	if err := assertSinglePolicy(ctx, conn, rel, where); err != nil {
 		return err
 	}
-	if err := assertGrants(ctx, conn, rel, namespace, where, tableDML); err != nil {
+	if err := assertGrants(ctx, conn, rel, namespace, where, tableDML, tableDML); err != nil {
 		return err
 	}
 	// Partitioned tables plan as an Append over their partitions, so the
@@ -320,13 +320,24 @@ func assertSinglePolicy(ctx context.Context, conn *pgx.Conn, rel relation, where
 // and on its individual columns. allowed is the privilege set appRole may hold
 // on this relkind — tableDML for a table, sequenceUse for a sequence, which are
 // different letters and must not be checked against one list.
-func assertGrants(ctx context.Context, conn *pgx.Conn, rel relation, namespace, where, allowed string) error {
+//
+// required is the set appRole must hold, and it is not the same question. The
+// allowlist alone is a one-sided gate: a tenant table granted NOTHING to the
+// runtime role, or granted only SELECT, satisfies "nothing outside the list"
+// perfectly and then answers `permission denied` at the first handler call —
+// exactly the class of defect this gate exists to catch before a deployment
+// does. An empty required skips the check, which is the sequence case: whether
+// a unit's sequence needs the runtime role at all depends on whether a column
+// defaults from it, and demanding the grant unconditionally would refuse an
+// internally-used sequence that is correct.
+func assertGrants(ctx context.Context, conn *pgx.Conn, rel relation, namespace, where, allowed, required string) error {
 	var acl []string
 	if err := conn.QueryRow(ctx,
 		`SELECT coalesce(c.relacl::text[], '{}') FROM pg_class c WHERE c.oid = $1`, rel.oid,
 	).Scan(&acl); err != nil {
 		return fmt.Errorf("reading %s's grants: %w", where, err)
 	}
+	var held string
 	for _, item := range acl {
 		grantee, privileges, ok := strings.Cut(item, "=")
 		if !ok {
@@ -343,6 +354,14 @@ func assertGrants(ctx context.Context, conn *pgx.Conn, rel relation, namespace, 
 		case strings.Trim(privileges, allowed) != "":
 			return fmt.Errorf("%s grants %q to %s — only %q is allowed on this relation; TRUNCATE in particular empties every workspace's rows without consulting the policy", where, privileges, appRole, allowed)
 		}
+		held = privileges
+	}
+	// Equality, not containment: the loop above already refused anything wider,
+	// so a difference here can only be a missing letter. PostgreSQL emits an
+	// ACL's privileges in its own canonical order, and both allowlists are
+	// written in that order, so the two strings compare directly.
+	if required != "" && held != required {
+		return fmt.Errorf("%s grants %q to %s — a tenant table must grant exactly %q, or the handler that reads or writes it answers `permission denied` at runtime while this gate passes", where, held, appRole, required)
 	}
 
 	var column, columnACL string

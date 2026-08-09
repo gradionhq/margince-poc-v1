@@ -1,4 +1,4 @@
--- 0201: an extension's own secret namespace (ADR-0069).
+-- 0203: an extension's own secret namespace (ADR-0069).
 --
 -- extension_secret maps an extension's own key names onto keyvault refs.
 -- keyvault mints opaque refs and scopes them to a workspace in the ref's
@@ -42,6 +42,16 @@ CREATE UNIQUE INDEX extension_secret_workspace_key
 CREATE UNIQUE INDEX extension_secret_user_key
     ON extension_secret (extension_name, workspace_id, user_id, key)
     WHERE user_id IS NOT NULL;
+
+-- Neither unique index above can serve either foreign key: both lead with
+-- extension_name, and a cascade searches on the referencing columns. So
+-- deleting one app_user, or one workspace, would sequentially scan this whole
+-- cross-tenant table — once per referenced row removed. This index leads with
+-- workspace_id, which covers the workspace(id) cascade, and carries user_id,
+-- which covers the composite app_user cascade.
+CREATE INDEX extension_secret_workspace_user
+    ON extension_secret (workspace_id, user_id);
+
 ALTER TABLE extension_secret ENABLE ROW LEVEL SECURITY;
 ALTER TABLE extension_secret FORCE ROW LEVEL SECURITY;
 CREATE POLICY extension_secret_tenant_isolation ON extension_secret
