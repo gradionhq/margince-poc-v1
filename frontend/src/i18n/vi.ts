@@ -568,6 +568,16 @@ export const vi = {
   // suggestion means. "Whose move" is the question the 0-100 score was
   // mistaken for.
   "co.strip.title": "Tình hình tài khoản này",
+  "co.strip.convertedAsOf": "{count} đã quy đổi, tỷ giá từ {date}",
+  "co.strip.noOpenDeals": "Không có thương vụ mở",
+  "co.strip.pipeline": "Pipeline đang mở",
+  "co.strip.unpriced": "Không có giá trị quy đổi được",
+  "co.strip.pricedPartly": "{priced}/{total} thương vụ có giá trị",
+  "co.strip.expectedClose": "Dự kiến chốt",
+  "co.strip.health": "Quan hệ",
+  "co.strip.healthActive": "Đang trao đổi",
+  "co.strip.healthQuiet": "Đã lặng",
+  "co.strip.noInboundEver": "Họ chưa từng liên hệ",
   "co.strip.account": "Giai đoạn",
   "co.strip.engagement": "Đến lượt ai",
   "co.strip.commercial": "Việc đang mở",

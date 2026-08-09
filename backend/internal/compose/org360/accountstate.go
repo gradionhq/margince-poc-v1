@@ -14,6 +14,8 @@ package org360
 import (
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -115,11 +117,33 @@ func (a *assembly) readStateStrip() error {
 	}
 	if in.pipeline {
 		strip.Commercial = new(struct {
-			OpenCount    int `json:"open_count"`
-			StalledCount int `json:"stalled_count"`
+			BaseCurrency          *string             `json:"base_currency,omitempty"`
+			ConvertedCount        int                 `json:"converted_count"`
+			FxAsOf                *openapi_types.Date `json:"fx_as_of,omitempty"`
+			NextCloseOn           *openapi_types.Date `json:"next_close_on,omitempty"`
+			OpenCount             int                 `json:"open_count"`
+			OpenPipelineMinorBase *int                `json:"open_pipeline_minor_base,omitempty"`
+			PricedCount           int                 `json:"priced_count"`
+			StalledCount          int                 `json:"stalled_count"`
 		})
 		strip.Commercial.OpenCount = in.open.OpenCount
 		strip.Commercial.StalledCount = len(in.open.Stalled)
+		strip.Commercial.PricedCount = in.open.Priced
+		// Null, not zero, when nothing could be priced: a zero would claim a
+		// pipeline that exists and is worth nothing, where the truth is that no
+		// open deal here carries a figure this page can convert (plan §4.2).
+		if in.open.Priced > 0 {
+			value := int(in.open.ValueMinorBase)
+			strip.Commercial.OpenPipelineMinorBase = &value
+			strip.Commercial.BaseCurrency = &in.open.BaseCurrency
+			strip.Commercial.ConvertedCount = in.open.Converted
+			if in.open.FXAsOf != nil {
+				strip.Commercial.FxAsOf = &openapi_types.Date{Time: *in.open.FXAsOf}
+			}
+		}
+		if in.open.NextCloseOn != nil {
+			strip.Commercial.NextCloseOn = &openapi_types.Date{Time: *in.open.NextCloseOn}
+		}
 	}
 	// The worst thing standing open, or nothing. Null covers BOTH "no signal"
 	// and "you may not read signals" on purpose: a strip that said "nothing is

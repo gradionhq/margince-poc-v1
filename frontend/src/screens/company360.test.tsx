@@ -1217,6 +1217,186 @@ describe("company view — where the account stands, and what it is to us", () =
   });
 });
 
+// §4.2's "never render" list is the hard half of the KPI row, and each case
+// below is one of its bullets. They are about what the page must NOT claim,
+// which is exactly what a refactor loses silently.
+describe("company view — the KPI row never invents a figure", () => {
+  const commercial = (over: Record<string, unknown>) => ({
+    account: { lifecycle: "prospect", relationship_types: [] },
+    commercial: {
+      open_count: 2,
+      stalled_count: 0,
+      priced_count: 0,
+      converted_count: 0,
+      ...over,
+    },
+  });
+
+  it("shows no money at all when no open deal carries a convertible amount", async () => {
+    stub(view({ state_strip: commercial({}) }));
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // A zero here would claim a priced pipeline worth nothing. The truth is
+    // that the page cannot price this one, so it reports the count instead.
+    // No currency figure AT ALL — not merely no zero. A stray non-zero total
+    // would be the worse failure, and the loose form would have passed it.
+    expect(strip.textContent).not.toMatch(/[€$£]/);
+    expect(within(strip).getByText("2 open")).toBeTruthy();
+    expect(
+      within(strip).getByText("No convertible amount on these deals"),
+    ).toBeTruthy();
+  });
+
+  it("says an empty pipeline is empty, not unpriced", async () => {
+    stub(view({ state_strip: commercial({ open_count: 0 }) }));
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // "No convertible amount" on an account with nothing open reports a data
+    // problem where the truth is that nothing is running.
+    expect(within(strip).getByText("No open deals")).toBeTruthy();
+    expect(strip.textContent).not.toContain("No convertible amount");
+  });
+
+  it("names the conversion behind a cross-currency total", async () => {
+    stub(
+      view({
+        state_strip: commercial({
+          open_pipeline_minor_base: 4500000,
+          base_currency: "EUR",
+          priced_count: 2,
+          converted_count: 1,
+          fx_as_of: "2026-02-14",
+        }),
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // §4.2 bars a cross-currency sum with no conversion source and as-of date.
+    // The date is the oldest rate behind the figure — how far back any part of
+    // it reaches.
+    // The DATE itself, not just the prefix: a dropped or wrong interpolation
+    // is exactly the failure this qualification exists to prevent.
+    expect(
+      within(strip).getByText(/1 converted, rates from .*2026/),
+    ).toBeTruthy();
+  });
+
+  it("keeps saying the pipeline is unpriced even when a deal has stalled", async () => {
+    stub(view({ state_strip: commercial({ stalled_count: 1 }) }));
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // A reader told only "1 stalled" has no way to know the pipeline carries
+    // no figure at all. Both qualifications are true, so both are shown.
+    expect(strip.textContent).toContain("No convertible amount on these deals");
+    expect(strip.textContent).toContain("1 stalled");
+  });
+
+  it("says how much of the pipeline a partial total covers", async () => {
+    stub(
+      view({
+        state_strip: commercial({
+          open_pipeline_minor_base: 4500000,
+          base_currency: "EUR",
+          priced_count: 1,
+        }),
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // A sum covering one of two deals, shown bare, reads as the whole
+    // pipeline — the unlabelled cross-currency total §4.2 forbids.
+    expect(within(strip).getByText("1 of 2 deals priced")).toBeTruthy();
+  });
+
+  it("labels the sum of open deals Open pipeline, never revenue or potential", async () => {
+    stub(
+      view({
+        state_strip: commercial({
+          open_pipeline_minor_base: 4500000,
+          base_currency: "EUR",
+          priced_count: 2,
+        }),
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    expect(within(strip).getByText("Open pipeline")).toBeTruthy();
+    expect(strip.textContent).not.toMatch(/revenue|potential/i);
+  });
+
+  // §4.2 gives customers and prospects different questions. A customer's page
+  // is asked how the relationship stands; a prospect's is asked when the deal
+  // lands. Showing one set to both makes half the row noise.
+  it("asks a prospect when the deal closes, and a customer how it is going", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "prospect", relationship_types: [] },
+          commercial: {
+            open_count: 1,
+            stalled_count: 0,
+            priced_count: 1,
+            converted_count: 0,
+            open_pipeline_minor_base: 100000,
+            base_currency: "EUR",
+            next_close_on: "2026-09-30",
+          },
+        },
+      }),
+    );
+    renderCompany();
+    let strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Expected close")).toBeTruthy();
+    expect(within(strip).queryByText("Relationship")).toBeNull();
+
+    cleanup();
+    stub(
+      view({
+        health: { days_since_last_inbound: 90 },
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          commercial: {
+            open_count: 1,
+            stalled_count: 0,
+            priced_count: 1,
+            converted_count: 0,
+            open_pipeline_minor_base: 100000,
+            base_currency: "EUR",
+            next_close_on: "2026-09-30",
+          },
+        },
+      }),
+    );
+    renderCompany();
+    strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Relationship")).toBeTruthy();
+    expect(within(strip).getByText("Gone quiet")).toBeTruthy();
+    expect(within(strip).queryByText("Expected close")).toBeNull();
+  });
+});
+
 describe("company view — the state strip", () => {
   it("leads with where the account stands, whose move it is, and what is open", async () => {
     stub(
@@ -1231,7 +1411,14 @@ describe("company view — the state strip", () => {
             last_inbound_at: "2026-04-30T09:00:00Z",
             last_outbound_at: "2026-07-17T09:00:00Z",
           },
-          commercial: { open_count: 2, stalled_count: 1 },
+          // The full wire shape, so this case fails if the contract moves
+          // under it rather than being silently accepted by a loose stub.
+          commercial: {
+            open_count: 2,
+            stalled_count: 1,
+            priced_count: 0,
+            converted_count: 0,
+          },
         },
       }),
     );
@@ -1243,7 +1430,7 @@ describe("company view — the state strip", () => {
     expect(within(strip).getByText("Former customer")).toBeTruthy();
     expect(within(strip).getByText("Waiting on them")).toBeTruthy();
     expect(within(strip).getByText("2 open")).toBeTruthy();
-    expect(within(strip).getByText("1 stalled")).toBeTruthy();
+    expect(strip.textContent).toContain("1 stalled");
   });
 
   it("states the worst thing standing open, in the words its producer wrote", async () => {

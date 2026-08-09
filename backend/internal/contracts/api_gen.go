@@ -12888,7 +12888,24 @@ type Organization360StateStrip struct {
 
 	// Commercial Null when the caller has no deal grant.
 	Commercial *struct {
-		OpenCount    int `json:"open_count"`
+		// BaseCurrency The ISO-4217 currency `open_pipeline_minor_base` is expressed in — the workspace's base. Travels WITH the figure rather than being looked up separately, because a converted sum rendered under a currency fetched from somewhere else is exactly the unlabelled cross-currency total §4.2 forbids. Null whenever the figure is.
+		BaseCurrency *string `json:"base_currency,omitempty"`
+
+		// ConvertedCount How many of `priced_count` needed a currency conversion to enter the sum — the rest were already in the base. Zero means the total is a same-currency sum and no rate stands behind it.
+		ConvertedCount int `json:"converted_count"`
+
+		// FxAsOf The OLDEST rate date among the converted deals: each freezes its rate on its own issue date, so this is the furthest back any part of the figure reaches. §4.2 forbids a cross-currency sum without an explicit conversion source and as-of date, and this is that date. Null when nothing needed converting.
+		FxAsOf *openapi_types.Date `json:"fx_as_of,omitempty"`
+
+		// NextCloseOn The nearest expected close date among the open deals; null when none names one.
+		NextCloseOn *openapi_types.Date `json:"next_close_on,omitempty"`
+		OpenCount   int                 `json:"open_count"`
+
+		// OpenPipelineMinorBase The open pipeline in the workspace's base currency, integer minor units. Null when NO open deal carries a figure that can be converted — distinct from zero, which would claim a priced pipeline worth nothing.
+		OpenPipelineMinorBase *int `json:"open_pipeline_minor_base,omitempty"`
+
+		// PricedCount How many of `open_count` contributed to the sum. A deal with no amount, and one whose currency has no conversion rate on its date, both contribute nothing — so a total below `open_count` covers PART of the pipeline, and the page says so rather than showing a figure that is quietly short (plan §4.2: never a cross-currency sum without its conversion source).
+		PricedCount  int `json:"priced_count"`
 		StalledCount int `json:"stalled_count"`
 	} `json:"commercial,omitempty"`
 

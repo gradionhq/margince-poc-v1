@@ -8026,6 +8026,24 @@ export interface components {
             commercial?: {
                 open_count: number;
                 stalled_count: number;
+                /** @description The open pipeline in the workspace's base currency, integer minor units. Null when NO open deal carries a figure that can be converted — distinct from zero, which would claim a priced pipeline worth nothing. */
+                open_pipeline_minor_base?: number | null;
+                /** @description How many of `open_count` contributed to the sum. A deal with no amount, and one whose currency has no conversion rate on its date, both contribute nothing — so a total below `open_count` covers PART of the pipeline, and the page says so rather than showing a figure that is quietly short (plan §4.2: never a cross-currency sum without its conversion source). */
+                priced_count: number;
+                /** @description How many of `priced_count` needed a currency conversion to enter the sum — the rest were already in the base. Zero means the total is a same-currency sum and no rate stands behind it. */
+                converted_count: number;
+                /**
+                 * Format: date
+                 * @description The OLDEST rate date among the converted deals: each freezes its rate on its own issue date, so this is the furthest back any part of the figure reaches. §4.2 forbids a cross-currency sum without an explicit conversion source and as-of date, and this is that date. Null when nothing needed converting.
+                 */
+                fx_as_of?: string | null;
+                /** @description The ISO-4217 currency `open_pipeline_minor_base` is expressed in — the workspace's base. Travels WITH the figure rather than being looked up separately, because a converted sum rendered under a currency fetched from somewhere else is exactly the unlabelled cross-currency total §4.2 forbids. Null whenever the figure is. */
+                base_currency?: string | null;
+                /**
+                 * Format: date
+                 * @description The nearest expected close date among the open deals; null when none names one.
+                 */
+                next_close_on?: string | null;
             } | null;
             /** @description The most serious thing standing open about this account, or null when nothing is open — and also null when the caller has no signal grant, because a strip that said "nothing" to someone who may not look would be answering a question it cannot answer. Exactly one: the strip states the worst, the signals card lists them all, and a reader who needs the rest opens it. */
             signal?: {

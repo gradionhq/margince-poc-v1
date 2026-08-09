@@ -567,6 +567,16 @@ export const en = {
   // suggestion means. "Whose move" is the question the 0-100 score was
   // mistaken for.
   "co.strip.title": "Where this account stands",
+  "co.strip.convertedAsOf": "{count} converted, rates from {date}",
+  "co.strip.noOpenDeals": "No open deals",
+  "co.strip.pipeline": "Open pipeline",
+  "co.strip.unpriced": "No convertible amount on these deals",
+  "co.strip.pricedPartly": "{priced} of {total} deals priced",
+  "co.strip.expectedClose": "Expected close",
+  "co.strip.health": "Relationship",
+  "co.strip.healthActive": "In conversation",
+  "co.strip.healthQuiet": "Gone quiet",
+  "co.strip.noInboundEver": "They have never written",
   "co.strip.account": "Stage",
   "co.strip.engagement": "Whose move",
   "co.strip.commercial": "Open work",
