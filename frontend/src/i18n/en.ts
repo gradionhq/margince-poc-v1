@@ -714,6 +714,7 @@ export const en = {
   "co.growthFit.whitespace": "What they do not buy from you yet",
   "co.growthFit.objections": "What they are likely to push back with",
   "co.growthFit.angle": "Suggested approach",
+  "co.writeEmail": "Write email",
   "co.dossier.title": "What this company is",
   "co.dossier.unavailable":
     "This description could not be read. Nothing about the company has changed.",
