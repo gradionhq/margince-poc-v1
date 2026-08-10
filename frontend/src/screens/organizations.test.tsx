@@ -1620,12 +1620,10 @@ const stalledSuggestion = {
   evidence: [{ entity_type: "deal", entity_id: "d-1" }],
 };
 
-// The suggestion rows and the ask card are no longer ON the company page: no
-// V2 mockup draws either, and the record page dropped both with its topology
-// change. The components still ship and still own this behaviour, so these
-// suites mount them DIRECTLY rather than through a page that no longer renders
-// them — mounting the page instead would leave every "the card is absent"
-// assertion below passing for the wrong reason.
+// The suggestion rows and the ask card are components of their own, mounted
+// here directly rather than through the company page, which renders neither.
+// This matters for the "the card is absent" cases below: asserted against a
+// page that never mounts one, they would hold no matter what the card did.
 function renderBriefFor(three60: unknown) {
   render(
     <AccountBrief
@@ -1727,7 +1725,7 @@ describe("CompanyScreen — next-step suggestions", () => {
     );
   });
 
-  it("dismisses by fingerprint, and re-reads the 360 rather than hiding the row itself", async () => {
+  it("dismisses by fingerprint and leaves the row for the server to remove", async () => {
     let dismissed: unknown;
     stubFetch(
       async (url, method, request) => {

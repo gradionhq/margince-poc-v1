@@ -100,7 +100,6 @@ import {
   ListTable,
   useListQuery,
 } from "./listquery";
-import { LogActivityAction } from "./logactivity";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
@@ -1940,15 +1939,11 @@ function CompanyPage({
   onTab: (next: CompanyTab) => void;
 }>) {
   const t = useT();
-  // The two surfaces a suggestion's action opens. Held here because both are
-  // page-level: the composer anchors on a timeline message, and the task form
-  // is the account's own log-activity surface.
   // ONE composer, opened two ways. Anchored on a timeline message it answers
   // that message; anchored on a person it starts a new one and grounds on the
   // account instead of a thread (ADR-0087 §1). Two pieces of state would let
   // both open at once, which is two composers over each other.
   const [composing, setComposing] = useState<ComposeAnchor | null>(null);
-  const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const receipt = useCitedReceipt();
@@ -2018,13 +2013,14 @@ function CompanyPage({
     >
       {/* The strip leads, ABOVE the tab strip: where the account stands, what
           it is worth and whether it pays — the readings a rep opens the page
-          for, before being asked which part of it to read (mockup States A
-          and D put it directly under the header).
+          for, before being asked which part of it to read.
           It belongs to the RECORD rather than to the overview for the same
           reason the business grid does: it describes the account, not one
           view of it, and a strip that vanished on the People tab would move
-          the tabs and re-flow the page under the reader. */}
-      {view && (
+          the tabs and re-flow the page under the reader.
+          Guarded on overlay like every other body below, so the page's one
+          refusal stays the whole page's. */}
+      {!overlay && view && (
         <StateStrip
           orgId={org.id}
           view={view}
@@ -2092,15 +2088,6 @@ function CompanyPage({
           anchor={composing}
           orgId={org.id}
           onClose={() => setComposing(null)}
-        />
-      )}
-      {taskFormOpen && (
-        <LogActivityAction
-          entityType="organization"
-          entityId={org.id}
-          initialKind="task"
-          openOnMount
-          onClose={() => setTaskFormOpen(false)}
         />
       )}
       {/* The People tab gives the account team the whole middle column. The
@@ -2207,16 +2194,7 @@ function CompanyOverviewStack({
       {/* Then what the account looks like, in its own words and ours. The two
           read the same evidence and cite it the same way, so they lead the
           overview together — the grid of business cards below them belongs to
-          the record and renders on every tab.
-
-          The account BRIEF is not among them, and neither is the open-task
-          list or the ask prompt. No mockup draws any of the three, and the
-          brief in particular was the page's largest departure: a column of
-          generated prose with a claim chip after every sentence, above the
-          cards a reader came for. Nothing is lost with it — the next
-          commitment and what changed are tiles on Today, the open tasks are
-          the Tasks screen and the Today tile that counts them, and asking is
-          the Ask Margince screen in the primary nav. */}
+          the record and renders on every tab. */}
       <DossierPanel
         orgId={org.id}
         enabled={!overlay}

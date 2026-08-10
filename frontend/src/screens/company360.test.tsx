@@ -229,12 +229,9 @@ function renderCompany() {
   render(<CompanyScreen id="o-1" />);
 }
 
-// The brief and the open-task list are no longer ON the company page — no
-// mockup draws either, and the record page dropped them with its V2 topology.
-// Both components are still shipped and still carry the reading logic these
-// suites pin (what changed since the last visit, how a citation is counted,
-// what an overdue task says), so the suites mount them DIRECTLY instead of
-// reaching for them through a page that no longer renders them.
+// The brief and the open-task list are components of their own, mounted here
+// directly rather than through the company page: the page does not render
+// either, so reaching for them through it would assert nothing.
 function renderNextSteps(
   three60: ReturnType<typeof view>,
   onOpenTask?: (step: { activity_id: string }) => void,
@@ -1671,6 +1668,32 @@ describe("company view — the account's own tabs", () => {
     // section of the one composite read, so they cannot disagree.
     expect(screen.getAllByText("Christian Hagemeyer").length).toBeGreaterThan(
       1,
+    );
+  });
+
+  it("offers the four tabs the record page has, in order", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // An account with no partner programme still gets all four: Partner is
+    // the only conditional tab.
+    for (const name of ["Overview", "People", "History", "Documents"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+    expect(screen.queryByRole("button", { name: "Partner" })).toBeNull();
+  });
+
+  it("gives Documents its own tab body", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Documents" }));
+    // The grid keeps a compact card for "is there paperwork at all"; the tab
+    // is the files themselves, so the heading appears twice once it is open.
+    await waitFor(() =>
+      expect(screen.getAllByText("Documents").length).toBeGreaterThan(1),
     );
   });
 });
