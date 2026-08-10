@@ -49,8 +49,8 @@ type ListPeopleInput struct {
 // exactly the data-model §13.5 DM-VOCAB-1 set; active cf_ columns join
 // it per request.
 var personListFields = map[string]string{
-	"created_at":     storekit.KindTimestamp,
-	"updated_at":     storekit.KindTimestamp,
+	createdAtColumn:  storekit.KindTimestamp,
+	updatedAtColumn:  storekit.KindTimestamp,
 	personNameColumn: fieldcatalog.TypeText,
 	ownerIDColumn:    storekit.KindUUID,
 }

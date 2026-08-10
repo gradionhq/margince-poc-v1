@@ -33,6 +33,7 @@ func (h Handlers) ListOfferTemplates(w http.ResponseWriter, r *http.Request, par
 		Limit:           params.Limit,
 		Locale:          params.Locale,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+		Sort:            params.Sort,
 	}
 	templates, page, err := h.store.ListOfferTemplates(r.Context(), in)
 	if err != nil {

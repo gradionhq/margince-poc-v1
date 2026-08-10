@@ -59,10 +59,10 @@ type ListOrganizationsInput struct {
 // vocabulary — exactly the data-model §13.5 DM-VOCAB-2 set; active cf_
 // columns join it per request.
 var organizationListFields = map[string]string{
-	"created_at":  storekit.KindTimestamp,
-	"updated_at":  storekit.KindTimestamp,
-	orgNameColumn: fieldcatalog.TypeText,
-	ownerIDColumn: storekit.KindUUID,
+	createdAtColumn: storekit.KindTimestamp,
+	updatedAtColumn: storekit.KindTimestamp,
+	orgNameColumn:   fieldcatalog.TypeText,
+	ownerIDColumn:   storekit.KindUUID,
 }
 
 // ListOrganizations is the row-scoped organization list read:
