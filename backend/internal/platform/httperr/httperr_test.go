@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -336,5 +337,32 @@ func TestClassify_theReferenceRefusalNamesTheFieldWhenTheConstraintYieldsIt(t *t
 				t.Errorf("detail still gives the advice that could not be followed: %q", fault.Detail)
 			}
 		})
+	}
+}
+
+// An installation setting with no stored value is a 422 naming the condition,
+// NOT the 404 the sentinel registry would otherwise give it.
+//
+// The distinction is load-bearing on the money paths. A deal close, an offer
+// send and an fx write all resolve the installation's base currency, and on a
+// store path this repo spells 404 to mean "no such row, and we are not saying
+// whether it exists" — so a caller that had just read the deal would be told
+// the deal was gone, and an agent would settle on that rather than surfacing
+// an operator condition. Nothing the caller sent is wrong here, and no field
+// of theirs can fix it, which is exactly what MessageFault is for.
+func TestWrite_anUnsetInstallationSettingIsAnOperatorFaultNotAMissingRow(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Write(rec, httptest.NewRequest(http.MethodPost, "/v1/deals/x/advance", nil),
+		fmt.Errorf("freeze fx at close: %w", settings.UnsetValue{Setting: "installation.base_currency"}))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 — an unset setting must not speak the row-scope 404", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "installation_setting_unset") {
+		t.Errorf("body %q does not carry the installation_setting_unset code", body)
+	}
+	if !strings.Contains(body, "installation.base_currency") {
+		t.Errorf("body %q does not name which setting is unset", body)
 	}
 }

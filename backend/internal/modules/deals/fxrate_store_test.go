@@ -6,6 +6,7 @@ package deals
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -102,4 +103,19 @@ func TestPrepareFxRateAdmitsEitherWriteGrant(t *testing.T) {
 // signal that the split moved, not a fixture that needs a currency.
 func unreachableBaseCurrency(context.Context, pgx.Tx) (string, error) {
 	return "", errors.New("prepareFxRate resolved the base currency; it is meant to run before any connection")
+}
+
+// A store built without the base-currency seam fails CLOSED at the first money
+// operation, rather than dereferencing a nil function inside an open
+// transaction. The field's doc calls the seam required; this is what makes
+// that a check rather than a claim.
+func TestAStoreWithNoBaseCurrencySeamRefusesRatherThanPanicking(t *testing.T) {
+	t.Parallel()
+	_, err := NewStore(nil, nil).baseCurrency(context.Background(), nil)
+	if err == nil {
+		t.Fatal("an un-injected seam resolved a base currency; it must refuse")
+	}
+	if !strings.Contains(err.Error(), "identity.BaseCurrencyOf") {
+		t.Errorf("the refusal should name what compose wires, got %q", err)
+	}
 }
