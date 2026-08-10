@@ -716,6 +716,7 @@ export const de = {
   "co.section.unavailable":
     "Konnte nicht geladen werden — das ist möglicherweise nicht das ganze Bild",
   "finance.title": "Finanzen",
+  "finance.titleHistorical": "Finanzen · historisch",
   "finance.none": "Nichts erfasst.",
   "finance.noConnection":
     "Keine Finanzquelle verbunden — verbinde eine, um zu sehen, was diesem Kunden berechnet wurde und ob er pünktlich zahlt",

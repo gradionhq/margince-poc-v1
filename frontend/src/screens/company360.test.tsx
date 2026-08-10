@@ -1649,6 +1649,22 @@ describe("company view — advice you can act on", () => {
   });
 });
 
+describe("company view — where the record came from", () => {
+  // Which of a human, an agent, a connector or nobody wrote a record is the
+  // governance reading the provenance tag exists for. Suppressing the reader's
+  // OWN hand-typed entry — the one case that reports nothing they do not
+  // already know — must not suppress the rest.
+  it("names an agent that wrote the record", async () => {
+    stub(view(), 200, { ...org, captured_by: "agent:enricher" });
+    renderCompany();
+    await screen.findByText("Brandt Automotive GmbH");
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/enricher/).length).toBeGreaterThan(0),
+    );
+  });
+});
+
 describe("company view — the account's own tabs", () => {
   it("gives People the whole middle column", async () => {
     stub(
