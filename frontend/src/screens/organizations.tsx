@@ -77,8 +77,8 @@ import {
   CompanyChips,
   CompanyDescription,
   CompanyPrimaryActions,
-  CompanyStanding,
   CompanyPulse,
+  CompanyStanding,
 } from "./companyheader";
 import { TodayOnThisAccount } from "./companytoday";
 import { ComposeModal, TimelineActions } from "./compose";
@@ -1885,6 +1885,38 @@ function useCitedReceipt() {
   };
 }
 
+// What the composer is anchored on. A reply answers the message it names; an
+// account-started message names the person it is TO, because it has no thread
+// to inherit a recipient from.
+type ComposeAnchor =
+  | { kind: "reply"; id: string }
+  | { kind: "account"; id: string };
+
+// The composer, opened on whichever anchor the page holds. Extracted so the
+// page does not carry a branch per anchor kind in its own JSX.
+function AccountComposer({
+  anchor,
+  orgId,
+  onClose,
+}: Readonly<{
+  anchor: ComposeAnchor;
+  orgId: string;
+  onClose: () => void;
+}>) {
+  const reply = anchor.kind === "reply";
+  return (
+    <ComposeModal
+      activityId={reply ? anchor.id : undefined}
+      personId={reply ? undefined : anchor.id}
+      entityType="organization"
+      entityId={orgId}
+      kind="email"
+      open
+      onClose={onClose}
+    />
+  );
+}
+
 function CompanyPage({
   org,
   view,
@@ -1915,13 +1947,11 @@ function CompanyPage({
   // The two surfaces a suggestion's action opens. Held here because both are
   // page-level: the composer anchors on a timeline message, and the task form
   // is the account's own log-activity surface.
-  const [replyToActivityId, setReplyToActivityId] = useState<string | null>(
-    null,
-  );
-  // Starting a message FROM the account, with no prior message to answer. The
-  // composer grounds it in the account itself, which is why it needs the
-  // recipient named rather than an activity to anchor on (ADR-0087 §1).
-  const [draftToPersonId, setDraftToPersonId] = useState<string | null>(null);
+  // ONE composer, opened two ways. Anchored on a timeline message it answers
+  // that message; anchored on a person it starts a new one and grounds on the
+  // account instead of a thread (ADR-0087 §1). Two pieces of state would let
+  // both open at once, which is two composers over each other.
+  const [composing, setComposing] = useState<ComposeAnchor | null>(null);
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
@@ -2045,8 +2075,8 @@ function CompanyPage({
           failed={failed}
           taskUpdate={taskUpdate}
           onOpenTask={openTask}
-          onCompose={setReplyToActivityId}
-          onDraftTo={setDraftToPersonId}
+          onCompose={(id) => setComposing({ kind: "reply", id })}
+          onDraftTo={(id) => setComposing({ kind: "account", id })}
           onLogTask={() => setTaskFormOpen(true)}
           onOpenRecord={receipt.open}
         />
@@ -2067,27 +2097,11 @@ function CompanyPage({
       {/* The composer, anchored on the message a draft_reply suggestion named.
           It is the same modal the timeline's own Reply opens — the advice
           shortcuts to it rather than inventing a second way to answer. */}
-      {replyToActivityId && (
-        <ComposeModal
-          activityId={replyToActivityId}
-          entityType="organization"
-          entityId={org.id}
-          kind="email"
-          open
-          onClose={() => setReplyToActivityId(null)}
-        />
-      )}
-      {/* The same composer, started from the account instead of from a
-          message. No activityId, so it grounds on the account and the named
-          recipient rather than on a thread. */}
-      {draftToPersonId && (
-        <ComposeModal
-          entityType="organization"
-          entityId={org.id}
-          personId={draftToPersonId}
-          kind="email"
-          open
-          onClose={() => setDraftToPersonId(null)}
+      {composing && (
+        <AccountComposer
+          anchor={composing}
+          orgId={org.id}
+          onClose={() => setComposing(null)}
         />
       )}
       {taskFormOpen && (

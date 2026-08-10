@@ -423,7 +423,9 @@ export function RecordView({
   const zones = zoneClass(Boolean(rail), Boolean(aside));
   return (
     <div>
-      <header className={controls ? "record-head record-head-wide" : "record-head"}>
+      <header
+        className={controls ? "record-head record-head-wide" : "record-head"}
+      >
         <Avatar name={name} src={avatarSrc} size="lg" />
         <div className="record-id">
           <h1>{name}</h1>

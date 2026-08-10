@@ -321,28 +321,31 @@ describe("the tiles, and which record each one picks", () => {
   // the recipient is what grounds it.
   it("hands the named recipient to the composer", () => {
     const drafted = vi.fn();
-    show({
-      ...BASE,
-      people: {
-        data: [
-          {
-            ...CONTACT,
-            routes: {
-              top: [
-                {
-                  user_id: "u-1",
-                  display_name: "Lars",
-                  strength_bucket: "strong" as const,
-                },
-              ],
-              remainder: 0,
-              untried: false,
+    show(
+      {
+        ...BASE,
+        people: {
+          data: [
+            {
+              ...CONTACT,
+              routes: {
+                top: [
+                  {
+                    user_id: "u-1",
+                    display_name: "Lars",
+                    strength_bucket: "strong" as const,
+                  },
+                ],
+                remainder: 0,
+                untried: false,
+              },
             },
-          },
-        ],
-        page: { has_more: false, next_cursor: null },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
       },
-    }, { onDraftTo: drafted });
+      { onDraftTo: drafted },
+    );
     fireEvent.click(screen.getByRole("button", { name: /Draft follow-up/ }));
     expect(drafted).toHaveBeenCalledWith(CONTACT.person_id);
   });

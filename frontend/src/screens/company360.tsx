@@ -18,11 +18,7 @@ import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import {
-  problemMessageOf,
-  throwProblem,
-  useFinanceSummary,
-} from "./common";
+import { problemMessageOf, throwProblem, useFinanceSummary } from "./common";
 import "./company360.css";
 import {
   routesTo,
