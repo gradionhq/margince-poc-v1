@@ -12,8 +12,11 @@ package org360
 // date that hid which side it belonged to.
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -223,6 +226,57 @@ func (a *assembly) readHealth() error {
 		health.OpenCommitments = &facts.OpenCommitments
 	}
 
+	lastMeeting, err := a.lastMeetingAt()
+	if err != nil {
+		return err
+	}
+	health.LastMeetingAt = lastMeeting
+
 	a.out.Health = &health
 	return nil
+}
+
+// lastMeetingAt is when this account was last actually IN a room with us —
+// the most recent meeting that has already happened.
+//
+// A different question from the next-meeting section, which looks forward and
+// excludes cancellations because a rep must not prepare for a meeting that will
+// not happen. Looking back, a canceled row is simply not a meeting that took
+// place, so it is excluded for the same reason from the other direction.
+//
+// Nil is "we have no meeting on record", which is a fact about the reading
+// rather than a claim that none happened — the caller may hold no scope over
+// the activity that would prove otherwise.
+func (a *assembly) lastMeetingAt() (*time.Time, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	orgPos := arg(a.orgID.UUID)
+	nowPos := arg(a.now)
+	activityScope, err := auth.ActivityScopeClause(a.ctx, "a", arg)
+	if err != nil {
+		return nil, err
+	}
+	if activityScope == "" {
+		activityScope = scopeAll
+	}
+	var occurred *time.Time
+	err = a.tx.QueryRow(a.ctx, fmt.Sprintf(`
+		SELECT a.occurred_at
+		  FROM activity a
+		 WHERE a.kind = 'meeting' AND a.archived_at IS NULL
+		   AND (a.meeting_status IS NULL OR a.meeting_status = 'booked')
+		   AND a.occurred_at <= $%[3]d
+		   AND %[1]s AND %[2]s
+		 ORDER BY a.occurred_at DESC, a.id DESC
+		 LIMIT 1`,
+		activityScope, activities.OrgLinkedActivityExists(orgPos), nowPos),
+		args...,
+	).Scan(&occurred)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the last meeting: %w", err)
+	}
+	return occurred, nil
 }
