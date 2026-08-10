@@ -5,8 +5,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--w-semibold);
   padding: 2px 9px;
   border-radius: var(--r-full);
   background: var(--bgCard);
@@ -48,17 +48,17 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13.5px;
+  font-size: var(--text-sm);
 }
 .table th {
   text-align: left;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--w-semibold);
   color: var(--textMeta);
   padding: 8px 12px;
   border-bottom: 1px solid var(--borderStrong);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--track-label);
 }
 .table td {
   padding: 10px 12px;
@@ -84,8 +84,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-strong);
   flex: none;
 }
 
@@ -105,7 +105,7 @@
 .avatar-lg {
   width: 44px;
   height: 44px;
-  font-size: 16px;
+  font-size: var(--text-md);
 }
 
 /* The per-name tints come AFTER the base rule: same specificity, so the
@@ -179,7 +179,7 @@
   text-align: center;
   padding: 36px 20px;
   color: var(--textMeta);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .overlay {
@@ -281,7 +281,7 @@
   color: var(--textOnAccent);
   border-radius: var(--r-md);
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   box-shadow: var(--shadow-pop);
 }
 .toast-region {
@@ -306,8 +306,8 @@
 }
 .segmented button {
   font-family: var(--f-body);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--w-semibold);
   border: 0;
   background: transparent;
   color: var(--textMeta);
@@ -332,8 +332,8 @@
  * compete with the primary Accept / Reject buttons. */
 .link-button {
   font-family: var(--f-body);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--w-semibold);
   color: var(--accent);
   background: transparent;
   border: 0;
@@ -352,7 +352,7 @@
 
 .kbd {
   font-family: var(--f-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--textMeta);
   background: var(--bgCard);
   border: 1px solid var(--borderStrong);
@@ -382,12 +382,12 @@
   margin-bottom: var(--space-3);
 }
 .section-header h2 {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
   color: var(--textPrimary);
 }
 .section-header .sub {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--textMeta);
 }
 
@@ -427,8 +427,8 @@
   border-radius: var(--r-sm);
   background: var(--accentLight);
   color: var(--textPrimary);
-  font-weight: 600;
-  font-size: 13.5px;
+  font-weight: var(--w-semibold);
+  font-size: var(--text-sm);
 }
 .recordpicker-selected-check {
   color: var(--accent);
@@ -507,7 +507,7 @@
 
 .input {
   font-family: var(--f-body);
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   color: var(--textPrimary);
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
@@ -592,7 +592,7 @@
    logger) rendered a short box in a wide field. */
 .textarea {
   font-family: var(--f-body);
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   color: var(--textPrimary);
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
@@ -680,16 +680,16 @@
   gap: 2px;
 }
 .attain-ring-pct {
-  font-weight: 500;
-  font-size: 34px;
+  font-weight: var(--w-medium);
+  font-size: 34px; /* ds:ignore font-size the ring's centred numeral fills a fixed 160px dial; rounding to --text-xl shrinks it visibly */
   color: var(--textPrimary);
-  letter-spacing: -0.02em;
+  letter-spacing: var(--track-display);
 }
 .attain-ring-lbl {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
+  letter-spacing: var(--track-label);
+  font-weight: var(--w-semibold);
   color: var(--textMeta);
 }
 
